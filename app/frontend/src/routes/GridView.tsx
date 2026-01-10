@@ -18,6 +18,7 @@ import {
   ConsultationSort,
   ConsultationTimeframe
 } from "../utils/consultation";
+import { applyTheme, getStoredTheme, setStoredTheme, toggleTheme, type Theme } from "../utils/theme";
 
 const GRID_GAP = 12;
 const KEEP_LIMIT = 24;
@@ -111,8 +112,11 @@ export default function GridView() {
   const [undoInfo, setUndoInfo] = useState<{ code: string; trashToken?: string | null } | null>(
     null
   );
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState<Theme>(() => getStoredTheme());
   const sortRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
+  const settingsRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<FixedSizeGrid | null>(null);
   const prevUpdateRunningRef = useRef(false);
   const lastVisibleCodesRef = useRef<string[]>([]);
@@ -144,17 +148,19 @@ export default function GridView() {
   }, [backendReady]);
 
   useEffect(() => {
-    if (!sortOpen && !displayOpen) return;
+    if (!sortOpen && !displayOpen && !settingsOpen) return;
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (sortRef.current && sortRef.current.contains(target)) return;
       if (displayRef.current && displayRef.current.contains(target)) return;
+      if (settingsRef.current && settingsRef.current.contains(target)) return;
       setSortOpen(false);
       setDisplayOpen(false);
+      setSettingsOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [sortOpen, displayOpen]);
+  }, [sortOpen, displayOpen, settingsOpen]);
 
   useEffect(() => {
     return () => {
@@ -745,6 +751,13 @@ export default function GridView() {
     resetMaSettings(frame);
   };
 
+  const handleThemeToggle = useCallback(() => {
+    const next = toggleTheme(currentTheme);
+    setCurrentTheme(next);
+    setStoredTheme(next);
+    applyTheme(next);
+  }, [currentTheme]);
+
   type UpdateSummary = {
     total?: number;
     ok?: number;
@@ -1270,6 +1283,45 @@ export default function GridView() {
                 </div>
               )}
             </div>
+            <div className="popover-anchor" ref={settingsRef}>
+              <button
+                type="button"
+                className="icon-button settings-trigger"
+                onClick={() => {
+                  setSettingsOpen(!settingsOpen);
+                  setSortOpen(false);
+                  setDisplayOpen(false);
+                }}
+                title="設定"
+                style={{ padding: "6px", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "34px", width: "34px" }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.72l-.15.1a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
+              {settingsOpen && (
+                <div className="popover-panel popover-right-aligned" style={{ right: 0 }}>
+                  <div className="popover-section">
+                    <div className="popover-title">外観設定</div>
+                    <div className="segmented">
+                      <button
+                        className={currentTheme === "dark" ? "active" : ""}
+                        onClick={() => currentTheme !== "dark" && handleThemeToggle()}
+                      >
+                        ダーク
+                      </button>
+                      <button
+                        className={currentTheme === "light" ? "active" : ""}
+                        onClick={() => currentTheme !== "light" && handleThemeToggle()}
+                      >
+                        ライト
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -1384,7 +1436,7 @@ export default function GridView() {
         {!showSkeleton && size.width > 0 && (
           <div className="grid-inner">
             <Grid
-              key={gridTimeframe}
+              key={`${gridTimeframe}-${currentTheme}`}
               ref={gridRef}
               columnCount={columns}
               columnWidth={columnWidth}
@@ -1420,6 +1472,7 @@ export default function GridView() {
                       onOpenDetail={handleOpenDetail}
                       onToggleKeep={handleToggleKeep}
                       onExclude={handleExclude}
+                      theme={currentTheme}
                     />
                   </div>
                 );
@@ -1430,9 +1483,8 @@ export default function GridView() {
       </div>
       {undoInfo && (
         <div
-          className={`undo-bar ${
-            consultVisible ? (consultExpanded ? "offset-expanded" : "offset-mini") : ""
-          }`}
+          className={`undo-bar ${consultVisible ? (consultExpanded ? "offset-expanded" : "offset-mini") : ""
+            }`}
         >
           <span>{undoInfo.code} を除外しました</span>
           <button type="button" onClick={handleUndoRemove}>
@@ -1441,9 +1493,8 @@ export default function GridView() {
         </div>
       )}
       <div
-        className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${
-          consultExpanded ? "is-expanded" : "is-mini"
-        }`}
+        className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
+          }`}
       >
         <button
           type="button"

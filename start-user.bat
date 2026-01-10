@@ -60,7 +60,7 @@ if errorlevel 1 (
 )
 
 echo [INFO] Opening browser: http://localhost:5173
-start "Browser" powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 3; Start-Process -FilePath 'msedge' -ArgumentList '--app=http://localhost:5173'"
+start "Browser" powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 10; Start-Process -FilePath 'msedge' -ArgumentList '--app=http://localhost:5173'"
 if errorlevel 1 (
   echo [WARN] Failed to launch browser.
   pause

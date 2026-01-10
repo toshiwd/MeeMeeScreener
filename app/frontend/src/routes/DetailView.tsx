@@ -9,6 +9,8 @@ import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
 import type { TradeEvent } from "../utils/positions";
 import { buildDailyPositions, buildPositionLedger } from "../utils/positions";
+import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
+import { buildAIExport, copyToClipboard, saveAsFile } from "../utils/aiExport";
 
 type Timeframe = "daily" | "weekly" | "monthly";
 type FocusPanel = Timeframe | null;
@@ -323,6 +325,8 @@ export default function DetailView() {
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [focusPanel, setFocusPanel] = useState<FocusPanel>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
+  const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [showPositionLedger, setShowPositionLedger] = useState(false);
   const [positionLedgerExpanded, setPositionLedgerExpanded] = useState(false);
   const syncRangesRef = useRef(syncRanges);
@@ -540,19 +544,19 @@ export default function DetailView() {
     dailyErrors.length > 0
       ? dailyErrors[0]
       : dailyHasEmpty
-      ? "No data"
-      : dailyHasParsedZero
-      ? `Date parse failed ${dailyParse.stats.invalidTime}`
-      : null;
+        ? "No data"
+        : dailyHasParsedZero
+          ? `Date parse failed ${dailyParse.stats.invalidTime}`
+          : null;
 
   const monthlyError =
     monthlyErrors.length > 0
       ? monthlyErrors[0]
       : monthlyHasEmpty
-      ? "No data"
-      : monthlyHasParsedZero
-      ? `Date parse failed ${monthlyParse.stats.invalidTime}`
-      : null;
+        ? "No data"
+        : monthlyHasParsedZero
+          ? `Date parse failed ${monthlyParse.stats.invalidTime}`
+          : null;
 
   const weeklyHasEmpty = weeklyCandles.length === 0 && dailyCandles.length > 0;
   const tradeWarningItems = tradeWarnings.items ?? [];
@@ -937,20 +941,20 @@ export default function DetailView() {
             <div className="detail-title-main">
               <div className="title">{code}</div>
               {tickerName && <div className="title-name">{tickerName}</div>}
+              {dailySignals.length > 0 && (
+                <div className="detail-signals-inline">
+                  {dailySignals.map((signal) => (
+                    <span
+                      key={signal.label}
+                      className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
+                    >
+                      {signal.label}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="subtitle">{subtitle}</div>
-            {dailySignals.length > 0 && (
-              <div className="detail-signals">
-                {dailySignals.map((signal) => (
-                  <span
-                    key={signal.label}
-                    className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
-                  >
-                    {signal.label}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
           <button
             type="button"
@@ -1022,6 +1026,75 @@ export default function DetailView() {
           </button>
           <button className="indicator-button" onClick={() => setShowIndicators(true)}>
             Indicators
+          </button>
+          <button
+            className="indicator-button"
+            disabled={screenshotBusy}
+            onClick={async () => {
+              if (screenshotBusy) return;
+              setScreenshotBusy(true);
+              setToastAction(null);
+              try {
+                const screenType = getScreenType(location.pathname);
+                const result = await captureAndCopyScreenshot({ screenType, code });
+                if (!result.success) {
+                  setToastMessage(result.error ?? "スクショに失敗しました");
+                  return;
+                }
+                if (result.copied) {
+                  // Clipboard copy succeeded - show toast with save action
+                  const blob = result.blob!;
+                  const filename = result.filename!;
+                  setToastMessage("スクショをクリップボードにコピーしました");
+                  setToastAction({
+                    label: "保存…",
+                    onClick: async () => {
+                      await saveBlobToFile(blob, filename);
+                      setToastMessage("スクショを保存しました");
+                      setToastAction(null);
+                    },
+                  });
+                } else {
+                  // Clipboard failed - fallback to save
+                  setToastMessage("クリップボードにコピーできないため保存します");
+                  setToastAction(null);
+                  if (result.blob && result.filename) {
+                    await saveBlobToFile(result.blob, result.filename);
+                  }
+                }
+              } finally {
+                setScreenshotBusy(false);
+              }
+            }}
+          >
+            {screenshotBusy ? "処理中..." : "スクショ"}
+          </button>
+          <button
+            className="indicator-button"
+            onClick={async () => {
+              const exportData = buildAIExport({
+                code: code ?? "",
+                name: tickerName,
+                visibleTimeframe: "daily",
+                rangeMonths: rangeMonths,
+                dailyBars: dailyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
+                weeklyBars: weeklyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
+                monthlyBars: monthlyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
+                maSettings,
+                signals: dailySignals,
+                showBoxes,
+                showPositions: showTradesOverlay,
+                boxes,
+              });
+              const copied = await copyToClipboard(exportData.markdown);
+              if (copied) {
+                setToastMessage("AI用銘柄情報をクリップボードにコピーしました");
+              } else {
+                setToastMessage("クリップボードへのコピーに失敗しました");
+              }
+            }}
+          >
+            AI出力
           </button>
         </div>
       </div>
@@ -1220,8 +1293,8 @@ export default function DetailView() {
               {loadingMonthly
                 ? "Loading monthly..."
                 : hasMoreMonthly
-                ? "Load more monthly"
-                : "Monthly all loaded"}
+                  ? "Load more monthly"
+                  : "Monthly all loaded"}
             </button>
           </div>
           <div className="detail-hint">
@@ -1231,9 +1304,8 @@ export default function DetailView() {
       )}
       {showPositionLedger && (
         <div
-          className={`position-ledger-sheet ${
-            positionLedgerExpanded ? "is-expanded" : "is-mini"
-          }`}
+          className={`position-ledger-sheet ${positionLedgerExpanded ? "is-expanded" : "is-mini"
+            }`}
         >
           <button
             type="button"
@@ -1299,8 +1371,8 @@ export default function DetailView() {
                             row.realizedPnL == null
                               ? "position-ledger-pnl"
                               : row.realizedPnL >= 0
-                              ? "position-ledger-pnl up"
-                              : "position-ledger-pnl down"
+                                ? "position-ledger-pnl up"
+                                : "position-ledger-pnl down"
                           }
                         >
                           {row.realizedPnL == null ? "--" : formatNumber(row.realizedPnL, 0)}
@@ -1426,7 +1498,12 @@ export default function DetailView() {
           </div>
         </div>
       )}
-      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      <Toast
+        message={toastMessage}
+        onClose={() => { setToastMessage(null); setToastAction(null); }}
+        action={toastAction}
+        duration={toastAction ? 8000 : 4000}
+      />
     </div>
   );
 }

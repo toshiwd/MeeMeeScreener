@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import DetailChart, { DetailChartHandle } from "../components/DetailChart";
 import Toast from "../components/Toast";
 import { useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
+import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
+import { buildAIExport, copyToClipboard } from "../utils/aiExport";
 
 const PositionDonutChart = ({
   buy,
@@ -779,6 +781,7 @@ const exportFile = (filename: string, contents: string, type: string) => {
 export default function PracticeView() {
   const { code } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { ready: backendReady } = useBackendReadyState();
   const dailyChartRef = useRef<DetailChartHandle | null>(null);
   const weeklyChartRef = useRef<DetailChartHandle | null>(null);
@@ -819,6 +822,8 @@ export default function PracticeView() {
   const [dailyData, setDailyData] = useState<number[][]>([]);
   const [dailyErrors, setDailyErrors] = useState<string[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
+  const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [weeklyRatio, setWeeklyRatio] = useState(DEFAULT_WEEKLY_RATIO);
   const [lotSize, setLotSize] = useState(DEFAULT_LOT_SIZE);
@@ -1200,7 +1205,7 @@ export default function PracticeView() {
   const unrealizedPnL =
     latestDailyClose != null
       ? (latestDailyClose - positionSummary.avgLongPrice) * longShares +
-        (positionSummary.avgShortPrice - latestDailyClose) * shortShares
+      (positionSummary.avgShortPrice - latestDailyClose) * shortShares
       : null;
 
   const practicePositionData = useMemo(
@@ -1506,10 +1511,10 @@ export default function PracticeView() {
       isBuy && action === "open"
         ? "buy"
         : isBuy
-        ? "sell"
-        : action === "open"
-        ? "sell"
-        : "buy";
+          ? "sell"
+          : action === "open"
+            ? "sell"
+            : "buy";
     const available = book === "long" ? positionSummary.longLots : positionSummary.shortLots;
     const finalQty = action === "close" ? Math.min(qty, available) : qty;
     if (action === "close" && finalQty <= 0) {
@@ -1781,10 +1786,10 @@ export default function PracticeView() {
         const tr = prevClose == null
           ? bar.high - bar.low
           : Math.max(
-              bar.high - bar.low,
-              Math.abs(bar.high - prevClose),
-              Math.abs(bar.low - prevClose)
-            );
+            bar.high - bar.low,
+            Math.abs(bar.high - prevClose),
+            Math.abs(bar.low - prevClose)
+          );
         prevClose = bar.close;
         trWindow.push(tr);
         trSum += tr;
@@ -2029,31 +2034,41 @@ export default function PracticeView() {
     }
   };
 
-  const handleScreenshot = () => {
-    if (!code || !dailyData.length || !sessionId) {
-      setToastMessage("スクリーンショットを撮るためのデータがありません。");
-      return;
-    }
-    const date = cursorCandle ? formatDate(cursorCandle.time) : "nodate";
-    const stamp = `${date}_${sessionId.substring(0, 8)}`;
-
-    downloadChartScreenshots(
-      [
-        {
-          code,
-          payload: { bars: dailyData, timeframe: "daily" },
-          boxes: [],
-          maSettings: maSettings.daily
-        }
-      ],
-      {
-        rangeMonths: rangeMonths,
-        stamp: stamp,
-        timeframeLabel: "D",
-        showBoxes: false
+  const handleScreenshot = async () => {
+    if (screenshotBusy) return;
+    setScreenshotBusy(true);
+    setToastAction(null);
+    try {
+      const screenType = getScreenType(location.pathname);
+      const result = await captureAndCopyScreenshot({ screenType, code });
+      if (!result.success) {
+        setToastMessage(result.error ?? "スクショに失敗しました");
+        return;
       }
-    );
-    setToastMessage("スクリーンショットを保存しました。");
+      if (result.copied) {
+        // Clipboard copy succeeded - show toast with save action
+        const blob = result.blob!;
+        const filename = result.filename!;
+        setToastMessage("スクショをクリップボードにコピーしました");
+        setToastAction({
+          label: "保存…",
+          onClick: async () => {
+            await saveBlobToFile(blob, filename);
+            setToastMessage("スクショを保存しました");
+            setToastAction(null);
+          },
+        });
+      } else {
+        // Clipboard failed - fallback to save
+        setToastMessage("クリップボードにコピーできないため保存します");
+        setToastAction(null);
+        if (result.blob && result.filename) {
+          await saveBlobToFile(result.blob, result.filename);
+        }
+      }
+    } finally {
+      setScreenshotBusy(false);
+    }
   };
 
   const handleExport = () => {
@@ -2160,11 +2175,38 @@ export default function PracticeView() {
           <div className="practice-header-group">
             <div className="practice-header-label">出力</div>
             <div className="practice-header-stack">
-              <button className="indicator-button" onClick={handleScreenshot}>
-                スクショ
+              <button className="indicator-button" disabled={screenshotBusy} onClick={handleScreenshot}>
+                {screenshotBusy ? "処理中..." : "スクショ"}
               </button>
               <button className="indicator-button" onClick={handleExport}>
                 出力
+              </button>
+              <button
+                className="indicator-button"
+                onClick={async () => {
+                  const exportData = buildAIExport({
+                    code: code ?? "",
+                    name: tickerName,
+                    visibleTimeframe: "daily",
+                    rangeMonths: rangeMonths,
+                    dailyBars: dailyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
+                    weeklyBars: weeklyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
+                    monthlyBars: monthlyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
+                    maSettings,
+                    signals: [],
+                    showBoxes: false,
+                    showPositions: false,
+                    boxes: [],
+                  });
+                  const copied = await copyToClipboard(exportData.markdown);
+                  if (copied) {
+                    setToastMessage("AI用銘柄情報をクリップボードにコピーしました");
+                  } else {
+                    setToastMessage("クリップボードへのコピーに失敗しました");
+                  }
+                }}
+              >
+                AI出力
               </button>
               <button
                 className="indicator-button practice-panel-toggle"
@@ -2189,9 +2231,8 @@ export default function PracticeView() {
             sessions.map((session) => (
               <div
                 key={session.session_id}
-                className={`practice-session-row ${
-                  session.session_id === sessionId ? "is-active" : ""
-                }`}
+                className={`practice-session-row ${session.session_id === sessionId ? "is-active" : ""
+                  }`}
               >
                 <div className="practice-session-range">
                   <div className="practice-session-title">
@@ -2248,8 +2289,8 @@ export default function PracticeView() {
                       {netLots === 0
                         ? "ネット0"
                         : netLots > 0
-                        ? `ネット買い ${netLots}`
-                        : `ネット売り ${Math.abs(netLots)}`}
+                          ? `ネット買い ${netLots}`
+                          : `ネット売り ${Math.abs(netLots)}`}
                     </div>
                     <div className="practice-hud-mini-row">
                       実 {formatNumber(positionSummary.realizedPnL, 0)} / 評{" "}
@@ -2350,8 +2391,8 @@ export default function PracticeView() {
                           ? "買い 新規"
                           : "買い 決済"
                         : trade.action === "open"
-                        ? "売り 新規"
-                        : "売り 決済";
+                          ? "売り 新規"
+                          : "売り 決済";
                     const canEdit = !isLocked && cursorTime != null && trade.time === cursorTime;
                     const isEditing = canEdit && editingTradeId === trade.id;
                     return (
@@ -2534,8 +2575,8 @@ export default function PracticeView() {
                     {netLots === 0
                       ? "ネット0"
                       : netLots > 0
-                      ? `ネット買い ${netLots}`
-                      : `ネット売り ${Math.abs(netLots)}`}
+                        ? `ネット買い ${netLots}`
+                        : `ネット売り ${Math.abs(netLots)}`}
                   </div>
                   {isLocked && <div className="practice-hud-lock">過去日閲覧（操作不可）</div>}
                   <div className="practice-hud-pnl">
@@ -2586,43 +2627,44 @@ export default function PracticeView() {
                       <div className="hud-side-label">売り</div>
                       <div className="control-row">
                         <button onClick={() => handleHudAction("sell", 5)} disabled={isLocked}>
-                          ↑↑
+                          +5
                         </button>
                         <button onClick={() => handleHudAction("sell", 1)} disabled={isLocked}>
-                          ↑
+                          +1
                         </button>
                       </div>
                       <div className="quantity-display">{positionSummary.shortLots}</div>
                       <div className="control-row">
                         <button onClick={() => handleHudAction("sell", -1)} disabled={isLocked}>
-                          ↓
+                          -1
                         </button>
                         <button onClick={() => handleHudAction("sell", -5)} disabled={isLocked}>
-                          ↓↓
+                          -5
                         </button>
                       </div>
                     </div>
                     <PositionDonutChart
                       sell={positionSummary.shortLots}
                       buy={positionSummary.longLots}
+                      size={50}
                     />
                     <div className="position-control-stack hud-buy-panel">
                       <div className="hud-side-label">買い</div>
                       <div className="control-row">
                         <button onClick={() => handleHudAction("buy", 5)} disabled={isLocked}>
-                          ↑↑
+                          +5
                         </button>
                         <button onClick={() => handleHudAction("buy", 1)} disabled={isLocked}>
-                          ↑
+                          +1
                         </button>
                       </div>
                       <div className="quantity-display">{positionSummary.longLots}</div>
                       <div className="control-row">
                         <button onClick={() => handleHudAction("buy", -1)} disabled={isLocked}>
-                          ↓
+                          -1
                         </button>
                         <button onClick={() => handleHudAction("buy", -5)} disabled={isLocked}>
-                          ↓↓
+                          -5
                         </button>
                       </div>
                     </div>
@@ -2646,7 +2688,12 @@ export default function PracticeView() {
           )}
         </div>
       </div>
-      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      <Toast
+        message={toastMessage}
+        onClose={() => { setToastMessage(null); setToastAction(null); }}
+        action={toastAction}
+        duration={toastAction ? 8000 : 4000}
+      />
     </div>
   );
 }

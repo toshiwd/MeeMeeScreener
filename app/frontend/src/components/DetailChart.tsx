@@ -57,6 +57,7 @@ type DetailChartProps = {
   partialTimes?: number[];
   onCrosshairMove?: (time: number | null, point?: { x: number; y: number } | null) => void;
   onVisibleRangeChange?: (range: { from: number; to: number } | null) => void;
+  theme?: "dark" | "light";
 };
 
 const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function DetailChart(
@@ -72,7 +73,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     cursorTime,
     partialTimes,
     onCrosshairMove,
-    onVisibleRangeChange
+    onVisibleRangeChange,
+    theme = "dark"
   },
   ref
 ) {
@@ -425,6 +427,22 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   }, [onVisibleRangeChange]);
 
   useLayoutEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const isLight = theme === "light";
+    chart.applyOptions({
+      layout: {
+        background: { color: isLight ? "#ffffff" : "#0f1628" },
+        textColor: isLight ? "#334155" : "#cbd5f5"
+      },
+      grid: {
+        vertLines: { color: isLight ? "#f1f5f9" : "rgba(255,255,255,0.06)" },
+        horzLines: { color: isLight ? "#f1f5f9" : "rgba(255,255,255,0.06)" }
+      }
+    });
+  }, [theme]);
+
+  useLayoutEffect(() => {
     if (!containerRef.current || chartRef.current) return;
     const element = containerRef.current;
     let resizeObserver: ResizeObserver | null = null;
@@ -432,6 +450,13 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     let resizeRafId = 0;
     let pendingResize: { width: number; height: number } | null = null;
     let lastSize = { width: 0, height: 0 };
+
+    const isLight = theme === "light";
+    const baseColors = {
+      bg: isLight ? "#ffffff" : "#0f1628",
+      text: isLight ? "#334155" : "#cbd5f5",
+      grid: isLight ? "#f1f5f9" : "rgba(255,255,255,0.06)"
+    };
 
     const init = () => {
       if (chartRef.current) return;
@@ -446,16 +471,16 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         height,
         width,
         layout: {
-          background: { color: "#0f1628" },
-          textColor: "#cbd5f5"
+          background: { color: baseColors.bg },
+          textColor: baseColors.text
         },
         localization: {
           locale: "ja-JP",
           timeFormatter: formatChartDate
         },
         grid: {
-          vertLines: { color: "rgba(255,255,255,0.06)" },
-          horzLines: { color: "rgba(255,255,255,0.06)" }
+          vertLines: { color: baseColors.grid },
+          horzLines: { color: baseColors.grid }
         },
         crosshair: {
           mode: CrosshairMode.Normal
