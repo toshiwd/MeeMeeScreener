@@ -451,6 +451,39 @@ def _restore_watchlist_artifacts(token: str) -> list[str]:
         restored.append(dest)
     return restored
 
+
+def _invalidate_screener_cache() -> None:
+    _screener_cache["mtime"] = None
+    _screener_cache["rows"] = []
+    _rank_cache["weekly"] = {}
+    _rank_cache["monthly"] = {}
+    _rank_cache["mtime"] = None
+    _rank_cache["config_mtime"] = _rank_config_cache.get("mtime")
+
+
+def _delete_ticker_db_rows(code: str) -> dict:
+    tables = ["daily_bars", "daily_ma", "monthly_bars", "monthly_ma", "stock_meta", "tickers"]
+    counts: dict[str, int] = {}
+    with get_conn() as conn:
+        for table in tables:
+            count = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE code = ?", [code]).fetchone()[0]
+            counts[table] = int(count or 0)
+        for table in tables:
+            conn.execute(f"DELETE FROM {table} WHERE code = ?", [code])
+    return counts
+
+
+def _delete_favorites_code(code: str) -> int:
+    with _get_favorites_conn() as conn:
+        cursor = conn.execute("DELETE FROM favorites WHERE code = ?", [code])
+        return cursor.rowcount or 0
+
+
+def _delete_practice_sessions(code: str) -> int:
+    with _get_practice_conn() as conn:
+        cursor = conn.execute("DELETE FROM practice_sessions WHERE code = ?", [code])
+        return cursor.rowcount or 0
+
 app = FastAPI(lifespan=lifespan)
 
 if APP_ENV == "dev":
@@ -3300,7 +3333,7 @@ def _run_txt_update_job(code_path: str, out_dir: str) -> None:
             return
 
         _set_update_status(phase="ingesting")
-        ingest_code, ingest_output = _run_command([sys.executable, INGEST_SCRIPT_PATH], timeout=3600)
+        ingest_code, ingest_output = _run_ingest_command()
         for line in ingest_output.splitlines():
             _append_stdout_tail(line)
         if ingest_code != 0:
@@ -3363,6 +3396,33 @@ def _start_txt_update(code_path: str, out_dir: str, total: int, cscript: str) ->
     return {"ok": True, "started": True, "started_at": started_at, "total": total}
 
 
+def _run_ingest_command() -> tuple[int, str]:
+    if os.path.isfile(INGEST_SCRIPT_PATH):
+        return _run_command([sys.executable, INGEST_SCRIPT_PATH], timeout=3600)
+    import importlib
+    import io
+    from contextlib import redirect_stdout, redirect_stderr
+
+    output = io.StringIO()
+    try:
+        with redirect_stdout(output), redirect_stderr(output):
+            module = None
+            for name in ("ingest_txt", "app.backend.ingest_txt"):
+                try:
+                    module = importlib.import_module(name)
+                    break
+                except Exception:
+                    continue
+            if module is None:
+                raise ModuleNotFoundError("ingest_txt")
+            module.ingest()
+        return 0, output.getvalue()
+    except Exception as exc:
+        output.write(f"ingest_module_failed:{exc}\n")
+        output.write(traceback.format_exc())
+        return 1, output.getvalue()
+
+
 @app.post("/api/txt_update/run")
 def txt_update_run():
     state = _load_update_state()
@@ -3381,12 +3441,6 @@ def txt_update_run():
         return JSONResponse(
             status_code=404,
             content={"ok": False, "error": f"vbs_not_found:{UPDATE_VBS_PATH}"}
-        )
-
-    if not os.path.isfile(INGEST_SCRIPT_PATH):
-        return JSONResponse(
-            status_code=404,
-            content={"ok": False, "error": f"ingest_not_found:{INGEST_SCRIPT_PATH}"}
         )
 
     code_path = PAN_CODE_TXT_PATH if os.path.isfile(PAN_CODE_TXT_PATH) else None
@@ -3499,6 +3553,8 @@ def watchlist_remove(payload: dict = Body(default=None)):
     if not code:
         return JSONResponse(status_code=400, content={"ok": False, "error": "invalid_code"})
     delete_artifacts = payload.get("deleteArtifacts", True)
+    delete_db = payload.get("deleteDb", False)
+    delete_related = payload.get("deleteRelated", False)
     path = PAN_CODE_TXT_PATH
     if not os.path.isfile(path):
         return JSONResponse(status_code=400, content={"ok": False, "error": "code_txt_missing"})
@@ -3508,11 +3564,38 @@ def watchlist_remove(payload: dict = Body(default=None)):
         trashed: list[str] = []
         if delete_artifacts:
             trash_token, trashed = _trash_watchlist_artifacts(code)
+    db_counts: dict[str, int] = {}
+    favorites_deleted = 0
+    practice_deleted = 0
+    if delete_db:
+        try:
+            db_counts = _delete_ticker_db_rows(code)
+            _invalidate_screener_cache()
+        except Exception as exc:
+            return JSONResponse(
+                status_code=500,
+                content={"ok": False, "error": f"db_delete_failed:{exc}", "code": code}
+            )
+    if delete_related:
+        try:
+            favorites_deleted = _delete_favorites_code(code)
+            practice_deleted = _delete_practice_sessions(code)
+        except Exception as exc:
+            return JSONResponse(
+                status_code=500,
+                content={"ok": False, "error": f"related_delete_failed:{exc}", "code": code}
+            )
     return {
         "ok": True,
         "code": code,
         "removed": removed,
         "deleteArtifacts": bool(delete_artifacts),
+        "deleteDb": bool(delete_db),
+        "deleteRelated": bool(delete_related),
+        "dbDeletedCounts": db_counts,
+        "dbDeletedTotal": sum(db_counts.values()),
+        "favoritesDeleted": favorites_deleted,
+        "practiceDeleted": practice_deleted,
         "trashed": trashed,
         "trashToken": trash_token
     }

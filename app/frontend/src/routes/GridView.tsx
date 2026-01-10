@@ -944,7 +944,12 @@ export default function GridView() {
       return;
     }
     if (error.startsWith("ingest_not_found")) {
-      setToastMessage("TXT取り込みスクリプトが見つかりません。");
+      const missingPath = error.split(":").slice(1).join(":").trim();
+      setToastMessage(
+        missingPath
+          ? `TXT取り込みスクリプトが見つかりません（${missingPath}）`
+          : "TXT取り込みスクリプトが見つかりません。"
+      );
       return;
     }
     setToastMessage("TXT更新に失敗しました。");

@@ -240,9 +240,9 @@ const barsFetchedLimit: Record<GridTimeframe, Record<string, number>> = {
 };
 let batchRequestCount = 0;
 const DEFAULT_PERIODS: Record<MaTimeframe, number[]> = {
-  daily: [3, 10, 20, 60, 100],
-  weekly: [3, 10, 20, 60, 100],
-  monthly: [3, 10, 20, 60, 100]
+  daily: [7, 20, 60, 100, 200],
+  weekly: [7, 20, 60, 100, 200],
+  monthly: [7, 20, 60, 100, 200]
 };
 
 const makeDefaultSettings = (timeframe: MaTimeframe): MaSetting[] =>
@@ -250,7 +250,7 @@ const makeDefaultSettings = (timeframe: MaTimeframe): MaSetting[] =>
     key: `ma${index + 1}`,
     label: `MA${index + 1}`,
     period,
-    visible: index < 3,
+    visible: true,
     color: MA_COLORS[index] ?? "#94a3b8",
     lineWidth: 1
   }));

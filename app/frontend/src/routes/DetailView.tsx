@@ -10,6 +10,7 @@ import {
   IconCopy,
   IconHeart,
   IconHeartFilled,
+  IconTrash,
   IconSparkles
 } from "@tabler/icons-react";
 import { api } from "../api";
@@ -340,6 +341,7 @@ export default function DetailView() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [screenshotBusy, setScreenshotBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [showPositionLedger, setShowPositionLedger] = useState(false);
   const [positionLedgerExpanded, setPositionLedgerExpanded] = useState(false);
   const syncRangesRef = useRef(syncRanges);
@@ -976,6 +978,61 @@ export default function DetailView() {
     }
   };
 
+  const handleDeleteTicker = async () => {
+    if (!code || deleteBusy) return;
+    const confirmed =
+      typeof window === "undefined"
+        ? false
+        : window.confirm(
+            `${code} を完全に削除しますか？\ncode.txt、data/txt、DB、お気に入り、練習セッションも削除します。`
+          );
+    if (!confirmed) return;
+    setDeleteBusy(true);
+    setToastAction(null);
+    try {
+      const res = await api.post("/watchlist/remove", {
+        code,
+        deleteArtifacts: true,
+        deleteDb: true,
+        deleteRelated: true
+      });
+      const payload = res.data as {
+        ok?: boolean;
+        error?: string;
+        removed?: boolean;
+        dbDeletedTotal?: number;
+        favoritesDeleted?: number;
+        practiceDeleted?: number;
+      };
+      if (!payload?.ok) {
+        setToastMessage(
+          payload?.error ? `削除に失敗しました: ${payload.error}` : "削除に失敗しました"
+        );
+        return;
+      }
+      const dbDeleted = payload.dbDeletedTotal ?? 0;
+      const favoritesDeleted = payload.favoritesDeleted ?? 0;
+      const practiceDeleted = payload.practiceDeleted ?? 0;
+      if (!payload.removed && dbDeleted == 0) {
+        setToastMessage("削除対象が見つかりませんでした");
+      } else {
+        setToastMessage(
+          `削除しました (DB:${dbDeleted} お気に入り:${favoritesDeleted} 練習:${practiceDeleted})`
+        );
+      }
+      await loadList();
+      if (nextCode) {
+        navigate(`/detail/${nextCode}`, { state: { from: listBackPath } });
+      } else {
+        navigate(listBackPath);
+      }
+    } catch (error) {
+      setToastMessage("削除に失敗しました");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   const handleDailyCrosshair = (time: number | null, point?: { x: number; y: number } | null) => {
     weeklyChartRef.current?.setCrosshair(time, null);
     monthlyChartRef.current?.setCrosshair(time, null);
@@ -1248,6 +1305,13 @@ export default function DetailView() {
                   setToastMessage("クリップボードへのコピーに失敗しました");
                 }
               }}
+            />
+            <IconButton
+              label="削除"
+              icon={<IconTrash size={18} />}
+              title="削除"
+              disabled={deleteBusy || !code}
+              onClick={handleDeleteTicker}
             />
           </div>
         </div>
