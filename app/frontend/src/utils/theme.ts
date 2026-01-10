@@ -28,6 +28,12 @@ export const applyTheme = (theme: Theme): void => {
     root.setAttribute("data-theme", theme);
 };
 
+export const getDomTheme = (): Theme => {
+    if (typeof document === "undefined") return "dark";
+    const value = document.documentElement.getAttribute("data-theme");
+    return value === "light" ? "light" : "dark";
+};
+
 export const toggleTheme = (current: Theme): Theme => {
     return current === "dark" ? "light" : "dark";
 };

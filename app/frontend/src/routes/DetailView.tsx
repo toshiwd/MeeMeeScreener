@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  IconAdjustments,
+  IconArrowBackUp,
+  IconArrowLeft,
+  IconArrowRight,
+  IconCamera,
+  IconCopy,
+  IconHeart,
+  IconHeartFilled,
+  IconSparkles
+} from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import DetailChart, { DetailChartHandle } from "../components/DetailChart";
 import Toast from "../components/Toast";
+import IconButton from "../components/IconButton";
 import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
 import type { TradeEvent } from "../utils/positions";
@@ -44,6 +56,7 @@ type FetchState = {
 
 type ApiWarnings = {
   items: string[];
+  info?: string[];
   unrecognized_labels?: { count: number; samples: string[] };
 };
 
@@ -560,18 +573,26 @@ export default function DetailView() {
 
   const weeklyHasEmpty = weeklyCandles.length === 0 && dailyCandles.length > 0;
   const tradeWarningItems = tradeWarnings.items ?? [];
+  const tradeInfoItems = tradeWarnings.info ?? [];
   const unrecognizedCount = tradeWarnings.unrecognized_labels?.count ?? 0;
   const errors = [...dailyErrors, ...monthlyErrors, ...tradeErrors];
   const otherWarningsCount = tradeWarningItems.length;
-  const hasIssues = errors.length > 0 || unrecognizedCount > 0 || otherWarningsCount > 0;
+  const infoCount = tradeInfoItems.length;
+  const warningCount = errors.length + unrecognizedCount + otherWarningsCount;
+  const hasIssues = warningCount > 0 || infoCount > 0;
+  const bannerTone = warningCount > 0 ? "warning" : "info";
+  const bannerTitle = warningCount > 0 ? "Data issue detected" : "Data notice";
 
   const [debugOpen, setDebugOpen] = useState(false);
+  const [showInfoDetails, setShowInfoDetails] = useState(false);
+  const [copyFallbackText, setCopyFallbackText] = useState<string | null>(null);
 
   const debugSummary = useMemo(() => {
     const parts: string[] = [];
     if (errors.length) parts.push(`Errors ${errors.slice(0, 2).join(", ")}`);
     if (unrecognizedCount) parts.push(`Unrecognized labels ${unrecognizedCount}`);
     if (otherWarningsCount) parts.push(`Warnings ${otherWarningsCount}`);
+    if (infoCount) parts.push(`Info ${infoCount}`);
     if (dailyHasEmpty) parts.push("Daily 0 bars");
     if (dailyHasParsedZero) parts.push("Daily parsed 0");
     if (dailyInvalidCount > 0) parts.push(`Daily invalid ${dailyInvalidCount}`);
@@ -584,6 +605,7 @@ export default function DetailView() {
     errors,
     unrecognizedCount,
     otherWarningsCount,
+    infoCount,
     dailyHasEmpty,
     dailyHasParsedZero,
     dailyInvalidCount,
@@ -592,6 +614,116 @@ export default function DetailView() {
     monthlyHasParsedZero,
     monthlyInvalidCount
   ]);
+
+  const tradeInfoLines = useMemo(() => {
+    return tradeInfoItems.map((item) => {
+      if (item.startsWith("duplicate_skipped:")) {
+        const parts = item.split(":");
+        const code = parts[1] || "-";
+        const count = parts[2] || "0";
+        return `Trades: OK (dedup ${count} rows for ${code})`;
+      }
+      return item;
+    });
+  }, [tradeInfoItems]);
+
+  const debugLines = useMemo(() => {
+    const lines: string[] = [];
+    lines.push(
+      `Daily(${dailyFetch.status}) API ${dailyFetch.responseCount} | Parsed ${dailyParse.stats.parsed} | Range ${dailyRangeCount} | InvalidRow ${dailyParse.stats.invalidRow} | InvalidTime ${dailyParse.stats.invalidTime} | InvalidValue ${dailyParse.stats.invalidValue} | Error ${dailyError ?? "-"}`
+    );
+    lines.push(`Weekly Parsed ${weeklyCandles.length} | Range ${weeklyRangeCount} | Error ${dailyError ?? "-"}`);
+    lines.push(
+      `Monthly(${monthlyFetch.status}) API ${monthlyFetch.responseCount} | Parsed ${monthlyParse.stats.parsed} | Range ${monthlyRangeCount} | InvalidRow ${monthlyParse.stats.invalidRow} | InvalidTime ${monthlyParse.stats.invalidTime} | InvalidValue ${monthlyParse.stats.invalidValue} | Error ${monthlyError ?? "-"}`
+    );
+    if (tradeWarningItems.length > 0) {
+      lines.push(`Trades warnings: ${tradeWarningItems.slice(0, 5).join(", ")}`);
+    }
+    if (showInfoDetails && tradeInfoLines.length > 0) {
+      lines.push(`Trades info: ${tradeInfoLines.slice(0, 5).join(", ")}`);
+    }
+    if (tradeWarnings.unrecognized_labels) {
+      lines.push(
+        `Unrecognized labels ${tradeWarnings.unrecognized_labels.count} samples: ${tradeWarnings.unrecognized_labels.samples.join(", ")}`
+      );
+    }
+    if (tradeErrors.length > 0) {
+      lines.push(`Trades errors: ${tradeErrors.slice(0, 3).join(", ")}`);
+    }
+    return lines;
+  }, [
+    dailyFetch.status,
+    dailyFetch.responseCount,
+    dailyParse.stats.parsed,
+    dailyParse.stats.invalidRow,
+    dailyParse.stats.invalidTime,
+    dailyParse.stats.invalidValue,
+    dailyRangeCount,
+    dailyError,
+    weeklyCandles.length,
+    weeklyRangeCount,
+    monthlyFetch.status,
+    monthlyFetch.responseCount,
+    monthlyParse.stats.parsed,
+    monthlyParse.stats.invalidRow,
+    monthlyParse.stats.invalidTime,
+    monthlyParse.stats.invalidValue,
+    monthlyRangeCount,
+    monthlyError,
+    tradeWarningItems,
+    tradeInfoLines,
+    showInfoDetails,
+    tradeWarnings.unrecognized_labels,
+    tradeErrors
+  ]);
+
+  const showShortToast = (message: string) => {
+    setToastAction(null);
+    setToastMessage(message);
+    window.setTimeout(() => {
+      setToastMessage((prev) => (prev == message ? null : prev));
+    }, 800);
+  };
+
+  const handleCopyDebug = async () => {
+    const timestamp = new Date().toISOString();
+    const textToCopy = [`Timestamp: ${timestamp}`, ...debugLines].join("\n");
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(textToCopy);
+        showShortToast("Copied");
+        setCopyFallbackText(null);
+        return;
+      }
+    } catch {
+      // fallback below
+    }
+
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = textToCopy;
+      textarea.setAttribute("readonly", "true");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      textarea.style.pointerEvents = "none";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (ok) {
+        showShortToast("Copied");
+        setCopyFallbackText(null);
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    showShortToast("コピー失敗");
+    setCopyFallbackText(textToCopy);
+  };
+
+
 
   const dailyMaLines = useMemo(() => {
     return maSettings.daily.map((setting) => ({
@@ -802,12 +934,13 @@ export default function DetailView() {
     if (!value || typeof value !== "object") return { items: [] };
     const payload = value as ApiWarnings;
     const items = Array.isArray(payload.items) ? payload.items : [];
+    const info = Array.isArray(payload.info) ? payload.info : [];
     const unrecognized = payload.unrecognized_labels;
     if (!unrecognized || typeof unrecognized.count !== "number") {
-      return { items };
+      return info.length ? { items, info } : { items };
     }
     const samples = Array.isArray(unrecognized.samples) ? unrecognized.samples : [];
-    return { items, unrecognized_labels: { count: unrecognized.count, samples } };
+    return { items, info, unrecognized_labels: { count: unrecognized.count, samples } };
   };
 
   const updateSetting = (timeframe: Timeframe, index: number, patch: Partial<MaSetting>) => {
@@ -919,183 +1052,204 @@ export default function DetailView() {
     <div className={`detail-shell ${focusPanel ? "detail-shell-focus" : ""}`}>
       <div className="detail-header">
         <div className="detail-header-nav">
-          <button className="back" onClick={() => navigate(listBackPath)}>
-            {"\u4e00\u89a7\u306b\u623b\u308b"}
+          <button className="back nav-button nav-primary" onClick={() => navigate(listBackPath)}>
+            <span className="nav-icon">
+              <IconArrowLeft size={16} />
+            </span>
+            <span className="nav-label">一覧に戻る</span>
           </button>
-          <button className="back back-secondary" onClick={() => navigate(-1)}>
-            {"\u524d\u306e\u753b\u9762\u306b\u623b\u308b"}
+          <button className="back nav-button" onClick={() => navigate(-1)}>
+            <span className="nav-icon">
+              <IconArrowBackUp size={16} />
+            </span>
+            <span className="nav-label">前の画面</span>
           </button>
           <button
-            className="back back-secondary"
+            className="back nav-button"
             onClick={() => {
               if (!nextCode) return;
               navigate(`/detail/${nextCode}`, { state: { from: listBackPath } });
             }}
             disabled={!nextCode}
           >
-            {"\u6b21\u306e\u9298\u67c4\u3078"}
+            <span className="nav-icon">
+              <IconArrowRight size={16} />
+            </span>
+            <span className="nav-label">次の銘柄</span>
           </button>
         </div>
         <div className="detail-title">
-          <div>
-            <div className="detail-title-main">
-              <div className="title">{code}</div>
-              {tickerName && <div className="title-name">{tickerName}</div>}
-              {dailySignals.length > 0 && (
-                <div className="detail-signals-inline">
-                  {dailySignals.map((signal) => (
-                    <span
-                      key={signal.label}
-                      className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
-                    >
-                      {signal.label}
-                    </span>
-                  ))}
-                </div>
-              )}
+          <div className="detail-title-text">
+            <div className="detail-title-top">
+              <div className="detail-title-code">{code}</div>
+              <div className="detail-title-name">{tickerName || "?????"}</div>
             </div>
             <div className="subtitle">{subtitle}</div>
           </div>
-          <button
-            type="button"
-            className={isFavorite ? "favorite-toggle active" : "favorite-toggle"}
-            aria-pressed={isFavorite}
-            aria-label={isFavorite ? "お気に入り解除" : "お気に入り追加"}
-            onClick={handleToggleFavorite}
-          >
-            {isFavorite ? "♥" : "♡"}
-          </button>
+          <div className="detail-title-actions">
+            <button
+              type="button"
+              className={isFavorite ? "favorite-toggle active" : "favorite-toggle"}
+              aria-pressed={isFavorite}
+              aria-label={isFavorite ? "\u304a\u6c17\u306b\u5165\u308a\u89e3\u9664" : "\u304a\u6c17\u306b\u5165\u308a\u8ffd\u52a0"}
+              onClick={handleToggleFavorite}
+              title={isFavorite ? "\u304a\u6c17\u306b\u5165\u308a\u89e3\u9664" : "\u304a\u6c17\u306b\u5165\u308a\u8ffd\u52a0"}
+            >
+              {isFavorite ? <IconHeartFilled size={18} /> : <IconHeart size={18} />}
+            </button>
+            {dailySignals.length > 0 && (
+              <div className="detail-signals-inline">
+                {dailySignals.map((signal) => (
+                  <span
+                    key={signal.label}
+                    className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
+                  >
+                    {signal.label}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         <div className="detail-controls">
-          <button
-            className="indicator-button"
-            onClick={() => {
-              if (code) navigate(`/practice/${code}`);
-            }}
-          >
-            練習
-          </button>
-          <div className="segmented detail-range">
-            {RANGE_PRESETS.map((preset) => (
-              <button
-                key={preset.label}
-                className={rangeMonths === preset.months ? "active" : ""}
-                onClick={() => toggleRange(preset.months)}
-              >
-                {preset.label}
-              </button>
-            ))}
+          <div className="detail-controls-group">
+            <button
+              className="indicator-button is-primary"
+              onClick={() => {
+                if (code) navigate(`/practice/${code}`);
+              }}
+            >
+              練習
+            </button>
+            <div className="segmented detail-range">
+              {RANGE_PRESETS.map((preset) => (
+                <button
+                  key={preset.label}
+                  className={rangeMonths === preset.months ? "active" : ""}
+                  onClick={() => toggleRange(preset.months)}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <button
-            className={showBoxes ? "indicator-button active" : "indicator-button"}
-            onClick={() => setShowBoxes(!showBoxes)}
-          >
-            Boxes
-          </button>
-          <button
-            className={showTradesOverlay ? "indicator-button active" : "indicator-button"}
-            onClick={() => setShowTradesOverlay((prev) => !prev)}
-          >
-            Positions
-          </button>
-          <button
-            className={showPositionLedger ? "indicator-button active" : "indicator-button"}
-            onClick={() =>
-              setShowPositionLedger((prev) => {
-                const next = !prev;
-                if (!next) {
-                  setPositionLedgerExpanded(false);
-                }
-                return next;
-              })
-            }
-          >
-            建玉推移
-          </button>
-          <button
-            className={showPnLPanel ? "indicator-button active" : "indicator-button"}
-            onClick={() => setShowPnLPanel(!showPnLPanel)}
-          >
-            PnL
-          </button>
-          <button
-            className={syncRanges ? "indicator-button active" : "indicator-button"}
-            onClick={() => setSyncRanges((prev) => !prev)}
-          >
-            連動: {syncRanges ? "ON" : "OFF"}
-          </button>
-          <button className="indicator-button" onClick={() => setShowIndicators(true)}>
-            Indicators
-          </button>
-          <button
-            className="indicator-button"
-            disabled={screenshotBusy}
-            onClick={async () => {
-              if (screenshotBusy) return;
-              setScreenshotBusy(true);
-              setToastAction(null);
-              try {
-                const screenType = getScreenType(location.pathname);
-                const result = await captureAndCopyScreenshot({ screenType, code });
-                if (!result.success) {
-                  setToastMessage(result.error ?? "スクショに失敗しました");
-                  return;
-                }
-                if (result.copied) {
-                  // Clipboard copy succeeded - show toast with save action
-                  const blob = result.blob!;
-                  const filename = result.filename!;
-                  setToastMessage("スクショをクリップボードにコピーしました");
-                  setToastAction({
-                    label: "保存…",
-                    onClick: async () => {
-                      await saveBlobToFile(blob, filename);
-                      setToastMessage("スクショを保存しました");
-                      setToastAction(null);
-                    },
-                  });
-                } else {
-                  // Clipboard failed - fallback to save
-                  setToastMessage("クリップボードにコピーできないため保存します");
-                  setToastAction(null);
-                  if (result.blob && result.filename) {
-                    await saveBlobToFile(result.blob, result.filename);
+          <div className="detail-controls-group">
+            <button
+              className={showBoxes ? "indicator-button active" : "indicator-button"}
+              onClick={() => setShowBoxes(!showBoxes)}
+            >
+              Boxes
+            </button>
+            <button
+              className={showTradesOverlay ? "indicator-button active" : "indicator-button"}
+              onClick={() => setShowTradesOverlay((prev) => !prev)}
+            >
+              Positions
+            </button>
+            <button
+              className={showPositionLedger ? "indicator-button active" : "indicator-button"}
+              onClick={() =>
+                setShowPositionLedger((prev) => {
+                  const next = !prev;
+                  if (!next) {
+                    setPositionLedgerExpanded(false);
                   }
+                  return next;
+                })
+              }
+            >
+              建玉推移
+            </button>
+            <button
+              className={showPnLPanel ? "indicator-button active" : "indicator-button"}
+              onClick={() => setShowPnLPanel(!showPnLPanel)}
+            >
+              PnL
+            </button>
+            <button
+              className={syncRanges ? "indicator-button active" : "indicator-button"}
+              onClick={() => setSyncRanges((prev) => !prev)}
+            >
+              連動: {syncRanges ? "ON" : "OFF"}
+            </button>
+          </div>
+          <div className="detail-controls-group detail-controls-icons">
+            <IconButton
+              label="Indicators"
+              icon={<IconAdjustments size={18} />}
+              onClick={() => setShowIndicators(true)}
+              title="Indicators"
+            />
+            <IconButton
+              label="スクショ"
+              icon={<IconCamera size={18} />}
+              disabled={screenshotBusy}
+              title="スクショ"
+              onClick={async () => {
+                if (screenshotBusy) return;
+                setScreenshotBusy(true);
+                setToastAction(null);
+                try {
+                  const screenType = getScreenType(location.pathname);
+                  const result = await captureAndCopyScreenshot({ screenType, code });
+                  if (!result.success) {
+                    setToastMessage(result.error ?? "スクショに失敗しました");
+                    return;
+                  }
+                  if (result.copied) {
+                    // Clipboard copy succeeded - show toast with save action
+                    const blob = result.blob!;
+                    const filename = result.filename!;
+                    setToastMessage("スクショをクリップボードにコピーしました");
+                    setToastAction({
+                      label: "保存...",
+                      onClick: async () => {
+                        await saveBlobToFile(blob, filename);
+                        setToastMessage("スクショを保存しました");
+                        setToastAction(null);
+                      },
+                    });
+                  } else {
+                    // Clipboard failed - fallback to save
+                    setToastMessage("クリップボードにコピーできなかったため保存しました");
+                    setToastAction(null);
+                    if (result.blob && result.filename) {
+                      await saveBlobToFile(result.blob, result.filename);
+                    }
+                  }
+                } finally {
+                  setScreenshotBusy(false);
                 }
-              } finally {
-                setScreenshotBusy(false);
-              }
-            }}
-          >
-            {screenshotBusy ? "処理中..." : "スクショ"}
-          </button>
-          <button
-            className="indicator-button"
-            onClick={async () => {
-              const exportData = buildAIExport({
-                code: code ?? "",
-                name: tickerName,
-                visibleTimeframe: "daily",
-                rangeMonths: rangeMonths,
-                dailyBars: dailyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
-                weeklyBars: weeklyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
-                monthlyBars: monthlyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
-                maSettings,
-                signals: dailySignals,
-                showBoxes,
-                showPositions: showTradesOverlay,
-                boxes,
-              });
-              const copied = await copyToClipboard(exportData.markdown);
-              if (copied) {
-                setToastMessage("AI用銘柄情報をクリップボードにコピーしました");
-              } else {
-                setToastMessage("クリップボードへのコピーに失敗しました");
-              }
-            }}
-          >
-            AI出力
-          </button>
+              }}
+            />
+            <IconButton
+              label="AI出力"
+              icon={<IconSparkles size={18} />}
+              title="AI出力"
+              onClick={async () => {
+                const exportData = buildAIExport({
+                  code: code ?? "",
+                  name: tickerName,
+                  visibleTimeframe: "daily",
+                  rangeMonths: rangeMonths,
+                  dailyBars: dailyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
+                  weeklyBars: weeklyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
+                  monthlyBars: monthlyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
+                  maSettings,
+                  signals: dailySignals,
+                  showBoxes,
+                  showPositions: showTradesOverlay,
+                  boxes,
+                });
+                const copied = await copyToClipboard(exportData.markdown);
+                if (copied) {
+                  setToastMessage("AI用銘柄情報をクリップボードにコピーしました");
+                } else {
+                  setToastMessage("クリップボードへのコピーに失敗しました");
+                }
+              }}
+            />
+          </div>
         </div>
       </div>
       <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""}`}>
@@ -1394,51 +1548,57 @@ export default function DetailView() {
         </div>
       )}
       {hasIssues && (
-        <div className="detail-debug-banner warning">
+        <div className={`detail-debug-banner ${bannerTone}`}>
           <button
             type="button"
             className="detail-debug-toggle"
             onClick={() => setDebugOpen((prev) => !prev)}
           >
-            {`Data issue detected${debugSummary.length ? ` (${debugSummary.join(", ")})` : ""}`}
+            {`${bannerTitle}${debugSummary.length ? ` (${debugSummary.join(", ")})` : ""}`}
           </button>
           {debugOpen && (
             <div className="detail-debug-panel">
               <div className="detail-debug-header">
                 <div className="detail-debug-title">Debug Details</div>
-                <button
-                  type="button"
-                  className="detail-debug-close"
-                  onClick={() => setDebugOpen(false)}
-                >
-                  Close
-                </button>
+                <div className="detail-debug-actions">
+                  <button
+                    type="button"
+                    className="detail-debug-copy"
+                    onClick={handleCopyDebug}
+                    title="Copy"
+                    aria-label="Copy"
+                  >
+                    <IconCopy size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="detail-debug-info-toggle"
+                    onClick={() => setShowInfoDetails((prev) => !prev)}
+                  >
+                    {showInfoDetails ? "Info: ON" : "Info: OFF"}
+                  </button>
+                  <button
+                    type="button"
+                    className="detail-debug-close"
+                    onClick={() => setDebugOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
               <div className="detail-debug-lines">
-                <div>
-                  Daily({dailyFetch.status}) API {dailyFetch.responseCount} | Parsed {dailyParse.stats.parsed} | Range {dailyRangeCount} | InvalidRow {dailyParse.stats.invalidRow} | InvalidTime {dailyParse.stats.invalidTime} | InvalidValue {dailyParse.stats.invalidValue} | Error {dailyError ?? "-"}
-                </div>
-                <div>
-                  Weekly Parsed {weeklyCandles.length} | Range {weeklyRangeCount} | Error {dailyError ?? "-"}
-                </div>
-                <div>
-                  Monthly({monthlyFetch.status}) API {monthlyFetch.responseCount} | Parsed {monthlyParse.stats.parsed} | Range {monthlyRangeCount} | InvalidRow {monthlyParse.stats.invalidRow} | InvalidTime {monthlyParse.stats.invalidTime} | InvalidValue {monthlyParse.stats.invalidValue} | Error {monthlyError ?? "-"}
-                </div>
-                {tradeWarningItems.length > 0 && (
-                  <div>Trades warnings: {tradeWarningItems.slice(0, 5).join(", ")}</div>
-                )}
-                {tradeWarnings.unrecognized_labels && (
-                  <div>
-                    Unrecognized labels {tradeWarnings.unrecognized_labels.count} samples:{" "}
-                    {tradeWarnings.unrecognized_labels.samples.join(", ")}
-                  </div>
-                )}
-                {tradeErrors.length > 0 && (
-                  <div>Trades errors: {tradeErrors.slice(0, 3).join(", ")}</div>
-                )}
+                {debugLines.map((line, index) => (
+                  <div key={`${line}-${index}`}>{line}</div>
+                ))}
               </div>
+              {copyFallbackText && (
+                <div className="detail-debug-fallback">
+                  <div className="detail-debug-fallback-title">Copy failed</div>
+                  <textarea readOnly value={copyFallbackText} />
+                </div>
+              )}
             </div>
-          )}
+            )}
         </div>
       )}
       {showIndicators && (

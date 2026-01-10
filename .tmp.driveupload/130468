@@ -1,0 +1,68 @@
+{
+  "common": {
+    "ma_periods": [7, 20, 60],
+    "slope_lookback": 3,
+    "atr_period": 14,
+    "volume_period": 20,
+    "volume_ratio_mode": "exclude_latest",
+    "trigger_lookback": 20,
+    "min_daily_bars": 80,
+    "max_daily_bars": 260,
+    "min_monthly_bars": 24,
+    "max_monthly_bars": 120,
+    "max_reasons": 6,
+    "rank_series_bars": 240
+  },
+  "weekly": {
+    "weights": {
+      "ma_alignment": 20,
+      "pullback_above_ma20": 18,
+      "volume_spike": 10,
+      "near_high_break": 20,
+      "slope_up": 8,
+      "big_bull_candle": 6,
+      "ma20_support": 8
+    },
+    "thresholds": {
+      "pullback_down7_min": 1,
+      "pullback_down7_max": 2,
+      "volume_ratio": 1.5,
+      "near_break_pct": 2.0,
+      "slope_min": 0.0,
+      "big_candle_atr": 1.2,
+      "ma20_distance_pct": 2.0
+    },
+    "down_weights": {
+      "ma_alignment": 20,
+      "pullback_below_ma20": 18,
+      "volume_spike": 10,
+      "near_low_break": 20,
+      "slope_down": 8,
+      "big_bear_candle": 6,
+      "ma20_resistance": 8
+    },
+    "down_thresholds": {
+      "pullback_up7_min": 1,
+      "pullback_up7_max": 2,
+      "volume_ratio": 1.5,
+      "near_break_pct": 2.0,
+      "slope_max": 0.0,
+      "big_candle_atr": 1.2,
+      "ma20_distance_pct": 2.0
+    }
+  },
+  "monthly": {
+    "weights": {
+      "box_months": 4,
+      "near_edge": 20,
+      "wild_box_penalty": -5
+    },
+    "thresholds": {
+      "min_months": 3,
+      "max_months": 14,
+      "max_range_pct": 0.2,
+      "wild_wick_pct": 0.1,
+      "near_edge_pct": 4.0
+    }
+  }
+}

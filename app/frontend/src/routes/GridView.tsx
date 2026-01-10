@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   FixedSizeGrid as Grid,
   type FixedSizeGrid,
@@ -19,6 +19,7 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { applyTheme, getStoredTheme, setStoredTheme, toggleTheme, type Theme } from "../utils/theme";
+import { saveAsFile } from "../utils/aiExport";
 
 const GRID_GAP = 12;
 const KEEP_LIMIT = 24;
@@ -114,10 +115,13 @@ export default function GridView() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<Theme>(() => getStoredTheme());
+  const [tradeUploadInFlight, setTradeUploadInFlight] = useState(false);
+  const [watchlistExporting, setWatchlistExporting] = useState(false);
   const sortRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<FixedSizeGrid | null>(null);
+  const tradeCsvInputRef = useRef<HTMLInputElement | null>(null);
   const prevUpdateRunningRef = useRef(false);
   const lastVisibleCodesRef = useRef<string[]>([]);
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
@@ -129,6 +133,63 @@ export default function GridView() {
       ? "consult-padding-expanded"
       : "consult-padding-mini"
     : "";
+
+  const handleTradeCsvPick = () => {
+    tradeCsvInputRef.current?.click();
+  };
+
+  const handleTradeCsvChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || tradeUploadInFlight) return;
+    setTradeUploadInFlight(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      await api.post("/trade_csv/upload", form, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      setToastMessage("????CSV?????????");
+    } catch {
+      setToastMessage("????CSV?????????????");
+    } finally {
+      setTradeUploadInFlight(false);
+      event.target.value = "";
+    }
+  };
+
+  const handleExportWatchlist = async () => {
+    if (watchlistExporting) return;
+    const exportItems = sortedTickers.map((item) => item.ticker);
+    if (!exportItems.length) {
+      setToastMessage("エクスポート対象の銘柄がありません。");
+      return;
+    }
+    setWatchlistExporting(true);
+    try {
+      const lines = exportItems.map((item) => `JP#${item.code}`);
+      const now = new Date();
+      const filename = `watchlist_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}.ebk`;
+      const ok = await saveAsFile(lines.join("\n"), filename, "text/plain");
+      setToastMessage(ok ? "銘柄一覧をエクスポートしました。" : "エクスポートをキャンセルしました。");
+    } catch {
+      setToastMessage("銘柄一覧のエクスポートに失敗しました。");
+    } finally {
+      setWatchlistExporting(false);
+    }
+  };
+
+  const handleOpenCodeTxt = async () => {
+    try {
+      const res = await api.post("/watchlist/open");
+      if (res.status >= 200 && res.status < 300 && res.data?.ok) {
+        setToastMessage("code.txt を開きました。");
+      } else {
+        setToastMessage("code.txt を開けませんでした。");
+      }
+    } catch {
+      setToastMessage("code.txt を開けませんでした。");
+    }
+  };
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1319,8 +1380,46 @@ export default function GridView() {
                       </button>
                     </div>
                   </div>
+                  <div className="popover-section">
+                    <div className="popover-title">取引CSV</div>
+                    <button
+                      type="button"
+                      className="popover-item"
+                      onClick={handleTradeCsvPick}
+                      disabled={tradeUploadInFlight}
+                    >
+                      <span>{tradeUploadInFlight ? "取り込み中..." : "CSVを取り込む"}</span>
+                      <span className="popover-status">手動</span>
+                    </button>
+                    <div className="popover-hint">
+                      保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
+                    </div>
+                  </div>
+                  <div className="popover-section">
+                    <div className="popover-title">銘柄一覧</div>
+                    <button
+                      type="button"
+                      className="popover-item"
+                      onClick={handleExportWatchlist}
+                      disabled={watchlistExporting}
+                    >
+                      <span>{watchlistExporting ? "エクスポート中..." : "銘柄一覧をEXPORTする"}</span>
+                      <span className="popover-status">EBK</span>
+                    </button>
+                    <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
+                      <span>code.txtを開く</span>
+                      <span className="popover-status">編集</span>
+                    </button>
+                  </div>
                 </div>
               )}
+              <input
+                ref={tradeCsvInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleTradeCsvChange}
+                style={{ display: "none" }}
+              />
             </div>
           </div>
         </div>

@@ -11,10 +11,11 @@ export const buildThumbnailCacheKey = (
   code: string,
   timeframe: "monthly" | "weekly" | "daily",
   showBoxes: boolean,
-  maSettings: MaSetting[]
+  maSettings: MaSetting[],
+  theme: "dark" | "light"
 ) => {
   const settingsKey = buildSettingsKey(maSettings);
-  return `${code}:${timeframe}:${showBoxes}:${settingsKey}`;
+  return `${code}:${timeframe}:${showBoxes}:${settingsKey}:${theme}`;
 };
 
 export const getThumbnailCache = (key: string) => cache.get(key);

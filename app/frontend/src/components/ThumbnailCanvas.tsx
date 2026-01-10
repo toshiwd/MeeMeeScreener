@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { BarsPayload, Box, MaSetting } from "../store";
+import { getDomTheme } from "../utils/theme";
 import { getBodyRangeFromBars, getBoxFill, getBoxStroke } from "../utils/boxes";
 import { setThumbnailCache } from "./thumbnailCache";
 
@@ -81,7 +82,7 @@ export function drawChart(
   height: number,
   maxBars: number,
   showAxes: boolean,
-  theme: "dark" | "light" = "dark"
+  theme: "dark" | "light"
 ) {
   const isLight = theme === "light";
   const themeColors = {
@@ -320,25 +321,28 @@ export function drawChart(
       ctx.restore();
     }
   }
+}
 
-  export default function ThumbnailCanvas({
-    payload,
-    boxes,
-    showBoxes,
-    maSettings,
-    cacheKey,
-    maxBars,
-    showAxes = false
-  }: {
-    payload: BarsPayload;
-    boxes: Box[];
-    showBoxes: boolean;
-    maSettings: MaSetting[];
-    cacheKey?: string;
-    maxBars?: number;
-    showAxes?: boolean;
-    theme?: "dark" | "light";
-  }) {
+export default function ThumbnailCanvas({
+  payload,
+  boxes,
+  showBoxes,
+  maSettings,
+  cacheKey,
+  maxBars,
+  showAxes = false,
+  theme
+}: {
+  payload: BarsPayload;
+  boxes: Box[];
+  showBoxes: boolean;
+  maSettings: MaSetting[];
+  cacheKey?: string;
+  maxBars?: number;
+  showAxes?: boolean;
+  theme?: "dark" | "light";
+}) {
+  const resolvedTheme = theme ?? getDomTheme();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const lastKeyRef = useRef<string>("");
@@ -362,8 +366,8 @@ export function drawChart(
       const settingsKey = maSettings
         .map((setting) => `${setting.period}-${setting.visible}-${setting.color}-${setting.lineWidth}`)
         .join("|");
-      return `${bars.length}-${bars[0]?.[0]}-${last?.[0]}-${last?.[4]}-${boxes.length}-${firstBox?.startTime ?? "none"}-${showBoxes}-${settingsKey}-${maxBarsValue}-${showAxes}-${theme}`;
-    }, [displayBars, boxes, showBoxes, maSettings, maxBarsValue, showAxes, theme]);
+      return `${bars.length}-${bars[0]?.[0]}-${last?.[0]}-${last?.[4]}-${boxes.length}-${firstBox?.startTime ?? "none"}-${showBoxes}-${settingsKey}-${maxBarsValue}-${showAxes}-${resolvedTheme}`;
+    }, [displayBars, boxes, showBoxes, maSettings, maxBarsValue, showAxes, resolvedTheme]);
 
     const draw = useCallback(() => {
       if (!containerRef.current || !canvasRef.current) return false;
@@ -380,7 +384,18 @@ export function drawChart(
       if (ctx) {
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       }
-      drawChart(canvas, payload, boxes, showBoxes, maSettings, width, height, maxBarsValue, showAxes, theme);
+      drawChart(
+        canvas,
+        payload,
+        boxes,
+        showBoxes,
+        maSettings,
+        width,
+        height,
+        maxBarsValue,
+        showAxes,
+        resolvedTheme
+      );
       if (cacheKey) {
         const snapshotKey = `${cacheKey}:${renderKey}:${width}x${height}`;
         if (lastSnapshotRef.current !== snapshotKey) {
@@ -393,7 +408,7 @@ export function drawChart(
         }
       }
       return true;
-    }, [payload, boxes, showBoxes, maSettings, renderKey, cacheKey, maxBarsValue, showAxes]);
+    }, [payload, boxes, showBoxes, maSettings, renderKey, cacheKey, maxBarsValue, showAxes, resolvedTheme]);
 
     const scheduleDraw = useCallback(() => {
       if (rafRef.current !== null) {

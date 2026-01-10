@@ -1,4 +1,5 @@
-﻿from datetime import datetime, timedelta
+﻿from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 import calendar
 import csv
 import glob
@@ -14,12 +15,32 @@ import time
 import traceback
 import uuid
 
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from db import get_conn, init_schema
 from box_detector import detect_boxes
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        print("[startup] Initializing database schema...")
+        init_schema()
+        print("[startup] Initializing favorites schema...")
+        _init_favorites_schema()
+        print("[startup] Initializing practice schema...")
+        _init_practice_schema()
+        print("[startup] All schemas initialized successfully.")
+    except Exception as exc:
+        print(f"[startup] FATAL: An exception occurred during schema initialization: {exc}", file=sys.stderr)
+        traceback.print_exc()
+        # Re-raise the exception to ensure uvicorn exits with an error
+        raise exc
+    yield
+    # Shutdown
+    print("[shutdown] Application shutting down.")
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 DEFAULT_PAN_VBS_PATH = os.path.join(REPO_ROOT, "tools", "export_pan.vbs")
@@ -38,6 +59,7 @@ def resolve_data_dir() -> str:
 
 
 DATA_DIR = resolve_data_dir()
+STATIC_DIR = os.path.abspath(os.getenv("STATIC_DIR") or os.path.join(os.path.dirname(__file__), "static"))
 DEFAULT_TRADE_RAKUTEN_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "data", "楽天証券取引履歴.csv")
 )
@@ -51,6 +73,14 @@ def resolve_trade_csv_paths() -> list[str]:
     if env:
         parts = [p.strip() for p in re.split(r"[;,\\n]+", env) if p.strip()]
         return [os.path.abspath(part) for part in parts]
+    trade_dir = os.getenv("TRADE_CSV_DIR")
+    if trade_dir:
+        base_dir = os.path.abspath(trade_dir)
+        candidates = [
+            os.path.join(base_dir, "楽天証券取引履歴.csv"),
+            os.path.join(base_dir, "SBI証券取引履歴.csv")
+        ]
+        return [path for path in candidates if os.path.isfile(path)] or candidates
     paths: list[str] = []
     if os.path.isfile(DEFAULT_TRADE_RAKUTEN_PATH):
         paths.append(DEFAULT_TRADE_RAKUTEN_PATH)
@@ -59,6 +89,13 @@ def resolve_trade_csv_paths() -> list[str]:
     if not paths:
         paths.append(DEFAULT_TRADE_RAKUTEN_PATH)
     return paths
+
+
+def resolve_trade_csv_dir() -> str:
+    env = os.getenv("TRADE_CSV_DIR")
+    if env:
+        return os.path.abspath(env)
+    return os.path.abspath(os.path.join(REPO_ROOT, "data"))
 
 
 TRADE_CSV_PATHS = resolve_trade_csv_paths()
@@ -414,15 +451,21 @@ def _restore_watchlist_artifacts(token: str) -> list[str]:
         restored.append(dest)
     return restored
 
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
+if APP_ENV == "dev":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"]
+    )
+
+
+@app.get("/health")
+def simple_health():
+    return JSONResponse(content={"ok": True})
 
 
 @app.exception_handler(HTTPException)
@@ -447,11 +490,23 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=status_code, content=payload, headers={"X-Request-Id": trace_id})
 
 
-@app.on_event("startup")
-def on_startup():
-    init_schema()
-    _init_favorites_schema()
-    _init_practice_schema()
+@app.post("/api/trade_csv/upload")
+async def trade_csv_upload(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "csv_required"})
+    dest_dir = resolve_trade_csv_dir()
+    os.makedirs(dest_dir, exist_ok=True)
+    filename = os.path.basename(file.filename)
+    dest_path = os.path.join(dest_dir, filename)
+    with open(dest_path, "wb") as handle:
+        shutil.copyfileobj(file.file, handle)
+    _trade_cache["key"] = None
+    _trade_cache["rows"] = []
+    _trade_cache["warnings"] = []
+    return JSONResponse(content={"ok": True, "filename": filename, "path": dest_path})
+
+
+
 
 
 def _parse_trade_csv() -> dict:
@@ -488,6 +543,38 @@ def _parse_trade_csv() -> dict:
         with open(path, "r", encoding=encoding, newline="") as handle:
             reader = csv.reader(handle)
             return list(reader)
+
+    def make_dedup_key(
+        code: str,
+        date_value: str | None,
+        trade_label: str,
+        qty_raw: str,
+        price_raw: str,
+        amount_raw: str,
+        fee_raw: str = "",
+        tax_raw: str = "",
+        account: str = ""
+    ) -> str:
+        parts = [
+            normalize_text(code),
+            normalize_text(date_value or ""),
+            normalize_label(trade_label),
+            normalize_text(qty_raw),
+            normalize_text(price_raw),
+            normalize_text(amount_raw),
+            normalize_text(fee_raw),
+            normalize_text(tax_raw),
+            normalize_text(account)
+        ]
+        return "|".join(parts)
+
+    def log_dedup_summary(duplicate_counts: dict[str, int]) -> None:
+        if not duplicate_counts:
+            return
+        print(
+            "trade_dedup_key=code|date|trade|qty|price|amount|fee|tax|account "
+            f"duplicates={duplicate_counts}"
+        )
 
     def to_float(value: str) -> float:
         try:
@@ -575,6 +662,7 @@ def _parse_trade_csv() -> dict:
         col_amount = find_col("受渡金額/決済損益", "決済損益", "受渡金額")
 
         dedup_keys: set[str] = set()
+        duplicate_counts: dict[str, int] = {}
         for row_index, line in enumerate(rows_all[header_index + 1 :], start=1):
             if not line or col_trade_date is None or col_code is None:
                 continue
@@ -657,8 +745,19 @@ def _parse_trade_csv() -> dict:
                 unknown_labels_by_code.setdefault(code, set()).add(sample)
                 continue
 
-            dedup_key = "|".join([code, date_value, trade_label, qty_raw, price_raw, amount_raw])
+            dedup_key = make_dedup_key(
+                code,
+                date_value,
+                trade_label,
+                qty_raw,
+                price_raw,
+                amount_raw,
+                fee_raw,
+                tax_raw,
+                account
+            )
             if dedup_key in dedup_keys:
+                duplicate_counts[code] = duplicate_counts.get(code, 0) + 1
                 continue
             dedup_keys.add(dedup_key)
 
@@ -730,6 +829,13 @@ def _parse_trade_csv() -> dict:
                 }
             )
 
+        for code, count in duplicate_counts.items():
+            warnings.append(
+                {"type": "duplicate_rows", "message": f"duplicate_skipped:{code}:{count}", "code": code}
+            )
+
+        log_dedup_summary(duplicate_counts)
+
         for code, samples_set in unknown_labels_by_code.items():
             samples = sorted(list(samples_set))[:5]
             warnings.append(
@@ -780,6 +886,9 @@ def _parse_trade_csv() -> dict:
             col_map = {name: index for index, name in enumerate(header) if name}
             get_cell = lambda row, key: normalize_text(row[col_map.get(key, -1)]) if key in col_map else ""
 
+            dedup_keys: set[str] = set()
+            duplicate_counts: dict[str, int] = {}
+
             for row_index, row in enumerate(data_rows, start=1):
                 if not row or not any(cell.strip() for cell in row):
                     continue
@@ -820,6 +929,22 @@ def _parse_trade_csv() -> dict:
                     sample = f"取引区分={trade_kind or '(blank)'}, 売買区分=(blank)"
                     unknown_labels_by_code.setdefault(code, set()).add(sample)
                     continue
+
+                dedup_key = make_dedup_key(
+                    code,
+                    trade_date,
+                    trade_kind,
+                    qty_raw,
+                    price_raw,
+                    pnl_raw,
+                    fee_raw,
+                    tax_raw,
+                    account
+                )
+                if dedup_key in dedup_keys:
+                    duplicate_counts[code] = duplicate_counts.get(code, 0) + 1
+                    continue
+                dedup_keys.add(dedup_key)
 
                 if event_kind == "BUY_OPEN":
                     side = "buy"
@@ -891,6 +1016,13 @@ def _parse_trade_csv() -> dict:
                         }
                     }
                 )
+
+            for code, count in duplicate_counts.items():
+                file_warnings.append(
+                    {"type": "duplicate_rows", "message": f"duplicate_skipped:{code}:{count}", "code": code}
+                )
+
+            log_dedup_summary(duplicate_counts)
 
         else:
             rows_all = rows_all
@@ -988,16 +1120,16 @@ def _parse_trade_csv() -> dict:
                     unknown_labels_by_code.setdefault(code, set()).add(sample)
                     continue
 
-                dedup_key = "|".join(
-                    [
-                        code,
-                        date_value,
-                        trade_type,
-                        trade_kind,
-                        qty_raw,
-                        price_raw,
-                        amount_raw
-                    ]
+                dedup_key = make_dedup_key(
+                    code,
+                    date_value,
+                    trade_type + "|" + trade_kind,
+                    qty_raw,
+                    price_raw,
+                    amount_raw,
+                    fee_raw,
+                    tax_raw,
+                    account
                 )
                 if dedup_key in dedup_keys:
                     duplicate_counts[code] = duplicate_counts.get(code, 0) + 1
@@ -1081,8 +1213,10 @@ def _parse_trade_csv() -> dict:
 
             for code, count in duplicate_counts.items():
                 file_warnings.append(
-                    {"type": "duplicate_rows", "message": f"duplicate_rows:{code}:{count}", "code": code}
+                    {"type": "duplicate_rows", "message": f"duplicate_skipped:{code}:{count}", "code": code}
                 )
+
+            log_dedup_summary(duplicate_counts)
 
         for code, samples_set in unknown_labels_by_code.items():
             samples = sorted(list(samples_set))[:5]
@@ -1111,6 +1245,46 @@ def _parse_trade_csv() -> dict:
         rows.extend(file_rows)
         warnings.extend(file_warnings)
 
+    global_dedup_keys: set[str] = set()
+    global_duplicate_counts: dict[str, int] = {}
+    deduped_rows: list[dict] = []
+    for row in rows:
+        raw = row.get("raw") or {}
+        code = row.get("code") or ""
+        date_value = row.get("date") or row.get("tradeDate") or ""
+        trade_label = raw.get("trade") or raw.get("type") or row.get("memo") or row.get("kind") or ""
+        qty_raw = raw.get("qty") or row.get("qtyShares") or ""
+        price_raw = raw.get("price") or row.get("price") or ""
+        amount_raw = raw.get("amount") or row.get("realizedPnlGross") or row.get("realizedPnlNet") or ""
+        fee_raw = raw.get("fee") or row.get("fee") or ""
+        tax_raw = raw.get("tax") or row.get("tax") or ""
+        account = raw.get("account") or row.get("account") or ""
+        dedup_key = make_dedup_key(
+            str(code),
+            str(date_value),
+            str(trade_label),
+            str(qty_raw),
+            str(price_raw),
+            str(amount_raw),
+            str(fee_raw),
+            str(tax_raw),
+            str(account)
+        )
+        if dedup_key in global_dedup_keys:
+            code_key = str(code) if code is not None else "unknown"
+            global_duplicate_counts[code_key] = global_duplicate_counts.get(code_key, 0) + 1
+            continue
+        global_dedup_keys.add(dedup_key)
+        deduped_rows.append(row)
+
+    if global_duplicate_counts:
+        for code, count in global_duplicate_counts.items():
+            warnings.append(
+                {"type": "duplicate_rows", "message": f"duplicate_skipped:{code}:{count}", "code": code}
+            )
+        log_dedup_summary(global_duplicate_counts)
+
+    rows = deduped_rows
     rows.sort(
         key=lambda item: (item.get("date", ""), item.get("_event_order", 2), item.get("_row_index", 0))
     )
@@ -1182,6 +1356,7 @@ def _strip_internal(row: dict) -> dict:
 
 def _build_warning_payload(warnings: list[dict], code: str | None = None) -> dict:
     items: list[str] = []
+    info: list[str] = []
     unrecognized_count = 0
     unrecognized_samples: list[str] = []
 
@@ -1199,12 +1374,18 @@ def _build_warning_payload(warnings: list[dict], code: str | None = None) -> dic
                 unrecognized_samples.append(sample)
                 if len(unrecognized_samples) >= 5:
                     break
+        elif warning.get("type") == "duplicate_rows":
+            message = warning.get("message") or warning.get("type") or ""
+            if message:
+                info.append(message)
         else:
             message = warning.get("message") or warning.get("type") or ""
             if message:
                 items.append(message)
 
     payload = {"items": items}
+    if info:
+        payload["info"] = info
     if unrecognized_count:
         payload["unrecognized_labels"] = {
             "count": unrecognized_count,
@@ -3350,6 +3531,27 @@ def watchlist_undo_remove(payload: dict = Body(default=None)):
     return {"ok": True, "code": code, "restored": restored}
 
 
+@app.post("/api/watchlist/open")
+def watchlist_open():
+    path = PAN_CODE_TXT_PATH
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if not os.path.isfile(path):
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("")
+    try:
+        if os.name == "nt":
+            os.startfile(path)
+        else:
+            opener = "open" if sys.platform == "darwin" else "xdg-open"
+            subprocess.Popen([opener, path])
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": f"open_failed:{exc}", "path": path}
+        )
+    return {"ok": True, "path": path}
+
+
 def _list_tables(conn) -> set[str]:
     rows = conn.execute("SELECT table_name FROM duckdb_tables()").fetchall()
     return {row[0] for row in rows}
@@ -4233,3 +4435,37 @@ def ticker_boxes(code: str):
         ).fetchall()
 
     return JSONResponse(content=detect_boxes(rows))
+
+
+def _resolve_static_file(request_path: str) -> str | None:
+    if not STATIC_DIR or not os.path.isdir(STATIC_DIR):
+        return None
+    safe_path = os.path.abspath(os.path.join(STATIC_DIR, request_path))
+    if os.path.commonpath([STATIC_DIR, safe_path]) != STATIC_DIR:
+        return None
+    if os.path.isdir(safe_path):
+        safe_path = os.path.join(safe_path, "index.html")
+    if os.path.isfile(safe_path):
+        return safe_path
+    return None
+
+
+@app.get("/")
+def serve_root():
+    index_path = _resolve_static_file("index.html")
+    if not index_path:
+        return JSONResponse(status_code=404, content={"error": "static_not_found"})
+    return FileResponse(index_path)
+
+
+@app.get("/{full_path:path}")
+def serve_spa(full_path: str):
+    if full_path.startswith("api") or full_path.startswith("health"):
+        raise HTTPException(status_code=404)
+    resolved = _resolve_static_file(full_path)
+    if resolved:
+        return FileResponse(resolved)
+    index_path = _resolve_static_file("index.html")
+    if not index_path:
+        return JSONResponse(status_code=404, content={"error": "static_not_found"})
+    return FileResponse(index_path)

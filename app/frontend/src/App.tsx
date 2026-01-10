@@ -1,4 +1,4 @@
-﻿import { useEffect } from "react";
+﻿import { useLayoutEffect } from "react";
 import { Route, Routes } from "react-router-dom";
 import { BackendReadyProvider } from "./backendReady";
 import CandidatesView from "./routes/CandidatesView";
@@ -11,7 +11,7 @@ import { applyTheme, getStoredTheme } from "./utils/theme";
 
 export default function App() {
   // Initialize theme on app mount
-  useEffect(() => {
+  useLayoutEffect(() => {
     const theme = getStoredTheme();
     applyTheme(theme);
   }, []);

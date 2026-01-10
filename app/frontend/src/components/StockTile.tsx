@@ -10,6 +10,7 @@ type StockTileProps = {
   signals?: SignalChip[];
   active?: boolean;
   kept?: boolean;
+  theme?: "dark" | "light";
   onActivate?: (code: string) => void;
   onOpenDetail: (code: string) => void;
   onToggleKeep?: (code: string) => void;
@@ -22,6 +23,7 @@ const StockTile = memo(function StockTile({
   signals,
   active = false,
   kept = false,
+  theme,
   onActivate,
   onOpenDetail,
   onToggleKeep,
@@ -49,7 +51,7 @@ const StockTile = memo(function StockTile({
       : map.monthly ?? [];
   });
   const showBoxes = useStore((state) => state.settings.showBoxes);
-  const cacheKey = buildThumbnailCacheKey(ticker.code, timeframe, showBoxes, maSettings);
+  const cacheKey = buildThumbnailCacheKey(ticker.code, timeframe, showBoxes, maSettings, theme ?? "dark");
   const cachedThumb = getThumbnailCache(cacheKey);
 
   const handleActivate = () => onActivate?.(ticker.code);
@@ -86,7 +88,7 @@ const StockTile = memo(function StockTile({
           <span className="tile-code">{ticker.code}</span>
           <span className="tile-name">{ticker.name}</span>
           {ticker.dataStatus === "missing" && (
-            <span className="badge status-missing">–¢æ</span>
+            <span className="badge status-missing">ï¿½ï¿½ï¿½æ</span>
           )}
         </div>
         <div className="tile-actions">
@@ -94,7 +96,7 @@ const StockTile = memo(function StockTile({
             type="button"
             className={`tile-action ${kept ? "active" : ""}`}
             onClick={handleToggleKeep}
-            aria-label={kept ? "Œó•â” ‚©‚çŠO‚·" : "Œó•â” ‚Ö’Ç‰Á"}
+            aria-label={kept ? "ï¿½ï¿½â” ï¿½ï¿½ï¿½ï¿½Oï¿½ï¿½" : "ï¿½ï¿½â” ï¿½Ö’Ç‰ï¿½"}
           >
             +
           </button>
@@ -102,7 +104,7 @@ const StockTile = memo(function StockTile({
             type="button"
             className="tile-action danger"
             onClick={handleExclude}
-            aria-label="œŠO"
+            aria-label="ï¿½ï¿½ï¿½O"
           >
             x
           </button>
@@ -110,7 +112,7 @@ const StockTile = memo(function StockTile({
             type="button"
             className="tile-action"
             onClick={handleOpenClick}
-            aria-label="Ú×‚ğŠJ‚­"
+            aria-label="ï¿½Ú×‚ï¿½ï¿½Jï¿½ï¿½"
           >
             &gt;
           </button>
@@ -139,6 +141,7 @@ const StockTile = memo(function StockTile({
             maSettings={maSettings}
             cacheKey={cacheKey}
             showAxes
+            theme={theme}
           />
         ) : cachedThumb ? (
           <div className="thumb-canvas">
@@ -147,10 +150,10 @@ const StockTile = memo(function StockTile({
         ) : (
           <div className="tile-loading">
             {barsStatus === "error"
-              ? "“Ç‚İ‚İ¸”s"
+              ? "ï¿½Ç‚İï¿½ï¿½İï¿½ï¿½s"
               : barsStatus === "empty"
-              ? "ƒf[ƒ^‚È‚µ"
-              : "“Ç‚İ‚İ’†..."}
+              ? "ï¿½fï¿½[ï¿½^ï¿½È‚ï¿½"
+              : "ï¿½Ç‚İï¿½ï¿½İ’ï¿½..."}
           </div>
         )}
       </div>

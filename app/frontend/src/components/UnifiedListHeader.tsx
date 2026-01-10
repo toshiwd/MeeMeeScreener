@@ -221,7 +221,7 @@ export default function UnifiedListHeader({
               }}
             >
               {`${LABELS.sort}\uFF1A${sortLabel}`}
-              <span className="caret">\u25BC</span>
+              <span className="caret">{"\u25BC"}</span>
             </button>
             {sortOpen && (
               <div className="popover-panel">
@@ -263,7 +263,7 @@ export default function UnifiedListHeader({
               }}
             >
               {`${LABELS.displayDensity} ${columns}x${rows}`}
-              <span className="caret">\u25BC</span>
+              <span className="caret">{"\u25BC"}</span>
             </button>
             {densityOpen && (
               <div className="popover-panel">
@@ -276,7 +276,7 @@ export default function UnifiedListHeader({
                         className={columns === count ? "active" : ""}
                         onClick={() => onColumnsChange(count as 1 | 2 | 3 | 4)}
                       >
-                        {count}\u5217
+                        {`${count}\u5217`}
                       </button>
                     ))}
                   </div>
@@ -290,7 +290,7 @@ export default function UnifiedListHeader({
                         className={rows === count ? "active" : ""}
                         onClick={() => onRowsChange(count as 1 | 2 | 3 | 4 | 5 | 6)}
                       >
-                        {count}\u884c
+                        {`${count}\u884c`}
                       </button>
                     ))}
                   </div>
@@ -369,7 +369,7 @@ export default function UnifiedListHeader({
               setFilterOpen(false);
             }}
           >
-            \u2026
+            {"\u2026"}
           </button>
           {moreOpen && (
             <div className="popover-panel list-header-menu">
@@ -408,7 +408,7 @@ export default function UnifiedListHeader({
                           className={columns === count ? "active" : ""}
                           onClick={() => onColumnsChange(count as 1 | 2 | 3 | 4)}
                         >
-                          {count}\u5217
+                          {`${count}\u5217`}
                         </button>
                       ))}
                     </div>
@@ -422,7 +422,7 @@ export default function UnifiedListHeader({
                           className={rows === count ? "active" : ""}
                           onClick={() => onRowsChange(count as 1 | 2 | 3 | 4 | 5 | 6)}
                         >
-                          {count}\u884c
+                          {`${count}\u884c`}
                         </button>
                       ))}
                     </div>

@@ -245,12 +245,32 @@ export const saveAsFile = async (
 ): Promise<boolean> => {
     try {
         if ("showSaveFilePicker" in window) {
+            const lower = filename.toLowerCase();
+            const extension = lower.endsWith(".json")
+                ? ".json"
+                : lower.endsWith(".csv")
+                    ? ".csv"
+                    : lower.endsWith(".ebk")
+                        ? ".ebk"
+                    : lower.endsWith(".txt")
+                        ? ".txt"
+                        : ".md";
+            const description =
+                extension === ".json"
+                    ? "JSON File"
+                    : extension === ".csv"
+                        ? "CSV File"
+                        : extension === ".ebk"
+                            ? "EBK File"
+                        : extension === ".txt"
+                            ? "Text File"
+                            : "Markdown File";
             const handle = await (window as unknown as { showSaveFilePicker: (options: object) => Promise<FileSystemFileHandle> }).showSaveFilePicker({
                 suggestedName: filename,
                 types: [
                     {
-                        description: mimeType.includes("json") ? "JSON File" : "Markdown File",
-                        accept: { [mimeType]: [filename.endsWith(".json") ? ".json" : ".md"] },
+                        description,
+                        accept: { [mimeType]: [extension] },
                     },
                 ],
             });
