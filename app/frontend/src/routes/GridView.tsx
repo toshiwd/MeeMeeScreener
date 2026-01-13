@@ -12,6 +12,7 @@ import { useStore } from "../store";
 import StockTile from "../components/StockTile";
 import Toast from "../components/Toast";
 import TopNav from "../components/TopNav";
+import TechnicalFilterDrawer from "../components/TechnicalFilterDrawer";
 import { computeSignalMetrics } from "../utils/signals";
 import {
   buildConsultationPack,
@@ -20,12 +21,31 @@ import {
 } from "../utils/consultation";
 import { applyTheme, getStoredTheme, setStoredTheme, toggleTheme, type Theme } from "../utils/theme";
 import { saveAsFile } from "../utils/aiExport";
+import {
+  computeMAAt,
+  describeCondition,
+  evaluateBuilderCondition,
+  formatDateYMD,
+  getLatestAnchorTime,
+  resolveAnchorInfo,
+  resolveOperandValue,
+  sanitizeTechnicalConditions,
+  type AnchorInfo,
+  type TechnicalFilterState
+} from "../utils/technicalFilter";
 
 const GRID_GAP = 12;
 const KEEP_LIMIT = 24;
 type Timeframe = "monthly" | "weekly" | "daily";
 type SortOption = { key: SortKey; label: string };
 type SortSection = { title: string; options: SortOption[] };
+
+const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalFilterState => ({
+  defaultTimeframe,
+  anchorMode: "latest",
+  anchorDate: null,
+  conditions: []
+});
 
 function useResizeObserver() {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -86,13 +106,16 @@ export default function GridView() {
   const sortDir = useStore((state) => state.settings.sortDir);
   const setSortKey = useStore((state) => state.setSortKey);
   const setSortDir = useStore((state) => state.setSortDir);
+  const performancePeriod = useStore((state) => state.settings.performancePeriod);
+  const setPerformancePeriod = useStore((state) => state.setPerformancePeriod);
   const maSettings = useStore((state) => state.maSettings);
   const updateMaSetting = useStore((state) => state.updateMaSetting);
   const resetMaSettings = useStore((state) => state.resetMaSettings);
 
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [showIndicators, setShowIndicators] = useState(false);
-  const [sortOpen, setSortOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);  // Candidate sort menu
+  const [basicSortOpen, setBasicSortOpen] = useState(false);  // Basic sort menu
   const [displayOpen, setDisplayOpen] = useState(false);
   const [isSorting, setIsSorting] = useState(false);
   const [updateRequestInFlight, setUpdateRequestInFlight] = useState(false);
@@ -117,9 +140,18 @@ export default function GridView() {
   const [currentTheme, setCurrentTheme] = useState<Theme>(() => getStoredTheme());
   const [tradeUploadInFlight, setTradeUploadInFlight] = useState(false);
   const [watchlistExporting, setWatchlistExporting] = useState(false);
+  const [techFilterOpen, setTechFilterOpen] = useState(false);
+  const [keepBarCollapsed, setKeepBarCollapsed] = useState(false);
+  const [techFilterDraft, setTechFilterDraft] = useState<TechnicalFilterState>(() =>
+    createDefaultTechFilter(gridTimeframe)
+  );
+  const [techFilterActive, setTechFilterActive] = useState<TechnicalFilterState>(() =>
+    createDefaultTechFilter(gridTimeframe)
+  );
   const sortRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
+  const techFilterDropNoticeRef = useRef(false);
   const gridRef = useRef<FixedSizeGrid | null>(null);
   const tradeCsvInputRef = useRef<HTMLInputElement | null>(null);
   const prevUpdateRunningRef = useRef(false);
@@ -148,9 +180,9 @@ export default function GridView() {
       await api.post("/trade_csv/upload", form, {
         headers: { "Content-Type": "multipart/form-data" }
       });
-      setToastMessage("????CSV?????????");
+      setToastMessage("トレードCSVをアップロードしました。");
     } catch {
-      setToastMessage("????CSV?????????????");
+      setToastMessage("トレードCSVのアップロードに失敗しました。");
     } finally {
       setTradeUploadInFlight(false);
       event.target.value = "";
@@ -237,16 +269,32 @@ export default function GridView() {
     return () => window.clearTimeout(timer);
   }, [sortKey, sortDir]);
 
-  const sortSections = useMemo<SortSection[]>(
+  // Candidate sort sections (shown only on candidate screens)
+  const candidateSortSections = useMemo<SortSection[]>(
     () => [
       {
         title: "買い候補",
         options: [
-          { key: "buyCandidate", label: "買い候補（初動→底がため）" },
-          { key: "buyInitial", label: "買い候補（初動のみ）" },
-          { key: "buyBase", label: "監視（底がためのみ）" }
+          { key: "buyCandidate", label: "買い候補（総合）" },
+          { key: "buyInitial", label: "買い候補（初動）" },
+          { key: "buyBase", label: "買い候補（底がため）" }
         ]
       },
+      {
+        title: "売り候補",
+        options: [
+          { key: "shortScore", label: "売り候補（総合）" },
+          { key: "aScore", label: "売り候補（反転確定）" },
+          { key: "bScore", label: "売り候補（戻り売り）" }
+        ]
+      }
+    ],
+    []
+  );
+
+  // Basic sort sections (shown on non-candidate screens)
+  const basicSortSections = useMemo<SortSection[]>(
+    () => [
       {
         title: "基本",
         options: [
@@ -255,22 +303,18 @@ export default function GridView() {
         ]
       },
       {
-        title: "騰落率（直近）",
+        title: "テクニカル",
         options: [
-          { key: "chg1D", label: "騰落率（1日）" },
-          { key: "chg1W", label: "騰落率（1週）" },
-          { key: "chg1M", label: "騰落率（1ヶ月）" },
-          { key: "chg1Q", label: "騰落率（3ヶ月）" },
-          { key: "chg1Y", label: "騰落率（1年）" }
+          { key: "ma20Dev", label: "乖離率（MA20）" },
+          { key: "ma60Dev", label: "乖離率（MA60）" },
+          { key: "ma20Slope", label: "MA20傾き" },
+          { key: "ma60Slope", label: "MA60傾き" }
         ]
       },
       {
-        title: "騰落率（確定期間）",
+        title: "パフォーマンス",
         options: [
-          { key: "prevWeekChg", label: "前週騰落率" },
-          { key: "prevMonthChg", label: "前月騰落率" },
-          { key: "prevQuarterChg", label: "前四半期騰落率" },
-          { key: "prevYearChg", label: "前年騰落率" }
+          { key: "performance", label: "騰落率" }  // Period selected via dropdown
         ]
       },
       {
@@ -290,10 +334,23 @@ export default function GridView() {
     []
   );
 
+  // Legacy combined sortSections (for backward compatibility in sorting logic)
+  const sortSections = useMemo<SortSection[]>(
+    () => [...candidateSortSections, ...basicSortSections],
+    [candidateSortSections, basicSortSections]
+  );
+
   const sortOptions = useMemo(
     () => sortSections.flatMap((section) => section.options),
     [sortSections]
   );
+
+  // Determine if current view is a candidate view
+  const isCandidateView = useMemo(() => {
+    // Check if sortKey is a candidate sort key
+    const candidateKeys = ["buyCandidate", "buyInitial", "buyBase", "shortScore", "aScore", "bScore"];
+    return candidateKeys.includes(sortKey);
+  }, [sortKey]);
 
   const sortLabel = useMemo(
     () => sortOptions.find((option) => option.key === sortKey)?.label ?? "コード",
@@ -301,6 +358,8 @@ export default function GridView() {
   );
 
   const sortDirLabel = sortDir === "desc" ? "降順" : "昇順";
+  const gridTimeframeLabel =
+    gridTimeframe === "daily" ? "日足" : gridTimeframe === "weekly" ? "週足" : "月足";
 
   const normalizeWatchCode = useCallback((value: string) => {
     const trimmed = value.trim();
@@ -330,6 +389,148 @@ export default function GridView() {
     });
   }, [tickers, search]);
 
+  useEffect(() => {
+    if (!backendReady) return;
+    if (techFilterActive.conditions.length === 0) return;
+    const codes = filtered.map((item) => item.code);
+    if (!codes.length) return;
+    const timeframes = Array.from(
+      new Set(techFilterActive.conditions.map((condition) => condition.timeframe))
+    );
+    timeframes.forEach((frame) => {
+      ensureBarsForVisible(frame, codes, "tech-filter");
+    });
+  }, [
+    backendReady,
+    techFilterActive.conditions.length,
+    techFilterActive.conditions,
+    filtered,
+    ensureBarsForVisible
+  ]);
+
+  const resolveAnchorTime = useCallback(
+    (state: TechnicalFilterState) => {
+      const targetTimeframe = state.defaultTimeframe ?? gridTimeframe;
+      if (state.anchorMode === "latest") {
+        return getLatestAnchorTime(barsCache[targetTimeframe]);
+      }
+      if (!state.anchorDate) return null;
+      const parts = state.anchorDate.split(/[-/]/).map((value) => Number(value));
+      if (parts.length < 3) return null;
+      const [year, month, day] = parts;
+      if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+      return Math.floor(Date.UTC(year, month - 1, day) / 1000);
+    },
+    [barsCache, gridTimeframe]
+  );
+
+  const resolveAnchorTimeForTimeframe = useCallback(
+    (timeframe: Timeframe, state: TechnicalFilterState) => {
+      if (state.anchorMode === "latest") {
+        return getLatestAnchorTime(barsCache[timeframe]);
+      }
+      if (!state.anchorDate) return null;
+      const parts = state.anchorDate.split(/[-/]/).map((value) => Number(value));
+      if (parts.length < 3) return null;
+      const [year, month, day] = parts;
+      if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+      return Math.floor(Date.UTC(year, month - 1, day) / 1000);
+    },
+    [barsCache]
+  );
+
+  const activeAnchorTime = useMemo(
+    () => resolveAnchorTime(techFilterActive),
+    [resolveAnchorTime, techFilterActive]
+  );
+
+  const draftAnchorTime = useMemo(
+    () => resolveAnchorTime(techFilterDraft),
+    [resolveAnchorTime, techFilterDraft]
+  );
+
+  const activeAnchorLabel = activeAnchorTime ? formatDateYMD(activeAnchorTime) : null;
+  const draftAnchorLabel = draftAnchorTime ? formatDateYMD(draftAnchorTime) : null;
+  const listAnchorTime = useMemo(
+    () => getLatestAnchorTime(barsCache[gridTimeframe]),
+    [barsCache, gridTimeframe]
+  );
+  const listAnchorLabel = listAnchorTime ? formatDateYMD(listAnchorTime) : null;
+
+  const filterAsofTimeframe = useMemo(() => {
+    if (techFilterActive.conditions.length === 0) return null;
+    const unique = new Set(techFilterActive.conditions.map((condition) => condition.timeframe));
+    if (unique.size === 1) return Array.from(unique)[0];
+    return techFilterActive.defaultTimeframe;
+  }, [techFilterActive.conditions, techFilterActive.defaultTimeframe]);
+
+  const filterAnchorInfoByCode = useMemo(() => {
+    const map = new Map<string, AnchorInfo>();
+    if (activeAnchorTime == null || !filterAsofTimeframe) return map;
+    filtered.forEach((ticker) => {
+      const payload = barsCache[filterAsofTimeframe][ticker.code];
+      if (!payload?.bars?.length) return;
+      const anchor = resolveAnchorInfo(payload.bars, activeAnchorTime);
+      if (anchor) map.set(ticker.code, anchor);
+    });
+    return map;
+  }, [filtered, barsCache, filterAsofTimeframe, activeAnchorTime]);
+
+  const listAnchorInfoByCode = useMemo(() => {
+    const map = new Map<string, AnchorInfo>();
+    if (listAnchorTime == null) return map;
+    filtered.forEach((ticker) => {
+      const payload = barsCache[gridTimeframe][ticker.code];
+      if (!payload?.bars?.length) return;
+      const anchor = resolveAnchorInfo(payload.bars, listAnchorTime);
+      if (anchor) map.set(ticker.code, anchor);
+    });
+    return map;
+  }, [filtered, barsCache, gridTimeframe, listAnchorTime]);
+
+  const buildFilterResult = useCallback(
+    (state: TechnicalFilterState) => {
+      const { conditions } = state;
+      if (!conditions.length) {
+        return {
+          items: filtered,
+          asofMap: new Map<string, string>()
+        };
+      }
+      const asofMap = new Map<string, string>();
+      const timeframes = Array.from(
+        new Set(conditions.map((condition) => condition.timeframe))
+      );
+      const anchorTimes = new Map<Timeframe, number | null>();
+      timeframes.forEach((timeframe) => {
+        anchorTimes.set(timeframe, resolveAnchorTimeForTimeframe(timeframe, state));
+      });
+      const items = filtered.filter((ticker) => {
+        const anchorCache = new Map<Timeframe, AnchorInfo | null>();
+        for (const condition of conditions) {
+          const timeframe = condition.timeframe;
+          const anchorTime = anchorTimes.get(timeframe) ?? null;
+          if (anchorTime == null) return false;
+          const payload = barsCache[timeframe][ticker.code];
+          if (!payload?.bars?.length) return false;
+          let anchor = anchorCache.get(timeframe);
+          if (anchor === undefined) {
+            anchor = resolveAnchorInfo(payload.bars, anchorTime);
+            anchorCache.set(timeframe, anchor ?? null);
+          }
+          if (!anchor) return false;
+          if (!evaluateBuilderCondition(condition, payload.bars, anchor)) return false;
+          if (anchor.asof && !asofMap.has(ticker.code)) {
+            asofMap.set(ticker.code, formatDateYMD(anchor.time));
+          }
+        }
+        return true;
+      });
+      return { items, asofMap };
+    },
+    [filtered, barsCache, resolveAnchorTimeForTimeframe]
+  );
+
   const canAddWatchlist = useMemo(() => {
     if (!normalizedSearch) return null;
     if (filtered.length > 0) return null;
@@ -337,13 +538,41 @@ export default function GridView() {
     return normalizedSearch;
   }, [normalizedSearch, filtered.length, tickers]);
 
+  const activeFilterResult = useMemo(
+    () => buildFilterResult(techFilterActive),
+    [buildFilterResult, techFilterActive]
+  );
+
+  const draftFilterResult = useMemo(
+    () => buildFilterResult(techFilterDraft),
+    [buildFilterResult, techFilterDraft]
+  );
+
+  const technicalFiltered = activeFilterResult.items;
+  const activeConditionTimeframes = useMemo(() => {
+    return new Set(techFilterActive.conditions.map((condition) => condition.timeframe));
+  }, [techFilterActive.conditions]);
+  const activeTimeframeLabel = useMemo(() => {
+    if (activeConditionTimeframes.size === 0) return "未設定";
+    if (activeConditionTimeframes.size === 1) {
+      const value = Array.from(activeConditionTimeframes)[0];
+      return value === "daily" ? "日足" : value === "weekly" ? "週足" : "月足";
+    }
+    return "複数";
+  }, [activeConditionTimeframes]);
+
+  const shouldShowAsof = useMemo(() => {
+    if (techFilterActive.conditions.length > 0) return true;
+    return ["ma20Dev", "ma60Dev", "ma20Slope", "ma60Slope"].includes(sortKey);
+  }, [techFilterActive.conditions.length, sortKey]);
+
   const scoredTickers = useMemo(() => {
-    return filtered.map((ticker, index) => {
+    return technicalFiltered.map((ticker, index) => {
       const payload = barsCache[gridTimeframe][ticker.code];
       const metrics = payload?.bars?.length ? computeSignalMetrics(payload.bars, 4) : null;
       return { ticker, metrics, index };
     });
-  }, [filtered, barsCache, gridTimeframe]);
+  }, [technicalFiltered, barsCache, gridTimeframe]);
 
   const collator = useMemo(
     () => new Intl.Collator("ja-JP", { numeric: true, sensitivity: "base" }),
@@ -360,9 +589,25 @@ export default function GridView() {
     };
     const isBuyCandidate =
       sortKey === "buyCandidate" || sortKey === "buyInitial" || sortKey === "buyBase";
+    const resolveDeviation = (bars: number[][] | undefined, anchor: AnchorInfo | undefined, period: number) => {
+      if (!bars || !anchor) return null;
+      const close = resolveOperandValue(bars, anchor.index, { type: "field", field: "C" });
+      const ma = computeMAAt(bars, anchor.index, period);
+      if (close == null || ma == null || ma === 0) return null;
+      return (close - ma) / ma;
+    };
+    const resolveSlope = (bars: number[][] | undefined, anchor: AnchorInfo | undefined, period: number) => {
+      if (!bars || !anchor || anchor.prevIndex == null) return null;
+      const now = computeMAAt(bars, anchor.index, period);
+      const prev = computeMAAt(bars, anchor.prevIndex, period);
+      if (now == null || prev == null) return null;
+      return now - prev;
+    };
 
     const items = scoredTickers.map((item) => {
       const ticker = item.ticker;
+      const bars = barsCache[gridTimeframe][ticker.code]?.bars;
+      const anchor = listAnchorInfoByCode.get(ticker.code);
       let sortValue: string | number | null = null;
       if ((sortKey === "upScore" || sortKey === "downScore") && ticker.statusLabel === "UNKNOWN") {
         sortValue = null;
@@ -370,6 +615,14 @@ export default function GridView() {
         sortValue = ticker.code;
       } else if (sortKey === "name") {
         sortValue = ticker.name ?? "";
+      } else if (sortKey === "ma20Dev") {
+        sortValue = resolveDeviation(bars, anchor, 20);
+      } else if (sortKey === "ma60Dev") {
+        sortValue = resolveDeviation(bars, anchor, 60);
+      } else if (sortKey === "ma20Slope") {
+        sortValue = resolveSlope(bars, anchor, 20);
+      } else if (sortKey === "ma60Slope") {
+        sortValue = resolveSlope(bars, anchor, 60);
       } else if (sortKey === "chg1D") {
         sortValue = ticker.chg1D ?? null;
       } else if (sortKey === "chg1W") {
@@ -399,6 +652,22 @@ export default function GridView() {
       } else if (sortKey === "boxState") {
         const state = ticker.boxState ?? "NONE";
         sortValue = boxOrder[state] ?? 0;
+      } else if (sortKey === "shortScore") {
+        sortValue = ticker.shortScore ?? null;
+      } else if (sortKey === "aScore") {
+        sortValue = ticker.aScore ?? null;
+      } else if (sortKey === "bScore") {
+        sortValue = ticker.bScore ?? null;
+      } else if (sortKey === "performance") {
+        // Use selected performance period
+        switch (performancePeriod) {
+          case "1D": sortValue = ticker.chg1D ?? null; break;
+          case "1W": sortValue = ticker.chg1W ?? null; break;
+          case "1M": sortValue = ticker.chg1M ?? null; break;
+          case "1Q": sortValue = ticker.chg1Q ?? null; break;
+          case "1Y": sortValue = ticker.chg1Y ?? null; break;
+          default: sortValue = ticker.chg1M ?? null;
+        }
       } else if (isBuyCandidate) {
         sortValue = null;
       }
@@ -490,7 +759,7 @@ export default function GridView() {
     };
     items.sort(compare);
     return items;
-  }, [scoredTickers, sortKey, sortDir, collator]);
+  }, [scoredTickers, sortKey, sortDir, collator, barsCache, gridTimeframe, listAnchorInfoByCode, performancePeriod]);
   const sortedCodes = useMemo(
     () => sortedTickers.map((item) => item.ticker.code),
     [sortedTickers]
@@ -818,6 +1087,70 @@ export default function GridView() {
     setStoredTheme(next);
     applyTheme(next);
   }, [currentTheme]);
+
+  const sanitizeTechFilterState = (
+    state: TechnicalFilterState,
+    fallbackTimeframe: Timeframe
+  ) => {
+    const defaultTimeframe =
+      state.defaultTimeframe === "daily" ||
+        state.defaultTimeframe === "weekly" ||
+        state.defaultTimeframe === "monthly"
+        ? state.defaultTimeframe
+        : fallbackTimeframe;
+    const result = sanitizeTechnicalConditions(
+      state.conditions as unknown[],
+      defaultTimeframe
+    );
+    if (result.dropped > 0 && !techFilterDropNoticeRef.current) {
+      setToastMessage("旧条件の一部は削除しました。");
+      techFilterDropNoticeRef.current = true;
+    }
+    return {
+      ...state,
+      defaultTimeframe,
+      conditions: result.conditions
+    };
+  };
+
+  const handleOpenTechFilter = () => {
+    setTechFilterDraft(sanitizeTechFilterState(techFilterActive, gridTimeframe));
+    setTechFilterOpen(true);
+  };
+
+  const handleApplyTechFilter = () => {
+    const normalized = sanitizeTechFilterState(techFilterDraft, gridTimeframe);
+    setTechFilterActive(normalized);
+    setTechFilterDraft(normalized);
+    setTechFilterOpen(false);
+  };
+
+  const handleCancelTechFilter = () => {
+    setTechFilterDraft(techFilterActive);
+    setTechFilterOpen(false);
+  };
+
+  const handleResetTechFilterDraft = () => {
+    setTechFilterDraft(createDefaultTechFilter(techFilterDraft.defaultTimeframe));
+  };
+
+  const handleRemoveActiveCondition = (id: string) => {
+    const next = {
+      ...techFilterActive,
+      conditions: techFilterActive.conditions.filter((item) => item.id !== id)
+    };
+    setTechFilterActive(next);
+    if (!techFilterOpen) {
+      setTechFilterDraft(next);
+    }
+  };
+
+  const handleClearActiveFilters = () => {
+    setTechFilterActive(createDefaultTechFilter(techFilterActive.defaultTimeframe));
+    if (!techFilterOpen) {
+      setTechFilterDraft(createDefaultTechFilter(techFilterDraft.defaultTimeframe));
+    }
+  };
 
   type UpdateSummary = {
     total?: number;
@@ -1162,6 +1495,13 @@ export default function GridView() {
                 </button>
               ))}
             </div>
+            <div className="anchor-display">
+              <span>基準日</span>
+              <button type="button" className="anchor-button" onClick={handleOpenTechFilter}>
+                最新 {activeAnchorLabel ? `(${activeAnchorLabel})` : ""}
+                <span className="caret">▼</span>
+              </button>
+            </div>
             <div className="search-area">
               <div className="search-field">
                 <input
@@ -1188,6 +1528,9 @@ export default function GridView() {
             </div>
           </div>
           <div className="toolbar-right">
+            <button type="button" className="consult-trigger" onClick={handleOpenTechFilter}>
+              条件検索
+            </button>
             <button
               type="button"
               className="consult-trigger"
@@ -1198,24 +1541,26 @@ export default function GridView() {
             >
               相談
             </button>
-            <div className="popover-anchor" ref={sortRef}>
+            {/* Basic Sort Button - always visible */}
+            <div className="popover-anchor">
               <button
                 type="button"
                 className={`sort-button ${isSorting ? "is-sorting" : ""}`}
                 onClick={() => {
-                  setSortOpen((prev) => !prev);
+                  setBasicSortOpen((prev) => !prev);
+                  setSortOpen(false);
                   setDisplayOpen(false);
                 }}
               >
                 並び替え：{sortLabel}・{sortDirLabel}
                 <span className="caret">▼</span>
               </button>
-              {sortOpen && (
+              {basicSortOpen && (
                 <div className="popover-panel">
                   <div className="popover-section">
                     <div className="popover-title">並び替え項目</div>
                     <div className="popover-groups">
-                      {sortSections.map((section) => (
+                      {basicSortSections.map((section) => (
                         <div className="popover-group" key={section.title}>
                           <div className="popover-group-title">{section.title}</div>
                           <div className="popover-group-list">
@@ -1228,7 +1573,7 @@ export default function GridView() {
                                 }
                                 onClick={() => {
                                   setSortKey(option.key);
-                                  setSortOpen(false);
+                                  setBasicSortOpen(false);
                                 }}
                               >
                                 <span>{option.label}</span>
@@ -1253,6 +1598,78 @@ export default function GridView() {
                         >
                           {dir === "desc" ? "降順" : "昇順"}
                         </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Performance period selector - shown when performance sorting is active */}
+                  {sortKey === "performance" && (
+                    <div className="popover-section">
+                      <div className="popover-title">騰落率の期間</div>
+                      <div className="segmented">
+                        {([
+                          { key: "1D", label: "1日" },
+                          { key: "1W", label: "1週" },
+                          { key: "1M", label: "1ヶ月" },
+                          { key: "1Q", label: "3ヶ月" },
+                          { key: "1Y", label: "1年" }
+                        ] as const).map((p) => (
+                          <button
+                            key={p.key}
+                            className={performancePeriod === p.key ? "active" : ""}
+                            onClick={() => setPerformancePeriod(p.key)}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {/* Candidate Sort Button - always visible */}
+            <div className="popover-anchor" ref={sortRef}>
+              <button
+                type="button"
+                className={`sort-button ${isSorting ? "is-sorting" : ""}`}
+                onClick={() => {
+                  setSortOpen((prev) => !prev);
+                  setBasicSortOpen(false);
+                  setDisplayOpen(false);
+                }}
+              >
+                候補
+                <span className="caret">▼</span>
+              </button>
+              {sortOpen && (
+                <div className="popover-panel">
+                  <div className="popover-section">
+                    <div className="popover-title">候補プリセット</div>
+                    <div className="popover-groups">
+                      {candidateSortSections.map((section) => (
+                        <div className="popover-group" key={section.title}>
+                          <div className="popover-group-title">{section.title}</div>
+                          <div className="popover-group-list">
+                            {section.options.map((option) => (
+                              <button
+                                type="button"
+                                key={option.key}
+                                className={
+                                  sortKey === option.key ? "popover-item active" : "popover-item"
+                                }
+                                onClick={() => {
+                                  setSortKey(option.key);
+                                  setSortOpen(false);
+                                }}
+                              >
+                                <span>{option.label}</span>
+                                {sortKey === option.key && (
+                                  <span className="popover-status">選択中</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -1428,6 +1845,31 @@ export default function GridView() {
             </div>
           </div>
         </div>
+        {techFilterActive.conditions.length > 0 && (
+          <div className="tech-filter-chips-row">
+            <span className="tech-filter-chip">
+              基準日: 最新 {activeAnchorLabel ? `(${activeAnchorLabel})` : ""}
+            </span>
+            <span className="tech-filter-chip">
+              条件足種: {activeTimeframeLabel}
+            </span>
+            {techFilterActive.conditions.map((condition) => (
+              <span key={condition.id} className="tech-filter-chip">
+                {(condition.timeframe === "daily"
+                  ? "日足"
+                  : condition.timeframe === "weekly"
+                    ? "週足"
+                    : "月足")}: {describeCondition(condition)}
+                <button type="button" onClick={() => handleRemoveActiveCondition(condition.id)}>
+                  ×
+                </button>
+              </span>
+            ))}
+            <button type="button" className="tech-filter-chip-reset" onClick={handleClearActiveFilters}>
+              すべて解除
+            </button>
+          </div>
+        )}
       </header>
       {health && health.txt_count === 0 && (
         <div className="data-warning">
@@ -1486,44 +1928,52 @@ export default function GridView() {
           </pre>
         </div>
       )}
-      <div className="keep-bar">
+      <div className={`keep-bar ${keepBarCollapsed ? "is-collapsed" : ""}`}>
         <div className="keep-bar-header">
           <div className="keep-bar-title">候補箱</div>
           <div className="keep-bar-meta">
             {keepList.length}/{KEEP_LIMIT}
           </div>
           <div className="keep-bar-hint">S:候補 / E:除外 / J,K:上下 / ←→:横</div>
+          <button
+            type="button"
+            className="keep-bar-toggle"
+            onClick={() => setKeepBarCollapsed((prev) => !prev)}
+          >
+            {keepBarCollapsed ? "開く" : "たたむ"}
+          </button>
           {keepList.length > 0 && (
             <button type="button" className="keep-bar-clear" onClick={clearKeep}>
               クリア
             </button>
           )}
         </div>
-        {keepList.length > 0 ? (
-          <div className="keep-bar-chips">
-            {keepList.map((code) => (
-              <div className="keep-chip" key={code}>
-                <button
-                  type="button"
-                  className="keep-chip-main"
-                  onClick={() => handleKeepNavigate(code)}
-                >
-                  {code}
-                </button>
-                <button
-                  type="button"
-                  className="keep-chip-remove"
-                  onClick={() => removeKeep(code)}
-                  aria-label={`${code} を候補箱から外す`}
-                >
-                  x
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="keep-bar-empty">Sキーまたは + で候補に追加</div>
-        )}
+        {!keepBarCollapsed &&
+          (keepList.length > 0 ? (
+            <div className="keep-bar-chips">
+              {keepList.map((code) => (
+                <div className="keep-chip" key={code}>
+                  <button
+                    type="button"
+                    className="keep-chip-main"
+                    onClick={() => handleKeepNavigate(code)}
+                  >
+                    {code}
+                  </button>
+                  <button
+                    type="button"
+                    className="keep-chip-remove"
+                    onClick={() => removeKeep(code)}
+                    aria-label={`${code} を候補箱から外す`}
+                  >
+                    x
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="keep-bar-empty">Sキーまたは + で候補に追加</div>
+          ))}
       </div>
       <div className={`grid-shell ${consultPaddingClass}`} ref={ref}>
         {showSkeleton && (
@@ -1566,18 +2016,38 @@ export default function GridView() {
                 };
                 return (
                   <div style={cellStyle}>
-                    <StockTile
-                      ticker={item.ticker}
-                      timeframe={gridTimeframe}
-                      signals={item.metrics?.signals ?? []}
-                      active={activeCode === item.ticker.code}
-                      kept={keepSet.has(item.ticker.code)}
-                      onActivate={activateByCode}
-                      onOpenDetail={handleOpenDetail}
-                      onToggleKeep={handleToggleKeep}
-                      onExclude={handleExclude}
-                      theme={currentTheme}
-                    />
+                    {(() => {
+                      const anchorSource =
+                        techFilterActive.conditions.length > 0
+                          ? filterAnchorInfoByCode
+                          : listAnchorInfoByCode;
+                      const anchor = anchorSource.get(item.ticker.code);
+                      const asofLabel =
+                        shouldShowAsof && anchor?.asof ? formatDateYMD(anchor.time) : null;
+                      const baseLabel =
+                        techFilterActive.conditions.length > 0
+                          ? activeAnchorLabel
+                          : listAnchorLabel;
+                      const asofTooltip = asofLabel
+                        ? `基準日 ${baseLabel ?? "最新"} の足が無いので ${asofLabel} を使用`
+                        : null;
+                      return (
+                        <StockTile
+                          ticker={item.ticker}
+                          timeframe={gridTimeframe}
+                          signals={item.metrics?.signals ?? []}
+                          active={activeCode === item.ticker.code}
+                          kept={keepSet.has(item.ticker.code)}
+                          asofLabel={asofLabel}
+                          asofTooltip={asofTooltip}
+                          onActivate={activateByCode}
+                          onOpenDetail={handleOpenDetail}
+                          onToggleKeep={handleToggleKeep}
+                          onExclude={handleExclude}
+                          theme={currentTheme}
+                        />
+                      );
+                    })()}
                   </div>
                 );
               }}
@@ -1767,6 +2237,20 @@ export default function GridView() {
           </div>
         </div>
       )}
+      <TechnicalFilterDrawer
+        open={techFilterOpen}
+        timeframe={techFilterDraft.defaultTimeframe}
+        anchorLabel={draftAnchorLabel}
+        matchCount={draftFilterResult.items.length}
+        value={techFilterDraft}
+        onChange={setTechFilterDraft}
+        onApply={handleApplyTechFilter}
+        onCancel={handleCancelTechFilter}
+        onReset={handleResetTechFilterDraft}
+        onTimeframeChange={(next) => {
+          setTechFilterDraft((prev) => ({ ...prev, defaultTimeframe: next }));
+        }}
+      />
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
     </div>
   );

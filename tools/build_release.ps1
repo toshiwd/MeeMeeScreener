@@ -1,22 +1,38 @@
+param(
+    [string]$LogPath = ""
+)
+
 $ErrorActionPreference = "Stop"
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$frontendDir = Join-Path $repoRoot "app/frontend"
-$backendStatic = Join-Path $repoRoot "app/backend/static"
-$releaseDir = Join-Path $repoRoot "release"
-$iconPath = Join-Path $repoRoot "resources/icons/app_icon.ico"
-
-if (-not (Test-Path $iconPath)) {
-    throw "Missing icon: $iconPath`nPlace app_icon.ico under resources/icons before building."
+if ($LogPath) {
+    $logDir = Split-Path -Parent $LogPath
+    if ($logDir -and -not (Test-Path $logDir)) {
+        New-Item -ItemType Directory -Force $logDir | Out-Null
+    }
+    Start-Transcript -Path $LogPath -Force | Out-Null
 }
 
-$running = Get-Process -Name "MeeMeeScreener" -ErrorAction SilentlyContinue
-if ($running) {
-    throw "MeeMeeScreener.exe is running. Close the app before building."
-}
+try {
+    $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+    $frontendDir = Join-Path $repoRoot "app/frontend"
+    $backendStatic = Join-Path $repoRoot "app/backend/static"
+    $releaseDir = Join-Path $repoRoot "release"
+    $iconPath = Join-Path $repoRoot "resources/icons/app_icon.ico"
 
-Write-Host "Checking Python dependencies..."
-$missingJson = @'
+    if (-not (Test-Path $iconPath)) {
+        throw "Missing icon: $iconPath`nPlace app_icon.ico under resources/icons before building."
+    }
+
+    Write-Host "Starting build_release.ps1"
+    $running = Get-Process -Name "MeeMeeScreener" -ErrorAction SilentlyContinue
+    if ($running) {
+        Write-Host "Closing MeeMeeScreener.exe..."
+        $running | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+    }
+
+    Write-Host "Checking Python dependencies..."
+    $missingJson = @'
 import importlib.util
 import json
 
@@ -35,122 +51,163 @@ modules = [
 missing = [name for name in modules if importlib.util.find_spec(name) is None]
 print(json.dumps(missing))
 '@ | python -
-$missing = @()
-try {
-    $missing = ($missingJson | ConvertFrom-Json)
-} catch {
     $missing = @()
-}
-if ($missing.Count -gt 0) {
-    Write-Host "Installing missing Python packages: $($missing -join ', ')"
-    python -m pip install -r (Join-Path $repoRoot "app/backend/requirements.txt")
-    python -m pip install pyinstaller pywebview pillow
-}
-
-Write-Host "Building frontend..."
-Push-Location $frontendDir
-npm ci
-npm run build
-Pop-Location
-
-$distDir = Join-Path $frontendDir "dist"
-$buildDir = Join-Path $frontendDir "build"
-if (Test-Path $distDir) {
-    $frontendOut = $distDir
-} elseif (Test-Path $buildDir) {
-    $frontendOut = $buildDir
-} else {
-    throw "Frontend build output not found (dist or build)."
-}
-
-if (Test-Path $backendStatic) {
-    Remove-Item -Recurse -Force $backendStatic
-}
-New-Item -ItemType Directory -Force $backendStatic | Out-Null
-Copy-Item -Recurse -Force (Join-Path $frontendOut "*") $backendStatic
-
-$releasePackage = Join-Path $releaseDir "MeeMeeScreener"
-$releaseZip = Join-Path $releaseDir "MeeMeeScreener-portable.zip"
-$backupPackage = $null
-if (Test-Path $releasePackage) {
-    $backupPackage = Join-Path $releaseDir "MeeMeeScreener.prev"
-    if (Test-Path $backupPackage) {
-        Remove-Item -Recurse -Force $backupPackage
-    }
     try {
-        Move-Item -Force $releasePackage $backupPackage
+        $missing = ($missingJson | ConvertFrom-Json)
     } catch {
-        throw "Failed to move release package. Close MeeMeeScreener.exe and retry."
+        $missing = @()
+    }
+    if ($missing.Count -gt 0) {
+        Write-Host "Installing missing Python packages: $($missing -join ', ')"
+        python -m pip install -r (Join-Path $repoRoot "app/backend/requirements.txt")
+        python -m pip install pyinstaller pywebview pillow
+    }
+
+    Write-Host "Building frontend..."
+    Push-Location $frontendDir
+    npm ci
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm ci failed with exit code $LASTEXITCODE"
+    }
+    npm run build
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm run build failed with exit code $LASTEXITCODE"
+    }
+    Pop-Location
+
+    $distDir = Join-Path $frontendDir "dist"
+    $buildDir = Join-Path $frontendDir "build"
+    if (Test-Path $distDir) {
+        $frontendOut = $distDir
+    } elseif (Test-Path $buildDir) {
+        $frontendOut = $buildDir
+    } else {
+        throw "Frontend build output not found (dist or build)."
+    }
+
+    if (Test-Path $backendStatic) {
+        Remove-Item -Recurse -Force $backendStatic
+    }
+    New-Item -ItemType Directory -Force $backendStatic | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $frontendOut "*") $backendStatic
+
+    $releasePackage = Join-Path $releaseDir "MeeMeeScreener"
+    $releaseZip = Join-Path $releaseDir "MeeMeeScreener-portable.zip"
+    if (-not (Test-Path $releaseDir)) {
+        New-Item -ItemType Directory -Force $releaseDir | Out-Null
+    }
+    if (Test-Path $releasePackage) {
+        try {
+            Write-Host "Removing existing release package..."
+            Remove-Item -Recurse -Force $releasePackage
+        } catch {
+            Write-Host "Release package is locked. Retrying..."
+            Start-Sleep -Seconds 1
+            Remove-Item -Recurse -Force $releasePackage
+        }
+    }
+    if (Test-Path $releaseZip) {
+        Write-Host "Removing existing release zip..."
+        Remove-Item -Force $releaseZip
+    }
+
+    Write-Host "Building PyInstaller package..."
+    $buildWork = Join-Path $repoRoot "build/pyinstaller"
+    $useClean = $true
+    if (Test-Path $buildWork) {
+        try {
+            Remove-Item -Recurse -Force $buildWork
+        } catch {
+            $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+            $buildWork = Join-Path $repoRoot "build/pyinstaller_$timestamp"
+            $useClean = $false
+        }
+    }
+    New-Item -ItemType Directory -Force $buildWork | Out-Null
+
+    $pyInstallerArgs = @(
+        "--noconfirm"
+    )
+    if ($useClean) {
+        $pyInstallerArgs += "--clean"
+    }
+    $pyInstallerArgs += @(
+        "--onedir",
+        "--noconsole",
+        "--name", "MeeMeeScreener",
+        "--icon", "$iconPath",
+        "--distpath", "$releaseDir",
+        "--workpath", "$buildWork",
+        "--specpath", "$buildWork",
+        "--hidden-import", "uvicorn",
+        "--hidden-import", "uvicorn.lifespan.on",
+        "--hidden-import", "uvicorn.protocols.http.h11_impl",
+        "--hidden-import", "uvicorn.protocols.websockets.websockets_impl",
+        "--collect-all", "uvicorn",
+        "--hidden-import", "app.backend",
+        "--hidden-import", "app.backend.main",
+        "--collect-submodules", "app.backend",
+        "--add-data", "$backendStatic;app/backend/static",
+        "--add-data", "$iconPath;resources/icons",
+        "--add-data", "$(Join-Path $repoRoot "tools/export_pan.vbs");tools",
+        "--add-data", "$(Join-Path $repoRoot "tools/code.txt");tools",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/rank_config.json");app/backend",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/update_state.json");app/backend",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/favorites.sqlite");app/backend",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/practice.sqlite");app/backend",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/stocks.duckdb");app/backend",
+        "app/desktop/launcher.py"
+    )
+
+    Write-Host "Running PyInstaller..."
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $pyStdout = Join-Path $releaseDir "logs\pyinstaller_${timestamp}.out.log"
+    $pyStderr = Join-Path $releaseDir "logs\pyinstaller_${timestamp}.err.log"
+    $launcherPath = Join-Path $repoRoot "app/desktop/launcher.py"
+    $pyArgs = @("-m", "PyInstaller") + $pyInstallerArgs
+    $pyProc = Start-Process -FilePath "python" -ArgumentList $pyArgs -WorkingDirectory $repoRoot -NoNewWindow -Wait -PassThru `
+        -RedirectStandardOutput $pyStdout -RedirectStandardError $pyStderr
+    Write-Host "PyInstaller stdout: $pyStdout"
+    Write-Host "PyInstaller stderr: $pyStderr"
+    if (Test-Path $pyStdout) {
+        Get-Content -Path $pyStdout | ForEach-Object { Write-Host $_ }
+    }
+    if (Test-Path $pyStderr) {
+        Get-Content -Path $pyStderr | ForEach-Object { Write-Host $_ }
+    }
+    Write-Host "PyInstaller finished with exit code $($pyProc.ExitCode)"
+    if ($pyProc.ExitCode -ne 0) {
+        throw "PyInstaller failed with exit code $($pyProc.ExitCode)"
+    }
+
+    $onedir = $releasePackage
+    Write-Host "Release package exists: $(Test-Path $onedir)"
+    if (-not (Test-Path $onedir)) {
+        throw "Build failed: release/MeeMeeScreener not found."
+    }
+
+    Write-Host "Creating portable zip..."
+    $zipPath = $releaseZip
+    $zipAttempts = 5
+    $zipDelaySeconds = 2
+    $zipSuccess = $false
+    for ($i = 1; $i -le $zipAttempts; $i++) {
+        try {
+            Compress-Archive -Path $onedir -DestinationPath $zipPath
+            $zipSuccess = $true
+            break
+        } catch {
+            Write-Host "Zip failed (attempt $i/$zipAttempts). Retrying in $zipDelaySeconds sec..."
+            Start-Sleep -Seconds $zipDelaySeconds
+        }
+    }
+    if (-not $zipSuccess) {
+        throw "Failed to create portable zip. Files under release/MeeMeeScreener are locked. Close Explorer or antivirus scan and retry."
+    }
+
+    Write-Host "Done."
+} finally {
+    if ($LogPath) {
+        Stop-Transcript | Out-Null
     }
 }
-if (Test-Path $releaseZip) {
-    Remove-Item -Force $releaseZip
-}
-
-Write-Host "Building PyInstaller package..."
-$buildWork = Join-Path $repoRoot "build/pyinstaller"
-$useClean = $true
-if (Test-Path $buildWork) {
-    try {
-        Remove-Item -Recurse -Force $buildWork
-    } catch {
-        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        $buildWork = Join-Path $repoRoot "build/pyinstaller_$timestamp"
-        $useClean = $false
-    }
-}
-New-Item -ItemType Directory -Force $buildWork | Out-Null
-
-$pyInstallerArgs = @(
-    "--noconfirm"
-)
-if ($useClean) {
-    $pyInstallerArgs += "--clean"
-}
-$pyInstallerArgs += @(
-    "--onedir",
-    "--noconsole",
-    "--name", "MeeMeeScreener",
-    "--icon", "$iconPath",
-    "--distpath", "$releaseDir",
-    "--workpath", "$buildWork",
-    "--specpath", "$buildWork",
-    "--hidden-import", "uvicorn",
-    "--hidden-import", "uvicorn.lifespan.on",
-    "--hidden-import", "uvicorn.protocols.http.h11_impl",
-    "--hidden-import", "uvicorn.protocols.websockets.websockets_impl",
-    "--collect-all", "uvicorn",
-    "--hidden-import", "app.backend",
-    "--hidden-import", "app.backend.main",
-    "--collect-submodules", "app.backend",
-    "--add-data", "$backendStatic;app/backend/static",
-    "--add-data", "$iconPath;resources/icons",
-    "--add-data", "$(Join-Path $repoRoot "tools/export_pan.vbs");tools",
-    "--add-data", "$(Join-Path $repoRoot "tools/code.txt");tools",
-    "--add-data", "$(Join-Path $repoRoot "app/backend/rank_config.json");app/backend",
-    "--add-data", "$(Join-Path $repoRoot "app/backend/update_state.json");app/backend",
-    "--add-data", "$(Join-Path $repoRoot "app/backend/favorites.sqlite");app/backend",
-    "--add-data", "$(Join-Path $repoRoot "app/backend/practice.sqlite");app/backend",
-    "--add-data", "$(Join-Path $repoRoot "app/backend/stocks.duckdb");app/backend",
-    "app/desktop/launcher.py"
-)
-
-python -m PyInstaller @pyInstallerArgs
-
-$onedir = $releasePackage
-if (-not (Test-Path $onedir)) {
-    if ($backupPackage -and (Test-Path $backupPackage)) {
-        Move-Item -Force $backupPackage $releasePackage
-    }
-    throw "Build failed: release/MeeMeeScreener not found."
-}
-
-Write-Host "Creating portable zip..."
-$zipPath = $releaseZip
-Compress-Archive -Path $onedir -DestinationPath $zipPath
-
-if ($backupPackage -and (Test-Path $backupPackage)) {
-    Remove-Item -Recurse -Force $backupPackage
-}
-
-Write-Host "Done."

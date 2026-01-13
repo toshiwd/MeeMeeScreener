@@ -2076,6 +2076,341 @@ def _calc_slope(values: list[float | None], lookback: int) -> float | None:
     return float(current) - float(past)
 
 
+# ============================================================================
+# Short-selling screener helper functions
+# ============================================================================
+
+def _calc_regression_slope(values: list[float | None], window: int = 5) -> float | None:
+    """Calculate regression slope over the last `window` values (simple difference average)."""
+    if len(values) < window:
+        return None
+    recent = values[-window:]
+    valid = [v for v in recent if v is not None]
+    if len(valid) < 2:
+        return None
+    # Simple: average of consecutive differences
+    diffs = [valid[i + 1] - valid[i] for i in range(len(valid) - 1)]
+    return sum(diffs) / len(diffs) if diffs else None
+
+
+def _calc_gap_down(opens: list[float], prev_closes: list[float]) -> float | None:
+    """Calculate gap down = prev_close - current_open (positive means gap down)."""
+    if len(opens) < 1 or len(prev_closes) < 1:
+        return None
+    return prev_closes[-1] - opens[-1]
+
+
+def _calc_lower_shadow(open_: float, low: float, close: float) -> float:
+    """Calculate lower shadow = min(O, C) - L."""
+    return min(open_, close) - low
+
+
+def _calc_body(open_: float, close: float) -> float:
+    """Calculate body = |C - O|."""
+    return abs(close - open_)
+
+
+def _calc_range_bounds_with_mid(
+    highs: list[float], lows: list[float], lookback: int
+) -> tuple[float | None, float | None, float | None]:
+    """Calculate (high, low, midpoint) for the range over `lookback` periods."""
+    if not highs or not lows:
+        return None, None, None
+    window_highs = highs[-lookback:] if len(highs) >= lookback else highs
+    window_lows = lows[-lookback:] if len(lows) >= lookback else lows
+    range_high = max(window_highs)
+    range_low = min(window_lows)
+    mid = (range_high + range_low) / 2
+    return range_high, range_low, mid
+
+
+def _check_short_prohibition_zones(
+    close: float,
+    ma20: float | None,
+    ma60: float | None,
+    slope20: float | None,
+    slope60: float | None,
+    atr14: float | None,
+    range_mid: float | None,
+    range_high: float | None,
+    range_low: float | None
+) -> tuple[str | None, int]:
+    """
+    Check prohibition zones for short selling.
+    Returns (zone_name, penalty_score):
+    - Z1: 上昇優位 -> ShortScore = 0 (force)
+    - Z2: 末期下げ -> ShortScore = 0 (force)
+    - Z3: レンジ中央 -> -30 penalty
+    - None: No prohibition
+    """
+    if ma20 is None or ma60 is None:
+        return None, 0
+
+    # Z1: 上昇優位（ネットショート事故ゾーン）
+    # 終値 > MA20 かつ MA20傾き > 0（上向き）
+    # かつ（終値 > MA60 または MA60傾き > 0）
+    if close > ma20 and (slope20 is not None and slope20 > 0):
+        if close > ma60 or (slope60 is not None and slope60 > 0):
+            return "Z1", -9999  # Force to 0
+
+    # Z2: 末期下げ（利確・触らないゾーン）
+    # 終値 < MA20 − 1.2×ATR(14)
+    if atr14 is not None and close < ma20 - 1.2 * atr14:
+        return "Z2", -9999  # Force to 0
+
+    # Z3: レンジ中央（期待値薄）
+    # 直近60日の高安の中点±15%に終値が位置
+    if range_mid is not None and range_high is not None and range_low is not None:
+        range_band = (range_high - range_low) * 0.15
+        if range_mid - range_band <= close <= range_mid + range_band:
+            return "Z3", -30  # Penalty
+
+    return None, 0
+
+
+def _calc_short_a_score(
+    closes: list[float],
+    opens: list[float],
+    lows: list[float],
+    ma5_series: list[float | None],
+    ma20_series: list[float | None],
+    atr14: float | None,
+    volumes: list[float],
+    avg_volume: float | None,
+    down7: int | None,
+    highs: list[float]
+) -> tuple[int, list[str], list[str]]:
+    """
+    A型: 反転確定ショート（20割れ2本 + 決定打B/G/M 2/3成立）
+    Returns (score, reasons, badges)
+    """
+    if len(closes) < 3 or len(ma20_series) < 3 or ma20_series[-1] is None:
+        return 0, [], []
+
+    close = closes[-1]
+    ma20 = ma20_series[-1]
+    prev_close = closes[-2]
+    prev_ma20 = ma20_series[-2] if len(ma20_series) >= 2 and ma20_series[-2] is not None else None
+
+    # A型の必須条件
+    # 1. 終値 < MA20（実体割れ扱い）
+    if close >= ma20:
+        return 0, [], []
+
+    # 2. 直近2本のうち 2本連続で終値 < MA20（=「20割れ2本」）
+    if prev_ma20 is None or prev_close >= prev_ma20:
+        return 0, [], []
+
+    # 3. 下げの決定打（B/G/M の 2/3成立）
+    decisive_count = 0
+    reasons: list[str] = []
+    badges: list[str] = ["20割れ2本"]
+
+    # B（大陰線）：|C−O| ≥ 0.8×ATR(14) かつ 下ヒゲ ≤ 0.25×実体
+    b_condition = False
+    if atr14 is not None and len(opens) >= 1:
+        body = _calc_body(opens[-1], close)
+        lower_shadow = _calc_lower_shadow(opens[-1], lows[-1], close)
+        if body >= 0.8 * atr14 and close < opens[-1]:  # Bearish candle
+            if body > 0 and lower_shadow <= 0.25 * body:
+                b_condition = True
+                decisive_count += 1
+                reasons.append("大陰線")
+
+    # G（ギャップダウン）：GD幅 ≥ 0.5×ATR(14)
+    g_condition = False
+    if atr14 is not None and len(closes) >= 2:
+        gap_down = closes[-2] - opens[-1]  # Previous close - current open
+        if gap_down >= 0.5 * atr14:
+            g_condition = True
+            decisive_count += 1
+            reasons.append("ギャップダウン")
+
+    # M：終値 < MA5
+    m_condition = False
+    if ma5_series and len(ma5_series) >= 1 and ma5_series[-1] is not None:
+        if close < ma5_series[-1]:
+            m_condition = True
+            decisive_count += 1
+            reasons.append("MA5下")
+
+    # B/G/Mの2/3成立が必須
+    if decisive_count < 2:
+        return 0, [], []
+
+    badges.append("B/G/M")
+
+    # ベーススコア: 70点
+    score = 70
+
+    # 加点
+    if b_condition:
+        score += 25  # B成立 +25
+
+    if g_condition:
+        score += 20  # G成立 +20
+        if b_condition:
+            score += 10  # B+Gならさらに +10
+
+    if m_condition:
+        score += 10  # M成立 +10
+
+    # 出来高≥20日平均 +10
+    if avg_volume is not None and len(volumes) >= 1 and avg_volume > 0:
+        if volumes[-1] >= avg_volume:
+            score += 10
+            reasons.append("出来高増")
+
+    # 直近10日安値を終値で更新 +10
+    if len(lows) >= 10:
+        recent_low = min(lows[-10:-1]) if len(lows) > 1 else lows[-1]
+        if close < recent_low:
+            score += 10
+            reasons.append("安値更新")
+
+    # 7下本数が1〜3本目 +5（下げ初動を優先）
+    if down7 is not None and 1 <= down7 <= 3:
+        score += 5
+        reasons.append(f"下げ初動（{down7}本目）")
+
+    # 減点
+    # 終値がMA20から乖離（終値 < MA20 − 1.0×ATR） -15
+    if atr14 is not None and close < ma20 - 1.0 * atr14:
+        score -= 15
+        reasons.append("MA20乖離大")
+
+    badges.insert(0, "反転確定")
+    return max(0, score), reasons, badges
+
+
+def _calc_short_b_score(
+    closes: list[float],
+    opens: list[float],
+    lows: list[float],
+    ma5_series: list[float | None],
+    ma20_series: list[float | None],
+    ma60_series: list[float | None],
+    slope20: float | None,
+    slope60: float | None,
+    atr14: float | None,
+    volumes: list[float],
+    avg_volume: float | None,
+    down20: int | None,
+    ma7_series: list[float | None]
+) -> tuple[int, list[str], list[str]]:
+    """
+    B型: 下落トレンドの戻り売り（MA60下向き + 戻り失速）
+    Returns (score, reasons, badges)
+    """
+    if len(closes) < 5 or len(ma60_series) < 5 or ma60_series[-1] is None:
+        return 0, [], []
+
+    close = closes[-1]
+    ma20 = ma20_series[-1] if ma20_series and ma20_series[-1] is not None else None
+    ma60 = ma60_series[-1]
+
+    # B型の必須条件
+    # 1. MA60傾き < 0（下向き）
+    if slope60 is None or slope60 >= 0:
+        return 0, [], []
+
+    # 2. 終値 < MA60
+    if close >= ma60:
+        return 0, [], []
+
+    # 3. 終値 < MA20
+    if ma20 is not None and close >= ma20:
+        return 0, [], []
+
+    # 4.「戻り失速」判定
+    pullback_stall = False
+    reasons: list[str] = []
+
+    # 直近5本以内に終値がMA7〜MA20帯に接近→その後2本以内で終値<MA5
+    ma7 = ma7_series[-1] if ma7_series and len(ma7_series) >= 1 and ma7_series[-1] is not None else None
+    ma5 = ma5_series[-1] if ma5_series and len(ma5_series) >= 1 and ma5_series[-1] is not None else None
+
+    if ma7 is not None and ma20 is not None and ma5 is not None:
+        # Check if price approached MA7-MA20 band in last 5 bars
+        for i in range(-5, 0):
+            if abs(i) > len(closes) or abs(i) > len(ma7_series) or abs(i) > len(ma20_series):
+                continue
+            past_close = closes[i]
+            past_ma7 = ma7_series[i] if ma7_series[i] is not None else None
+            past_ma20 = ma20_series[i] if ma20_series[i] is not None else None
+            if past_ma7 is not None and past_ma20 is not None:
+                band_low = min(past_ma7, past_ma20)
+                band_high = max(past_ma7, past_ma20)
+                if band_low <= past_close <= band_high:
+                    # Check if current close < MA5
+                    if close < ma5:
+                        pullback_stall = True
+                        reasons.append("戻り失速")
+                        break
+
+    # Alternative: 陰線実体 + 翌日安値更新
+    if not pullback_stall and len(closes) >= 2 and len(opens) >= 2:
+        prev_bearish = closes[-2] < opens[-2]  # Previous bar was bearish
+        low_break = lows[-1] < lows[-2] if len(lows) >= 2 else False
+        if prev_bearish and low_break:
+            pullback_stall = True
+            reasons.append("陰線後安値更新")
+
+    if not pullback_stall:
+        return 0, [], []
+
+    badges: list[str] = ["戻り売り"]
+
+    # ベーススコア: 60点
+    score = 60
+
+    # 加点
+    # MA20傾き < 0 +15
+    if slope20 is not None and slope20 < 0:
+        score += 15
+        reasons.append("MA20下向き")
+
+    # 20下本数が10本以上 +10
+    if down20 is not None and down20 >= 10:
+        score += 10
+        reasons.append(f"下落明確（{down20}本）")
+
+    # 前安値ラインを実体で割る（終値で前安値割れ） +20
+    if len(lows) >= 11:
+        prev_low = min(lows[-11:-1]) if len(lows) > 1 else lows[-1]
+        if close < prev_low:
+            score += 20
+            reasons.append("前安値割れ")
+
+    # 出来高≥20日平均 +10
+    if avg_volume is not None and len(volumes) >= 1 and avg_volume > 0:
+        if volumes[-1] >= avg_volume:
+            score += 10
+            reasons.append("出来高増")
+
+    # 7MA上に戻しても1〜2本で失速（戻り弱） +10
+    if ma7 is not None and len(closes) >= 3:
+        was_above_ma7 = False
+        for i in range(-3, -1):
+            if abs(i) <= len(closes) and abs(i) <= len(ma7_series):
+                past_close = closes[i]
+                past_ma7 = ma7_series[i] if ma7_series[i] is not None else None
+                if past_ma7 is not None and past_close > past_ma7:
+                    was_above_ma7 = True
+                    break
+        if was_above_ma7 and close < ma7:
+            score += 10
+            reasons.append("戻り弱")
+
+    # 減点
+    # 末期（終値 < MA20 − 1.2×ATR） -30 (Z2は既にチェック済みだが、ここでもペナルティ)
+    if ma20 is not None and atr14 is not None and close < ma20 - 1.2 * atr14:
+        score -= 30
+        reasons.append("末期警戒")
+
+    return max(0, score), reasons, badges
+
+
 def _calc_recent_bounds(highs: list[float], lows: list[float], lookback: int) -> tuple[float | None, float | None]:
     if not highs or not lows:
         return None, None
@@ -2626,6 +2961,10 @@ def _compute_screener_metrics(
 
     last_daily = _parse_daily_date(daily_rows[-1][0]) if daily_rows else None
     closes = [float(row[4]) for row in daily_rows if len(row) >= 5 and row[4] is not None]
+    opens = [float(row[1]) for row in daily_rows if len(row) >= 5 and row[1] is not None]
+    highs = [float(row[2]) for row in daily_rows if len(row) >= 5 and row[2] is not None]
+    lows = [float(row[3]) for row in daily_rows if len(row) >= 5 and row[3] is not None]
+    volumes = [float(row[5]) if len(row) >= 6 and row[5] is not None else 0.0 for row in daily_rows]
     last_close = closes[-1] if closes else None
     if last_close is None:
         reasons.append("missing_last_close")
@@ -2653,6 +2992,7 @@ def _compute_screener_metrics(
     chg1y = _pct_change(yearly_closes[-1], yearly_closes[-2]) if len(yearly_closes) >= 2 else None
     prev_year_chg = _pct_change(yearly_closes[-2], yearly_closes[-3]) if len(yearly_closes) >= 3 else None
 
+    ma5_series = _build_ma_series(closes, 5)
     ma7_series = _build_ma_series(closes, 7)
     ma20_series = _build_ma_series(closes, 20)
     ma60_series = _build_ma_series(closes, 60)
@@ -2665,6 +3005,16 @@ def _compute_screener_metrics(
 
     prev_ma20 = ma20_series[-2] if len(ma20_series) >= 2 else None
     slope20 = ma20 - prev_ma20 if ma20 is not None and prev_ma20 is not None else None
+
+    # Calculate regression slopes for short-selling (5-bar average of differences)
+    slope20_reg = _calc_regression_slope(ma20_series, 5)
+    slope60_reg = _calc_regression_slope(ma60_series, 5)
+
+    # Calculate ATR(14) for short-selling
+    atr14 = _compute_atr(highs, lows, closes, 14)
+
+    # Calculate 20-day volume average
+    volume_avg_20 = sum(volumes[-20:]) / 20 if len(volumes) >= 20 else None
 
     up7 = _count_streak(closes, ma7_series, "up")
     down7 = _count_streak(closes, ma7_series, "down")
@@ -2940,6 +3290,72 @@ def _compute_screener_metrics(
         if down20 is not None:
             overheat_down = min(1.0, max(0.0, (down20 - 16) / 4))
 
+    # ========================================================================
+    # Short-selling score calculation
+    # ========================================================================
+    short_score = None
+    a_score = None
+    b_score = None
+    short_type = None
+    short_badges: list[str] = []
+    short_reasons: list[str] = []
+    short_prohibition = None
+
+    if last_close is not None and ma20 is not None and ma60 is not None:
+        # Calculate 60-day range bounds for Z3 check
+        range_high_60, range_low_60, range_mid_60 = _calc_range_bounds_with_mid(highs, lows, 60)
+
+        # Check prohibition zones
+        short_prohibition, zone_penalty = _check_short_prohibition_zones(
+            last_close, ma20, ma60, slope20_reg, slope60_reg, atr14,
+            range_mid_60, range_high_60, range_low_60
+        )
+
+        # Calculate A-type score (反転確定ショート)
+        a_score_raw, a_reasons, a_badges = _calc_short_a_score(
+            closes, opens, lows, ma5_series, ma20_series, atr14,
+            volumes, volume_avg_20, down7, highs
+        )
+
+        # Calculate B-type score (戻り売り)
+        b_score_raw, b_reasons, b_badges = _calc_short_b_score(
+            closes, opens, lows, ma5_series, ma20_series, ma60_series,
+            slope20_reg, slope60_reg, atr14, volumes, volume_avg_20, down20, ma7_series
+        )
+
+        # Apply Z3 penalty (not forced to 0, just penalty)
+        if short_prohibition == "Z3":
+            a_score_raw = max(0, a_score_raw + zone_penalty)
+            b_score_raw = max(0, b_score_raw + zone_penalty)
+
+        # Determine final score and type
+        if short_prohibition in ("Z1", "Z2"):
+            # Forced to 0 for prohibition zones
+            short_score = 0
+            a_score = 0
+            b_score = 0
+            short_type = None
+            short_badges = []
+            short_reasons = [f"禁止ゾーン: {short_prohibition}"]
+        else:
+            a_score = a_score_raw
+            b_score = b_score_raw
+            short_score = max(a_score, b_score)
+
+            if a_score >= b_score and a_score > 0:
+                short_type = "A"
+                short_badges = a_badges
+                short_reasons = a_reasons
+            elif b_score > 0:
+                short_type = "B"
+                short_badges = b_badges
+                short_reasons = b_reasons
+            else:
+                short_type = None
+                short_badges = []
+                short_reasons = []
+
+
     return {
         "lastClose": last_close,
         "chg1D": chg1d,
@@ -2998,7 +3414,15 @@ def _compute_screener_metrics(
             "overheatDown": overheat_down
         },
         "statusLabel": status_label,
-        "reasons": reasons
+        "reasons": reasons,
+        # Short-selling score fields
+        "shortScore": short_score,
+        "aScore": a_score,
+        "bScore": b_score,
+        "shortType": short_type,
+        "shortBadges": short_badges,
+        "shortReasons": short_reasons,
+        "shortProhibition": short_prohibition
     }
 
 
@@ -3427,15 +3851,16 @@ def _run_ingest_command() -> tuple[int, str]:
 def txt_update_run():
     state = _load_update_state()
     today = datetime.now().date().isoformat()
-    if state.get("last_txt_update_date") == today:
-        return JSONResponse(
-            status_code=200,
-            content={
-                "ok": False,
-                "error": "already_updated_today",
-                "last_updated_at": state.get("last_txt_update_at")
-            }
-        )
+    # Daily limit check removed at user request
+    # if state.get("last_txt_update_date") == today:
+    #     return JSONResponse(
+    #         status_code=200,
+    #         content={
+    #             "ok": False,
+    #             "error": "already_updated_today",
+    #             "last_updated_at": state.get("last_txt_update_at")
+    #         }
+    #     )
 
     if not os.path.isfile(UPDATE_VBS_PATH):
         return JSONResponse(

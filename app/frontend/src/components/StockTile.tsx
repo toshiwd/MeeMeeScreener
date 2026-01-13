@@ -11,6 +11,8 @@ type StockTileProps = {
   active?: boolean;
   kept?: boolean;
   theme?: "dark" | "light";
+  asofLabel?: string | null;
+  asofTooltip?: string | null;
   onActivate?: (code: string) => void;
   onOpenDetail: (code: string) => void;
   onToggleKeep?: (code: string) => void;
@@ -24,6 +26,8 @@ const StockTile = memo(function StockTile({
   active = false,
   kept = false,
   theme,
+  asofLabel,
+  asofTooltip,
   onActivate,
   onOpenDetail,
   onToggleKeep,
@@ -87,6 +91,11 @@ const StockTile = memo(function StockTile({
         <div className="tile-id">
           <span className="tile-code">{ticker.code}</span>
           <span className="tile-name">{ticker.name}</span>
+          {asofLabel && (
+            <span className="asof-badge" title={asofTooltip ?? undefined}>
+              asof: {asofLabel}
+            </span>
+          )}
           {ticker.dataStatus === "missing" && (
             <span className="badge status-missing">���捞</span>
           )}

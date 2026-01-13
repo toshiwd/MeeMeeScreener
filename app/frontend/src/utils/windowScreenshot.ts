@@ -60,6 +60,31 @@ const captureCanvasElements = (root: HTMLElement): Map<HTMLCanvasElement, string
     return canvasMap;
 };
 
+const resolveCaptureBackground = (root: HTMLElement): string | null => {
+    const candidates = [document.body, document.documentElement, root].filter(
+        (node): node is HTMLElement => Boolean(node)
+    );
+    for (const node of candidates) {
+        const style = getComputedStyle(node);
+        const backgroundImage = style.backgroundImage;
+        if (backgroundImage && backgroundImage !== "none") {
+            return null;
+        }
+        const backgroundColor = style.backgroundColor;
+        if (
+            backgroundColor &&
+            backgroundColor !== "transparent" &&
+            backgroundColor !== "rgba(0, 0, 0, 0)"
+        ) {
+            return backgroundColor;
+        }
+    }
+    const fallback = getComputedStyle(document.documentElement)
+        .getPropertyValue("--theme-bg-primary")
+        .trim();
+    return fallback || null;
+};
+
 /**
  * Capture the visible window as a PNG Blob
  */
@@ -74,6 +99,9 @@ export const captureWindowBlob = async (
             return { success: false, error: "ルート要素が見つかりません" };
         }
 
+        const captureRoot = document.body ?? root;
+        const backgroundColor = resolveCaptureBackground(root);
+
         // Pre-capture canvas elements before cloning (lightweight-charts uses canvas)
         const canvasMap = captureCanvasElements(root);
 
@@ -87,14 +115,14 @@ export const captureWindowBlob = async (
         }
 
         // Capture with html2canvas
-        const canvas = await html2canvas(root, {
+        const canvas = await html2canvas(captureRoot, {
             useCORS: true,
             allowTaint: true,
             scale: window.devicePixelRatio || 1,
             logging: false,
-            backgroundColor: "#0b1020",
-            windowWidth: root.scrollWidth,
-            windowHeight: root.scrollHeight,
+            backgroundColor,
+            windowWidth: captureRoot.scrollWidth,
+            windowHeight: captureRoot.scrollHeight,
             width: window.innerWidth,
             height: window.innerHeight,
             x: 0,

@@ -55,6 +55,14 @@ export type Ticker = {
   };
   statusLabel?: string;
   reasons?: string[];
+  // Short-selling fields
+  shortScore?: number | null;
+  aScore?: number | null;
+  bScore?: number | null;
+  shortType?: "A" | "B" | null;
+  shortBadges?: string[];
+  shortReasons?: string[];
+  shortProhibition?: "Z1" | "Z2" | "Z3" | null;
 };
 
 type GridTimeframe = "monthly" | "weekly" | "daily";
@@ -131,8 +139,14 @@ type Settings = {
   listColumns: 1 | 2 | 3 | 4;
   listRows: 1 | 2 | 3 | 4 | 5 | 6;
   showBoxes: boolean;
+  // Legacy sort key (for backward compatibility during migration)
   sortKey: SortKey;
   sortDir: SortDir;
+  // Separated sort states (new)
+  candidateSortKey: CandidateSortKey;
+  basicSortKey: BasicSortKey;
+  basicSortDir: SortDir;
+  performancePeriod: PerformancePeriod;
 };
 
 type StoreState = {
@@ -182,17 +196,54 @@ type StoreState = {
   setShowBoxes: (value: boolean) => void;
   setSortKey: (value: SortKey) => void;
   setSortDir: (value: SortDir) => void;
+  // New separated sort setters
+  setCandidateSortKey: (value: CandidateSortKey) => void;
+  setBasicSortKey: (value: BasicSortKey) => void;
+  setBasicSortDir: (value: SortDir) => void;
+  setPerformancePeriod: (value: PerformancePeriod) => void;
   updateMaSetting: (timeframe: MaTimeframe, index: number, patch: Partial<MaSetting>) => void;
   resetMaSettings: (timeframe: MaTimeframe) => void;
   resetBarsCache: () => void;
 };
 
+// Candidate sort presets (for buy/sell candidate screens only)
+export type CandidateSortKey =
+  | "buyCandidate"      // 買い候補（総合）
+  | "buyInitial"        // 買い候補（初動）
+  | "buyBase"           // 買い候補（底がため）
+  | "shortScore"        // 売り候補（総合）
+  | "aScore"            // 売り候補（反転確定）
+  | "bScore";           // 売り候補（戻り売り）
+
+// Basic sort keys (for non-candidate screens)
+export type BasicSortKey =
+  | "code"
+  | "name"
+  | "ma20Dev"
+  | "ma60Dev"
+  | "ma20Slope"
+  | "ma60Slope"
+  | "performance"       // Single performance key with period selector
+  | "upScore"
+  | "downScore"
+  | "overheatUp"
+  | "overheatDown"
+  | "boxState";
+
+// Performance period for unified performance sorting
+export type PerformancePeriod = "1D" | "1W" | "1M" | "1Q" | "1Y";
+
+// Legacy combined type for backward compatibility
 export type SortKey =
   | "code"
   | "name"
   | "buyCandidate"
   | "buyInitial"
   | "buyBase"
+  | "ma20Dev"
+  | "ma60Dev"
+  | "ma20Slope"
+  | "ma60Slope"
   | "chg1D"
   | "chg1W"
   | "chg1M"
@@ -206,7 +257,11 @@ export type SortKey =
   | "downScore"
   | "overheatUp"
   | "overheatDown"
-  | "boxState";
+  | "boxState"
+  | "shortScore"
+  | "aScore"
+  | "bScore"
+  | "performance";
 
 export type SortDir = "asc" | "desc";
 
@@ -499,6 +554,10 @@ const getInitialSortKey = (): SortKey => {
     "buyCandidate",
     "buyInitial",
     "buyBase",
+    "ma20Dev",
+    "ma60Dev",
+    "ma20Slope",
+    "ma60Slope",
     "chg1D",
     "chg1W",
     "chg1M",
@@ -512,7 +571,10 @@ const getInitialSortKey = (): SortKey => {
     "downScore",
     "overheatUp",
     "overheatDown",
-    "boxState"
+    "boxState",
+    "shortScore",
+    "aScore",
+    "bScore"
   ];
   return options.includes(saved as SortKey) ? (saved as SortKey) : "buyCandidate";
 };
@@ -570,7 +632,12 @@ export const useStore = create<StoreState>((set, get) => ({
     listRows: getInitialListRows(),
     showBoxes: true,
     sortKey: getInitialSortKey(),
-    sortDir: getInitialSortDir()
+    sortDir: getInitialSortDir(),
+    // New separated sort states
+    candidateSortKey: "buyCandidate" as CandidateSortKey,
+    basicSortKey: "code" as BasicSortKey,
+    basicSortDir: "desc" as SortDir,
+    performancePeriod: "1M" as PerformancePeriod
   },
   setLastApiError: (info) => set({ lastApiError: info }),
   loadFavorites: async () => {
@@ -705,44 +772,52 @@ export const useStore = create<StoreState>((set, get) => ({
           boxState: item.boxState ?? item.box_state ?? "NONE",
           boxEndMonth: item.boxEndMonth ?? item.box_end_month ?? null,
           breakoutMonth: item.breakoutMonth ?? item.breakout_month ?? null,
-        boxActive:
-          typeof item.boxActive === "boolean"
-            ? item.boxActive
-            : typeof item.box_active === "boolean"
-            ? item.box_active
-            : null,
-        hasBox:
-          typeof item.hasBox === "boolean"
-            ? item.hasBox
-            : typeof item.boxActive === "boolean"
-            ? item.boxActive
-            : typeof item.box_active === "boolean"
-            ? item.box_active
-            : (item.boxState ?? item.box_state ?? "NONE") !== "NONE",
-        buyState: item.buyState ?? item.buy_state ?? null,
-        buyStateRank:
-          typeof item.buyStateRank === "number"
-            ? item.buyStateRank
-            : typeof item.buy_state_rank === "number"
-            ? item.buy_state_rank
-            : null,
-        buyStateScore:
-          typeof item.buyStateScore === "number"
-            ? item.buyStateScore
-            : typeof item.buy_state_score === "number"
-            ? item.buy_state_score
-            : null,
-        buyStateReason: item.buyStateReason ?? item.buy_state_reason ?? null,
-        buyRiskDistance:
-          typeof item.buyRiskDistance === "number"
-            ? item.buyRiskDistance
-            : typeof item.buy_risk_distance === "number"
-            ? item.buy_risk_distance
-            : null,
-        buyStateDetails: item.buyStateDetails ?? null,
+          boxActive:
+            typeof item.boxActive === "boolean"
+              ? item.boxActive
+              : typeof item.box_active === "boolean"
+                ? item.box_active
+                : null,
+          hasBox:
+            typeof item.hasBox === "boolean"
+              ? item.hasBox
+              : typeof item.boxActive === "boolean"
+                ? item.boxActive
+                : typeof item.box_active === "boolean"
+                  ? item.box_active
+                  : (item.boxState ?? item.box_state ?? "NONE") !== "NONE",
+          buyState: item.buyState ?? item.buy_state ?? null,
+          buyStateRank:
+            typeof item.buyStateRank === "number"
+              ? item.buyStateRank
+              : typeof item.buy_state_rank === "number"
+                ? item.buy_state_rank
+                : null,
+          buyStateScore:
+            typeof item.buyStateScore === "number"
+              ? item.buyStateScore
+              : typeof item.buy_state_score === "number"
+                ? item.buy_state_score
+                : null,
+          buyStateReason: item.buyStateReason ?? item.buy_state_reason ?? null,
+          buyRiskDistance:
+            typeof item.buyRiskDistance === "number"
+              ? item.buyRiskDistance
+              : typeof item.buy_risk_distance === "number"
+                ? item.buy_risk_distance
+                : null,
+          buyStateDetails: item.buyStateDetails ?? null,
           scores: item.scores,
           statusLabel: item.statusLabel,
-          reasons: item.reasons
+          reasons: item.reasons,
+          // Short-selling fields
+          shortScore: typeof item.shortScore === "number" ? item.shortScore : null,
+          aScore: typeof item.aScore === "number" ? item.aScore : null,
+          bScore: typeof item.bScore === "number" ? item.bScore : null,
+          shortType: item.shortType ?? null,
+          shortBadges: Array.isArray(item.shortBadges) ? item.shortBadges : [],
+          shortReasons: Array.isArray(item.shortReasons) ? item.shortReasons : [],
+          shortProhibition: item.shortProhibition ?? null
         };
       });
       try {
@@ -997,8 +1072,8 @@ export const useStore = create<StoreState>((set, get) => ({
       timeframe === "daily"
         ? getRequiredBars(maSettings.daily)
         : timeframe === "weekly"
-        ? getRequiredBars(maSettings.weekly)
-        : getRequiredBars(maSettings.monthly);
+          ? getRequiredBars(maSettings.weekly)
+          : getRequiredBars(maSettings.monthly);
     const dailyLimitForWeekly =
       timeframe === "weekly" ? getDailyLimitForWeekly(maSettings.weekly) : null;
     const uniqueCodes = [...new Set(codes.filter((code) => code))];
@@ -1090,6 +1165,31 @@ export const useStore = create<StoreState>((set, get) => ({
       window.localStorage.setItem("sortDir", value);
     }
     set((state) => ({ settings: { ...state.settings, sortDir: value } }));
+  },
+  // New separated sort setters
+  setCandidateSortKey: (value) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("candidateSortKey", value);
+    }
+    set((state) => ({ settings: { ...state.settings, candidateSortKey: value } }));
+  },
+  setBasicSortKey: (value) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("basicSortKey", value);
+    }
+    set((state) => ({ settings: { ...state.settings, basicSortKey: value } }));
+  },
+  setBasicSortDir: (value) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("basicSortDir", value);
+    }
+    set((state) => ({ settings: { ...state.settings, basicSortDir: value } }));
+  },
+  setPerformancePeriod: (value) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("performancePeriod", value);
+    }
+    set((state) => ({ settings: { ...state.settings, performancePeriod: value } }));
   },
   updateMaSetting: (timeframe, index, patch) => {
     set((state) => {
