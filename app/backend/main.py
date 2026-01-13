@@ -19,8 +19,12 @@ from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
+# Ensure current directory is in path for local imports
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from db import get_conn, init_schema
 from box_detector import detect_boxes
+from similarity import SimilarityService, SearchResult
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,12 +36,18 @@ async def lifespan(app: FastAPI):
         _init_favorites_schema()
         print("[startup] Initializing practice schema...")
         _init_practice_schema()
+        try:
+            print("[startup] Loading similarity artifacts...")
+            _similarity_service.load_artifacts()
+        except Exception as e:
+            print(f"[startup] Warning: Failed to load similarity artifacts: {e}", file=sys.stderr)
         print("[startup] All schemas initialized successfully.")
     except Exception as exc:
         print(f"[startup] FATAL: An exception occurred during schema initialization: {exc}", file=sys.stderr)
         traceback.print_exc()
         # Re-raise the exception to ensure uvicorn exits with an error
         raise exc
+    
     yield
     # Shutdown
     print("[shutdown] Application shutting down.")
@@ -180,6 +190,7 @@ _update_txt_status = {
     "stdout_tail": [],
     "last_updated_at": None
 }
+_similarity_service = SimilarityService()
 
 
 def _get_favorites_conn():
@@ -499,6 +510,23 @@ if APP_ENV == "dev":
 @app.get("/health")
 def simple_health():
     return JSONResponse(content={"ok": True})
+
+
+@app.get("/api/search/similar", response_model=list[SearchResult])
+def search_similar(ticker: str, asof: str = None, k: int = 30, alpha: float = 0.7):
+    try:
+        return _similarity_service.search(ticker, asof, k, alpha)
+    except ValueError as e:
+        # Expected error: Ticker not indexed
+        err_msg = str(e)
+        if "not indexed" in err_msg:
+             raise HTTPException(status_code=404, detail="データ期間不足のため検索対象外です (120ヶ月未満)")
+        raise HTTPException(status_code=400, detail=err_msg)
+    except Exception as e:
+        # Unexpected
+        print(f"Similarity Search Error: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Search processing failed")
 
 
 @app.exception_handler(HTTPException)

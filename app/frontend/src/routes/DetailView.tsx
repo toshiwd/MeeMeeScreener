@@ -11,13 +11,15 @@ import {
   IconHeart,
   IconHeartFilled,
   IconTrash,
-  IconSparkles
+  IconSparkles,
+  IconChartArrows
 } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import DetailChart, { DetailChartHandle } from "../components/DetailChart";
 import Toast from "../components/Toast";
 import IconButton from "../components/IconButton";
+import SimilarSearchPanel from "../components/SimilarSearchPanel";
 import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
 import type { TradeEvent } from "../utils/positions";
@@ -347,6 +349,7 @@ export default function DetailView() {
   const syncRangesRef = useRef(syncRanges);
   const pendingRangeRef = useRef<{ from: number; to: number } | null>(null);
   const syncRafRef = useRef<number | null>(null);
+  const [showSimilar, setShowSimilar] = useState(false);
 
   const tickerName = useMemo(() => {
     if (!code) return "";
@@ -984,8 +987,8 @@ export default function DetailView() {
       typeof window === "undefined"
         ? false
         : window.confirm(
-            `${code} を完全に削除しますか？\ncode.txt、data/txt、DB、お気に入り、練習セッションも削除します。`
-          );
+          `${code} を完全に削除しますか？\ncode.txt、data/txt、DB、お気に入り、練習セッションも削除します。`
+        );
     if (!confirmed) return;
     setDeleteBusy(true);
     setToastAction(null);
@@ -1305,6 +1308,12 @@ export default function DetailView() {
                   setToastMessage("クリップボードへのコピーに失敗しました");
                 }
               }}
+            />
+            <IconButton
+              label="類似"
+              icon={<IconChartArrows size={18} />}
+              title="類似チャート検索"
+              onClick={() => setShowSimilar(true)}
             />
             <IconButton
               label="削除"
@@ -1662,7 +1671,7 @@ export default function DetailView() {
                 </div>
               )}
             </div>
-            )}
+          )}
         </div>
       )}
       {showIndicators && (
@@ -1727,6 +1736,11 @@ export default function DetailView() {
         onClose={() => { setToastMessage(null); setToastAction(null); }}
         action={toastAction}
         duration={toastAction ? 8000 : 4000}
+      />
+      <SimilarSearchPanel
+        isOpen={showSimilar}
+        onClose={() => setShowSimilar(false)}
+        queryTicker={code ?? null}
       />
     </div>
   );
