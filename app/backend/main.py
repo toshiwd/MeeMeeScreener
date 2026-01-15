@@ -93,14 +93,36 @@ def resolve_trade_csv_paths() -> list[str]:
             os.path.join(base_dir, "SBI証券取引履歴.csv")
         ]
         return [path for path in candidates if os.path.isfile(path)] or candidates
+    
     paths: list[str] = []
+    
+    # Check DATA_DIR
+    if DATA_DIR:
+        candidates = [
+            os.path.join(DATA_DIR, "楽天証券取引履歴.csv"),
+            os.path.join(DATA_DIR, "SBI証券取引履歴.csv")
+        ]
+        for p in candidates:
+            if os.path.isfile(p):
+                paths.append(p)
+    
+    # Check user AppData directly (Fix for dev environment)
+    user_data = r"C:\Users\enish\AppData\Local\MeeMeeScreener\data"
+    if os.path.isdir(user_data):
+        paths.append(os.path.join(user_data, "楽天証券取引履歴.csv"))
+        paths.append(os.path.join(user_data, "SBI証券取引履歴.csv"))
+
     if os.path.isfile(DEFAULT_TRADE_RAKUTEN_PATH):
         paths.append(DEFAULT_TRADE_RAKUTEN_PATH)
     if os.path.isfile(DEFAULT_TRADE_SBI_PATH):
         paths.append(DEFAULT_TRADE_SBI_PATH)
-    if not paths:
-        paths.append(DEFAULT_TRADE_RAKUTEN_PATH)
-    return paths
+        
+    # Dedup
+    unique_paths = list(set(paths))
+    if not unique_paths and not paths: # if empty, fallback
+        unique_paths.append(DEFAULT_TRADE_RAKUTEN_PATH)
+        
+    return unique_paths
 
 
 def resolve_trade_csv_dir() -> str:
@@ -1117,6 +1139,100 @@ def similarity_refresh_status():
         return JSONResponse(content={"ok": True, "status": dict(_similarity_refresh_status)})
 
 
+# Daily Memo API endpoints
+@app.get("/api/memo")
+def get_daily_memo(symbol: str, date: str, timeframe: str = "D"):
+    """Get memo for a specific symbol and date"""
+    normalized_symbol = _normalize_code(symbol)
+    if not normalized_symbol:
+        return JSONResponse(status_code=400, content={"error": "invalid_symbol"})
+    
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT memo, updated_at
+            FROM daily_memo
+            WHERE symbol = ? AND date = ? AND timeframe = ?
+            """,
+            [normalized_symbol, date, timeframe]
+        ).fetchone()
+        
+        if not row:
+            return JSONResponse(content={"memo": "", "updated_at": None})
+        
+        memo, updated_at = row
+        return JSONResponse(content={
+            "memo": memo or "",
+            "updated_at": updated_at.isoformat() if updated_at else None
+        })
+
+
+@app.put("/api/memo")
+def save_daily_memo(payload: dict = Body(...)):
+    """Save or update memo for a specific symbol and date"""
+    symbol = _normalize_code(payload.get("symbol"))
+    date = payload.get("date")
+    timeframe = payload.get("timeframe", "D")
+    memo = payload.get("memo", "").strip()
+    
+    if not symbol or not date:
+        return JSONResponse(status_code=400, content={"error": "symbol_and_date_required"})
+    
+    # Validate memo length (max 100 characters)
+    if len(memo) > 100:
+        return JSONResponse(status_code=400, content={"error": "memo_too_long", "max_length": 100})
+    
+    now = jst_now().replace(tzinfo=None)
+    
+    with get_conn() as conn:
+        if not memo:
+            # Delete if memo is empty
+            conn.execute(
+                """
+                DELETE FROM daily_memo
+                WHERE symbol = ? AND date = ? AND timeframe = ?
+                """,
+                [symbol, date, timeframe]
+            )
+            return JSONResponse(content={"ok": True, "deleted": True, "updated_at": None})
+        else:
+            # Upsert memo
+            conn.execute(
+                """
+                INSERT INTO daily_memo (symbol, date, timeframe, memo, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (symbol, date, timeframe) DO UPDATE SET
+                    memo = excluded.memo,
+                    updated_at = excluded.updated_at
+                """,
+                [symbol, date, timeframe, memo, now, now]
+            )
+            return JSONResponse(content={
+                "ok": True,
+                "updated_at": now.isoformat()
+            })
+
+
+@app.delete("/api/memo")
+def delete_daily_memo(symbol: str, date: str, timeframe: str = "D"):
+    """Delete memo for a specific symbol and date"""
+    normalized_symbol = _normalize_code(symbol)
+    if not normalized_symbol:
+        return JSONResponse(status_code=400, content={"error": "invalid_symbol"})
+    
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM daily_memo
+            WHERE symbol = ? AND date = ? AND timeframe = ?
+            """,
+            [normalized_symbol, date, timeframe]
+        )
+        deleted = cursor.rowcount > 0
+        
+    return JSONResponse(content={"ok": True, "deleted": deleted})
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     trace_id = str(uuid.uuid4())
@@ -1128,6 +1244,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     }
     if DEBUG:
         payload["stack"] = traceback.format_exc()
+
     return JSONResponse(status_code=exc.status_code, content=payload, headers={"X-Request-Id": trace_id})
 
 
@@ -5302,6 +5419,284 @@ def practice_session_upsert(payload: dict = Body(...)):
             "start_date": start_date
         }
     )
+
+
+@app.post("/api/imports/trade-history")
+async def import_trade_history(
+    file: UploadFile = File(...),
+    broker: str = Body("rakuten")
+):
+    try:
+        raw_data = await file.read()
+        
+        # Auto-detect broker logic
+        try:
+            head_sample = raw_data[:8192].decode("cp932", errors="ignore")
+            if "受渡金額/決済損益" in head_sample or "信用新規買" in head_sample:
+                broker = "sbi"
+            elif "口座" in head_sample and "手数料" in head_sample:
+                broker = "rakuten"
+        except:
+            pass
+            
+        events = []
+        warnings = []
+        
+        if broker == "rakuten":
+            events, warnings = parse_rakuten_csv(raw_data)
+        elif broker == "sbi":
+            events, warnings = parse_sbi_csv(raw_data)
+        else:
+            return JSONResponse(status_code=400, content={"error": f"Unknown broker: {broker}"})
+            
+        if not events:
+            return JSONResponse(status_code=400, content={"error": "No events parsed", "warnings": warnings})
+
+        inserted_count = 0
+        skipped_count = 0
+        
+        # Use existing get_conn()
+        with get_conn() as conn:
+            # Insert events
+            for ev in events:
+                existing = conn.execute("SELECT 1 FROM trade_events WHERE source_row_hash = ?", [ev.source_row_hash]).fetchone()
+                if existing:
+                    skipped_count += 1
+                    continue
+                
+                conn.execute("""
+                    INSERT INTO trade_events (broker, exec_dt, symbol, action, qty, price, source_row_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, [ev.broker, ev.exec_dt, ev.symbol, ev.action, ev.qty, ev.price, ev.source_row_hash])
+                inserted_count += 1
+            
+            # Rebuild positions
+            stats = rebuild_positions(conn)
+            
+            return {
+                "result": "success",
+                "imported": inserted_count,
+                "skipped": skipped_count,
+                "warnings": warnings,
+                "stats": stats
+            }
+            
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+_trade_file_mtime_cache: dict[str, float] = {}
+_trade_sync_status = {
+    "last_run": None,
+    "paths": [],
+    "processed": [],
+    "errors": []
+}
+
+def _auto_sync_csv_files(conn):
+    global _trade_sync_status
+    try:
+        paths = resolve_trade_csv_paths()
+        _trade_sync_status["last_run"] = datetime.now().isoformat()
+        _trade_sync_status["paths"] = paths
+        
+        updated = False
+        files_to_process = []
+        
+        for path in paths:
+            if not os.path.isfile(path): continue
+            mtime = os.path.getmtime(path)
+            if _trade_file_mtime_cache.get(path) != mtime:
+                files_to_process.append((path, mtime))
+                
+        if not files_to_process:
+            return
+
+        for path, mtime in files_to_process:
+            try:
+                filename = os.path.basename(path)
+                broker = "rakuten"
+                if "SBI" in filename or "sbi" in filename.lower():
+                    broker = "sbi"
+                
+                with open(path, "rb") as f:
+                    raw_data = f.read()
+                
+                # Auto-detect broker logic for auto-sync as well
+                try:
+                    head_sample = raw_data[:8192].decode("cp932", errors="ignore")
+                    if "受渡金額/決済損益" in head_sample or "信用新規買" in head_sample:
+                        broker = "sbi"
+                    elif "口座" in head_sample and "手数料" in head_sample:
+                        broker = "rakuten"
+                except:
+                    pass
+
+                events = []
+                warns = []
+                if broker == "rakuten":
+                    events, warns = parse_rakuten_csv(raw_data)
+                elif broker == "sbi":
+                    events, warns = parse_sbi_csv(raw_data)
+                
+                if warns:
+                    _trade_sync_status["errors"].extend([f"{path}: {w}" for w in warns])
+
+                inserted_any = False
+                for ev in events:
+                    if not conn.execute("SELECT 1 FROM trade_events WHERE source_row_hash = ?", [ev.source_row_hash]).fetchone():
+                        conn.execute("""
+                            INSERT INTO trade_events (broker, exec_dt, symbol, action, qty, price, source_row_hash)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, [ev.broker, ev.exec_dt, ev.symbol, ev.action, ev.qty, ev.price, ev.source_row_hash])
+                        inserted_any = True
+                        updated = True
+                
+                if inserted_any:
+                    _trade_sync_status["processed"].append(path)
+
+                _trade_file_mtime_cache[path] = mtime
+                
+            except Exception as exc:
+                msg = f"Failed to auto sync {path}: {exc}"
+                print(msg)
+                _trade_sync_status["errors"].append(msg)
+
+        if updated:
+            rebuild_positions(conn)
+            
+    except Exception as e:
+        msg = f"Auto sync error: {e}"
+        print(msg)
+        _trade_sync_status["errors"].append(msg)
+
+
+@app.get("/api/debug/trade-sync")
+def get_trade_sync_status():
+    # Trigger sync to ensure we have latest status
+    try:
+        with get_conn() as conn:
+            _auto_sync_csv_files(conn)
+    except Exception as e:
+        _trade_sync_status["errors"].append(f"Debug sync triggers error: {e}")
+        
+    return _trade_sync_status
+
+
+@app.get("/api/positions/held")
+def get_held_positions():
+    with get_conn() as conn:
+        _auto_sync_csv_files(conn)
+        
+        rows = conn.execute("""
+            SELECT symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note
+            FROM positions_live
+            WHERE buy_qty > 0 OR sell_qty > 0 OR has_issue = TRUE
+            ORDER BY opened_at DESC
+        """).fetchall()
+        
+        result = []
+        for r in rows:
+            sym = r[0]
+            name_row = conn.execute("SELECT name FROM tickers WHERE code = ?", [sym]).fetchone()
+            name = name_row[0] if name_row else ""
+            
+            b_qty = r[1]
+            s_qty = r[2]
+            b_str = f"{int(b_qty)}" if b_qty.is_integer() else f"{b_qty}"
+            s_str = f"{int(s_qty)}" if s_qty.is_integer() else f"{s_qty}"
+            
+            result.append({
+                "symbol": sym,
+                "name": name,
+                "buy_qty": b_qty,
+                "sell_qty": s_qty,
+                "sell_buy_text": f"{s_str}-{b_str}",
+                "opened_at": r[3],
+                "has_issue": r[4],
+                "issue_note": r[5]
+            })
+            
+        return {"items": result}
+
+@app.get("/api/positions/history")
+def get_position_history(symbol: str | None = None):
+    with get_conn() as conn:
+        query = """
+            SELECT round_id, symbol, opened_at, closed_at, closed_reason, last_state_sell_buy, has_issue, issue_note
+            FROM position_rounds
+        """
+        params = []
+        if symbol:
+            query += " WHERE symbol = ?"
+            params.append(symbol)
+            
+        query += " ORDER BY closed_at DESC"
+        
+        rows = conn.execute(query, params).fetchall()
+        result = []
+        for r in rows:
+            sym = r[1]
+            name_row = conn.execute("SELECT name FROM tickers WHERE code = ?", [sym]).fetchone()
+            name = name_row[0] if name_row else ""
+            
+            result.append({
+                "round_id": r[0],
+                "symbol": sym,
+                "name": name,
+                "opened_at": r[2],
+                "closed_at": r[3],
+                "closed_reason": r[4],
+                "last_state_sell_buy": r[5],
+                "has_issue": r[6],
+                "issue_note": r[7]
+            })
+        return {"items": result}
+
+
+@app.get("/api/positions/history/events")
+def get_round_events(round_id: str):
+    with get_conn() as conn:
+        round_info = conn.execute(
+            "SELECT symbol, opened_at, closed_at FROM position_rounds WHERE round_id = ?",
+            [round_id]
+        ).fetchone()
+        
+        if not round_info:
+            return {"events": []}
+            
+        symbol = round_info[0]
+        start_at = round_info[1]
+        end_at = round_info[2]
+        
+        query = "SELECT broker, exec_dt, action, qty, price FROM trade_events WHERE symbol = ?"
+        params = [symbol]
+        
+        if start_at:
+            query += " AND exec_dt >= ?"
+            params.append(start_at)
+        if end_at:
+            query += " AND exec_dt <= ?"
+            params.append(end_at)
+            
+        query += " ORDER BY exec_dt ASC"
+        
+        rows = conn.execute(query, params).fetchall()
+        events = []
+        for r in rows:
+            events.append({
+                "broker": r[0],
+                "exec_dt": r[1],
+                "action": r[2],
+                "qty": r[3],
+                "price": r[4]
+            })
+            
+        return {"events": events}
 
 
 @app.delete("/api/practice/session")

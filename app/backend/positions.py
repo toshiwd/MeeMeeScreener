@@ -132,12 +132,19 @@ def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
         trade_type = _normalize_text(row[mapping["trade_type"]])
         trade_side = _normalize_text(row[mapping["trade_side"]])
         symbol = _normalize_text(row[mapping["symbol"]])
+        if symbol.endswith(".T"):
+            symbol = symbol[:-2]
+        
         exec_dt = _parse_date(row[mapping["trade_date"]])
         qty = _parse_float(row[mapping["qty"]]) or 0.0
         price = _parse_float(row[mapping.get("price")]) if "price" in mapping else None
 
         action = None
-        if "現物" in trade_type:
+        if "現渡" in trade_type or "現渡" in trade_side:
+            action = ACTION_SHORT_CLOSE
+        elif "入庫" in trade_type or "入庫" in trade_side:
+            action = ACTION_LONG_OPEN
+        elif "現物" in trade_type:
             if "買付" in trade_side:
                 action = ACTION_LONG_OPEN
             elif "売却" in trade_side or "売付" in trade_side:
@@ -148,9 +155,9 @@ def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
             elif "売建" in trade_side:
                 action = ACTION_SHORT_OPEN
         elif "信用返済" in trade_type:
-            if "売返済" in trade_side:
+            if "売返済" in trade_side or "売埋" in trade_side:
                 action = ACTION_LONG_CLOSE
-            elif "買返済" in trade_side:
+            elif "買返済" in trade_side or "買埋" in trade_side:
                 action = ACTION_SHORT_CLOSE
 
 
@@ -193,6 +200,8 @@ def parse_sbi_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
             continue
         trade_kind = _normalize_text(row[mapping["trade_kind"]])
         symbol = _normalize_text(row[mapping["symbol"]])
+        if symbol.endswith(".T"):
+            symbol = symbol[:-2]
         exec_dt = _parse_date(row[mapping["trade_date"]])
         qty = _parse_float(row[mapping["qty"]]) or 0.0
         price = _parse_float(row[mapping.get("price")]) if "price" in mapping else None

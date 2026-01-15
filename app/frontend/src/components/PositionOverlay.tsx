@@ -31,6 +31,7 @@ type PositionOverlayProps = {
     data: { time: number; value: number }[];
     visible: boolean;
   }[];
+  hidePanel?: boolean;
 };
 
 const formatNumber = (value: number) => {
@@ -181,7 +182,8 @@ export default function PositionOverlay({
   volume,
   showMarkers = true,
   markerSuffix,
-  maLines = []
+  maLines = [],
+  hidePanel = false
 }: PositionOverlayProps) {
   const [rangeTick, setRangeTick] = useState(0);
   const rangeRafRef = useRef<number | null>(null);
@@ -366,8 +368,8 @@ export default function PositionOverlay({
         brokerKey === "rakuten"
           ? "RAKUTEN"
           : brokerKey === "sbi"
-          ? "SBI"
-          : pos.brokerLabel ?? "N/A";
+            ? "SBI"
+            : pos.brokerLabel ?? "N/A";
       const entry = map.get(brokerKey);
       if (entry) {
         entry.longLots += pos.longLots;
@@ -578,26 +580,26 @@ export default function PositionOverlay({
           ))}
         </div>
       )}
-      <div className="position-overlay-panel">
+      <div className="position-overlay-panel" style={{ display: hidePanel ? 'none' : 'block' }}>
         <div className="position-overlay-header">
-        <div className="position-overlay-date">{formatDate(activeBar.time)}</div>
-        {delta != null && percent != null && (
-          <div className={`position-overlay-change ${deltaClass}`}>
-            前日比{formatSignedNumber(delta)} ({formatPercent(percent)})
-          </div>
-        )}
+          <div className="position-overlay-date">{formatDate(activeBar.time)}</div>
+          {delta != null && percent != null && (
+            <div className={`position-overlay-change ${deltaClass}`}>
+              前日比{formatSignedNumber(delta)} ({formatPercent(percent)})
+            </div>
+          )}
         </div>
         <div className="position-overlay-grid">
-        <div className="position-overlay-label">O</div>
-        <div className="position-overlay-value">{formatNumber(activeBar.open)}</div>
-        <div className="position-overlay-label">H</div>
-        <div className="position-overlay-value">{formatNumber(activeBar.high)}</div>
-        <div className="position-overlay-label">L</div>
-        <div className="position-overlay-value">{formatNumber(activeBar.low)}</div>
-        <div className="position-overlay-label">C</div>
-        <div className="position-overlay-value">{formatNumber(activeBar.close)}</div>
-        <div className="position-overlay-label">出来高</div>
-        <div className="position-overlay-value">{volumeText}</div>
+          <div className="position-overlay-label">O</div>
+          <div className="position-overlay-value">{formatNumber(activeBar.open)}</div>
+          <div className="position-overlay-label">H</div>
+          <div className="position-overlay-value">{formatNumber(activeBar.high)}</div>
+          <div className="position-overlay-label">L</div>
+          <div className="position-overlay-value">{formatNumber(activeBar.low)}</div>
+          <div className="position-overlay-label">C</div>
+          <div className="position-overlay-value">{formatNumber(activeBar.close)}</div>
+          <div className="position-overlay-label">出来高</div>
+          <div className="position-overlay-value">{volumeText}</div>
         </div>
         {activeMaValues.length > 0 && (
           <div className="position-overlay-ma">

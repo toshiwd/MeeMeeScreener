@@ -12,7 +12,8 @@ import {
   IconHeartFilled,
   IconTrash,
   IconSparkles,
-  IconChartArrows
+  IconChartArrows,
+  IconPointer
 } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
@@ -27,6 +28,9 @@ import { buildDailyPositions, buildPositionLedger } from "../utils/positions";
 import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
 import { buildAIExport, copyToClipboard, saveAsFile } from "../utils/aiExport";
 import { formatEventBadgeDate, formatEventDateYmd, parseEventDateMs } from "../utils/events";
+import DailyMemoPanel from "../components/DailyMemoPanel";
+import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from "../utils/consultCopy";
+
 
 type Timeframe = "daily" | "weekly" | "monthly";
 type FocusPanel = Timeframe | null;
@@ -403,6 +407,13 @@ export default function DetailView() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [showPositionLedger, setShowPositionLedger] = useState(false);
   const [positionLedgerExpanded, setPositionLedgerExpanded] = useState(false);
+
+  // Cursor mode state
+  const [cursorMode, setCursorMode] = useState(false);
+  const [selectedBarIndex, setSelectedBarIndex] = useState<number | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedBarData, setSelectedBarData] = useState<Candle | null>(null);
+
   const syncRangesRef = useRef(syncRanges);
   const pendingRangeRef = useRef<{ from: number; to: number } | null>(null);
   const syncRafRef = useRef<number | null>(null);
@@ -926,6 +937,121 @@ export default function DetailView() {
     }, 800);
   };
 
+  // Cursor mode functions
+  const toggleCursorMode = () => {
+    setCursorMode(prev => !prev);
+    if (!cursorMode && dailyCandles.length > 0) {
+      // Initialize with last bar when turning on
+      updateSelectedBar(dailyCandles.length - 1);
+    }
+  };
+
+  const updateSelectedBar = (index: number) => {
+    if (index < 0 || index >= dailyCandles.length) return;
+
+    const bar = dailyCandles[index];
+    setSelectedBarIndex(index);
+    setSelectedBarData(bar);
+
+    // Convert time to date string (YYYY-MM-DD)
+    const date = new Date(bar.time * 1000);
+    const dateStr = date.toISOString().split('T')[0];
+    setSelectedDate(dateStr);
+
+    // Auto-pan if needed
+    autoPanToBar(bar.time);
+  };
+
+  const autoPanToBar = (time: number) => {
+    if (!dailyChartRef.current) return;
+
+    // Get current visible range from dailyVisibleRange
+    if (!dailyVisibleRange) return;
+
+    const { from, to } = dailyVisibleRange;
+    const rangeSize = to - from;
+    const margin = rangeSize * 0.1; // 10% margin
+
+    // Check if time is outside visible range
+    if (time < from + margin || time > to - margin) {
+      // Pan to center the selected bar
+      const newFrom = time - rangeSize / 2;
+      const newTo = time + rangeSize / 2;
+      dailyChartRef.current.setVisibleRange({ from: newFrom, to: newTo });
+    }
+  };
+
+  const moveToPrevDay = () => {
+    if (selectedBarIndex === null || selectedBarIndex <= 0) return;
+    updateSelectedBar(selectedBarIndex - 1);
+  };
+
+  const moveToNextDay = () => {
+    if (selectedBarIndex === null || selectedBarIndex >= dailyCandles.length - 1) return;
+    updateSelectedBar(selectedBarIndex + 1);
+  };
+
+  const handleDailyChartClick = (time: number | null) => {
+    if (!cursorMode || time === null) return;
+
+    // Find nearest bar index
+    let nearestIndex = -1;
+    let minDiff = Infinity;
+
+    for (let i = 0; i < dailyCandles.length; i++) {
+      const diff = Math.abs(dailyCandles[i].time - time);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearestIndex = i;
+      }
+    }
+
+    if (nearestIndex >= 0) {
+      updateSelectedBar(nearestIndex);
+    }
+  };
+
+  const handleCopyForConsult = async () => {
+    if (!selectedDate || !selectedBarData || !code) return;
+
+    // Get current memo
+    let memo = "";
+    try {
+      const response = await api.get("/memo", {
+        params: { symbol: code, date: selectedDate, timeframe: "D" },
+      });
+      memo = response.data.memo || "";
+    } catch (error) {
+      console.error("Failed to fetch memo:", error);
+    }
+
+    const consultData = {
+      symbol: code,
+      name: tickerName || code,
+      date: selectedDate,
+      ohlc: {
+        open: selectedBarData.open,
+        high: selectedBarData.high,
+        low: selectedBarData.low,
+        close: selectedBarData.close,
+      },
+      volume: dailyVolume.find(v => v.time === selectedBarData.time)?.value,
+      memo,
+    };
+
+    const text = buildConsultCopyText(consultData);
+    const success = await copyConsultToClipboard(text);
+
+    if (success) {
+      setToastMessage("相談用データをコピーしました");
+      setTimeout(() => setToastMessage(null), 2000);
+    } else {
+      setToastMessage("コピーに失敗しました");
+      setTimeout(() => setToastMessage(null), 2000);
+    }
+  };
+
+
   const handleCopyDebug = async () => {
     const timestamp = new Date().toISOString();
     const textToCopy = [`Timestamp: ${timestamp}`, ...debugLines].join("\n");
@@ -1209,6 +1335,45 @@ export default function DetailView() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [showPositionLedger]);
+
+  // Cursor mode keyboard handler
+  useEffect(() => {
+    if (!cursorMode) return;
+
+    const handleCursorKeyDown = (e: KeyboardEvent) => {
+      // Don't handle if typing in textarea or input
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+        return;
+      }
+
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          moveToPrevDay();
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          moveToNextDay();
+          break;
+        case 'c':
+        case 'C':
+          if (!e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            toggleCursorMode();
+          }
+          break;
+        case 'Escape':
+          e.preventDefault();
+          setCursorMode(false);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleCursorKeyDown);
+    return () => window.removeEventListener('keydown', handleCursorKeyDown);
+  }, [cursorMode, selectedBarIndex, dailyCandles]);
+
 
   useEffect(() => {
     if (hoverRafRef.current !== null) {
@@ -1556,6 +1721,82 @@ export default function DetailView() {
     return listCodes[index + 1] ?? null;
   }, [listCodes, code]);
 
+  const memoPanelData = useMemo(() => {
+    if (!selectedBarData || selectedBarIndex < 0) return null;
+
+    // 1. Previous Day Data
+    let prevDayData = undefined;
+    if (selectedBarIndex > 0) {
+      const prevBar = dailyCandles[selectedBarIndex - 1];
+      const change = selectedBarData.close - prevBar.close;
+      const changePercent = (change / prevBar.close) * 100;
+      prevDayData = { close: prevBar.close, change, changePercent };
+    }
+
+    // 2. Position Data
+    const posList = dailyPositions.filter(p => p.time === selectedBarData.time);
+    const position = {
+      buy: posList.reduce((acc, p) => acc + p.longLots, 0),
+      sell: posList.reduce((acc, p) => acc + p.shortLots, 0)
+    };
+
+    // 3. MA Values
+    const maValues: any = {};
+
+    // 4. MA Trends
+    const maTrends: any = {};
+
+    const countTrend = (lineData: { time: number, value: number }[]) => {
+      const valueMap = new Map(lineData.map(d => [d.time, d.value]));
+      const currentMa = valueMap.get(selectedBarData.time);
+      if (currentMa == null) return null;
+
+      const isUp = selectedBarData.close >= currentMa;
+      let count = 0;
+
+      for (let i = selectedBarIndex; i >= 0; i--) {
+        const bar = dailyCandles[i];
+        const ma = valueMap.get(bar.time);
+        if (ma == null) break;
+
+        const barIsUp = bar.close >= ma;
+        if (barIsUp === isUp) {
+          count++;
+        } else {
+          break;
+        }
+      }
+
+      const upStr = isUp ? count : 0;
+      const downStr = isUp ? 0 : count;
+      return `上${upStr} / 下${downStr}`;
+    };
+
+    dailyMaLines.forEach(line => {
+      // Value
+      const point = line.data.find(d => d.time === selectedBarData.time);
+      if (point) {
+        if (line.period === 5 || line.period === 7) maValues.ma7 = point.value;
+        else if (line.period === 20 || line.period === 25) maValues.ma20 = point.value;
+        else if (line.period === 60 || line.period === 75) maValues.ma60 = point.value;
+        else if (line.period === 100) maValues.ma100 = point.value;
+        else if (line.period === 200) maValues.ma200 = point.value;
+      }
+
+      // Trend
+      const trend = countTrend(line.data);
+      if (trend) {
+        if (line.period === 5 || line.period === 7) maTrends.ma7 = trend;
+        else if (line.period === 20 || line.period === 25) maTrends.ma20 = trend;
+        else if (line.period === 60 || line.period === 75) maTrends.ma60 = trend;
+        else if (line.period === 100) maTrends.ma100 = trend;
+        else if (line.period === 200) maTrends.ma200 = trend;
+      }
+    });
+
+    return { prevDayData, position, maValues, maTrends };
+  }, [selectedBarData, selectedBarIndex, dailyCandles, dailyPositions, dailyMaLines]);
+
   return (
     <div className={`detail-shell ${focusPanel ? "detail-shell-focus" : ""}`}>
       <div className="detail-header">
@@ -1700,6 +1941,14 @@ export default function DetailView() {
             >
               連動: {syncRanges ? "ON" : "OFF"}
             </button>
+            <button
+              className={cursorMode ? "indicator-button active" : "indicator-button"}
+              onClick={toggleCursorMode}
+              title="カーソルモード切替 (C)"
+            >
+              <IconPointer size={16} style={{ marginRight: '4px' }} />
+              {cursorMode ? "ON" : "OFF"}
+            </button>
           </div>
           <div className="detail-controls-group detail-controls-icons">
             <IconButton
@@ -1793,104 +2042,176 @@ export default function DetailView() {
           </div>
         </div>
       </div>
-      <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""}`}>
-        {compareCode && (
-          <div className="detail-compare">
-            <div className="detail-compare-header">
-              <div>
-                <div className="detail-compare-title">
-                  比較: {code} / {compareCode}
+      <div className="detail-content">
+        <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""} ${cursorMode ? "with-memo-panel" : ""}`}>
+          {compareCode && (
+            <div className="detail-compare">
+              <div className="detail-compare-header">
+                <div>
+                  <div className="detail-compare-title">
+                    比較: {code} / {compareCode}
+                  </div>
+                  {compareAsOf && (
+                    <div className="detail-compare-subtitle">類似日付: {compareAsOf}</div>
+                  )}
                 </div>
-                {compareAsOf && (
-                  <div className="detail-compare-subtitle">類似日付: {compareAsOf}</div>
-                )}
+                <div className="detail-compare-actions">
+                  <button
+                    type="button"
+                    className="detail-compare-close"
+                    disabled={!nextCompareItem}
+                    onClick={() => {
+                      if (!nextCompareItem) return;
+                      const params = new URLSearchParams();
+                      params.set("compare", nextCompareItem.ticker);
+                      if (mainAsOf) {
+                        params.set("mainAsOf", mainAsOf);
+                      }
+                      if (nextCompareItem.asof) {
+                        params.set("compareAsOf", nextCompareItem.asof);
+                      }
+                      navigate(`/detail/${code}?${params.toString()}`);
+                    }}
+                  >
+                    次の比較
+                  </button>
+                  <button
+                    type="button"
+                    className="detail-compare-close"
+                    onClick={() => navigate(`/detail/${code}`)}
+                  >
+                    比較解除
+                  </button>
+                </div>
               </div>
-              <div className="detail-compare-actions">
-                <button
-                  type="button"
-                  className="detail-compare-close"
-                  disabled={!nextCompareItem}
-                  onClick={() => {
-                    if (!nextCompareItem) return;
-                    const params = new URLSearchParams();
-                    params.set("compare", nextCompareItem.ticker);
-                    if (mainAsOf) {
-                      params.set("mainAsOf", mainAsOf);
-                    }
-                    if (nextCompareItem.asof) {
-                      params.set("compareAsOf", nextCompareItem.asof);
-                    }
-                    navigate(`/detail/${code}?${params.toString()}`);
-                  }}
-                >
-                  次の比較
-                </button>
-                <button
-                  type="button"
-                  className="detail-compare-close"
-                  onClick={() => navigate(`/detail/${code}`)}
-                >
-                  比較解除
-                </button>
+              <div className="detail-compare-grid">
+                <div className="detail-compare-cell">
+                  <div className="detail-compare-cell-header">
+                    <div className="detail-compare-cell-title">{code} {tickerName}</div>
+                    <div className="detail-compare-cell-meta">月足 ({leftMonthlyRangeLabel})</div>
+                  </div>
+                  <div className="detail-chart detail-compare-chart">
+                    <DetailChart
+                      ref={monthlyChartRef}
+                      candles={monthlyCandles}
+                      volume={monthlyVolume}
+                      maLines={monthlyMaLines}
+                      showVolume={false}
+                      boxes={boxes}
+                      showBoxes={showBoxes}
+                      visibleRange={monthlyCandles.length ? compareMonthlyBaseRange : null}
+                      onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "left")}
+                    />
+                    {monthlyEmptyMessage && (
+                      <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="detail-compare-cell">
+                  <div className="detail-compare-cell-header">
+                    <div className="detail-compare-cell-title">{compareCode} {compareTickerName}</div>
+                    <div className="detail-compare-cell-meta">月足 ({rightMonthlyRangeLabel})</div>
+                  </div>
+                  <div className="detail-chart detail-compare-chart">
+                    <DetailChart
+                      ref={compareMonthlyChartRef}
+                      candles={compareMonthlyCandles}
+                      volume={[]}
+                      maLines={compareMonthlyMaLines}
+                      showVolume={false}
+                      boxes={compareBoxes}
+                      showBoxes={showBoxes}
+                      visibleRange={compareMonthlyCandles.length ? compareMonthlyVisibleRange : null}
+                      onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "right")}
+                    />
+                    {compareLoading && (
+                      <div className="detail-chart-empty">Loading...</div>
+                    )}
+                    {!compareLoading && compareMonthlyErrors.length > 0 && (
+                      <div className="detail-chart-empty">Monthly: {compareMonthlyErrors[0]}</div>
+                    )}
+                    {!compareLoading && compareMonthlyErrors.length === 0 && compareMonthlyCandles.length === 0 && (
+                      <div className="detail-chart-empty">Monthly: データがありません</div>
+                    )}
+                  </div>
+                </div>
+                <div className="detail-compare-cell">
+                  <div className="detail-compare-cell-header">
+                    <div className="detail-compare-cell-title">{code} {tickerName}</div>
+                    <div className="detail-compare-cell-meta">日足 ({leftDailyRangeLabel})</div>
+                  </div>
+                  <div className="detail-chart detail-compare-chart">
+                    <DetailChart
+                      ref={dailyChartRef}
+                      candles={dailyCandles}
+                      volume={dailyVolume}
+                      maLines={dailyMaLines}
+                      showVolume={showVolumeDaily}
+                      boxes={boxes}
+                      showBoxes={showBoxes}
+                      visibleRange={dailyCandles.length ? dailyVisibleRange : null}
+                      positionOverlay={{
+                        dailyPositions,
+                        tradeMarkers,
+                        showOverlay: showTradesOverlay,
+                        showMarkers: true,
+                        showPnL: showPnLPanel,
+                        hoverTime
+                      }}
+                      onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "left")}
+                    />
+                    {dailyEmptyMessage && (
+                      <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="detail-compare-cell">
+                  <div className="detail-compare-cell-header">
+                    <div className="detail-compare-cell-title">{compareCode} {compareTickerName}</div>
+                    <div className="detail-compare-cell-meta">日足 ({rightDailyRangeLabel})</div>
+                  </div>
+                  <div className="detail-chart detail-compare-chart">
+                    <DetailChart
+                      ref={compareDailyChartRef}
+                      candles={compareDailyCandles}
+                      volume={compareDailyVolume}
+                      maLines={compareDailyMaLines}
+                      showVolume={compareDailyVolume.length > 0}
+                      boxes={compareBoxes}
+                      showBoxes={showBoxes}
+                      visibleRange={compareDailyVisibleRange}
+                      positionOverlay={{
+                        dailyPositions: compareDailyPositions,
+                        tradeMarkers: compareTradeMarkers,
+                        showOverlay: showTradesOverlay,
+                        showMarkers: true,
+                        showPnL: showPnLPanel,
+                        hoverTime
+                      }}
+                      onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "right")}
+                    />
+                    {(compareDailyLoading || compareDailyNeedsMore) && (
+                      <div className="detail-chart-empty">一致期間のデータを読み込み中...</div>
+                    )}
+                    {!compareDailyLoading && compareDailyErrors.length > 0 && (
+                      <div className="detail-chart-empty">Daily: {compareDailyErrors[0]}</div>
+                    )}
+                    {!compareDailyLoading && compareDailyErrors.length === 0 && compareDailyCandles.length === 0 && (
+                      <div className="detail-chart-empty">Daily: データがありません</div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="detail-compare-grid">
-              <div className="detail-compare-cell">
-                <div className="detail-compare-cell-header">
-                  <div className="detail-compare-cell-title">{code} {tickerName}</div>
-                  <div className="detail-compare-cell-meta">月足 ({leftMonthlyRangeLabel})</div>
-                </div>
-                <div className="detail-chart detail-compare-chart">
-                  <DetailChart
-                    ref={monthlyChartRef}
-                    candles={monthlyCandles}
-                    volume={monthlyVolume}
-                    maLines={monthlyMaLines}
-                    showVolume={false}
-                    boxes={boxes}
-                    showBoxes={showBoxes}
-                    visibleRange={monthlyCandles.length ? compareMonthlyBaseRange : null}
-                    onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "left")}
-                  />
-                  {monthlyEmptyMessage && (
-                    <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
-                  )}
-                </div>
-              </div>
-              <div className="detail-compare-cell">
-                <div className="detail-compare-cell-header">
-                  <div className="detail-compare-cell-title">{compareCode} {compareTickerName}</div>
-                  <div className="detail-compare-cell-meta">月足 ({rightMonthlyRangeLabel})</div>
-                </div>
-                <div className="detail-chart detail-compare-chart">
-                  <DetailChart
-                    ref={compareMonthlyChartRef}
-                    candles={compareMonthlyCandles}
-                    volume={[]}
-                    maLines={compareMonthlyMaLines}
-                    showVolume={false}
-                    boxes={compareBoxes}
-                    showBoxes={showBoxes}
-                    visibleRange={compareMonthlyCandles.length ? compareMonthlyVisibleRange : null}
-                    onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "right")}
-                  />
-                  {compareLoading && (
-                    <div className="detail-chart-empty">Loading...</div>
-                  )}
-                  {!compareLoading && compareMonthlyErrors.length > 0 && (
-                    <div className="detail-chart-empty">Monthly: {compareMonthlyErrors[0]}</div>
-                  )}
-                  {!compareLoading && compareMonthlyErrors.length === 0 && compareMonthlyCandles.length === 0 && (
-                    <div className="detail-chart-empty">Monthly: データがありません</div>
-                  )}
-                </div>
-              </div>
-              <div className="detail-compare-cell">
-                <div className="detail-compare-cell-header">
-                  <div className="detail-compare-cell-title">{code} {tickerName}</div>
-                  <div className="detail-compare-cell-meta">日足 ({leftDailyRangeLabel})</div>
-                </div>
-                <div className="detail-chart detail-compare-chart">
+          )}
+          {compareCode ? null : focusPanel ? (
+            <div className="detail-row detail-row-focus">
+              <div className="detail-pane-header">{focusTitle}</div>
+              <div
+                className="detail-chart detail-chart-focused"
+                onDoubleClick={() => toggleFocus(focusPanel)}
+              >
+                {focusPanel === "daily" && (
                   <DetailChart
                     ref={dailyChartRef}
                     candles={dailyCandles}
@@ -1899,7 +2220,7 @@ export default function DetailView() {
                     showVolume={showVolumeDaily}
                     boxes={boxes}
                     showBoxes={showBoxes}
-                    visibleRange={dailyCandles.length ? dailyVisibleRange : null}
+                    visibleRange={dailyVisibleRange}
                     positionOverlay={{
                       dailyPositions,
                       tradeMarkers,
@@ -1908,185 +2229,11 @@ export default function DetailView() {
                       showPnL: showPnLPanel,
                       hoverTime
                     }}
-                    onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "left")}
+                    onCrosshairMove={handleDailyCrosshair}
+                    onVisibleRangeChange={handleDailyVisibleRangeChange}
                   />
-                  {dailyEmptyMessage && (
-                    <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
-                  )}
-                </div>
-              </div>
-              <div className="detail-compare-cell">
-                <div className="detail-compare-cell-header">
-                  <div className="detail-compare-cell-title">{compareCode} {compareTickerName}</div>
-                  <div className="detail-compare-cell-meta">日足 ({rightDailyRangeLabel})</div>
-                </div>
-                <div className="detail-chart detail-compare-chart">
-                  <DetailChart
-                    ref={compareDailyChartRef}
-                    candles={compareDailyCandles}
-                    volume={compareDailyVolume}
-                    maLines={compareDailyMaLines}
-                    showVolume={compareDailyVolume.length > 0}
-                    boxes={compareBoxes}
-                    showBoxes={showBoxes}
-                    visibleRange={compareDailyVisibleRange}
-                    positionOverlay={{
-                      dailyPositions: compareDailyPositions,
-                      tradeMarkers: compareTradeMarkers,
-                      showOverlay: showTradesOverlay,
-                      showMarkers: true,
-                      showPnL: showPnLPanel,
-                      hoverTime
-                    }}
-                    onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "right")}
-                  />
-                  {(compareDailyLoading || compareDailyNeedsMore) && (
-                    <div className="detail-chart-empty">一致期間のデータを読み込み中...</div>
-                  )}
-                  {!compareDailyLoading && compareDailyErrors.length > 0 && (
-                    <div className="detail-chart-empty">Daily: {compareDailyErrors[0]}</div>
-                  )}
-                  {!compareDailyLoading && compareDailyErrors.length === 0 && compareDailyCandles.length === 0 && (
-                    <div className="detail-chart-empty">Daily: データがありません</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        {compareCode ? null : focusPanel ? (
-          <div className="detail-row detail-row-focus">
-            <div className="detail-pane-header">{focusTitle}</div>
-            <div
-              className="detail-chart detail-chart-focused"
-              onDoubleClick={() => toggleFocus(focusPanel)}
-            >
-              {focusPanel === "daily" && (
-                <DetailChart
-                  ref={dailyChartRef}
-                  candles={dailyCandles}
-                  volume={dailyVolume}
-                  maLines={dailyMaLines}
-                  showVolume={showVolumeDaily}
-                  boxes={boxes}
-                  showBoxes={showBoxes}
-                  visibleRange={dailyVisibleRange}
-                  positionOverlay={{
-                    dailyPositions,
-                    tradeMarkers,
-                    showOverlay: showTradesOverlay,
-                    showMarkers: true,
-                    showPnL: showPnLPanel,
-                    hoverTime
-                  }}
-                  onCrosshairMove={handleDailyCrosshair}
-                  onVisibleRangeChange={handleDailyVisibleRangeChange}
-                />
-              )}
-              {focusPanel === "weekly" && (
-                <DetailChart
-                  ref={weeklyChartRef}
-                  candles={weeklyCandles}
-                  volume={weeklyVolume}
-                  maLines={weeklyMaLines}
-                  showVolume={false}
-                  boxes={boxes}
-                  showBoxes={showBoxes}
-                  visibleRange={weeklyVisibleRange}
-                  positionOverlay={{
-                    dailyPositions,
-                    tradeMarkers,
-                    showOverlay: showTradesOverlay,
-                    showMarkers: false,
-                    showPnL: showPnLPanel,
-                    hoverTime
-                  }}
-                  onCrosshairMove={handleWeeklyCrosshair}
-                />
-              )}
-              {focusPanel === "monthly" && (
-                <DetailChart
-                  ref={monthlyChartRef}
-                  candles={monthlyCandles}
-                  volume={monthlyVolume}
-                  maLines={monthlyMaLines}
-                  showVolume={false}
-                  boxes={boxes}
-                  showBoxes={showBoxes}
-                  visibleRange={monthlyVisibleRange}
-                  positionOverlay={{
-                    dailyPositions,
-                    tradeMarkers,
-                    showOverlay: showTradesOverlay,
-                    showMarkers: false,
-                    showPnL: showPnLPanel,
-                    hoverTime
-                  }}
-                  onCrosshairMove={handleMonthlyCrosshair}
-                />
-              )}
-              {focusPanel === "daily" && dailyEmptyMessage && (
-                <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
-              )}
-              {focusPanel === "weekly" && weeklyEmptyMessage && (
-                <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
-              )}
-              {focusPanel === "monthly" && monthlyEmptyMessage && (
-                <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
-              )}
-              <button
-                type="button"
-                className="detail-focus-back"
-                onClick={() => setFocusPanel(null)}
-              >
-                Back to 3 charts
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="detail-row detail-row-top" style={{ flex: `${DAILY_ROW_RATIO} 1 0%` }}>
-              <div className="detail-pane-header">Daily</div>
-              <div
-                className="detail-chart detail-chart-focusable"
-                onDoubleClick={() => toggleFocus("daily")}
-              >
-                <DetailChart
-                  ref={dailyChartRef}
-                  candles={dailyCandles}
-                  volume={dailyVolume}
-                  maLines={dailyMaLines}
-                  showVolume={showVolumeDaily}
-                  boxes={boxes}
-                  showBoxes={showBoxes}
-                  visibleRange={dailyVisibleRange}
-                  positionOverlay={{
-                    dailyPositions,
-                    tradeMarkers,
-                    showOverlay: showTradesOverlay,
-                    showMarkers: true,
-                    showPnL: showPnLPanel,
-                    hoverTime
-                  }}
-                  onCrosshairMove={handleDailyCrosshair}
-                  onVisibleRangeChange={handleDailyVisibleRangeChange}
-                />
-                {dailyEmptyMessage && (
-                  <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
                 )}
-              </div>
-            </div>
-            <div
-              className="detail-row detail-row-bottom"
-              style={{ flex: `${1 - DAILY_ROW_RATIO} 1 0%` }}
-              ref={bottomRowRef}
-            >
-              <div className="detail-pane" style={{ flex: `${weeklyRatio} 1 0%` }}>
-                <div className="detail-pane-header">Weekly</div>
-                <div
-                  className="detail-chart detail-chart-focusable"
-                  onDoubleClick={() => toggleFocus("weekly")}
-                >
+                {focusPanel === "weekly" && (
                   <DetailChart
                     ref={weeklyChartRef}
                     candles={weeklyCandles}
@@ -2096,24 +2243,18 @@ export default function DetailView() {
                     boxes={boxes}
                     showBoxes={showBoxes}
                     visibleRange={weeklyVisibleRange}
+                    positionOverlay={{
+                      dailyPositions,
+                      tradeMarkers,
+                      showOverlay: showTradesOverlay,
+                      showMarkers: false,
+                      showPnL: showPnLPanel,
+                      hoverTime
+                    }}
                     onCrosshairMove={handleWeeklyCrosshair}
                   />
-                  {weeklyEmptyMessage && (
-                    <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
-                  )}
-                </div>
-              </div>
-              <div
-                className="detail-divider detail-divider-vertical"
-                onMouseDown={startDrag()}
-                onTouchStart={startDrag()}
-              />
-              <div className="detail-pane" style={{ flex: `${monthlyRatio} 1 0%` }}>
-                <div className="detail-pane-header">Monthly</div>
-                <div
-                  className="detail-chart detail-chart-focusable"
-                  onDoubleClick={() => toggleFocus("monthly")}
-                >
+                )}
+                {focusPanel === "monthly" && (
                   <DetailChart
                     ref={monthlyChartRef}
                     candles={monthlyCandles}
@@ -2123,15 +2264,140 @@ export default function DetailView() {
                     boxes={boxes}
                     showBoxes={showBoxes}
                     visibleRange={monthlyVisibleRange}
+                    positionOverlay={{
+                      dailyPositions,
+                      tradeMarkers,
+                      showOverlay: showTradesOverlay,
+                      showMarkers: false,
+                      showPnL: showPnLPanel,
+                      hoverTime
+                    }}
                     onCrosshairMove={handleMonthlyCrosshair}
                   />
-                  {monthlyEmptyMessage && (
-                    <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                )}
+                {focusPanel === "daily" && dailyEmptyMessage && (
+                  <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
+                )}
+                {focusPanel === "weekly" && weeklyEmptyMessage && (
+                  <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
+                )}
+                {focusPanel === "monthly" && monthlyEmptyMessage && (
+                  <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                )}
+                <button
+                  type="button"
+                  className="detail-focus-back"
+                  onClick={() => setFocusPanel(null)}
+                >
+                  Back to 3 charts
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="detail-row detail-row-top" style={{ flex: `${DAILY_ROW_RATIO} 1 0%` }}>
+                <div className="detail-pane-header">Daily</div>
+                <div
+                  className="detail-chart detail-chart-focusable"
+                  onDoubleClick={() => toggleFocus("daily")}
+                >
+                  <DetailChart
+                    ref={dailyChartRef}
+                    candles={dailyCandles}
+                    volume={dailyVolume}
+                    maLines={dailyMaLines}
+                    showVolume={showVolumeDaily}
+                    boxes={boxes}
+                    showBoxes={showBoxes}
+                    visibleRange={dailyVisibleRange}
+                    positionOverlay={{
+                      dailyPositions,
+                      tradeMarkers,
+                      showOverlay: showTradesOverlay,
+                      showMarkers: true,
+                      showPnL: showPnLPanel,
+                      hoverTime
+                    }}
+                    cursorTime={cursorMode && selectedBarData ? selectedBarData.time : null}
+                    onCrosshairMove={handleDailyCrosshair}
+                    onVisibleRangeChange={handleDailyVisibleRangeChange}
+                    onChartClick={handleDailyChartClick}
+                  />
+                  {dailyEmptyMessage && (
+                    <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
                   )}
                 </div>
               </div>
-            </div>
-          </>
+              <div
+                className="detail-row detail-row-bottom"
+                style={{ flex: `${1 - DAILY_ROW_RATIO} 1 0%` }}
+                ref={bottomRowRef}
+              >
+                <div className="detail-pane" style={{ flex: `${weeklyRatio} 1 0%` }}>
+                  <div className="detail-pane-header">Weekly</div>
+                  <div
+                    className="detail-chart detail-chart-focusable"
+                    onDoubleClick={() => toggleFocus("weekly")}
+                  >
+                    <DetailChart
+                      ref={weeklyChartRef}
+                      candles={weeklyCandles}
+                      volume={weeklyVolume}
+                      maLines={weeklyMaLines}
+                      showVolume={false}
+                      boxes={boxes}
+                      showBoxes={showBoxes}
+                      visibleRange={weeklyVisibleRange}
+                      onCrosshairMove={handleWeeklyCrosshair}
+                    />
+                    {weeklyEmptyMessage && (
+                      <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
+                    )}
+                  </div>
+                </div>
+                <div
+                  className="detail-divider detail-divider-vertical"
+                  onMouseDown={startDrag()}
+                  onTouchStart={startDrag()}
+                />
+                <div className="detail-pane" style={{ flex: `${monthlyRatio} 1 0%` }}>
+                  <div className="detail-pane-header">Monthly</div>
+                  <div
+                    className="detail-chart detail-chart-focusable"
+                    onDoubleClick={() => toggleFocus("monthly")}
+                  >
+                    <DetailChart
+                      ref={monthlyChartRef}
+                      candles={monthlyCandles}
+                      volume={monthlyVolume}
+                      maLines={monthlyMaLines}
+                      showVolume={false}
+                      boxes={boxes}
+                      showBoxes={showBoxes}
+                      visibleRange={monthlyVisibleRange}
+                      onCrosshairMove={handleMonthlyCrosshair}
+                    />
+                    {monthlyEmptyMessage && (
+                      <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        {cursorMode && !compareCode && (
+          <DailyMemoPanel
+            code={code || ''}
+            selectedDate={selectedDate}
+            selectedBarData={selectedBarData}
+            {...(memoPanelData || {})}
+            cursorMode={cursorMode}
+            onToggleCursorMode={toggleCursorMode}
+            onPrevDay={moveToPrevDay}
+            onNextDay={moveToNextDay}
+            onCopyForConsult={handleCopyForConsult}
+          />
         )}
       </div>
       {!focusPanel && (

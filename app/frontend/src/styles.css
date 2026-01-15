@@ -559,6 +559,7 @@ body {
 .tech-filter-footer-actions button {
   min-width: 84px;
 }
+
 .tech-filter-header {
   background: var(--theme-bg-secondary);
 }
@@ -6269,4 +6270,106 @@ body {
 
 :root[data-theme="light"] .practice-hud-lock {
   color: #b45309;
+}
+
+/* Detail view with memo panel layout */
+.detail-content {
+  display: flex;
+  gap: 0;
+  height: 100%;
+}
+
+.detail-split {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-split.with-memo-panel {
+  flex: 1;
+}
+
+/* Positions Import Button */
+.positions-import-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  background-color: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border);
+  color: var(--theme-text-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  margin-right: 12px;
+  user-select: none;
+}
+
+.positions-import-btn:hover {
+  opacity: 0.8;
+}
+/* Event Badges */
+.event-badges {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.event-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.event-earnings {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.event-rights {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+/* Light mode adjustments */
+:root[data-theme="light"] .event-earnings {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+:root[data-theme="light"] .event-rights {
+  background: #dbeafe;
+  color: #1e40af;
+  border-color: #93c5fd;
+}
+
+.detail-event-badges {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.detail-event-meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--theme-text-muted);
+  margin-top: 4px;
+}
+
+.event-meta-refreshing {
+  color: var(--theme-accent);
+  animation: pulse 1.5s infinite;
+}
+
+.event-meta-error {
+  color: #ef4444;
 }

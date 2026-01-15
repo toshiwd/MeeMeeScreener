@@ -124,12 +124,32 @@ def _find_column(columns: Iterable[object], keywords: list[str]) -> object | Non
     return None
 
 
+def _locate_header(df: pd.DataFrame, keywords: list[str]) -> pd.DataFrame | None:
+    # Check if current columns match
+    if _find_column(df.columns, keywords):
+        return df
+    
+    # Search first 20 rows
+    for i in range(min(20, len(df))):
+        row_values = df.iloc[i].astype(str).tolist()
+        if _find_column(row_values, keywords):
+            # Found header at row i
+            # Make sure we don't have duplicate columns
+            new_header = df.iloc[i]
+            new_df = df.iloc[i+1:].copy()
+            new_df.columns = new_header
+            return new_df
+    return None
+
+
 def _load_excel_sheets(path: str) -> list[pd.DataFrame]:
     if pd is None:
         raise RuntimeError("pandas_not_installed")
     ext = os.path.splitext(path)[1].lower()
-    engine = "openpyxl" if ext == ".xlsx" else "xlrd"
-    workbook = pd.read_excel(path, sheet_name=None, engine=engine)
+    if ext == ".xlsx":
+        workbook = pd.read_excel(path, sheet_name=None, engine="openpyxl")
+    else:
+        workbook = pd.read_excel(path, sheet_name=None)
     return list(workbook.values())
 
 
@@ -151,7 +171,7 @@ def _discover_excel_urls(page_url: str) -> list[str]:
             html = response.read().decode("utf-8", errors="ignore")
     except Exception:
         return []
-    urls = re.findall(r'href=["\']([^"\']+\\.(?:xls|xlsx))["\']', html, flags=re.IGNORECASE)
+    urls = re.findall(r'href=["\']([^"\']+\.(?:xls|xlsx))["\']', html, flags=re.IGNORECASE)
     resolved: list[str] = []
     for href in urls:
         resolved.append(urllib.parse.urljoin(page_url, href))
@@ -194,6 +214,11 @@ def fetch_earnings_snapshot() -> list[dict]:
         for sheet in _load_excel_sheets(path):
             if sheet.empty:
                 continue
+            
+            sheet = _locate_header(sheet, ["\u30b3\u30fc\u30c9", "\u9298\u67c4\u30b3\u30fc\u30c9", "\u4f1a\u793e\u30b3\u30fc\u30c9", "companycode"])
+            if sheet is None:
+                continue
+
             code_col = _find_column(sheet.columns, ["\u30b3\u30fc\u30c9", "\u9298\u67c4\u30b3\u30fc\u30c9", "\u4f1a\u793e\u30b3\u30fc\u30c9", "companycode"])
             date_col = _find_column(sheet.columns, ["\u6c7a\u7b97\u767a\u8868\u65e5", "\u767a\u8868\u65e5", "\u767a\u8868\u4e88\u5b9a\u65e5", "\u4e88\u5b9a\u65e5", "date"])
             kind_col = _find_column(sheet.columns, ["\u7a2e\u5225", "\u533a\u5206", "\u7a2e\u985e", "\u6c7a\u7b97\u7a2e\u5225", "type"])
@@ -239,6 +264,11 @@ def fetch_rights_snapshot() -> list[dict]:
         for sheet in _load_excel_sheets(path):
             if sheet.empty:
                 continue
+            
+            sheet = _locate_header(sheet, ["\u30b3\u30fc\u30c9", "\u9298\u67c4\u30b3\u30fc\u30c9", "companycode"])
+            if sheet is None:
+                continue
+
             code_col = _find_column(sheet.columns, ["\u30b3\u30fc\u30c9", "\u9298\u67c4\u30b3\u30fc\u30c9", "companycode"])
             ex_date_col = _find_column(sheet.columns, ["\u6a29\u5229\u843d\u65e5", "\u914d\u5f53\u843d\u65e5", "\u6a29\u5229\u843d", "\u914d\u5f53\u843d", "ex-date", "exdate"])
             record_col = _find_column(sheet.columns, ["\u6a29\u5229\u78ba\u5b9a\u65e5", "\u78ba\u5b9a\u65e5", "recorddate", "record date"])

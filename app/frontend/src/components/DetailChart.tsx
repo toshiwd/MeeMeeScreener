@@ -53,11 +53,13 @@ type DetailChartProps = {
     showMarkers?: boolean;
     markerSuffix?: string;
     maLines?: MaLine[];
+    hidePanel?: boolean;
   };
   cursorTime?: number | null;
   partialTimes?: number[];
   onCrosshairMove?: (time: number | null, point?: { x: number; y: number } | null) => void;
   onVisibleRangeChange?: (range: { from: number; to: number } | null) => void;
+  onChartClick?: (time: number | null) => void;
   theme?: "dark" | "light";
 };
 
@@ -75,6 +77,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     partialTimes,
     onCrosshairMove,
     onVisibleRangeChange,
+    onChartClick,
     theme
   },
   ref
@@ -708,7 +711,31 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   }, []);
 
   return (
-    <div className="detail-chart-wrapper" ref={wrapperRef}>
+    <div
+      className="detail-chart-wrapper"
+      ref={wrapperRef}
+      onClick={(e) => {
+        if (!onChartClick) return;
+        const chart = chartRef.current;
+        if (!chart) return;
+
+        const rect = wrapperRef.current?.getBoundingClientRect();
+        if (!rect) return;
+
+        const x = e.clientX - rect.left;
+        const timeScale = chart.timeScale();
+
+        if (typeof timeScale.coordinateToTime === 'function') {
+          const time = timeScale.coordinateToTime(x);
+          if (time != null) {
+            const normalizedTime = normalizeRangeTime(time);
+            if (normalizedTime != null) {
+              onChartClick(normalizedTime);
+            }
+          }
+        }
+      }}
+    >
       <div className="detail-chart-inner" ref={containerRef} />
       <canvas className="detail-chart-overlay" ref={overlayRef} />
       {positionOverlay && (
@@ -725,6 +752,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           bars={candles}
           volume={volume}
           maLines={positionOverlay.maLines ?? maLines}
+          hidePanel={positionOverlay.hidePanel}
         />
       )}
     </div>
