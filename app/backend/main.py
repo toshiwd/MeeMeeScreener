@@ -25,6 +25,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from db import get_conn, init_schema
 from box_detector import detect_boxes
 from similarity import SimilarityService, SearchResult
+from events import fetch_earnings_snapshot, fetch_rights_snapshot, jst_now
+from positions import parse_rakuten_csv, parse_sbi_csv, rebuild_positions
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -191,6 +193,45 @@ _update_txt_status = {
     "last_updated_at": None
 }
 _similarity_service = SimilarityService()
+_similarity_refresh_lock = threading.Lock()
+_similarity_refresh_status = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "error": None,
+    "mode": None
+}
+_events_refresh_lock = threading.Lock()
+_events_refresh_timeout = timedelta(minutes=30)
+
+
+def _run_similarity_refresh(mode: str) -> None:
+    error = None
+    try:
+        _similarity_service.refresh_data(incremental=(mode == "incremental"))
+    except Exception as exc:
+        error = str(exc)
+        print(f"Similarity Refresh Error: {exc}")
+        traceback.print_exc()
+    finally:
+        with _similarity_refresh_lock:
+            _similarity_refresh_status["running"] = False
+            _similarity_refresh_status["finished_at"] = datetime.now().isoformat()
+            _similarity_refresh_status["error"] = error
+
+
+def _start_similarity_refresh(mode: str) -> bool:
+    with _similarity_refresh_lock:
+        if _similarity_refresh_status["running"]:
+            return False
+        _similarity_refresh_status["running"] = True
+        _similarity_refresh_status["started_at"] = datetime.now().isoformat()
+        _similarity_refresh_status["finished_at"] = None
+        _similarity_refresh_status["error"] = None
+        _similarity_refresh_status["mode"] = mode
+    thread = threading.Thread(target=_run_similarity_refresh, args=(mode,), daemon=True)
+    thread.start()
+    return True
 
 
 def _get_favorites_conn():
@@ -251,6 +292,264 @@ def _ensure_practice_column(conn: sqlite3.Connection, table: str, column: str, c
     if any(row[1] == column for row in existing):
         return
     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
+
+def _ensure_events_meta_row(conn) -> None:
+    row = conn.execute("SELECT id FROM events_meta LIMIT 1").fetchone()
+    if row:
+        return
+    conn.execute(
+        """
+        INSERT INTO events_meta (
+            id,
+            is_refreshing
+        ) VALUES (
+            1,
+            FALSE
+        );
+        """
+    )
+
+
+def _normalize_meta_datetime(value: object | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _format_event_date(value: object | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            return None
+    return None
+
+
+def _format_event_timestamp(value: object | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            return None
+    return None
+
+
+def _load_events_meta(conn) -> dict:
+    _ensure_events_meta_row(conn)
+    row = conn.execute(
+        """
+        SELECT
+            earnings_last_success_at,
+            rights_last_success_at,
+            last_error,
+            last_attempt_at,
+            is_refreshing,
+            refresh_lock_job_id,
+            refresh_lock_started_at
+        FROM events_meta
+        LIMIT 1
+        """
+    ).fetchone()
+    if not row:
+        return {}
+    return {
+        "earnings_last_success_at": row[0],
+        "rights_last_success_at": row[1],
+        "last_error": row[2],
+        "last_attempt_at": row[3],
+        "is_refreshing": bool(row[4]) if row[4] is not None else False,
+        "refresh_lock_job_id": row[5],
+        "refresh_lock_started_at": row[6]
+    }
+
+
+def _is_events_lock_stale(started_at: object | None) -> bool:
+    locked_at = _normalize_meta_datetime(started_at)
+    if locked_at is None:
+        return False
+    return jst_now().replace(tzinfo=None) - locked_at >= _events_refresh_timeout
+
+
+def _update_events_job(job_id: str, status: str, finished_at: datetime, error: str | None) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE events_refresh_jobs
+            SET status = ?, finished_at = ?, error = ?
+            WHERE job_id = ?
+            """,
+            [status, finished_at, error, job_id]
+        )
+
+
+def _run_events_refresh(job_id: str, reason: str | None) -> None:
+    earnings_rows: list[dict] = []
+    rights_rows: list[dict] = []
+    errors: list[str] = []
+    try:
+        earnings_rows = fetch_earnings_snapshot()
+        if not earnings_rows:
+            errors.append("earnings:no_rows")
+    except Exception as exc:
+        errors.append(f"earnings:{exc}")
+    try:
+        rights_rows = fetch_rights_snapshot()
+        if not rights_rows:
+            errors.append("rights:no_rows")
+    except Exception as exc:
+        errors.append(f"rights:{exc}")
+
+    finished_at = jst_now().replace(tzinfo=None)
+    error_text = "; ".join(errors) if errors else None
+
+    with get_conn() as conn:
+        _ensure_events_meta_row(conn)
+        if earnings_rows:
+            conn.execute("DELETE FROM earnings_planned WHERE source = 'JPX'")
+            conn.executemany(
+                """
+                INSERT INTO earnings_planned (
+                    code,
+                    planned_date,
+                    kind,
+                    company_name,
+                    source,
+                    fetched_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        row.get("code"),
+                        row.get("planned_date"),
+                        row.get("kind"),
+                        row.get("company_name"),
+                        row.get("source"),
+                        row.get("fetched_at")
+                    )
+                    for row in earnings_rows
+                ]
+            )
+            conn.execute(
+                "UPDATE events_meta SET earnings_last_success_at = ? WHERE id = 1",
+                [finished_at]
+            )
+        if rights_rows:
+            conn.execute("DELETE FROM ex_rights WHERE source = 'JPX'")
+            conn.executemany(
+                """
+                INSERT INTO ex_rights (
+                    code,
+                    ex_date,
+                    record_date,
+                    category,
+                    last_rights_date,
+                    source,
+                    fetched_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        row.get("code"),
+                        row.get("ex_date"),
+                        row.get("record_date"),
+                        row.get("category"),
+                        row.get("last_rights_date"),
+                        row.get("source"),
+                        row.get("fetched_at")
+                    )
+                    for row in rights_rows
+                ]
+            )
+            conn.execute(
+                "UPDATE events_meta SET rights_last_success_at = ? WHERE id = 1",
+                [finished_at]
+            )
+        conn.execute(
+            """
+            UPDATE events_meta
+            SET
+                last_error = ?,
+                last_attempt_at = ?,
+                is_refreshing = FALSE,
+                refresh_lock_job_id = NULL,
+                refresh_lock_started_at = NULL
+            WHERE id = 1
+            """,
+            [error_text, finished_at]
+        )
+
+    status = "success" if not error_text else "failed"
+    _update_events_job(job_id, status, finished_at, error_text)
+
+
+def _start_events_refresh(reason: str | None) -> str:
+    with _events_refresh_lock:
+        with get_conn() as conn:
+            meta = _load_events_meta(conn)
+            refreshing = bool(meta.get("is_refreshing"))
+            lock_started_at = meta.get("refresh_lock_started_at")
+            lock_job_id = meta.get("refresh_lock_job_id")
+            if refreshing and lock_job_id and not _is_events_lock_stale(lock_started_at):
+                return lock_job_id
+            if refreshing:
+                conn.execute(
+                    """
+                    UPDATE events_meta
+                    SET
+                        is_refreshing = FALSE,
+                        refresh_lock_job_id = NULL,
+                        refresh_lock_started_at = NULL
+                    WHERE id = 1
+                    """
+                )
+            job_id = uuid.uuid4().hex
+            started_at = jst_now().replace(tzinfo=None)
+            conn.execute(
+                """
+                UPDATE events_meta
+                SET
+                    is_refreshing = TRUE,
+                    refresh_lock_job_id = ?,
+                    refresh_lock_started_at = ?,
+                    last_attempt_at = ?
+                WHERE id = 1
+                """,
+                [job_id, started_at, started_at]
+            )
+            conn.execute(
+                """
+                INSERT INTO events_refresh_jobs (
+                    job_id,
+                    status,
+                    reason,
+                    started_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                [job_id, "running", reason, started_at]
+            )
+    thread = threading.Thread(target=_run_events_refresh, args=(job_id, reason), daemon=True)
+    thread.start()
+    return job_id
 
 
 def _normalize_code(value: str | None) -> str:
@@ -512,6 +811,270 @@ def simple_health():
     return JSONResponse(content={"ok": True})
 
 
+@app.get("/api/events/meta")
+def events_meta():
+    with get_conn() as conn:
+        meta = _load_events_meta(conn)
+        rights_max = conn.execute(
+            """
+            SELECT MAX(COALESCE(last_rights_date, ex_date)) AS rights_max_date
+            FROM ex_rights
+            """
+        ).fetchone()[0]
+    payload = {
+        "earnings_last_success_at": _format_event_timestamp(meta.get("earnings_last_success_at")),
+        "rights_last_success_at": _format_event_timestamp(meta.get("rights_last_success_at")),
+        "is_refreshing": bool(meta.get("is_refreshing")),
+        "refresh_job_id": meta.get("refresh_lock_job_id"),
+        "last_error": meta.get("last_error"),
+        "last_attempt_at": _format_event_timestamp(meta.get("last_attempt_at")),
+        "data_coverage": {
+            "rights_max_date": _format_event_date(rights_max)
+        }
+    }
+    return JSONResponse(content=payload)
+
+
+@app.post("/api/events/refresh")
+def events_refresh(reason: str | None = None):
+    job_id = _start_events_refresh(reason)
+    if not job_id:
+        return JSONResponse(content={"error": "refresh_lock_failed"}, status_code=409)
+    return JSONResponse(content={"refresh_job_id": job_id})
+
+
+@app.get("/api/events/refresh/{job_id}")
+def events_refresh_status(job_id: str):
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT status, started_at, finished_at, error
+            FROM events_refresh_jobs
+            WHERE job_id = ?
+            """,
+            [job_id]
+        ).fetchone()
+    if not row:
+        return JSONResponse(content={"error": "job_not_found"}, status_code=404)
+    return JSONResponse(
+        content={
+            "status": row[0],
+            "started_at": _format_event_timestamp(row[1]),
+            "finished_at": _format_event_timestamp(row[2]),
+            "error": row[3]
+        }
+    )
+
+
+@app.post("/api/imports/trade-history")
+async def import_trade_history(broker: str, file: UploadFile = File(...)):
+    broker_key = (broker or "").strip().lower()
+    data = await file.read()
+    if broker_key not in ("rakuten", "sbi"):
+        return JSONResponse(content={"error": "unsupported_broker"}, status_code=400)
+    if not data:
+        return JSONResponse(content={"error": "empty_file"}, status_code=400)
+
+    if broker_key == "rakuten":
+        events, warnings = parse_rakuten_csv(data)
+    else:
+        events, warnings = parse_sbi_csv(data)
+
+    inserted = 0
+    with get_conn() as conn:
+        if events:
+            existing = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM trade_events
+                WHERE source_row_hash IN ({placeholders})
+                """.format(placeholders=",".join(["?"] * len(events))),
+                [event.source_row_hash for event in events]
+            ).fetchone()[0]
+            rows = [
+                (
+                    event.broker,
+                    event.exec_dt,
+                    event.symbol,
+                    event.action,
+                    event.qty,
+                    event.price,
+                    event.source_row_hash
+                )
+                for event in events
+            ]
+            conn.executemany(
+                """
+                INSERT INTO trade_events (
+                    broker,
+                    exec_dt,
+                    symbol,
+                    action,
+                    qty,
+                    price,
+                    source_row_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_row_hash) DO NOTHING
+                """,
+                rows
+            )
+            total = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM trade_events
+                WHERE source_row_hash IN ({placeholders})
+                """.format(placeholders=",".join(["?"] * len(events))),
+                [event.source_row_hash for event in events]
+            ).fetchone()[0]
+            inserted = max(0, int(total or 0) - int(existing or 0))
+        rebuild_summary = rebuild_positions(conn)
+
+    return JSONResponse(
+        content={
+            "broker": broker_key,
+            "received": len(events),
+            "inserted": int(inserted or 0),
+            "warnings": warnings,
+            "rebuild": rebuild_summary
+        }
+    )
+
+
+@app.post("/api/positions/seed")
+def upsert_position_seed(payload: dict = Body(...)):
+    symbol = _normalize_code(payload.get("symbol"))
+    if not symbol:
+        return JSONResponse(content={"error": "symbol_required"}, status_code=400)
+    buy_qty = float(payload.get("buy_qty") or 0)
+    sell_qty = float(payload.get("sell_qty") or 0)
+    asof_dt = payload.get("asof_dt") or jst_now().replace(tzinfo=None).isoformat()
+    memo = payload.get("memo")
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO initial_positions_seed (symbol, buy_qty, sell_qty, asof_dt, memo)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET
+                buy_qty = excluded.buy_qty,
+                sell_qty = excluded.sell_qty,
+                asof_dt = excluded.asof_dt,
+                memo = excluded.memo
+            """,
+            [symbol, buy_qty, sell_qty, asof_dt, memo]
+        )
+        rebuild_summary = rebuild_positions(conn)
+    return JSONResponse(content={"symbol": symbol, "rebuild": rebuild_summary})
+
+
+@app.get("/api/positions/held")
+def positions_held():
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.symbol, p.buy_qty, p.sell_qty, p.opened_at, p.has_issue, p.issue_note, t.name
+            FROM positions_live p
+            LEFT JOIN tickers t ON p.symbol = t.code
+            ORDER BY p.symbol
+            """
+        ).fetchall()
+    items = []
+    for symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note, name in rows:
+        buy = float(buy_qty or 0)
+        sell = float(sell_qty or 0)
+        items.append(
+            {
+                "symbol": symbol,
+                "name": name or symbol,
+                "buy_qty": buy,
+                "sell_qty": sell,
+                "sell_buy_text": f"{sell:g}-{buy:g}",
+                "opened_at": _format_event_timestamp(opened_at),
+                "has_issue": bool(has_issue),
+                "issue_note": issue_note
+            }
+        )
+    return JSONResponse(content={"items": items})
+
+
+@app.get("/api/positions/history")
+def positions_history(symbol: str | None = None):
+    params: list = []
+    where_clause = ""
+    if symbol:
+        where_clause = "WHERE symbol = ?"
+        params.append(_normalize_code(symbol))
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT r.round_id, r.symbol, r.opened_at, r.closed_at, r.closed_reason, r.has_issue,
+                   r.issue_note, t.name
+            FROM position_rounds r
+            LEFT JOIN tickers t ON r.symbol = t.code
+            {where_clause}
+            ORDER BY r.closed_at DESC
+            """,
+            params
+        ).fetchall()
+    items = []
+    counts: dict[str, int] = {}
+    for round_id, sym, opened_at, closed_at, closed_reason, has_issue, issue_note, name in rows:
+        counts[sym] = counts.get(sym, 0) + 1
+        items.append(
+            {
+                "round_id": round_id,
+                "symbol": sym,
+                "name": name or sym,
+                "opened_at": _format_event_timestamp(opened_at),
+                "closed_at": _format_event_timestamp(closed_at),
+                "closed_reason": closed_reason,
+                "has_issue": bool(has_issue),
+                "issue_note": issue_note,
+                "round_no": counts[sym]
+            }
+        )
+    return JSONResponse(content={"items": items})
+
+
+@app.get("/api/positions/history/events")
+def position_round_events(round_id: str):
+    with get_conn() as conn:
+        round_row = conn.execute(
+            "SELECT symbol, opened_at, closed_at FROM position_rounds WHERE round_id = ?",
+            [round_id]
+        ).fetchone()
+        if not round_row:
+            return JSONResponse(content={"error": "round_not_found"}, status_code=404)
+        symbol, opened_at, closed_at = round_row
+        rows = conn.execute(
+            """
+            SELECT broker, exec_dt, action, qty, price
+            FROM trade_events
+            WHERE symbol = ? AND exec_dt BETWEEN ? AND ?
+            ORDER BY exec_dt
+            """,
+            [symbol, opened_at, closed_at]
+        ).fetchall()
+    events = [
+        {
+            "broker": row[0],
+            "exec_dt": _format_event_timestamp(row[1]),
+            "action": row[2],
+            "qty": float(row[3] or 0),
+            "price": float(row[4]) if row[4] is not None else None
+        }
+        for row in rows
+    ]
+    return JSONResponse(
+        content={
+            "round_id": round_id,
+            "symbol": symbol,
+            "opened_at": _format_event_timestamp(opened_at),
+            "closed_at": _format_event_timestamp(closed_at),
+            "events": events
+        }
+    )
+
+
 @app.get("/api/search/similar", response_model=list[SearchResult])
 def search_similar(ticker: str, asof: str = None, k: int = 30, alpha: float = 0.7):
     try:
@@ -522,11 +1085,36 @@ def search_similar(ticker: str, asof: str = None, k: int = 30, alpha: float = 0.
         if "not indexed" in err_msg:
              raise HTTPException(status_code=404, detail="データ期間不足のため検索対象外です (120ヶ月未満)")
         raise HTTPException(status_code=400, detail=err_msg)
+    except (FileNotFoundError, RuntimeError) as e:
+        # Similarity artifacts are missing or not loaded
+        message = str(e)
+        if "Parquet engine" in message or "pyarrow" in message or "fastparquet" in message:
+            raise HTTPException(
+                status_code=503,
+                detail="類似検索データの読み込みに必要なpyarrowが見つかりません。pyarrowをインストールしてください。"
+            )
+        raise HTTPException(status_code=503, detail="類似検索データが未作成です。更新処理を実行してください。")
     except Exception as e:
         # Unexpected
         print(f"Similarity Search Error: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Search processing failed")
+
+
+@app.post("/api/search/similar/refresh")
+def refresh_similarity(mode: str = "incremental"):
+    if mode not in ("incremental", "full"):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid_mode"})
+    started = _start_similarity_refresh(mode)
+    if not started:
+        return JSONResponse(status_code=409, content={"ok": False, "error": "already_running"})
+    return JSONResponse(content={"ok": True, "status": "started", "mode": mode})
+
+
+@app.get("/api/search/similar/status")
+def similarity_refresh_status():
+    with _similarity_refresh_lock:
+        return JSONResponse(content={"ok": True, "status": dict(_similarity_refresh_status)})
 
 
 @app.exception_handler(HTTPException)
@@ -3455,6 +4043,8 @@ def _compute_screener_metrics(
 
 
 def _build_screener_rows() -> list[dict]:
+    today = jst_now().date()
+    window_end = today + timedelta(days=30)
     with get_conn() as conn:
         codes = [row[0] for row in conn.execute("SELECT DISTINCT code FROM daily_bars ORDER BY code").fetchall()]
         meta_rows = conn.execute(
@@ -3486,11 +4076,31 @@ def _build_screener_rows() -> list[dict]:
             ORDER BY code, month
             """
         ).fetchall()
+        earnings_rows = conn.execute(
+            """
+            SELECT code, MIN(planned_date) AS planned_date
+            FROM earnings_planned
+            WHERE planned_date BETWEEN ? AND ?
+            GROUP BY code
+            """,
+            [today, window_end]
+        ).fetchall()
+        rights_rows = conn.execute(
+            """
+            SELECT code, MIN(COALESCE(last_rights_date, ex_date)) AS rights_date
+            FROM ex_rights
+            WHERE COALESCE(last_rights_date, ex_date) BETWEEN ? AND ?
+            GROUP BY code
+            """,
+            [today, window_end]
+        ).fetchall()
 
     meta_map = {row[0]: row for row in meta_rows}
     fallback_names = _build_name_map_from_txt()
     daily_map: dict[str, list[tuple]] = {}
     monthly_map: dict[str, list[tuple]] = {}
+    earnings_map = {row[0]: row[1] for row in earnings_rows}
+    rights_map = {row[0]: row[1] for row in rights_rows}
 
     for row in daily_rows:
         code = row[0]
@@ -3564,6 +4174,8 @@ def _build_screener_rows() -> list[dict]:
             score_status = "OK" if score is not None else "INSUFFICIENT_DATA"
         if not missing_reasons:
             missing_reasons = metrics.get("reasons") or []
+        event_earnings_date = _format_event_date(earnings_map.get(code))
+        event_rights_date = _format_event_date(rights_map.get(code))
         items.append(
             {
                 "code": code,
@@ -3577,6 +4189,10 @@ def _build_screener_rows() -> list[dict]:
                 "missing_reasons": missing_reasons,
                 "scoreBreakdown": score_breakdown,
                 "score_breakdown": score_breakdown,
+                "eventEarningsDate": event_earnings_date,
+                "eventRightsDate": event_rights_date,
+                "event_earnings_date": event_earnings_date,
+                "event_rights_date": event_rights_date,
                 **metrics
             }
         )

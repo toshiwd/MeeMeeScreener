@@ -26,6 +26,7 @@ import type { TradeEvent } from "../utils/positions";
 import { buildDailyPositions, buildPositionLedger } from "../utils/positions";
 import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
 import { buildAIExport, copyToClipboard, saveAsFile } from "../utils/aiExport";
+import { formatEventBadgeDate, formatEventDateYmd, parseEventDateMs } from "../utils/events";
 
 type Timeframe = "daily" | "weekly" | "monthly";
 type FocusPanel = Timeframe | null;
@@ -66,6 +67,17 @@ type ApiWarnings = {
 type BarsResponse = {
   data?: number[][];
   errors?: string[];
+};
+
+type CompareListItem = {
+  ticker: string;
+  asof: string | null;
+};
+
+type CompareListPayload = {
+  queryTicker: string;
+  mainAsOf: string | null;
+  items: CompareListItem[];
 };
 
 const DEFAULT_LIMITS = {
@@ -274,6 +286,42 @@ const buildRange = (candles: Candle[], months: number) => {
   return { from: Math.floor(startDate.getTime() / 1000), to: end };
 };
 
+const buildRangeEndingAt = (candles: Candle[], months: number, endTime: number | null) => {
+  if (!candles.length) return null;
+  if (!endTime) return buildRange(candles, months);
+  let nearest = candles[candles.length - 1].time;
+  let bestDiff = Number.POSITIVE_INFINITY;
+  for (const candle of candles) {
+    const diff = Math.abs(candle.time - endTime);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      nearest = candle.time;
+    }
+  }
+  const endDate = new Date(nearest * 1000);
+  const startDate = new Date(endDate);
+  startDate.setMonth(endDate.getMonth() - months);
+  return { from: Math.floor(startDate.getTime() / 1000), to: nearest };
+};
+
+const buildRangeFromEndTime = (months: number, endTime: number | null) => {
+  if (!endTime) return null;
+  const endDate = new Date(endTime * 1000);
+  const startDate = new Date(endDate);
+  startDate.setMonth(endDate.getMonth() - months);
+  return { from: Math.floor(startDate.getTime() / 1000), to: endTime };
+};
+
+const formatDateLabel = (value: number | null) => {
+  if (!value) return "";
+  const date = new Date(value * 1000);
+  if (Number.isNaN(date.getTime())) return "";
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  return `${yyyy}/${mm}/${dd}`;
+};
+
 const countInRange = (candles: Candle[], months: number | null) => {
   if (!months) return candles.length;
   const range = buildRange(candles, months);
@@ -289,6 +337,8 @@ export default function DetailView() {
   const dailyChartRef = useRef<DetailChartHandle | null>(null);
   const weeklyChartRef = useRef<DetailChartHandle | null>(null);
   const monthlyChartRef = useRef<DetailChartHandle | null>(null);
+  const compareDailyChartRef = useRef<DetailChartHandle | null>(null);
+  const compareMonthlyChartRef = useRef<DetailChartHandle | null>(null);
   const bottomRowRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
   const hoverTimeRef = useRef<number | null>(null);
@@ -298,6 +348,7 @@ export default function DetailView() {
   const tickers = useStore((state) => state.tickers);
   const loadList = useStore((state) => state.loadList);
   const loadingList = useStore((state) => state.loadingList);
+  const eventsMeta = useStore((state) => state.eventsMeta);
   const favorites = useStore((state) => state.favorites);
   const favoritesLoaded = useStore((state) => state.favoritesLoaded);
   const loadFavorites = useStore((state) => state.loadFavorites);
@@ -305,15 +356,20 @@ export default function DetailView() {
   const showBoxes = useStore((state) => state.settings.showBoxes);
   const setShowBoxes = useStore((state) => state.setShowBoxes);
   const maSettings = useStore((state) => state.maSettings);
+  const compareMaSettings = useStore((state) => state.compareMaSettings);
   const updateMaSetting = useStore((state) => state.updateMaSetting);
+  const updateCompareMaSetting = useStore((state) => state.updateCompareMaSetting);
   const resetMaSettings = useStore((state) => state.resetMaSettings);
+  const resetCompareMaSettings = useStore((state) => state.resetCompareMaSettings);
 
   const [dailyLimit, setDailyLimit] = useState(DEFAULT_LIMITS.daily);
   const [monthlyLimit, setMonthlyLimit] = useState(DEFAULT_LIMITS.monthly);
   const [dailyData, setDailyData] = useState<number[][]>([]);
   const [monthlyData, setMonthlyData] = useState<number[][]>([]);
   const [boxes, setBoxes] = useState<Box[]>([]);
+  const [compareBoxes, setCompareBoxes] = useState<Box[]>([]);
   const [trades, setTrades] = useState<TradeEvent[]>([]);
+  const [compareTrades, setCompareTrades] = useState<TradeEvent[]>([]);
   const [tradeWarnings, setTradeWarnings] = useState<ApiWarnings>({ items: [] });
   const [tradeErrors, setTradeErrors] = useState<string[]>([]);
   const [dailyErrors, setDailyErrors] = useState<string[]>([]);
@@ -333,6 +389,7 @@ export default function DetailView() {
   const [hasMoreDaily, setHasMoreDaily] = useState(true);
   const [hasMoreMonthly, setHasMoreMonthly] = useState(true);
   const [showIndicators, setShowIndicators] = useState(false);
+  const [maEditMode, setMaEditMode] = useState<"main" | "compare">("main");
   const [weeklyRatio, setWeeklyRatio] = useState(DEFAULT_WEEKLY_RATIO);
   const [rangeMonths, setRangeMonths] = useState<number | null>(12);
   const [showTradesOverlay, setShowTradesOverlay] = useState(true);
@@ -350,6 +407,52 @@ export default function DetailView() {
   const pendingRangeRef = useRef<{ from: number; to: number } | null>(null);
   const syncRafRef = useRef<number | null>(null);
   const [showSimilar, setShowSimilar] = useState(false);
+  const compareCode = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get("compare");
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === code) return null;
+    return trimmed;
+  }, [location.search, code]);
+  const compareAsOf = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get("compareAsOf");
+    return raw ? raw.trim() : null;
+  }, [location.search]);
+  const mainAsOf = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get("mainAsOf");
+    return raw ? raw.trim() : null;
+  }, [location.search]);
+  const compareAsOfTime = useMemo(() => {
+    if (!compareAsOf) return null;
+    return normalizeTime(compareAsOf);
+  }, [compareAsOf]);
+  const mainAsOfTime = useMemo(() => {
+    if (!mainAsOf) return null;
+    return normalizeTime(mainAsOf);
+  }, [mainAsOf]);
+  const [compareMonthlyData, setCompareMonthlyData] = useState<number[][]>([]);
+  const [compareMonthlyErrors, setCompareMonthlyErrors] = useState<string[]>([]);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareDailyData, setCompareDailyData] = useState<number[][]>([]);
+  const [compareDailyErrors, setCompareDailyErrors] = useState<string[]>([]);
+  const [compareDailyLoading, setCompareDailyLoading] = useState(false);
+  const [compareDailyLimit, setCompareDailyLimit] = useState(DEFAULT_LIMITS.daily);
+
+  useEffect(() => {
+    if (compareCode) return;
+    setCompareMonthlyData([]);
+    setCompareMonthlyErrors([]);
+    setCompareLoading(false);
+    setCompareDailyData([]);
+    setCompareDailyErrors([]);
+    setCompareDailyLoading(false);
+    setCompareBoxes([]);
+    setCompareTrades([]);
+    setCompareDailyLimit(DEFAULT_LIMITS.daily);
+  }, [compareCode]);
 
   const tickerName = useMemo(() => {
     if (!code) return "";
@@ -357,6 +460,41 @@ export default function DetailView() {
     const cleaned = raw.replace(/\s*\?\s*$/, "").trim();
     return cleaned === "?" ? "" : cleaned;
   }, [tickers, code]);
+  const activeTicker = useMemo(() => tickers.find((item) => item.code === code) ?? null, [tickers, code]);
+  const earningsLabel = useMemo(
+    () => formatEventBadgeDate(activeTicker?.eventEarningsDate),
+    [activeTicker?.eventEarningsDate]
+  );
+  const rightsLabel = useMemo(
+    () => formatEventBadgeDate(activeTicker?.eventRightsDate),
+    [activeTicker?.eventRightsDate]
+  );
+  const eventsLastSuccessLabel = useMemo(() => {
+    const earningsMs = parseEventDateMs(eventsMeta?.earningsLastSuccessAt);
+    const rightsMs = parseEventDateMs(eventsMeta?.rightsLastSuccessAt);
+    const candidates = [
+      { value: eventsMeta?.earningsLastSuccessAt ?? null, ms: earningsMs },
+      { value: eventsMeta?.rightsLastSuccessAt ?? null, ms: rightsMs }
+    ].filter((item) => item.value && item.ms != null) as { value: string; ms: number }[];
+    if (!candidates.length) return null;
+    const oldest = candidates.reduce((prev, next) => (next.ms < prev.ms ? next : prev));
+    return formatEventDateYmd(oldest.value);
+  }, [eventsMeta]);
+  const rightsCoverageLabel = useMemo(() => {
+    const rightsMaxDate = eventsMeta?.dataCoverage?.rightsMaxDate ?? null;
+    const maxMs = parseEventDateMs(rightsMaxDate);
+    if (!rightsMaxDate || maxMs == null) return null;
+    const thresholdMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    if (maxMs >= thresholdMs) return null;
+    const formatted = formatEventDateYmd(rightsMaxDate);
+    return formatted ? `権利データ範囲: ～${formatted}` : null;
+  }, [eventsMeta]);
+  const compareTickerName = useMemo(() => {
+    if (!compareCode) return "";
+    const raw = tickers.find((item) => item.code === compareCode)?.name ?? "";
+    const cleaned = raw.replace(/\s*\?\s*$/, "").trim();
+    return cleaned === "?" ? "" : cleaned;
+  }, [tickers, compareCode]);
 
   const subtitle = "Daily / Weekly / Monthly";
 
@@ -433,6 +571,46 @@ export default function DetailView() {
 
   useEffect(() => {
     if (!backendReady) return;
+    if (!compareCode) return;
+    setCompareLoading(true);
+    setCompareMonthlyErrors([]);
+    api
+      .get("/ticker/monthly", { params: { code: compareCode, limit: monthlyLimit } })
+      .then((res) => {
+        const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "monthly");
+        setCompareMonthlyData(rows);
+        setCompareMonthlyErrors(errors);
+      })
+      .catch((error) => {
+        const message = error?.message || "Monthly fetch failed";
+        setCompareMonthlyErrors([message]);
+        setCompareMonthlyData([]);
+      })
+      .finally(() => setCompareLoading(false));
+  }, [backendReady, compareCode, monthlyLimit]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!compareCode) return;
+    setCompareDailyLoading(true);
+    setCompareDailyErrors([]);
+    api
+      .get("/ticker/daily", { params: { code: compareCode, limit: compareDailyLimit } })
+      .then((res) => {
+        const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "daily");
+        setCompareDailyData(rows);
+        setCompareDailyErrors(errors);
+      })
+      .catch((error) => {
+        const message = error?.message || "Daily fetch failed";
+        setCompareDailyErrors([message]);
+        setCompareDailyData([]);
+      })
+      .finally(() => setCompareDailyLoading(false));
+  }, [backendReady, compareCode, compareDailyLimit]);
+
+  useEffect(() => {
+    if (!backendReady) return;
     if (!code) return;
     api
       .get("/ticker/boxes", { params: { code } })
@@ -444,6 +622,29 @@ export default function DetailView() {
         setBoxes([]);
       });
   }, [backendReady, code]);
+
+  useEffect(() => {
+    if (!compareCode) return;
+    setFocusPanel(null);
+  }, [compareCode]);
+  useEffect(() => {
+    if (compareCode) return;
+    setMaEditMode("main");
+  }, [compareCode]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!compareCode) return;
+    api
+      .get("/ticker/boxes", { params: { code: compareCode } })
+      .then((res) => {
+        const rows = (res.data || []) as Box[];
+        setCompareBoxes(rows);
+      })
+      .catch(() => {
+        setCompareBoxes([]);
+      });
+  }, [backendReady, compareCode]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -474,12 +675,41 @@ export default function DetailView() {
       });
   }, [backendReady, code]);
 
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!compareCode) return;
+    api
+      .get(`/trades/${compareCode}`)
+      .then((res) => {
+        const payload = res.data as {
+          events?: TradeEvent[];
+          errors?: string[];
+        };
+        if (!payload || !Array.isArray(payload.events)) {
+          throw new Error("Trades response is invalid");
+        }
+        setCompareTrades(payload.events ?? []);
+      })
+      .catch((error) => {
+        const message = error?.message || "Trades fetch failed";
+        setCompareTrades([]);
+      });
+  }, [backendReady, compareCode]);
+
   const dailyParse = useMemo(() => buildCandlesWithStats(dailyData), [dailyData]);
   const monthlyParse = useMemo(() => buildCandlesWithStats(monthlyData), [monthlyData]);
+  const compareDailyParse = useMemo(() => buildCandlesWithStats(compareDailyData), [compareDailyData]);
+  const compareMonthlyParse = useMemo(
+    () => buildCandlesWithStats(compareMonthlyData),
+    [compareMonthlyData]
+  );
   const dailyCandles = dailyParse.candles;
   const monthlyCandles = monthlyParse.candles;
+  const compareDailyCandles = compareDailyParse.candles;
+  const compareMonthlyCandles = compareMonthlyParse.candles;
   const dailyVolume = useMemo(() => buildVolume(dailyData), [dailyData]);
   const monthlyVolume = useMemo(() => buildVolume(monthlyData), [monthlyData]);
+  const compareDailyVolume = useMemo(() => buildVolume(compareDailyData), [compareDailyData]);
   const weeklyData = useMemo(() => buildWeekly(dailyCandles, dailyVolume), [dailyCandles, dailyVolume]);
 
   const weeklyCandles = weeklyData.candles;
@@ -499,6 +729,12 @@ export default function DetailView() {
   );
   const dailyPositions = positionData.dailyPositions;
   const tradeMarkers = positionData.tradeMarkers;
+  const comparePositionData = useMemo(
+    () => buildDailyPositions(compareDailyCandles, compareTrades),
+    [compareDailyCandles, compareTrades]
+  );
+  const compareDailyPositions = comparePositionData.dailyPositions;
+  const compareTradeMarkers = comparePositionData.tradeMarkers;
   const positionLedger = useMemo(() => buildPositionLedger(trades), [trades]);
   const ledgerGroups = useMemo(() => {
     const brokerOrder = (key: string) => {
@@ -741,6 +977,17 @@ export default function DetailView() {
       data: computeMA(dailyCandles, setting.period)
     }));
   }, [dailyCandles, maSettings.daily]);
+  const compareDailyMaLines = useMemo(() => {
+    return compareMaSettings.daily.map((setting) => ({
+      key: setting.key,
+      label: setting.label,
+      period: setting.period,
+      color: setting.color,
+      visible: setting.visible,
+      lineWidth: setting.lineWidth,
+      data: computeMA(compareDailyCandles, setting.period)
+    }));
+  }, [compareDailyCandles, compareMaSettings.daily]);
 
   const weeklyMaLines = useMemo(() => {
     return maSettings.weekly.map((setting) => ({
@@ -765,21 +1012,152 @@ export default function DetailView() {
       data: computeMA(monthlyCandles, setting.period)
     }));
   }, [monthlyCandles, maSettings.monthly]);
+  const compareMonthlyMaLines = useMemo(() => {
+    return compareMaSettings.monthly.map((setting) => ({
+      key: setting.key,
+      label: setting.label,
+      period: setting.period,
+      color: setting.color,
+      visible: setting.visible,
+      lineWidth: setting.lineWidth,
+      data: computeMA(compareMonthlyCandles, setting.period)
+    }));
+  }, [compareMonthlyCandles, compareMaSettings.monthly]);
 
-  const dailyVisibleRange = useMemo(
-    () => (rangeMonths ? buildRange(dailyCandles, rangeMonths) : null),
-    [dailyCandles, rangeMonths]
+  const mainDailyTargetRange = useMemo(
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
+    [rangeMonths, mainAsOfTime]
   );
+  const compareDailyTargetRange = useMemo(
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, compareAsOfTime) : null),
+    [rangeMonths, compareAsOfTime]
+  );
+  const mainMonthlyTargetRange = useMemo(
+    () => (mainAsOfTime ? buildRangeFromEndTime(24, mainAsOfTime) : null),
+    [mainAsOfTime]
+  );
+  const compareMonthlyTargetRange = useMemo(
+    () => (compareAsOfTime ? buildRangeFromEndTime(24, compareAsOfTime) : null),
+    [compareAsOfTime]
+  );
+  const dailyVisibleRange = useMemo(() => {
+    if (!rangeMonths) return null;
+    if (mainDailyTargetRange) {
+      return mainDailyTargetRange;
+    }
+    return buildRange(dailyCandles, rangeMonths);
+  }, [dailyCandles, rangeMonths, mainDailyTargetRange]);
 
   const weeklyVisibleRange = useMemo(
     () => (rangeMonths ? buildRange(weeklyCandles, rangeMonths) : null),
     [weeklyCandles, rangeMonths]
   );
 
-  const monthlyVisibleRange = useMemo(
-    () => (rangeMonths ? buildRange(monthlyCandles, rangeMonths) : null),
-    [monthlyCandles, rangeMonths]
+  const monthlyVisibleRange = useMemo(() => {
+    if (!rangeMonths) return null;
+    if (mainAsOfTime) {
+      return buildRangeEndingAt(monthlyCandles, rangeMonths, mainAsOfTime);
+    }
+    return buildRange(monthlyCandles, rangeMonths);
+  }, [monthlyCandles, rangeMonths, mainAsOfTime]);
+  const compareMonthlyVisibleRange = useMemo(() => {
+    if (compareMonthlyTargetRange) return compareMonthlyTargetRange;
+    return buildRange(compareMonthlyCandles, 24);
+  }, [compareMonthlyTargetRange, compareMonthlyCandles]);
+  const compareMonthlyBaseRange = useMemo(() => {
+    if (mainMonthlyTargetRange) return mainMonthlyTargetRange;
+    return buildRange(monthlyCandles, 24);
+  }, [mainMonthlyTargetRange, monthlyCandles]);
+  const compareRequiredFrom = useMemo(
+    () => compareDailyTargetRange?.from ?? null,
+    [compareDailyTargetRange]
   );
+  const compareDailyVisibleRange = useMemo(() => {
+    if (!compareDailyTargetRange) return null;
+    if (!compareDailyCandles.length) return null;
+    return compareDailyTargetRange;
+  }, [compareDailyTargetRange, compareDailyCandles]);
+  const dailyRangeLabel = useMemo(() => {
+    if (!rangeMonths) return "全期間";
+    if (rangeMonths === 3) return "3M";
+    if (rangeMonths === 6) return "6M";
+    if (rangeMonths === 12) return "1Y";
+    if (rangeMonths === 24) return "2Y";
+    return `${rangeMonths}M`;
+  }, [rangeMonths]);
+  const leftDailyRangeLabel = useMemo(() => {
+    if (mainDailyTargetRange) {
+      return `対象期間: ${formatDateLabel(mainDailyTargetRange.from)} - ${formatDateLabel(mainDailyTargetRange.to)}`;
+    }
+    return `表示期間: ${dailyRangeLabel}`;
+  }, [mainDailyTargetRange, dailyRangeLabel]);
+  const rightDailyRangeLabel = useMemo(() => {
+    if (compareDailyTargetRange) {
+      return `一致期間: ${formatDateLabel(compareDailyTargetRange.from)} - ${formatDateLabel(compareDailyTargetRange.to)}`;
+    }
+    if (compareAsOfTime) {
+      return `一致日: ${formatDateLabel(compareAsOfTime)}`;
+    }
+    return "一致期間: --";
+  }, [compareDailyTargetRange, compareAsOfTime]);
+  const leftMonthlyRangeLabel = useMemo(() => {
+    if (mainMonthlyTargetRange) {
+      return `対象期間: ${formatDateLabel(mainMonthlyTargetRange.from)} - ${formatDateLabel(mainMonthlyTargetRange.to)}`;
+    }
+    return "24本";
+  }, [mainMonthlyTargetRange]);
+  const rightMonthlyRangeLabel = useMemo(() => {
+    if (compareMonthlyVisibleRange) {
+      return `一致期間: ${formatDateLabel(compareMonthlyVisibleRange.from)} - ${formatDateLabel(compareMonthlyVisibleRange.to)}`;
+    }
+    return "24本";
+  }, [compareMonthlyVisibleRange]);
+  const compareDailyNeedsMore = useMemo(() => {
+    if (!compareDailyTargetRange || !compareDailyCandles.length) return false;
+    const earliest = compareDailyCandles[0]?.time;
+    if (!earliest) return false;
+    const hasMore = compareDailyData.length >= compareDailyLimit;
+    return compareDailyTargetRange.from < earliest && hasMore;
+  }, [compareDailyTargetRange, compareDailyCandles, compareDailyData.length, compareDailyLimit]);
+  const mainMonthlyNeedsMore = useMemo(() => {
+    if (!compareCode || !compareRequiredFrom || !monthlyCandles.length) return false;
+    const earliest = monthlyCandles[0]?.time;
+    if (!earliest) return false;
+    const hasMore = monthlyData.length >= monthlyLimit;
+    return compareRequiredFrom < earliest && hasMore;
+  }, [compareCode, compareRequiredFrom, monthlyCandles, monthlyData.length, monthlyLimit]);
+  const compareMonthlyNeedsMore = useMemo(() => {
+    if (!compareCode || !compareRequiredFrom || !compareMonthlyCandles.length) return false;
+    const earliest = compareMonthlyCandles[0]?.time;
+    if (!earliest) return false;
+    const hasMore = compareMonthlyData.length >= monthlyLimit;
+    return compareRequiredFrom < earliest && hasMore;
+  }, [
+    compareCode,
+    compareRequiredFrom,
+    compareMonthlyCandles,
+    compareMonthlyData.length,
+    monthlyLimit
+  ]);
+
+  useEffect(() => {
+    if (!compareCode) return;
+    if (compareDailyLoading) return;
+    if (!compareDailyNeedsMore) return;
+    setCompareDailyLimit((prev) => prev + LIMIT_STEP.daily);
+  }, [compareCode, compareDailyLoading, compareDailyNeedsMore]);
+  useEffect(() => {
+    if (!compareCode) return;
+    if (loadingMonthly || compareLoading) return;
+    if (!mainMonthlyNeedsMore && !compareMonthlyNeedsMore) return;
+    setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly);
+  }, [
+    compareCode,
+    loadingMonthly,
+    compareLoading,
+    mainMonthlyNeedsMore,
+    compareMonthlyNeedsMore
+  ]);
 
   useEffect(() => {
     const handleMove = (event: MouseEvent | TouchEvent) => {
@@ -948,11 +1326,21 @@ export default function DetailView() {
     return { items, info, unrecognized_labels: { count: unrecognized.count, samples } };
   };
 
+  const activeMaSettings = maEditMode === "compare" ? compareMaSettings : maSettings;
+
   const updateSetting = (timeframe: Timeframe, index: number, patch: Partial<MaSetting>) => {
+    if (maEditMode === "compare") {
+      updateCompareMaSetting(timeframe, index, patch);
+      return;
+    }
     updateMaSetting(timeframe, index, patch);
   };
 
   const resetSettings = (timeframe: Timeframe) => {
+    if (maEditMode === "compare") {
+      resetCompareMaSettings(timeframe);
+      return;
+    }
     resetMaSettings(timeframe);
   };
 
@@ -1060,6 +1448,27 @@ export default function DetailView() {
     }
   };
 
+  const handleCompareMonthlyCrosshair = (time: number | null, source: "left" | "right") => {
+    if (syncRangesRef.current) {
+      if (source === "left") {
+        compareMonthlyChartRef.current?.setCrosshair(time, null);
+      } else {
+        monthlyChartRef.current?.setCrosshair(time, null);
+      }
+    }
+  };
+
+  const handleCompareDailyCrosshair = (time: number | null, source: "left" | "right") => {
+    if (syncRangesRef.current) {
+      if (source === "left") {
+        compareDailyChartRef.current?.setCrosshair(time, null);
+      } else {
+        dailyChartRef.current?.setCrosshair(time, null);
+      }
+    }
+    scheduleHoverTime(time);
+  };
+
   const dailyEmptyMessage = dailyCandles.length === 0 ? dailyError ?? "No data" : null;
   const weeklyEmptyMessage = weeklyCandles.length === 0 ? dailyError ?? "No data" : null;
   const monthlyEmptyMessage = monthlyCandles.length === 0 ? monthlyError ?? "No data" : null;
@@ -1101,6 +1510,45 @@ export default function DetailView() {
       return [];
     }
   }, [code]);
+  const compareList = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = window.sessionStorage.getItem("similarCompareList");
+      if (!stored) return null;
+      const parsed = JSON.parse(stored) as CompareListPayload;
+      if (!parsed || typeof parsed !== "object") return null;
+      if (typeof parsed.queryTicker !== "string" || !Array.isArray(parsed.items)) return null;
+      const items = parsed.items
+        .map((item) => ({
+          ticker: typeof item?.ticker === "string" ? item.ticker : "",
+          asof: typeof item?.asof === "string" ? item.asof : null
+        }))
+        .filter((item) => item.ticker);
+      return {
+        queryTicker: parsed.queryTicker,
+        mainAsOf: typeof parsed.mainAsOf === "string" ? parsed.mainAsOf : null,
+        items
+      };
+    } catch {
+      return null;
+    }
+  }, [code, compareCode, mainAsOf]);
+  const compareListItems = compareList?.items ?? [];
+  const compareListEligible = useMemo(() => {
+    if (!compareList) return false;
+    if (compareList.queryTicker !== code) return false;
+    const storedMainAsOf = compareList.mainAsOf ?? null;
+    const currentMainAsOf = mainAsOf ?? null;
+    return storedMainAsOf === currentMainAsOf;
+  }, [compareList, code, mainAsOf]);
+  const nextCompareItem = useMemo(() => {
+    if (!compareListEligible || !compareCode) return null;
+    const index = compareListItems.findIndex(
+      (item) => item.ticker === compareCode && (item.asof ?? null) === (compareAsOf ?? null)
+    );
+    if (index < 0) return null;
+    return compareListItems[index + 1] ?? null;
+  }, [compareListEligible, compareListItems, compareCode, compareAsOf]);
   const nextCode = useMemo(() => {
     if (!code) return null;
     const index = listCodes.indexOf(code);
@@ -1145,6 +1593,26 @@ export default function DetailView() {
               <div className="detail-title-name">{tickerName || "?????"}</div>
             </div>
             <div className="subtitle">{subtitle}</div>
+            {(rightsLabel || earningsLabel) && (
+              <div className="detail-event-badges">
+                {rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
+                {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
+              </div>
+            )}
+            <div className="detail-event-meta">
+              {eventsMeta?.isRefreshing && (
+                <span className="event-meta-refreshing">イベント更新中...</span>
+              )}
+              {eventsMeta?.lastError && (
+                <span className="event-meta-error" title={eventsMeta.lastError}>
+                  更新失敗
+                </span>
+              )}
+              <span className="event-meta-last">
+                イベント最終更新: {eventsLastSuccessLabel ?? "--"}
+              </span>
+              {rightsCoverageLabel && <span className="event-meta-rights">{rightsCoverageLabel}</span>}
+            </div>
           </div>
           <div className="detail-title-actions">
             <button
@@ -1326,7 +1794,167 @@ export default function DetailView() {
         </div>
       </div>
       <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""}`}>
-        {focusPanel ? (
+        {compareCode && (
+          <div className="detail-compare">
+            <div className="detail-compare-header">
+              <div>
+                <div className="detail-compare-title">
+                  比較: {code} / {compareCode}
+                </div>
+                {compareAsOf && (
+                  <div className="detail-compare-subtitle">類似日付: {compareAsOf}</div>
+                )}
+              </div>
+              <div className="detail-compare-actions">
+                <button
+                  type="button"
+                  className="detail-compare-close"
+                  disabled={!nextCompareItem}
+                  onClick={() => {
+                    if (!nextCompareItem) return;
+                    const params = new URLSearchParams();
+                    params.set("compare", nextCompareItem.ticker);
+                    if (mainAsOf) {
+                      params.set("mainAsOf", mainAsOf);
+                    }
+                    if (nextCompareItem.asof) {
+                      params.set("compareAsOf", nextCompareItem.asof);
+                    }
+                    navigate(`/detail/${code}?${params.toString()}`);
+                  }}
+                >
+                  次の比較
+                </button>
+                <button
+                  type="button"
+                  className="detail-compare-close"
+                  onClick={() => navigate(`/detail/${code}`)}
+                >
+                  比較解除
+                </button>
+              </div>
+            </div>
+            <div className="detail-compare-grid">
+              <div className="detail-compare-cell">
+                <div className="detail-compare-cell-header">
+                  <div className="detail-compare-cell-title">{code} {tickerName}</div>
+                  <div className="detail-compare-cell-meta">月足 ({leftMonthlyRangeLabel})</div>
+                </div>
+                <div className="detail-chart detail-compare-chart">
+                  <DetailChart
+                    ref={monthlyChartRef}
+                    candles={monthlyCandles}
+                    volume={monthlyVolume}
+                    maLines={monthlyMaLines}
+                    showVolume={false}
+                    boxes={boxes}
+                    showBoxes={showBoxes}
+                    visibleRange={monthlyCandles.length ? compareMonthlyBaseRange : null}
+                    onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "left")}
+                  />
+                  {monthlyEmptyMessage && (
+                    <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                  )}
+                </div>
+              </div>
+              <div className="detail-compare-cell">
+                <div className="detail-compare-cell-header">
+                  <div className="detail-compare-cell-title">{compareCode} {compareTickerName}</div>
+                  <div className="detail-compare-cell-meta">月足 ({rightMonthlyRangeLabel})</div>
+                </div>
+                <div className="detail-chart detail-compare-chart">
+                  <DetailChart
+                    ref={compareMonthlyChartRef}
+                    candles={compareMonthlyCandles}
+                    volume={[]}
+                    maLines={compareMonthlyMaLines}
+                    showVolume={false}
+                    boxes={compareBoxes}
+                    showBoxes={showBoxes}
+                    visibleRange={compareMonthlyCandles.length ? compareMonthlyVisibleRange : null}
+                    onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "right")}
+                  />
+                  {compareLoading && (
+                    <div className="detail-chart-empty">Loading...</div>
+                  )}
+                  {!compareLoading && compareMonthlyErrors.length > 0 && (
+                    <div className="detail-chart-empty">Monthly: {compareMonthlyErrors[0]}</div>
+                  )}
+                  {!compareLoading && compareMonthlyErrors.length === 0 && compareMonthlyCandles.length === 0 && (
+                    <div className="detail-chart-empty">Monthly: データがありません</div>
+                  )}
+                </div>
+              </div>
+              <div className="detail-compare-cell">
+                <div className="detail-compare-cell-header">
+                  <div className="detail-compare-cell-title">{code} {tickerName}</div>
+                  <div className="detail-compare-cell-meta">日足 ({leftDailyRangeLabel})</div>
+                </div>
+                <div className="detail-chart detail-compare-chart">
+                  <DetailChart
+                    ref={dailyChartRef}
+                    candles={dailyCandles}
+                    volume={dailyVolume}
+                    maLines={dailyMaLines}
+                    showVolume={showVolumeDaily}
+                    boxes={boxes}
+                    showBoxes={showBoxes}
+                    visibleRange={dailyCandles.length ? dailyVisibleRange : null}
+                    positionOverlay={{
+                      dailyPositions,
+                      tradeMarkers,
+                      showOverlay: showTradesOverlay,
+                      showMarkers: true,
+                      showPnL: showPnLPanel,
+                      hoverTime
+                    }}
+                    onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "left")}
+                  />
+                  {dailyEmptyMessage && (
+                    <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
+                  )}
+                </div>
+              </div>
+              <div className="detail-compare-cell">
+                <div className="detail-compare-cell-header">
+                  <div className="detail-compare-cell-title">{compareCode} {compareTickerName}</div>
+                  <div className="detail-compare-cell-meta">日足 ({rightDailyRangeLabel})</div>
+                </div>
+                <div className="detail-chart detail-compare-chart">
+                  <DetailChart
+                    ref={compareDailyChartRef}
+                    candles={compareDailyCandles}
+                    volume={compareDailyVolume}
+                    maLines={compareDailyMaLines}
+                    showVolume={compareDailyVolume.length > 0}
+                    boxes={compareBoxes}
+                    showBoxes={showBoxes}
+                    visibleRange={compareDailyVisibleRange}
+                    positionOverlay={{
+                      dailyPositions: compareDailyPositions,
+                      tradeMarkers: compareTradeMarkers,
+                      showOverlay: showTradesOverlay,
+                      showMarkers: true,
+                      showPnL: showPnLPanel,
+                      hoverTime
+                    }}
+                    onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "right")}
+                  />
+                  {(compareDailyLoading || compareDailyNeedsMore) && (
+                    <div className="detail-chart-empty">一致期間のデータを読み込み中...</div>
+                  )}
+                  {!compareDailyLoading && compareDailyErrors.length > 0 && (
+                    <div className="detail-chart-empty">Daily: {compareDailyErrors[0]}</div>
+                  )}
+                  {!compareDailyLoading && compareDailyErrors.length === 0 && compareDailyCandles.length === 0 && (
+                    <div className="detail-chart-empty">Daily: データがありません</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {compareCode ? null : focusPanel ? (
           <div className="detail-row detail-row-focus">
             <div className="detail-pane-header">{focusTitle}</div>
             <div
@@ -1679,6 +2307,24 @@ export default function DetailView() {
           <div className="indicator-panel" onClick={(event) => event.stopPropagation()}>
             <div className="indicator-header">
               <div className="indicator-title">Indicators</div>
+              {compareCode && (
+                <div className="ma-toggle">
+                  <button
+                    type="button"
+                    className={`indicator-button${maEditMode === "main" ? " active" : ""}`}
+                    onClick={() => setMaEditMode("main")}
+                  >
+                    通常
+                  </button>
+                  <button
+                    type="button"
+                    className={`indicator-button${maEditMode === "compare" ? " active" : ""}`}
+                    onClick={() => setMaEditMode("compare")}
+                  >
+                    比較
+                  </button>
+                </div>
+              )}
               <button className="indicator-close" onClick={() => setShowIndicators(false)}>
                 Close
               </button>
@@ -1687,7 +2333,7 @@ export default function DetailView() {
               <div className="indicator-section" key={frame}>
                 <div className="indicator-subtitle">Moving Averages ({frame})</div>
                 <div className="indicator-rows">
-                  {maSettings[frame].map((setting, index) => (
+                  {activeMaSettings[frame].map((setting, index) => (
                     <div className="indicator-row" key={setting.key}>
                       <input
                         type="checkbox"

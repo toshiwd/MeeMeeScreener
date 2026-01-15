@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
+import { useStore } from "../store";
+import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
 
 type ListTimeframe = "monthly" | "weekly" | "daily";
 
@@ -41,6 +43,7 @@ const LABELS = {
   ranking: "\u30e9\u30f3\u30ad\u30f3\u30b0",
   favorites: "\u304a\u6c17\u306b\u5165\u308a",
   candidates: "\u5019\u88dc",
+  positions: "\u4fdd\u6709",
   monthly: "\u6708",
   weekly: "\u9031",
   daily: "\u65e5",
@@ -95,6 +98,7 @@ export default function UnifiedListHeader({
   const densityRef = useRef<HTMLDivElement | null>(null);
   const filterRef = useRef<HTMLDivElement | null>(null);
   const moreRef = useRef<HTMLDivElement | null>(null);
+  const eventsMeta = useStore((state) => state.eventsMeta);
 
   const filterItemsSafe = filterItems ?? [];
   const hasFilters = filterItemsSafe.length > 0;
@@ -104,6 +108,28 @@ export default function UnifiedListHeader({
     const match = sortOptions.find((option) => option.value === sortValue);
     return match?.label ?? LABELS.sortFallback;
   }, [sortOptions, sortValue]);
+
+  const eventsLastSuccessLabel = useMemo(() => {
+    const earningsMs = parseEventDateMs(eventsMeta?.earningsLastSuccessAt);
+    const rightsMs = parseEventDateMs(eventsMeta?.rightsLastSuccessAt);
+    const candidates = [
+      { value: eventsMeta?.earningsLastSuccessAt ?? null, ms: earningsMs },
+      { value: eventsMeta?.rightsLastSuccessAt ?? null, ms: rightsMs }
+    ].filter((item) => item.value && item.ms != null) as { value: string; ms: number }[];
+    if (!candidates.length) return null;
+    const oldest = candidates.reduce((prev, next) => (next.ms < prev.ms ? next : prev));
+    return formatEventDateYmd(oldest.value);
+  }, [eventsMeta]);
+
+  const rightsCoverageLabel = useMemo(() => {
+    const rightsMaxDate = eventsMeta?.dataCoverage?.rightsMaxDate ?? null;
+    const maxMs = parseEventDateMs(rightsMaxDate);
+    if (!rightsMaxDate || maxMs == null) return null;
+    const thresholdMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    if (maxMs >= thresholdMs) return null;
+    const formatted = formatEventDateYmd(rightsMaxDate);
+    return formatted ? `権利データ範囲: ～${formatted}` : null;
+  }, [eventsMeta]);
 
   useEffect(() => {
     const handlePointer = (event: MouseEvent) => {
@@ -166,6 +192,12 @@ export default function UnifiedListHeader({
             className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
           >
             {LABELS.candidates}
+          </NavLink>
+          <NavLink
+            to="/positions"
+            className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
+          >
+            {LABELS.positions}
           </NavLink>
         </nav>
         <div className="segmented list-timeframe">
@@ -357,10 +389,10 @@ export default function UnifiedListHeader({
             {helpLabelText}
           </button>
         </div>
-        <div className="list-header-more popover-anchor" ref={moreRef}>
-          <button
-            type="button"
-            className="more-button"
+      <div className="list-header-more popover-anchor" ref={moreRef}>
+        <button
+          type="button"
+          className="more-button"
             aria-label={LABELS.menu}
             onClick={() => {
               setMoreOpen((prev) => !prev);
@@ -479,6 +511,18 @@ export default function UnifiedListHeader({
             </div>
           )}
         </div>
+      </div>
+      <div className="list-events-meta">
+        {eventsMeta?.isRefreshing && (
+          <span className="event-meta-refreshing">イベント更新中...</span>
+        )}
+        {eventsMeta?.lastError && (
+          <span className="event-meta-error" title={eventsMeta.lastError}>
+            更新失敗
+          </span>
+        )}
+        <span className="event-meta-last">イベント最終更新: {eventsLastSuccessLabel ?? "--"}</span>
+        {rightsCoverageLabel && <span className="event-meta-rights">{rightsCoverageLabel}</span>}
       </div>
     </header>
   );

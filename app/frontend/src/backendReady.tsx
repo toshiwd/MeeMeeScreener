@@ -170,6 +170,8 @@ const useBackendReadyInternal = (): BackendReadyState => {
 export function BackendReadyProvider({ children }: { children: ReactNode }) {
   const state = useBackendReadyInternal();
   const lastApiError = useStore((store) => store.lastApiError);
+  const refreshEventsIfStale = useStore((store) => store.refreshEventsIfStale);
+  const loadEventsMeta = useStore((store) => store.loadEventsMeta);
   const [renderOverlay, setRenderOverlay] = useState(true);
   const [overlayVisible, setOverlayVisible] = useState(true);
 
@@ -183,6 +185,15 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
     setOverlayVisible(true);
     return undefined;
   }, [state.ready]);
+
+  useEffect(() => {
+    if (!state.ready) return undefined;
+    void refreshEventsIfStale();
+    const timer = window.setInterval(() => {
+      void loadEventsMeta();
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, [state.ready, refreshEventsIfStale, loadEventsMeta]);
 
   return (
     <BackendReadyContext.Provider value={state}>

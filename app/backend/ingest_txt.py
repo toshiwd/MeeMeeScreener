@@ -722,6 +722,9 @@ def read_daily_files(
     daily = pd.concat(frames, ignore_index=True)
     daily["date"] = daily["date"].dt.tz_localize("UTC")
     daily["date"] = (daily["date"].astype("int64") // 1_000_000_000).astype("int64")
+    before_dedup = len(daily)
+    daily = daily.sort_values(["code", "date"]).drop_duplicates(["code", "date"], keep="last")
+    counts["duplicate_rows"] += int(before_dedup - len(daily))
     return daily, name_map
 
 
@@ -856,7 +859,8 @@ def log_counts(counts: dict, parsed_rows: int) -> None:
             "non_numeric",
             "invalid_code",
             "older_file",
-            "filtered_watchlist"
+            "filtered_watchlist",
+            "duplicate_rows"
         ]
     )
     reason_text = (
@@ -865,7 +869,8 @@ def log_counts(counts: dict, parsed_rows: int) -> None:
         f"non_numeric={counts['non_numeric']}, "
         f"invalid_code={counts['invalid_code']}, "
         f"older_file={counts['older_file']}, "
-        f"filtered_watchlist={counts['filtered_watchlist']}"
+        f"filtered_watchlist={counts['filtered_watchlist']}, "
+        f"duplicate_rows={counts['duplicate_rows']}"
     )
     print(f"PARSED_ROWS={parsed_rows}")
     print(f"SKIPPED_ROWS={skipped_total} ({reason_text})")
@@ -912,6 +917,7 @@ def ingest() -> None:
         "invalid_code": 0,
         "older_file": 0,
         "filtered_watchlist": 0,
+        "duplicate_rows": 0,
         "nonstandard_code": 0,
         "file_error": 0
     }

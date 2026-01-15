@@ -28,6 +28,12 @@ export default function TopNav() {
       >
         候補
       </NavLink>
+      <NavLink
+        to="/positions"
+        className={({ isActive }) => (isActive ? "top-nav-link active" : "top-nav-link")}
+      >
+        保有
+      </NavLink>
     </nav>
   );
 }

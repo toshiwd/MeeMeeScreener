@@ -1,5 +1,6 @@
 
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { IconX, IconTrendingUp, IconChartArrows } from "@tabler/icons-react";
 import { api } from "../api";
 
@@ -28,22 +29,64 @@ type SearchResult = {
     vec24?: number[];
 };
 
+type RefreshStatus = {
+    running: boolean;
+    started_at?: string | null;
+    finished_at?: string | null;
+    error?: string | null;
+    mode?: string | null;
+};
+
 export default function SimilarSearchPanel({
     isOpen,
     onClose,
     queryTicker,
     queryAsOf
 }: SimilarSearchPanelProps) {
+    const navigate = useNavigate();
     const [results, setResults] = useState<SearchResult[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [alpha, setAlpha] = useState(0.7);
+    const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null);
+    const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+    const [refreshBusy, setRefreshBusy] = useState(false);
+    const getTodayInputValue = () => {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, "0");
+        const dd = String(today.getDate()).padStart(2, "0");
+        return `${yyyy}-${mm}-${dd}`;
+    };
 
-    const [targetDate, setTargetDate] = useState<string>(queryAsOf || "");
+    const [targetDate, setTargetDate] = useState<string>(() => {
+        if (queryAsOf) return queryAsOf;
+        return getTodayInputValue();
+    });
 
     useEffect(() => {
-        setTargetDate(queryAsOf || "");
+        if (queryAsOf) {
+            setTargetDate(queryAsOf);
+            return;
+        }
+        setTargetDate(getTodayInputValue());
     }, [queryAsOf]);
+
+    const fetchRefreshStatus = () => {
+        api
+            .get("/search/similar/status")
+            .then((res) => {
+                setRefreshStatus(res.data?.status ?? null);
+            })
+            .catch(() => {
+                setRefreshStatus(null);
+            });
+    };
+
+    useEffect(() => {
+        if (!isOpen) return;
+        fetchRefreshStatus();
+    }, [isOpen]);
 
     useEffect(() => {
         if (!isOpen || !queryTicker) return;
@@ -67,11 +110,12 @@ export default function SimilarSearchPanel({
                 setResults(res.data);
             })
             .catch((err) => {
+                const detail = err.response?.data?.detail as string | undefined;
                 if (err.response && err.response.status === 404) {
                     // Custom message for not indexed
-                    setError(err.response.data?.detail || "検索対象外の銘柄です");
+                    setError(detail || "検索対象外の銘柄です");
                 } else {
-                    setError(err.message || "Search failed");
+                    setError(detail || err.message || "Search failed");
                 }
             })
             .finally(() => {
@@ -123,7 +167,9 @@ export default function SimilarSearchPanel({
                     {/* Controls */}
                     <div className="tech-filter-row" style={{ marginTop: '8px' }}>
                         <div className="tech-filter-row-header">
-                            <span className="tech-filter-hint">重視: 短期(24ヶ月) vs 長期(60ヶ月) - 現在: {alpha}</span>
+                            <span className="tech-filter-hint">
+                                重視: 長期(60ヶ月) {Math.round(alpha * 100)}% / 短期(12ヶ月) {Math.round((1 - alpha) * 100)}%
+                            </span>
                             <input
                                 type="range"
                                 min="0" max="1" step="0.1"
@@ -131,7 +177,53 @@ export default function SimilarSearchPanel({
                                 onChange={(e) => setAlpha(parseFloat(e.target.value))}
                                 style={{ width: '150px' }}
                             />
+                            <button
+                                type="button"
+                                className="tech-filter-row-remove"
+                                disabled={refreshBusy || refreshStatus?.running}
+                                onClick={() => {
+                                    setRefreshBusy(true);
+                                    setRefreshMessage(null);
+                                    api
+                                        .post("/search/similar/refresh", null, { params: { mode: "incremental" } })
+                                        .then(() => {
+                                            setRefreshMessage("類似検索データを更新開始しました");
+                                            fetchRefreshStatus();
+                                        })
+                                        .catch((err) => {
+                                            if (err.response?.status === 409) {
+                                                setRefreshMessage("更新処理は既に実行中です");
+                                            } else {
+                                                setRefreshMessage(err.response?.data?.detail || "更新の開始に失敗しました");
+                                            }
+                                        })
+                                        .finally(() => {
+                                            setRefreshBusy(false);
+                                        });
+                                }}
+                            >
+                                更新
+                            </button>
                         </div>
+                        <div className="tech-filter-row-preview">
+                            0に近いほど短期重視、1に近いほど長期重視になります。
+                        </div>
+                        {(refreshMessage || refreshStatus) && (
+                            <div className="tech-filter-row-preview">
+                                {refreshMessage && <div>{refreshMessage}</div>}
+                                {refreshStatus && (
+                                    <div>
+                                        {refreshStatus.running
+                                            ? "更新中..."
+                                            : refreshStatus.finished_at
+                                                ? `最終更新: ${refreshStatus.finished_at}`
+                                                : "未更新"}
+                                        {refreshStatus.mode ? ` [${refreshStatus.mode}]` : ""}
+                                        {refreshStatus.error ? ` (エラー: ${refreshStatus.error})` : ""}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -156,7 +248,42 @@ export default function SimilarSearchPanel({
                     )}
 
                     {!loading && results.map((item, idx) => (
-                        <ResultItem key={`${item.ticker}-${item.asof}`} item={item} rank={idx + 1} />
+                        <ResultItem
+                            key={`${item.ticker}-${item.asof}`}
+                            item={item}
+                            rank={idx + 1}
+                            onJump={() => navigate(`/detail/${item.ticker}`)}
+                            onCompare={() => {
+                                if (!queryTicker) return;
+                                if (typeof window !== "undefined") {
+                                    try {
+                                        const payload = {
+                                            queryTicker,
+                                            mainAsOf: targetDate || null,
+                                            items: results.map((result) => ({
+                                                ticker: result.ticker,
+                                                asof: result.asof ?? null
+                                            }))
+                                        };
+                                        window.sessionStorage.setItem(
+                                            "similarCompareList",
+                                            JSON.stringify(payload)
+                                        );
+                                    } catch {
+                                        // ignore storage errors
+                                    }
+                                }
+                                const params = new URLSearchParams();
+                                params.set("compare", item.ticker);
+                                if (targetDate) {
+                                    params.set("mainAsOf", targetDate);
+                                }
+                                if (item.asof) {
+                                    params.set("compareAsOf", item.asof);
+                                }
+                                navigate(`/detail/${queryTicker}?${params.toString()}`);
+                            }}
+                        />
                     ))}
                 </div>
             </div>
@@ -164,7 +291,17 @@ export default function SimilarSearchPanel({
     );
 }
 
-function ResultItem({ item, rank }: { item: SearchResult; rank: number }) {
+function ResultItem({
+    item,
+    rank,
+    onJump,
+    onCompare
+}: {
+    item: SearchResult;
+    rank: number;
+    onJump: () => void;
+    onCompare: () => void;
+}) {
     // Sparkline
     const sparkline = useMemo(() => {
         if (!item.vec60 || item.vec60.length === 0) return null;
@@ -194,7 +331,18 @@ function ResultItem({ item, rank }: { item: SearchResult; rank: number }) {
     }, [item.vec60]);
 
     return (
-        <div className="tech-filter-row" style={{ margin: '8px 16px', display: 'grid', gridTemplateColumns: '40px 100px 1fr 100px', alignItems: 'center', gap: '12px' }}>
+        <div
+            className="tech-filter-row"
+            style={{
+                margin: '8px 16px',
+                display: 'grid',
+                gridTemplateColumns: '40px 100px 1fr 120px',
+                alignItems: 'center',
+                gap: '12px',
+                cursor: 'pointer'
+            }}
+            onClick={onJump}
+        >
             <div style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--theme-text-secondary)' }}>
                 #{rank}
             </div>
@@ -214,6 +362,17 @@ function ResultItem({ item, rank }: { item: SearchResult; rank: number }) {
                 <div style={{ fontSize: '10px', color: 'var(--theme-text-muted)' }}>
                     {getFallbackText(item.tags.fallback)}
                 </div>
+                <button
+                    type="button"
+                    className="tech-filter-row-remove"
+                    style={{ marginTop: '6px' }}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onCompare();
+                    }}
+                >
+                    比較
+                </button>
             </div>
         </div>
     );

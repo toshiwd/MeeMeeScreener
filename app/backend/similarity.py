@@ -15,6 +15,9 @@ DATA_STORE_DIR = os.getenv("MEEMEE_DATA_STORE", os.path.join(os.path.dirname(__f
 
 from pydantic import BaseModel
 
+LONG_TERM_WINDOW = 60
+SHORT_TERM_WINDOW = 12
+
 class SearchResult(BaseModel):
     ticker: str
     asof: str  # YYYY-MM-DD
@@ -28,7 +31,7 @@ class SearchResult(BaseModel):
 
 class SimilarityService:
     def __init__(self, db_path: str = None):
-        self.db_path = db_path or os.getenv("STOCKS_DB_PATH", os.path.join(os.path.dirname(__file__), "..", "..", "stocks.duckdb"))
+        self.db_path = db_path or os.getenv("STOCKS_DB_PATH", os.path.join(os.path.dirname(__file__), "stocks.duckdb"))
         self.data_dir = os.path.abspath(DATA_STORE_DIR)
         os.makedirs(self.data_dir, exist_ok=True)
         
@@ -45,305 +48,252 @@ class SimilarityService:
         self.tag_index: Optional[Dict[str, List[int]]] = None
         self.loaded = False
 
-    def load_artifacts(self):
-        """Load pre-computed data into memory."""
-        if self.loaded:
-            return
+    def _load_monthly_bars(self, conn: duckdb.DuckDBPyConnection, codes: Optional[list[str]] = None) -> pd.DataFrame:
+        if codes:
+            placeholders = ",".join(["?"] * len(codes))
+            query = f"""
+                SELECT code, month, o, h, l, c
+                FROM monthly_bars
+                WHERE code IN ({placeholders})
+                ORDER BY code, month
+            """
+            df_monthly = conn.execute(query, codes).df()
+        else:
+            df_monthly = conn.execute(
+                """
+                SELECT code, month, o, h, l, c
+                FROM monthly_bars
+                ORDER BY code, month
+                """
+            ).df()
 
-        if not os.path.exists(self.df_vec60_path):
-            print("Artifacts not found. Please run refresh_data().")
-            return
+        if df_monthly.empty:
+            return df_monthly
 
-        self.df_vec60 = pd.read_parquet(self.df_vec60_path)
-        self.df_vec24 = pd.read_parquet(self.df_vec24_path)
-        self.df_env = pd.read_parquet(self.df_env_path)
-        
-        with open(self.tag_index_path, "rb") as f:
-            self.tag_index = pickle.load(f)
-            
-        self.loaded = True
+        if df_monthly["month"].max() >= 1_000_000_000:
+            dt = pd.to_datetime(df_monthly["month"], unit="s")
+        else:
+            dt = pd.to_datetime(df_monthly["month"].astype(str) + "01", format="%Y%m%d")
+        df_monthly["period"] = dt.dt.to_period("M")
+        df_monthly["asof"] = df_monthly["period"].dt.to_timestamp("M")
+        return df_monthly
 
-    def refresh_data(self):
-        """Fully rebuilds the similarity dataset from DuckDB."""
-        print("Starting Refresh Data...")
-        
-        # 1. Load Daily Data
-        with duckdb.connect(self.db_path) as conn:
-            # We assume daily_bars has adjusted prices or we use it as is per instructions.
-            # User requirement: "Use adjusted prices". 
-            # If daily_bars is not adjusted, we might have issues. 
-            # But the user says "Internal 120 months...". 
-            # Let's assume daily_bars in DuckDB is the source.
-            df_daily = conn.execute("SELECT code, date, o, h, l, c, v FROM daily_bars").df()
-        
-        if df_daily.empty:
-            print("No daily data found.")
-            return
+    def _build_vectors_and_tags(
+        self, df_monthly: pd.DataFrame
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        df_monthly = df_monthly.sort_values(["code", "period"]).copy()
 
-        print(f"Loaded {len(df_daily)} daily rows.")
-
-        # 2. Convert Date
-        # daily_bars date is INTEGER (YYYYMMDD) or Unix Timestamp? 
-        # ingest_txt.py line 724: daily["date"] = (daily["date"].astype("int64") // 1_000_000_000)
-        # It seems stock.duckdb 'date' might be Unix timestamp (seconds) based on ingest code.
-        # Let's check a sample or assume ingest_txt logic.
-        # Wait, ingest_txt line 32: PRIMARY KEY(code, date) date INTEGER.
-        # ingest_txt line 724 converts TO int64 timestamp.
-        # So in DB it is int64 timestamp (seconds).
-        
-        df_daily["dt"] = pd.to_datetime(df_daily["date"], unit="s")
-        
-        # 3. Build Monthly Bars (asof = Month End)
-        print("Building Monthly Bars...")
-        # Resample to Month End
-        # We want to group by code and Month.
-        # To get "Month End", we can rely on pandas resample('M') but that fills gaps.
-        # Better: Group by Year-Month, then take aggregate.
-        # Then set 'asof' to the actual last date of that month (or the last trading day?)
-        # User says: "asof is 'the date when the month C is fixed (= month end)'". 
-        # Usually this means the last calendar day or last trading day.
-        # Let's use the actual last trading day of the month as the timestamp for 'asof', 
-        # OR use the calendar month end.
-        # User says: "monthly_bars: ticker, month_end(asof)..."
-        # "O=Start, H=Max, L=Min, C=End". 
-        
-        df_daily["period"] = df_daily["dt"].dt.to_period("M")
-        
-        def agg_ohlc(x):
-            d = {}
-            d['o'] = x['o'].iloc[0]
-            d['h'] = x['h'].max()
-            d['l'] = x['l'].min()
-            d['c'] = x['c'].iloc[1] if len(x) > 1 else x['c'].iloc[-1] # Wait, C is last value
-            d['c'] = x['c'].iloc[-1]
-            d['v'] = x['v'].sum()
-            d['asof'] = x['dt'].iloc[-1] # Last trading day
-            return pd.Series(d)
-
-        # Optimization: pandas groupby apply is slow. Use named agg.
-        # Sort by date first
-        df_daily = df_daily.sort_values(["code", "dt"])
-        
-        # Group
-        g = df_daily.groupby(["code", "period"])
-        df_monthly = g.agg(
-            o=("o", "first"),
-            h=("h", "max"),
-            l=("l", "min"),
-            c=("c", "last"),
-            v=("v", "sum"),
-            asof=("dt", "last") # Last trading day is the 'asof' for that month bar
-        ).reset_index()
-        
-        # Filter < 120 months history
-        # Count by code
-        counts = df_monthly["code"].value_counts()
-        valid_codes = counts[counts >= 120].index
-        df_monthly = df_monthly[df_monthly["code"].isin(valid_codes)].copy()
-        
-        print(f"Monthly Bars built: {len(df_monthly)} rows, {len(valid_codes)} tickers.")
-        
-        # Save Monthly Bars
-        # We might need columns: ticker, asof (datetime), o, h, l, c, v
-        # Ensure asof is datetime or string? Parquet handles datetime.
-        
-        # 4. Indicators (MA20, MA60) on Monthly
-        print("Calculating Indicators...")
-        df_monthly = df_monthly.sort_values(["code", "period"])
-        
-        # Calculate Returns (for Vectors)
-        # vector = (x - mean) / std.
-        # x = monthly return.
         df_monthly["prev_c"] = df_monthly.groupby("code")["c"].shift(1)
         df_monthly["ret"] = (df_monthly["c"] / df_monthly["prev_c"]) - 1.0
-        # Fill NaN? dropna later.
-        
-        # MA20, MA60 for Tags
-        # Use simple rolling mean
+
         df_monthly["ma20"] = df_monthly.groupby("code")["c"].transform(lambda x: x.rolling(20).mean())
         df_monthly["ma60"] = df_monthly.groupby("code")["c"].transform(lambda x: x.rolling(60).mean())
-        
-        # 5. Generate Vectors (Rolling Window)
-        # We need, for each row (asof), the past 60 months returns.
-        # This is tricky in pandas vectorized.
-        # Creating a matrix of (N_rows, 60) features.
-        # We can use strided sliding window (numpy) or manual loop (slow).
-        # Optimization: `rolling` with custom apply? Slow.
-        # Fastest: Construct the matrix using shift.
-        
-        print("Generating Vectors...")
-        # Clean data for vector gen
-        # We need 'ret'.
-        # Drop initial rows where ret is NaN (first month)
-        
-        # Vector 60 dim
-        # We want return at t, t-1, ..., t-59.
-        # So we make 60 columns.
+
         cols_60 = {}
-        for i in range(60):
+        for i in range(LONG_TERM_WINDOW):
             cols_60[f"r{i}"] = df_monthly.groupby("code")["ret"].shift(i)
-        
+
         df_vec_temp = pd.DataFrame(cols_60)
-        # The row at index `t` now has r0=ret(t), r1=ret(t-1)...
-        
-        # Drop rows with NaNs (first 60 months roughly)
         valid_vec_mask = df_vec_temp.notna().all(axis=1)
-        
-        # Now normalize each row
-        # (x - mean) / std / norm
+
         matrix_60 = df_vec_temp[valid_vec_mask].values.astype(np.float32)
-        
-        # Row-wise stats
         means = np.mean(matrix_60, axis=1, keepdims=True)
         stds = np.std(matrix_60, axis=1, keepdims=True) + 1e-9
-        
         z_scores = (matrix_60 - means) / stds
-        
-        # L2 Norm
         l2_norms = np.linalg.norm(z_scores, axis=1, keepdims=True) + 1e-9
         final_vec60 = z_scores / l2_norms
-        
-        # Prepare storage
-        # We need to map back to (code, asof).
-        # Use index of df_monthly[valid_vec_mask]
+
         df_res_60 = df_monthly.loc[valid_vec_mask, ["code", "asof"]].copy()
-        
-        # To store list of floats in parquet is inefficient for querying?
-        # Better: Store as individual columns or a single binary blob?
-        # pandas parquet handles arrays? Or just columns v0..v59.
-        # User said "Matrix x Vector". If we load into memory, we want a Matrix.
-        # If we save as individual columns, loading is easy.
-        # Let's simple use a new DF with index=(code, asof) and columns 0..59 or a 'vec' column.
-        # A 'vec' column with list is okay.
-        
         df_res_60["vec60"] = list(final_vec60)
-        
-        # Repeat for Vec24
-        # Just use the first 24 columns of matrix_60? 
-        # No, re-normalize based on 24 months.
-        matrix_24 = matrix_60[:, :24] # r0..r23
-        means24 = np.mean(matrix_24, axis=1, keepdims=True)
-        stds24 = np.std(matrix_24, axis=1, keepdims=True) + 1e-9
-        z_scores24 = (matrix_24 - means24) / stds24
-        l2_norms24 = np.linalg.norm(z_scores24, axis=1, keepdims=True) + 1e-9
-        final_vec24 = z_scores24 / l2_norms24
-        
+
+        matrix_short = matrix_60[:, :SHORT_TERM_WINDOW]
+        means_short = np.mean(matrix_short, axis=1, keepdims=True)
+        stds_short = np.std(matrix_short, axis=1, keepdims=True) + 1e-9
+        z_scores_short = (matrix_short - means_short) / stds_short
+        l2_norms_short = np.linalg.norm(z_scores_short, axis=1, keepdims=True) + 1e-9
+        final_vec24 = z_scores_short / l2_norms_short
         df_res_60["vec24"] = list(final_vec24)
-        
-        # 6. Environment Tags
-        # Defined on the same valid rows (since we rely on MA60 which needs 60 months)
-        # Actually MA60 needs 60 periods of price, Vec60 needs 60 periods of returns (so 61 prices).
-        # We align on the valid_vec_mask which ensures extensive history.
-        
-        print("Generating Tags...")
-        
-        indices = df_res_60.index
-        subset = df_monthly.loc[indices].copy()
-        
-        # 20MA Trend (C > MA20)
-        subset["tag_ma20"] = np.where(subset["c"] > subset["ma20"], "UP", "DOWN")
-        
-        # 60MA Trend (C > MA60)
-        subset["tag_ma60"] = np.where(subset["c"] > subset["ma60"], "UP", "DOWN")
-        
-        # 60MA Direction (Slope)
-        # Check MA60 vs MA60 of previous month
-        # Note: subset is just the rows, but we need prev value. 
-        # Actually df_monthly has them.
-        # Let's get "prev_ma60"
+
         df_monthly["prev_ma60"] = df_monthly.groupby("code")["ma60"].shift(1)
-        subset["prev_ma60"] = df_monthly.loc[indices, "prev_ma60"]
-        
-        # Direction: UP / FLAT / DOWN.
-        # Define threshold? Or just strict inequality?
-        # User: "Up/Side/Down".
-        # Let's use 0.2% slope or something. Or just simple comparison.
-        # Simple comparison for now.
+        df_monthly["low120"] = df_monthly.groupby("code")["l"].transform(lambda x: x.rolling(120).min())
+        df_monthly["high120"] = df_monthly.groupby("code")["h"].transform(lambda x: x.rolling(120).max())
+
+        subset = df_monthly.loc[valid_vec_mask].copy()
+        subset["tag_ma20"] = np.where(subset["c"] > subset["ma20"], "UP", "DOWN")
+        subset["tag_ma60"] = np.where(subset["c"] > subset["ma60"], "UP", "DOWN")
+
         slope = (subset["ma60"] - subset["prev_ma60"]) / subset["prev_ma60"]
-        # Thresholds maybe 0.1%?
-        # Let's use strict for now, or a very small epsilon.
         subset["tag_dir60"] = "SIDE"
         subset.loc[slope > 0.001, "tag_dir60"] = "UP"
         subset.loc[slope < -0.001, "tag_dir60"] = "DOWN"
-        
-        # 10 Year Range Position (5% - 95%)
-        # Need 120 month high/low for each row.
-        # Rolling 120 Max/Min on H/L.
-        df_monthly["low120"] = df_monthly.groupby("code")["l"].transform(lambda x: x.rolling(120).min())
-        df_monthly["high120"] = df_monthly.groupby("code")["h"].transform(lambda x: x.rolling(120).max())
-        
-        subset["low120"] = df_monthly.loc[indices, "low120"]
-        subset["high120"] = df_monthly.loc[indices, "high120"]
-        
-        # Pos = (C - Low) / (High - Low)
-        # Tag: High (Top 1/3), Mid, Low.
+
         denom = subset["high120"] - subset["low120"]
         pos = (subset["c"] - subset["low120"]) / denom.replace(0, 1)
-        
         subset["tag_range"] = "MID"
         subset.loc[pos > 0.66, "tag_range"] = "HIGH"
         subset.loc[pos < 0.33, "tag_range"] = "LOW"
-        
-        # Combine Tags into ID
-        # ID = MA20_MA60_DIR_RANGE (e.g. UP_UP_UP_HIGH)
+
         subset["tag_id"] = (
             subset["tag_ma20"] + "_" +
             subset["tag_ma60"] + "_" +
             subset["tag_dir60"] + "_" +
             subset["tag_range"]
         )
-        
-        # 7. Save
-        # Vectors
-        # We flatten the vectors for storage or keep as efficient format?
-        # Parquet with list column is fine.
-        
-        self.df_vec60 = df_res_60[["code", "asof", "vec60"]]
-        self.df_vec24 = df_res_60[["code", "asof", "vec24"]]
-        
-        # Env (Tags)
-        self.df_env = subset[["code", "asof", "tag_id", "tag_ma20", "tag_ma60", "tag_dir60", "tag_range"]]
-        
-        print("Saving to parquet...")
-        self.df_vec60.to_parquet(self.df_vec60_path, index=False)
-        self.df_vec24.to_parquet(self.df_vec24_path, index=False)
-        self.df_env.to_parquet(self.df_env_path, index=False)
-        
-        # 8. Build Index
-        print("Building Index...")
-        # Dictionary: tag_id -> list of indices (integers) corresponding to the DF rows.
-        # IMPORTANT: We need row-based access for matrix mult.
-        # If we load df_vec60 in memory, we can access by row integer.
-        # So index should store row numbers of df_vec60 (which aligns with df_env).
-        
-        # Reset index to get 0..N
-        # Make sure they are aligned!
-        # df_vec60 and df_env are derived from same indices, so if we sort them identical?
-        # subset index is preserved.
-        # Let's assume we load them back and they might be whatever order.
-        # Prudent: Sort by code, asof.
-        
+
+        df_vec60 = df_res_60[["code", "asof", "vec60"]]
+        df_vec24 = df_res_60[["code", "asof", "vec24"]]
+        df_env = subset[["code", "asof", "tag_id", "tag_ma20", "tag_ma60", "tag_dir60", "tag_range"]]
+
+        return df_vec60, df_vec24, df_env
+
+    def _persist_artifacts(self) -> None:
         self.df_vec60 = self.df_vec60.sort_values(["code", "asof"]).reset_index(drop=True)
         self.df_vec24 = self.df_vec24.sort_values(["code", "asof"]).reset_index(drop=True)
         self.df_env = self.df_env.sort_values(["code", "asof"]).reset_index(drop=True)
-        
+
         self.df_vec60.to_parquet(self.df_vec60_path, index=False)
         self.df_vec24.to_parquet(self.df_vec24_path, index=False)
         self.df_env.to_parquet(self.df_env_path, index=False)
 
-        # Build map Tag -> List[Int]
         tag_map = {}
         for idx, row in self.df_env.iterrows():
             tid = row["tag_id"]
             if tid not in tag_map:
                 tag_map[tid] = []
             tag_map[tid].append(idx)
-            
+
         with open(self.tag_index_path, "wb") as f:
             pickle.dump(tag_map, f)
-            
+
         self.tag_index = tag_map
         self.loaded = True
+
+    def load_artifacts(self):
+        """Load pre-computed data into memory."""
+        if self.loaded:
+            return
+
+        required_paths = [
+            self.df_vec60_path,
+            self.df_vec24_path,
+            self.df_env_path,
+            self.tag_index_path
+        ]
+        missing = [path for path in required_paths if not os.path.exists(path)]
+        if missing:
+            missing_list = ", ".join(missing)
+            raise FileNotFoundError(f"Similarity artifacts not found: {missing_list}")
+
+        try:
+            self.df_vec60 = pd.read_parquet(self.df_vec60_path)
+            self.df_vec24 = pd.read_parquet(self.df_vec24_path)
+            self.df_env = pd.read_parquet(self.df_env_path)
+        except ImportError as exc:
+            raise RuntimeError("Parquet engine missing. Install pyarrow or fastparquet.") from exc
+        except Exception as exc:
+            raise RuntimeError(f"Failed to load similarity artifacts: {exc}") from exc
+
+        try:
+            with open(self.tag_index_path, "rb") as f:
+                self.tag_index = pickle.load(f)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to load tag index: {exc}") from exc
+            
+        self.loaded = True
+
+    def refresh_data(self, incremental: bool = False):
+        """Rebuilds the similarity dataset from DuckDB. Incremental updates are supported."""
+        print("Starting Refresh Data...")
+
+        if incremental and not os.path.exists(self.df_vec60_path):
+            incremental = False
+
+        if incremental:
+            try:
+                self.load_artifacts()
+            except Exception as exc:
+                print(f"Incremental refresh fallback to full: {exc}")
+                incremental = False
+
+        with duckdb.connect(self.db_path) as conn:
+            if incremental:
+                db_max = conn.execute(
+                    "SELECT code, MAX(month) AS max_month FROM monthly_bars GROUP BY code"
+                ).df()
+                if db_max.empty:
+                    print("No monthly data found.")
+                    return
+
+                use_epoch = db_max["max_month"].max() >= 1_000_000_000
+                existing = self.df_env.copy()
+                if use_epoch:
+                    month_start = existing["asof"].dt.to_period("M").dt.to_timestamp()
+                    existing["month"] = (month_start.astype("int64") // 1_000_000_000).astype("int64")
+                else:
+                    existing["month"] = existing["asof"].dt.year * 100 + existing["asof"].dt.month
+                existing_max = existing.groupby("code", as_index=False)["month"].max()
+
+                merged = db_max.merge(existing_max, on="code", how="left", suffixes=("_db", "_existing"))
+                needs_update = merged[
+                    merged["month"].isna() | (merged["max_month"] > merged["month"])
+                ]
+                codes_to_update = needs_update["code"].tolist()
+
+                if not codes_to_update:
+                    print("No incremental updates needed.")
+                    return
+
+                df_monthly = self._load_monthly_bars(conn, codes_to_update)
+                if df_monthly.empty:
+                    print("No monthly data found for updates.")
+                    return
+
+                counts = df_monthly["code"].value_counts()
+                valid_codes = set(counts[counts >= 120].index)
+                insufficient_codes = [code for code in codes_to_update if code not in valid_codes]
+                df_monthly = df_monthly[df_monthly["code"].isin(valid_codes)].copy()
+
+                if insufficient_codes:
+                    self.df_vec60 = self.df_vec60[~self.df_vec60["code"].isin(insufficient_codes)]
+                    self.df_vec24 = self.df_vec24[~self.df_vec24["code"].isin(insufficient_codes)]
+                    self.df_env = self.df_env[~self.df_env["code"].isin(insufficient_codes)]
+
+                if df_monthly.empty:
+                    self._persist_artifacts()
+                    print("Incremental Refresh Complete (removals only).")
+                    return
+
+                print(f"Incremental rebuild for {len(valid_codes)} tickers.")
+                df_vec60_new, df_vec24_new, df_env_new = self._build_vectors_and_tags(df_monthly)
+
+                drop_codes = set(codes_to_update)
+                self.df_vec60 = self.df_vec60[~self.df_vec60["code"].isin(drop_codes)]
+                self.df_vec24 = self.df_vec24[~self.df_vec24["code"].isin(drop_codes)]
+                self.df_env = self.df_env[~self.df_env["code"].isin(drop_codes)]
+
+                self.df_vec60 = pd.concat([self.df_vec60, df_vec60_new], ignore_index=True)
+                self.df_vec24 = pd.concat([self.df_vec24, df_vec24_new], ignore_index=True)
+                self.df_env = pd.concat([self.df_env, df_env_new], ignore_index=True)
+
+                self._persist_artifacts()
+                print("Incremental Refresh Complete.")
+                return
+
+            df_monthly = self._load_monthly_bars(conn)
+
+        if df_monthly.empty:
+            print("No monthly data found.")
+            return
+
+        counts = df_monthly["code"].value_counts()
+        valid_codes = counts[counts >= 120].index
+        df_monthly = df_monthly[df_monthly["code"].isin(valid_codes)].copy()
+
+        print(f"Monthly Bars loaded: {len(df_monthly)} rows, {len(valid_codes)} tickers.")
+        print("Generating vectors and tags...")
+
+        self.df_vec60, self.df_vec24, self.df_env = self._build_vectors_and_tags(df_monthly)
+        self._persist_artifacts()
         print("Refresh Complete.")
 
     def search(
@@ -356,6 +306,8 @@ class SimilarityService:
         
         if not self.loaded:
             self.load_artifacts()
+        if not self.loaded or self.df_env is None or self.df_vec60 is None or self.df_vec24 is None or self.tag_index is None:
+            raise RuntimeError("Similarity artifacts are not loaded. Run refresh_data() first.")
             
         # Parse AsOf
         if asof:

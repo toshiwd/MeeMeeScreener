@@ -63,6 +63,20 @@ export type Ticker = {
   shortBadges?: string[];
   shortReasons?: string[];
   shortProhibition?: "Z1" | "Z2" | "Z3" | null;
+  eventEarningsDate?: string | null;
+  eventRightsDate?: string | null;
+};
+
+export type EventsMeta = {
+  earningsLastSuccessAt: string | null;
+  rightsLastSuccessAt: string | null;
+  isRefreshing: boolean;
+  refreshJobId: string | null;
+  lastError: string | null;
+  lastAttemptAt: string | null;
+  dataCoverage?: {
+    rightsMaxDate?: string | null;
+  };
 };
 
 type GridTimeframe = "monthly" | "weekly" | "daily";
@@ -161,7 +175,10 @@ type StoreState = {
   barsStatus: StatusMap;
   loadingList: boolean;
   lastApiError: ApiErrorInfo | null;
+  eventsMeta: EventsMeta | null;
+  eventsMetaLoading: boolean;
   maSettings: MaSettings;
+  compareMaSettings: MaSettings;
   settings: Settings;
   setLastApiError: (info: ApiErrorInfo | null) => void;
   loadList: () => Promise<void>;
@@ -202,8 +219,12 @@ type StoreState = {
   setBasicSortDir: (value: SortDir) => void;
   setPerformancePeriod: (value: PerformancePeriod) => void;
   updateMaSetting: (timeframe: MaTimeframe, index: number, patch: Partial<MaSetting>) => void;
+  updateCompareMaSetting: (timeframe: MaTimeframe, index: number, patch: Partial<MaSetting>) => void;
   resetMaSettings: (timeframe: MaTimeframe) => void;
+  resetCompareMaSettings: (timeframe: MaTimeframe) => void;
   resetBarsCache: () => void;
+  loadEventsMeta: () => Promise<EventsMeta | null>;
+  refreshEventsIfStale: () => Promise<void>;
 };
 
 // Candidate sort presets (for buy/sell candidate screens only)
@@ -278,6 +299,8 @@ const LIST_TIMEFRAME_KEY = "listTimeframe";
 const LIST_RANGE_KEY = "listRangeMonths";
 const LIST_COLS_KEY = "listCols";
 const LIST_ROWS_KEY = "listRows";
+const MA_STORAGE_PREFIX = "maSettings";
+const COMPARE_MA_STORAGE_PREFIX = "compareMaSettings";
 const inFlightBatchRequests = new Map<
   string,
   { promise: Promise<void>; controller: AbortController }
@@ -295,9 +318,9 @@ const barsFetchedLimit: Record<GridTimeframe, Record<string, number>> = {
 };
 let batchRequestCount = 0;
 const DEFAULT_PERIODS: Record<MaTimeframe, number[]> = {
-  daily: [7, 20, 60, 100, 200],
-  weekly: [7, 20, 60, 100, 200],
-  monthly: [7, 20, 60, 100, 200]
+  daily: [7, 20, 60, 120, 200],
+  weekly: [7, 20, 60, 120, 200],
+  monthly: [7, 20, 60, 120, 200]
 };
 
 const makeDefaultSettings = (timeframe: MaTimeframe): MaSetting[] =>
@@ -356,6 +379,43 @@ const normalizeLineWidth = (value: unknown, fallback: number) => {
   return Math.min(6, Math.max(1, Math.round(width)));
 };
 
+const parseIsoMs = (value: string | null | undefined) => {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const normalizeEventsMeta = (payload: unknown): EventsMeta | null => {
+  if (!payload || typeof payload !== "object") return null;
+  const data = payload as Record<string, unknown>;
+  return {
+    earningsLastSuccessAt: (data.earnings_last_success_at as string | null) ?? null,
+    rightsLastSuccessAt: (data.rights_last_success_at as string | null) ?? null,
+    isRefreshing: Boolean(data.is_refreshing),
+    refreshJobId: (data.refresh_job_id as string | null) ?? null,
+    lastError: (data.last_error as string | null) ?? null,
+    lastAttemptAt: (data.last_attempt_at as string | null) ?? null,
+    dataCoverage:
+      data.data_coverage && typeof data.data_coverage === "object"
+        ? {
+            rightsMaxDate:
+              ((data.data_coverage as Record<string, unknown>).rights_max_date as string | null) ??
+              null
+          }
+        : undefined
+  };
+};
+
+const isEventsStale = (meta: EventsMeta | null) => {
+  if (!meta) return true;
+  const now = Date.now();
+  const earningsMs = parseIsoMs(meta.earningsLastSuccessAt);
+  const rightsMs = parseIsoMs(meta.rightsLastSuccessAt);
+  if (earningsMs == null || rightsMs == null) return true;
+  const oldest = Math.min(earningsMs, rightsMs);
+  return now - oldest >= 4 * 24 * 60 * 60 * 1000;
+};
+
 const normalizeSettings = (timeframe: MaTimeframe, input: unknown): MaSetting[] => {
   const defaults = makeDefaultSettings(timeframe);
   if (!Array.isArray(input)) return defaults;
@@ -372,9 +432,9 @@ const normalizeSettings = (timeframe: MaTimeframe, input: unknown): MaSetting[] 
   });
 };
 
-const loadSettings = (timeframe: MaTimeframe): MaSetting[] => {
+const loadSettings = (timeframe: MaTimeframe, storagePrefix = MA_STORAGE_PREFIX): MaSetting[] => {
   if (typeof window === "undefined") return makeDefaultSettings(timeframe);
-  const raw = window.localStorage.getItem(`maSettings:${timeframe}`);
+  const raw = window.localStorage.getItem(`${storagePrefix}:${timeframe}`);
   if (!raw) return makeDefaultSettings(timeframe);
   try {
     return normalizeSettings(timeframe, JSON.parse(raw));
@@ -383,7 +443,11 @@ const loadSettings = (timeframe: MaTimeframe): MaSetting[] => {
   }
 };
 
-const persistSettings = (timeframe: MaTimeframe, settings: MaSetting[]) => {
+const persistSettings = (
+  timeframe: MaTimeframe,
+  settings: MaSetting[],
+  storagePrefix = MA_STORAGE_PREFIX
+) => {
   if (typeof window === "undefined") return;
   const payload = settings.map((item) => ({
     period: item.period,
@@ -391,7 +455,7 @@ const persistSettings = (timeframe: MaTimeframe, settings: MaSetting[]) => {
     color: item.color,
     lineWidth: item.lineWidth
   }));
-  window.localStorage.setItem(`maSettings:${timeframe}`, JSON.stringify(payload));
+  window.localStorage.setItem(`${storagePrefix}:${timeframe}`, JSON.stringify(payload));
 };
 
 const getMaxPeriod = (settings: MaSetting[]) =>
@@ -615,10 +679,17 @@ export const useStore = create<StoreState>((set, get) => ({
   barsStatus: { monthly: {}, weekly: {}, daily: {} },
   loadingList: false,
   lastApiError: null,
+  eventsMeta: null,
+  eventsMetaLoading: false,
   maSettings: {
     daily: loadSettings("daily"),
     weekly: loadSettings("weekly"),
     monthly: loadSettings("monthly")
+  },
+  compareMaSettings: {
+    daily: loadSettings("daily", COMPARE_MA_STORAGE_PREFIX),
+    weekly: loadSettings("weekly", COMPARE_MA_STORAGE_PREFIX),
+    monthly: loadSettings("monthly", COMPARE_MA_STORAGE_PREFIX)
   },
   settings: {
     columns: getInitialColumns(),
@@ -817,7 +888,9 @@ export const useStore = create<StoreState>((set, get) => ({
           shortType: item.shortType ?? null,
           shortBadges: Array.isArray(item.shortBadges) ? item.shortBadges : [],
           shortReasons: Array.isArray(item.shortReasons) ? item.shortReasons : [],
-          shortProhibition: item.shortProhibition ?? null
+          shortProhibition: item.shortProhibition ?? null,
+          eventEarningsDate: item.eventEarningsDate ?? item.event_earnings_date ?? null,
+          eventRightsDate: item.eventRightsDate ?? item.event_rights_date ?? null
         };
       });
       try {
@@ -1212,11 +1285,39 @@ export const useStore = create<StoreState>((set, get) => ({
       return { maSettings: { ...state.maSettings, [timeframe]: next } };
     });
   },
+  updateCompareMaSetting: (timeframe, index, patch) => {
+    set((state) => {
+      const current = state.compareMaSettings[timeframe][index];
+      if (!current) return state;
+      const next = [...state.compareMaSettings[timeframe]];
+      const updated: MaSetting = {
+        ...current,
+        ...patch,
+        period:
+          Number.isFinite(Number(patch.period)) && Number(patch.period) > 0
+            ? Math.floor(Number(patch.period))
+            : current.period,
+        color: normalizeColor(patch.color ?? current.color, current.color),
+        lineWidth: normalizeLineWidth(patch.lineWidth ?? current.lineWidth, current.lineWidth),
+        visible: typeof patch.visible === "boolean" ? patch.visible : current.visible
+      };
+      next[index] = updated;
+      persistSettings(timeframe, next, COMPARE_MA_STORAGE_PREFIX);
+      return { compareMaSettings: { ...state.compareMaSettings, [timeframe]: next } };
+    });
+  },
   resetMaSettings: (timeframe) => {
     set((state) => {
       const next = makeDefaultSettings(timeframe);
       persistSettings(timeframe, next);
       return { maSettings: { ...state.maSettings, [timeframe]: next } };
+    });
+  },
+  resetCompareMaSettings: (timeframe) => {
+    set((state) => {
+      const next = makeDefaultSettings(timeframe);
+      persistSettings(timeframe, next, COMPARE_MA_STORAGE_PREFIX);
+      return { compareMaSettings: { ...state.compareMaSettings, [timeframe]: next } };
     });
   },
   resetBarsCache: () => {
@@ -1236,6 +1337,51 @@ export const useStore = create<StoreState>((set, get) => ({
       barsStatus: { monthly: {}, weekly: {}, daily: {} },
       barsLoading: { monthly: {}, weekly: {}, daily: {} }
     }));
+  },
+  loadEventsMeta: async () => {
+    if (get().eventsMetaLoading) return get().eventsMeta;
+    set({ eventsMetaLoading: true });
+    try {
+      const res = await api.get("/events/meta");
+      const meta = normalizeEventsMeta(res.data);
+      if (meta) {
+        set({ eventsMeta: meta });
+      }
+      return meta;
+    } catch {
+      return get().eventsMeta;
+    } finally {
+      set({ eventsMetaLoading: false });
+    }
+  },
+  refreshEventsIfStale: async () => {
+    const meta = await get().loadEventsMeta();
+    if (!isEventsStale(meta)) return;
+    if (meta?.isRefreshing) return;
+    try {
+      const res = await api.post("/events/refresh", null, {
+        params: { reason: "startup_stale" }
+      });
+      const jobId = (res.data as { refresh_job_id?: string } | null)?.refresh_job_id ?? null;
+      if (jobId) {
+        set((prev) => ({
+          eventsMeta: {
+            ...(prev.eventsMeta ?? {
+              earningsLastSuccessAt: null,
+              rightsLastSuccessAt: null,
+              lastAttemptAt: null,
+              lastError: null,
+              isRefreshing: false,
+              refreshJobId: null
+            }),
+            isRefreshing: true,
+            refreshJobId: jobId
+          }
+        }));
+      }
+    } catch {
+      // ignore refresh failures
+    }
   }
 }));
 
