@@ -53,11 +53,17 @@ def init_schema() -> None:
                 o DOUBLE,
                 h DOUBLE,
                 l DOUBLE,
+
                 c DOUBLE,
+                v BIGINT,
                 PRIMARY KEY(code, month)
             );
             """
         )
+        try:
+            conn.execute("ALTER TABLE monthly_bars ADD COLUMN v BIGINT")
+        except duckdb.BinderException:
+            pass  # Already exists
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS monthly_ma (

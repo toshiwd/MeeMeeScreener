@@ -5167,6 +5167,7 @@ def batch_bars(payload: dict = Body(default={})):  # { timeframe, codes, limit }
                    b.h,
                    b.l,
                    b.c,
+                   b.v,
                    m.ma7,
                    m.ma20,
                    m.ma60,
@@ -5176,7 +5177,7 @@ def batch_bars(payload: dict = Body(default={})):  # { timeframe, codes, limit }
               ON b.code = m.code AND b.{time_col} = m.{time_col}
             WHERE b.code IN ({placeholders})
         )
-        SELECT code, t, o, h, l, c, ma7, ma20, ma60
+        SELECT code, t, o, h, l, c, v, ma7, ma20, ma60
         FROM base
         WHERE rn <= ?
         ORDER BY code, t
@@ -5186,7 +5187,7 @@ def batch_bars(payload: dict = Body(default={})):  # { timeframe, codes, limit }
         rows = conn.execute(query, codes + [limit]).fetchall()
         monthly_rows = conn.execute(
             f"""
-            SELECT code, month, o, h, l, c
+            SELECT code, month, o, h, l, c, v
             FROM monthly_bars
             WHERE code IN ({placeholders})
             ORDER BY code, month
@@ -5195,8 +5196,8 @@ def batch_bars(payload: dict = Body(default={})):  # { timeframe, codes, limit }
         ).fetchall()
 
     monthly_by_code: dict[str, list[tuple]] = {}
-    for code, month, o, h, l, c in monthly_rows:
-        monthly_by_code.setdefault(code, []).append((month, o, h, l, c))
+    for code, month, o, h, l, c, v in monthly_rows:
+        monthly_by_code.setdefault(code, []).append((month, o, h, l, c, v))
 
     boxes_by_code = {code: detect_boxes(monthly_by_code.get(code, [])) for code in codes}
 
@@ -5204,9 +5205,9 @@ def batch_bars(payload: dict = Body(default={})):  # { timeframe, codes, limit }
         code: {"bars": [], "ma": {"ma7": [], "ma20": [], "ma60": []}, "boxes": boxes_by_code.get(code, [])}
         for code in codes
     }
-    for code, t, o, h, l, c, ma7, ma20, ma60 in rows:
+    for code, t, o, h, l, c, v, ma7, ma20, ma60 in rows:
         payload = items.setdefault(code, {"bars": [], "ma": {"ma7": [], "ma20": [], "ma60": []}, "boxes": boxes_by_code.get(code, [])})
-        payload["bars"].append([t, o, h, l, c])
+        payload["bars"].append([t, o, h, l, c, v])
         payload["ma"]["ma7"].append([t, ma7])
         payload["ma"]["ma20"].append([t, ma20])
         payload["ma"]["ma60"].append([t, ma60])

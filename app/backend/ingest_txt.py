@@ -737,10 +737,12 @@ def build_monthly(daily: pd.DataFrame) -> pd.DataFrame:
         o=("o", "first"),
         h=("h", "max"),
         l=("l", "min"),
-        c=("c", "last")
+        c=("c", "last"),
+        v=("v", "sum")
     )
     monthly["month"] = (monthly["month"].astype("int64") // 1_000_000_000).astype("int64")
     return monthly
+
 
 
 def build_monthly_ma(monthly: pd.DataFrame) -> pd.DataFrame:
@@ -993,7 +995,7 @@ def ingest() -> None:
         conn.execute("INSERT INTO daily_ma SELECT code, date, ma7, ma20, ma60 FROM daily_ma_df")
 
         conn.register("monthly_df", monthly)
-        conn.execute("INSERT INTO monthly_bars SELECT code, month, o, h, l, c FROM monthly_df")
+        conn.execute("INSERT INTO monthly_bars SELECT code, month, o, h, l, c, v FROM monthly_df")
 
         conn.register("monthly_ma_df", monthly_ma)
         conn.execute("INSERT INTO monthly_ma SELECT code, month, ma7, ma20, ma60 FROM monthly_ma_df")
