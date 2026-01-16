@@ -122,16 +122,12 @@ def _build_header_map(headers: list[str], expected: list[str]) -> dict[str, str]
     return mapping
 
 
-def _build_rakuten_row_hash(row: dict, header_map: dict[str, str]) -> str:
-    parts = []
-    for key in RAKUTEN_HASH_KEYS:
-        header = header_map.get(key)
-        raw = row.get(header, "") if header else ""
-        if key in ("数量［株］", "単価［円］", "受渡金額［円］", "建単価［円］"):
-            norm = _normalize_number_text(raw)
-        else:
-            norm = _normalize_text(raw)
-        parts.append(f"{key}:{norm}")
+def _build_rakuten_row_hash(row: dict, headers: list[str]) -> str:
+    parts = ["rakuten"]
+    for header in headers:
+        raw = row.get(header, "")
+        norm = _normalize_text(raw)
+        parts.append(f"{header}:{norm}")
     payload = "|".join(parts)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -235,7 +231,7 @@ def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
             action = ACTION_UNKNOWN
 
         price = _parse_float(row_dict.get(header_map.get("単価［円］", ""), ""))
-        source_row_hash = _build_rakuten_row_hash(row_dict, header_map)
+        source_row_hash = _build_rakuten_row_hash(row_dict, headers)
 
         events.append(
             TradeEvent(

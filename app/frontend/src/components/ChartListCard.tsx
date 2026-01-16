@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { BarsPayload, MaSetting } from "../store";
 import type { SignalChip } from "../utils/signals";
+import { formatEventBadgeDate } from "../utils/events";
 import ChartInfoPanel from "./ChartInfoPanel";
 import DetailChart from "./DetailChart";
 
@@ -33,6 +34,8 @@ type ChartListCardProps = {
   status?: "idle" | "loading" | "success" | "empty" | "error";
   maSettings: MaSetting[];
   rangeMonths?: number | null;
+  eventEarningsDate?: string | null;
+  eventRightsDate?: string | null;
   headerLeft?: ReactNode;
   headerRight?: ReactNode;
   tileClassName?: string;
@@ -182,6 +185,8 @@ const ChartListCard = memo(function ChartListCard({
   status,
   maSettings,
   rangeMonths,
+  eventEarningsDate,
+  eventRightsDate,
   headerLeft,
   headerRight,
   tileClassName,
@@ -266,6 +271,8 @@ const ChartListCard = memo(function ChartListCard({
 
   const handleOpen = () => onOpenDetail(code);
   const showLoading = rows.length === 0;
+  const earningsLabel = formatEventBadgeDate(eventEarningsDate);
+  const rightsLabel = formatEventBadgeDate(eventRightsDate);
   const loadingLabel =
     status === "error"
       ? "ì«Ç›çûÇ›é∏îs"
@@ -289,6 +296,14 @@ const ChartListCard = memo(function ChartListCard({
             <div className="tile-id">
               <span className="tile-code">{code}</span>
               <span className="tile-name">{name}</span>
+              {(rightsLabel || earningsLabel) && (
+                <span className="event-badges">
+                  {rightsLabel && <span className="event-badge event-rights">{"\u6a29\u5229"} {rightsLabel}</span>}
+                  {earningsLabel && (
+                    <span className="event-badge event-earnings">{"\u6c7a\u7b97"} {earningsLabel}</span>
+                  )}
+                </span>
+              )}
             </div>
           </div>
         )}

@@ -110,14 +110,14 @@ export default function CandidatesView() {
   }, [backendReady, loadList, tickers.length]);
 
   const tickerMap = useMemo(() => {
-    return new Map(tickers.map((ticker) => [ticker.code, ticker.name]));
+    return new Map(tickers.map((ticker) => [ticker.code, ticker]));
   }, [tickers]);
 
   const items = useMemo<CandidateItem[]>(
     () =>
       keepList.map((code) => ({
         code,
-        name: tickerMap.get(code)
+        name: tickerMap.get(code)?.name
       })),
     [keepList, tickerMap]
   );
@@ -364,6 +364,7 @@ export default function CandidatesView() {
           {sortedItems.map((item) => {
             const payload = barsCache[listTimeframe][item.code] ?? null;
             const status = barsStatus[listTimeframe][item.code];
+            const ticker = tickerMap.get(item.code);
             return (
               <ChartListCard
                 key={item.code}
@@ -373,6 +374,8 @@ export default function CandidatesView() {
                 status={status}
                 maSettings={maSettings[listTimeframe]}
                 rangeMonths={listRangeMonths}
+                eventEarningsDate={ticker?.eventEarningsDate ?? null}
+                eventRightsDate={ticker?.eventRightsDate ?? null}
                 densityKey={densityKey}
                 signals={signalMap.get(item.code) ?? []}
                 onOpenDetail={handleOpenDetail}

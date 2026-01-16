@@ -139,6 +139,7 @@ export default function GridView() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<Theme>(() => getStoredTheme());
   const [tradeUploadInFlight, setTradeUploadInFlight] = useState(false);
+  const [tradeSyncInFlight, setTradeSyncInFlight] = useState(false);
   const [watchlistExporting, setWatchlistExporting] = useState(false);
   const [techFilterOpen, setTechFilterOpen] = useState(false);
   const [keepBarCollapsed, setKeepBarCollapsed] = useState(false);
@@ -191,6 +192,29 @@ export default function GridView() {
     } finally {
       setTradeUploadInFlight(false);
       event.target.value = "";
+    }
+  };
+
+  const handleForceTradeSync = async () => {
+    if (tradeSyncInFlight) return;
+    setTradeSyncInFlight(true);
+    try {
+      const res = await api.get("/debug/trade-sync");
+      const errors = res.data?.errors ?? [];
+      if (Array.isArray(errors) && errors.length) {
+        setToastMessage(`強制同期でエラーが発生しました。 (${errors[0]})`);
+      } else {
+        setToastMessage("強制同期を実行しました。");
+      }
+    } catch (err: any) {
+      const detail =
+        err?.response?.data?.error ||
+        err?.response?.data?.detail ||
+        err?.message ||
+        "Unknown error";
+      setToastMessage(`強制同期に失敗しました。 (${detail})`);
+    } finally {
+      setTradeSyncInFlight(false);
     }
   };
 
@@ -1817,6 +1841,15 @@ export default function GridView() {
                     >
                       <span>{tradeUploadInFlight ? "取り込み中..." : "CSVを取り込む"}</span>
                       <span className="popover-status">手動</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="popover-item"
+                      onClick={handleForceTradeSync}
+                      disabled={tradeSyncInFlight}
+                    >
+                      <span>{tradeSyncInFlight ? "同期中..." : "強制同期を実行"}</span>
+                      <span className="popover-status">強制</span>
                     </button>
                     <div className="popover-hint">
                       保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\

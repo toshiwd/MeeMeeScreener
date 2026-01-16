@@ -23,7 +23,7 @@ import IconButton from "../components/IconButton";
 import SimilarSearchPanel from "../components/SimilarSearchPanel";
 import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
-import type { TradeEvent } from "../utils/positions";
+import type { TradeEvent, CurrentPosition } from "../utils/positions";
 import { buildCurrentPositions, buildDailyPositions, buildPositionLedger } from "../utils/positions";
 import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
 import { buildAIExport, copyToClipboard, saveAsFile } from "../utils/aiExport";
@@ -376,6 +376,7 @@ export default function DetailView() {
   const [compareTrades, setCompareTrades] = useState<TradeEvent[]>([]);
   const [tradeWarnings, setTradeWarnings] = useState<ApiWarnings>({ items: [] });
   const [tradeErrors, setTradeErrors] = useState<string[]>([]);
+  const [currentPositionsFromApi, setCurrentPositionsFromApi] = useState<CurrentPosition[] | null>(null);
   const [dailyErrors, setDailyErrors] = useState<string[]>([]);
   const [monthlyErrors, setMonthlyErrors] = useState<string[]>([]);
   const [dailyFetch, setDailyFetch] = useState<FetchState>({
@@ -662,6 +663,7 @@ export default function DetailView() {
     if (!code) return;
     setTradeErrors([]);
     setTradeWarnings({ items: [] });
+    setCurrentPositionsFromApi(null);
     api
       .get(`/trades/${code}`)
       .then((res) => {
@@ -670,11 +672,17 @@ export default function DetailView() {
           warnings?: ApiWarnings;
           errors?: string[];
           currentPosition?: { longLots: number; shortLots: number };
+          currentPositions?: CurrentPosition[];
         };
         if (!payload || !Array.isArray(payload.events)) {
           throw new Error("Trades response is invalid");
         }
         setTrades(payload.events ?? []);
+        if (Array.isArray(payload.currentPositions)) {
+          setCurrentPositionsFromApi(payload.currentPositions);
+        } else {
+          setCurrentPositionsFromApi(null);
+        }
         setTradeWarnings(normalizeWarnings(payload.warnings));
         setTradeErrors(Array.isArray(payload.errors) ? payload.errors : []);
       })
@@ -683,6 +691,7 @@ export default function DetailView() {
         setTradeErrors([message]);
         setTrades([]);
         setTradeWarnings({ items: [] });
+        setCurrentPositionsFromApi(null);
       });
   }, [backendReady, code]);
 
@@ -740,7 +749,10 @@ export default function DetailView() {
   );
   const dailyPositions = positionData.dailyPositions;
   const tradeMarkers = positionData.tradeMarkers;
-  const currentPositions = useMemo(() => buildCurrentPositions(trades), [trades]);
+  const currentPositions = useMemo(
+    () => (currentPositionsFromApi !== null ? currentPositionsFromApi : buildCurrentPositions(trades)),
+    [currentPositionsFromApi, trades]
+  );
   const latestTradeTime = useMemo(() => {
     if (trades.length === 0) return null;
     const times = trades

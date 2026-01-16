@@ -28,6 +28,21 @@ type HistoryItem = {
   issue_note?: string | null;
 };
 
+type CurrentPositionsResponse = {
+  holding_codes?: string[];
+  all_traded_codes?: string[];
+  current_positions_by_code?: Record<
+    string,
+    {
+      buyShares?: number;
+      sellShares?: number;
+      opened_at?: string | null;
+      has_issue?: boolean;
+      issue_note?: string | null;
+    }
+  >;
+};
+
 type RoundEvent = {
   broker: string;
   exec_dt: string | null;
@@ -56,6 +71,8 @@ export default function PositionsView() {
   const barsCache = useStore((state) => state.barsCache);
   const barsStatus = useStore((state) => state.barsStatus);
   const maSettings = useStore((state) => state.maSettings);
+  const tickers = useStore((state) => state.tickers);
+  const loadList = useStore((state) => state.loadList);
 
   // Settings
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
@@ -75,18 +92,64 @@ export default function PositionsView() {
   const [roundEvents, setRoundEvents] = useState<RoundEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
 
+  useEffect(() => {
+    if (!backendReady) return;
+    if (tickers.length) return;
+    loadList().catch(() => {});
+  }, [backendReady, loadList, tickers.length]);
+
+  const tickerMap = useMemo(() => {
+    return new Map(tickers.map((ticker) => [ticker.code, ticker]));
+  }, [tickers]);
+
   // Load positions
   useEffect(() => {
     if (!backendReady) return;
     setLoading(true);
     const load = async () => {
       try {
+        const currentRes = await api.get("/positions/current");
+        const currentPayload = (currentRes.data || {}) as CurrentPositionsResponse;
+        const holdingCodes = Array.isArray(currentPayload.holding_codes)
+          ? currentPayload.holding_codes
+          : [];
+        const allTradedCodes = Array.isArray(currentPayload.all_traded_codes)
+          ? currentPayload.all_traded_codes
+          : [];
+        const positionsByCode = currentPayload.current_positions_by_code ?? {};
+
         if (tab === "held") {
-          const res = await api.get("/positions/held");
-          setHeldItems((res.data?.items || []) as HeldItem[]);
+          const items: HeldItem[] = holdingCodes.map((code) => {
+            const position = positionsByCode[code] ?? {};
+            const buy = Number(position.buyShares ?? 0);
+            const sell = Number(position.sellShares ?? 0);
+            const buyLabel = Number.isInteger(buy) ? `${buy}` : `${buy}`;
+            const sellLabel = Number.isInteger(sell) ? `${sell}` : `${sell}`;
+            const ticker = tickerMap.get(code);
+            return {
+              symbol: code,
+              name: ticker?.name ?? code,
+              buy_qty: buy,
+              sell_qty: sell,
+              sell_buy_text: `${sellLabel}-${buyLabel}`,
+              opened_at: position.opened_at ?? null,
+              has_issue: Boolean(position.has_issue),
+              issue_note: position.issue_note ?? null
+            };
+          });
+          setHeldItems(items);
+          setHistoryItems([]);
         } else {
+          const holdingSet = new Set(holdingCodes);
+          const historyCodes = allTradedCodes.filter((code) => !holdingSet.has(code));
+          const historyCodeSet = new Set(historyCodes);
           const res = await api.get("/positions/history");
-          setHistoryItems((res.data?.items || []) as HistoryItem[]);
+          const rawItems = (res.data?.items || []) as HistoryItem[];
+          const filtered = rawItems
+            .filter((item) => historyCodeSet.has(item.symbol))
+            .map((item, index) => ({ ...item, round_no: index + 1 }));
+          setHistoryItems(filtered);
+          setHeldItems([]);
         }
       } catch (e) {
         console.error(e);
@@ -97,7 +160,7 @@ export default function PositionsView() {
       }
     };
     load();
-  }, [backendReady, tab]);
+  }, [backendReady, tab, tickerMap]);
 
   // Determine active items
   const activeItems = useMemo(() => {
@@ -178,10 +241,14 @@ export default function PositionsView() {
   const emptyLabel = tab === "held" ? "保有銘柄はありません" : "履歴はまだありません";
 
   const renderItem = (item: HeldItem | HistoryItem) => {
+    if ("buy_qty" in item && !(item.buy_qty > 0 || item.sell_qty > 0)) {
+      return null;
+    }
     const code = item.symbol;
     const payload = barsCache[listTimeframe][code] ?? null;
     const status = barsStatus[listTimeframe][code];
     const signals = [] as any[];
+    const ticker = tickerMap.get(code);
 
     let displayName = item.name;
     let extraInfo = "";
@@ -205,6 +272,8 @@ export default function PositionsView() {
         status={status}
         maSettings={maSettings[listTimeframe]}
         rangeMonths={listRangeMonths}
+        eventEarningsDate={ticker?.eventEarningsDate ?? null}
+        eventRightsDate={ticker?.eventRightsDate ?? null}
         densityKey={densityKey}
         signals={signals}
         onOpenDetail={handleOpenDetail}

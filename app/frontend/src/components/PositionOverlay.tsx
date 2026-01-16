@@ -429,10 +429,8 @@ export default function PositionOverlay({
   const currentPositionEntries = useMemo(() => {
     if (!currentPositions || currentPositions.length === 0) return [];
     if (!bars.length) return [];
-    if (latestTradeTime == null) return [];
     const lastBar = bars[bars.length - 1];
-    if (!lastBar || latestTradeTime <= lastBar.time) return [];
-    if (activePositionTime == null || activePositionTime !== lastBar.time) return [];
+    if (!lastBar) return [];
     const close = lastBar.close;
     return currentPositions.map((pos) => {
       const avgLongPrice = pos.longLots > 0 ? pos.avgLongPrice : 0;

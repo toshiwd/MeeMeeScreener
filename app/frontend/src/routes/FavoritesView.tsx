@@ -40,6 +40,7 @@ export default function FavoritesView() {
   const boxesCache = useStore((state) => state.boxesCache);
   const maSettings = useStore((state) => state.maSettings);
   const tickers = useStore((state) => state.tickers);
+  const loadList = useStore((state) => state.loadList);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
   const listRangeMonths = useStore((state) => state.settings.listRangeMonths);
   const listColumns = useStore((state) => state.settings.listColumns);
@@ -127,6 +128,12 @@ export default function FavoritesView() {
       })
       .finally(() => setLoading(false));
   }, [replaceFavorites, backendReady]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (tickers.length) return;
+    loadList().catch(() => {});
+  }, [backendReady, loadList, tickers.length]);
 
   const tickerMap = useMemo(() => {
     return new Map(tickers.map((ticker) => [ticker.code, ticker]));
@@ -387,6 +394,7 @@ export default function FavoritesView() {
           {sortedItems.map((item) => {
             const payload = barsCache[listTimeframe][item.code] ?? null;
             const status = barsStatus[listTimeframe][item.code];
+            const ticker = tickerMap.get(item.code);
             return (
               <ChartListCard
                 key={item.code}
@@ -396,6 +404,8 @@ export default function FavoritesView() {
                 status={status}
                 maSettings={maSettings[listTimeframe]}
                 rangeMonths={listRangeMonths}
+                eventEarningsDate={ticker?.eventEarningsDate ?? null}
+                eventRightsDate={ticker?.eventRightsDate ?? null}
                 densityKey={densityKey}
                 signals={signalMap.get(item.code) ?? []}
                 onOpenDetail={handleOpenDetail}

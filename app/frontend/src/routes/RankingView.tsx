@@ -8,6 +8,7 @@ import ChartListCard from "../components/ChartListCard";
 import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import { MaSetting, useStore } from "../store";
+import { formatEventBadgeDate } from "../utils/events";
 import { computeSignalMetrics } from "../utils/signals";
 import {
   buildConsultationPack,
@@ -50,6 +51,8 @@ export default function RankingView() {
   const barsStatus = useStore((state) => state.barsStatus);
   const boxesCache = useStore((state) => state.boxesCache);
   const maSettings = useStore((state) => state.maSettings);
+  const tickers = useStore((state) => state.tickers);
+  const loadList = useStore((state) => state.loadList);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
   const listRangeMonths = useStore((state) => state.settings.listRangeMonths);
   const listColumns = useStore((state) => state.settings.listColumns);
@@ -164,6 +167,16 @@ export default function RankingView() {
   }, [searchResults, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
   const listCodes = useMemo(() => filteredItems.map((item) => item.code), [filteredItems]);
   const densityKey = `${listColumns}x${listRows}`;
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (tickers.length) return;
+    loadList().catch(() => {});
+  }, [backendReady, loadList, tickers.length]);
+
+  const tickerMap = useMemo(() => {
+    return new Map(tickers.map((ticker) => [ticker.code, ticker]));
+  }, [tickers]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -438,6 +451,9 @@ export default function RankingView() {
                 const status = barsStatus[listTimeframe][item.code];
                 const series =
                   payload && payload.bars?.length ? payload.bars : item.series ?? [];
+                const ticker = tickerMap.get(item.code);
+                const earningsLabel = formatEventBadgeDate(ticker?.eventEarningsDate);
+                const rightsLabel = formatEventBadgeDate(ticker?.eventRightsDate);
                 return (
                   <ChartListCard
                     key={item.code}
@@ -471,6 +487,18 @@ export default function RankingView() {
                             <span className="tile-code">{item.code}</span>
                           </label>
                           <span className="tile-name">{item.name ?? item.code}</span>
+                          {(rightsLabel || earningsLabel) && (
+                            <span className="event-badges">
+                              {rightsLabel && (
+                                <span className="event-badge event-rights">権利 {rightsLabel}</span>
+                              )}
+                              {earningsLabel && (
+                                <span className="event-badge event-earnings">
+                                  決算 {earningsLabel}
+                                </span>
+                              )}
+                            </span>
+                          )}
                         </div>
                       </>
                     }

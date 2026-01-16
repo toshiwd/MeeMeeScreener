@@ -999,7 +999,7 @@ def upsert_position_seed(payload: dict = Body(...)):
 @app.get("/api/positions/held")
 def positions_held():
     with get_conn() as conn:
-        _auto_sync_csv_files(conn, force=True)
+        _auto_sync_csv_files(conn)
         rows = conn.execute(
             """
             SELECT p.symbol, p.buy_qty, p.sell_qty, p.opened_at, p.has_issue, p.issue_note, t.name
@@ -1026,6 +1026,59 @@ def positions_held():
             }
         )
     return JSONResponse(content={"items": items})
+
+
+@app.get("/api/positions/current")
+def positions_current():
+    with get_conn() as conn:
+        _auto_sync_csv_files(conn)
+        events = get_events(conn)
+        issue_rows = conn.execute(
+            """
+            SELECT symbol, opened_at, has_issue, issue_note
+            FROM positions_live
+            """
+        ).fetchall()
+
+    issues_by_code = {
+        row[0]: {
+            "opened_at": _format_event_timestamp(row[1]),
+            "has_issue": bool(row[2]),
+            "issue_note": row[3]
+        }
+        for row in issue_rows
+    }
+
+    trades_by_code: dict[str, list[dict]] = {}
+    for ev in events:
+        code = ev[3]
+        trades_by_code.setdefault(code, []).append(_map_trade_event(ev))
+
+    current_positions_by_code: dict[str, dict] = {}
+    holding_codes: list[str] = []
+
+    for code, trades in trades_by_code.items():
+        metrics = _calc_position_metrics(trades)
+        issue_info = issues_by_code.get(code, {})
+        current_positions_by_code[code] = {
+            "buyShares": metrics["longLots"],
+            "sellShares": metrics["shortLots"],
+            "opened_at": issue_info.get("opened_at"),
+            "has_issue": issue_info.get("has_issue", False),
+            "issue_note": issue_info.get("issue_note")
+        }
+        if metrics["longLots"] > 0 or metrics["shortLots"] > 0:
+            holding_codes.append(code)
+
+    all_traded_codes = sorted(trades_by_code.keys())
+
+    return JSONResponse(
+        content={
+            "holding_codes": holding_codes,
+            "current_positions_by_code": current_positions_by_code,
+            "all_traded_codes": all_traded_codes
+        }
+    )
 
 
 @app.get("/api/positions/history")
@@ -5066,7 +5119,7 @@ def diagnostics():
 def trades_by_code(code: str):
     try:
         with get_conn() as conn:
-            _auto_sync_csv_files(conn, force=True)
+            _auto_sync_csv_files(conn)
         daily_positions = _get_daily_positions_db([code])
         daily_for_code = daily_positions.get(code, [])
         
@@ -5093,81 +5146,21 @@ def trades_by_code(code: str):
                     "issueNote": row[6]
                 }
         
-        def map_trade_event(ev):
-            exec_dt = ev[2]
-            date_str = exec_dt.strftime("%Y-%m-%d") if exec_dt else ""
-            action = ev[4] or ""
-            qty = float(ev[5] or 0)
-            units = int(qty // 100) if qty > 0 else 0
-            side = "buy"
-            trade_action = "open"
-            kind = ""
-            if action in ("SPOT_BUY", "MARGIN_OPEN_LONG"):
-                side = "buy"
-                trade_action = "open"
-                kind = "BUY_OPEN"
-            elif action in ("SPOT_SELL", "MARGIN_CLOSE_LONG"):
-                side = "sell"
-                trade_action = "close"
-                kind = "SELL_CLOSE"
-            elif action == "MARGIN_OPEN_SHORT":
-                side = "sell"
-                trade_action = "open"
-                kind = "SELL_OPEN"
-            elif action == "MARGIN_CLOSE_SHORT":
-                side = "buy"
-                trade_action = "close"
-                kind = "BUY_CLOSE"
-            elif action == "DELIVERY_SHORT":
-                side = "buy"
-                trade_action = "close"
-                kind = "DELIVERY"
-            elif action == "SPOT_IN":
-                side = "buy"
-                trade_action = "open"
-                kind = "INBOUND"
-            elif action == "SPOT_OUT":
-                side = "sell"
-                trade_action = "close"
-                kind = "OUTBOUND"
-            elif action == "MARGIN_SWAP_TO_SPOT":
-                side = "buy"
-                trade_action = "open"
-                kind = "TAKE_DELIVERY"
-            else:
-                kind = action or "UNKNOWN"
-
-            return {
-                "broker": ev[1],
-                "exec_dt": exec_dt.isoformat() if exec_dt else "",
-                "tradeDate": date_str,
-                "date": date_str,
-                "code": ev[3],
-                "symbol": ev[3],
-                "action": trade_action,
-                "side": side,
-                "kind": kind,
-                "qty": qty,
-                "qtyShares": qty,
-                "units": units,
-                "price": ev[6],
-                "memo": f"{ev[9]} {ev[10]}" if len(ev) > 9 else action,
-                "raw": {
-                    "action": action,
-                    "transaction_type": ev[9] if len(ev) > 9 else "",
-                    "side_type": ev[10] if len(ev) > 10 else ""
-                }
-            }
-
         events_payload = []
         for ev in db_events:
-             events_payload.append(map_trade_event(ev))
+             events_payload.append(_map_trade_event(ev))
+        current_positions = _calc_current_positions_by_broker(events_payload)
+        current_metrics = _calc_position_metrics(events_payload)
 
         return JSONResponse(
             content={
                 "events": events_payload,
                 "dailyPositions": daily_for_code,
-                "currentPosition": current_position,
+                "currentPosition": {
+                    "longLots": current_metrics["longLots"],
+                    "shortLots": current_metrics["shortLots"]
+                },
+                "currentPositions": current_positions,
                 "warnings": {"items": []},
                 "errors": []
             }
@@ -5188,7 +5181,7 @@ def trades_by_code(code: str):
 def trades(code: str | None = None):
     try:
         with get_conn() as conn:
-            _auto_sync_csv_files(conn, force=True)
+            _auto_sync_csv_files(conn)
         # Fetch for all codes if code is None
         code_list = [code] if code else None
         daily_positions_map = _get_daily_positions_db(code_list)
@@ -5199,70 +5192,7 @@ def trades(code: str | None = None):
             
         events_payload = []
         for ev in db_events:
-             exec_dt = ev[2]
-             date_str = exec_dt.strftime("%Y-%m-%d") if exec_dt else ""
-             action = ev[4] or ""
-             qty = float(ev[5] or 0)
-             units = int(qty // 100) if qty > 0 else 0
-             side = "buy"
-             trade_action = "open"
-             kind = ""
-             if action in ("SPOT_BUY", "MARGIN_OPEN_LONG"):
-                 side = "buy"
-                 trade_action = "open"
-                 kind = "BUY_OPEN"
-             elif action in ("SPOT_SELL", "MARGIN_CLOSE_LONG"):
-                 side = "sell"
-                 trade_action = "close"
-                 kind = "SELL_CLOSE"
-             elif action == "MARGIN_OPEN_SHORT":
-                 side = "sell"
-                 trade_action = "open"
-                 kind = "SELL_OPEN"
-             elif action == "MARGIN_CLOSE_SHORT":
-                 side = "buy"
-                 trade_action = "close"
-                 kind = "BUY_CLOSE"
-             elif action == "DELIVERY_SHORT":
-                 side = "buy"
-                 trade_action = "close"
-                 kind = "DELIVERY"
-             elif action == "SPOT_IN":
-                 side = "buy"
-                 trade_action = "open"
-                 kind = "INBOUND"
-             elif action == "SPOT_OUT":
-                 side = "sell"
-                 trade_action = "close"
-                 kind = "OUTBOUND"
-             elif action == "MARGIN_SWAP_TO_SPOT":
-                 side = "buy"
-                 trade_action = "open"
-                 kind = "TAKE_DELIVERY"
-             else:
-                 kind = action or "UNKNOWN"
-
-             events_payload.append({
-                 "broker": ev[1],
-                 "exec_dt": exec_dt.isoformat() if exec_dt else "",
-                 "tradeDate": date_str,
-                 "date": date_str,
-                 "code": ev[3],
-                 "symbol": ev[3],
-                 "action": trade_action,
-                 "side": side,
-                 "kind": kind,
-                 "qty": qty,
-                 "qtyShares": qty,
-                 "units": units,
-                 "price": ev[6],
-                 "memo": f"{ev[9]} {ev[10]}" if len(ev) > 9 else action,
-                 "raw": {
-                     "action": action,
-                     "transaction_type": ev[9] if len(ev) > 9 else "",
-                     "side_type": ev[10] if len(ev) > 10 else ""
-                 }
-             })
+             events_payload.append(_map_trade_event(ev))
 
         # Flatten daily positions
         all_daily = []
@@ -5895,7 +5825,7 @@ def get_trade_sync_status():
 @app.get("/api/positions/held")
 def get_held_positions():
     with get_conn() as conn:
-        _auto_sync_csv_files(conn, force=True)
+        _auto_sync_csv_files(conn)
         
         rows = conn.execute("""
             SELECT symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note
@@ -6300,6 +6230,262 @@ def _resolve_static_file(request_path: str) -> str | None:
     if os.path.isfile(safe_path):
         return safe_path
     return None
+
+
+def _normalize_units(qty: float) -> float:
+    if not qty:
+        return 0.0
+    if qty >= 100:
+        return qty / 100
+    return qty
+
+
+def _map_trade_event(ev: tuple) -> dict:
+    exec_dt = ev[2]
+    date_str = exec_dt.strftime("%Y-%m-%d") if exec_dt else ""
+    action = ev[4] or ""
+    qty = float(ev[5] or 0)
+    units = _normalize_units(qty)
+    side = "buy"
+    trade_action = "open"
+    kind = ""
+    if action in ("SPOT_BUY", "MARGIN_OPEN_LONG"):
+        side = "buy"
+        trade_action = "open"
+        kind = "BUY_OPEN"
+    elif action in ("SPOT_SELL", "MARGIN_CLOSE_LONG"):
+        side = "sell"
+        trade_action = "close"
+        kind = "SELL_CLOSE"
+    elif action == "MARGIN_OPEN_SHORT":
+        side = "sell"
+        trade_action = "open"
+        kind = "SELL_OPEN"
+    elif action == "MARGIN_CLOSE_SHORT":
+        side = "buy"
+        trade_action = "close"
+        kind = "BUY_CLOSE"
+    elif action == "DELIVERY_SHORT":
+        side = "buy"
+        trade_action = "close"
+        kind = "DELIVERY"
+    elif action == "SPOT_IN":
+        side = "buy"
+        trade_action = "open"
+        kind = "INBOUND"
+    elif action == "SPOT_OUT":
+        side = "sell"
+        trade_action = "close"
+        kind = "OUTBOUND"
+    elif action == "MARGIN_SWAP_TO_SPOT":
+        side = "buy"
+        trade_action = "open"
+        kind = "TAKE_DELIVERY"
+    else:
+        kind = action or "UNKNOWN"
+
+    return {
+        "broker": ev[1],
+        "exec_dt": exec_dt.isoformat() if exec_dt else "",
+        "tradeDate": date_str,
+        "date": date_str,
+        "code": ev[3],
+        "symbol": ev[3],
+        "action": trade_action,
+        "side": side,
+        "kind": kind,
+        "qty": qty,
+        "qtyShares": qty,
+        "units": units,
+        "price": ev[6],
+        "memo": f"{ev[9]} {ev[10]}" if len(ev) > 9 else action,
+        "raw": {
+            "action": action,
+            "transaction_type": ev[9] if len(ev) > 9 else "",
+            "side_type": ev[10] if len(ev) > 10 else ""
+        }
+    }
+
+
+def _calc_current_lots(trades: list[dict]) -> tuple[int, int]:
+    ordered = [
+        (trade, index)
+        for index, trade in enumerate(trades)
+    ]
+    def sort_key(item: tuple[dict, int]) -> tuple[str, int, int]:
+        trade, index = item
+        date = trade.get("date") or ""
+        action = trade.get("action") or ""
+        action_rank = 0 if action == "open" else 1 if action == "close" else 2
+        return (date, action_rank, index)
+    ordered.sort(key=sort_key)
+
+    long_lots = 0.0
+    short_lots = 0.0
+    for trade, _ in ordered:
+        lots = trade.get("units") or 0
+        try:
+            lots = float(lots)
+        except (TypeError, ValueError):
+            lots = 0.0
+        lots = max(0.0, lots)
+        kind = trade.get("kind") or ""
+        action = trade.get("action") or "open"
+        side = trade.get("side") or ""
+
+        if kind == "DELIVERY":
+            long_lots = max(0, long_lots - lots)
+            short_lots = max(0, short_lots - lots)
+            continue
+        if kind == "TAKE_DELIVERY":
+            continue
+        if kind == "INBOUND":
+            if lots > 0:
+                long_lots += lots
+            continue
+        if kind == "OUTBOUND":
+            long_lots = max(0, long_lots - lots)
+            continue
+
+        if side == "buy" and action == "open":
+            long_lots += lots
+        elif side == "sell" and action == "close":
+            long_lots = max(0.0, long_lots - lots)
+        elif side == "sell" and action == "open":
+            short_lots += lots
+        elif side == "buy" and action == "close":
+            short_lots = max(0.0, short_lots - lots)
+
+    return long_lots, short_lots
+
+
+def _calc_position_metrics(trades: list[dict]) -> dict:
+    ordered = [
+        (trade, index)
+        for index, trade in enumerate(trades)
+    ]
+    def sort_key(item: tuple[dict, int]) -> tuple[str, int, int]:
+        trade, index = item
+        date = trade.get("date") or ""
+        action = trade.get("action") or ""
+        action_rank = 0 if action == "open" else 1 if action == "close" else 2
+        return (date, action_rank, index)
+    ordered.sort(key=sort_key)
+
+    long_lots = 0.0
+    short_lots = 0.0
+    avg_long_price = 0.0
+    avg_short_price = 0.0
+    realized_pnl = 0.0
+
+    for trade, _ in ordered:
+        lots = trade.get("units") or 0
+        try:
+            lots = float(lots)
+        except (TypeError, ValueError):
+            lots = 0.0
+        lots = max(0.0, lots)
+        price = float(trade.get("price") or 0)
+        action = trade.get("action") or "open"
+        kind = trade.get("kind") or ""
+        side = trade.get("side") or ""
+
+        if kind == "DELIVERY":
+            long_lots = max(0.0, long_lots - lots)
+            short_lots = max(0.0, short_lots - lots)
+            continue
+        if kind == "TAKE_DELIVERY":
+            continue
+        if kind == "INBOUND":
+            if long_lots > 0 and lots > 0:
+                total_cost = avg_long_price * long_lots
+                long_lots += lots
+                avg_long_price = total_cost / long_lots
+            elif lots > 0:
+                long_lots += lots
+                avg_long_price = price or avg_long_price
+            continue
+        if kind == "OUTBOUND":
+            long_lots = max(0.0, long_lots - lots)
+            if long_lots == 0:
+                avg_long_price = 0.0
+            continue
+
+        if side == "buy" and action == "open":
+            next_lots = long_lots + lots
+            avg_long_price = (
+                (avg_long_price * long_lots + price * lots) / next_lots
+                if next_lots > 0
+                else 0.0
+            )
+            long_lots = next_lots
+        elif side == "sell" and action == "close":
+            close_lots = min(long_lots, lots)
+            realized_pnl += (price - avg_long_price) * close_lots * 100
+            long_lots = max(0.0, long_lots - lots)
+            if long_lots == 0:
+                avg_long_price = 0.0
+        elif side == "sell" and action == "open":
+            next_lots = short_lots + lots
+            avg_short_price = (
+                (avg_short_price * short_lots + price * lots) / next_lots
+                if next_lots > 0
+                else 0.0
+            )
+            short_lots = next_lots
+        elif side == "buy" and action == "close":
+            close_lots = min(short_lots, lots)
+            realized_pnl += (avg_short_price - price) * close_lots * 100
+            short_lots = max(0.0, short_lots - lots)
+            if short_lots == 0:
+                avg_short_price = 0.0
+
+    return {
+        "longLots": long_lots,
+        "shortLots": short_lots,
+        "avgLongPrice": avg_long_price,
+        "avgShortPrice": avg_short_price,
+        "realizedPnL": realized_pnl
+    }
+
+
+def _resolve_broker_meta(raw: str | None) -> tuple[str, str]:
+    text = (raw or "").strip()
+    lower = text.lower()
+    if "sbi" in lower:
+        return "sbi", "SBI"
+    if "rakuten" in lower:
+        return "rakuten", "RAKUTEN"
+    if text:
+        return lower, text.upper()
+    return "unknown", "N/A"
+
+
+def _calc_current_positions_by_broker(trades: list[dict]) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    for trade in trades:
+        key, label = _resolve_broker_meta(trade.get("broker"))
+        bucket = grouped.get(key)
+        if not bucket:
+            bucket = {"key": key, "label": label, "trades": []}
+            grouped[key] = bucket
+        bucket["trades"].append(trade)
+
+    results: list[dict] = []
+    for bucket in grouped.values():
+        metrics = _calc_position_metrics(bucket["trades"])
+        results.append(
+            {
+                "brokerKey": bucket["key"],
+                "brokerLabel": bucket["label"],
+                "longLots": metrics["longLots"],
+                "shortLots": metrics["shortLots"],
+                "avgLongPrice": metrics["avgLongPrice"],
+                "avgShortPrice": metrics["avgShortPrice"],
+                "realizedPnL": metrics["realizedPnL"]
+            }
+        )
+    return results
 
 
 @app.get("/")
