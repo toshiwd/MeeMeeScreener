@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { CrosshairMode, createChart } from "lightweight-charts";
 import type { Box } from "../store";
-import type { DailyPosition, TradeMarker } from "../utils/positions";
+import type { CurrentPosition, DailyPosition, TradeMarker } from "../utils/positions";
 import { getBodyRangeFromCandles, getBoxFill, getBoxStroke } from "../utils/boxes";
 import { getDomTheme, type Theme } from "../utils/theme";
 import PositionOverlay from "./PositionOverlay";
@@ -47,6 +47,8 @@ type DetailChartProps = {
   positionOverlay?: {
     dailyPositions: DailyPosition[];
     tradeMarkers: TradeMarker[];
+    currentPositions?: CurrentPosition[];
+    latestTradeTime?: number | null;
     showOverlay: boolean;
     showPnL: boolean;
     hoverTime: number | null;

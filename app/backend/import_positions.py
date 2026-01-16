@@ -1,117 +1,93 @@
-import csv
-import io
-import hashlib
-from datetime import datetime
-from db import get_conn
-from position_engine import recalculate_positions
+from app.backend.db import get_conn
+from app.backend.positions import parse_rakuten_csv, parse_sbi_csv, rebuild_positions, TradeEvent
 
-def calculate_row_hash(row_data: dict) -> str:
-    raw = "".join([str(k) + str(v) for k, v in sorted(row_data.items())])
-    return hashlib.md5(raw.encode('utf-8')).hexdigest()
 
-def parse_csv_rakuten(file_stream) -> list[dict]:
-    # Rakuten CSV encoding is usually Shift-JIS
-    wrapper = io.TextIOWrapper(file_stream, encoding='shift_jis')
-    reader = csv.DictReader(wrapper)
-    
-    events = []
-    
-    for row in reader:
-        exec_date_str = row.get("約定日", "")
-        if not exec_date_str: continue
+def _insert_events(conn, events: list[TradeEvent]) -> int:
+    if not events:
+        return 0
+    hashes = [event.source_row_hash for event in events]
+    placeholders = ",".join(["?"] * len(hashes))
+    existing = conn.execute(
+        f"""
+        SELECT COUNT(*)
+        FROM trade_events
+        WHERE source_row_hash IN ({placeholders})
+        """,
+        hashes
+    ).fetchone()[0]
 
-        try:
-            exec_dt = datetime.strptime(exec_date_str, "%Y/%m/%d")
-        except:
-            continue
-            
-        code = row.get("銘柄コード", "").strip()
-        # Normalize code
-        if code.endswith('.T'):
-            code = code[:-2]
-        # Remove any non-digit chars if it looks like a standard JP ticker?
-        # Keeping it simple for now, trusting strict equality match later
-        code = code.split()[0] # In case of "7203 トヨタ" etc
+    rows = [
+        (
+            event.broker,
+            event.exec_dt,
+            event.symbol,
+            event.action,
+            event.qty,
+            event.price,
+            event.source_row_hash,
+            event.transaction_type,
+            event.side_type,
+            event.margin_type
+        )
+        for event in events
+    ]
+    conn.executemany(
+        """
+        INSERT INTO trade_events (
+            broker,
+            exec_dt,
+            symbol,
+            action,
+            qty,
+            price,
+            source_row_hash,
+            transaction_type,
+            side_type,
+            margin_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source_row_hash) DO NOTHING
+        """,
+        rows
+    )
+    total = conn.execute(
+        f"""
+        SELECT COUNT(*)
+        FROM trade_events
+        WHERE source_row_hash IN ({placeholders})
+        """,
+        hashes
+    ).fetchone()[0]
+    return max(0, int(total or 0) - int(existing or 0))
 
-        try:
-            qty_str = row.get("約定数量", "0").replace(",", "")
-            qty = float(qty_str)
-            price_str = row.get("約定単価", "0").replace(",", "")
-            price = float(price_str)
-        except:
-            continue
-            
-        kubun1 = row.get("取引区分", "")
-        kubun2 = row.get("売買区分", "")
-        
-        action = None
-        if "現物" in kubun1:
-            if "買" in kubun2: action = "LONG_OPEN"
-            elif "売" in kubun2: action = "LONG_CLOSE"
-        elif "信用新規" in kubun1:
-            if "買" in kubun2: action = "LONG_OPEN"
-            elif "売" in kubun2: action = "SHORT_OPEN"
-        elif "信用返済" in kubun1:
-            if "売" in kubun2: action = "LONG_CLOSE" # 売埋
-            elif "買" in kubun2: action = "SHORT_CLOSE" # 買埋
-        
-        if "現渡" in kubun1 or "現渡" in kubun2:
-            action = "SHORT_CLOSE"
 
-        if action and qty > 0:
-            events.append({
-                "broker": "rakuten",
-                "exec_dt": exec_dt,
-                "symbol": code,
-                "action": action,
-                "qty": qty,
-                "price": price,
-                "source_row_hash": calculate_row_hash(row)
-            })
-            
-    return events
+def _process_import(
+    broker: str,
+    events: list[TradeEvent],
+    warnings: list[str],
+    replace_existing: bool
+) -> dict:
+    with get_conn() as conn:
+        if replace_existing and broker:
+            conn.execute("DELETE FROM trade_events WHERE broker = ?", [broker])
+        inserted = _insert_events(conn, events)
+        rebuild_summary = rebuild_positions(conn)
 
-def save_events(events: list[dict]):
-    conn = get_conn()
-    try:
-        inserted_count = 0
-        skipped_count = 0
-        
-        for ev in events:
-            # Check by hash
-            existing = conn.execute("SELECT 1 FROM trade_events WHERE source_row_hash = ?", [ev["source_row_hash"]]).fetchone()
-            if existing:
-                skipped_count += 1
-                continue
-                
-            conn.execute("""
-                INSERT INTO trade_events (broker, exec_dt, symbol, action, qty, price, source_row_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, [
-                ev["broker"], ev["exec_dt"], ev["symbol"], ev["action"], ev["qty"], ev["price"], ev["source_row_hash"]
-            ])
-            inserted_count += 1
-            
-        return inserted_count, skipped_count
-    except Exception as e:
-        raise e
-    finally:
-        conn.close()
-        
-def process_import(file_bytes, broker="rakuten"):
-    # file_bytes should be bytes
-    file_stream = io.BytesIO(file_bytes)
-    
-    if broker == "rakuten":
-        events = parse_csv_rakuten(file_stream)
-    else:
-        raise ValueError("Unsupported broker")
-        
-    inserted, skipped = save_events(events)
-    
-    # Recalc
-    affected_symbols = set(e["symbol"] for e in events)
-    for sym in affected_symbols:
-        recalculate_positions(sym)
-        
-    return {"inserted": inserted, "skipped": skipped, "affected_symbols": list(affected_symbols)}
+    affected_symbols = sorted({event.symbol for event in events})
+    return {
+        "ok": True,
+        "received": len(events),
+        "inserted": inserted,
+        "warnings": warnings,
+        "affected": affected_symbols,
+        "rebuild": rebuild_summary
+    }
+
+
+def process_import_rakuten(file_bytes: bytes, replace_existing: bool = True) -> dict:
+    events, warnings = parse_rakuten_csv(file_bytes)
+    return _process_import("rakuten", events, warnings, replace_existing)
+
+
+def process_import_sbi(file_bytes: bytes, replace_existing: bool = True) -> dict:
+    events, warnings = parse_sbi_csv(file_bytes)
+    return _process_import("sbi", events, warnings, replace_existing)

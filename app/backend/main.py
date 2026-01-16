@@ -15,7 +15,7 @@ import time
 import traceback
 import uuid
 
-from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -27,6 +27,8 @@ from box_detector import detect_boxes
 from similarity import SimilarityService, SearchResult
 from events import fetch_earnings_snapshot, fetch_rights_snapshot, jst_now
 from positions import parse_rakuten_csv, parse_sbi_csv, rebuild_positions
+from import_positions import process_import_rakuten, process_import_sbi
+from position_engine import get_events
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -921,7 +923,10 @@ async def import_trade_history(broker: str, file: UploadFile = File(...)):
                     event.action,
                     event.qty,
                     event.price,
-                    event.source_row_hash
+                    event.source_row_hash,
+                    event.transaction_type,
+                    event.side_type,
+                    event.margin_type
                 )
                 for event in events
             ]
@@ -934,8 +939,11 @@ async def import_trade_history(broker: str, file: UploadFile = File(...)):
                     action,
                     qty,
                     price,
-                    source_row_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    source_row_hash,
+                    transaction_type,
+                    side_type,
+                    margin_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(source_row_hash) DO NOTHING
                 """,
                 rows
@@ -991,11 +999,13 @@ def upsert_position_seed(payload: dict = Body(...)):
 @app.get("/api/positions/held")
 def positions_held():
     with get_conn() as conn:
+        _auto_sync_csv_files(conn, force=True)
         rows = conn.execute(
             """
             SELECT p.symbol, p.buy_qty, p.sell_qty, p.opened_at, p.has_issue, p.issue_note, t.name
             FROM positions_live p
             LEFT JOIN tickers t ON p.symbol = t.code
+            WHERE p.buy_qty > 0 OR p.sell_qty > 0
             ORDER BY p.symbol
             """
         ).fetchall()
@@ -1264,10 +1274,21 @@ async def trade_csv_upload(file: UploadFile = File(...)):
     os.makedirs(dest_dir, exist_ok=True)
     filename = os.path.basename(file.filename)
     dest_path = os.path.join(dest_dir, filename)
+    dest_path = os.path.join(dest_dir, filename)
+    
+    # Save file
+    file.file.seek(0)
+    content = file.file.read()
     with open(dest_path, "wb") as handle:
-        shutil.copyfileobj(file.file, handle)
-    _trade_cache["key"] = None
-    _trade_cache["rows"] = []
+        handle.write(content)
+        
+    # Ingest
+    try:
+        # Assuming Rakuten for now as per user request
+        result = process_import_rakuten(content)
+        return JSONResponse(content={"ok": True, "filename": filename, "path": dest_path, "ingest": result})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": f"ingest_failed:{e}"})
     _trade_cache["warnings"] = []
     return JSONResponse(content={"ok": True, "filename": filename, "path": dest_path})
 
@@ -2062,6 +2083,123 @@ def _parse_trade_csv() -> dict:
 
 
 def _build_daily_positions(trades: list[dict]) -> list[dict]:
+    # Legacy wrapper or unused
+    return []
+
+def _get_daily_positions_db(target_codes: list[str] | None = None) -> dict[str, list[dict]]:
+    # Reconstruct daily positions from DB events
+    with get_conn() as conn:
+        events = get_events(conn, target_codes)
+    
+    events_by_code = {}
+    for ev in events:
+        # 3:symbol
+        code = ev[3]
+        events_by_code.setdefault(code, []).append(ev)
+        
+    result = {}
+    
+    for code, ev_list in events_by_code.items():
+        daily_list = []
+        
+        # Sorting is guaranteed by get_events (exec_dt ASC)
+        # We need to walk through days.
+        # But for chart, we usually just want the change points or one per day?
+        # Usually one per day matching the daily bars is ideal, but here we just produce 
+        # a series of "end of day" positions for days where events happened OR all days?
+        # Frontend filters by `time === selectedBarData.time`. So we need entries for every relevant date.
+        # Ideally, we return a dense list or the frontend needs to fill gaps.
+        # Current _build_daily_positions returns sparse list (only days with trades?).
+        # No, let's look at `_build_daily_positions` again. It iterates keys of grouped trades.
+        # So it only returns days with trades. 
+        # BUT DetailView filters: `dailyPositions.filter(p => p.time === selectedBarData.time)`.
+        # This implies it EXPECTS an entry for that exact day.
+        # If the user held a position for 30 days but only traded on day 1 and 30, 
+        # the middle days would show 0 if sparse.
+        # This seems like a BUG in existing frontend logic if it relies on exact match from sparse list?
+        # Or maybe `dailyPositions` was dense?
+        # Existing logic: `for date in sorted(grouped.keys())`. Sparse.
+        # So the Chart Overlay probably only shows dots on trade days?
+        # The Position Ledger PnL panel?
+        # Wait, if `posList` is empty, `buy` is 0.
+        # So the existing app only shows position ON THE DAY OF TRADE? That seems wrong for "Held Position".
+        # But maybe that's the current behavior.
+        # User wants "Fix the calculation".
+        # If I output a dense list (carried forward), it would fix the chart to show "Holding" line.
+        # I will implement DENSE (carry forward) positions for every day since first trade?
+        # Or at least for every day in the event range.
+        # Actually, let's stick to Sparse (Event Days) + "carry forward" logic is handled where? 
+        # If I change to Dense, frontend logic `posList.reduce` will work (1 item).
+        # Let's try to be smart. Return a list of all dates where position CHANGED.
+        # Frontend logic `dailyPositions.filter(p => p.time === ...)` is strict equality.
+        # If I return dense list for all known dates, it acts as full history.
+        # But I don't know all "market dates" here easily without querying daily_bars.
+        # I'll stick to returning "Event Days" but with "Accumulated Balance".
+        # Wait, if I only return Event Days, then on non-event days the chart says 0.
+        # The user complained about "Trade History Sync".
+        # I will produce a DENSE list by querying daily_bars dates for the code?
+        # That might be too heavy.
+        # Let's perform a simpler approach: 
+        # Just return the Event Days with the *Post-Trade Balance*.
+        # And if the frontend needs more, we might need to change frontend.
+        # Checking DetailView: `const posList = dailyPositions.filter(p => p.time === selectedBarData.time);`
+        # It is strictly checking. So if I don't provide data for that day, it thinks 0.
+        # This confirms existing app only shows dots on trade days. 
+        # I will keep this behavior (Sparse) but ensure the values are "Total Held After Trade" (Cumulative), 
+        # not just "Trade Quantity".
+        # Existing `_build_daily_positions` accumulates `long_shares` and `short_shares` in the loop.
+        # So it WAS cumulative.
+        # My new logic must also be cumulative.
+        
+        spot = 0.0
+        margin_long = 0.0
+        margin_short = 0.0
+        
+        # 0:id, 1:broker, 2:exec_dt, 3:symbol, 4:action, 5:qty, 6:price, 7:hash, 8:created, 9:txn, 10:side
+        for ev in ev_list:
+             dt_obj = ev[2] # datetime
+             date_str = dt_obj.strftime("%Y-%m-%d")
+             ts = int(dt_obj.replace(tzinfo=None).timestamp()) 
+             # Note: timezone handling might be needed. Data is likely JST/UTC naive.
+             # In `main.py`, `daily_bars` dates are unix timestamps.
+             # I should align with that. 
+             # `daily_bars` uses `date` column (integer YYYYMMDD? No, checking schema).
+             # Schema: `date INTEGER`. Usually YYYYMMDD or Unix?
+             # `ingest_txt.py`: `daily["date"] = (daily["date"].astype("int64") // 1_000_000_000)` -> Unix Secs.
+             # So I need Unix Secs for `time`.
+             
+             qty = float(ev[5] or 0)
+             action = ev[4]
+             
+             if action in ("SPOT_BUY", "SPOT_IN"): spot += qty
+             elif action == "SPOT_SELL": spot -= qty
+             elif action == "SPOT_OUT": spot -= qty
+             elif action == "MARGIN_OPEN_LONG": margin_long += qty
+             elif action == "MARGIN_CLOSE_LONG": margin_long -= qty
+             elif action == "MARGIN_OPEN_SHORT": margin_short += qty
+             elif action == "MARGIN_CLOSE_SHORT": margin_short -= qty
+             elif action == "DELIVERY_SHORT": spot -= qty; margin_short -= qty
+             elif action == "MARGIN_SWAP_TO_SPOT": margin_long -= qty; spot += qty
+             
+             # Append current state
+             # Check if we already have an entry for this day? 
+             # If multiple trades on same day, we update the last one or append?
+             # Frontend uses `filter`, so it handles multiple. But Chart usually wants one.
+             # We'll just append.
+             
+             daily_list.append({
+                 "time": ts,
+                 "date": date_str,
+                 "longLots": spot + margin_long,
+                 "shortLots": margin_short,
+                 "spotLots": spot,
+                 "marginLongLots": margin_long,
+                 "marginShortLots": margin_short
+             })
+             
+        result[code] = daily_list
+        
+    return result
     grouped: dict[str, list[dict]] = {}
     for trade in trades:
         date = trade.get("date")
@@ -4927,18 +5065,110 @@ def diagnostics():
 @app.get("/api/trades/{code}")
 def trades_by_code(code: str):
     try:
-        parsed = _parse_trade_csv()
-        items = [row for row in parsed["rows"] if row.get("code") == code]
-        events = [_strip_internal(row) for row in items]
-        warnings = _build_warning_payload(parsed["warnings"], code)
-        daily_positions = _build_daily_positions(items)
-        current_position = daily_positions[-1] if daily_positions else None
+        with get_conn() as conn:
+            _auto_sync_csv_files(conn, force=True)
+        daily_positions = _get_daily_positions_db([code])
+        daily_for_code = daily_positions.get(code, [])
+        
+        # Events from DB
+        with get_conn() as conn:
+            # 0:id, 1:broker, 2:exec_dt, 3:symbol, 4:action, 5:qty, 6:price, 7:hash, 8:created, 9:txn, 10:side
+            db_events = get_events(conn, [code])
+            
+            # Fetch current position from positions_live
+            row = conn.execute(
+                "SELECT spot_qty, margin_long_qty, margin_short_qty, buy_qty, sell_qty, has_issue, issue_note FROM positions_live WHERE symbol = ?", 
+                [code]
+            ).fetchone()
+            
+            current_position = None
+            if row:
+                current_position = {
+                    "spotLots": row[0],
+                    "marginLongLots": row[1],
+                    "marginShortLots": row[2],
+                    "longLots": row[3], # aggregated supported by engine
+                    "shortLots": row[4],
+                    "hasIssue": row[5],
+                    "issueNote": row[6]
+                }
+        
+        def map_trade_event(ev):
+            exec_dt = ev[2]
+            date_str = exec_dt.strftime("%Y-%m-%d") if exec_dt else ""
+            action = ev[4] or ""
+            qty = float(ev[5] or 0)
+            units = int(qty // 100) if qty > 0 else 0
+            side = "buy"
+            trade_action = "open"
+            kind = ""
+            if action in ("SPOT_BUY", "MARGIN_OPEN_LONG"):
+                side = "buy"
+                trade_action = "open"
+                kind = "BUY_OPEN"
+            elif action in ("SPOT_SELL", "MARGIN_CLOSE_LONG"):
+                side = "sell"
+                trade_action = "close"
+                kind = "SELL_CLOSE"
+            elif action == "MARGIN_OPEN_SHORT":
+                side = "sell"
+                trade_action = "open"
+                kind = "SELL_OPEN"
+            elif action == "MARGIN_CLOSE_SHORT":
+                side = "buy"
+                trade_action = "close"
+                kind = "BUY_CLOSE"
+            elif action == "DELIVERY_SHORT":
+                side = "buy"
+                trade_action = "close"
+                kind = "DELIVERY"
+            elif action == "SPOT_IN":
+                side = "buy"
+                trade_action = "open"
+                kind = "INBOUND"
+            elif action == "SPOT_OUT":
+                side = "sell"
+                trade_action = "close"
+                kind = "OUTBOUND"
+            elif action == "MARGIN_SWAP_TO_SPOT":
+                side = "buy"
+                trade_action = "open"
+                kind = "TAKE_DELIVERY"
+            else:
+                kind = action or "UNKNOWN"
+
+            return {
+                "broker": ev[1],
+                "exec_dt": exec_dt.isoformat() if exec_dt else "",
+                "tradeDate": date_str,
+                "date": date_str,
+                "code": ev[3],
+                "symbol": ev[3],
+                "action": trade_action,
+                "side": side,
+                "kind": kind,
+                "qty": qty,
+                "qtyShares": qty,
+                "units": units,
+                "price": ev[6],
+                "memo": f"{ev[9]} {ev[10]}" if len(ev) > 9 else action,
+                "raw": {
+                    "action": action,
+                    "transaction_type": ev[9] if len(ev) > 9 else "",
+                    "side_type": ev[10] if len(ev) > 10 else ""
+                }
+            }
+
+        events_payload = []
+        for ev in db_events:
+             events_payload.append(map_trade_event(ev))
+
         return JSONResponse(
             content={
-                "events": events,
-                "dailyPositions": daily_positions,
+                "events": events_payload,
+                "dailyPositions": daily_for_code,
                 "currentPosition": current_position,
-                "warnings": warnings,
+                "warnings": {"items": []},
                 "errors": []
             }
         )
@@ -4957,20 +5187,94 @@ def trades_by_code(code: str):
 @app.get("/api/trades")
 def trades(code: str | None = None):
     try:
-        parsed = _parse_trade_csv()
-        items = parsed["rows"]
-        if code:
-            items = [row for row in items if row.get("code") == code]
-        warnings = _build_warning_payload(parsed["warnings"], code)
-        events = [_strip_internal(row) for row in items]
-        daily_positions = _build_daily_positions(items)
-        current_position = daily_positions[-1] if daily_positions else None
+        with get_conn() as conn:
+            _auto_sync_csv_files(conn, force=True)
+        # Fetch for all codes if code is None
+        code_list = [code] if code else None
+        daily_positions_map = _get_daily_positions_db(code_list)
+        
+        # Events from DB
+        with get_conn() as conn:
+            db_events = get_events(conn, code_list)
+            
+        events_payload = []
+        for ev in db_events:
+             exec_dt = ev[2]
+             date_str = exec_dt.strftime("%Y-%m-%d") if exec_dt else ""
+             action = ev[4] or ""
+             qty = float(ev[5] or 0)
+             units = int(qty // 100) if qty > 0 else 0
+             side = "buy"
+             trade_action = "open"
+             kind = ""
+             if action in ("SPOT_BUY", "MARGIN_OPEN_LONG"):
+                 side = "buy"
+                 trade_action = "open"
+                 kind = "BUY_OPEN"
+             elif action in ("SPOT_SELL", "MARGIN_CLOSE_LONG"):
+                 side = "sell"
+                 trade_action = "close"
+                 kind = "SELL_CLOSE"
+             elif action == "MARGIN_OPEN_SHORT":
+                 side = "sell"
+                 trade_action = "open"
+                 kind = "SELL_OPEN"
+             elif action == "MARGIN_CLOSE_SHORT":
+                 side = "buy"
+                 trade_action = "close"
+                 kind = "BUY_CLOSE"
+             elif action == "DELIVERY_SHORT":
+                 side = "buy"
+                 trade_action = "close"
+                 kind = "DELIVERY"
+             elif action == "SPOT_IN":
+                 side = "buy"
+                 trade_action = "open"
+                 kind = "INBOUND"
+             elif action == "SPOT_OUT":
+                 side = "sell"
+                 trade_action = "close"
+                 kind = "OUTBOUND"
+             elif action == "MARGIN_SWAP_TO_SPOT":
+                 side = "buy"
+                 trade_action = "open"
+                 kind = "TAKE_DELIVERY"
+             else:
+                 kind = action or "UNKNOWN"
+
+             events_payload.append({
+                 "broker": ev[1],
+                 "exec_dt": exec_dt.isoformat() if exec_dt else "",
+                 "tradeDate": date_str,
+                 "date": date_str,
+                 "code": ev[3],
+                 "symbol": ev[3],
+                 "action": trade_action,
+                 "side": side,
+                 "kind": kind,
+                 "qty": qty,
+                 "qtyShares": qty,
+                 "units": units,
+                 "price": ev[6],
+                 "memo": f"{ev[9]} {ev[10]}" if len(ev) > 9 else action,
+                 "raw": {
+                     "action": action,
+                     "transaction_type": ev[9] if len(ev) > 9 else "",
+                     "side_type": ev[10] if len(ev) > 10 else ""
+                 }
+             })
+
+        # Flatten daily positions
+        all_daily = []
+        for d_list in daily_positions_map.values():
+            all_daily.extend(d_list)
+
         return JSONResponse(
-            content={
-                "events": events,
-                "dailyPositions": daily_positions,
-                "currentPosition": current_position,
-                "warnings": warnings,
+             content={
+                "events": events_payload,
+                "dailyPositions": all_daily,
+                "currentPosition": None, # Not efficient to fetch all live positions here unless needed
+                "warnings": {"items": []},
                 "errors": []
             }
         )
@@ -4995,9 +5299,15 @@ def list_tickers():
                    COALESCE(m.name, d.code) AS name,
                    COALESCE(m.stage, 'UNKNOWN') AS stage,
                    m.score AS score,
-                   COALESCE(m.reason, 'TXT_ONLY') AS reason
+                   COALESCE(m.reason, 'TXT_ONLY') AS reason,
+                   p.spot_qty,
+                   p.margin_long_qty,
+                   p.margin_short_qty,
+                   p.has_issue,
+                   p.issue_note
             FROM (SELECT DISTINCT code FROM daily_bars) d
             LEFT JOIN stock_meta m ON d.code = m.code
+            LEFT JOIN positions_live p ON d.code = p.symbol
             ORDER BY d.code
             """
         ).fetchall()
@@ -5425,7 +5735,7 @@ def practice_session_upsert(payload: dict = Body(...)):
 @app.post("/api/imports/trade-history")
 async def import_trade_history(
     file: UploadFile = File(...),
-    broker: str = Body("rakuten")
+    broker: str = Form("rakuten")
 ):
     try:
         raw_data = await file.read()
@@ -5440,47 +5750,15 @@ async def import_trade_history(
         except:
             pass
             
-        events = []
-        warnings = []
-        
         if broker == "rakuten":
-            events, warnings = parse_rakuten_csv(raw_data)
+            result = process_import_rakuten(raw_data, replace_existing=True)
         elif broker == "sbi":
-            events, warnings = parse_sbi_csv(raw_data)
+            result = process_import_sbi(raw_data, replace_existing=True)
         else:
             return JSONResponse(status_code=400, content={"error": f"Unknown broker: {broker}"})
-            
-        if not events:
-            return JSONResponse(status_code=400, content={"error": "No events parsed", "warnings": warnings})
-
-        inserted_count = 0
-        skipped_count = 0
-        
-        # Use existing get_conn()
-        with get_conn() as conn:
-            # Insert events
-            for ev in events:
-                existing = conn.execute("SELECT 1 FROM trade_events WHERE source_row_hash = ?", [ev.source_row_hash]).fetchone()
-                if existing:
-                    skipped_count += 1
-                    continue
-                
-                conn.execute("""
-                    INSERT INTO trade_events (broker, exec_dt, symbol, action, qty, price, source_row_hash)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, [ev.broker, ev.exec_dt, ev.symbol, ev.action, ev.qty, ev.price, ev.source_row_hash])
-                inserted_count += 1
-            
-            # Rebuild positions
-            stats = rebuild_positions(conn)
-            
-            return {
-                "result": "success",
-                "imported": inserted_count,
-                "skipped": skipped_count,
-                "warnings": warnings,
-                "stats": stats
-            }
+        if result.get("received", 0) == 0:
+            return JSONResponse(status_code=400, content={"error": "No events parsed", "warnings": result.get("warnings")})
+        return JSONResponse(content={"result": "success", **result})
             
     except Exception as e:
         traceback.print_exc()
@@ -5498,7 +5776,7 @@ _trade_sync_status = {
     "errors": []
 }
 
-def _auto_sync_csv_files(conn):
+def _auto_sync_csv_files(conn, force: bool = False):
     global _trade_sync_status
     try:
         paths = resolve_trade_csv_paths()
@@ -5509,9 +5787,10 @@ def _auto_sync_csv_files(conn):
         files_to_process = []
         
         for path in paths:
-            if not os.path.isfile(path): continue
+            if not os.path.isfile(path):
+                continue
             mtime = os.path.getmtime(path)
-            if _trade_file_mtime_cache.get(path) != mtime:
+            if force or _trade_file_mtime_cache.get(path) != mtime:
                 files_to_process.append((path, mtime))
                 
         if not files_to_process:
@@ -5547,13 +5826,38 @@ def _auto_sync_csv_files(conn):
                 if warns:
                     _trade_sync_status["errors"].extend([f"{path}: {w}" for w in warns])
 
+                if events:
+                    conn.execute("DELETE FROM trade_events WHERE broker = ?", [broker])
+
                 inserted_any = False
                 for ev in events:
                     if not conn.execute("SELECT 1 FROM trade_events WHERE source_row_hash = ?", [ev.source_row_hash]).fetchone():
                         conn.execute("""
-                            INSERT INTO trade_events (broker, exec_dt, symbol, action, qty, price, source_row_hash)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, [ev.broker, ev.exec_dt, ev.symbol, ev.action, ev.qty, ev.price, ev.source_row_hash])
+                            INSERT INTO trade_events (
+                                broker,
+                                exec_dt,
+                                symbol,
+                                action,
+                                qty,
+                                price,
+                                source_row_hash,
+                                transaction_type,
+                                side_type,
+                                margin_type
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, [
+                            ev.broker,
+                            ev.exec_dt,
+                            ev.symbol,
+                            ev.action,
+                            ev.qty,
+                            ev.price,
+                            ev.source_row_hash,
+                            getattr(ev, "transaction_type", None),
+                            getattr(ev, "side_type", None),
+                            getattr(ev, "margin_type", None)
+                        ])
                         inserted_any = True
                         updated = True
                 
@@ -5581,7 +5885,7 @@ def get_trade_sync_status():
     # Trigger sync to ensure we have latest status
     try:
         with get_conn() as conn:
-            _auto_sync_csv_files(conn)
+            _auto_sync_csv_files(conn, force=True)
     except Exception as e:
         _trade_sync_status["errors"].append(f"Debug sync triggers error: {e}")
         
@@ -5591,12 +5895,12 @@ def get_trade_sync_status():
 @app.get("/api/positions/held")
 def get_held_positions():
     with get_conn() as conn:
-        _auto_sync_csv_files(conn)
+        _auto_sync_csv_files(conn, force=True)
         
         rows = conn.execute("""
             SELECT symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note
             FROM positions_live
-            WHERE buy_qty > 0 OR sell_qty > 0 OR has_issue = TRUE
+            WHERE buy_qty > 0 OR sell_qty > 0
             ORDER BY opened_at DESC
         """).fetchall()
         

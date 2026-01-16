@@ -62,7 +62,7 @@ def init_schema() -> None:
         )
         try:
             conn.execute("ALTER TABLE monthly_bars ADD COLUMN v BIGINT")
-        except duckdb.BinderException:
+        except Exception:
             pass  # Already exists
         conn.execute(
             """
@@ -162,6 +162,9 @@ def init_schema() -> None:
                 qty DOUBLE,
                 price DOUBLE,
                 source_row_hash TEXT UNIQUE,
+                transaction_type TEXT,
+                side_type TEXT,
+                margin_type TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             """
@@ -170,8 +173,9 @@ def init_schema() -> None:
             """
             CREATE TABLE IF NOT EXISTS positions_live (
                 symbol TEXT PRIMARY KEY,
-                buy_qty DOUBLE,
-                sell_qty DOUBLE,
+                spot_qty DOUBLE DEFAULT 0,
+                margin_long_qty DOUBLE DEFAULT 0,
+                margin_short_qty DOUBLE DEFAULT 0,
                 opened_at TIMESTAMP,
                 updated_at TIMESTAMP,
                 has_issue BOOLEAN,
@@ -217,54 +221,68 @@ def init_schema() -> None:
             );
             """
         )
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS score_status TEXT;")
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS missing_reasons_json TEXT;")
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS score_breakdown_json TEXT;")
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS latest_close REAL;")
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS monthly_box_status TEXT;")
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS box_duration INTEGER;")
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS box_upper REAL;")
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS box_lower REAL;")
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS ma20_monthly_trend INTEGER;")
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS days_since_peak INTEGER;")
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS days_since_bottom INTEGER;")
-        conn.execute("ALTER TABLE stock_meta ADD COLUMN IF NOT EXISTS signal_flags TEXT;")
-        conn.execute("ALTER TABLE earnings_planned ADD COLUMN IF NOT EXISTS company_name TEXT;")
-        conn.execute("ALTER TABLE earnings_planned ADD COLUMN IF NOT EXISTS source TEXT;")
-        conn.execute("ALTER TABLE earnings_planned ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMP;")
-        conn.execute("ALTER TABLE ex_rights ADD COLUMN IF NOT EXISTS record_date DATE;")
-        conn.execute("ALTER TABLE ex_rights ADD COLUMN IF NOT EXISTS category TEXT;")
-        conn.execute("ALTER TABLE ex_rights ADD COLUMN IF NOT EXISTS last_rights_date DATE;")
-        conn.execute("ALTER TABLE ex_rights ADD COLUMN IF NOT EXISTS source TEXT;")
-        conn.execute("ALTER TABLE ex_rights ADD COLUMN IF NOT EXISTS fetched_at TIMESTAMP;")
-        conn.execute("ALTER TABLE events_meta ADD COLUMN IF NOT EXISTS earnings_last_success_at TIMESTAMP;")
-        conn.execute("ALTER TABLE events_meta ADD COLUMN IF NOT EXISTS rights_last_success_at TIMESTAMP;")
-        conn.execute("ALTER TABLE events_meta ADD COLUMN IF NOT EXISTS last_error TEXT;")
-        conn.execute("ALTER TABLE events_meta ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMP;")
-        conn.execute("ALTER TABLE events_meta ADD COLUMN IF NOT EXISTS is_refreshing BOOLEAN;")
-        conn.execute("ALTER TABLE events_meta ADD COLUMN IF NOT EXISTS refresh_lock_job_id TEXT;")
-        conn.execute("ALTER TABLE events_meta ADD COLUMN IF NOT EXISTS refresh_lock_started_at TIMESTAMP;")
-        conn.execute("ALTER TABLE trade_events ADD COLUMN IF NOT EXISTS broker TEXT;")
-        conn.execute("ALTER TABLE trade_events ADD COLUMN IF NOT EXISTS exec_dt TIMESTAMP;")
-        conn.execute("ALTER TABLE trade_events ADD COLUMN IF NOT EXISTS symbol TEXT;")
-        conn.execute("ALTER TABLE trade_events ADD COLUMN IF NOT EXISTS action TEXT;")
-        conn.execute("ALTER TABLE trade_events ADD COLUMN IF NOT EXISTS qty DOUBLE;")
-        conn.execute("ALTER TABLE trade_events ADD COLUMN IF NOT EXISTS price DOUBLE;")
-        conn.execute("ALTER TABLE trade_events ADD COLUMN IF NOT EXISTS source_row_hash TEXT;")
-        conn.execute("ALTER TABLE positions_live ADD COLUMN IF NOT EXISTS buy_qty DOUBLE;")
-        conn.execute("ALTER TABLE positions_live ADD COLUMN IF NOT EXISTS sell_qty DOUBLE;")
-        conn.execute("ALTER TABLE positions_live ADD COLUMN IF NOT EXISTS opened_at TIMESTAMP;")
-        conn.execute("ALTER TABLE positions_live ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;")
-        conn.execute("ALTER TABLE positions_live ADD COLUMN IF NOT EXISTS has_issue BOOLEAN;")
-        conn.execute("ALTER TABLE positions_live ADD COLUMN IF NOT EXISTS issue_note TEXT;")
-        conn.execute("ALTER TABLE position_rounds ADD COLUMN IF NOT EXISTS symbol TEXT;")
-        conn.execute("ALTER TABLE position_rounds ADD COLUMN IF NOT EXISTS opened_at TIMESTAMP;")
-        conn.execute("ALTER TABLE position_rounds ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP;")
-        conn.execute("ALTER TABLE position_rounds ADD COLUMN IF NOT EXISTS closed_reason TEXT;")
-        conn.execute("ALTER TABLE position_rounds ADD COLUMN IF NOT EXISTS last_state_sell_buy TEXT;")
-        conn.execute("ALTER TABLE position_rounds ADD COLUMN IF NOT EXISTS has_issue BOOLEAN;")
-        conn.execute("ALTER TABLE position_rounds ADD COLUMN IF NOT EXISTS issue_note TEXT;")
-        conn.execute("ALTER TABLE initial_positions_seed ADD COLUMN IF NOT EXISTS buy_qty DOUBLE;")
-        conn.execute("ALTER TABLE initial_positions_seed ADD COLUMN IF NOT EXISTS sell_qty DOUBLE;")
-        conn.execute("ALTER TABLE initial_positions_seed ADD COLUMN IF NOT EXISTS asof_dt TIMESTAMP;")
-        conn.execute("ALTER TABLE initial_positions_seed ADD COLUMN IF NOT EXISTS memo TEXT;")
+        def add_col(table, col_def):
+            try:
+                # Try simple add column
+                # Extract column name for check? duckdb "ADD COLUMN IF NOT EXISTS" is standard but if it fails?
+                # Actually, catch the specific error.
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col_def}")
+            except Exception:
+                pass
+
+        add_col("stock_meta", "score_status TEXT")
+        add_col("stock_meta", "missing_reasons_json TEXT")
+        add_col("stock_meta", "score_breakdown_json TEXT")
+        add_col("stock_meta", "latest_close REAL")
+        add_col("stock_meta", "monthly_box_status TEXT")
+        add_col("stock_meta", "box_duration INTEGER")
+        add_col("stock_meta", "box_upper REAL")
+        add_col("stock_meta", "box_lower REAL")
+        add_col("stock_meta", "ma20_monthly_trend INTEGER")
+        add_col("stock_meta", "days_since_peak INTEGER")
+        add_col("stock_meta", "days_since_bottom INTEGER")
+        add_col("stock_meta", "signal_flags TEXT")
+        add_col("earnings_planned", "company_name TEXT")
+        add_col("earnings_planned", "source TEXT")
+        add_col("earnings_planned", "fetched_at TIMESTAMP")
+        add_col("ex_rights", "record_date DATE")
+        add_col("ex_rights", "category TEXT")
+        add_col("ex_rights", "last_rights_date DATE")
+        add_col("ex_rights", "source TEXT")
+        add_col("ex_rights", "fetched_at TIMESTAMP")
+        add_col("events_meta", "earnings_last_success_at TIMESTAMP")
+        add_col("events_meta", "rights_last_success_at TIMESTAMP")
+        add_col("events_meta", "last_error TEXT")
+        add_col("events_meta", "last_attempt_at TIMESTAMP")
+        add_col("events_meta", "is_refreshing BOOLEAN")
+        add_col("events_meta", "refresh_lock_job_id TEXT")
+        add_col("events_meta", "refresh_lock_started_at TIMESTAMP")
+        add_col("trade_events", "broker TEXT")
+        add_col("trade_events", "exec_dt TIMESTAMP")
+        add_col("trade_events", "symbol TEXT")
+        add_col("trade_events", "action TEXT")
+        add_col("trade_events", "qty DOUBLE")
+        add_col("trade_events", "price DOUBLE")
+        add_col("trade_events", "source_row_hash TEXT")
+        add_col("positions_live", "buy_qty DOUBLE")
+        add_col("positions_live", "sell_qty DOUBLE")
+        add_col("positions_live", "opened_at TIMESTAMP")
+        add_col("positions_live", "updated_at TIMESTAMP")
+        add_col("positions_live", "has_issue BOOLEAN")
+        add_col("positions_live", "issue_note TEXT")
+        add_col("position_rounds", "symbol TEXT")
+        add_col("position_rounds", "opened_at TIMESTAMP")
+        add_col("position_rounds", "closed_at TIMESTAMP")
+        add_col("position_rounds", "closed_reason TEXT")
+        add_col("position_rounds", "has_issue BOOLEAN")
+        add_col("positions_live", "spot_qty DOUBLE DEFAULT 0")
+        add_col("positions_live", "margin_long_qty DOUBLE DEFAULT 0")
+        add_col("positions_live", "margin_short_qty DOUBLE DEFAULT 0")
+        add_col("trade_events", "transaction_type TEXT")
+        add_col("trade_events", "side_type TEXT")
+        add_col("trade_events", "margin_type TEXT")
+        add_col("position_rounds", "issue_note TEXT")
+        add_col("initial_positions_seed", "buy_qty DOUBLE")
+        add_col("initial_positions_seed", "sell_qty DOUBLE")
+        add_col("initial_positions_seed", "asof_dt TIMESTAMP")
+        add_col("initial_positions_seed", "memo TEXT")

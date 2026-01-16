@@ -181,8 +181,13 @@ export default function GridView() {
         headers: { "Content-Type": "multipart/form-data" }
       });
       setToastMessage("トレードCSVをアップロードしました。");
-    } catch {
-      setToastMessage("トレードCSVのアップロードに失敗しました。");
+    } catch (err: any) {
+      const detail =
+        err?.response?.data?.error ||
+        err?.response?.data?.detail ||
+        err?.message ||
+        "Unknown error";
+      setToastMessage(`トレードCSVのアップロードに失敗しました。 (${detail})`);
     } finally {
       setTradeUploadInFlight(false);
       event.target.value = "";

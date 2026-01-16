@@ -1,12 +1,14 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import type { ISeriesApi } from "lightweight-charts";
-import type { DailyPosition, TradeEvent, TradeMarker } from "../utils/positions";
+import type { CurrentPosition, DailyPosition, TradeEvent, TradeMarker } from "../utils/positions";
 
 type PositionOverlayProps = {
   candleSeries: ISeriesApi<"Candlestick"> | null;
   chart: { timeScale?: () => any } | null;
   dailyPositions: DailyPosition[];
   tradeMarkers: TradeMarker[];
+  currentPositions?: CurrentPosition[];
+  latestTradeTime?: number | null;
   showOverlay: boolean;
   showPnL: boolean;
   hoverTime: number | null;
@@ -175,6 +177,8 @@ export default function PositionOverlay({
   chart,
   dailyPositions,
   tradeMarkers,
+  currentPositions,
+  latestTradeTime,
   showOverlay,
   showPnL,
   hoverTime,
@@ -422,6 +426,40 @@ export default function PositionOverlay({
       })
       .sort((a, b) => compareBrokerKey(a.brokerKey, b.brokerKey));
   }, [positionsByTime, activePositionTime]);
+  const currentPositionEntries = useMemo(() => {
+    if (!currentPositions || currentPositions.length === 0) return [];
+    if (!bars.length) return [];
+    if (latestTradeTime == null) return [];
+    const lastBar = bars[bars.length - 1];
+    if (!lastBar || latestTradeTime <= lastBar.time) return [];
+    if (activePositionTime == null || activePositionTime !== lastBar.time) return [];
+    const close = lastBar.close;
+    return currentPositions.map((pos) => {
+      const avgLongPrice = pos.longLots > 0 ? pos.avgLongPrice : 0;
+      const avgShortPrice = pos.shortLots > 0 ? pos.avgShortPrice : 0;
+      const unrealizedLong = pos.longLots > 0 ? (close - avgLongPrice) * pos.longLots * 100 : 0;
+      const unrealizedShort = pos.shortLots > 0 ? (avgShortPrice - close) * pos.shortLots * 100 : 0;
+      const unrealizedPnL = unrealizedLong + unrealizedShort;
+      const totalPnL = pos.realizedPnL + unrealizedPnL;
+      return {
+        time: lastBar.time,
+        date: formatDate(lastBar.time),
+        shortLots: pos.shortLots,
+        longLots: pos.longLots,
+        longText: formatLots(pos.longLots),
+        shortText: formatLots(pos.shortLots),
+        avgLongPrice,
+        avgShortPrice,
+        realizedPnL: pos.realizedPnL,
+        unrealizedPnL,
+        totalPnL,
+        close,
+        brokerKey: pos.brokerKey,
+        brokerLabel: pos.brokerLabel,
+        brokerGroupKey: pos.brokerKey
+      };
+    });
+  }, [currentPositions, latestTradeTime, bars, activePositionTime]);
   const activeTradeMarkers = useMemo(() => {
     if (!showOverlay || !showMarkers || activePositionTime == null) return [];
     return tradeMarkers.filter((trade) => trade.time === activePositionTime);
@@ -630,9 +668,9 @@ export default function PositionOverlay({
             ))}
           </div>
         )}
-        {showPositionInfo && activePositions.length > 0 && (
+        {showPositionInfo && (currentPositionEntries.length > 0 || activePositions.length > 0) && (
           <div className="position-overlay-block">
-            {activePositions.map((position) => {
+            {(currentPositionEntries.length > 0 ? currentPositionEntries : activePositions).map((position) => {
               const brokerKey = position.brokerKey ?? "unknown";
               const brokerLabel = position.brokerLabel ?? "N/A";
               return (

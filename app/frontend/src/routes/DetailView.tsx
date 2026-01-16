@@ -24,7 +24,7 @@ import SimilarSearchPanel from "../components/SimilarSearchPanel";
 import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
 import type { TradeEvent } from "../utils/positions";
-import { buildDailyPositions, buildPositionLedger } from "../utils/positions";
+import { buildCurrentPositions, buildDailyPositions, buildPositionLedger } from "../utils/positions";
 import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
 import { buildAIExport, copyToClipboard, saveAsFile } from "../utils/aiExport";
 import { formatEventBadgeDate, formatEventDateYmd, parseEventDateMs } from "../utils/events";
@@ -669,7 +669,7 @@ export default function DetailView() {
           events?: TradeEvent[];
           warnings?: ApiWarnings;
           errors?: string[];
-          currentPosition?: { buyUnits: number; sellUnits: number; text?: string };
+          currentPosition?: { longLots: number; shortLots: number };
         };
         if (!payload || !Array.isArray(payload.events)) {
           throw new Error("Trades response is invalid");
@@ -740,6 +740,16 @@ export default function DetailView() {
   );
   const dailyPositions = positionData.dailyPositions;
   const tradeMarkers = positionData.tradeMarkers;
+  const currentPositions = useMemo(() => buildCurrentPositions(trades), [trades]);
+  const latestTradeTime = useMemo(() => {
+    if (trades.length === 0) return null;
+    const times = trades
+      .map((trade) => Date.parse(`${trade.date}T00:00:00Z`))
+      .filter((value) => Number.isFinite(value))
+      .map((value) => Math.floor(value / 1000));
+    if (!times.length) return null;
+    return Math.max(...times);
+  }, [trades]);
   const comparePositionData = useMemo(
     () => buildDailyPositions(compareDailyCandles, compareTrades),
     [compareDailyCandles, compareTrades]
@@ -2156,7 +2166,9 @@ export default function DetailView() {
                         showOverlay: showTradesOverlay,
                         showMarkers: true,
                         showPnL: showPnLPanel,
-                        hoverTime
+                        hoverTime,
+                        currentPositions,
+                        latestTradeTime
                       }}
                       onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "left")}
                     />
@@ -2227,7 +2239,9 @@ export default function DetailView() {
                       showOverlay: showTradesOverlay,
                       showMarkers: true,
                       showPnL: showPnLPanel,
-                      hoverTime
+                      hoverTime,
+                      currentPositions,
+                      latestTradeTime
                     }}
                     onCrosshairMove={handleDailyCrosshair}
                     onVisibleRangeChange={handleDailyVisibleRangeChange}
@@ -2249,7 +2263,9 @@ export default function DetailView() {
                       showOverlay: showTradesOverlay,
                       showMarkers: false,
                       showPnL: showPnLPanel,
-                      hoverTime
+                      hoverTime,
+                      currentPositions,
+                      latestTradeTime
                     }}
                     onCrosshairMove={handleWeeklyCrosshair}
                   />
@@ -2270,7 +2286,9 @@ export default function DetailView() {
                       showOverlay: showTradesOverlay,
                       showMarkers: false,
                       showPnL: showPnLPanel,
-                      hoverTime
+                      hoverTime,
+                      currentPositions,
+                      latestTradeTime
                     }}
                     onCrosshairMove={handleMonthlyCrosshair}
                   />
@@ -2316,7 +2334,9 @@ export default function DetailView() {
                       showOverlay: showTradesOverlay,
                       showMarkers: true,
                       showPnL: showPnLPanel,
-                      hoverTime
+                      hoverTime,
+                      currentPositions,
+                      latestTradeTime
                     }}
                     cursorTime={cursorMode && selectedBarData ? selectedBarData.time : null}
                     onCrosshairMove={handleDailyCrosshair}

@@ -143,6 +143,8 @@ print(json.dumps(missing))
         "--hidden-import", "uvicorn.lifespan.on",
         "--hidden-import", "uvicorn.protocols.http.h11_impl",
         "--hidden-import", "uvicorn.protocols.websockets.websockets_impl",
+        "--hidden-import", "multipart",
+        "--collect-submodules", "multipart",
         "--collect-all", "uvicorn",
         "--hidden-import", "app.backend",
         "--hidden-import", "app.backend.main",
