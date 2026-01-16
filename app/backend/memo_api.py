@@ -27,6 +27,28 @@ def get_daily_memo(symbol: str, date: str, timeframe: str = "D"):
         })
 
 
+@app.get("/api/memo/list")
+def list_daily_memo(symbol: str, timeframe: str = "D"):
+    """List memos for a symbol/timeframe"""
+    normalized_symbol = _normalize_code(symbol)
+    if not normalized_symbol:
+        return JSONResponse(status_code=400, content={"error": "invalid_symbol"})
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT date, memo
+            FROM daily_memo
+            WHERE symbol = ? AND timeframe = ?
+            ORDER BY date
+            """,
+            [normalized_symbol, timeframe]
+        ).fetchall()
+
+    items = [{"date": row[0], "memo": row[1] or ""} for row in rows]
+    return JSONResponse(content={"items": items})
+
+
 @app.put("/api/memo")
 def save_daily_memo(payload: dict = Body(...)):
     """Save or update memo for a specific symbol and date"""

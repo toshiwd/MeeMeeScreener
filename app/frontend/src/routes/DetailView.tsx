@@ -377,6 +377,7 @@ export default function DetailView() {
   const [tradeWarnings, setTradeWarnings] = useState<ApiWarnings>({ items: [] });
   const [tradeErrors, setTradeErrors] = useState<string[]>([]);
   const [currentPositionsFromApi, setCurrentPositionsFromApi] = useState<CurrentPosition[] | null>(null);
+  const [currentPositionsOverride, setCurrentPositionsOverride] = useState<CurrentPosition[] | null>(null);
   const [dailyErrors, setDailyErrors] = useState<string[]>([]);
   const [monthlyErrors, setMonthlyErrors] = useState<string[]>([]);
   const [dailyFetch, setDailyFetch] = useState<FetchState>({
@@ -697,6 +698,40 @@ export default function DetailView() {
 
   useEffect(() => {
     if (!backendReady) return;
+    if (!code) return;
+    setCurrentPositionsOverride(null);
+    api
+      .get("/positions/current")
+      .then((res) => {
+        const payload = res.data as {
+          current_positions_by_code?: Record<string, { buyShares?: number; sellShares?: number }>;
+        };
+        const current = payload?.current_positions_by_code?.[code];
+        if (!current) {
+          setCurrentPositionsOverride(null);
+          return;
+        }
+        const longLots = Number(current.buyShares ?? 0);
+        const shortLots = Number(current.sellShares ?? 0);
+        setCurrentPositionsOverride([
+          {
+            brokerKey: "total",
+            brokerLabel: "TOTAL",
+            longLots,
+            shortLots,
+            avgLongPrice: 0,
+            avgShortPrice: 0,
+            realizedPnL: 0
+          }
+        ]);
+      })
+      .catch(() => {
+        setCurrentPositionsOverride(null);
+      });
+  }, [backendReady, code]);
+
+  useEffect(() => {
+    if (!backendReady) return;
     if (!compareCode) return;
     api
       .get(`/trades/${compareCode}`)
@@ -750,8 +785,10 @@ export default function DetailView() {
   const dailyPositions = positionData.dailyPositions;
   const tradeMarkers = positionData.tradeMarkers;
   const currentPositions = useMemo(
-    () => (currentPositionsFromApi !== null ? currentPositionsFromApi : buildCurrentPositions(trades)),
-    [currentPositionsFromApi, trades]
+    () =>
+      currentPositionsOverride ??
+      (currentPositionsFromApi !== null ? currentPositionsFromApi : buildCurrentPositions(trades)),
+    [currentPositionsOverride, currentPositionsFromApi, trades]
   );
   const latestTradeTime = useMemo(() => {
     if (trades.length === 0) return null;
@@ -2026,6 +2063,26 @@ export default function DetailView() {
               icon={<IconSparkles size={18} />}
               title="AI出力"
               onClick={async () => {
+                let dailyMemos: Record<string, string> = {};
+                if (code) {
+                  try {
+                    const memoRes = await api.get("/memo/list", {
+                      params: { symbol: code, timeframe: "D" }
+                    });
+                    const items = memoRes.data?.items;
+                    if (Array.isArray(items)) {
+                      items.forEach((item: { date?: string; memo?: string }) => {
+                        const rawDate = (item?.date ?? "").trim();
+                        if (!rawDate) return;
+                        const normalized = rawDate.replace(/\//g, "-");
+                        dailyMemos[normalized] = item.memo ?? "";
+                      });
+                    }
+                  } catch {
+                    dailyMemos = {};
+                  }
+                }
+
                 const exportData = buildAIExport({
                   code: code ?? "",
                   name: tickerName,
@@ -2039,6 +2096,8 @@ export default function DetailView() {
                   showBoxes,
                   showPositions: showTradesOverlay,
                   boxes,
+                  dailyMemos,
+                  currentPositions,
                 });
                 const copied = await copyToClipboard(exportData.markdown);
                 if (copied) {

@@ -179,7 +179,8 @@ export default function GridView() {
       const form = new FormData();
       form.append("file", file);
       await api.post("/trade_csv/upload", form, {
-        headers: { "Content-Type": "multipart/form-data" }
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 120000
       });
       setToastMessage("トレードCSVをアップロードしました。");
     } catch (err: any) {

@@ -890,86 +890,6 @@ def events_refresh_status(job_id: str):
     )
 
 
-@app.post("/api/imports/trade-history")
-async def import_trade_history(broker: str, file: UploadFile = File(...)):
-    broker_key = (broker or "").strip().lower()
-    data = await file.read()
-    if broker_key not in ("rakuten", "sbi"):
-        return JSONResponse(content={"error": "unsupported_broker"}, status_code=400)
-    if not data:
-        return JSONResponse(content={"error": "empty_file"}, status_code=400)
-
-    if broker_key == "rakuten":
-        events, warnings = parse_rakuten_csv(data)
-    else:
-        events, warnings = parse_sbi_csv(data)
-
-    inserted = 0
-    with get_conn() as conn:
-        if events:
-            existing = conn.execute(
-                """
-                SELECT COUNT(*)
-                FROM trade_events
-                WHERE source_row_hash IN ({placeholders})
-                """.format(placeholders=",".join(["?"] * len(events))),
-                [event.source_row_hash for event in events]
-            ).fetchone()[0]
-            rows = [
-                (
-                    event.broker,
-                    event.exec_dt,
-                    event.symbol,
-                    event.action,
-                    event.qty,
-                    event.price,
-                    event.source_row_hash,
-                    event.transaction_type,
-                    event.side_type,
-                    event.margin_type
-                )
-                for event in events
-            ]
-            conn.executemany(
-                """
-                INSERT INTO trade_events (
-                    broker,
-                    exec_dt,
-                    symbol,
-                    action,
-                    qty,
-                    price,
-                    source_row_hash,
-                    transaction_type,
-                    side_type,
-                    margin_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(source_row_hash) DO NOTHING
-                """,
-                rows
-            )
-            total = conn.execute(
-                """
-                SELECT COUNT(*)
-                FROM trade_events
-                WHERE source_row_hash IN ({placeholders})
-                """.format(placeholders=",".join(["?"] * len(events))),
-                [event.source_row_hash for event in events]
-            ).fetchone()[0]
-            inserted = max(0, int(total or 0) - int(existing or 0))
-        rebuild_summary = rebuild_positions(conn)
-
-    return JSONResponse(
-        content={
-            "broker": broker_key,
-            "received": len(events),
-            "inserted": int(inserted or 0),
-            "warnings": warnings,
-            "rebuild": rebuild_summary
-        }
-    )
-
-
 @app.post("/api/positions/seed")
 def upsert_position_seed(payload: dict = Body(...)):
     symbol = _normalize_code(payload.get("symbol"))
@@ -1230,6 +1150,32 @@ def get_daily_memo(symbol: str, date: str, timeframe: str = "D"):
         })
 
 
+@app.get("/api/memo/list")
+def list_daily_memo(symbol: str, timeframe: str = "D"):
+    """List memos for a symbol/timeframe"""
+    normalized_symbol = _normalize_code(symbol)
+    if not normalized_symbol:
+        return JSONResponse(status_code=400, content={"error": "invalid_symbol"})
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT date, memo
+            FROM daily_memo
+            WHERE symbol = ? AND timeframe = ?
+            ORDER BY date
+            """,
+            [normalized_symbol, timeframe]
+        ).fetchall()
+
+    items = []
+    for row in rows:
+        date_value = row[0]
+        date_str = date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value)
+        items.append({"date": date_str, "memo": row[1] or ""})
+    return JSONResponse(content={"items": items})
+
+
 @app.put("/api/memo")
 def save_daily_memo(payload: dict = Body(...)):
     """Save or update memo for a specific symbol and date"""
@@ -1327,7 +1273,6 @@ async def trade_csv_upload(file: UploadFile = File(...)):
     os.makedirs(dest_dir, exist_ok=True)
     filename = os.path.basename(file.filename)
     dest_path = os.path.join(dest_dir, filename)
-    dest_path = os.path.join(dest_dir, filename)
     
     # Save file
     file.file.seek(0)
@@ -1337,13 +1282,23 @@ async def trade_csv_upload(file: UploadFile = File(...)):
         
     # Ingest
     try:
-        # Assuming Rakuten for now as per user request
-        result = process_import_rakuten(content)
+        broker = "rakuten"
+        try:
+            head_sample = content[:8192].decode("cp932", errors="ignore")
+            if "受渡金額/決済損益" in head_sample or "信用新規買" in head_sample:
+                broker = "sbi"
+            elif "口座" in head_sample and "手数料" in head_sample:
+                broker = "rakuten"
+        except Exception:
+            pass
+
+        if broker == "sbi":
+            result = process_import_sbi(content, replace_existing=True)
+        else:
+            result = process_import_rakuten(content, replace_existing=True)
         return JSONResponse(content={"ok": True, "filename": filename, "path": dest_path, "ingest": result})
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": f"ingest_failed:{e}"})
-    _trade_cache["warnings"] = []
-    return JSONResponse(content={"ok": True, "filename": filename, "path": dest_path})
 
 
 

@@ -4,7 +4,15 @@ import { useBackendReadyState } from "../backendReady";
 import { api } from "../api";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import ChartListCard from "../components/ChartListCard";
+import Toast from "../components/Toast";
 import { useStore } from "../store";
+import { computeSignalMetrics } from "../utils/signals";
+import {
+  buildConsultationPack,
+  ConsultationSort,
+  ConsultationTimeframe
+} from "../utils/consultation";
+import { downloadChartScreenshots } from "../utils/chartScreenshot";
 
 type HeldItem = {
   symbol: string;
@@ -43,6 +51,9 @@ type CurrentPositionsResponse = {
   >;
 };
 
+type PositionSortKey = "code" | "change" | "scoreUp" | "scoreDown";
+const SCREENSHOT_LIMIT = 10;
+
 type RoundEvent = {
   broker: string;
   exec_dt: string | null;
@@ -70,6 +81,7 @@ export default function PositionsView() {
   const ensureBarsForVisible = useStore((state) => state.ensureBarsForVisible);
   const barsCache = useStore((state) => state.barsCache);
   const barsStatus = useStore((state) => state.barsStatus);
+  const boxesCache = useStore((state) => state.boxesCache);
   const maSettings = useStore((state) => state.maSettings);
   const tickers = useStore((state) => state.tickers);
   const loadList = useStore((state) => state.loadList);
@@ -85,6 +97,25 @@ export default function PositionsView() {
   const setListRows = useStore((state) => state.setListRows);
 
   const [tab, setTab] = useState<"held" | "history">("held");
+  const [sortKey, setSortKey] = useState<PositionSortKey>("code");
+  const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
+  const [filterDataOnly, setFilterDataOnly] = useState(false);
+  const [consultVisible, setConsultVisible] = useState(false);
+  const [consultExpanded, setConsultExpanded] = useState(false);
+  const [consultTab, setConsultTab] = useState<"selection" | "position">("selection");
+  const [consultText, setConsultText] = useState("");
+  const [consultSort, setConsultSort] = useState<ConsultationSort>("score");
+  const [consultBusy, setConsultBusy] = useState(false);
+  const [screenshotBusy, setScreenshotBusy] = useState(false);
+  const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const consultTimeframe: ConsultationTimeframe = "monthly";
+  const consultBarsCount = 60;
+  const consultPaddingClass = consultVisible
+    ? consultExpanded
+      ? "consult-padding-expanded"
+      : "consult-padding-mini"
+    : "";
   const [heldItems, setHeldItems] = useState<HeldItem[]>([]);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -162,10 +193,102 @@ export default function PositionsView() {
     load();
   }, [backendReady, tab, tickerMap]);
 
+  const signalMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
+    heldItems.forEach((item) => {
+      const payload = barsCache[listTimeframe][item.symbol];
+      if (!payload?.bars?.length) return;
+      const signals = computeSignalMetrics(payload.bars, 4).signals;
+      if (signals.length) {
+        map.set(item.symbol, signals);
+      }
+    });
+    return map;
+  }, [heldItems, barsCache, listTimeframe]);
+
+  const filteredHeldItems = useMemo(() => {
+    if (tab !== "held") return heldItems;
+    if (!filterSignalsOnly && !filterDataOnly) return heldItems;
+    return heldItems.filter((item) => {
+      const payload = barsCache[listTimeframe][item.symbol];
+      const hasData = Boolean(payload?.bars?.length);
+      if (filterDataOnly && !hasData) return false;
+      if (filterSignalsOnly && !signalMap.has(item.symbol)) return false;
+      return true;
+    });
+  }, [tab, heldItems, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
+
+  const heldMetricsMap = useMemo(() => {
+    const map = new Map<string, { change: number; score: number }>();
+    filteredHeldItems.forEach((item) => {
+      const payload = barsCache[listTimeframe][item.symbol];
+      const bars = payload?.bars ?? [];
+      if (!bars.length) {
+        map.set(item.symbol, { change: 0, score: 0 });
+        return;
+      }
+      const ordered =
+        bars.length >= 2 && Number(bars[0][0]) > Number(bars[bars.length - 1][0])
+          ? [...bars].reverse()
+          : bars;
+      const last = ordered[ordered.length - 1];
+      const prev = ordered.length > 1 ? ordered[ordered.length - 2] : null;
+      const lastClose = Number(last?.[4]);
+      const prevClose = Number(prev?.[4]);
+      const change =
+        Number.isFinite(lastClose) && Number.isFinite(prevClose) && prevClose != 0
+          ? (lastClose - prevClose) / prevClose
+          : 0;
+      const score = ordered.length ? computeSignalMetrics(ordered, 4).trendStrength : 0;
+      map.set(item.symbol, { change, score });
+    });
+    return map;
+  }, [filteredHeldItems, barsCache, listTimeframe]);
+
+  const sortedHeldItems = useMemo(() => {
+    const next = [...filteredHeldItems];
+    if (sortKey === "code") {
+      next.sort((a, b) => a.symbol.localeCompare(b.symbol, "ja"));
+    } else if (sortKey === "change") {
+      next.sort(
+        (a, b) =>
+          (heldMetricsMap.get(b.symbol)?.change ?? 0) -
+          (heldMetricsMap.get(a.symbol)?.change ?? 0)
+      );
+    } else if (sortKey === "scoreUp") {
+      next.sort(
+        (a, b) =>
+          (heldMetricsMap.get(b.symbol)?.score ?? 0) -
+          (heldMetricsMap.get(a.symbol)?.score ?? 0)
+      );
+    } else if (sortKey === "scoreDown") {
+      next.sort(
+        (a, b) =>
+          (heldMetricsMap.get(a.symbol)?.score ?? 0) -
+          (heldMetricsMap.get(b.symbol)?.score ?? 0)
+      );
+    }
+    return next;
+  }, [filteredHeldItems, sortKey, heldMetricsMap]);
+
   // Determine active items
   const activeItems = useMemo(() => {
-    return tab === "held" ? heldItems : historyItems;
-  }, [tab, heldItems, historyItems]);
+    return tab === "held" ? sortedHeldItems : historyItems;
+  }, [tab, sortedHeldItems, historyItems]);
+
+  const consultTargets = useMemo(
+    () => (tab === "held" ? sortedHeldItems.map((item) => item.symbol) : []),
+    [tab, sortedHeldItems]
+  );
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (tab !== "held") return;
+    if (!heldItems.length) return;
+    const codes = heldItems.map((item) => item.symbol);
+    const uniqueCodes = [...new Set(codes)];
+    ensureBarsForVisible(listTimeframe, uniqueCodes, "positions-held");
+  }, [backendReady, tab, heldItems, ensureBarsForVisible, listTimeframe]);
 
   // Load detail for selected round
   useEffect(() => {
@@ -198,7 +321,10 @@ export default function PositionsView() {
 
     try {
       setLoading(true);
-      await api.post("/imports/trade-history", formData);
+      await api.post("/imports/trade-history", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 120000
+      });
       alert("インポートが完了しました");
 
       // Reload
@@ -227,6 +353,138 @@ export default function PositionsView() {
     [navigate, location.pathname]
   );
 
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && consultVisible) {
+        setConsultVisible(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [consultVisible]);
+
+  const buildConsultation = useCallback(async () => {
+    if (!consultTargets.length) return;
+    setConsultBusy(true);
+    try {
+      try {
+        await ensureBarsForVisible(consultTimeframe, consultTargets, "consult-pack");
+      } catch {
+        // Use available cache even if fetch fails.
+      }
+      const itemsForPack = consultTargets.map((code) => {
+        const held = heldItems.find((item) => item.symbol === code);
+        const ticker = tickerMap.get(code);
+        const payload = barsCache[consultTimeframe][code];
+        const boxes = boxesCache[consultTimeframe][code] ?? [];
+        return {
+          code,
+          name: held?.name ?? ticker?.name ?? null,
+          market: null,
+          sector: null,
+          bars: payload?.bars ?? null,
+          boxes,
+          boxState: ticker?.boxState ?? null,
+          hasBox: ticker?.hasBox ?? null,
+          buyState: ticker?.buyState ?? null,
+          buyStateScore:
+            typeof ticker?.buyStateScore === "number" ? ticker.buyStateScore : null,
+          buyStateReason: ticker?.buyStateReason ?? null,
+          buyStateDetails: ticker?.buyStateDetails ?? null
+        };
+      });
+      const result = buildConsultationPack(
+        {
+          createdAt: new Date(),
+          timeframe: consultTimeframe,
+          barsCount: consultBarsCount
+        },
+        itemsForPack,
+        consultSort
+      );
+      setConsultText(result.text);
+      setConsultMeta({ omitted: result.omittedCount });
+      setConsultVisible(true);
+      setConsultExpanded(true);
+      setConsultTab("selection");
+    } finally {
+      setConsultBusy(false);
+    }
+  }, [
+    consultTargets,
+    ensureBarsForVisible,
+    consultTimeframe,
+    consultBarsCount,
+    heldItems,
+    barsCache,
+    boxesCache,
+    consultSort,
+    tickerMap
+  ]);
+
+  const handleCopyConsult = useCallback(async () => {
+    if (!consultText) {
+      setToastMessage("??????????????");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(consultText);
+      setToastMessage("??????????????");
+    } catch {
+      setToastMessage("??????????");
+    }
+  }, [consultText]);
+
+  const handleCreateScreenshots = useCallback(async () => {
+    if (!consultTargets.length) {
+      setToastMessage("????????????");
+      return;
+    }
+    const targets = consultTargets.slice(0, SCREENSHOT_LIMIT);
+    const omitted = Math.max(0, consultTargets.length - targets.length);
+    setScreenshotBusy(true);
+    try {
+      try {
+        await ensureBarsForVisible(listTimeframe, targets, "chart-screenshot");
+      } catch {
+        // Use available cache even if fetch fails.
+      }
+      const itemsForShots = targets.map((code) => ({
+        code,
+        payload: barsCache[listTimeframe][code] ?? null,
+        boxes: [],
+        maSettings: maSettings[listTimeframe] ?? []
+      }));
+      const result = downloadChartScreenshots(itemsForShots, {
+        rangeMonths: listRangeMonths,
+        timeframeLabel: listTimeframe
+      });
+      if (!result.created) {
+        setToastMessage("???????????????");
+        return;
+      }
+      const omittedLabel = omitted ? ` (??${omitted}????)` : "";
+      setToastMessage(`?????${result.created}???????${omittedLabel}`);
+    } finally {
+      setScreenshotBusy(false);
+    }
+  }, [
+    consultTargets,
+    ensureBarsForVisible,
+    listTimeframe,
+    barsCache,
+    maSettings,
+    listRangeMonths
+  ]);
+
+  const selectedChips = useMemo(() => {
+    const limit = 6;
+    const visible = consultTargets.slice(0, limit);
+    const extra = Math.max(0, consultTargets.length - visible.length);
+    return { visible, extra };
+  }, [consultTargets]);
+
   const densityKey = `${listColumns}x${listRows}`;
   const listStyles = useMemo(
     () =>
@@ -235,6 +493,37 @@ export default function PositionsView() {
       "--list-rows": listRows
     } as CSSProperties),
     [listColumns, listRows]
+  );
+
+  const sortOptions = useMemo(
+    () => [
+      { value: "code", label: "\u30b3\u30fc\u30c9\u9806" },
+      { value: "change", label: "\u9a30\u843d\u9806" },
+      { value: "scoreUp", label: "\u4e0a\u6607\u30b9\u30b3\u30a2\u9806" },
+      { value: "scoreDown", label: "\u4e0b\u843d\u30b9\u30b3\u30a2\u9806" }
+    ],
+    []
+  );
+
+  const filterItems = useMemo(
+    () =>
+      tab === "held"
+        ? [
+            {
+              key: "signals",
+              label: "\u30b7\u30b0\u30ca\u30eb\u3042\u308a",
+              checked: filterSignalsOnly,
+              onToggle: () => setFilterSignalsOnly((prev) => !prev)
+            },
+            {
+              key: "data",
+              label: "\u30c7\u30fc\u30bf\u53d6\u5f97\u6e08\u307f",
+              checked: filterDataOnly,
+              onToggle: () => setFilterDataOnly((prev) => !prev)
+            }
+          ]
+        : [],
+    [tab, filterSignalsOnly, filterDataOnly]
   );
 
   const isSingleDensity = listColumns === 1 && listRows === 1;
@@ -247,7 +536,7 @@ export default function PositionsView() {
     const code = item.symbol;
     const payload = barsCache[listTimeframe][code] ?? null;
     const status = barsStatus[listTimeframe][code];
-    const signals = [] as any[];
+    const signals = "buy_qty" in item ? (signalMap.get(code) ?? []) : ([] as any[]);
     const ticker = tickerMap.get(code);
 
     let displayName = item.name;
@@ -299,14 +588,21 @@ export default function PositionsView() {
         onRangeChange={setListRangeMonths}
         search=""
         onSearchChange={() => { }}
-        sortValue=""
-        sortOptions={[]}
-        onSortChange={() => { }}
+        sortValue={sortKey}
+        sortOptions={sortOptions}
+        onSortChange={(value) => setSortKey(value as PositionSortKey)}
         columns={listColumns}
         rows={listRows}
         onColumnsChange={setListColumns}
         onRowsChange={setListRows}
-        filterItems={[]}
+        filterItems={filterItems}
+        helpLabel="??"
+        onHelpClick={() => {
+          if (tab !== "held") return;
+          setConsultVisible(true);
+          setConsultExpanded(false);
+          setConsultTab("selection");
+        }}
       />
 
       <div style={{
@@ -337,7 +633,7 @@ export default function PositionsView() {
           <button
             type="button"
             className={tab === "history" ? "active" : ""}
-            onClick={() => setTab("history")}
+            onClick={() => { setConsultVisible(false); setTab("history"); }}
             style={{
               padding: "6px 12px",
               borderRadius: "999px",
@@ -371,7 +667,7 @@ export default function PositionsView() {
       </div>
 
       <div
-        className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""}`}
+        className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${tab === "held" ? consultPaddingClass : ""}`}
         style={listStyles}
       >
         {loading && <div className="rank-status">読み込み中...</div>}
@@ -416,6 +712,135 @@ export default function PositionsView() {
           {activeItems.map((item) => renderItem(item))}
         </div>
       </div>
+
+      <div
+        className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"}`}
+      >
+        <button
+          type="button"
+          className="consult-handle"
+          onClick={() => {
+            if (!consultVisible) return;
+            setConsultExpanded((prev) => !prev);
+          }}
+          aria-label={consultExpanded ? "??????????" : "?????????"}
+        />
+        {!consultExpanded && (
+          <div className="consult-mini">
+            <div className="consult-mini-left">
+              <div className="consult-mini-count">?? {consultTargets.length}?</div>
+              <div className="consult-chips">
+                {selectedChips.visible.map((code) => (
+                  <span key={code} className="consult-chip">
+                    {code}
+                  </span>
+                ))}
+                {selectedChips.extra > 0 && (
+                  <span className="consult-chip">+{selectedChips.extra}</span>
+                )}
+              </div>
+            </div>
+            <div className="consult-mini-actions">
+              <button
+                type="button"
+                className="consult-primary"
+                onClick={buildConsultation}
+                disabled={!consultTargets.length || consultBusy}
+              >
+                {consultBusy ? "???..." : "????"}
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateScreenshots}
+                disabled={!consultTargets.length || screenshotBusy}
+              >
+                {screenshotBusy ? "???..." : "??????"}
+              </button>
+              <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
+                ???
+              </button>
+              <button type="button" onClick={() => setConsultVisible(false)}>
+                ???
+              </button>
+            </div>
+          </div>
+        )}
+        {consultExpanded && (
+          <div className="consult-expanded">
+            <div className="consult-expanded-header">
+              <div className="consult-tabs">
+                <button
+                  type="button"
+                  className={consultTab === "selection" ? "active" : ""}
+                  onClick={() => setConsultTab("selection")}
+                >
+                  ????
+                </button>
+                <button
+                  type="button"
+                  className={consultTab === "position" ? "active" : ""}
+                  onClick={() => setConsultTab("position")}
+                >
+                  ????
+                </button>
+              </div>
+              <div className="consult-expanded-actions">
+                <button
+                  type="button"
+                  className="consult-primary"
+                  onClick={buildConsultation}
+                  disabled={!consultTargets.length || consultBusy}
+                >
+                  {consultBusy ? "???..." : "????"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateScreenshots}
+                  disabled={!consultTargets.length || screenshotBusy}
+                >
+                  {screenshotBusy ? "???..." : "??????"}
+                </button>
+                <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
+                  ???
+                </button>
+                <button type="button" onClick={() => setConsultVisible(false)}>
+                  ???
+                </button>
+              </div>
+            </div>
+            <div className="consult-expanded-body">
+              <div className="consult-expanded-meta-row">
+                <div className="consult-expanded-meta">
+                  ?? {consultTargets.length}?
+                  {consultMeta.omitted
+                    ? ` / ??? ${consultMeta.omitted}?`
+                    : " / ??10?????"}
+                </div>
+                <div className="consult-sort">
+                  <span>???</span>
+                  <div className="segmented segmented-compact">
+                    {(["score", "code"] as ConsultationSort[]).map((key) => (
+                      <button
+                        key={key}
+                        className={consultSort === key ? "active" : ""}
+                        onClick={() => setConsultSort(key)}
+                      >
+                        {key === "score" ? "????" : "????"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {consultTab === "selection" ? (
+                <textarea className="consult-drawer-body" value={consultText} readOnly />
+              ) : (
+                <div className="consult-placeholder">???????????</div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
 
       {selectedRound && (
         <div className="positions-detail" style={{

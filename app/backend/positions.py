@@ -122,8 +122,9 @@ def _build_header_map(headers: list[str], expected: list[str]) -> dict[str, str]
     return mapping
 
 
-def _build_rakuten_row_hash(row: dict, headers: list[str]) -> str:
+def _build_rakuten_row_hash(row: dict, headers: list[str], row_index: int) -> str:
     parts = ["rakuten"]
+    parts.append(f"row_index:{row_index}")
     for header in headers:
         raw = row.get(header, "")
         norm = _normalize_text(raw)
@@ -200,7 +201,7 @@ def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
         return [], warnings + [f"rakuten:missing_columns:{','.join(missing)}"]
 
     events: list[TradeEvent] = []
-    for row in rows[1:]:
+    for row_index, row in enumerate(rows[1:], start=1):
         if not row:
             continue
         row_dict = {headers[idx]: row[idx] if idx < len(row) else "" for idx in range(len(headers))}
@@ -231,7 +232,7 @@ def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
             action = ACTION_UNKNOWN
 
         price = _parse_float(row_dict.get(header_map.get("単価［円］", ""), ""))
-        source_row_hash = _build_rakuten_row_hash(row_dict, headers)
+        source_row_hash = _build_rakuten_row_hash(row_dict, headers, row_index)
 
         events.append(
             TradeEvent(
@@ -276,9 +277,10 @@ def parse_sbi_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
         return [], warnings + [f"sbi:missing_columns:{','.join(missing)}"]
 
     events: list[TradeEvent] = []
-    for row in rows[header_idx + 1:]:
+    for offset, row in enumerate(rows[header_idx + 1:], start=1):
         if not row or len(row) < len(headers):
             continue
+        row_index = header_idx + offset
         row_dict = {headers[idx]: row[idx] if idx < len(row) else "" for idx in range(len(headers))}
 
         exec_dt = _parse_date(row_dict.get(header_map["約定日"]))
@@ -317,7 +319,7 @@ def parse_sbi_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
             action = ACTION_UNKNOWN
 
         price = _parse_float(row_dict.get(header_map.get("約定単価", ""), ""))
-        source_row_hash = hashlib.sha256(f"sbi|{'|'.join(row)}".encode("utf-8")).hexdigest()
+        source_row_hash = hashlib.sha256(f"sbi|{row_index}|{'|'.join(row)}".encode("utf-8")).hexdigest()
 
         events.append(
             TradeEvent(
