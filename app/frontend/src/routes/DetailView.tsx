@@ -23,7 +23,7 @@ import IconButton from "../components/IconButton";
 import SimilarSearchPanel from "../components/SimilarSearchPanel";
 import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
-import type { TradeEvent, CurrentPosition } from "../utils/positions";
+import type { TradeEvent, CurrentPosition, DailyPosition } from "../utils/positions";
 import { buildCurrentPositions, buildDailyPositions, buildPositionLedger } from "../utils/positions";
 import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
 import { buildAIExport, copyToClipboard, saveAsFile } from "../utils/aiExport";
@@ -118,6 +118,42 @@ const formatNumber = (value: number | null | undefined, digits = 0) => {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
   });
+};
+
+const formatSignedNumber = (value: number | null | undefined, digits = 0) => {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return value.toLocaleString("ja-JP", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    signDisplay: "always"
+  });
+};
+
+const formatLotValue = (value: number) => {
+  if (!Number.isFinite(value)) return "0";
+  return Number.isInteger(value) ? `${value}` : value.toFixed(1);
+};
+
+const formatSignedLot = (value: number) => {
+  if (value === 0) return "0";
+  const sign = value > 0 ? "+" : "-";
+  return `${sign}${formatLotValue(Math.abs(value))}`;
+};
+
+const formatShares = (shares: number | null | undefined) => {
+  if (shares == null || !Number.isFinite(shares)) return "--";
+  return formatNumber(shares, 0);
+};
+
+const formatLedgerDate = (value: string) => {
+  const trimmed = value?.trim();
+  if (!trimmed) return "--";
+  const match = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+  if (!match) return trimmed;
+  const year = match[1];
+  const month = match[2].padStart(2, "0");
+  const day = match[3].padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
 const normalizeTime = (value: unknown) => {
@@ -408,6 +444,14 @@ export default function DetailView() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [showPositionLedger, setShowPositionLedger] = useState(false);
   const [positionLedgerExpanded, setPositionLedgerExpanded] = useState(false);
+  const [ledgerViewMode, setLedgerViewMode] = useState<"iizuka" | "stock">(() => {
+    try {
+      const stored = window.localStorage.getItem("positionLedgerMode");
+      return stored === "stock" ? "stock" : "iizuka";
+    } catch {
+      return "iizuka";
+    }
+  });
 
   // Cursor mode state
   const [cursorMode, setCursorMode] = useState(false);
@@ -770,6 +814,16 @@ export default function DetailView() {
   const compareDailyPositions = comparePositionData.dailyPositions;
   const compareTradeMarkers = comparePositionData.tradeMarkers;
   const positionLedger = useMemo(() => buildPositionLedger(trades), [trades]);
+  const dailyPositionMap = useMemo(() => {
+    const map = new Map<string, Map<string, DailyPosition>>();
+    dailyPositions.forEach((pos) => {
+      const groupKey = pos.brokerGroupKey ?? `${pos.brokerKey ?? "unknown"}|${pos.account ?? ""}`;
+      const dateMap = map.get(groupKey) ?? new Map<string, DailyPosition>();
+      dateMap.set(pos.date, pos);
+      map.set(groupKey, dateMap);
+    });
+    return map;
+  }, [dailyPositions]);
   const ledgerGroups = useMemo(() => {
     const brokerOrder = (key: string) => {
       if (key === "rakuten") return 0;
@@ -802,6 +856,156 @@ export default function DetailView() {
   const ledgerEligible = ledgerGroups.some((group) =>
     group.rows.some((row) => row.realizedPnL !== null || row.price !== null)
   );
+  const ledgerIizukaGroups = useMemo(() => {
+    return ledgerGroups
+      .map((group) => {
+        const groupKey = `${group.brokerKey}|${group.account}`;
+        const dateMap = new Map<string, typeof group.rows>();
+        group.rows.forEach((row) => {
+          const dateKey = formatLedgerDate(row.date);
+          const list = dateMap.get(dateKey) ?? [];
+          list.push(row);
+          dateMap.set(dateKey, list);
+        });
+        const dates = Array.from(dateMap.keys()).sort((a, b) => a.localeCompare(b));
+        let prevLong = 0;
+        let prevShort = 0;
+        let prevRealized = 0;
+        const rows = dates.map((date) => {
+          const pos = dailyPositionMap.get(groupKey)?.get(date);
+          const longLots = pos?.longLots ?? prevLong;
+          const shortLots = pos?.shortLots ?? prevShort;
+          const realized = pos?.realizedPnL ?? prevRealized;
+          const deltaLong = longLots - prevLong;
+          const deltaShort = shortLots - prevShort;
+          const realizedDelta = realized - prevRealized;
+          prevLong = longLots;
+          prevShort = shortLots;
+          prevRealized = realized;
+          const kindSet = new Set<string>();
+          (dateMap.get(date) ?? []).forEach((row) => {
+            const raw = row.kindLabel?.trim();
+            if (!raw) return;
+            const lower = raw.toLowerCase();
+            if (lower.includes("open") || raw.includes("新規")) {
+              kindSet.add("新規");
+              return;
+            }
+            if (lower.includes("close") || raw.includes("返済")) {
+              kindSet.add("返済");
+              return;
+            }
+            if (lower.includes("delivery") || raw.includes("現渡")) {
+              kindSet.add("現渡");
+              return;
+            }
+            if (lower.includes("take_delivery") || raw.includes("現引")) {
+              kindSet.add("現引");
+              return;
+            }
+            if (lower.includes("inbound") || raw.includes("入庫")) {
+              kindSet.add("入庫");
+              return;
+            }
+            if (lower.includes("outbound") || raw.includes("出庫")) {
+              kindSet.add("出庫");
+              return;
+            }
+            kindSet.add(raw);
+          });
+          const kindLabel = kindSet.size === 0 ? "--" : Array.from(kindSet).slice(0, 2).join(" / ");
+          return {
+            date,
+            kindLabel,
+            deltaLong,
+            deltaShort,
+            longLots,
+            shortLots,
+            avgLongPrice: pos?.avgLongPrice ?? null,
+            avgShortPrice: pos?.avgShortPrice ?? null,
+            realizedDelta
+          };
+        });
+        return { ...group, rows };
+      })
+      .filter((group) => group.rows.length > 0);
+  }, [ledgerGroups, dailyPositionMap]);
+  const ledgerStockGroups = useMemo(() => {
+    return ledgerGroups
+      .map((group) => {
+        const groupKey = `${group.brokerKey}|${group.account}`;
+        const dateMap = new Map<string, typeof group.rows>();
+        group.rows.forEach((row) => {
+          const dateKey = formatLedgerDate(row.date);
+          const list = dateMap.get(dateKey) ?? [];
+          list.push(row);
+          dateMap.set(dateKey, list);
+        });
+        const dates = Array.from(dateMap.keys()).sort((a, b) => a.localeCompare(b));
+        let prevLong = 0;
+        let prevShort = 0;
+        let prevRealized = 0;
+        const rows = dates.map((date) => {
+          const pos = dailyPositionMap.get(groupKey)?.get(date);
+          const longLots = pos?.longLots ?? prevLong;
+          const shortLots = pos?.shortLots ?? prevShort;
+          const realized = pos?.realizedPnL ?? prevRealized;
+          const deltaLong = longLots - prevLong;
+          const deltaShort = shortLots - prevShort;
+          const realizedDelta = realized - prevRealized;
+          prevLong = longLots;
+          prevShort = shortLots;
+          prevRealized = realized;
+          const kindSet = new Set<string>();
+          (dateMap.get(date) ?? []).forEach((row) => {
+            const raw = row.kindLabel?.trim();
+            if (!raw) return;
+            const lower = raw.toLowerCase();
+            if (lower.includes("open") || raw.includes("新規")) {
+              kindSet.add("新規");
+              return;
+            }
+            if (lower.includes("close") || raw.includes("返済")) {
+              kindSet.add("返済");
+              return;
+            }
+            if (lower.includes("delivery") || raw.includes("現渡")) {
+              kindSet.add("現渡");
+              return;
+            }
+            if (lower.includes("take_delivery") || raw.includes("現引")) {
+              kindSet.add("現引");
+              return;
+            }
+            if (lower.includes("inbound") || raw.includes("入庫")) {
+              kindSet.add("入庫");
+              return;
+            }
+            if (lower.includes("outbound") || raw.includes("出庫")) {
+              kindSet.add("出庫");
+              return;
+            }
+            kindSet.add(raw);
+          });
+          const kindLabel = kindSet.size === 0 ? "--" : Array.from(kindSet).slice(0, 2).join(" / ");
+          const qtyShares = (dateMap.get(date) ?? []).reduce((sum, row) => sum + row.qtyShares, 0);
+          return {
+            date,
+            kindLabel,
+            qtyShares,
+            deltaSellShares: deltaShort * 100,
+            deltaBuyShares: deltaLong * 100,
+            closeSellShares: shortLots * 100,
+            closeBuyShares: longLots * 100,
+            buyAvgPrice: pos?.avgLongPrice ?? null,
+            sellAvgPrice: pos?.avgShortPrice ?? null,
+            realizedDelta
+          };
+        });
+        return { ...group, rows };
+      })
+      .filter((group) => group.rows.length > 0);
+  }, [ledgerGroups, dailyPositionMap]);
   const dailyRangeCount = useMemo(
     () => countInRange(dailyCandles, rangeMonths),
     [dailyCandles, rangeMonths]
@@ -2548,12 +2752,45 @@ export default function DetailView() {
             type="button"
             className="position-ledger-handle"
             onClick={() => setPositionLedgerExpanded((prev) => !prev)}
-            aria-label={positionLedgerExpanded ? "Collapse position ledger" : "Expand position ledger"}
+            aria-label={positionLedgerExpanded ? "建玉推移を折りたたむ" : "建玉推移を展開する"}
           />
           <div className="position-ledger-header">
-            <div>
-              <div className="position-ledger-title">Position Ledger (Per Broker)</div>
-              <div className="position-ledger-sub">Grouped by broker</div>
+            <div className="position-ledger-header-main">
+              <div>
+                <div className="position-ledger-title">建玉推移（証券会社別）</div>
+                <div className="position-ledger-sub">証券会社別に集計</div>
+              </div>
+              <div className="position-ledger-toggle" role="tablist" aria-label="表示モード">
+                <span className="position-ledger-toggle-label">表示モード:</span>
+                <button
+                  type="button"
+                  className={ledgerViewMode === "iizuka" ? "is-active" : ""}
+                  onClick={() => {
+                    setLedgerViewMode("iizuka");
+                    try {
+                      window.localStorage.setItem("positionLedgerMode", "iizuka");
+                    } catch {
+                      // ignore storage errors
+                    }
+                  }}
+                >
+                  飯塚式（玉）
+                </button>
+                <button
+                  type="button"
+                  className={ledgerViewMode === "stock" ? "is-active" : ""}
+                  onClick={() => {
+                    setLedgerViewMode("stock");
+                    try {
+                      window.localStorage.setItem("positionLedgerMode", "stock");
+                    } catch {
+                      // ignore storage errors
+                    }
+                  }}
+                >
+                  通常（株）
+                </button>
+              </div>
             </div>
             <button
               type="button"
@@ -2562,70 +2799,208 @@ export default function DetailView() {
                 setShowPositionLedger(false);
                 setPositionLedgerExpanded(false);
               }}
-              aria-label="Close position ledger"
+              aria-label="建玉推移を閉じる"
             >
               x
             </button>
           </div>
           {!ledgerEligible ? (
             <div className="position-ledger-empty">
-              No eligible position ledger data.
+              建玉推移の対象データがありません。
             </div>
           ) : (
             <div className="position-ledger-group-list">
-              {ledgerGroups.map((group) => (
-                <div
-                  key={`${group.brokerKey}-${group.account}`}
-                  className={`position-ledger-group broker-${group.brokerKey}`}
-                >
-                  <div className="position-ledger-group-header">
-                    <span className="broker-badge">{group.brokerLabel}</span>
-                    {group.account && (
-                      <span className="position-ledger-account">{group.account}</span>
-                    )}
-                  </div>
-                  <div className="position-ledger-table">
-                    <div className="position-ledger-row position-ledger-head">
-                      <span>Date</span>
-                      <span>Type</span>
-                      <span>Qty</span>
-                      <span>Price</span>
-                      <span>Long</span>
-                      <span>Short</span>
-                      <span>PnL</span>
-                      <span>Total</span>
-                    </div>
-                    {group.rows.map((row, index) => (
-                      <div className="position-ledger-row" key={`${row.date}-${index}`}>
-                        <span>{row.date}</span>
-                        <span className="position-ledger-kind">{row.kindLabel}</span>
-                        <span>{formatNumber(row.qtyShares, 0)}</span>
-                        <span>{formatNumber(row.price, 2)}</span>
-                        <span>{formatNumber(row.buyShares, 0)}</span>
-                        <span>{formatNumber(row.sellShares, 0)}</span>
-                        <span
-                          className={
-                            row.realizedPnL == null
-                              ? "position-ledger-pnl"
-                              : row.realizedPnL >= 0
-                                ? "position-ledger-pnl up"
-                                : "position-ledger-pnl down"
-                          }
-                        >
-                          {row.realizedPnL == null ? "--" : formatNumber(row.realizedPnL, 0)}
-                        </span>
-                        <span
-                          className={
-                            row.totalPnL >= 0 ? "position-ledger-pnl up" : "position-ledger-pnl down"
-                          }
-                        >
-                          {formatNumber(row.totalPnL, 0)}
-                        </span>
+              {ledgerViewMode === "iizuka"
+                ? ledgerIizukaGroups.map((group) => (
+                    <div
+                      key={`${group.brokerKey}-${group.account}`}
+                      className={`position-ledger-group broker-${group.brokerKey}`}
+                    >
+                      <div className="position-ledger-group-header">
+                        <span className="broker-badge">{group.brokerLabel}</span>
+                        {group.account && (
+                          <span className="position-ledger-account">{group.account}</span>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                      <div className="position-ledger-table is-iizuka">
+                        <div className="position-ledger-row position-ledger-head">
+                          <span className="position-ledger-cell position-ledger-sticky-left" title="日付">
+                            日付
+                          </span>
+                          <span className="position-ledger-cell position-ledger-sticky-left second" title="取引種別">
+                            区分
+                          </span>
+                          <span className="position-ledger-cell align-right" title="売玉の増減">
+                            当日Δ（売玉）
+                          </span>
+                          <span className="position-ledger-cell align-right" title="買玉の増減">
+                            当日Δ（買玉）
+                          </span>
+                          <span className="position-ledger-cell align-right" title="当日引けの売玉">
+                            当日引け（売玉）
+                          </span>
+                          <span className="position-ledger-cell align-right" title="当日引けの買玉">
+                            当日引け（買玉）
+                          </span>
+                          <span className="position-ledger-cell align-right" title="建玉表記（売-買）">
+                            建玉表記
+                          </span>
+                          <span className="position-ledger-cell align-right" title="買い単価（玉）">
+                            買い単価
+                          </span>
+                          <span className="position-ledger-cell align-right" title="売り単価（玉）">
+                            売り単価
+                          </span>
+                          <span
+                            className="position-ledger-cell align-right"
+                            title="実現損益（返済・現渡などで確定した分）"
+                          >
+                            損益（実現）
+                          </span>
+                        </div>
+                        {group.rows.map((row, index) => {
+                          const realizedClass =
+                            row.realizedDelta === 0
+                              ? "position-ledger-pnl"
+                              : row.realizedDelta > 0
+                                ? "position-ledger-pnl up"
+                                : "position-ledger-pnl down";
+                          return (
+                            <div
+                              className={`position-ledger-row ${index % 2 === 0 ? "is-even" : "is-odd"}`}
+                              key={`${row.date}-${index}`}
+                            >
+                              <span className="position-ledger-cell position-ledger-sticky-left">
+                                {formatLedgerDate(row.date)}
+                              </span>
+                              <span className="position-ledger-cell position-ledger-sticky-left second position-ledger-kind">
+                                {row.kindLabel}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {formatSignedLot(row.deltaShort)}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {formatSignedLot(row.deltaLong)}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {formatLotValue(row.shortLots)}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {formatLotValue(row.longLots)}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {`${formatLotValue(row.shortLots)}-${formatLotValue(row.longLots)}`}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {row.avgLongPrice != null ? formatNumber(row.avgLongPrice, 2) : "--"}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {row.avgShortPrice != null ? formatNumber(row.avgShortPrice, 2) : "--"}
+                              </span>
+                              <span className={`position-ledger-cell align-right ${realizedClass}`}>
+                                {formatSignedNumber(row.realizedDelta, 0)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                : ledgerStockGroups.map((group) => (
+                    <div
+                      key={`${group.brokerKey}-${group.account}`}
+                      className={`position-ledger-group broker-${group.brokerKey}`}
+                    >
+                      <div className="position-ledger-group-header">
+                        <span className="broker-badge">{group.brokerLabel}</span>
+                        {group.account && (
+                          <span className="position-ledger-account">{group.account}</span>
+                        )}
+                      </div>
+                      <div className="position-ledger-table is-stock">
+                        <div className="position-ledger-row position-ledger-head">
+                          <span className="position-ledger-cell position-ledger-sticky-left" title="日付">
+                            日付
+                          </span>
+                          <span className="position-ledger-cell position-ledger-sticky-left second" title="取引種別">
+                            区分
+                          </span>
+                          <span className="position-ledger-cell align-right" title="約定数量（株）。100株=1玉。">
+                            数量（株）
+                          </span>
+                          <span className="position-ledger-cell align-right" title="売株の増減">
+                            当日Δ（売株）
+                          </span>
+                          <span className="position-ledger-cell align-right" title="買株の増減">
+                            当日Δ（買株）
+                          </span>
+                          <span className="position-ledger-cell align-right" title="当日引けの売株">
+                            当日引け（売株）
+                          </span>
+                          <span className="position-ledger-cell align-right" title="当日引けの買株">
+                            当日引け（買株）
+                          </span>
+                          <span className="position-ledger-cell align-right" title="買い単価（株）">
+                            買い単価
+                          </span>
+                          <span className="position-ledger-cell align-right" title="売り単価（株）">
+                            売り単価
+                          </span>
+                          <span
+                            className="position-ledger-cell align-right"
+                            title="実現損益（返済・現渡などで確定した分）"
+                          >
+                            損益（実現）
+                          </span>
+                        </div>
+                        {group.rows.map((row, index) => {
+                          const realizedClass =
+                            row.realizedDelta === 0
+                              ? "position-ledger-pnl"
+                              : row.realizedDelta > 0
+                                ? "position-ledger-pnl up"
+                                : "position-ledger-pnl down";
+                          return (
+                            <div
+                              className={`position-ledger-row ${index % 2 === 0 ? "is-even" : "is-odd"}`}
+                              key={`${row.date}-${index}`}
+                            >
+                              <span className="position-ledger-cell position-ledger-sticky-left">
+                                {formatLedgerDate(row.date)}
+                              </span>
+                              <span className="position-ledger-cell position-ledger-sticky-left second position-ledger-kind">
+                                {row.kindLabel}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {formatShares(row.qtyShares)}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {formatSignedNumber(row.deltaSellShares, 0)}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {formatSignedNumber(row.deltaBuyShares, 0)}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {formatShares(row.closeSellShares)}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {formatShares(row.closeBuyShares)}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {row.buyAvgPrice != null ? formatNumber(row.buyAvgPrice, 2) : "--"}
+                              </span>
+                              <span className="position-ledger-cell align-right">
+                                {row.sellAvgPrice != null ? formatNumber(row.sellAvgPrice, 2) : "--"}
+                              </span>
+                              <span className={`position-ledger-cell align-right ${realizedClass}`}>
+                                {formatSignedNumber(row.realizedDelta, 0)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
             </div>
           )}
         </div>

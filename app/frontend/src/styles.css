@@ -3305,6 +3305,13 @@ body {
   gap: 12px;
 }
 
+.position-ledger-header-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
 .position-ledger-title {
   font-size: 14px;
   font-weight: 600;
@@ -3315,6 +3322,36 @@ body {
   font-size: 12px;
   color: #94a3b8;
   margin-top: 2px;
+}
+
+.position-ledger-toggle {
+  display: inline-flex;
+  gap: 6px;
+  background: rgba(148, 163, 184, 0.15);
+  padding: 4px;
+  border-radius: 999px;
+  align-items: center;
+}
+
+.position-ledger-toggle-label {
+  font-size: 11px;
+  color: #94a3b8;
+  padding: 0 6px;
+}
+
+.position-ledger-toggle button {
+  border: none;
+  background: transparent;
+  color: #cbd5f5;
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.position-ledger-toggle button.is-active {
+  background: rgba(226, 232, 240, 0.18);
+  color: #f8fafc;
 }
 
 .position-ledger-empty {
@@ -3352,15 +3389,87 @@ body {
 .position-ledger-table {
   display: grid;
   gap: 6px;
+  --ledger-date-col: 96px;
+  --ledger-type-col: 120px;
+  --ledger-qty-col: 110px;
+  --ledger-price-col: 100px;
+  --ledger-buy-col: 110px;
+  --ledger-sell-col: 110px;
+  --ledger-pnl-col: 110px;
+  --ledger-delta-col: 90px;
+  --ledger-close-col: 90px;
+  --ledger-pos-col: 90px;
 }
 
 .position-ledger-row {
   display: grid;
-  grid-template-columns: 90px 1.6fr 80px 90px 90px 90px 90px 90px;
   gap: 8px;
   font-size: 12px;
   color: #e2e8f0;
   align-items: center;
+}
+
+.position-ledger-table.is-iizuka .position-ledger-row {
+  grid-template-columns: var(--ledger-date-col) var(--ledger-type-col) var(--ledger-delta-col)
+    var(--ledger-delta-col) var(--ledger-close-col) var(--ledger-close-col) var(--ledger-pos-col)
+    var(--ledger-price-col) var(--ledger-price-col) var(--ledger-pnl-col);
+}
+
+.position-ledger-table.is-iizuka {
+  min-width: 1060px;
+}
+
+.position-ledger-table.is-stock .position-ledger-row {
+  grid-template-columns: var(--ledger-date-col) var(--ledger-type-col) var(--ledger-qty-col)
+    var(--ledger-sell-col) var(--ledger-buy-col) var(--ledger-sell-col) var(--ledger-buy-col)
+    var(--ledger-price-col) var(--ledger-price-col) var(--ledger-pnl-col);
+}
+
+.position-ledger-table.is-stock {
+  min-width: 1040px;
+}
+
+.position-ledger-cell {
+  padding: 4px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.position-ledger-cell.align-right {
+  text-align: right;
+}
+
+.position-ledger-row.is-odd {
+  background: rgba(148, 163, 184, 0.08);
+  border-radius: 8px;
+}
+
+.position-ledger-row.is-even {
+  background: rgba(15, 23, 42, 0.2);
+  border-radius: 8px;
+}
+
+.position-ledger-row:hover {
+  background: rgba(56, 189, 248, 0.14);
+}
+
+.position-ledger-sticky-left {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: rgba(15, 23, 42, 0.98);
+}
+
+.position-ledger-sticky-left.second {
+  left: var(--ledger-date-col);
+  z-index: 2;
+  border-right: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.position-ledger-row.is-odd .position-ledger-sticky-left,
+.position-ledger-row.is-even .position-ledger-sticky-left {
+  background: rgba(15, 23, 42, 0.98);
 }
 
 .position-ledger-row span {
@@ -3373,6 +3482,11 @@ body {
   color: #94a3b8;
   font-weight: 600;
   text-transform: none;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: rgba(15, 23, 42, 0.98);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .position-ledger-kind {
