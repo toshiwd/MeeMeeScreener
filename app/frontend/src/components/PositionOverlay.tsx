@@ -497,7 +497,7 @@ export default function PositionOverlay({
         const longText = formatLots(pos.longLots);
         const shortText = formatLots(pos.shortLots);
         const nextKey = `${longText}:${shortText}`;
-        if (nextKey === "0:0") {
+        if (prevKey === "" && nextKey === "0:0") {
           prevKey = nextKey;
           return;
         }

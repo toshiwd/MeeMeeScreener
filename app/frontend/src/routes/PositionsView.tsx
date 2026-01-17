@@ -603,7 +603,7 @@ export default function PositionsView() {
         onColumnsChange={setListColumns}
         onRowsChange={setListRows}
         filterItems={filterItems}
-        helpLabel="??"
+        helpLabel="相談"
         onHelpClick={() => {
           if (tab !== "held") return;
           setConsultVisible(true);

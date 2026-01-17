@@ -27,6 +27,16 @@ CODE_PATTERN = re.compile(os.getenv("CODE_PATTERN", CODE_PATTERN_DEFAULT))
 STRICT_CODE_VALIDATION = os.getenv("CODE_STRICT", "0") == "1"
 USE_CODE_TXT = os.getenv("USE_CODE_TXT", "0") == "1"
 
+HEADER_ALIASES = {
+    "code": {"code", "ticker", "symbol", "銘柄", "銘柄コード", "コード"},
+    "date": {"date", "日付", "年月日", "日時", "dateymd", "dateyyyymmdd"},
+    "o": {"o", "open", "始値", "始"},
+    "h": {"h", "high", "高値", "高"},
+    "l": {"l", "low", "安値", "安"},
+    "c": {"c", "close", "終値", "終"},
+    "v": {"v", "volume", "vol", "出来高", "出来高株", "売買高", "売買高株"},
+}
+
 TRADE_FLAG_CONFIG = {
     "BOX_MONTHS_MIN": 4,
     "BOX_RANGE_PCT": 0.20,
@@ -123,14 +133,55 @@ def _safe_float(value) -> float | None:
     return result
 
 
-def _compute_volume_ratio(volumes: list[float], period: int = 20) -> float | None:
-    if len(volumes) < period:
+def _compute_volume_ratio(volumes: list[float | None], period: int = 20) -> float | None:
+    cleaned = [value for value in volumes if value is not None]
+    if len(cleaned) < period:
         return None
-    window = volumes[-period:]
+    window = cleaned[-period:]
     avg = sum(window) / period
     if avg <= 0:
         return None
-    return volumes[-1] / avg
+    return cleaned[-1] / avg
+
+
+def _normalize_header_label(value: str) -> str:
+    text = str(value).strip().lower()
+    text = text.replace("（", "(").replace("）", ")")
+    text = re.sub(r"[\\s_\\-]", "", text)
+    text = re.sub(r"[()]", "", text)
+    text = text.replace("株数", "株")
+    return text
+
+
+def _match_header_key(value: str) -> str | None:
+    normalized = _normalize_header_label(value)
+    for key, aliases in HEADER_ALIASES.items():
+        if normalized in aliases:
+            return key
+    return None
+
+
+def _map_headered_frame(df: pd.DataFrame) -> pd.DataFrame | None:
+    mapping: dict[str, str] = {}
+    for col in df.columns:
+        key = _match_header_key(col)
+        if key and key not in mapping:
+            mapping[key] = col
+    required = {"code", "date", "o", "h", "l", "c"}
+    if not required.issubset(mapping.keys()):
+        return None
+    result = pd.DataFrame(
+        {
+            "code": df[mapping["code"]],
+            "date": df[mapping["date"]],
+            "o": df[mapping["o"]],
+            "h": df[mapping["h"]],
+            "l": df[mapping["l"]],
+            "c": df[mapping["c"]],
+            "v": df[mapping["v"]] if "v" in mapping else None,
+        }
+    )
+    return result
 
 
 def _compute_monthly_box_info(monthly_df: pd.DataFrame, config: dict) -> dict:
@@ -400,7 +451,7 @@ def compute_stage_score(
 
     daily = daily_df.sort_values("date")
     closes = [float(v) for v in daily["c"].tolist() if _safe_float(v) is not None]
-    volumes = [float(v) if _safe_float(v) is not None else 0.0 for v in daily["v"].tolist()]
+    volumes = [_safe_float(v) for v in daily["v"].tolist()]
 
     last_close = closes[-1] if closes else None
     if last_close is None:
@@ -598,6 +649,10 @@ def read_csv_with_fallback(path: str) -> pd.DataFrame:
     last_err: Exception | None = None
     for encoding in encodings:
         try:
+            header_df = pd.read_csv(path, header=0, dtype="string", encoding=encoding)
+            mapped = _map_headered_frame(header_df)
+            if mapped is not None:
+                return mapped
             return pd.read_csv(
                 path,
                 header=None,
@@ -616,8 +671,10 @@ def read_csv_with_fallback(path: str) -> pd.DataFrame:
 def strip_header_row(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
-    first = df.iloc[0].astype(str).str.lower().tolist()
-    if len(first) >= 6 and first[0] in {"code", "ticker"} and "date" in first[1]:
+    first = df.iloc[0].astype(str).tolist()
+    header_hits = {_match_header_key(value) for value in first}
+    header_hits.discard(None)
+    if "code" in header_hits and "date" in header_hits:
         return df.iloc[1:].reset_index(drop=True)
     return df
 
@@ -677,13 +734,13 @@ def parse_file(path: str, watchlist: set[str] | None, counts: dict) -> pd.DataFr
     for col in ["o", "h", "l", "c", "v"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    non_numeric_mask = df[["o", "h", "l", "c", "v"]].isna().any(axis=1)
+    non_numeric_mask = df[["o", "h", "l", "c"]].isna().any(axis=1)
     counts["non_numeric"] += int(non_numeric_mask.sum())
     df = df[~non_numeric_mask]
     if df.empty:
         return df
 
-    df["v"] = df["v"].round().astype("int64")
+    df["v"] = df["v"].round().astype("Int64")
     return df
 
 
@@ -738,7 +795,7 @@ def build_monthly(daily: pd.DataFrame) -> pd.DataFrame:
         h=("h", "max"),
         l=("l", "min"),
         c=("c", "last"),
-        v=("v", "sum")
+        v=("v", lambda s: s.sum(min_count=1))
     )
     monthly["month"] = (monthly["month"].astype("int64") // 1_000_000_000).astype("int64")
     return monthly
@@ -880,6 +937,23 @@ def log_counts(counts: dict, parsed_rows: int) -> None:
     print(f"FILE_ERRORS={counts['file_error']}")
 
 
+def log_volume_stats(stage: str, df: pd.DataFrame) -> None:
+    if "v" not in df.columns:
+        print(f"VOLUME_STATS stage={stage} missing_column=true")
+        return
+    series = df["v"]
+    total = len(series)
+    nulls = int(series.isna().sum())
+    zeros = int(series.eq(0).fillna(False).sum())
+    non_null = series.dropna()
+    min_v = int(non_null.min()) if not non_null.empty else None
+    max_v = int(non_null.max()) if not non_null.empty else None
+    print(
+        f"VOLUME_STATS stage={stage} total={total} null={nulls} zero={zeros} "
+        f"min={min_v} max={max_v}"
+    )
+
+
 def ingest() -> None:
     def step_start(label: str) -> float:
         print(f"[STEP_START] {label}")
@@ -941,6 +1015,8 @@ def ingest() -> None:
     daily_rows = len(daily)
     daily_codes = int(daily["code"].nunique()) if not daily.empty else 0
     step_end("read_daily_files", start, daily_rows=daily_rows, daily_codes=daily_codes)
+    if not daily.empty:
+        log_volume_stats("after_read", daily)
 
     if daily.empty:
         clear_tables()
@@ -980,6 +1056,7 @@ def ingest() -> None:
         print(f"MISSING_REASONS_TOP={missing_text}")
 
     start = step_start("db_replace")
+    log_volume_stats("pre_db", daily)
     with get_conn() as conn:
         conn.execute("DELETE FROM daily_bars")
         conn.execute("DELETE FROM daily_ma")

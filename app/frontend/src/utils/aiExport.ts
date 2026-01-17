@@ -11,7 +11,7 @@ type BarData = {
     high: number;
     low: number;
     close: number;
-    volume?: number;
+    volume?: number | null;
 };
 
 type SignalData = {
@@ -71,6 +71,7 @@ type AIExportResult = {
 };
 
 const N_A = "N/A";
+const VOLUME_UNIT = "shares";
 
 const formatDate = (time: number): string => {
     if (time >= 10000000 && time < 100000000) {
@@ -91,9 +92,48 @@ const formatDate = (time: number): string => {
 
 const formatNumber = (value: number | null | undefined, digits = 0): string => {
     if (value == null || !Number.isFinite(value)) return N_A;
-    return value.toLocaleString("ja-JP", {
-        minimumFractionDigits: digits,
-        maximumFractionDigits: digits,
+    return value.toFixed(digits);
+};
+
+const formatIsoWithOffset = (date: Date): string => {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const year = date.getFullYear();
+    const month = pad(date.getMonth() + 1);
+    const day = pad(date.getDate());
+    const hours = pad(date.getHours());
+    const minutes = pad(date.getMinutes());
+    const seconds = pad(date.getSeconds());
+    const offsetMinutes = -date.getTimezoneOffset();
+    const sign = offsetMinutes >= 0 ? "+" : "-";
+    const absOffset = Math.abs(offsetMinutes);
+    const offsetHours = pad(Math.floor(absOffset / 60));
+    const offsetMins = pad(absOffset % 60);
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offsetHours}:${offsetMins}`;
+};
+
+const logVolumeStats = (stage: string, bars: BarData[]) => {
+    const total = bars.length;
+    let nulls = 0;
+    let zeros = 0;
+    let min: number | null = null;
+    let max: number | null = null;
+    bars.forEach((bar) => {
+        const value = bar.volume;
+        if (value == null || !Number.isFinite(value)) {
+            nulls += 1;
+            return;
+        }
+        if (value === 0) zeros += 1;
+        min = min == null ? value : Math.min(min, value);
+        max = max == null ? value : Math.max(max, value);
+    });
+    console.debug("[ai_export] volume_stats", {
+        stage,
+        total,
+        nulls,
+        zeros,
+        min,
+        max,
     });
 };
 
@@ -329,10 +369,11 @@ const buildOHLCVCsv = (
         const shape = analysis?.shape ?? "none";
         const signal = analysis?.signal ?? "none";
         const memo = memoMap?.[date] ?? "";
+        const volume = bar.volume == null || !Number.isFinite(bar.volume) ? "" : String(bar.volume);
         lines.push(
             includeMemo
-                ? `${date},${bar.open},${bar.high},${bar.low},${bar.close},${bar.volume ?? 0},${shape},${signal},${memo}`
-                : `${date},${bar.open},${bar.high},${bar.low},${bar.close},${bar.volume ?? 0},${shape},${signal}`
+                ? `${date},${bar.open},${bar.high},${bar.low},${bar.close},${volume},${shape},${signal},${memo}`
+                : `${date},${bar.open},${bar.high},${bar.low},${bar.close},${volume},${shape},${signal}`
         );
     });
     return lines.join("\n");
@@ -356,9 +397,52 @@ const computeMAValues = (bars: BarData[], settings: MaSetting[]): string => {
     return parts.join(", ");
 };
 
+const buildPositionsByBroker = (positions: PositionSnapshot[] | undefined) => {
+    const empty = {
+        buy: 0,
+        sell: 0,
+        avgLong: null as number | null,
+        avgShort: null as number | null,
+        pnl: null as number | null,
+    };
+    const result: Record<string, typeof empty> = {
+        rakuten: { ...empty },
+        sbi: { ...empty },
+    };
+    (positions ?? []).forEach((pos) => {
+        const key = (pos.brokerKey ?? "unknown").toLowerCase();
+        result[key] = {
+            buy: Number.isFinite(Number(pos.longLots)) ? Number(pos.longLots) : 0,
+            sell: Number.isFinite(Number(pos.shortLots)) ? Number(pos.shortLots) : 0,
+            avgLong: Number.isFinite(Number(pos.avgLongPrice)) ? Number(pos.avgLongPrice) : null,
+            avgShort: Number.isFinite(Number(pos.avgShortPrice)) ? Number(pos.avgShortPrice) : null,
+            pnl: Number.isFinite(Number(pos.realizedPnL)) ? Number(pos.realizedPnL) : null,
+        };
+    });
+    const total = Object.values(result).reduce(
+        (acc, item) => {
+            acc.buy += item.buy;
+            acc.sell += item.sell;
+            return acc;
+        },
+        { buy: 0, sell: 0 }
+    );
+    return {
+        ...result,
+        total: {
+            buy: total.buy,
+            sell: total.sell,
+            avgLong: null,
+            avgShort: null,
+            pnl: null,
+        },
+    };
+};
+
 export const buildAIExport = (input: AIExportInput): AIExportResult => {
     const now = new Date();
-    const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const exportedAt = formatIsoWithOffset(now);
+    logVolumeStats("export", input.dailyBars);
 
     const lastDaily = input.dailyBars.length ? input.dailyBars[input.dailyBars.length - 1] : null;
     const currentPrice = input.currentPrice ?? lastDaily?.close ?? null;
@@ -370,6 +454,31 @@ export const buildAIExport = (input: AIExportInput): AIExportResult => {
     const dailyAnalysis = buildCandleSignals(input.dailyBars, dailyBase);
     const weeklyAnalysis = buildCandleSignals(input.weeklyBars, weeklyBase);
     const monthlyAnalysis = buildCandleSignals(input.monthlyBars, monthlyBase);
+    const maPayload = {
+        daily: Object.fromEntries(
+            input.maSettings.daily
+                .filter((m) => m.visible)
+                .map((m) => [m.period, computeMA(input.dailyBars, m.period)])
+        ),
+        weekly: Object.fromEntries(
+            input.maSettings.weekly
+                .filter((m) => m.visible)
+                .map((m) => [m.period, computeMA(input.weeklyBars, m.period)])
+        ),
+        monthly: Object.fromEntries(
+            input.maSettings.monthly
+                .filter((m) => m.visible)
+                .map((m) => [m.period, computeMA(input.monthlyBars, m.period)])
+        ),
+    };
+    const boxesPayload = input.boxes.slice(-5).map((box) => ({
+        start: formatDate(box.startTime),
+        end: formatDate(box.endTime),
+        low: box.lower,
+        high: box.upper,
+        direction: box.breakout,
+    }));
+    const positionsByBroker = buildPositionsByBroker(input.currentPositions);
 
     // Build signals text
     const signalsText =
@@ -386,12 +495,34 @@ export const buildAIExport = (input: AIExportInput): AIExportResult => {
         : "表示OFF or なし";
 
     // Build markdown
-    const markdown = `# AI相談用 銘柄情報エクスポート
+    const headerJson = JSON.stringify(
+        {
+            schemaVersion: "ai_export_v2",
+            exportedAt,
+            ticker: input.code,
+            name: input.name ?? null,
+            lastDate: lastDaily ? formatDate(lastDaily.time) : null,
+            lastClose: lastDaily ? lastDaily.close : null,
+            ma: maPayload,
+            boxes: boxesPayload,
+            positions: positionsByBroker,
+            volumeUnit: VOLUME_UNIT,
+        },
+        null,
+        2
+    );
+    const markdown = `\`\`\`json
+${headerJson}
+\`\`\`
+
+# AI相談用 銘柄情報エクスポート
 
 ## 基本情報
 - 銘柄コード: ${input.code}
 - 銘柄名: ${input.name ?? N_A}
-- エクスポート日時: ${timestamp}
+- エクスポート日時: ${exportedAt}
+- schemaVersion: ai_export_v2
+- volumeUnit: ${VOLUME_UNIT}
 
 ## 表示設定
 - 表示足: ${input.visibleTimeframe === "daily" ? "日足" : input.visibleTimeframe === "weekly" ? "週足" : "月足"}
@@ -437,6 +568,22 @@ ${(() => {
   return lines.join("\n");
 })()}
 
+## Positions Total
+${(() => {
+  const positions = input.currentPositions ?? [];
+  const totals = positions.reduce(
+    (acc, pos) => {
+      const buy = Number(pos.longLots ?? 0);
+      const sell = Number(pos.shortLots ?? 0);
+      acc.buy += Number.isFinite(buy) ? buy : 0;
+      acc.sell += Number.isFinite(sell) ? sell : 0;
+      return acc;
+    },
+    { buy: 0, sell: 0 }
+  );
+  return `sell=${totals.sell} / buy=${totals.buy} / text=${totals.sell}-${totals.buy}`;
+})()}
+
 ## Memos (Daily)
 ${(() => {
   const entries = Object.entries(dailyMemos);
@@ -466,9 +613,10 @@ ${buildOHLCVCsv(input.monthlyBars, 36)}
 
     // Build JSON
     const json = {
+        schemaVersion: "ai_export_v2",
         code: input.code,
         name: input.name ?? null,
-        exportedAt: now.toISOString(),
+        exportedAt,
         settings: {
             visibleTimeframe: input.visibleTimeframe,
             rangeMonths: input.rangeMonths,
@@ -477,15 +625,30 @@ ${buildOHLCVCsv(input.monthlyBars, 36)}
         },
         currentPrice,
         lastDate: lastDaily ? formatDate(lastDaily.time) : null,
-        maSettings: {
-            daily: input.maSettings.daily.filter((m) => m.visible).map((m) => ({ period: m.period, value: computeMA(input.dailyBars, m.period) })),
-            weekly: input.maSettings.weekly.filter((m) => m.visible).map((m) => ({ period: m.period, value: computeMA(input.weeklyBars, m.period) })),
-            monthly: input.maSettings.monthly.filter((m) => m.visible).map((m) => ({ period: m.period, value: computeMA(input.monthlyBars, m.period) })),
-        },
+        ma: maPayload,
         signals: input.signals,
-        boxes: input.boxes.slice(-5),
+        boxes: boxesPayload,
         memos: dailyMemos,
         positions: input.currentPositions ?? [],
+        positions_by_broker: positionsByBroker,
+        volumeUnit: VOLUME_UNIT,
+        positions_total: (() => {
+            const totals = (input.currentPositions ?? []).reduce(
+                (acc, pos) => {
+                    const buy = Number(pos.longLots ?? 0);
+                    const sell = Number(pos.shortLots ?? 0);
+                    acc.buy += Number.isFinite(buy) ? buy : 0;
+                    acc.sell += Number.isFinite(sell) ? sell : 0;
+                    return acc;
+                },
+                { buy: 0, sell: 0 }
+            );
+            return {
+                sell: totals.sell,
+                buy: totals.buy,
+                text: `${totals.sell}-${totals.buy}`,
+            };
+        })(),
         candle_shapes: {
             daily: dailyAnalysis.map((entry) => ({ date: entry.date, shape: entry.shape })),
             weekly: weeklyAnalysis.map((entry) => ({ date: entry.date, shape: entry.shape })),
@@ -500,13 +663,14 @@ ${buildOHLCVCsv(input.monthlyBars, 36)}
             daily: input.dailyBars.slice(-120).map((b) => {
                 const date = formatDate(b.time);
                 const analysis = dailyAnalysis.find((entry) => entry.date === date);
+                const volume = b.volume == null || !Number.isFinite(b.volume) ? null : b.volume;
                 return {
                     date,
                     o: b.open,
                     h: b.high,
                     l: b.low,
                     c: b.close,
-                    v: b.volume ?? 0,
+                    v: volume,
                     shape: analysis?.shape ?? "none",
                     signal: analysis?.signal ?? "none",
                     memo: dailyMemos[date] ?? ""
@@ -515,13 +679,14 @@ ${buildOHLCVCsv(input.monthlyBars, 36)}
             weekly: input.weeklyBars.slice(-60).map((b) => {
                 const date = formatDate(b.time);
                 const analysis = weeklyAnalysis.find((entry) => entry.date === date);
+                const volume = b.volume == null || !Number.isFinite(b.volume) ? null : b.volume;
                 return {
                     date,
                     o: b.open,
                     h: b.high,
                     l: b.low,
                     c: b.close,
-                    v: b.volume ?? 0,
+                    v: volume,
                     shape: analysis?.shape ?? "none",
                     signal: analysis?.signal ?? "none"
                 };
@@ -529,13 +694,14 @@ ${buildOHLCVCsv(input.monthlyBars, 36)}
             monthly: input.monthlyBars.slice(-36).map((b) => {
                 const date = formatDate(b.time);
                 const analysis = monthlyAnalysis.find((entry) => entry.date === date);
+                const volume = b.volume == null || !Number.isFinite(b.volume) ? null : b.volume;
                 return {
                     date,
                     o: b.open,
                     h: b.high,
                     l: b.low,
                     c: b.close,
-                    v: b.volume ?? 0,
+                    v: volume,
                     shape: analysis?.shape ?? "none",
                     signal: analysis?.signal ?? "none"
                 };

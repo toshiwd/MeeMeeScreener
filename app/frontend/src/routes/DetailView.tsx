@@ -262,6 +262,7 @@ const buildVolume = (rows: number[][]): VolumePoint[] => {
     if (!Array.isArray(row) || row.length < 6) continue;
     const time = normalizeTime(row[0]);
     if (time == null) continue;
+    if (row[5] == null || row[5] === "") continue;
     const value = Number(row[5]);
     if (!Number.isFinite(value)) continue;
     entries.push({ time, value });
@@ -2312,14 +2313,69 @@ export default function DetailView() {
                   }
                 }
 
+                const dailyVolumeMap = new Map(dailyVolume.map((item) => [item.time, item.value]));
+                const weeklyVolumeCounts = new Map<number, number>();
+                dailyCandles.forEach((candle) => {
+                  if (!dailyVolumeMap.has(candle.time)) return;
+                  const date = new Date(candle.time * 1000);
+                  const day = date.getUTCDay();
+                  const diff = (day + 6) % 7;
+                  const weekStart = Date.UTC(
+                    date.getUTCFullYear(),
+                    date.getUTCMonth(),
+                    date.getUTCDate() - diff
+                  );
+                  const key = Math.floor(weekStart / 1000);
+                  weeklyVolumeCounts.set(key, (weeklyVolumeCounts.get(key) ?? 0) + 1);
+                });
+                const weeklyVolumeMap = new Map<number, number | null>();
+                weeklyVolume.forEach((item) => {
+                  const count = weeklyVolumeCounts.get(item.time) ?? 0;
+                  weeklyVolumeMap.set(item.time, count > 0 ? item.value : null);
+                });
+                const monthlyVolumeSums = new Map<number, number>();
+                dailyCandles.forEach((candle) => {
+                  const volume = dailyVolumeMap.get(candle.time);
+                  if (volume == null || !Number.isFinite(volume)) return;
+                  const date = new Date(candle.time * 1000);
+                  const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+                  const key = Math.floor(monthStart / 1000);
+                  monthlyVolumeSums.set(key, (monthlyVolumeSums.get(key) ?? 0) + volume);
+                });
+                const monthlyVolumeMap = new Map<number, number>();
+                monthlyCandles.forEach((candle) => {
+                  const sum = monthlyVolumeSums.get(candle.time);
+                  monthlyVolumeMap.set(candle.time, Number.isFinite(sum) ? Math.round(sum ?? 0) : 0);
+                });
                 const exportData = buildAIExport({
                   code: code ?? "",
                   name: tickerName,
                   visibleTimeframe: "daily",
                   rangeMonths: rangeMonths,
-                  dailyBars: dailyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
-                  weeklyBars: weeklyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
-                  monthlyBars: monthlyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
+                  dailyBars: dailyCandles.map((c) => ({
+                    time: c.time,
+                    open: c.open,
+                    high: c.high,
+                    low: c.low,
+                    close: c.close,
+                    volume: dailyVolumeMap.get(c.time) ?? null
+                  })),
+                  weeklyBars: weeklyCandles.map((c) => ({
+                    time: c.time,
+                    open: c.open,
+                    high: c.high,
+                    low: c.low,
+                    close: c.close,
+                    volume: weeklyVolumeMap.get(c.time) ?? null
+                  })),
+                  monthlyBars: monthlyCandles.map((c) => ({
+                    time: c.time,
+                    open: c.open,
+                    high: c.high,
+                    low: c.low,
+                    close: c.close,
+                    volume: monthlyVolumeMap.get(c.time) ?? null
+                  })),
                   maSettings,
                   signals: dailySignals,
                   showBoxes,

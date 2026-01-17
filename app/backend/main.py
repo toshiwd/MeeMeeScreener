@@ -4380,10 +4380,10 @@ def _build_screener_rows() -> list[dict]:
             """
             SELECT code, MIN(COALESCE(last_rights_date, ex_date)) AS rights_date
             FROM ex_rights
-            WHERE COALESCE(last_rights_date, ex_date) BETWEEN ? AND ?
+            WHERE COALESCE(last_rights_date, ex_date) >= ?
             GROUP BY code
             """,
-            [today, window_end]
+            [today]
         ).fetchall()
 
     meta_map = {row[0]: row for row in meta_rows}
