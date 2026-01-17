@@ -15,3 +15,13 @@ __pycache__/
 /data_store/
 *.parquet
 *.pickle
+
+# Temporary files
+out.txt
+*.tmp
+*.log
+
+# Development databases (root level only)
+/stocks.duckdb
+/favorites.sqlite
+/practice.sqlite

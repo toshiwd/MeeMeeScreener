@@ -14,3 +14,7 @@ if errorlevel 1 (
   echo Build failed. See log: %LOG_FILE%
   exit /b 1
 )
+
+echo Copying portable bootstrap scripts next to ZIP...
+copy /Y "%SCRIPT_DIR%portable_bootstrap.ps1" "%SCRIPT_DIR%..\release\" >NUL
+copy /Y "%SCRIPT_DIR%portable_bootstrap.cmd" "%SCRIPT_DIR%..\release\" >NUL

@@ -33,6 +33,7 @@ import {
   type AnchorInfo,
   type TechnicalFilterState
 } from "../utils/technicalFilter";
+import { formatEventDateYmd } from "../utils/events";
 
 const GRID_GAP = 12;
 const KEEP_LIMIT = 24;
@@ -111,6 +112,12 @@ export default function GridView() {
   const maSettings = useStore((state) => state.maSettings);
   const updateMaSetting = useStore((state) => state.updateMaSetting);
   const resetMaSettings = useStore((state) => state.resetMaSettings);
+  const eventsMeta = useStore((state) => state.eventsMeta);
+  const refreshEvents = useStore((state) => state.refreshEvents);
+  const eventsAttemptLabel = useMemo(
+    () => formatEventDateYmd(eventsMeta?.lastAttemptAt),
+    [eventsMeta?.lastAttemptAt]
+  );
 
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [showIndicators, setShowIndicators] = useState(false);
@@ -229,8 +236,7 @@ export default function GridView() {
     setWatchlistExporting(true);
     try {
       const lines = exportItems.map((item) => `JP#${item.code}`);
-      const now = new Date();
-      const filename = `watchlist_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}.ebk`;
+      const filename = "watchlist.ebk";
       const ok = await saveAsFile(lines.join("\n"), filename, "text/plain");
       setToastMessage(ok ? "銘柄一覧をエクスポートしました。" : "エクスポートをキャンセルしました。");
     } catch {
@@ -1871,6 +1877,32 @@ export default function GridView() {
                       <span>code.txtを開く</span>
                       <span className="popover-status">編集</span>
                     </button>
+                  </div>
+                  <div className="popover-section">
+                    <div className="popover-title">イベント</div>
+                    <button
+                      type="button"
+                      className="popover-item"
+                      disabled={eventsMeta?.isRefreshing}
+                      onClick={() => {
+                        void refreshEvents();
+                        setSettingsOpen(false);
+                      }}
+                    >
+                      <span>
+                        {eventsMeta?.isRefreshing ? "イベント更新中..." : "イベント更新"}
+                      </span>
+                      <span className="popover-status">手動</span>
+                    </button>
+                    <div className="popover-hint">
+                      状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+                    </div>
+                    <div className="popover-hint">
+                      最終試行: {eventsAttemptLabel ?? "--"}
+                    </div>
+                    {eventsMeta?.lastError && (
+                      <div className="popover-hint">エラー: {eventsMeta.lastError}</div>
+                    )}
                   </div>
                 </div>
               )}

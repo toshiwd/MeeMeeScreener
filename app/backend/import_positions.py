@@ -67,8 +67,8 @@ def _process_import(
     replace_existing: bool
 ) -> dict:
     with get_conn() as conn:
-        if replace_existing and broker:
-            conn.execute("DELETE FROM trade_events WHERE broker = ?", [broker])
+        if replace_existing:
+            conn.execute("DELETE FROM trade_events")
         inserted = _insert_events(conn, events)
         rebuild_summary = rebuild_positions(conn)
 

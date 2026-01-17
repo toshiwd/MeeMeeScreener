@@ -406,7 +406,7 @@ def main() -> None:
             win.load_url(f"http://127.0.0.1:{port}/")
             threading.Timer(0.2, _maximize_window, args=(win,)).start()
 
-        webview.start(_bootstrap, window, icon=icon_path)
+        webview.start(_bootstrap, window, icon=icon_path, gui="edgechromium")
     except Exception as exc:
         detail = "".join(traceback.format_exception(exc))
         if log_path:

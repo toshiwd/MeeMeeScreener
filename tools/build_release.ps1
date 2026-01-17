@@ -195,6 +195,15 @@ print(json.dumps(missing))
         throw "Build failed: release/MeeMeeScreener not found."
     }
 
+    # Copy README.txt to the release package
+    $readmeSrc = Join-Path $repoRoot "resources\README.txt"
+    if (Test-Path $readmeSrc) {
+        Write-Host "Copying README.txt to release package..."
+        Copy-Item -Path $readmeSrc -Destination (Join-Path $onedir "README.txt") -Force
+    } else {
+        Write-Host "Warning: README.txt not found at $readmeSrc"
+    }
+
     Write-Host "Creating portable zip..."
     $zipPath = $releaseZip
     $zipAttempts = 5
@@ -202,7 +211,9 @@ print(json.dumps(missing))
     $zipSuccess = $false
     for ($i = 1; $i -le $zipAttempts; $i++) {
         try {
-            Compress-Archive -Path $onedir -DestinationPath $zipPath
+            # Create ZIP with the contents of MeeMeeScreener folder (not the folder itself)
+            # This allows users to extract and run directly
+            Compress-Archive -Path "$onedir\*" -DestinationPath $zipPath -Force
             $zipSuccess = $true
             break
         } catch {
@@ -215,6 +226,14 @@ print(json.dumps(missing))
     }
 
     Write-Host "Done."
+    Write-Host ""
+    Write-Host "Portable package created: $zipPath"
+    Write-Host "Users can extract this ZIP and run MeeMeeScreener.exe directly."
+    Write-Host ""
+    Write-Host "To enable portable mode (data stored in same folder):"
+    Write-Host "  1. Extract the ZIP"
+    Write-Host "  2. Create a file named 'portable.txt' in the same folder as MeeMeeScreener.exe"
+    Write-Host "  3. Run MeeMeeScreener.exe"
 } finally {
     if ($LogPath) {
         Stop-Transcript | Out-Null

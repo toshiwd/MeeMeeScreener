@@ -430,6 +430,8 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
     earnings_rows: list[dict] = []
     rights_rows: list[dict] = []
     errors: list[str] = []
+    finished_at = None
+    error_text = None
     try:
         earnings_rows = fetch_earnings_snapshot()
         if not earnings_rows:
@@ -443,84 +445,103 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
     except Exception as exc:
         errors.append(f"rights:{exc}")
 
-    finished_at = jst_now().replace(tzinfo=None)
-    error_text = "; ".join(errors) if errors else None
+    try:
+        finished_at = jst_now().replace(tzinfo=None)
+        error_text = "; ".join(errors) if errors else None
 
-    with get_conn() as conn:
-        _ensure_events_meta_row(conn)
-        if earnings_rows:
-            conn.execute("DELETE FROM earnings_planned WHERE source = 'JPX'")
-            conn.executemany(
-                """
-                INSERT INTO earnings_planned (
-                    code,
-                    planned_date,
-                    kind,
-                    company_name,
-                    source,
-                    fetched_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        row.get("code"),
-                        row.get("planned_date"),
-                        row.get("kind"),
-                        row.get("company_name"),
-                        row.get("source"),
-                        row.get("fetched_at")
-                    )
-                    for row in earnings_rows
-                ]
-            )
+        with get_conn() as conn:
+            _ensure_events_meta_row(conn)
+            if earnings_rows:
+                conn.execute("DELETE FROM earnings_planned WHERE source = 'JPX'")
+                conn.executemany(
+                    """
+                    INSERT INTO earnings_planned (
+                        code,
+                        planned_date,
+                        kind,
+                        company_name,
+                        source,
+                        fetched_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            row.get("code"),
+                            row.get("planned_date"),
+                            row.get("kind"),
+                            row.get("company_name"),
+                            row.get("source"),
+                            row.get("fetched_at")
+                        )
+                        for row in earnings_rows
+                    ]
+                )
+                conn.execute(
+                    "UPDATE events_meta SET earnings_last_success_at = ? WHERE id = 1",
+                    [finished_at]
+                )
+            if rights_rows:
+                conn.execute("DELETE FROM ex_rights WHERE source = 'JPX'")
+                conn.executemany(
+                    """
+                    INSERT INTO ex_rights (
+                        code,
+                        ex_date,
+                        record_date,
+                        category,
+                        last_rights_date,
+                        source,
+                        fetched_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            row.get("code"),
+                            row.get("ex_date"),
+                            row.get("record_date"),
+                            row.get("category"),
+                            row.get("last_rights_date"),
+                            row.get("source"),
+                            row.get("fetched_at")
+                        )
+                        for row in rights_rows
+                    ]
+                )
+                conn.execute(
+                    "UPDATE events_meta SET rights_last_success_at = ? WHERE id = 1",
+                    [finished_at]
+                )
             conn.execute(
-                "UPDATE events_meta SET earnings_last_success_at = ? WHERE id = 1",
-                [finished_at]
-            )
-        if rights_rows:
-            conn.execute("DELETE FROM ex_rights WHERE source = 'JPX'")
-            conn.executemany(
                 """
-                INSERT INTO ex_rights (
-                    code,
-                    ex_date,
-                    record_date,
-                    category,
-                    last_rights_date,
-                    source,
-                    fetched_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                UPDATE events_meta
+                SET
+                    last_error = ?,
+                    last_attempt_at = ?,
+                    is_refreshing = FALSE,
+                    refresh_lock_job_id = NULL,
+                    refresh_lock_started_at = NULL
+                WHERE id = 1
                 """,
-                [
-                    (
-                        row.get("code"),
-                        row.get("ex_date"),
-                        row.get("record_date"),
-                        row.get("category"),
-                        row.get("last_rights_date"),
-                        row.get("source"),
-                        row.get("fetched_at")
-                    )
-                    for row in rights_rows
-                ]
+                [error_text, finished_at]
             )
+    except Exception as exc:
+        finished_at = jst_now().replace(tzinfo=None)
+        error_text = f"refresh_failed:{exc}"
+        with get_conn() as conn:
+            _ensure_events_meta_row(conn)
             conn.execute(
-                "UPDATE events_meta SET rights_last_success_at = ? WHERE id = 1",
-                [finished_at]
+                """
+                UPDATE events_meta
+                SET
+                    last_error = ?,
+                    last_attempt_at = ?,
+                    is_refreshing = FALSE,
+                    refresh_lock_job_id = NULL,
+                    refresh_lock_started_at = NULL
+                WHERE id = 1
+                """,
+                [error_text, finished_at]
             )
-        conn.execute(
-            """
-            UPDATE events_meta
-            SET
-                last_error = ?,
-                last_attempt_at = ?,
-                is_refreshing = FALSE,
-                refresh_lock_job_id = NULL,
-                refresh_lock_started_at = NULL
-            WHERE id = 1
-            """,
-            [error_text, finished_at]
-        )
 
     status = "success" if not error_text else "failed"
     _update_events_job(job_id, status, finished_at, error_text)
@@ -839,6 +860,34 @@ def simple_health():
 def events_meta():
     with get_conn() as conn:
         meta = _load_events_meta(conn)
+        if meta.get("is_refreshing"):
+            lock_started_at = meta.get("refresh_lock_started_at")
+            if not lock_started_at or _is_events_lock_stale(lock_started_at):
+                finished_at = jst_now().replace(tzinfo=None)
+                conn.execute(
+                    """
+                    UPDATE events_meta
+                    SET
+                        last_error = ?,
+                        last_attempt_at = ?,
+                        is_refreshing = FALSE,
+                        refresh_lock_job_id = NULL,
+                        refresh_lock_started_at = NULL
+                    WHERE id = 1
+                    """,
+                    ["refresh_timeout", finished_at]
+                )
+                job_id = meta.get("refresh_lock_job_id")
+                if job_id:
+                    conn.execute(
+                        """
+                        UPDATE events_refresh_jobs
+                        SET status = ?, finished_at = ?, error = ?
+                        WHERE job_id = ? AND status = 'running'
+                        """,
+                        ["failed", finished_at, "refresh_timeout", job_id]
+                    )
+                meta = _load_events_meta(conn)
         rights_max = conn.execute(
             """
             SELECT MAX(COALESCE(last_rights_date, ex_date)) AS rights_max_date
@@ -4333,6 +4382,17 @@ def _compute_screener_metrics(
     }
 
 
+def _format_event_date(value: object | None) -> str | None:
+    """Format event date for frontend display."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, date):
+        return value.isoformat()
+    return None
+
+
 def _build_screener_rows() -> list[dict]:
     today = jst_now().date()
     window_end = today + timedelta(days=30)
@@ -4488,6 +4548,85 @@ def _build_screener_rows() -> list[dict]:
             }
         )
     return items
+
+
+
+# --- Events API ---
+
+def _refresh_events_job():
+    print("[events] Starting background refresh...")
+    meta_id = 1
+    started_at = jst_now()
+    
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT OR IGNORE INTO events_meta (id, is_refreshing) VALUES (?, ?)
+        """, (meta_id, False))
+        conn.execute("""
+            UPDATE events_meta
+            SET is_refreshing = 1,
+                last_attempt_at = ?
+            WHERE id = ?
+        """, (started_at, meta_id))
+    
+    try:
+        # 1. Fetch Earnings
+        earnings_rows = fetch_earnings_snapshot()
+        print(f"[events] Fetched {len(earnings_rows)} earnings records")
+        
+        with get_conn() as conn:
+            conn.execute("DELETE FROM earnings_planned")
+            conn.executemany("""
+                INSERT INTO earnings_planned (code, planned_date, kind, company_name, source, fetched_at)
+                VALUES (:code, :planned_date, :kind, :company_name, :source, :fetched_at)
+            """, earnings_rows)
+            conn.execute("""
+                UPDATE events_meta
+                SET earnings_last_success_at = ?
+                WHERE id = ?
+            """, (jst_now(), meta_id))
+
+        # 2. Fetch Rights
+        rights_rows = fetch_rights_snapshot()
+        print(f"[events] Fetched {len(rights_rows)} rights records")
+        
+        with get_conn() as conn:
+            conn.execute("DELETE FROM ex_rights")
+            conn.executemany("""
+                INSERT INTO ex_rights (code, ex_date, record_date, category, last_rights_date, source, fetched_at)
+                VALUES (:code, :ex_date, :record_date, :category, :last_rights_date, :source, :fetched_at)
+            """, rights_rows)
+            # Update meta success status
+            conn.execute("""
+                UPDATE events_meta
+                SET rights_last_success_at = ?,
+                    is_refreshing = 0,
+                    last_error = NULL
+                WHERE id = ?
+            """, (jst_now(), meta_id))
+            
+        print("[events] Refresh completed successfully")
+        
+    except Exception as e:
+        print(f"[events] Refresh failed: {e}")
+        traceback.print_exc()
+        with get_conn() as conn:
+            conn.execute("""
+                UPDATE events_meta
+                SET is_refreshing = 0,
+                    last_error = ?
+                WHERE id = ?
+            """, (str(e), meta_id))
+
+
+@app.get("/api/events/meta")
+def get_events_meta():
+    return events_meta()
+
+
+@app.post("/api/events/refresh")
+def refresh_events(reason: str | None = None):
+    return events_refresh(reason)
 
 
 def _get_screener_rows() -> list[dict]:
@@ -5691,6 +5830,9 @@ def _auto_sync_csv_files(conn, force: bool = False):
         paths = resolve_trade_csv_paths()
         _trade_sync_status["last_run"] = datetime.now().isoformat()
         _trade_sync_status["paths"] = paths
+        
+        if force:
+            conn.execute("DELETE FROM trade_events")
         
         updated = False
         files_to_process = []

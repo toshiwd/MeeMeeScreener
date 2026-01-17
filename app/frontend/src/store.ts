@@ -225,6 +225,7 @@ type StoreState = {
   resetBarsCache: () => void;
   loadEventsMeta: () => Promise<EventsMeta | null>;
   refreshEventsIfStale: () => Promise<void>;
+  refreshEvents: () => Promise<void>;
 };
 
 // Candidate sort presets (for buy/sell candidate screens only)
@@ -292,6 +293,8 @@ const MIN_BATCH_LIMIT = 60;
 const MAX_BATCH_LIMIT = 2000;
 const WEEKLY_DAILY_FACTOR = 7;
 const BATCH_TTL_MS = 60_000;
+const EVENTS_POLL_INTERVAL_MS = 5_000;
+const EVENTS_POLL_MAX_ATTEMPTS = 60;
 const KEEP_STORAGE_KEY = "keepList";
 const GRID_COLS_KEY = "gridCols";
 const GRID_ROWS_KEY = "gridRows";
@@ -317,6 +320,7 @@ const barsFetchedLimit: Record<GridTimeframe, Record<string, number>> = {
   daily: {}
 };
 let batchRequestCount = 0;
+let eventsPollPromise: Promise<void> | null = null;
 const DEFAULT_PERIODS: Record<MaTimeframe, number[]> = {
   daily: [7, 20, 60, 120, 200],
   weekly: [7, 20, 60, 120, 200],
@@ -385,13 +389,26 @@ const parseIsoMs = (value: string | null | undefined) => {
   return Number.isNaN(ms) ? null : ms;
 };
 
+const normalizeBool = (value: unknown) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed === "true") return true;
+    if (trimmed === "false") return false;
+    if (trimmed === "1") return true;
+    if (trimmed === "0") return false;
+  }
+  return false;
+};
+
 const normalizeEventsMeta = (payload: unknown): EventsMeta | null => {
   if (!payload || typeof payload !== "object") return null;
   const data = payload as Record<string, unknown>;
   return {
     earningsLastSuccessAt: (data.earnings_last_success_at as string | null) ?? null,
     rightsLastSuccessAt: (data.rights_last_success_at as string | null) ?? null,
-    isRefreshing: Boolean(data.is_refreshing),
+    isRefreshing: normalizeBool(data.is_refreshing),
     refreshJobId: (data.refresh_job_id as string | null) ?? null,
     lastError: (data.last_error as string | null) ?? null,
     lastAttemptAt: (data.last_attempt_at as string | null) ?? null,
@@ -469,6 +486,114 @@ const getRequiredBars = (settings: MaSetting[]) => {
 const getDailyLimitForWeekly = (settings: MaSetting[]) => {
   const weeklyBars = getRequiredBars(settings);
   return Math.min(MAX_BATCH_LIMIT, Math.max(MIN_BATCH_LIMIT, weeklyBars * WEEKLY_DAILY_FACTOR));
+};
+
+const startEventsMetaPolling = (
+  get: () => StoreState,
+  set: (partial: Partial<StoreState> | ((state: StoreState) => Partial<StoreState>)) => void
+) => {
+  if (eventsPollPromise) return eventsPollPromise;
+  eventsPollPromise = (async () => {
+    let sawRefreshing = false;
+    let lastJobId: string | null = null;
+    let handledCompletion = false;
+    for (let attempt = 0; attempt < EVENTS_POLL_MAX_ATTEMPTS; attempt += 1) {
+      const meta = await get().loadEventsMeta();
+      if (meta?.isRefreshing) {
+        sawRefreshing = true;
+        if (meta.refreshJobId) {
+          lastJobId = meta.refreshJobId;
+          try {
+            const res = await api.get(`/events/refresh/${meta.refreshJobId}`);
+            const status = (res.data as { status?: string; error?: string | null } | null)?.status;
+            if (status && status !== "running") {
+              const latest = await get().loadEventsMeta();
+              if (latest?.isRefreshing) {
+                set((prev) => ({
+                  eventsMeta: {
+                    ...(prev.eventsMeta ?? {
+                      earningsLastSuccessAt: null,
+                      rightsLastSuccessAt: null,
+                      lastAttemptAt: null,
+                      lastError: null,
+                      isRefreshing: false,
+                      refreshJobId: null
+                    }),
+                    isRefreshing: false,
+                    lastError:
+                      (res.data as { error?: string | null } | null)?.error ??
+                      prev.eventsMeta?.lastError ??
+                      "refresh_failed"
+                  }
+                }));
+              }
+              if (status === "success") {
+                try {
+                  await get().loadList();
+                } catch {
+                  // ignore list reload failures after events refresh
+                }
+              }
+              handledCompletion = true;
+              break;
+            }
+          } catch {
+            // ignore refresh status failures
+          }
+        }
+      } else {
+        if (sawRefreshing) {
+          try {
+            await get().loadList();
+          } catch {
+            // ignore list reload failures after events refresh
+          }
+        }
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, EVENTS_POLL_INTERVAL_MS));
+    }
+    if (sawRefreshing && lastJobId && !handledCompletion) {
+      try {
+        const res = await api.get(`/events/refresh/${lastJobId}`);
+        const status = (res.data as { status?: string; error?: string | null } | null)?.status;
+        if (status && status !== "running") {
+          const latest = await get().loadEventsMeta();
+          if (latest?.isRefreshing) {
+            set((prev) => ({
+              eventsMeta: {
+                ...(prev.eventsMeta ?? {
+                  earningsLastSuccessAt: null,
+                  rightsLastSuccessAt: null,
+                  lastAttemptAt: null,
+                  lastError: null,
+                  isRefreshing: false,
+                  refreshJobId: null
+                }),
+                isRefreshing: false,
+                lastError:
+                  (res.data as { error?: string | null } | null)?.error ??
+                  prev.eventsMeta?.lastError ??
+                  "refresh_failed"
+              }
+            }));
+          }
+          if (status === "success") {
+            try {
+              await get().loadList();
+            } catch {
+              // ignore list reload failures after events refresh
+            }
+          }
+        }
+      } catch {
+        // ignore refresh status failures
+      }
+    }
+  })().finally(() => {
+    eventsPollPromise = null;
+  });
+  return eventsPollPromise;
 };
 
 const normalizeDateParts = (year: number, month: number, day: number) => {
@@ -1378,9 +1503,38 @@ export const useStore = create<StoreState>((set, get) => ({
             refreshJobId: jobId
           }
         }));
+        void startEventsMetaPolling(get, set);
       }
     } catch {
       // ignore refresh failures
+    }
+  },
+  refreshEvents: async () => {
+    if (get().eventsMeta?.isRefreshing) return;
+    try {
+      const res = await api.post("/events/refresh", null, {
+        params: { reason: "manual" }
+      });
+      const jobId = (res.data as { refresh_job_id?: string } | null)?.refresh_job_id ?? null;
+      set((prev) => ({
+        eventsMeta: {
+          ...(prev.eventsMeta ?? {
+            earningsLastSuccessAt: null,
+            rightsLastSuccessAt: null,
+            lastAttemptAt: null,
+            lastError: null,
+            isRefreshing: false,
+            refreshJobId: null
+          }),
+          isRefreshing: true,
+          refreshJobId: jobId
+        }
+      }));
+      void startEventsMetaPolling(get, set);
+    } catch {
+      // ignore refresh failures
+    } finally {
+      void get().loadEventsMeta();
     }
   }
 }));

@@ -60,7 +60,8 @@ const LABELS = {
   menu: "\u30e1\u30cb\u30e5\u30fc",
   selected: "\u9078\u629e\u4e2d",
   active: "\u9069\u7528\u4e2d",
-  actions: "\u64cd\u4f5c"
+  actions: "\u64cd\u4f5c",
+  refreshEvents: "\u30a4\u30d9\u30f3\u30c8\u66f4\u65b0"
 };
 
 const rangeOptions = [
@@ -99,6 +100,7 @@ export default function UnifiedListHeader({
   const filterRef = useRef<HTMLDivElement | null>(null);
   const moreRef = useRef<HTMLDivElement | null>(null);
   const eventsMeta = useStore((state) => state.eventsMeta);
+  const refreshEvents = useStore((state) => state.refreshEvents);
 
   const filterItemsSafe = filterItems ?? [];
   const hasFilters = filterItemsSafe.length > 0;
@@ -495,6 +497,21 @@ export default function UnifiedListHeader({
               <div className="popover-section">
                 <div className="popover-title">{LABELS.actions}</div>
                 <div className="popover-list">
+                  <button
+                    type="button"
+                    className="popover-item"
+                    disabled={eventsMeta?.isRefreshing}
+                    onClick={() => {
+                      void refreshEvents();
+                      setMoreOpen(false);
+                    }}
+                  >
+                    <span>
+                      {eventsMeta?.isRefreshing
+                        ? "\u30a4\u30d9\u30f3\u30c8\u66f4\u65b0\u4e2d..."
+                        : LABELS.refreshEvents}
+                    </span>
+                  </button>
                   <button
                     type="button"
                     className="popover-item"
