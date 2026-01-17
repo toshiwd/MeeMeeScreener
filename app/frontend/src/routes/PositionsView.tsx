@@ -13,6 +13,7 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
+import { buildCurrentPositions, type TradeEvent } from "../utils/positions";
 
 type HeldItem = {
   symbol: string;
@@ -34,21 +35,6 @@ type HistoryItem = {
   round_no: number;
   has_issue: boolean;
   issue_note?: string | null;
-};
-
-type CurrentPositionsResponse = {
-  holding_codes?: string[];
-  all_traded_codes?: string[];
-  current_positions_by_code?: Record<
-    string,
-    {
-      buyShares?: number;
-      sellShares?: number;
-      opened_at?: string | null;
-      has_issue?: boolean;
-      issue_note?: string | null;
-    }
-  >;
 };
 
 type PositionSortKey = "code" | "change" | "scoreUp" | "scoreDown";
@@ -126,7 +112,7 @@ export default function PositionsView() {
   useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
-    loadList().catch(() => {});
+    loadList().catch(() => { });
   }, [backendReady, loadList, tickers.length]);
 
   const tickerMap = useMemo(() => {
@@ -139,36 +125,57 @@ export default function PositionsView() {
     setLoading(true);
     const load = async () => {
       try {
-        const currentRes = await api.get("/positions/current");
-        const currentPayload = (currentRes.data || {}) as CurrentPositionsResponse;
-        const holdingCodes = Array.isArray(currentPayload.holding_codes)
-          ? currentPayload.holding_codes
-          : [];
-        const allTradedCodes = Array.isArray(currentPayload.all_traded_codes)
-          ? currentPayload.all_traded_codes
-          : [];
-        const positionsByCode = currentPayload.current_positions_by_code ?? {};
+        const tradesRes = await api.get("/trades");
+        const tradesPayload = (tradesRes.data || {}) as { events?: TradeEvent[] };
+        const tradeEvents = Array.isArray(tradesPayload.events) ? tradesPayload.events : [];
+        const tradesByCode = new Map<string, TradeEvent[]>();
+
+        tradeEvents.forEach((trade) => {
+          const code = (trade.code ?? "").toString().trim();
+          if (!code) return;
+          const list = tradesByCode.get(code);
+          if (list) {
+            list.push(trade);
+          } else {
+            tradesByCode.set(code, [trade]);
+          }
+        });
+
+        const allTradedCodes = Array.from(tradesByCode.keys()).sort((a, b) => a.localeCompare(b, "ja"));
+        const holdings: HeldItem[] = [];
+        const holdingCodes: string[] = [];
+
+        tradesByCode.forEach((items, code) => {
+          const positions = buildCurrentPositions(items);
+          const totals = positions.reduce(
+            (acc, pos) => {
+              acc.longLots += pos.longLots;
+              acc.shortLots += pos.shortLots;
+              return acc;
+            },
+            { longLots: 0, shortLots: 0 }
+          );
+          if (!(totals.longLots > 0 || totals.shortLots > 0)) return;
+          holdingCodes.push(code);
+          const buy = totals.longLots;
+          const sell = totals.shortLots;
+          const buyLabel = Number.isInteger(buy) ? `${buy}` : `${buy}`;
+          const sellLabel = Number.isInteger(sell) ? `${sell}` : `${sell}`;
+          const ticker = tickerMap.get(code);
+          holdings.push({
+            symbol: code,
+            name: ticker?.name ?? code,
+            buy_qty: buy,
+            sell_qty: sell,
+            sell_buy_text: `${sellLabel}-${buyLabel}`,
+            opened_at: null,
+            has_issue: false,
+            issue_note: null
+          });
+        });
 
         if (tab === "held") {
-          const items: HeldItem[] = holdingCodes.map((code) => {
-            const position = positionsByCode[code] ?? {};
-            const buy = Number(position.buyShares ?? 0);
-            const sell = Number(position.sellShares ?? 0);
-            const buyLabel = Number.isInteger(buy) ? `${buy}` : `${buy}`;
-            const sellLabel = Number.isInteger(sell) ? `${sell}` : `${sell}`;
-            const ticker = tickerMap.get(code);
-            return {
-              symbol: code,
-              name: ticker?.name ?? code,
-              buy_qty: buy,
-              sell_qty: sell,
-              sell_buy_text: `${sellLabel}-${buyLabel}`,
-              opened_at: position.opened_at ?? null,
-              has_issue: Boolean(position.has_issue),
-              issue_note: position.issue_note ?? null
-            };
-          });
-          setHeldItems(items);
+          setHeldItems(holdings);
           setHistoryItems([]);
         } else {
           const holdingSet = new Set(holdingCodes);
@@ -509,19 +516,19 @@ export default function PositionsView() {
     () =>
       tab === "held"
         ? [
-            {
-              key: "signals",
-              label: "\u30b7\u30b0\u30ca\u30eb\u3042\u308a",
-              checked: filterSignalsOnly,
-              onToggle: () => setFilterSignalsOnly((prev) => !prev)
-            },
-            {
-              key: "data",
-              label: "\u30c7\u30fc\u30bf\u53d6\u5f97\u6e08\u307f",
-              checked: filterDataOnly,
-              onToggle: () => setFilterDataOnly((prev) => !prev)
-            }
-          ]
+          {
+            key: "signals",
+            label: "\u30b7\u30b0\u30ca\u30eb\u3042\u308a",
+            checked: filterSignalsOnly,
+            onToggle: () => setFilterSignalsOnly((prev) => !prev)
+          },
+          {
+            key: "data",
+            label: "\u30c7\u30fc\u30bf\u53d6\u5f97\u6e08\u307f",
+            checked: filterDataOnly,
+            onToggle: () => setFilterDataOnly((prev) => !prev)
+          }
+        ]
         : [],
     [tab, filterSignalsOnly, filterDataOnly]
   );
@@ -649,6 +656,38 @@ export default function PositionsView() {
         </div>
 
         <div style={{ flex: 1 }}></div>
+
+        <button
+          className="positions-import-btn"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "6px 12px",
+            background: "var(--theme-bg-tertiary)",
+            border: "1px solid var(--theme-border)",
+            borderRadius: "6px",
+            cursor: "pointer",
+            fontSize: "13px"
+          }}
+          onClick={async () => {
+            if (!window.confirm("建玉を再計算しますか？")) return;
+            try {
+              const res = await api.post("/positions/rebuild");
+              const data = res.data;
+              if (data.success) {
+                alert(`再計算完了: ${data.message}`);
+                window.location.reload();
+              } else {
+                alert(`エラー: ${data.message}`);
+              }
+            } catch (err: any) {
+              alert(`再計算に失敗しました: ${err.message}`);
+            }
+          }}
+        >
+          🔄 再計算
+        </button>
 
         <label className="positions-import-btn" style={{
           display: "inline-flex",

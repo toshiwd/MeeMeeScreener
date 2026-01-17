@@ -377,7 +377,6 @@ export default function DetailView() {
   const [tradeWarnings, setTradeWarnings] = useState<ApiWarnings>({ items: [] });
   const [tradeErrors, setTradeErrors] = useState<string[]>([]);
   const [currentPositionsFromApi, setCurrentPositionsFromApi] = useState<CurrentPosition[] | null>(null);
-  const [currentPositionsOverride, setCurrentPositionsOverride] = useState<CurrentPosition[] | null>(null);
   const [dailyErrors, setDailyErrors] = useState<string[]>([]);
   const [monthlyErrors, setMonthlyErrors] = useState<string[]>([]);
   const [dailyFetch, setDailyFetch] = useState<FetchState>({
@@ -696,39 +695,6 @@ export default function DetailView() {
       });
   }, [backendReady, code]);
 
-  useEffect(() => {
-    if (!backendReady) return;
-    if (!code) return;
-    setCurrentPositionsOverride(null);
-    api
-      .get("/positions/current")
-      .then((res) => {
-        const payload = res.data as {
-          current_positions_by_code?: Record<string, { buyShares?: number; sellShares?: number }>;
-        };
-        const current = payload?.current_positions_by_code?.[code];
-        if (!current) {
-          setCurrentPositionsOverride(null);
-          return;
-        }
-        const longLots = Number(current.buyShares ?? 0);
-        const shortLots = Number(current.sellShares ?? 0);
-        setCurrentPositionsOverride([
-          {
-            brokerKey: "total",
-            brokerLabel: "TOTAL",
-            longLots,
-            shortLots,
-            avgLongPrice: 0,
-            avgShortPrice: 0,
-            realizedPnL: 0
-          }
-        ]);
-      })
-      .catch(() => {
-        setCurrentPositionsOverride(null);
-      });
-  }, [backendReady, code]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -785,10 +751,8 @@ export default function DetailView() {
   const dailyPositions = positionData.dailyPositions;
   const tradeMarkers = positionData.tradeMarkers;
   const currentPositions = useMemo(
-    () =>
-      currentPositionsOverride ??
-      (currentPositionsFromApi !== null ? currentPositionsFromApi : buildCurrentPositions(trades)),
-    [currentPositionsOverride, currentPositionsFromApi, trades]
+    () => (currentPositionsFromApi !== null ? currentPositionsFromApi : buildCurrentPositions(trades)),
+    [currentPositionsFromApi, trades]
   );
   const latestTradeTime = useMemo(() => {
     if (trades.length === 0) return null;
@@ -1084,6 +1048,64 @@ export default function DetailView() {
       console.error("Failed to fetch memo:", error);
     }
 
+    // Get position for selected date
+    const selectedTime = selectedBarData.time;
+    const positionsAtTime = dailyPositions.filter(p => p.time === selectedTime);
+    let totalLong = 0;
+    let totalShort = 0;
+    positionsAtTime.forEach(p => {
+      totalLong += p.longLots;
+      totalShort += p.shortLots;
+    });
+
+    // Get MA values and trends for selected date
+    const maData: any = {};
+    const ma7Line = dailyMaLines.find(line => line.period === 7);
+    const ma20Line = dailyMaLines.find(line => line.period === 20);
+    const ma60Line = dailyMaLines.find(line => line.period === 60);
+
+    const getMaTrend = (maLine: typeof ma7Line, barIndex: number | null) => {
+      if (!maLine || barIndex == null || barIndex < 1) return "—";
+      const currentValue = maLine.data.find(d => d.time === selectedBarData.time)?.value;
+      const prevBar = dailyCandles[barIndex - 1];
+      const prevValue = prevBar ? maLine.data.find(d => d.time === prevBar.time)?.value : null;
+      if (currentValue == null || prevValue == null) return "—";
+      if (selectedBarData.close > currentValue && prevBar.close > prevValue) return "上昇";
+      if (selectedBarData.close < currentValue && prevBar.close < prevValue) return "下降";
+      return "転換";
+    };
+
+    const barIndex = dailyCandles.findIndex(c => c.time === selectedTime);
+
+    if (ma7Line?.visible) {
+      const value = ma7Line.data.find(d => d.time === selectedTime)?.value;
+      if (value != null) {
+        maData.ma7 = { value, trend: getMaTrend(ma7Line, barIndex) };
+      }
+    }
+    if (ma20Line?.visible) {
+      const value = ma20Line.data.find(d => d.time === selectedTime)?.value;
+      if (value != null) {
+        maData.ma20 = { value, trend: getMaTrend(ma20Line, barIndex) };
+      }
+    }
+    if (ma60Line?.visible) {
+      const value = ma60Line.data.find(d => d.time === selectedTime)?.value;
+      if (value != null) {
+        maData.ma60 = { value, trend: getMaTrend(ma60Line, barIndex) };
+      }
+    }
+
+    // Get signals for selected date
+    const signalLabels: string[] = [];
+    if (dailySignals && Array.isArray(dailySignals)) {
+      dailySignals.forEach(signal => {
+        if (signal && typeof signal === 'object' && 'label' in signal) {
+          signalLabels.push(signal.label);
+        }
+      });
+    }
+
     const consultData = {
       symbol: code,
       name: tickerName || code,
@@ -1095,6 +1117,9 @@ export default function DetailView() {
         close: selectedBarData.close,
       },
       volume: dailyVolume.find(v => v.time === selectedBarData.time)?.value,
+      position: totalLong > 0 || totalShort > 0 ? { sell: totalShort, buy: totalLong } : undefined,
+      ma: Object.keys(maData).length > 0 ? maData : undefined,
+      signals: signalLabels.length > 0 ? signalLabels : undefined,
       memo,
     };
 

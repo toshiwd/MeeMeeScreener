@@ -127,6 +127,13 @@ const resolveBrokerMeta = (trade: TradeEvent) => {
   return { key: "unknown", label: "N/A", account };
 };
 
+const resolveTradeAction = (trade: TradeEvent) => {
+  if (trade.action) return trade.action;
+  if (trade.kind?.includes("open")) return "open";
+  if (trade.kind?.includes("close")) return "close";
+  return "open";
+};
+
 const resolveKindLabel = (trade: TradeEvent) => {
   if (trade.memo) return trade.memo;
   if (trade.raw && typeof trade.raw === "object") {
@@ -297,20 +304,24 @@ const buildPositionsForGroup = (
   bars.forEach((bar) => {
     const date = formatDate(bar.time);
     const dayTrades = tradeMap.get(date) ?? [];
+    const orderedDayTrades = dayTrades
+      .map((trade, index) => ({ trade, index }))
+      .sort((a, b) => {
+        const aAction = resolveTradeAction(a.trade);
+        const bAction = resolveTradeAction(b.trade);
+        const aOrder = aAction === "open" ? 0 : aAction === "close" ? 1 : 2;
+        const bOrder = bAction === "open" ? 0 : bAction === "close" ? 1 : 2;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return a.index - b.index;
+      });
     let buyLots = 0;
     let sellLots = 0;
     const markerTrades: TradeEvent[] = [];
 
-    dayTrades.forEach((trade) => {
+    orderedDayTrades.forEach(({ trade }) => {
       const lots = clampLots(trade.units);
       const price = Number(trade.price ?? 0);
-      const action =
-        trade.action ??
-        (trade.kind?.includes("open")
-          ? "open"
-          : trade.kind?.includes("close")
-          ? "close"
-          : "open");
+      const action = resolveTradeAction(trade);
       const kind = trade.kind ?? "";
       const isMarker =
         kind !== "DELIVERY" && kind !== "TAKE_DELIVERY" && kind !== "INBOUND" && kind !== "OUTBOUND";

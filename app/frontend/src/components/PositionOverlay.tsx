@@ -431,6 +431,8 @@ export default function PositionOverlay({
     if (!bars.length) return [];
     const lastBar = bars[bars.length - 1];
     if (!lastBar) return [];
+    // Only show current positions if we're viewing the latest bar
+    if (activePositionTime !== lastBar.time) return [];
     const close = lastBar.close;
     return currentPositions.map((pos) => {
       const avgLongPrice = pos.longLots > 0 ? pos.avgLongPrice : 0;
@@ -457,7 +459,7 @@ export default function PositionOverlay({
         brokerGroupKey: pos.brokerKey
       };
     });
-  }, [currentPositions, latestTradeTime, bars, activePositionTime]);
+  }, [currentPositions, bars, activePositionTime]);
   const activeTradeMarkers = useMemo(() => {
     if (!showOverlay || !showMarkers || activePositionTime == null) return [];
     return tradeMarkers.filter((trade) => trade.time === activePositionTime);
@@ -666,9 +668,9 @@ export default function PositionOverlay({
             ))}
           </div>
         )}
-        {showPositionInfo && (currentPositionEntries.length > 0 || activePositions.length > 0) && (
+        {showPositionInfo && (activePositions.length > 0 || currentPositionEntries.length > 0) && (
           <div className="position-overlay-block">
-            {(currentPositionEntries.length > 0 ? currentPositionEntries : activePositions).map((position) => {
+            {(activePositions.length > 0 ? activePositions : currentPositionEntries).map((position) => {
               const brokerKey = position.brokerKey ?? "unknown";
               const brokerLabel = position.brokerLabel ?? "N/A";
               return (

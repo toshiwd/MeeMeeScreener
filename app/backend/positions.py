@@ -122,6 +122,15 @@ def _build_header_map(headers: list[str], expected: list[str]) -> dict[str, str]
     return mapping
 
 
+def _resolve_header(headers: list[str], candidates: list[str]) -> str | None:
+    normalized_headers = { _normalize_label(h): h for h in headers }
+    for candidate in candidates:
+        normalized = _normalize_label(candidate)
+        if normalized in normalized_headers:
+            return normalized_headers[normalized]
+    return None
+
+
 def _build_rakuten_row_hash(row: dict, headers: list[str], row_index: int) -> str:
     parts = ["rakuten"]
     parts.append(f"row_index:{row_index}")
@@ -147,30 +156,29 @@ def _rakuten_action(trade_type: str, side_type: str) -> str | None:
     trade_norm = _normalize_label(trade_type)
     side_norm = _normalize_label(side_type)
 
-    if "入庫" in side_norm or "入庫" in trade_norm:
-        return ACTION_SPOT_IN
-    if "現渡" in trade_norm or "現渡" in side_norm:
-        return ACTION_DELIVERY_SHORT
-    if "現引" in trade_norm or "現引" in side_norm:
-        return ACTION_MARGIN_SWAP_TO_SPOT
-    if "出庫" in trade_norm or "出庫" in side_norm:
-        return ACTION_SPOT_OUT
-
-    if trade_norm == "現物":
-        if "買付" in side_norm:
-            return ACTION_SPOT_BUY
-        if "売付" in side_norm:
-            return ACTION_SPOT_SELL
     if trade_norm == "信用新規":
-        if "買建" in side_norm:
+        if side_norm == "買建":
             return ACTION_MARGIN_OPEN_LONG
-        if "売建" in side_norm:
+        if side_norm == "売建":
             return ACTION_MARGIN_OPEN_SHORT
     if trade_norm == "信用返済":
-        if "売埋" in side_norm:
+        if side_norm == "売埋":
             return ACTION_MARGIN_CLOSE_LONG
-        if "買埋" in side_norm:
+        if side_norm == "買埋":
             return ACTION_MARGIN_CLOSE_SHORT
+    if trade_norm == "現物":
+        if side_norm == "買付":
+            return ACTION_SPOT_BUY
+        if side_norm == "売付":
+            return ACTION_SPOT_SELL
+    if trade_norm == "現引":
+        return ACTION_MARGIN_SWAP_TO_SPOT
+    if trade_norm == "現渡":
+        return ACTION_DELIVERY_SHORT
+    if side_norm == "入庫":
+        return ACTION_SPOT_IN
+    if side_norm == "出庫":
+        return ACTION_SPOT_OUT
 
     return None
 
@@ -181,22 +189,17 @@ def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
         return [], warnings + ["rakuten:empty"]
 
     headers = rows[0]
-    header_map = _build_header_map(headers, [
-        "約定日",
-        "受渡日",
-        "銘柄コード",
-        "取引区分",
-        "売買区分",
-        "信用区分",
-        "弁済期限",
-        "数量［株］",
-        "単価［円］",
-        "受渡金額［円］",
-        "建約定日",
-        "建単価［円］"
-    ])
+    resolved = {
+        "約定日": _resolve_header(headers, ["約定日"]),
+        "銘柄コード": _resolve_header(headers, ["銘柄コード"]),
+        "取引区分": _resolve_header(headers, ["取引区分"]),
+        "売買区分": _resolve_header(headers, ["売買区分"]),
+        "信用区分": _resolve_header(headers, ["信用区分"]),
+        "数量［株］": _resolve_header(headers, ["数量［株］", "数量[株]", "数量(株)", "数量"]),
+        "単価［円］": _resolve_header(headers, ["単価［円］", "単価(円)", "単価"])
+    }
     required = ["約定日", "銘柄コード", "取引区分", "売買区分", "数量［株］"]
-    missing = [key for key in required if key not in header_map]
+    missing = [key for key in required if not resolved.get(key)]
     if missing:
         return [], warnings + [f"rakuten:missing_columns:{','.join(missing)}"]
 
@@ -206,32 +209,33 @@ def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
             continue
         row_dict = {headers[idx]: row[idx] if idx < len(row) else "" for idx in range(len(headers))}
 
-        exec_dt = _parse_date(row_dict.get(header_map["約定日"]))
+        exec_dt = _parse_date(row_dict.get(resolved["約定日"]))
         if exec_dt is None:
             warnings.append("rakuten:invalid_date")
             continue
 
-        symbol = _normalize_symbol(row_dict.get(header_map["銘柄コード"], ""))
+        symbol = _normalize_symbol(row_dict.get(resolved["銘柄コード"], ""))
         if not symbol:
             warnings.append(f"rakuten:missing_symbol:{exec_dt.date().isoformat()}")
             continue
 
-        qty_raw = row_dict.get(header_map["数量［株］"], "")
+        qty_raw = row_dict.get(resolved["数量［株］"], "")
         qty = _parse_float(qty_raw)
         if qty is None:
             warnings.append(f"rakuten:invalid_qty:{symbol}:{_normalize_text(qty_raw)}")
             continue
+        qty = float(int(qty))
 
-        trade_type = _normalize_text(row_dict.get(header_map["取引区分"], ""))
-        side_type = _normalize_text(row_dict.get(header_map["売買区分"], ""))
-        margin_type = _normalize_text(row_dict.get(header_map.get("信用区分", ""), ""))
+        trade_type = _normalize_text(row_dict.get(resolved["取引区分"], ""))
+        side_type = _normalize_text(row_dict.get(resolved["売買区分"], ""))
+        margin_type = _normalize_text(row_dict.get(resolved.get("信用区分") or "", ""))
 
         action = _rakuten_action(trade_type, side_type)
         if action is None:
             warnings.append(f"rakuten:unmapped:{trade_type}:{side_type}:{symbol}")
             action = ACTION_UNKNOWN
 
-        price = _parse_float(row_dict.get(header_map.get("単価［円］", ""), ""))
+        price = _parse_float(row_dict.get(resolved.get("単価［円］") or "", ""))
         source_row_hash = _build_rakuten_row_hash(row_dict, headers, row_index)
 
         events.append(

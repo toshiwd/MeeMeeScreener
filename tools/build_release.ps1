@@ -132,6 +132,9 @@ print(json.dumps(missing))
         $pyInstallerArgs += "--clean"
     }
     $pyInstallerArgs += @(
+        "--paths", "$repoRoot"
+    )
+    $pyInstallerArgs += @(
         "--onedir",
         "--noconsole",
         "--name", "MeeMeeScreener",
@@ -149,6 +152,10 @@ print(json.dumps(missing))
         "--hidden-import", "app.backend",
         "--hidden-import", "app.backend.main",
         "--collect-submodules", "app.backend",
+        "--collect-submodules", "app",
+        "--add-data", "$(Join-Path $repoRoot "app/__init__.py");app",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/__init__.py");app/backend",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/*.py");app/backend",
         "--add-data", "$backendStatic;app/backend/static",
         "--add-data", "$iconPath;resources/icons",
         "--add-data", "$(Join-Path $repoRoot "tools/export_pan.vbs");tools",

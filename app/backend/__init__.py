@@ -1,1 +1,1 @@
-# Package marker for desktop launcher imports.
+# Package marker for PyInstaller module discovery.

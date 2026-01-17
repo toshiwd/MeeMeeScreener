@@ -919,7 +919,6 @@ def upsert_position_seed(payload: dict = Body(...)):
 @app.get("/api/positions/held")
 def positions_held():
     with get_conn() as conn:
-        _auto_sync_csv_files(conn)
         rows = conn.execute(
             """
             SELECT p.symbol, p.buy_qty, p.sell_qty, p.opened_at, p.has_issue, p.issue_note, t.name
@@ -951,46 +950,44 @@ def positions_held():
 @app.get("/api/positions/current")
 def positions_current():
     with get_conn() as conn:
-        _auto_sync_csv_files(conn)
-        events = get_events(conn)
-        issue_rows = conn.execute(
+        live_rows = conn.execute(
             """
-            SELECT symbol, opened_at, has_issue, issue_note
+            SELECT symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note
             FROM positions_live
             """
         ).fetchall()
+        traded_rows = conn.execute(
+            """
+            SELECT DISTINCT symbol
+            FROM trade_events
+            """
+        ).fetchall()
 
-    issues_by_code = {
-        row[0]: {
-            "opened_at": _format_event_timestamp(row[1]),
-            "has_issue": bool(row[2]),
-            "issue_note": row[3]
-        }
-        for row in issue_rows
-    }
-
-    trades_by_code: dict[str, list[dict]] = {}
-    for ev in events:
-        code = ev[3]
-        trades_by_code.setdefault(code, []).append(_map_trade_event(ev))
+    def to_lots(value: float | None) -> float:
+        if value is None:
+            return 0.0
+        try:
+            return float(value) / 100.0
+        except (TypeError, ValueError):
+            return 0.0
 
     current_positions_by_code: dict[str, dict] = {}
     holding_codes: list[str] = []
 
-    for code, trades in trades_by_code.items():
-        metrics = _calc_position_metrics(trades)
-        issue_info = issues_by_code.get(code, {})
-        current_positions_by_code[code] = {
-            "buyShares": metrics["longLots"],
-            "sellShares": metrics["shortLots"],
-            "opened_at": issue_info.get("opened_at"),
-            "has_issue": issue_info.get("has_issue", False),
-            "issue_note": issue_info.get("issue_note")
+    for symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note in live_rows:
+        buy_lots = to_lots(buy_qty)
+        sell_lots = to_lots(sell_qty)
+        current_positions_by_code[str(symbol)] = {
+            "buyShares": buy_lots,
+            "sellShares": sell_lots,
+            "opened_at": _format_event_timestamp(opened_at),
+            "has_issue": bool(has_issue),
+            "issue_note": issue_note
         }
-        if metrics["longLots"] > 0 or metrics["shortLots"] > 0:
-            holding_codes.append(code)
+        if buy_lots > 0 or sell_lots > 0:
+            holding_codes.append(str(symbol))
 
-    all_traded_codes = sorted(trades_by_code.keys())
+    all_traded_codes = sorted({str(row[0]) for row in traded_rows if row and row[0]})
 
     return JSONResponse(
         content={
@@ -1000,6 +997,37 @@ def positions_current():
         }
     )
 
+
+@app.post("/api/positions/rebuild")
+def positions_rebuild():
+    """Force rebuild all positions from trade events"""
+    try:
+        with get_conn() as conn:
+            summary = rebuild_positions(conn)
+            
+            # Get updated holdings count
+            holdings_count = conn.execute("""
+                SELECT COUNT(*) FROM positions_live 
+                WHERE buy_qty > 0 OR sell_qty > 0
+            """).fetchone()[0]
+            
+        return JSONResponse(
+            content={
+                "success": True,
+                "summary": summary,
+                "holdings_count": holdings_count,
+                "message": f"Positions rebuilt successfully. {holdings_count} symbols with holdings."
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "message": "Failed to rebuild positions"
+            }
+        )
 
 @app.get("/api/positions/history")
 def positions_history(symbol: str | None = None):
@@ -5073,8 +5101,6 @@ def diagnostics():
 @app.get("/api/trades/{code}")
 def trades_by_code(code: str):
     try:
-        with get_conn() as conn:
-            _auto_sync_csv_files(conn)
         daily_positions = _get_daily_positions_db([code])
         daily_for_code = daily_positions.get(code, [])
         
@@ -5135,8 +5161,6 @@ def trades_by_code(code: str):
 @app.get("/api/trades")
 def trades(code: str | None = None):
     try:
-        with get_conn() as conn:
-            _auto_sync_csv_files(conn)
         # Fetch for all codes if code is None
         code_list = [code] if code else None
         daily_positions_map = _get_daily_positions_db(code_list)
@@ -5780,8 +5804,6 @@ def get_trade_sync_status():
 @app.get("/api/positions/held")
 def get_held_positions():
     with get_conn() as conn:
-        _auto_sync_csv_files(conn)
-        
         rows = conn.execute("""
             SELECT symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note
             FROM positions_live
