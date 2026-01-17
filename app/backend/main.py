@@ -1,5 +1,5 @@
 ﻿from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import calendar
 import csv
 import glob
@@ -524,6 +524,7 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
                 """,
                 [error_text, finished_at]
             )
+        _invalidate_screener_cache()
     except Exception as exc:
         finished_at = jst_now().replace(tzinfo=None)
         error_text = f"refresh_failed:{exc}"
@@ -542,6 +543,7 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
                 """,
                 [error_text, finished_at]
             )
+        _invalidate_screener_cache()
 
     status = "success" if not error_text else "failed"
     _update_events_job(job_id, status, finished_at, error_text)
@@ -4604,6 +4606,7 @@ def _refresh_events_job():
                     last_error = NULL
                 WHERE id = ?
             """, (jst_now(), meta_id))
+        _invalidate_screener_cache()
             
         print("[events] Refresh completed successfully")
         
@@ -4617,6 +4620,7 @@ def _refresh_events_job():
                     last_error = ?
                 WHERE id = ?
             """, (str(e), meta_id))
+        _invalidate_screener_cache()
 
 
 @app.get("/api/events/meta")

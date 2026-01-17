@@ -293,8 +293,8 @@ const MIN_BATCH_LIMIT = 60;
 const MAX_BATCH_LIMIT = 2000;
 const WEEKLY_DAILY_FACTOR = 7;
 const BATCH_TTL_MS = 60_000;
-const EVENTS_POLL_INTERVAL_MS = 5_000;
-const EVENTS_POLL_MAX_ATTEMPTS = 60;
+const EVENTS_POLL_INTERVAL_MS = 10_000;
+const EVENTS_POLL_MAX_ATTEMPTS = 180;
 const KEEP_STORAGE_KEY = "keepList";
 const GRID_COLS_KEY = "gridCols";
 const GRID_ROWS_KEY = "gridRows";
@@ -495,71 +495,19 @@ const startEventsMetaPolling = (
   if (eventsPollPromise) return eventsPollPromise;
   eventsPollPromise = (async () => {
     let sawRefreshing = false;
-    let lastJobId: string | null = null;
-    let handledCompletion = false;
-    for (let attempt = 0; attempt < EVENTS_POLL_MAX_ATTEMPTS; attempt += 1) {
+    let attempts = 0;
+    const maxAttempts = EVENTS_POLL_MAX_ATTEMPTS;
+    const intervalMs = EVENTS_POLL_INTERVAL_MS;
+
+    while (attempts < maxAttempts) {
       const meta = await get().loadEventsMeta();
-      if (meta?.isRefreshing) {
-        sawRefreshing = true;
-        if (meta.refreshJobId) {
-          lastJobId = meta.refreshJobId;
-          try {
-            const res = await api.get(`/events/refresh/${meta.refreshJobId}`);
-            const status = (res.data as { status?: string; error?: string | null } | null)?.status;
-            if (status && status !== "running") {
-              const latest = await get().loadEventsMeta();
-              if (latest?.isRefreshing) {
-                set((prev) => ({
-                  eventsMeta: {
-                    ...(prev.eventsMeta ?? {
-                      earningsLastSuccessAt: null,
-                      rightsLastSuccessAt: null,
-                      lastAttemptAt: null,
-                      lastError: null,
-                      isRefreshing: false,
-                      refreshJobId: null
-                    }),
-                    isRefreshing: false,
-                    lastError:
-                      (res.data as { error?: string | null } | null)?.error ??
-                      prev.eventsMeta?.lastError ??
-                      "refresh_failed"
-                  }
-                }));
-              }
-              if (status === "success") {
-                try {
-                  await get().loadList();
-                } catch {
-                  // ignore list reload failures after events refresh
-                }
-              }
-              handledCompletion = true;
-              break;
-            }
-          } catch {
-            // ignore refresh status failures
-          }
-        }
-      } else {
-        if (sawRefreshing) {
-          try {
-            await get().loadList();
-          } catch {
-            // ignore list reload failures after events refresh
-          }
-        }
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, EVENTS_POLL_INTERVAL_MS));
-    }
-    if (sawRefreshing && lastJobId && !handledCompletion) {
-      try {
-        const res = await api.get(`/events/refresh/${lastJobId}`);
-        const status = (res.data as { status?: string; error?: string | null } | null)?.status;
-        if (status && status !== "running") {
-          const latest = await get().loadEventsMeta();
-          if (latest?.isRefreshing) {
+
+      if (meta?.refreshJobId) {
+        try {
+          const res = await api.get(`/events/refresh/${meta.refreshJobId}`);
+          const payload = res.data as { status?: string; error?: string | null } | null;
+          const status = payload?.status;
+          if (status && status !== "running") {
             set((prev) => ({
               eventsMeta: {
                 ...(prev.eventsMeta ?? {
@@ -571,26 +519,64 @@ const startEventsMetaPolling = (
                   refreshJobId: null
                 }),
                 isRefreshing: false,
-                lastError:
-                  (res.data as { error?: string | null } | null)?.error ??
-                  prev.eventsMeta?.lastError ??
-                  "refresh_failed"
+                lastError: payload?.error ?? prev.eventsMeta?.lastError ?? null
               }
             }));
-          }
-          if (status === "success") {
-            try {
-              await get().loadList();
-            } catch {
-              // ignore list reload failures after events refresh
+            if (status === "success") {
+              try {
+                await get().loadList();
+              } catch {
+                // ignore list reload failures after events refresh
+              }
             }
+            try {
+              await get().loadEventsMeta();
+            } catch {
+              // ignore meta reload failures after events refresh
+            }
+            break;
+          }
+        } catch {
+          // ignore status fetch failures and retry on next loop
+        }
+      }
+
+      if (meta?.isRefreshing) {
+        sawRefreshing = true;
+      } else {
+        if (sawRefreshing) {
+          try {
+            await get().loadList();
+          } catch {
+            // ignore list reload failures after refresh completes
           }
         }
-      } catch {
-        // ignore refresh status failures
+        break;
       }
+
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      attempts += 1;
     }
-  })().finally(() => {
+
+    if (attempts >= maxAttempts) {
+      set((prev) => ({
+        eventsMeta: {
+          ...(prev.eventsMeta ?? {
+            earningsLastSuccessAt: null,
+            rightsLastSuccessAt: null,
+            lastAttemptAt: null,
+            lastError: null,
+            isRefreshing: false,
+            refreshJobId: null
+          }),
+          isRefreshing: false,
+          lastError: "refresh_timeout"
+        }
+      }));
+    }
+
+    eventsPollPromise = null;
+  })().catch(() => {
     eventsPollPromise = null;
   });
   return eventsPollPromise;
@@ -804,7 +790,14 @@ export const useStore = create<StoreState>((set, get) => ({
   barsStatus: { monthly: {}, weekly: {}, daily: {} },
   loadingList: false,
   lastApiError: null,
-  eventsMeta: null,
+  eventsMeta: {
+    earningsLastSuccessAt: null,
+    rightsLastSuccessAt: null,
+    lastAttemptAt: null,
+    lastError: null,
+    refreshJobId: null,
+    isRefreshing: false
+  },
   eventsMetaLoading: false,
   maSettings: {
     daily: loadSettings("daily"),
@@ -1487,7 +1480,10 @@ export const useStore = create<StoreState>((set, get) => ({
       const res = await api.post("/events/refresh", null, {
         params: { reason: "startup_stale" }
       });
-      const jobId = (res.data as { refresh_job_id?: string } | null)?.refresh_job_id ?? null;
+      const jobId =
+        (res.data as { jobId?: string; refresh_job_id?: string } | null)?.jobId ??
+        (res.data as { refresh_job_id?: string } | null)?.refresh_job_id ??
+        null;
       if (jobId) {
         set((prev) => ({
           eventsMeta: {
@@ -1504,6 +1500,22 @@ export const useStore = create<StoreState>((set, get) => ({
           }
         }));
         void startEventsMetaPolling(get, set);
+      } else {
+        set((prev) => ({
+          eventsMeta: {
+            ...(prev.eventsMeta ?? {
+              earningsLastSuccessAt: null,
+              rightsLastSuccessAt: null,
+              lastAttemptAt: null,
+              lastError: null,
+              isRefreshing: false,
+              refreshJobId: null
+            }),
+            isRefreshing: false,
+            lastError: "refresh_job_missing",
+            refreshJobId: null
+          }
+        }));
       }
     } catch {
       // ignore refresh failures
@@ -1515,7 +1527,28 @@ export const useStore = create<StoreState>((set, get) => ({
       const res = await api.post("/events/refresh", null, {
         params: { reason: "manual" }
       });
-      const jobId = (res.data as { refresh_job_id?: string } | null)?.refresh_job_id ?? null;
+      const jobId =
+        (res.data as { jobId?: string; refresh_job_id?: string } | null)?.jobId ??
+        (res.data as { refresh_job_id?: string } | null)?.refresh_job_id ??
+        null;
+      if (!jobId) {
+        set((prev) => ({
+          eventsMeta: {
+            ...(prev.eventsMeta ?? {
+              earningsLastSuccessAt: null,
+              rightsLastSuccessAt: null,
+              lastAttemptAt: null,
+              lastError: null,
+              isRefreshing: false,
+              refreshJobId: null
+            }),
+            isRefreshing: false,
+            lastError: "refresh_job_missing",
+            refreshJobId: null
+          }
+        }));
+        return;
+      }
       set((prev) => ({
         eventsMeta: {
           ...(prev.eventsMeta ?? {
@@ -1532,7 +1565,20 @@ export const useStore = create<StoreState>((set, get) => ({
       }));
       void startEventsMetaPolling(get, set);
     } catch {
-      // ignore refresh failures
+      set((prev) => ({
+        eventsMeta: {
+          ...(prev.eventsMeta ?? {
+            earningsLastSuccessAt: null,
+            rightsLastSuccessAt: null,
+            lastAttemptAt: null,
+            lastError: null,
+            isRefreshing: false,
+            refreshJobId: null
+          }),
+          isRefreshing: false,
+          lastError: "refresh_failed"
+        }
+      }));
     } finally {
       void get().loadEventsMeta();
     }

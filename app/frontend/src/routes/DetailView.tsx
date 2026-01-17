@@ -6,10 +6,15 @@ import {
   IconArrowBackUp,
   IconArrowLeft,
   IconArrowRight,
+  IconBox,
+  IconBriefcase,
   IconCamera,
   IconCopy,
+  IconCurrencyYen,
   IconHeart,
   IconHeartFilled,
+  IconLink,
+  IconListDetails,
   IconTrash,
   IconSparkles,
   IconChartArrows,
@@ -526,17 +531,6 @@ export default function DetailView() {
     () => formatEventBadgeDate(activeTicker?.eventRightsDate),
     [activeTicker?.eventRightsDate]
   );
-  const eventsLastSuccessLabel = useMemo(() => {
-    const earningsMs = parseEventDateMs(eventsMeta?.earningsLastSuccessAt);
-    const rightsMs = parseEventDateMs(eventsMeta?.rightsLastSuccessAt);
-    const candidates = [
-      { value: eventsMeta?.earningsLastSuccessAt ?? null, ms: earningsMs },
-      { value: eventsMeta?.rightsLastSuccessAt ?? null, ms: rightsMs }
-    ].filter((item) => item.value && item.ms != null) as { value: string; ms: number }[];
-    if (!candidates.length) return null;
-    const oldest = candidates.reduce((prev, next) => (next.ms < prev.ms ? next : prev));
-    return formatEventDateYmd(oldest.value);
-  }, [eventsMeta]);
   const rightsCoverageLabel = useMemo(() => {
     const rightsMaxDate = eventsMeta?.dataCoverage?.rightsMaxDate ?? null;
     const maxMs = parseEventDateMs(rightsMaxDate);
@@ -552,8 +546,6 @@ export default function DetailView() {
     const cleaned = raw.replace(/\s*\?\s*$/, "").trim();
     return cleaned === "?" ? "" : cleaned;
   }, [tickers, compareCode]);
-
-  const subtitle = "Daily / Weekly / Monthly";
 
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
   const isFavorite = useMemo(() => (code ? favoritesSet.has(code) : false), [favoritesSet, code]);
@@ -2122,27 +2114,12 @@ export default function DetailView() {
               <div className="detail-title-code">{code}</div>
               <div className="detail-title-name">{tickerName || "?????"}</div>
             </div>
-            <div className="subtitle">{subtitle}</div>
             {(rightsLabel || earningsLabel) && (
               <div className="detail-event-badges">
                 {rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
                 {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
               </div>
             )}
-            <div className="detail-event-meta">
-              {eventsMeta?.isRefreshing && (
-                <span className="event-meta-refreshing">イベント更新中...</span>
-              )}
-              {eventsMeta?.lastError && (
-                <span className="event-meta-error" title={eventsMeta.lastError}>
-                  更新失敗
-                </span>
-              )}
-              <span className="event-meta-last">
-                イベント最終更新: {eventsLastSuccessLabel ?? "--"}
-              </span>
-              {rightsCoverageLabel && <span className="event-meta-rights">{rightsCoverageLabel}</span>}
-            </div>
           </div>
           <div className="detail-title-actions">
             <button
@@ -2192,20 +2169,23 @@ export default function DetailView() {
             </div>
           </div>
           <div className="detail-controls-group">
-            <button
-              className={showBoxes ? "indicator-button active" : "indicator-button"}
+            <IconButton
+              icon={<IconBox size={18} />}
+              label="Boxes"
+              variant="iconLabel"
+              tooltip="Boxes"
+              ariaLabel="Boxes"
+              selected={showBoxes}
               onClick={() => setShowBoxes(!showBoxes)}
-            >
-              Boxes
-            </button>
-            <button
-              className={showTradesOverlay ? "indicator-button active" : "indicator-button"}
-              onClick={() => setShowTradesOverlay((prev) => !prev)}
-            >
-              Positions
-            </button>
-            <button
-              className={showPositionLedger ? "indicator-button active" : "indicator-button"}
+            />
+
+            <IconButton
+              icon={<IconListDetails size={18} />}
+              label="建玉推移"
+              variant="iconLabel"
+              tooltip="建玉推移"
+              ariaLabel="建玉推移"
+              selected={showPositionLedger}
               onClick={() =>
                 setShowPositionLedger((prev) => {
                   const next = !prev;
@@ -2215,42 +2195,39 @@ export default function DetailView() {
                   return next;
                 })
               }
-            >
-              建玉推移
-            </button>
-            <button
-              className={showPnLPanel ? "indicator-button active" : "indicator-button"}
-              onClick={() => setShowPnLPanel(!showPnLPanel)}
-            >
-              PnL
-            </button>
-            <button
-              className={syncRanges ? "indicator-button active" : "indicator-button"}
+            />
+
+            <IconButton
+              icon={<IconLink size={18} />}
+              label={`連動 ${syncRanges ? "ON" : "OFF"}`}
+              variant="iconLabel"
+              tooltip={`連動 ${syncRanges ? "ON" : "OFF"}`}
+              ariaLabel="連動"
+              selected={syncRanges}
               onClick={() => setSyncRanges((prev) => !prev)}
-            >
-              連動: {syncRanges ? "ON" : "OFF"}
-            </button>
-            <button
-              className={cursorMode ? "indicator-button active" : "indicator-button"}
+            />
+            <IconButton
+              icon={<IconPointer size={18} />}
+              label={`カーソル ${cursorMode ? "ON" : "OFF"}`}
+              variant="iconLabel"
+              tooltip="カーソルモード切替 (C)"
+              ariaLabel="カーソルモード切替"
+              selected={cursorMode}
               onClick={toggleCursorMode}
-              title="カーソルモード切替 (C)"
-            >
-              <IconPointer size={16} style={{ marginRight: '4px' }} />
-              {cursorMode ? "ON" : "OFF"}
-            </button>
+            />
           </div>
           <div className="detail-controls-group detail-controls-icons">
             <IconButton
               label="Indicators"
               icon={<IconAdjustments size={18} />}
               onClick={() => setShowIndicators(true)}
-              title="Indicators"
+              tooltip="Indicators"
             />
             <IconButton
               label="スクショ"
               icon={<IconCamera size={18} />}
               disabled={screenshotBusy}
-              title="スクショ"
+              tooltip="スクショ"
               onClick={async () => {
                 if (screenshotBusy) return;
                 setScreenshotBusy(true);
@@ -2291,7 +2268,7 @@ export default function DetailView() {
             <IconButton
               label="AI出力"
               icon={<IconSparkles size={18} />}
-              title="AI出力"
+              tooltip="AI出力"
               onClick={async () => {
                 let dailyMemos: Record<string, string> = {};
                 if (code) {
@@ -2395,13 +2372,13 @@ export default function DetailView() {
             <IconButton
               label="類似"
               icon={<IconChartArrows size={18} />}
-              title="類似チャート検索"
+              tooltip="類似チャート検索"
               onClick={() => setShowSimilar(true)}
             />
             <IconButton
               label="削除"
               icon={<IconTrash size={18} />}
-              title="削除"
+              tooltip="削除"
               disabled={deleteBusy || !code}
               onClick={handleDeleteTicker}
             />
@@ -2868,195 +2845,195 @@ export default function DetailView() {
             <div className="position-ledger-group-list">
               {ledgerViewMode === "iizuka"
                 ? ledgerIizukaGroups.map((group) => (
-                    <div
-                      key={`${group.brokerKey}-${group.account}`}
-                      className={`position-ledger-group broker-${group.brokerKey}`}
-                    >
-                      <div className="position-ledger-group-header">
-                        <span className="broker-badge">{group.brokerLabel}</span>
-                        {group.account && (
-                          <span className="position-ledger-account">{group.account}</span>
-                        )}
-                      </div>
-                      <div className="position-ledger-table is-iizuka">
-                        <div className="position-ledger-row position-ledger-head">
-                          <span className="position-ledger-cell position-ledger-sticky-left" title="日付">
-                            日付
-                          </span>
-                          <span className="position-ledger-cell position-ledger-sticky-left second" title="取引種別">
-                            区分
-                          </span>
-                          <span className="position-ledger-cell align-right" title="売玉の増減">
-                            当日Δ（売玉）
-                          </span>
-                          <span className="position-ledger-cell align-right" title="買玉の増減">
-                            当日Δ（買玉）
-                          </span>
-                          <span className="position-ledger-cell align-right" title="当日引けの売玉">
-                            当日引け（売玉）
-                          </span>
-                          <span className="position-ledger-cell align-right" title="当日引けの買玉">
-                            当日引け（買玉）
-                          </span>
-                          <span className="position-ledger-cell align-right" title="建玉表記（売-買）">
-                            建玉表記
-                          </span>
-                          <span className="position-ledger-cell align-right" title="買い単価（玉）">
-                            買い単価
-                          </span>
-                          <span className="position-ledger-cell align-right" title="売り単価（玉）">
-                            売り単価
-                          </span>
-                          <span
-                            className="position-ledger-cell align-right"
-                            title="実現損益（返済・現渡などで確定した分）"
-                          >
-                            損益（実現）
-                          </span>
-                        </div>
-                        {group.rows.map((row, index) => {
-                          const realizedClass =
-                            row.realizedDelta === 0
-                              ? "position-ledger-pnl"
-                              : row.realizedDelta > 0
-                                ? "position-ledger-pnl up"
-                                : "position-ledger-pnl down";
-                          return (
-                            <div
-                              className={`position-ledger-row ${index % 2 === 0 ? "is-even" : "is-odd"}`}
-                              key={`${row.date}-${index}`}
-                            >
-                              <span className="position-ledger-cell position-ledger-sticky-left">
-                                {formatLedgerDate(row.date)}
-                              </span>
-                              <span className="position-ledger-cell position-ledger-sticky-left second position-ledger-kind">
-                                {row.kindLabel}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {formatSignedLot(row.deltaShort)}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {formatSignedLot(row.deltaLong)}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {formatLotValue(row.shortLots)}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {formatLotValue(row.longLots)}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {`${formatLotValue(row.shortLots)}-${formatLotValue(row.longLots)}`}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {row.avgLongPrice != null ? formatNumber(row.avgLongPrice, 2) : "--"}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {row.avgShortPrice != null ? formatNumber(row.avgShortPrice, 2) : "--"}
-                              </span>
-                              <span className={`position-ledger-cell align-right ${realizedClass}`}>
-                                {formatSignedNumber(row.realizedDelta, 0)}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
+                  <div
+                    key={`${group.brokerKey}-${group.account}`}
+                    className={`position-ledger-group broker-${group.brokerKey}`}
+                  >
+                    <div className="position-ledger-group-header">
+                      <span className="broker-badge">{group.brokerLabel}</span>
+                      {group.account && (
+                        <span className="position-ledger-account">{group.account}</span>
+                      )}
                     </div>
-                  ))
+                    <div className="position-ledger-table is-iizuka">
+                      <div className="position-ledger-row position-ledger-head">
+                        <span className="position-ledger-cell position-ledger-sticky-left" title="日付">
+                          日付
+                        </span>
+                        <span className="position-ledger-cell position-ledger-sticky-left second" title="取引種別">
+                          区分
+                        </span>
+                        <span className="position-ledger-cell align-right" title="売玉の増減">
+                          当日Δ（売玉）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="買玉の増減">
+                          当日Δ（買玉）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="当日引けの売玉">
+                          当日引け（売玉）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="当日引けの買玉">
+                          当日引け（買玉）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="建玉表記（売-買）">
+                          建玉表記
+                        </span>
+                        <span className="position-ledger-cell align-right" title="買い単価（玉）">
+                          買い単価
+                        </span>
+                        <span className="position-ledger-cell align-right" title="売り単価（玉）">
+                          売り単価
+                        </span>
+                        <span
+                          className="position-ledger-cell align-right"
+                          title="実現損益（返済・現渡などで確定した分）"
+                        >
+                          損益（実現）
+                        </span>
+                      </div>
+                      {group.rows.map((row, index) => {
+                        const realizedClass =
+                          row.realizedDelta === 0
+                            ? "position-ledger-pnl"
+                            : row.realizedDelta > 0
+                              ? "position-ledger-pnl up"
+                              : "position-ledger-pnl down";
+                        return (
+                          <div
+                            className={`position-ledger-row ${index % 2 === 0 ? "is-even" : "is-odd"}`}
+                            key={`${row.date}-${index}`}
+                          >
+                            <span className="position-ledger-cell position-ledger-sticky-left">
+                              {formatLedgerDate(row.date)}
+                            </span>
+                            <span className="position-ledger-cell position-ledger-sticky-left second position-ledger-kind">
+                              {row.kindLabel}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatSignedLot(row.deltaShort)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatSignedLot(row.deltaLong)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatLotValue(row.shortLots)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatLotValue(row.longLots)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {`${formatLotValue(row.shortLots)}-${formatLotValue(row.longLots)}`}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {row.avgLongPrice != null ? formatNumber(row.avgLongPrice, 2) : "--"}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {row.avgShortPrice != null ? formatNumber(row.avgShortPrice, 2) : "--"}
+                            </span>
+                            <span className={`position-ledger-cell align-right ${realizedClass}`}>
+                              {formatSignedNumber(row.realizedDelta, 0)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
                 : ledgerStockGroups.map((group) => (
-                    <div
-                      key={`${group.brokerKey}-${group.account}`}
-                      className={`position-ledger-group broker-${group.brokerKey}`}
-                    >
-                      <div className="position-ledger-group-header">
-                        <span className="broker-badge">{group.brokerLabel}</span>
-                        {group.account && (
-                          <span className="position-ledger-account">{group.account}</span>
-                        )}
-                      </div>
-                      <div className="position-ledger-table is-stock">
-                        <div className="position-ledger-row position-ledger-head">
-                          <span className="position-ledger-cell position-ledger-sticky-left" title="日付">
-                            日付
-                          </span>
-                          <span className="position-ledger-cell position-ledger-sticky-left second" title="取引種別">
-                            区分
-                          </span>
-                          <span className="position-ledger-cell align-right" title="約定数量（株）。100株=1玉。">
-                            数量（株）
-                          </span>
-                          <span className="position-ledger-cell align-right" title="売株の増減">
-                            当日Δ（売株）
-                          </span>
-                          <span className="position-ledger-cell align-right" title="買株の増減">
-                            当日Δ（買株）
-                          </span>
-                          <span className="position-ledger-cell align-right" title="当日引けの売株">
-                            当日引け（売株）
-                          </span>
-                          <span className="position-ledger-cell align-right" title="当日引けの買株">
-                            当日引け（買株）
-                          </span>
-                          <span className="position-ledger-cell align-right" title="買い単価（株）">
-                            買い単価
-                          </span>
-                          <span className="position-ledger-cell align-right" title="売り単価（株）">
-                            売り単価
-                          </span>
-                          <span
-                            className="position-ledger-cell align-right"
-                            title="実現損益（返済・現渡などで確定した分）"
-                          >
-                            損益（実現）
-                          </span>
-                        </div>
-                        {group.rows.map((row, index) => {
-                          const realizedClass =
-                            row.realizedDelta === 0
-                              ? "position-ledger-pnl"
-                              : row.realizedDelta > 0
-                                ? "position-ledger-pnl up"
-                                : "position-ledger-pnl down";
-                          return (
-                            <div
-                              className={`position-ledger-row ${index % 2 === 0 ? "is-even" : "is-odd"}`}
-                              key={`${row.date}-${index}`}
-                            >
-                              <span className="position-ledger-cell position-ledger-sticky-left">
-                                {formatLedgerDate(row.date)}
-                              </span>
-                              <span className="position-ledger-cell position-ledger-sticky-left second position-ledger-kind">
-                                {row.kindLabel}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {formatShares(row.qtyShares)}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {formatSignedNumber(row.deltaSellShares, 0)}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {formatSignedNumber(row.deltaBuyShares, 0)}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {formatShares(row.closeSellShares)}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {formatShares(row.closeBuyShares)}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {row.buyAvgPrice != null ? formatNumber(row.buyAvgPrice, 2) : "--"}
-                              </span>
-                              <span className="position-ledger-cell align-right">
-                                {row.sellAvgPrice != null ? formatNumber(row.sellAvgPrice, 2) : "--"}
-                              </span>
-                              <span className={`position-ledger-cell align-right ${realizedClass}`}>
-                                {formatSignedNumber(row.realizedDelta, 0)}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
+                  <div
+                    key={`${group.brokerKey}-${group.account}`}
+                    className={`position-ledger-group broker-${group.brokerKey}`}
+                  >
+                    <div className="position-ledger-group-header">
+                      <span className="broker-badge">{group.brokerLabel}</span>
+                      {group.account && (
+                        <span className="position-ledger-account">{group.account}</span>
+                      )}
                     </div>
-                  ))}
+                    <div className="position-ledger-table is-stock">
+                      <div className="position-ledger-row position-ledger-head">
+                        <span className="position-ledger-cell position-ledger-sticky-left" title="日付">
+                          日付
+                        </span>
+                        <span className="position-ledger-cell position-ledger-sticky-left second" title="取引種別">
+                          区分
+                        </span>
+                        <span className="position-ledger-cell align-right" title="約定数量（株）。100株=1玉。">
+                          数量（株）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="売株の増減">
+                          当日Δ（売株）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="買株の増減">
+                          当日Δ（買株）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="当日引けの売株">
+                          当日引け（売株）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="当日引けの買株">
+                          当日引け（買株）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="買い単価（株）">
+                          買い単価
+                        </span>
+                        <span className="position-ledger-cell align-right" title="売り単価（株）">
+                          売り単価
+                        </span>
+                        <span
+                          className="position-ledger-cell align-right"
+                          title="実現損益（返済・現渡などで確定した分）"
+                        >
+                          損益（実現）
+                        </span>
+                      </div>
+                      {group.rows.map((row, index) => {
+                        const realizedClass =
+                          row.realizedDelta === 0
+                            ? "position-ledger-pnl"
+                            : row.realizedDelta > 0
+                              ? "position-ledger-pnl up"
+                              : "position-ledger-pnl down";
+                        return (
+                          <div
+                            className={`position-ledger-row ${index % 2 === 0 ? "is-even" : "is-odd"}`}
+                            key={`${row.date}-${index}`}
+                          >
+                            <span className="position-ledger-cell position-ledger-sticky-left">
+                              {formatLedgerDate(row.date)}
+                            </span>
+                            <span className="position-ledger-cell position-ledger-sticky-left second position-ledger-kind">
+                              {row.kindLabel}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatShares(row.qtyShares)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatSignedNumber(row.deltaSellShares, 0)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatSignedNumber(row.deltaBuyShares, 0)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatShares(row.closeSellShares)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatShares(row.closeBuyShares)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {row.buyAvgPrice != null ? formatNumber(row.buyAvgPrice, 2) : "--"}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {row.sellAvgPrice != null ? formatNumber(row.sellAvgPrice, 2) : "--"}
+                            </span>
+                            <span className={`position-ledger-cell align-right ${realizedClass}`}>
+                              {formatSignedNumber(row.realizedDelta, 0)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
             </div>
           )}
         </div>

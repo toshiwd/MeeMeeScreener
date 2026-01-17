@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
+﻿import { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useBackendReadyState } from "../backendReady";
 import { api } from "../api";
@@ -7,6 +7,7 @@ import ChartListCard from "../components/ChartListCard";
 import Toast from "../components/Toast";
 import { useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
+import { IconRefresh, IconUpload } from "@tabler/icons-react";
 import {
   buildConsultationPack,
   ConsultationSort,
@@ -432,20 +433,20 @@ export default function PositionsView() {
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
-      setToastMessage("??????????????");
+      setToastMessage("相談パックがまだありません。");
       return;
     }
     try {
       await navigator.clipboard.writeText(consultText);
-      setToastMessage("??????????????");
+      setToastMessage("相談パックをコピーしました。");
     } catch {
-      setToastMessage("??????????");
+      setToastMessage("コピーに失敗しました。");
     }
   }, [consultText]);
 
   const handleCreateScreenshots = useCallback(async () => {
     if (!consultTargets.length) {
-      setToastMessage("????????????");
+      setToastMessage("スクショ対象がありません。");
       return;
     }
     const targets = consultTargets.slice(0, SCREENSHOT_LIMIT);
@@ -468,11 +469,11 @@ export default function PositionsView() {
         timeframeLabel: listTimeframe
       });
       if (!result.created) {
-        setToastMessage("???????????????");
+        setToastMessage("スクショを作成できませんでした。");
         return;
       }
-      const omittedLabel = omitted ? ` (??${omitted}????)` : "";
-      setToastMessage(`?????${result.created}???????${omittedLabel}`);
+      const omittedLabel = omitted ? ` (残り${omitted}件は省略)` : "";
+      setToastMessage(`スクショを${result.created}件作成しました。${omittedLabel}`);
     } finally {
       setScreenshotBusy(false);
     }
@@ -686,7 +687,8 @@ export default function PositionsView() {
             }
           }}
         >
-          🔄 再計算
+          <IconRefresh size={16} />
+          <span>再計算</span>
         </button>
 
         <label className="positions-import-btn" style={{
@@ -700,7 +702,8 @@ export default function PositionsView() {
           cursor: "pointer",
           fontSize: "13px"
         }}>
-          📂 インポート
+          <IconUpload size={16} />
+          <span>インポート</span>
           <input type="file" accept=".csv" onChange={handleImport} hidden />
         </label>
       </div>
@@ -762,12 +765,12 @@ export default function PositionsView() {
             if (!consultVisible) return;
             setConsultExpanded((prev) => !prev);
           }}
-          aria-label={consultExpanded ? "??????????" : "?????????"}
+          aria-label={consultExpanded ? "相談バーを折りたたむ" : "相談バーを展開する"}
         />
         {!consultExpanded && (
           <div className="consult-mini">
             <div className="consult-mini-left">
-              <div className="consult-mini-count">?? {consultTargets.length}?</div>
+              <div className="consult-mini-count">保有 {consultTargets.length}件</div>
               <div className="consult-chips">
                 {selectedChips.visible.map((code) => (
                   <span key={code} className="consult-chip">
@@ -786,20 +789,20 @@ export default function PositionsView() {
                 onClick={buildConsultation}
                 disabled={!consultTargets.length || consultBusy}
               >
-                {consultBusy ? "???..." : "????"}
+                {consultBusy ? "作成中..." : "相談作成"}
               </button>
               <button
                 type="button"
                 onClick={handleCreateScreenshots}
                 disabled={!consultTargets.length || screenshotBusy}
               >
-                {screenshotBusy ? "???..." : "??????"}
+                {screenshotBusy ? "作成中..." : "スクショ作成"}
               </button>
               <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
-                ???
+                コピー
               </button>
               <button type="button" onClick={() => setConsultVisible(false)}>
-                ???
+                閉じる
               </button>
             </div>
           </div>
@@ -813,14 +816,14 @@ export default function PositionsView() {
                   className={consultTab === "selection" ? "active" : ""}
                   onClick={() => setConsultTab("selection")}
                 >
-                  ????
+                  選定相談
                 </button>
                 <button
                   type="button"
                   className={consultTab === "position" ? "active" : ""}
                   onClick={() => setConsultTab("position")}
                 >
-                  ????
+                  建玉相談
                 </button>
               </div>
               <div className="consult-expanded-actions">
@@ -830,33 +833,33 @@ export default function PositionsView() {
                   onClick={buildConsultation}
                   disabled={!consultTargets.length || consultBusy}
                 >
-                  {consultBusy ? "???..." : "????"}
+                  {consultBusy ? "作成中..." : "相談作成"}
                 </button>
                 <button
                   type="button"
                   onClick={handleCreateScreenshots}
                   disabled={!consultTargets.length || screenshotBusy}
                 >
-                  {screenshotBusy ? "???..." : "??????"}
+                  {screenshotBusy ? "作成中..." : "スクショ作成"}
                 </button>
                 <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
-                  ???
+                  コピー
                 </button>
                 <button type="button" onClick={() => setConsultVisible(false)}>
-                  ???
+                  閉じる
                 </button>
               </div>
             </div>
             <div className="consult-expanded-body">
               <div className="consult-expanded-meta-row">
                 <div className="consult-expanded-meta">
-                  ?? {consultTargets.length}?
+                  保有 {consultTargets.length}件
                   {consultMeta.omitted
-                    ? ` / ??? ${consultMeta.omitted}?`
-                    : " / ??10?????"}
+                    ? ` / 表示外 ${consultMeta.omitted}件`
+                    : " / 最大10件まで表示"}
                 </div>
                 <div className="consult-sort">
-                  <span>???</span>
+                  <span>並び順</span>
                   <div className="segmented segmented-compact">
                     {(["score", "code"] as ConsultationSort[]).map((key) => (
                       <button
@@ -864,7 +867,7 @@ export default function PositionsView() {
                         className={consultSort === key ? "active" : ""}
                         onClick={() => setConsultSort(key)}
                       >
-                        {key === "score" ? "????" : "????"}
+                        {key === "score" ? "スコア順" : "コード順"}
                       </button>
                     ))}
                   </div>
@@ -873,7 +876,7 @@ export default function PositionsView() {
               {consultTab === "selection" ? (
                 <textarea className="consult-drawer-body" value={consultText} readOnly />
               ) : (
-                <div className="consult-placeholder">???????????</div>
+                <div className="consult-placeholder">建玉相談は準備中です。</div>
               )}
             </div>
           </div>

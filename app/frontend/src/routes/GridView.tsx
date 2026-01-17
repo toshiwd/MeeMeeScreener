@@ -12,6 +12,20 @@ import { useStore } from "../store";
 import StockTile from "../components/StockTile";
 import Toast from "../components/Toast";
 import TopNav from "../components/TopNav";
+import IconButton from "../components/IconButton";
+import {
+  IconMessage,
+  IconArrowsSort,
+  IconLayoutGrid,
+  IconFilter,
+  IconRefresh,
+  IconSettings,
+  IconMoon,
+  IconSun,
+  IconUpload,
+  IconDownload,
+  IconFileText
+} from "@tabler/icons-react";
 import TechnicalFilterDrawer from "../components/TechnicalFilterDrawer";
 import { computeSignalMetrics } from "../utils/signals";
 import {
@@ -1510,412 +1524,360 @@ export default function GridView() {
 
   return (
     <div className="app-shell">
-      <header className="top-bar">
-        <div className="top-bar-row top-bar-row-nav">
-          <div className="app-brand">
-            <div className="title">MeeMee Screener</div>
-            <div className="subtitle">Mee Mee - Fast grid with canvas sparklines</div>
-          </div>
-          <TopNav />
-        </div>
-        <div className="top-bar-row top-bar-row-tools">
-          <div className="toolbar-left">
-            <div className="segmented timeframe-segment">
-              {(["monthly", "weekly", "daily"] as const).map((value) => (
-                <button
-                  key={value}
-                  className={gridTimeframe === value ? "active" : ""}
-                  onClick={() => setGridTimeframe(value)}
-                >
-                  {value === "monthly" ? "月足" : value === "weekly" ? "週足" : "日足"}
-                </button>
-              ))}
-            </div>
-            <div className="anchor-display">
-              <span>基準日</span>
-              <button type="button" className="anchor-button" onClick={handleOpenTechFilter}>
-                最新 {activeAnchorLabel ? `(${activeAnchorLabel})` : ""}
-                <span className="caret">▼</span>
-              </button>
-            </div>
-            <div className="search-area">
-              <div className="search-field">
-                <input
-                  className="search-input"
-                  placeholder="コード / 銘柄名で検索"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
-                {search && (
-                  <button type="button" className="search-clear" onClick={() => setSearch("")}>
-                    クリア
-                  </button>
-                )}
+      <header className="unified-list-header">
+        <div className="list-header-row">
+          <div className="header-row-top">
+            <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+              <div className="app-brand">
+                <div className="title">MeeMee Screener</div>
+                <div className="subtitle">Mee Mee - Fast grid with canvas sparklines</div>
               </div>
-              {canAddWatchlist && (
+              <TopNav />
+            </div>
+            <div className="list-header-actions">
+              {keepList.length > 0 && (
                 <button
                   type="button"
-                  className="search-add-row"
-                  onClick={() => handleAddWatchlist(canAddWatchlist)}
+                  className={`consult-trigger ${consultVisible ? "active" : ""}`}
+                  onClick={() => setConsultVisible(!consultVisible)}
                 >
-                  “{canAddWatchlist}” は未登録です → ウォッチリストに追加
+                  <IconMessage size={16} />
+                  <span>相談</span>
+                  <span className="badge">{keepList.length}</span>
                 </button>
               )}
-            </div>
-          </div>
-          <div className="toolbar-right">
-            <button type="button" className="consult-trigger" onClick={handleOpenTechFilter}>
-              条件検索
-            </button>
-            <button
-              type="button"
-              className="consult-trigger"
-              onClick={() => {
-                setConsultVisible(true);
-                setConsultExpanded(false);
-              }}
-            >
-              相談
-            </button>
-            {/* Basic Sort Button - always visible */}
-            <div className="popover-anchor">
-              <button
-                type="button"
-                className={`sort-button ${isSorting ? "is-sorting" : ""}`}
-                onClick={() => {
-                  setBasicSortOpen((prev) => !prev);
-                  setSortOpen(false);
-                  setDisplayOpen(false);
-                }}
-              >
-                並び替え：{sortLabel}・{sortDirLabel}
-                <span className="caret">▼</span>
-              </button>
-              {basicSortOpen && (
-                <div className="popover-panel">
-                  <div className="popover-section">
-                    <div className="popover-title">並び替え項目</div>
-                    <div className="popover-groups">
-                      {basicSortSections.map((section) => (
-                        <div className="popover-group" key={section.title}>
-                          <div className="popover-group-title">{section.title}</div>
-                          <div className="popover-group-list">
-                            {section.options.map((option) => (
-                              <button
-                                type="button"
-                                key={option.key}
-                                className={
-                                  sortKey === option.key ? "popover-item active" : "popover-item"
+              <div className="list-header-spacer" style={{ width: 8 }} />
+              <div className="popover-anchor" ref={sortRef}>
+                <IconButton
+                  icon={<IconArrowsSort size={18} />}
+                  label={`並び: ${sortLabel}`}
+                  variant="iconLabel"
+                  tooltip="並び替え"
+                  ariaLabel="並び替えメニューを開く"
+                  selected={sortOpen}
+                  onClick={() => {
+                    setSortOpen(!sortOpen);
+                    setDisplayOpen(false);
+                    setSettingsOpen(false);
+                  }}
+                />
+                {sortOpen && (
+                  <div className="popover-panel">
+                    {(isCandidateView ? candidateSortSections : sortSections).map((section) => (
+                      <div className="popover-section" key={section.title}>
+                        <div className="popover-title">{section.title}</div>
+                        <div className="popover-grid">
+                          {section.options.map((opt) => (
+                            <button
+                              key={opt.key}
+                              type="button"
+                              className={`popover-item ${sortKey === opt.key ? "active" : ""}`}
+                              onClick={() => {
+                                if (sortKey === opt.key) {
+                                  setSortDir(sortDir === "asc" ? "desc" : "asc");
+                                } else {
+                                  setSortKey(opt.key);
+                                  setSortDir("desc");
                                 }
-                                onClick={() => {
-                                  setSortKey(option.key);
-                                  setBasicSortOpen(false);
-                                }}
-                              >
-                                <span>{option.label}</span>
-                                {sortKey === option.key && (
-                                  <span className="popover-status">選択中</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
+                                setSortOpen(false);
+                              }}
+                            >
+                              <span className="popover-item-label">{opt.label}</span>
+                              {sortKey === opt.key && (
+                                <span className="popover-check">{sortDirLabel}</span>
+                              )}
+                            </button>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="popover-section">
-                    <div className="popover-title">順序</div>
-                    <div className="segmented">
-                      {(["desc", "asc"] as SortDir[]).map((dir) => (
-                        <button
-                          key={dir}
-                          className={sortDir === dir ? "active" : ""}
-                          onClick={() => setSortDir(dir)}
-                        >
-                          {dir === "desc" ? "降順" : "昇順"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Performance period selector - shown when performance sorting is active */}
-                  {sortKey === "performance" && (
+                )}
+              </div>
+              <div className="popover-anchor" ref={displayRef}>
+                <IconButton
+                  icon={<IconLayoutGrid size={18} />}
+                  label="表示"
+                  variant="iconLabel"
+                  tooltip="表示設定"
+                  ariaLabel="表示設定メニューを開く"
+                  selected={displayOpen}
+                  onClick={() => {
+                    setDisplayOpen(!displayOpen);
+                    setSortOpen(false);
+                    setSettingsOpen(false);
+                  }}
+                />
+                {displayOpen && (
+                  <div className="popover-panel">
                     <div className="popover-section">
-                      <div className="popover-title">騰落率の期間</div>
+                      <div className="popover-title">行数</div>
                       <div className="segmented">
-                        {([
-                          { key: "1D", label: "1日" },
-                          { key: "1W", label: "1週" },
-                          { key: "1M", label: "1ヶ月" },
-                          { key: "1Q", label: "3ヶ月" },
-                          { key: "1Y", label: "1年" }
-                        ] as const).map((p) => (
+                        {[1, 2, 3, 4, 5, 6].map((r) => (
                           <button
-                            key={p.key}
-                            className={performancePeriod === p.key ? "active" : ""}
-                            onClick={() => setPerformancePeriod(p.key)}
+                            key={r}
+                            className={rows === r ? "active" : ""}
+                            onClick={() => setRows(r as any)}
                           >
-                            {p.label}
+                            {r}
                           </button>
                         ))}
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-            {/* Candidate Sort Button - always visible */}
-            <div className="popover-anchor" ref={sortRef}>
-              <button
-                type="button"
-                className={`sort-button ${isSorting ? "is-sorting" : ""}`}
-                onClick={() => {
-                  setSortOpen((prev) => !prev);
-                  setBasicSortOpen(false);
-                  setDisplayOpen(false);
-                }}
-              >
-                候補
-                <span className="caret">▼</span>
-              </button>
-              {sortOpen && (
-                <div className="popover-panel">
-                  <div className="popover-section">
-                    <div className="popover-title">候補プリセット</div>
-                    <div className="popover-groups">
-                      {candidateSortSections.map((section) => (
-                        <div className="popover-group" key={section.title}>
-                          <div className="popover-group-title">{section.title}</div>
-                          <div className="popover-group-list">
-                            {section.options.map((option) => (
-                              <button
-                                type="button"
-                                key={option.key}
-                                className={
-                                  sortKey === option.key ? "popover-item active" : "popover-item"
-                                }
-                                onClick={() => {
-                                  setSortKey(option.key);
-                                  setSortOpen(false);
-                                }}
-                              >
-                                <span>{option.label}</span>
-                                {sortKey === option.key && (
-                                  <span className="popover-status">選択中</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                    <div className="popover-section">
+                      <div className="popover-title">列数</div>
+                      <div className="segmented">
+                        {[1, 2, 3, 4].map((c) => (
+                          <button
+                            key={c}
+                            className={columns === c ? "active" : ""}
+                            onClick={() => setColumns(c as any)}
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="popover-anchor" ref={displayRef}>
-              <button
-                type="button"
-                className="display-button"
-                onClick={() => {
-                  setDisplayOpen((prev) => !prev);
-                  setSortOpen(false);
-                }}
-              >
-                表示
-                <span className="caret">▼</span>
-              </button>
-              {displayOpen && (
-                <div className="popover-panel">
-                  <div className="popover-section">
-                    <div className="popover-title">列数</div>
-                    <div className="segmented">
-                      {[1, 2, 3, 4].map((count) => (
-                        <button
-                          key={count}
-                          className={columns === count ? "active" : ""}
-                          onClick={() => setColumns(count as 1 | 2 | 3 | 4)}
-                        >
-                          {count}列
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="popover-section">
-                    <div className="popover-title">行数</div>
-                    <div className="segmented">
-                      {[1, 2, 3, 4, 5, 6].map((count) => (
-                        <button
-                          key={count}
-                          className={rows === count ? "active" : ""}
-                          onClick={() => setRows(count as 1 | 2 | 3 | 4 | 5 | 6)}
-                        >
-                          {count}行
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="popover-section">
-                    <div className="popover-title">チャート表示</div>
-                    <div className="popover-list">
+                    <div className="popover-section">
                       <button
-                        type="button"
-                        className={showBoxes ? "popover-item active" : "popover-item"}
+                        className="popover-item"
+                        onClick={() => {
+                          setRows(3);
+                          setColumns(3);
+                          setDisplayOpen(false);
+                        }}
+                      >
+                        <span className="popover-item-label">3x3に戻す</span>
+                      </button>
+                    </div>
+                    <div className="popover-section">
+                      <div className="popover-title">表示オプション</div>
+                      <button
+                        className={`popover-item ${showBoxes ? "active" : ""}`}
                         onClick={() => setShowBoxes(!showBoxes)}
                       >
-                        <span>ボックス表示</span>
-                        <span className="popover-status">{showBoxes ? "オン" : "オフ"}</span>
+                        <span className="popover-item-label">ボックス枠を表示</span>
+                        {showBoxes && <span className="popover-check">ON</span>}
+                      </button>
+                      <button
+                        className={`popover-item ${showIndicators ? "active" : ""}`}
+                        onClick={() => {
+                          setShowIndicators(!showIndicators);
+                          setDisplayOpen(false);
+                        }}
+                      >
+                        <span className="popover-item-label">インジケーター設定</span>
+                      </button>
+                      <button
+                        className={`popover-item ${maSettings[gridTimeframe].some(s => s.visible) ? "active" : ""}`}
+                        onClick={() => {
+                          if (maSettings[gridTimeframe].some(s => s.visible)) {
+                            const newState = maSettings[gridTimeframe].map(s => ({ ...s, visible: false }));
+                            newState.forEach((s, i) => updateMaSetting(gridTimeframe, i, { visible: false }));
+                          } else {
+                            resetMaSettings(gridTimeframe);
+                          }
+                        }}
+                      >
+                        <span className="popover-item-label">MA一括表示切替</span>
+                        <span className="popover-status">
+                          {maSettings[gridTimeframe].some(s => s.visible) ? "ON" : "OFF"}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="popover-anchor">
+                <IconButton
+                  icon={<IconFilter size={18} />}
+                  label="フィルタ"
+                  selected={techFilterActive.conditions.length > 0}
+                  variant="iconLabel"
+                  onClick={() => setTechFilterOpen(true)}
+                />
+              </div>
+              <div className="txt-update-group">
+                <IconButton
+                  icon={<IconRefresh size={18} />}
+                  label={isUpdatingTxt ? "更新中" : "TXT更新"}
+                  variant="iconLabel"
+                  tooltip="TXT更新"
+                  ariaLabel="TXT更新"
+                  className={`txt-update-button ${isUpdatingTxt ? "is-updating" : ""}`}
+                  onClick={handleUpdateTxt}
+                  disabled={!backendReady || isUpdatingTxt}
+                />
+                {(updateProgressLabel || lastUpdatedLabel) && (
+                  <div className="txt-update-meta">
+                    <span>{updateProgressLabel ?? "更新待ち"}</span>
+                    <span>最終更新：{lastUpdatedLabel ?? "--"}</span>
+                  </div>
+                )}
+              </div>
+              <div className="popover-anchor" ref={settingsRef}>
+                <IconButton
+                  icon={<IconSettings size={18} />}
+                  tooltip="設定"
+                  ariaLabel="設定"
+                  onClick={() => {
+                    setSettingsOpen(!settingsOpen);
+                    setSortOpen(false);
+                    setDisplayOpen(false);
+                  }}
+                />
+                {settingsOpen && (
+                  <div className="popover-panel popover-right-aligned" style={{ right: 0 }}>
+                    <div className="popover-section">
+                      <div className="popover-title">外観設定</div>
+                      <div className="segmented">
+                        <button
+                          className={currentTheme === "dark" ? "active" : ""}
+                          onClick={() => currentTheme !== "dark" && handleThemeToggle()}
+                        >
+                          <IconMoon size={16} />
+                          <span>ダーク</span>
+                        </button>
+                        <button
+                          className={currentTheme === "light" ? "active" : ""}
+                          onClick={() => currentTheme !== "light" && handleThemeToggle()}
+                        >
+                          <IconSun size={16} />
+                          <span>ライト</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="popover-section">
+                      <div className="popover-title">取引CSV</div>
+                      <button
+                        type="button"
+                        className="popover-item"
+                        onClick={handleTradeCsvPick}
+                        disabled={tradeUploadInFlight}
+                      >
+                        <span className="popover-item-label">
+                          <IconUpload size={16} />
+                          <span>{tradeUploadInFlight ? "取り込み中..." : "CSV取り込み"}</span>
+                        </span>
+                        <span className="popover-status">手動</span>
                       </button>
                       <button
                         type="button"
                         className="popover-item"
+                        onClick={handleForceTradeSync}
+                        disabled={tradeSyncInFlight}
+                      >
+                        <span className="popover-item-label">
+                          <IconRefresh size={16} />
+                          <span>{tradeSyncInFlight ? "同期中..." : "強制同期"}</span>
+                        </span>
+                        <span className="popover-status">強制</span>
+                      </button>
+                      <div className="popover-hint">
+                        保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
+                      </div>
+                    </div>
+                    <div className="popover-section">
+                      <div className="popover-title">銘柄一覧</div>
+                      <button
+                        type="button"
+                        className="popover-item"
+                        onClick={handleExportWatchlist}
+                        disabled={watchlistExporting}
+                      >
+                        <span className="popover-item-label">
+                          <IconDownload size={16} />
+                          <span>{watchlistExporting ? "エクスポート中..." : "EXPORT"}</span>
+                        </span>
+                        <span className="popover-status">EBK</span>
+                      </button>
+                      <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
+                        <span className="popover-item-label">
+                          <IconFileText size={16} />
+                          <span>code.txt</span>
+                        </span>
+                        <span className="popover-status">編集</span>
+                      </button>
+                    </div>
+                    <div className="popover-section">
+                      <div className="popover-title">イベント</div>
+                      <button
+                        type="button"
+                        className="popover-item"
+                        disabled={eventsMeta?.isRefreshing}
                         onClick={() => {
-                          setShowIndicators(true);
-                          setDisplayOpen(false);
+                          void refreshEvents();
+                          setSettingsOpen(false);
                         }}
                       >
-                        <span>移動平均設定</span>
-                        <span className="popover-status">開く</span>
+                        <span className="popover-item-label">
+                          <IconRefresh size={16} />
+                          <span>
+                            {eventsMeta?.isRefreshing ? "更新中..." : "イベント更新"}
+                          </span>
+                        </span>
+                        <span className="popover-status">手動</span>
                       </button>
+                      <div className="popover-hint">
+                        状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+                      </div>
+                      <div className="popover-hint">
+                        最終試行: {eventsAttemptLabel ?? "--"}
+                      </div>
+                      {eventsMeta?.lastError && (
+                        <div className="popover-hint">エラー: {eventsMeta.lastError}</div>
+                      )}
                     </div>
                   </div>
-                  <div className="popover-section">
-                    <button type="button" className="popover-reset" onClick={resetDisplay}>
-                      おすすめに戻す
-                    </button>
-                  </div>
-                </div>
-              )}
+                )}
+                <input
+                  ref={tradeCsvInputRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={handleTradeCsvChange}
+                  style={{ display: "none" }}
+                />
+              </div>
             </div>
-            <div className="txt-update-group">
-              <button
-                type="button"
-                className={`txt-update-button ${isUpdatingTxt ? "is-updating" : ""}`}
-                onClick={handleUpdateTxt}
-                disabled={!backendReady || isUpdatingTxt}
-              >
-                {isUpdatingTxt ? "TXT更新中..." : "TXT更新"}
-              </button>
-              {(updateProgressLabel || lastUpdatedLabel) && (
-                <div className="txt-update-meta">
-                  <span>{updateProgressLabel ?? "更新待ち"}</span>
-                  <span>最終更新：{lastUpdatedLabel ?? "--"}</span>
-                </div>
-              )}
+          </div>
+          <div className="header-row-bottom">
+            <div className="list-timeframe">
+              {(["monthly", "weekly", "daily"] as const).map((frame) => (
+                <button
+                  key={frame}
+                  type="button"
+                  className={gridTimeframe === frame ? "active" : ""}
+                  onClick={() => setGridTimeframe(frame)}
+                >
+                  {frame === "daily"
+                    ? "日足"
+                    : frame === "weekly"
+                      ? "週足"
+                      : "月足"}
+                </button>
+              ))}
             </div>
-            <div className="popover-anchor" ref={settingsRef}>
-              <button
-                type="button"
-                className="icon-button settings-trigger"
-                onClick={() => {
-                  setSettingsOpen(!settingsOpen);
-                  setSortOpen(false);
-                  setDisplayOpen(false);
-                }}
-                title="設定"
-                style={{ padding: "6px", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "34px", width: "34px" }}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.72l-.15.1a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              </button>
-              {settingsOpen && (
-                <div className="popover-panel popover-right-aligned" style={{ right: 0 }}>
-                  <div className="popover-section">
-                    <div className="popover-title">外観設定</div>
-                    <div className="segmented">
-                      <button
-                        className={currentTheme === "dark" ? "active" : ""}
-                        onClick={() => currentTheme !== "dark" && handleThemeToggle()}
-                      >
-                        ダーク
-                      </button>
-                      <button
-                        className={currentTheme === "light" ? "active" : ""}
-                        onClick={() => currentTheme !== "light" && handleThemeToggle()}
-                      >
-                        ライト
-                      </button>
-                    </div>
-                  </div>
-                  <div className="popover-section">
-                    <div className="popover-title">取引CSV</div>
-                    <button
-                      type="button"
-                      className="popover-item"
-                      onClick={handleTradeCsvPick}
-                      disabled={tradeUploadInFlight}
-                    >
-                      <span>{tradeUploadInFlight ? "取り込み中..." : "CSVを取り込む"}</span>
-                      <span className="popover-status">手動</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="popover-item"
-                      onClick={handleForceTradeSync}
-                      disabled={tradeSyncInFlight}
-                    >
-                      <span>{tradeSyncInFlight ? "同期中..." : "強制同期を実行"}</span>
-                      <span className="popover-status">強制</span>
-                    </button>
-                    <div className="popover-hint">
-                      保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
-                    </div>
-                  </div>
-                  <div className="popover-section">
-                    <div className="popover-title">銘柄一覧</div>
-                    <button
-                      type="button"
-                      className="popover-item"
-                      onClick={handleExportWatchlist}
-                      disabled={watchlistExporting}
-                    >
-                      <span>{watchlistExporting ? "エクスポート中..." : "銘柄一覧をEXPORTする"}</span>
-                      <span className="popover-status">EBK</span>
-                    </button>
-                    <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
-                      <span>code.txtを開く</span>
-                      <span className="popover-status">編集</span>
-                    </button>
-                  </div>
-                  <div className="popover-section">
-                    <div className="popover-title">イベント</div>
-                    <button
-                      type="button"
-                      className="popover-item"
-                      disabled={eventsMeta?.isRefreshing}
-                      onClick={() => {
-                        void refreshEvents();
-                        setSettingsOpen(false);
-                      }}
-                    >
-                      <span>
-                        {eventsMeta?.isRefreshing ? "イベント更新中..." : "イベント更新"}
-                      </span>
-                      <span className="popover-status">手動</span>
-                    </button>
-                    <div className="popover-hint">
-                      状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
-                    </div>
-                    <div className="popover-hint">
-                      最終試行: {eventsAttemptLabel ?? "--"}
-                    </div>
-                    {eventsMeta?.lastError && (
-                      <div className="popover-hint">エラー: {eventsMeta.lastError}</div>
-                    )}
-                  </div>
-                </div>
-              )}
+            <div className="list-search">
               <input
-                ref={tradeCsvInputRef}
-                type="file"
-                accept=".csv"
-                onChange={handleTradeCsvChange}
-                style={{ display: "none" }}
+                className="list-search-input"
+                type="search"
+                placeholder="コード / 銘柄名で検索"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
               />
+              {canAddWatchlist && (
+                <button type="button" onClick={() => addKeep(canAddWatchlist)}>
+                  +
+                </button>
+              )}
             </div>
           </div>
         </div>
+
+
+
+
+
         {techFilterActive.conditions.length > 0 && (
           <div className="tech-filter-chips-row">
             <span className="tech-filter-chip">

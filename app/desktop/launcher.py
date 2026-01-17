@@ -403,7 +403,7 @@ def main() -> None:
 
             _update_loading(win, "Opening app...")
             _maximize_window(win)
-            win.load_url(f"http://127.0.0.1:{port}/")
+            win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
             threading.Timer(0.2, _maximize_window, args=(win,)).start()
 
         webview.start(_bootstrap, window, icon=icon_path, gui="edgechromium")

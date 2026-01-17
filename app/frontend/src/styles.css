@@ -1096,6 +1096,37 @@ body {
   align-items: center;
 }
 
+.unified-list-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--theme-border);
+  flex: 0 0 auto;
+}
+
+.list-header-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.header-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.header-row-bottom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
 .list-tabs {
   display: flex;
   align-items: center;
@@ -1106,7 +1137,7 @@ body {
 .list-tab {
   text-decoration: none;
   color: #cbd5f5;
-  padding: 4px 10px;
+  padding: 4px 14px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   background: rgba(15, 23, 42, 0.65);
@@ -1115,8 +1146,7 @@ body {
 }
 
 .list-home {
-  padding: 4px 8px;
-  font-size: 11px;
+  padding: 4px 12px;
 }
 
 .list-tab.active {
@@ -1131,8 +1161,24 @@ body {
 }
 
 .list-search {
-  flex: 1 1 280px;
-  min-width: 180px;
+  flex: 0 0 160px;
+  width: 160px;
+}
+
+.list-events-inline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: 12px;
+  font-size: 11px;
+  color: var(--theme-text-muted);
+  white-space: nowrap;
+}
+
+.list-header-actions-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .list-header-actions {
@@ -1140,6 +1186,11 @@ body {
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+}
+
+.list-header-actions .popover-anchor {
+  flex: 0 0 auto;
+  min-width: max-content;
 }
 
 .list-header-more {
@@ -1177,8 +1228,14 @@ body {
 .unified-list-header .display-button,
 .unified-list-header .filter-button,
 .unified-list-header .help-button {
-  padding: 6px 10px;
+  padding: 6px 20px;
   font-size: 12px;
+  white-space: nowrap;
+  min-width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
 }
 
 .unified-list-header .more-button {
@@ -1198,7 +1255,7 @@ body {
 
 .top-bar-row-tools {
   justify-content: space-between;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .app-brand {
@@ -1357,12 +1414,16 @@ body {
   border: 1px solid rgba(148, 163, 184, 0.35);
   background: rgba(15, 23, 42, 0.65);
   font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .top-nav-link.active {
   background: #2563eb;
   border-color: #2563eb;
   color: #f8fafc;
+  font-weight: 600;
 }
 
 .top-bar-controls {
@@ -1387,6 +1448,8 @@ body {
   gap: 12px;
   flex: 1 1 auto;
   min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
 
 .toolbar-right {
@@ -1394,6 +1457,36 @@ body {
   align-items: center;
   gap: 12px;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: flex-end;
+}
+
+.toolbar-right .icon-button {
+  flex-shrink: 0;
+}
+
+@media (max-width: 1100px) {
+  .toolbar-right .icon-button-text {
+    display: none;
+  }
+
+  .toolbar-right .icon-button-label {
+    padding: 6px;
+  }
+}
+
+@media (max-width: 900px) {
+
+  .toolbar-right .sort-button .icon-button-text,
+  .toolbar-right .display-button .icon-button-text {
+    display: none;
+  }
+
+  .search-area {
+    max-width: 100%;
+    flex-basis: 100%;
+  }
 }
 
 .timeframe-segment button {
@@ -1405,8 +1498,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 260px;
-  flex: 1 1 260px;
+  min-width: 220px;
+  max-width: 520px;
+  flex: 1 1 360px;
 }
 
 .search-field {
@@ -1594,6 +1688,12 @@ body {
   gap: 12px;
 }
 
+.popover-item-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .popover-item:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -1707,6 +1807,9 @@ body {
   font-size: 13px;
   line-height: 1.2;
   min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .segmented button.active {
@@ -2877,7 +2980,7 @@ body {
   align-items: center;
   gap: 12px;
   flex: 1;
-  justify-content: center;
+  justify-content: flex-start;
   min-width: 0;
 }
 
@@ -2886,22 +2989,22 @@ body {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  align-items: center;
-  text-align: center;
+  align-items: flex-start;
+  text-align: left;
 }
 
 .detail-event-badges {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .detail-event-meta {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
   font-size: 11px;
   color: #94a3b8;
 }
@@ -2950,20 +3053,57 @@ body {
 
 .detail-controls {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
 
 .detail-controls-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
+  flex-wrap: nowrap;
+  row-gap: 8px;
 }
+
+
 
 .detail-controls-icons {
   border-left: 1px solid rgba(148, 163, 184, 0.35);
   padding-left: 8px;
+  flex-wrap: nowrap;
+}
+
+.detail-controls .icon-button {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  min-width: fit-content;
+}
+
+@media (max-width: 1100px) {
+  .detail-controls .icon-button-text {
+    display: none;
+  }
+
+  .detail-controls .icon-button-label {
+    padding: 6px;
+  }
+}
+
+.detail-controls .icon-button-label {
+  min-height: 36px;
+  height: 36px;
+  padding: 8px 16px;
+  box-sizing: border-box;
+}
+
+.detail-controls .icon-button-text {
+  font-size: 12px;
+  line-height: 1.2;
 }
 
 .detail-range {
@@ -3024,7 +3164,9 @@ body {
   cursor: pointer;
   font-size: 13px;
   line-height: 1.2;
-  min-height: 34px;
+  min-height: 36px;
+  height: 36px;
+  box-sizing: border-box;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
@@ -3410,9 +3552,7 @@ body {
 }
 
 .position-ledger-table.is-iizuka .position-ledger-row {
-  grid-template-columns: var(--ledger-date-col) var(--ledger-type-col) var(--ledger-delta-col)
-    var(--ledger-delta-col) var(--ledger-close-col) var(--ledger-close-col) var(--ledger-pos-col)
-    var(--ledger-price-col) var(--ledger-price-col) var(--ledger-pnl-col);
+  grid-template-columns: var(--ledger-date-col) var(--ledger-type-col) var(--ledger-delta-col) var(--ledger-delta-col) var(--ledger-close-col) var(--ledger-close-col) var(--ledger-pos-col) var(--ledger-price-col) var(--ledger-price-col) var(--ledger-pnl-col);
 }
 
 .position-ledger-table.is-iizuka {
@@ -3420,9 +3560,7 @@ body {
 }
 
 .position-ledger-table.is-stock .position-ledger-row {
-  grid-template-columns: var(--ledger-date-col) var(--ledger-type-col) var(--ledger-qty-col)
-    var(--ledger-sell-col) var(--ledger-buy-col) var(--ledger-sell-col) var(--ledger-buy-col)
-    var(--ledger-price-col) var(--ledger-price-col) var(--ledger-pnl-col);
+  grid-template-columns: var(--ledger-date-col) var(--ledger-type-col) var(--ledger-qty-col) var(--ledger-sell-col) var(--ledger-buy-col) var(--ledger-sell-col) var(--ledger-buy-col) var(--ledger-price-col) var(--ledger-price-col) var(--ledger-pnl-col);
 }
 
 .position-ledger-table.is-stock {
@@ -5832,7 +5970,7 @@ body {
 
 /* Icon Buttons */
 .icon-button {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 6px;
@@ -5844,12 +5982,50 @@ body {
   transition: all 0.2s;
   min-width: 34px;
   min-height: 34px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  width: auto;
+  max-width: none;
 }
 
 .icon-button:hover {
   background: var(--theme-bg-hover);
   color: var(--theme-accent);
   border-color: var(--theme-accent);
+}
+
+.icon-button.is-selected {
+  background: var(--theme-active-bg);
+  color: var(--theme-accent);
+  border-color: var(--theme-accent);
+  font-weight: 600;
+}
+
+.icon-button-label {
+  gap: 6px;
+  padding: 6px 10px;
+  min-width: 36px;
+}
+
+.icon-button-text {
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.toolbar-right .icon-button-label {
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
+.toolbar-right .icon-button-text {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.toolbar-right .icon-button-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .settings-trigger {
@@ -6421,6 +6597,7 @@ body {
 .positions-import-btn:hover {
   opacity: 0.8;
 }
+
 /* Event Badges */
 .event-badges {
   display: inline-flex;
