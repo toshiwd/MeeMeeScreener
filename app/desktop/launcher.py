@@ -386,7 +386,8 @@ def main() -> None:
                     _run_ingest(paths["txt_dir"], paths["stocks_db"])
 
             _update_loading(win, "Starting backend...")
-            port = _find_free_port()
+            # Use a fixed port to ensure LocalStorage persistence (Origin must stay same)
+            port = 28888
             server, thread = _start_server(port)
             server_state["server"] = server
             server_state["thread"] = thread
@@ -406,7 +407,7 @@ def main() -> None:
             win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
             threading.Timer(0.2, _maximize_window, args=(win,)).start()
 
-        webview.start(_bootstrap, window, icon=icon_path, gui="edgechromium")
+        webview.start(_bootstrap, window, icon=icon_path, gui="edgechromium", private_mode=False, storage_path=paths["state_dir"])
     except Exception as exc:
         detail = "".join(traceback.format_exception(exc))
         if log_path:
