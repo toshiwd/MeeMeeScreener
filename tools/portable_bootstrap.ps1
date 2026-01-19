@@ -1,11 +1,35 @@
 $ErrorActionPreference = "Stop"
 
 param(
-  [string]$ZipPath = (Join-Path $PSScriptRoot "MeeMeeScreener-portable.zip"),
-  [string]$ExtractDir = (Join-Path $PSScriptRoot "MeeMeeScreener"),
+  [string]$ExtractDir = $PSScriptRoot,
   [string]$WebView2InstallerUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
-  [string]$DotNet48InstallerUrl = "https://go.microsoft.com/fwlink/?LinkId=2085155"
+  [string]$DotNet48InstallerUrl = "https://go.microsoft.com/fwlink/?LinkId=2085155",
+  [string]$VCRedistInstallerUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 )
+
+function Test-VCRedist {
+  # Check for VC++ 2015-2022 Redistributable (x64)
+  # Registry key for VC++ 2022 x64
+  $keyPath = "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64"
+  if (Test-Path $keyPath) {
+    try {
+        $installed = (Get-ItemProperty -Path $keyPath -Name Installed -ErrorAction Stop).Installed
+        if ($installed -eq 1) { return $true }
+    } catch {}
+  }
+  
+  # Fallback check for DLL
+  $dllPath = "$env:SystemRoot\System32\vcruntime140.dll"
+  return (Test-Path $dllPath)
+}
+
+function Install-VCRedist {
+  $installerPath = Join-Path $env:TEMP "vc_redist.x64.exe"
+  Write-Host "Downloading Visual C++ Redistributable..."
+  Invoke-WebRequest -Uri $VCRedistInstallerUrl -OutFile $installerPath
+  Write-Host "Installing Visual C++ Redistributable..."
+  Start-Process -FilePath $installerPath -ArgumentList "/install", "/quiet", "/norestart" -Wait
+}
 
 function Test-WebView2Runtime {
   $paths = @(
@@ -44,36 +68,43 @@ function Install-DotNet48 {
   Start-Process -FilePath $installerPath -ArgumentList "/q", "/norestart" -Wait
 }
 
-if (-not (Test-DotNet48)) {
-  Install-DotNet48
-}
-
-if (-not (Test-WebView2Runtime)) {
-  Install-WebView2Runtime
-}
-
-if (-not (Test-Path $ZipPath)) {
-  throw "Zip not found: $ZipPath"
-}
-
 try {
-  Unblock-File -Path $ZipPath -ErrorAction SilentlyContinue
+    if (-not (Test-DotNet48)) {
+        Install-DotNet48
+    }
+
+    if (-not (Test-VCRedist)) {
+        Install-VCRedist
+    }
+
+    if (-not (Test-WebView2Runtime)) {
+        Install-WebView2Runtime
+    }
+
+    if (-not (Test-DotNet48)) {
+        Install-DotNet48
+    }
+
+    if (-not (Test-WebView2Runtime)) {
+        Install-WebView2Runtime
+    }
+
+    # Ensure executables are unblocked
+    try {
+        Get-ChildItem -Path $ExtractDir -Recurse -Force | Unblock-File -ErrorAction SilentlyContinue
+    } catch {
+    }
+
+    $exePath = Join-Path $ExtractDir "MeeMeeScreener.exe"
+    if (-not (Test-Path $exePath)) {
+        throw "Exe not found: $exePath"
+    }
+
+    Write-Host "Launching MeeMee Screener..."
+    Start-Process -FilePath $exePath
 } catch {
+    Write-Host "Error occurred: $_" -ForegroundColor Red
 }
 
-if (-not (Test-Path $ExtractDir)) {
-  Write-Host "Extracting zip to $ExtractDir..."
-  Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir
-}
-
-try {
-  Get-ChildItem -Path $ExtractDir -Recurse -Force | Unblock-File -ErrorAction SilentlyContinue
-} catch {
-}
-
-$exePath = Join-Path $ExtractDir "MeeMeeScreener.exe"
-if (-not (Test-Path $exePath)) {
-  throw "Exe not found: $exePath"
-}
-
-Start-Process -FilePath $exePath
+Write-Host "Press Enter to exit..."
+Read-Host

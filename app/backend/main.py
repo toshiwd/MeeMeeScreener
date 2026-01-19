@@ -111,8 +111,12 @@ def resolve_trade_csv_paths() -> list[str]:
     # Check user AppData directly (Fix for dev environment)
     user_data = r"C:\Users\enish\AppData\Local\MeeMeeScreener\data"
     if os.path.isdir(user_data):
-        paths.append(os.path.join(user_data, "楽天証券取引履歴.csv"))
-        paths.append(os.path.join(user_data, "SBI証券取引履歴.csv"))
+        rakuten_path = os.path.join(user_data, "楽天証券取引履歴.csv")
+        sbi_path = os.path.join(user_data, "SBI証券取引履歴.csv")
+        if os.path.isfile(rakuten_path):
+            paths.append(rakuten_path)
+        if os.path.isfile(sbi_path):
+            paths.append(sbi_path)
 
     if os.path.isfile(DEFAULT_TRADE_RAKUTEN_PATH):
         paths.append(DEFAULT_TRADE_RAKUTEN_PATH)
@@ -3461,15 +3465,23 @@ def _score_weekly_candidate(code: str, name: str, rows: list[tuple], config: dic
     ma7_series = _build_ma_series(closes, 7)
     ma20_series = _build_ma_series(closes, 20)
     ma60_series = _build_ma_series(closes, 60)
+    ma100_series = _build_ma_series(closes, 100)
+    ma200_series = _build_ma_series(closes, 200)
 
     ma7 = ma7_series[-1] if ma7_series else None
     ma20 = ma20_series[-1] if ma20_series else None
     ma60 = ma60_series[-1] if ma60_series else None
+    ma100 = ma100_series[-1] if ma100_series else None
+    ma200 = ma200_series[-1] if ma200_series else None
     if ma20 is None or ma60 is None:
         return None, None, "missing_ma"
+    if ma100 is None or ma200 is None:
+        return None, None, "missing_ma_long_term"
 
     slope_lookback = int(common.get("slope_lookback", 3))
     slope20 = _calc_slope(ma20_series, slope_lookback)
+    slope100 = _calc_slope(ma100_series, slope_lookback)
+    slope200 = _calc_slope(ma200_series, slope_lookback)
 
     atr_period = int(common.get("atr_period", 14))
     atr14 = _compute_atr(highs, lows, closes, atr_period)
@@ -3515,8 +3527,28 @@ def _score_weekly_candidate(code: str, name: str, rows: list[tuple], config: dic
     if close > ma20 and ma20 > ma60:
         weight = float(weights.get("ma_alignment", 0))
         up_score += weight
-        push_reason(up_reasons, weight, "MA20がMA60より上")
+        push_reason(up_reasons, weight, "MA20 > MA60")
         push_badge(up_badges, "MA整列")
+
+    if ma60 > ma100:
+        weight = float(weights.get("ma_alignment_100", 0))
+        up_score += weight
+        push_reason(up_reasons, weight, "MA60 > MA100")
+
+    if ma100 > ma200:
+        weight = float(weights.get("ma_alignment_200", 0))
+        up_score += weight
+        push_reason(up_reasons, weight, "MA100 > MA200")
+
+    if close > ma100:
+        weight = float(weights.get("obs_above_ma100", 0))
+        up_score += weight
+        push_reason(up_reasons, weight, "MA100より上")
+    
+    if close > ma200:
+        weight = float(weights.get("obs_above_ma200", 0))
+        up_score += weight
+        push_reason(up_reasons, weight, "MA200より上")
 
     pull_min = int(thresholds.get("pullback_down7_min", 1))
     pull_max = int(thresholds.get("pullback_down7_max", 2))
@@ -3548,6 +3580,16 @@ def _score_weekly_candidate(code: str, name: str, rows: list[tuple], config: dic
         push_reason(up_reasons, weight, "MA20上向き")
         push_badge(up_badges, "MA上向き")
 
+    if slope100 is not None and slope100 >= slope_min:
+        weight = float(weights.get("slope_up_100", 0))
+        up_score += weight
+        push_reason(up_reasons, weight, "MA100上向き")
+
+    if slope200 is not None and slope200 >= slope_min:
+        weight = float(weights.get("slope_up_200", 0))
+        up_score += weight
+        push_reason(up_reasons, weight, "MA200上向き")
+
     big_candle = float(thresholds.get("big_candle_atr", 1.2))
     if atr14 is not None and abs(close - opens[-1]) >= atr14 * big_candle and close > opens[-1]:
         weight = float(weights.get("big_bull_candle", 0))
@@ -3564,11 +3606,47 @@ def _score_weekly_candidate(code: str, name: str, rows: list[tuple], config: dic
             push_reason(up_reasons, weight, f"MA20近接（{dist_pct:.1f}%）")
             push_badge(up_badges, "MA20近接")
 
+    ma100_thresh = float(thresholds.get("ma100_distance_pct", 3.0))
+    if close >= ma100:
+        dist100 = abs(close - ma100) / ma100 * 100
+        if dist100 <= ma100_thresh:
+            weight = float(weights.get("ma100_support", 0))
+            up_score += weight
+            push_reason(up_reasons, weight, f"MA100近接（{dist100:.1f}%）")
+
+    ma200_thresh = float(thresholds.get("ma200_distance_pct", 3.0))
+    if close >= ma200:
+        dist200 = abs(close - ma200) / ma200 * 100
+        if dist200 <= ma200_thresh:
+            weight = float(weights.get("ma200_support", 0))
+            up_score += weight
+            push_reason(up_reasons, weight, f"MA200近接（{dist200:.1f}%）")
+
     if close < ma20 and ma20 < ma60:
         weight = float(down_weights.get("ma_alignment", 0))
         down_score += weight
-        push_reason(down_reasons, weight, "MA20がMA60より下")
+        push_reason(down_reasons, weight, "MA20 < MA60")
         push_badge(down_badges, "MA逆転")
+
+    if ma60 < ma100:
+        weight = float(down_weights.get("ma_alignment_100", 0))
+        down_score += weight
+        push_reason(down_reasons, weight, "MA60 < MA100")
+
+    if ma100 < ma200:
+        weight = float(down_weights.get("ma_alignment_200", 0))
+        down_score += weight
+        push_reason(down_reasons, weight, "MA100 < MA200")
+
+    if close < ma100:
+        weight = float(down_weights.get("obs_below_ma100", 0))
+        down_score += weight
+        push_reason(down_reasons, weight, "MA100より下")
+    
+    if close < ma200:
+        weight = float(down_weights.get("obs_below_ma200", 0))
+        down_score += weight
+        push_reason(down_reasons, weight, "MA200より下")
 
     pull_min = int(down_thresholds.get("pullback_up7_min", 1))
     pull_max = int(down_thresholds.get("pullback_up7_max", 2))
@@ -3600,6 +3678,16 @@ def _score_weekly_candidate(code: str, name: str, rows: list[tuple], config: dic
         push_reason(down_reasons, weight, "MA20下向き")
         push_badge(down_badges, "MA下向き")
 
+    if slope100 is not None and slope100 <= slope_max:
+        weight = float(down_weights.get("slope_down_100", 0))
+        down_score += weight
+        push_reason(down_reasons, weight, "MA100下向き")
+
+    if slope200 is not None and slope200 <= slope_max:
+        weight = float(down_weights.get("slope_down_200", 0))
+        down_score += weight
+        push_reason(down_reasons, weight, "MA200下向き")
+
     big_candle = float(down_thresholds.get("big_candle_atr", big_candle))
     if atr14 is not None and abs(close - opens[-1]) >= atr14 * big_candle and close < opens[-1]:
         weight = float(down_weights.get("big_bear_candle", 0))
@@ -3615,6 +3703,22 @@ def _score_weekly_candidate(code: str, name: str, rows: list[tuple], config: dic
             down_score += weight
             push_reason(down_reasons, weight, f"MA20近接（{dist_pct:.1f}%）")
             push_badge(down_badges, "MA20近接")
+
+    ma100_thresh = float(down_thresholds.get("ma100_distance_pct", 3.0))
+    if close <= ma100:
+        dist100 = abs(close - ma100) / ma100 * 100
+        if dist100 <= ma100_thresh:
+            weight = float(down_weights.get("ma100_resistance", 0))
+            down_score += weight
+            push_reason(down_reasons, weight, f"MA100近接（{dist100:.1f}%）")
+
+    ma200_thresh = float(down_thresholds.get("ma200_distance_pct", 3.0))
+    if close <= ma200:
+        dist200 = abs(close - ma200) / ma200 * 100
+        if dist200 <= ma200_thresh:
+            weight = float(down_weights.get("ma200_resistance", 0))
+            down_score += weight
+            push_reason(down_reasons, weight, f"MA200近接（{dist200:.1f}%）")
 
     up_reasons.sort(key=lambda item: item[0], reverse=True)
     down_reasons.sort(key=lambda item: item[0], reverse=True)
@@ -3632,6 +3736,8 @@ def _score_weekly_candidate(code: str, name: str, rows: list[tuple], config: dic
         "lines": {
             "ma20": ma20,
             "ma60": ma60,
+            "ma100": ma100,
+            "ma200": ma200,
             "recent_high": recent_high,
             "recent_low": recent_low
         }
@@ -3729,6 +3835,21 @@ def _score_monthly_candidate(code: str, name: str, rows: list[tuple], config: di
     ma7 = ma7_series[-1] if ma7_series else None
     ma20 = ma20_series[-1] if ma20_series else None
     ma60 = ma60_series[-1] if ma60_series else None
+
+    # New Logic: MA Alignment for Monthly
+    if ma7 and ma20 and ma60:
+        if ma7 > ma20 and ma20 > ma60:
+            w_order = float(weights.get("ma_order_7_20_60", 0))
+            score += w_order
+            reasons.append((w_order, "月足MA配列(7>20>60)"))
+
+        # Simple slope using last 2 points
+        s7 = ma7_series[-1] - ma7_series[-2] if len(ma7_series) > 1 else 0
+        s20 = ma20_series[-1] - ma20_series[-2] if len(ma20_series) > 1 else 0
+        if s7 > 0 and s20 > 0:
+            w_slopes = float(weights.get("ma_slopes_up", 0))
+            score += w_slopes
+            reasons.append((w_slopes, "月足MA上昇"))
 
     reasons.sort(key=lambda item: item[0], reverse=True)
 
@@ -4681,7 +4802,8 @@ def _run_command(cmd: list[str], timeout: int) -> tuple[int, str]:
         capture_output=True,
         text=True,
         timeout=timeout,
-        creationflags=creationflags
+        creationflags=creationflags,
+        env=os.environ  # Pass environment variables to subprocess
     )
     output = "\n".join([result.stdout or "", result.stderr or ""]).strip()
     if len(output) > 8000:
@@ -4899,8 +5021,8 @@ def _start_txt_update(code_path: str, out_dir: str, total: int, cscript: str) ->
 
 
 def _run_ingest_command() -> tuple[int, str]:
-    if os.path.isfile(INGEST_SCRIPT_PATH):
-        return _run_command([sys.executable, INGEST_SCRIPT_PATH], timeout=3600)
+    # Always use in-process import to avoid subprocess issues
+    # (subprocess may try to initialize pywebview and show "already running" dialog)
     import importlib
     import io
     from contextlib import redirect_stdout, redirect_stderr

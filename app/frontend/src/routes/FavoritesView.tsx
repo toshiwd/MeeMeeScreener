@@ -13,7 +13,7 @@ import {
   ConsultationSort,
   ConsultationTimeframe
 } from "../utils/consultation";
-import { downloadChartScreenshots } from "../utils/chartScreenshot";
+import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
 
 type FavoriteItem = {
   code: string;
@@ -55,6 +55,7 @@ export default function FavoritesView() {
   const [sortKey, setSortKey] = useState<FavoriteSortKey>("code");
   const [loading, setLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
   const [filterDataOnly, setFilterDataOnly] = useState(false);
   const [consultVisible, setConsultVisible] = useState(false);
@@ -133,7 +134,7 @@ export default function FavoritesView() {
   useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
-    loadList().catch(() => {});
+    loadList().catch(() => { });
   }, [backendReady, loadList, tickers.length]);
 
   const tickerMap = useMemo(() => {
@@ -343,46 +344,33 @@ export default function FavoritesView() {
     }
   }, [consultText]);
 
+  const { generateScreenshots, isProcessing: isScreenshotProcessing, progress: screenshotProgress } = useConsultScreenshot();
+
   const handleCreateScreenshots = useCallback(async () => {
-    if (!consultTargets.length) {
+    if (consultTargets.length === 0) {
       setToastMessage("スクショ対象がありません。");
       return;
     }
-    const targets = consultTargets.slice(0, SCREENSHOT_LIMIT);
-    const omitted = Math.max(0, consultTargets.length - targets.length);
-    setScreenshotBusy(true);
-    try {
-      try {
-        await ensureBarsForVisible(listTimeframe, targets, "chart-screenshot");
-      } catch {
-        // Use available cache even if fetch fails.
+
+    setToastMessage("スクショ生成を開始します...");
+    const result = await generateScreenshots(consultTargets);
+
+    if (result.success) {
+      setToastMessage(`${result.count}件のスクショを保存しました`);
+      if (result.success && window.pywebview?.api?.open_screenshot_dir) {
+        setToastAction({
+          label: "フォルダを開く",
+          onClick: async () => {
+            await window.pywebview!.api.open_screenshot_dir();
+          }
+        });
       }
-      const itemsForShots = targets.map((code) => ({
-        code,
-        payload: barsCache[listTimeframe][code] ?? null,
-        boxes: [],
-        maSettings: maSettings[listTimeframe] ?? []
-      }));
-      const result = downloadChartScreenshots(itemsForShots, {
-        rangeMonths: listRangeMonths,
-        timeframeLabel: listTimeframe
-      });
-      if (!result.created) {
-        setToastMessage("スクショを作成できませんでした。");
-        return;
-      }
-      const omittedLabel = omitted ? ` (残り${omitted}件は省略)` : "";
-      setToastMessage(`スクショを${result.created}件作成しました。${omittedLabel}`);
-    } finally {
-      setScreenshotBusy(false);
+    } else {
+      setToastMessage(`保存失敗: ${result.error || "不明なエラー"}`);
     }
   }, [
     consultTargets,
-    ensureBarsForVisible,
-    listTimeframe,
-    barsCache,
-    maSettings,
-    listRangeMonths
+    generateScreenshots
   ]);
 
   const emptyLabel =
@@ -425,7 +413,7 @@ export default function FavoritesView() {
         }}
       />
       <div
-        className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
+        className={`rank - shell list - shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
       >
         {loading && <div className="rank-status">読み込み中...</div>}
@@ -462,7 +450,7 @@ export default function FavoritesView() {
         </div>
       </div>
       <div
-        className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
+        className={`consult - sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
           }`}
       >
         <button
@@ -508,6 +496,13 @@ export default function FavoritesView() {
               <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                 コピー
               </button>
+              <button
+                type="button"
+                onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                disabled={!window.pywebview?.api?.open_screenshot_dir}
+              >
+                フォルダ
+              </button>
               <button type="button" onClick={() => setConsultVisible(false)}>
                 閉じる
               </button>
@@ -552,6 +547,13 @@ export default function FavoritesView() {
                 <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                   コピー
                 </button>
+                <button
+                  type="button"
+                  onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                  disabled={!window.pywebview?.api?.open_screenshot_dir}
+                >
+                  フォルダ
+                </button>
                 <button type="button" onClick={() => setConsultVisible(false)}>
                   閉じる
                 </button>
@@ -589,7 +591,14 @@ export default function FavoritesView() {
           </div>
         )}
       </div>
-      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      <Toast
+        message={toastMessage}
+        onClose={() => {
+          setToastMessage(null);
+          setToastAction(null);
+        }}
+        action={toastAction}
+      />
     </div>
   );
 }

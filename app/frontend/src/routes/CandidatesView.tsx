@@ -12,7 +12,7 @@ import {
   ConsultationSort,
   ConsultationTimeframe
 } from "../utils/consultation";
-import { downloadChartScreenshots } from "../utils/chartScreenshot";
+import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
 
 type CandidateItem = {
   code: string;
@@ -48,6 +48,7 @@ export default function CandidatesView() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<CandidateSortKey>("code");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
   const [filterDataOnly, setFilterDataOnly] = useState(false);
   const [consultVisible, setConsultVisible] = useState(false);
@@ -65,6 +66,9 @@ export default function CandidatesView() {
       ? "consult-padding-expanded"
       : "consult-padding-mini"
     : "";
+
+  // Use the screenshot hook
+  const { generateScreenshots } = useConsultScreenshot();
 
   const listStyles = useMemo(
     () =>
@@ -305,41 +309,26 @@ export default function CandidatesView() {
       setToastMessage("スクショ対象がありません。");
       return;
     }
-    const targets = consultTargets.slice(0, SCREENSHOT_LIMIT);
-    const omitted = Math.max(0, consultTargets.length - targets.length);
-    setScreenshotBusy(true);
-    try {
-      try {
-        await ensureBarsForVisible(listTimeframe, targets, "chart-screenshot");
-      } catch {
-        // Use available cache even if fetch fails.
+
+    setToastMessage("スクショ生成を開始します...");
+    const result = await generateScreenshots(consultTargets);
+
+    if (result.success) {
+      setToastMessage(`${result.count}件のスクショを保存しました`);
+      if (result.success && window.pywebview?.api?.open_screenshot_dir) {
+        setToastAction({
+          label: "フォルダを開く",
+          onClick: async () => {
+            await window.pywebview!.api.open_screenshot_dir();
+          }
+        });
       }
-      const itemsForShots = targets.map((code) => ({
-        code,
-        payload: barsCache[listTimeframe][code] ?? null,
-        boxes: [],
-        maSettings: maSettings[listTimeframe] ?? []
-      }));
-      const result = downloadChartScreenshots(itemsForShots, {
-        rangeMonths: listRangeMonths,
-        timeframeLabel: listTimeframe
-      });
-      if (!result.created) {
-        setToastMessage("スクショを作成できませんでした。");
-        return;
-      }
-      const omittedLabel = omitted ? ` (残り${omitted}件は省略)` : "";
-      setToastMessage(`スクショを${result.created}件作成しました。${omittedLabel}`);
-    } finally {
-      setScreenshotBusy(false);
+    } else {
+      setToastMessage(`保存失敗: ${result.error || "不明なエラー"}`);
     }
   }, [
     consultTargets,
-    ensureBarsForVisible,
-    listTimeframe,
-    barsCache,
-    maSettings,
-    listRangeMonths
+    generateScreenshots
   ]);
 
   const handleOpenDetail = useCallback(
@@ -350,7 +339,7 @@ export default function CandidatesView() {
       } catch {
         // ignore storage failures
       }
-      navigate(`/detail/${code}`, { state: { from: location.pathname } });
+      navigate(`/ detail / ${code}`, { state: { from: location.pathname } });
     },
     [navigate, location.pathname, listCodes]
   );
@@ -395,7 +384,7 @@ export default function CandidatesView() {
         }}
       />
       <div
-        className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
+        className={`rank - shell list - shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
       >
         {loadingList && <div className="rank-status">読み込み中...</div>}
@@ -432,7 +421,7 @@ export default function CandidatesView() {
         </div>
       </div>
       <div
-        className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
+        className={`consult - sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
           }`}
       >
         <button
@@ -478,6 +467,13 @@ export default function CandidatesView() {
               <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                 コピー
               </button>
+              <button
+                type="button"
+                onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                disabled={!window.pywebview?.api?.open_screenshot_dir}
+              >
+                フォルダ
+              </button>
               <button type="button" onClick={() => setConsultVisible(false)}>
                 閉じる
               </button>
@@ -522,6 +518,13 @@ export default function CandidatesView() {
                 <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                   コピー
                 </button>
+                <button
+                  type="button"
+                  onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                  disabled={!window.pywebview?.api?.open_screenshot_dir}
+                >
+                  フォルダ
+                </button>
                 <button type="button" onClick={() => setConsultVisible(false)}>
                   閉じる
                 </button>
@@ -559,7 +562,14 @@ export default function CandidatesView() {
           </div>
         )}
       </div>
-      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      <Toast
+        message={toastMessage}
+        onClose={() => {
+          setToastMessage(null);
+          setToastAction(null);
+        }}
+        action={toastAction}
+      />
     </div>
   );
 }

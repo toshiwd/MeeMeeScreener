@@ -146,7 +146,12 @@ print(json.dumps(missing))
         "--hidden-import", "uvicorn.lifespan.on",
         "--hidden-import", "uvicorn.protocols.http.h11_impl",
         "--hidden-import", "uvicorn.protocols.websockets.websockets_impl",
-        "--hidden-import", "multipart",
+        "--hidden-import", "pythonnet",
+        "--hidden-import", "clr",
+        "--hidden-import", "clr_loader",
+        "--hidden-import", "System",
+        "--hidden-import", "System.Windows.Forms",
+        "--hidden-import", "webview.platforms.winforms",
         "--collect-submodules", "multipart",
         "--collect-all", "uvicorn",
         "--hidden-import", "app.backend",
@@ -203,6 +208,13 @@ print(json.dumps(missing))
     } else {
         Write-Host "Warning: README.txt not found at $readmeSrc"
     }
+
+    write-Host "Copying bootstrap scripts to release package..."
+    $bootstrapPs1 = Join-Path $repoRoot "tools\portable_bootstrap.ps1"
+    $bootstrapCmd = Join-Path $repoRoot "tools\portable_bootstrap.cmd"
+    
+    Copy-Item -Path $bootstrapPs1 -Destination (Join-Path $onedir "portable_bootstrap.ps1") -Force
+    Copy-Item -Path $bootstrapCmd -Destination (Join-Path $onedir "portable_bootstrap.cmd") -Force
 
     Write-Host "Creating portable zip..."
     $zipPath = $releaseZip

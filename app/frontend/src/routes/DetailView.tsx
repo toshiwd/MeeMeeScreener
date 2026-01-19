@@ -35,6 +35,8 @@ import { buildAIExport, copyToClipboard, saveAsFile } from "../utils/aiExport";
 import { formatEventBadgeDate, formatEventDateYmd, parseEventDateMs } from "../utils/events";
 import DailyMemoPanel from "../components/DailyMemoPanel";
 import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from "../utils/consultCopy";
+import { useChartSync } from "../hooks/useChartSync";
+import { useDetailInfo } from "../hooks/useDetailInfo";
 
 
 type Timeframe = "daily" | "weekly" | "monthly";
@@ -1656,48 +1658,37 @@ export default function DetailView() {
   }, [cursorMode, selectedBarIndex, dailyCandles]);
 
 
-  useEffect(() => {
-    if (hoverRafRef.current !== null) {
-      window.cancelAnimationFrame(hoverRafRef.current);
-      hoverRafRef.current = null;
-    }
-    hoverTimePendingRef.current = null;
-    hoverTimeRef.current = null;
-    setHoverTime(null);
-    dailyChartRef.current?.clearCrosshair();
-    weeklyChartRef.current?.clearCrosshair();
-    monthlyChartRef.current?.clearCrosshair();
-  }, [focusPanel]);
+  const compareHasMoreDaily = compareDailyData.length >= compareDailyLimit;
+  const compareHasMoreMonthly = compareMonthlyData.length >= monthlyLimit; // monthlyLimit is shared
 
-  useEffect(() => {
-    return () => {
-      if (hoverRafRef.current !== null) {
-        window.cancelAnimationFrame(hoverRafRef.current);
-        hoverRafRef.current = null;
-      }
-    };
-  }, []);
+  const mainSync = useChartSync(dailyChartRef, monthlyChartRef, weeklyChartRef, {
+    enabled: syncRanges ?? true,
+    cursorEnabled: true,
+    onLoadMoreDaily: () => setDailyLimit((prev) => prev + LIMIT_STEP.daily),
+    onLoadMoreMonthly: () => setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly),
+    hasMoreDaily,
+    loadingDaily,
+    hasMoreMonthly,
+    loadingMonthly,
+    dailyCandles,
+    monthlyCandles
+  });
 
-  useEffect(() => {
-    return () => {
-      if (syncRafRef.current !== null) {
-        window.cancelAnimationFrame(syncRafRef.current);
-        syncRafRef.current = null;
-      }
-    };
-  }, []);
+  const compareSync = useChartSync(compareDailyChartRef, compareMonthlyChartRef, undefined, {
+    enabled: syncRanges ?? true,
+    cursorEnabled: true,
+    onLoadMoreDaily: () => setCompareDailyLimit((prev) => prev + LIMIT_STEP.daily),
+    // compare monthly load more is implicitly handled by shared monthlyLimit, but comparing data length:
+    onLoadMoreMonthly: () => setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly),
+    hasMoreDaily: compareHasMoreDaily,
+    loadingDaily: compareDailyLoading,
+    hasMoreMonthly: compareHasMoreMonthly,
+    loadingMonthly: compareLoading, // compareLoading is for monthly
+    dailyCandles: compareDailyCandles,
+    monthlyCandles: compareMonthlyCandles
+  });
 
-  const scheduleHoverTime = (time: number | null) => {
-    hoverTimePendingRef.current = time;
-    if (hoverRafRef.current !== null) return;
-    hoverRafRef.current = window.requestAnimationFrame(() => {
-      hoverRafRef.current = null;
-      const next = hoverTimePendingRef.current ?? null;
-      if (hoverTimeRef.current === next) return;
-      hoverTimeRef.current = next;
-      setHoverTime(next);
-    });
-  };
+  // Removed scheduleHoverTime
 
   const showVolumeDaily = dailyVolume.length > 0;
 
@@ -1713,37 +1704,7 @@ export default function DetailView() {
     setRangeMonths((prev) => (prev === months ? null : months));
   };
 
-  const syncRangeToSecondary = (range: { from: number; to: number }) => {
-    if (!syncRangesRef.current) return;
-    const weeklyMin = weeklyCandles[0]?.time;
-    const monthlyMin = monthlyCandles[0]?.time;
-    if (weeklyMin && range.from < weeklyMin && hasMoreDaily && !loadingDaily) {
-      loadMoreDaily();
-    }
-    if (monthlyMin && range.from < monthlyMin && hasMoreMonthly && !loadingMonthly) {
-      loadMoreMonthly();
-    }
-    weeklyChartRef.current?.setVisibleRange(range);
-    monthlyChartRef.current?.setVisibleRange(range);
-  };
-
-  const handleDailyVisibleRangeChange = (range: { from: number; to: number } | null) => {
-    if (!range) return;
-    pendingRangeRef.current = range;
-    if (syncRafRef.current !== null) return;
-    syncRafRef.current = window.requestAnimationFrame(() => {
-      syncRafRef.current = null;
-      const pending = pendingRangeRef.current;
-      if (!pending) return;
-      syncRangeToSecondary(pending);
-    });
-  };
-
-  useEffect(() => {
-    const pending = pendingRangeRef.current;
-    if (!pending || !syncRangesRef.current) return;
-    syncRangeToSecondary(pending);
-  }, [weeklyCandles, monthlyCandles, loadingDaily, loadingMonthly]);
+  // Removed syncRangeToSecondary and handleDailyVisibleRangeChange (handled by hook)
 
   const parseBarsResponse = (payload: BarsResponse | number[][], label: string) => {
     if (Array.isArray(payload)) {
@@ -1870,49 +1831,27 @@ export default function DetailView() {
     }
   };
 
-  const handleDailyCrosshair = (time: number | null, point?: { x: number; y: number } | null) => {
-    weeklyChartRef.current?.setCrosshair(time, null);
-    monthlyChartRef.current?.setCrosshair(time, null);
-    if (focusPanel === null || focusPanel === "daily") {
-      scheduleHoverTime(time);
-    }
-  };
-
-  const handleWeeklyCrosshair = (time: number | null, point?: { x: number; y: number } | null) => {
-    dailyChartRef.current?.setCrosshair(time, null);
-    monthlyChartRef.current?.setCrosshair(time, null);
-    if (focusPanel === "weekly") {
-      scheduleHoverTime(time);
-    }
-  };
-
-  const handleMonthlyCrosshair = (time: number | null, point?: { x: number; y: number } | null) => {
-    dailyChartRef.current?.setCrosshair(time, null);
-    weeklyChartRef.current?.setCrosshair(time, null);
-    if (focusPanel === "monthly") {
-      scheduleHoverTime(time);
-    }
-  };
+  /* Handlers replaced by hooks */
+  const handleDailyCrosshair = mainSync.handleDailyCrosshair;
+  const handleWeeklyCrosshair = mainSync.handleWeeklyCrosshair;
+  const handleMonthlyCrosshair = mainSync.handleMonthlyCrosshair;
 
   const handleCompareMonthlyCrosshair = (time: number | null, source: "left" | "right") => {
-    if (syncRangesRef.current) {
-      if (source === "left") {
-        compareMonthlyChartRef.current?.setCrosshair(time, null);
-      } else {
-        monthlyChartRef.current?.setCrosshair(time, null);
-      }
+    if (source === "left") {
+      // Main chart (Left)
+      mainSync.handleMonthlyCrosshair(time);
+    } else {
+      // Compare chart (Right)
+      compareSync.handleMonthlyCrosshair(time);
     }
   };
 
   const handleCompareDailyCrosshair = (time: number | null, source: "left" | "right") => {
-    if (syncRangesRef.current) {
-      if (source === "left") {
-        compareDailyChartRef.current?.setCrosshair(time, null);
-      } else {
-        dailyChartRef.current?.setCrosshair(time, null);
-      }
+    if (source === "left") {
+      mainSync.handleDailyCrosshair(time);
+    } else {
+      compareSync.handleDailyCrosshair(time);
     }
-    scheduleHoverTime(time);
   };
 
   const dailyEmptyMessage = dailyCandles.length === 0 ? dailyError ?? "No data" : null;
@@ -2002,81 +1941,14 @@ export default function DetailView() {
     return listCodes[index + 1] ?? null;
   }, [listCodes, code]);
 
-  const memoPanelData = useMemo(() => {
-    if (!selectedBarData || selectedBarIndex < 0) return null;
-
-    // 1. Previous Day Data
-    let prevDayData = undefined;
-    if (selectedBarIndex > 0) {
-      const prevBar = dailyCandles[selectedBarIndex - 1];
-      const change = selectedBarData.close - prevBar.close;
-      const changePercent = (change / prevBar.close) * 100;
-      prevDayData = { close: prevBar.close, change, changePercent };
-    }
-
-    // 2. Position Data
-    const posList = dailyPositions.filter(p => p.time === selectedBarData.time);
-    const position = {
-      buy: posList.reduce((acc, p) => acc + p.longLots, 0),
-      sell: posList.reduce((acc, p) => acc + p.shortLots, 0)
-    };
-
-    // 3. MA Values
-    const maValues: any = {};
-
-    // 4. MA Trends
-    const maTrends: any = {};
-
-    const countTrend = (lineData: { time: number, value: number }[]) => {
-      const valueMap = new Map(lineData.map(d => [d.time, d.value]));
-      const currentMa = valueMap.get(selectedBarData.time);
-      if (currentMa == null) return null;
-
-      const isUp = selectedBarData.close >= currentMa;
-      let count = 0;
-
-      for (let i = selectedBarIndex; i >= 0; i--) {
-        const bar = dailyCandles[i];
-        const ma = valueMap.get(bar.time);
-        if (ma == null) break;
-
-        const barIsUp = bar.close >= ma;
-        if (barIsUp === isUp) {
-          count++;
-        } else {
-          break;
-        }
-      }
-
-      const upStr = isUp ? count : 0;
-      const downStr = isUp ? 0 : count;
-      return `上${upStr} / 下${downStr}`;
-    };
-
-    dailyMaLines.forEach(line => {
-      // Value
-      const point = line.data.find(d => d.time === selectedBarData.time);
-      if (point) {
-        if (line.period === 5 || line.period === 7) maValues.ma7 = point.value;
-        else if (line.period === 20 || line.period === 25) maValues.ma20 = point.value;
-        else if (line.period === 60 || line.period === 75) maValues.ma60 = point.value;
-        else if (line.period === 100) maValues.ma100 = point.value;
-        else if (line.period === 200) maValues.ma200 = point.value;
-      }
-
-      // Trend
-      const trend = countTrend(line.data);
-      if (trend) {
-        if (line.period === 5 || line.period === 7) maTrends.ma7 = trend;
-        else if (line.period === 20 || line.period === 25) maTrends.ma20 = trend;
-        else if (line.period === 60 || line.period === 75) maTrends.ma60 = trend;
-        else if (line.period === 100) maTrends.ma100 = trend;
-        else if (line.period === 200) maTrends.ma200 = trend;
-      }
-    });
-
-    return { prevDayData, position, maValues, maTrends };
-  }, [selectedBarData, selectedBarIndex, dailyCandles, dailyPositions, dailyMaLines]);
+  // Use shared hook for memo panel data
+  const memoPanelData = useDetailInfo(
+    selectedBarData,
+    selectedBarIndex,
+    dailyCandles,
+    dailyPositions,
+    dailyMaLines
+  );
 
   return (
     <div className={`detail-shell ${focusPanel ? "detail-shell-focus" : ""}`}>
@@ -2239,6 +2111,28 @@ export default function DetailView() {
                     setToastMessage(result.error ?? "スクショに失敗しました");
                     return;
                   }
+
+                  const handleSaveSuccess = (saveResult: { success: boolean, savedPath?: string, savedDir?: string, error?: string }) => {
+                    if (saveResult.savedPath || saveResult.savedDir) {
+                      setToastMessage("スクショを保存しました");
+                      setToastAction({
+                        label: "フォルダを開く",
+                        onClick: async () => {
+                          if (window.pywebview?.api?.open_path) {
+                            const target = saveResult.savedPath || saveResult.savedDir;
+                            if (target) {
+                              await window.pywebview.api.open_path(target);
+                            }
+                          }
+                        }
+                      });
+                    } else {
+                      // Fallback for browser download or missing path
+                      setToastMessage("スクショを保存しました (保存先不明)");
+                      setToastAction(null);
+                    }
+                  };
+
                   if (result.copied) {
                     // Clipboard copy succeeded - show toast with save action
                     const blob = result.blob!;
@@ -2247,9 +2141,13 @@ export default function DetailView() {
                     setToastAction({
                       label: "保存...",
                       onClick: async () => {
-                        await saveBlobToFile(blob, filename);
-                        setToastMessage("スクショを保存しました");
-                        setToastAction(null);
+                        const saveResult = await saveBlobToFile(blob, filename);
+                        if (saveResult.success) {
+                          handleSaveSuccess(saveResult);
+                        } else {
+                          setToastMessage(saveResult.error || "保存に失敗しました");
+                          setToastAction(null);
+                        }
                       },
                     });
                   } else {
@@ -2257,7 +2155,13 @@ export default function DetailView() {
                     setToastMessage("クリップボードにコピーできなかったため保存しました");
                     setToastAction(null);
                     if (result.blob && result.filename) {
-                      await saveBlobToFile(result.blob, result.filename);
+                      const saveResult = await saveBlobToFile(result.blob, result.filename);
+                      if (saveResult.success) {
+                        handleSaveSuccess(saveResult);
+                      } else {
+                        setToastMessage(saveResult.error || "保存に失敗しました");
+                        setToastAction(null);
+                      }
                     }
                   }
                 } finally {
@@ -2499,11 +2403,12 @@ export default function DetailView() {
                         showOverlay: showTradesOverlay,
                         showMarkers: true,
                         showPnL: showPnLPanel,
-                        hoverTime,
+                        hoverTime: mainSync.hoverTime,
                         currentPositions,
                         latestTradeTime
                       }}
                       onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "left")}
+                      onVisibleRangeChange={mainSync.handleDailyVisibleRangeChange}
                     />
                     {dailyEmptyMessage && (
                       <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
@@ -2531,9 +2436,10 @@ export default function DetailView() {
                         showOverlay: showTradesOverlay,
                         showMarkers: true,
                         showPnL: showPnLPanel,
-                        hoverTime
+                        hoverTime: compareSync.hoverTime
                       }}
                       onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "right")}
+                      onVisibleRangeChange={compareSync.handleDailyVisibleRangeChange}
                     />
                     {(compareDailyLoading || compareDailyNeedsMore) && (
                       <div className="detail-chart-empty">一致期間のデータを読み込み中...</div>
@@ -2572,12 +2478,12 @@ export default function DetailView() {
                       showOverlay: showTradesOverlay,
                       showMarkers: true,
                       showPnL: showPnLPanel,
-                      hoverTime,
+                      hoverTime: mainSync.hoverTime,
                       currentPositions,
                       latestTradeTime
                     }}
                     onCrosshairMove={handleDailyCrosshair}
-                    onVisibleRangeChange={handleDailyVisibleRangeChange}
+                    onVisibleRangeChange={mainSync.handleDailyVisibleRangeChange}
                   />
                 )}
                 {focusPanel === "weekly" && (
@@ -2667,13 +2573,13 @@ export default function DetailView() {
                       showOverlay: showTradesOverlay,
                       showMarkers: true,
                       showPnL: showPnLPanel,
-                      hoverTime,
+                      hoverTime: mainSync.hoverTime,
                       currentPositions,
                       latestTradeTime
                     }}
                     cursorTime={cursorMode && selectedBarData ? selectedBarData.time : null}
                     onCrosshairMove={handleDailyCrosshair}
-                    onVisibleRangeChange={handleDailyVisibleRangeChange}
+                    onVisibleRangeChange={mainSync.handleDailyVisibleRangeChange}
                     onChartClick={handleDailyChartClick}
                   />
                   {dailyEmptyMessage && (

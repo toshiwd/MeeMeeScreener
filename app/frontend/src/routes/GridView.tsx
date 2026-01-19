@@ -1778,6 +1778,12 @@ export default function GridView() {
                       </div>
                     </div>
                     <div className="popover-section">
+                      <div className="popover-title">スクショ</div>
+                      <div className="popover-hint">
+                        保存先: %USERPROFILE%\\Downloads\\MeeMeeScreener
+                      </div>
+                    </div>
+                    <div className="popover-section">
                       <div className="popover-title">銘柄一覧</div>
                       <button
                         type="button"

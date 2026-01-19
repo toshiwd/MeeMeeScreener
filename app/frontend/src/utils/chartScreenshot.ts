@@ -159,10 +159,10 @@ const triggerDownload = (dataUrl: string, filename: string) => {
   document.body.removeChild(link);
 };
 
-export const downloadChartScreenshots = (
+export const downloadChartScreenshots = async (
   items: ScreenshotItem[],
   options: ScreenshotOptions = {}
-): ScreenshotResult => {
+): Promise<ScreenshotResult & { savedDir?: string }> => {
   const width = options.width ?? DEFAULT_WIDTH;
   const height = options.height ?? DEFAULT_HEIGHT;
   const showAxes = options.showAxes ?? true;
@@ -170,17 +170,18 @@ export const downloadChartScreenshots = (
   const stamp = options.stamp ?? buildStamp();
   let created = 0;
   let skipped = 0;
+  let savedDir: string | undefined;
 
-  items.forEach((item) => {
+  for (const item of items) {
     const payload = item.payload ?? null;
     if (!payload?.bars?.length) {
       skipped += 1;
-      return;
+      continue;
     }
     const maxBars = resolveMaxBars(payload.bars, options.rangeMonths, options.maxBars ?? null);
     if (!maxBars) {
       skipped += 1;
-      return;
+      continue;
     }
     const canvas = createCanvas(width, height);
     drawChart(
@@ -192,7 +193,8 @@ export const downloadChartScreenshots = (
       width,
       height,
       maxBars,
-      showAxes
+      showAxes,
+      "light"
     );
     let dataUrl = "";
     try {
@@ -202,12 +204,40 @@ export const downloadChartScreenshots = (
     }
     if (!dataUrl) {
       skipped += 1;
-      return;
+      continue;
     }
     const fileName = buildFileName(item.code, options.timeframeLabel, stamp);
-    triggerDownload(dataUrl, fileName);
-    created += 1;
-  });
 
-  return { created, skipped };
+    if (window.pywebview?.api?.save_screenshot) {
+      // Backend save
+      const base64Data = dataUrl.split(",")[1];
+      try {
+        const result = await window.pywebview.api.save_screenshot(base64Data, fileName);
+        if (result.success) {
+          created += 1;
+          if (result.savedDir) {
+            savedDir = result.savedDir;
+          }
+        } else {
+          // Backend failed, fallback? 
+          // Currently just counting as skipped or let's try fallback.
+          triggerDownload(dataUrl, fileName);
+          created += 1;
+        }
+      } catch {
+        triggerDownload(dataUrl, fileName);
+        created += 1;
+      }
+    } else {
+      // Browser fallback
+      triggerDownload(dataUrl, fileName);
+      created += 1;
+    }
+    // Small delay to prevent browser throttling downloads if not using backend
+    if (!window.pywebview?.api?.save_screenshot) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  return { created, skipped, savedDir };
 };

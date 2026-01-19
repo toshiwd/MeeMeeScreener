@@ -21,6 +21,63 @@ MUTEX_NAME = "Global\\MeeMeeScreenerSingleton"
 HEALTH_TIMEOUT_SECONDS = 10
 
 
+def _check_webview2_runtime() -> bool:
+    """Check if Microsoft Edge WebView2 Runtime is installed."""
+    import winreg
+    
+    # Check common installation paths
+    paths = [
+        os.path.join(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)"), 
+                     "Microsoft", "EdgeWebView", "Application", "msedgewebview2.exe"),
+        os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), 
+                     "Microsoft", "EdgeWebView", "Application", "msedgewebview2.exe"),
+    ]
+    
+    for path in paths:
+        if os.path.exists(path):
+            return True
+    
+    # Check registry
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
+                            r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}")
+        winreg.CloseKey(key)
+        return True
+    except:
+        pass
+    
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
+                            r"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}")
+        winreg.CloseKey(key)
+        return True
+    except:
+        pass
+    
+    return False
+
+
+def _check_dotnet_framework() -> bool:
+    """Check if .NET Framework 4.8 or higher is installed."""
+    import winreg
+    
+    try:
+        # Check for .NET Framework 4.8 or higher
+        # Release value 528040 = .NET 4.8
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full")
+        try:
+            release, _ = winreg.QueryValueEx(key, "Release")
+            winreg.CloseKey(key)
+            # 528040 = .NET 4.8, 528049 = .NET 4.8 on Windows 10 May 2019 Update
+            return release >= 528040
+        except:
+            winreg.CloseKey(key)
+            return False
+    except:
+        return False
+
+
 def _message_box(text: str, title: str) -> None:
     ctypes.windll.user32.MessageBoxW(None, text, title, 0x00000010)
 
@@ -341,6 +398,11 @@ def main() -> None:
         _message_box("MeeMee Screener is already running.", WINDOW_TITLE)
         return
 
+    if not mutex:
+        _message_box("MeeMee Screener is already running.", WINDOW_TITLE)
+        return
+
+    import sys
     log_path: Path | None = None
     try:
         icon_path = resolve_path("resources", "icons", "app_icon.ico")
@@ -355,14 +417,94 @@ def main() -> None:
         log_path = _configure_logging(paths["logs_dir"])
         _configure_environment(paths)
 
+        # Check for .NET Framework 4.8 before initializing pywebview
+        if not _check_dotnet_framework():
+            error_msg = (
+                ".NET Framework 4.8 or higher is not installed.\n\n"
+                "Please install it from:\n"
+                "https://go.microsoft.com/fwlink/?LinkId=2085155\n\n"
+                "Or run portable_bootstrap.ps1 as administrator to install automatically."
+            )
+            _message_box(error_msg, WINDOW_TITLE)
+            return
+
+        if not _check_webview2_runtime():
+            error_msg = (
+                "Microsoft Edge WebView2 Runtime is not installed.\n\n"
+                "Please install it from:\n"
+                "https://go.microsoft.com/fwlink/p/?LinkId=2124703\n\n"
+                "Or run portable_bootstrap.ps1 as administrator to install automatically."
+            )
+            _message_box(error_msg, WINDOW_TITLE)
+            return
+
         import webview
+        import base64
+        import subprocess
+
+        class JsApi:
+            def save_screenshot(self, data_uri: str, filename: str) -> dict:
+                try:
+                    # Remove header if present (data:image/png;base64,...)
+                    if "," in data_uri:
+                        header, encoded = data_uri.split(",", 1)
+                    else:
+                        encoded = data_uri
+
+                    data = base64.b64decode(encoded)
+                    
+                    # Determine save path (Downloads folder)
+                    downloads_path = str(Path.home() / "Downloads" / "MeeMeeScreener")
+                    os.makedirs(downloads_path, exist_ok=True)
+                    save_path = os.path.join(downloads_path, filename)
+                    
+                    # Write file
+                    with open(save_path, "wb") as f:
+                        f.write(data)
+                        
+                    return {
+                        "success": True,
+                        "savedPath": save_path,
+                        "savedDir": downloads_path,
+                        "fileName": filename
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": str(e)
+                    }
+
+            def open_path(self, path: str) -> bool:
+                try:
+                    if not os.path.exists(path):
+                        return False
+                    
+                    # Select file in explorer
+                    if os.path.isfile(path):
+                        subprocess.run(['explorer', '/select,', path])
+                    else:
+                        os.startfile(path)
+                    return True
+                except Exception:
+                    return False
+
+            def open_screenshot_dir(self) -> bool:
+                try:
+                    downloads_path = str(Path.home() / "Downloads" / "MeeMeeScreener")
+                    os.makedirs(downloads_path, exist_ok=True)
+                    os.startfile(downloads_path)
+                    return True
+                except Exception:
+                    return False
+
         window = webview.create_window(
             WINDOW_TITLE,
             html=_loading_html(),
             width=1280,
             height=720,
             resizable=True,
-            maximized=True
+            maximized=True,
+            js_api=JsApi()
         )
         def _on_shown() -> None:
             _maximize_window(window)
