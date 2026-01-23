@@ -1,7 +1,7 @@
 
 import uuid
 from datetime import datetime
-from app.backend.db import get_conn
+from db import get_conn
 
 def get_events(conn, symbols=None):
     query = """

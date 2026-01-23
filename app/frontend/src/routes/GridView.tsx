@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   FixedSizeGrid as Grid,
   type FixedSizeGrid,
@@ -145,7 +145,8 @@ export default function GridView() {
   const [showSplitSuspects, setShowSplitSuspects] = useState(false);
   const [updateLogLines, setUpdateLogLines] = useState<string[]>([]);
   const [showUpdateLog, setShowUpdateLog] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: string; key: number } | null>(null);
+  const toastKeyRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [consultVisible, setConsultVisible] = useState(false);
   const [consultExpanded, setConsultExpanded] = useState(false);
@@ -180,6 +181,11 @@ export default function GridView() {
   const lastVisibleCodesRef = useRef<string[]>([]);
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
   const undoTimerRef = useRef<number | null>(null);
+
+  const showToast = useCallback((text: string) => {
+    toastKeyRef.current += 1;
+    showToast({ text, key: toastKeyRef.current });
+  }, []);
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
   const consultPaddingClass = consultVisible
@@ -203,14 +209,14 @@ export default function GridView() {
         headers: { "Content-Type": "multipart/form-data" },
         timeout: 120000
       });
-      setToastMessage("トレードCSVをアップロードしました。");
+      showToast("トレードCSVをアップロードしました。");
     } catch (err: any) {
       const detail =
         err?.response?.data?.error ||
         err?.response?.data?.detail ||
         err?.message ||
         "Unknown error";
-      setToastMessage(`トレードCSVのアップロードに失敗しました。 (${detail})`);
+      showToast(`トレードCSVのアップロードに失敗しました。 (${detail})`);
     } finally {
       setTradeUploadInFlight(false);
       event.target.value = "";
@@ -224,9 +230,9 @@ export default function GridView() {
       const res = await api.get("/debug/trade-sync");
       const errors = res.data?.errors ?? [];
       if (Array.isArray(errors) && errors.length) {
-        setToastMessage(`強制同期でエラーが発生しました。 (${errors[0]})`);
+        showToast(`強制同期でエラーが発生しました。 (${errors[0]})`);
       } else {
-        setToastMessage("強制同期を実行しました。");
+        showToast("強制同期を実行しました。");
       }
     } catch (err: any) {
       const detail =
@@ -234,7 +240,7 @@ export default function GridView() {
         err?.response?.data?.detail ||
         err?.message ||
         "Unknown error";
-      setToastMessage(`強制同期に失敗しました。 (${detail})`);
+      showToast(`強制同期に失敗しました。 (${detail})`);
     } finally {
       setTradeSyncInFlight(false);
     }
@@ -244,7 +250,7 @@ export default function GridView() {
     if (watchlistExporting) return;
     const exportItems = sortedTickers.map((item) => item.ticker);
     if (!exportItems.length) {
-      setToastMessage("エクスポート対象の銘柄がありません。");
+      showToast("エクスポート対象の銘柄がありません。");
       return;
     }
     setWatchlistExporting(true);
@@ -252,9 +258,9 @@ export default function GridView() {
       const lines = exportItems.map((item) => `JP#${item.code}`);
       const filename = "watchlist.ebk";
       const ok = await saveAsFile(lines.join("\n"), filename, "text/plain");
-      setToastMessage(ok ? "銘柄一覧をエクスポートしました。" : "エクスポートをキャンセルしました。");
+      showToast(ok ? "銘柄一覧をエクスポートしました。" : "エクスポートをキャンセルしました。");
     } catch {
-      setToastMessage("銘柄一覧のエクスポートに失敗しました。");
+      showToast("銘柄一覧のエクスポートに失敗しました。");
     } finally {
       setWatchlistExporting(false);
     }
@@ -264,12 +270,12 @@ export default function GridView() {
     try {
       const res = await api.post("/watchlist/open");
       if (res.status >= 200 && res.status < 300 && res.data?.ok) {
-        setToastMessage("code.txt を開きました。");
+        showToast("code.txt を開きました。");
       } else {
-        setToastMessage("code.txt を開けませんでした。");
+        showToast("code.txt を開けませんでした。");
       }
     } catch {
-      setToastMessage("code.txt を開けませんでした。");
+      showToast("code.txt を開けませんでした。");
     }
   };
 
@@ -952,7 +958,7 @@ export default function GridView() {
             : `${code} を追加しました。次回TXT更新で反映されます。`
         );
       } catch {
-        setToastMessage("ウォッチリスト追加に失敗しました。");
+        showToast("ウォッチリスト追加に失敗しました。");
       }
     },
     [loadList]
@@ -972,10 +978,10 @@ export default function GridView() {
         undoTimerRef.current = window.setTimeout(() => {
           setUndoInfo(null);
         }, 5000);
-        setToastMessage(`${code} を除外しました。`);
+        showToast(`${code} を除外しました。`);
       } catch (error) {
         const message = error instanceof Error ? error.message : "ウォッチリスト削除に失敗しました。";
-        setToastMessage(message);
+        showToast(message);
       }
     },
     [loadList]
@@ -989,7 +995,7 @@ export default function GridView() {
         return;
       }
       if (keepList.length >= KEEP_LIMIT) {
-        setToastMessage(`候補箱は最大${KEEP_LIMIT}件までです。`);
+        showToast(`候補箱は最大${KEEP_LIMIT}件までです。`);
         return;
       }
       addKeep(code);
@@ -1106,9 +1112,9 @@ export default function GridView() {
         trashToken: undoInfo.trashToken
       });
       await loadList();
-      setToastMessage(`${undoInfo.code} を復元しました。`);
+      showToast(`${undoInfo.code} を復元しました。`);
     } catch {
-      setToastMessage("復元に失敗しました。");
+      showToast("復元に失敗しました。");
     } finally {
       if (undoTimerRef.current) {
         window.clearTimeout(undoTimerRef.current);
@@ -1153,7 +1159,7 @@ export default function GridView() {
       defaultTimeframe
     );
     if (result.dropped > 0 && !techFilterDropNoticeRef.current) {
-      setToastMessage("旧条件の一部は削除しました。");
+      showToast("旧条件の一部は削除しました。");
       techFilterDropNoticeRef.current = true;
     }
     return {
@@ -1229,6 +1235,7 @@ export default function GridView() {
     error?: string | null;
     last_updated_at?: string | null;
     stdout_tail?: string[];
+    status_message?: string | null;
     elapsed_ms?: number | null;
     timeout_sec?: number;
     warning?: boolean;
@@ -1255,22 +1262,84 @@ export default function GridView() {
     )}:${pad(date.getMinutes())}`;
   };
 
+  const formatElapsed = (elapsedMs?: number | null) => {
+    if (!elapsedMs || elapsedMs < 1000) return null;
+    const totalSeconds = Math.floor(elapsedMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  };
+
   const lastUpdatedLabel = formatUpdatedAt(
     (txtUpdateStatus?.last_updated_at as string | null | undefined) ?? health?.last_updated
   );
-  const isUpdatingTxt = updateRequestInFlight || Boolean(txtUpdateStatus?.running);
+  const isUpdateRunning = Boolean(txtUpdateStatus?.running);
+  const isUpdateStarting = updateRequestInFlight && !isUpdateRunning;
+  const isUpdatingTxt = isUpdateRunning || isUpdateStarting;
+  const updateProgressPercent = (() => {
+    if (!isUpdateRunning) return null;
+    const processed = txtUpdateStatus.processed;
+    const total = txtUpdateStatus.total;
+    if (typeof processed === "number" && processed >= 0) {
+      if (total === 100) {
+        return Math.min(100, Math.round(processed));
+      }
+      if (typeof total === "number" && total > 0) {
+        return Math.min(100, Math.round((processed / total) * 100));
+      }
+    }
+    return null;
+  })();
   const updateProgressLabel = (() => {
-    if (!txtUpdateStatus?.running) return null;
+    if (!isUpdateRunning) return null;
+    const statusMessage = txtUpdateStatus.status_message?.trim();
     if (txtUpdateStatus.phase === "ingesting") return "取り込み中";
+    if (txtUpdateStatus.phase === "exporting") return "エクスポート中";
+    if (txtUpdateStatus.phase === "queued" || txtUpdateStatus.phase === "starting") {
+      return "準備中";
+    }
     if (
       typeof txtUpdateStatus.processed === "number" &&
       typeof txtUpdateStatus.total === "number" &&
       txtUpdateStatus.total > 0
     ) {
+      if (txtUpdateStatus.total === 100 && txtUpdateStatus.processed <= 100) {
+        return `更新中 ${Math.round(txtUpdateStatus.processed)}%`;
+      }
       return `更新中 ${txtUpdateStatus.processed}/${txtUpdateStatus.total}`;
     }
+    if (statusMessage) return statusMessage;
     return "更新中";
   })();
+  const updatePhase = txtUpdateStatus?.phase ?? null;
+  const updateStatusTone = isUpdateStarting
+    ? "idle"
+    : isUpdateRunning
+      ? "running"
+      : updatePhase === "done"
+        ? "done"
+        : updatePhase === "error"
+          ? "error"
+          : updatePhase === "idle"
+            ? "idle"
+            : "idle";
+  const updateStatusText = (() => {
+    if (isUpdateStarting) return "開始中";
+    if (isUpdateRunning) return updateProgressLabel ?? "更新中";
+    if (updatePhase === "done") return "更新完了";
+    if (updatePhase === "error") return "更新エラー";
+    if (updatePhase === "idle") return "待機中";
+    if (!txtUpdateStatus) return "状態確認中";
+    return "待機中";
+  })();
+  const updateProgressValue = (() => {
+    if (updateProgressPercent != null) return updateProgressPercent;
+    if (isUpdateStarting || updateStatusTone === "running") return 60;
+    if (updateStatusTone === "done") return 100;
+    return 0;
+  })();
+  const updateProgressDisplay =
+    updateProgressPercent ?? (updateStatusTone === "done" ? 100 : null);
 
   const formatUpdateSummary = (summary?: UpdateSummary) => {
     if (!summary) return null;
@@ -1292,6 +1361,27 @@ export default function GridView() {
     return suffix ? `${message}（${suffix}）` : message;
   };
 
+  const updateDetailText = (() => {
+    if (isUpdateStarting) return "準備中";
+    if (isUpdateRunning) {
+      const elapsed = formatElapsed(txtUpdateStatus?.elapsed_ms);
+      return elapsed ? `経過 ${elapsed}` : "経過 --:--";
+    }
+    if (updatePhase === "done") {
+      const summary = formatUpdateSummary(txtUpdateStatus?.summary);
+      if (summary) return `結果 ${summary}`;
+      const statusMessage = txtUpdateStatus?.status_message?.trim();
+      if (statusMessage) return statusMessage;
+      return "更新完了";
+    }
+    if (updatePhase === "error") {
+      const statusMessage = txtUpdateStatus?.status_message?.trim();
+      return statusMessage ? statusMessage : "更新に失敗しました";
+    }
+    if (!txtUpdateStatus) return "状態を取得中";
+    return "手動で開始";
+  })();
+
   const handleUpdateError = (payload?: UpdateTxtPayload) => {
     const error = payload?.error ?? "unknown";
     if (error === "already_updated_today") {
@@ -1304,19 +1394,19 @@ export default function GridView() {
       return;
     }
     if (error === "update_in_progress") {
-      setToastMessage("TXT更新は実行中です。");
+      showToast("TXT更新は実行中です。");
       return;
     }
     if (error.startsWith("vbs_failed")) {
-      setToastMessage(formatUpdateToast("TXT更新でエラーが発生しました。", payload?.summary));
+      showToast(formatUpdateToast("TXT更新でエラーが発生しました。", payload?.summary));
       return;
     }
     if (error.startsWith("ingest_failed")) {
-      setToastMessage(formatUpdateToast("TXT取り込みでエラーが発生しました。", payload?.summary));
+      showToast(formatUpdateToast("TXT取り込みでエラーが発生しました。", payload?.summary));
       return;
     }
     if (error.startsWith("vbs_not_found")) {
-      setToastMessage("TXT更新スクリプトが見つかりません。");
+      showToast("TXT更新スクリプトが見つかりません。");
       return;
     }
     if (error === "code_txt_missing") {
@@ -1335,7 +1425,7 @@ export default function GridView() {
       );
       return;
     }
-    setToastMessage("TXT更新に失敗しました。");
+    showToast("TXT更新に失敗しました。");
   };
 
   const fetchTxtUpdateStatus = useCallback(async () => {
@@ -1422,14 +1512,14 @@ export default function GridView() {
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
-      setToastMessage("相談パックがまだありません。");
+      showToast("相談パックがまだありません。");
       return;
     }
     try {
       await navigator.clipboard.writeText(consultText);
-      setToastMessage("相談パックをコピーしました。");
+      showToast("相談パックをコピーしました。");
     } catch {
-      setToastMessage("コピーに失敗しました。");
+      showToast("コピーに失敗しました。");
     }
   }, [consultText]);
 
@@ -1447,7 +1537,7 @@ export default function GridView() {
     setSplitSuspects([]);
     setShowUpdateLog(false);
     setUpdateLogLines([]);
-    setToastMessage("TXT更新を開始しました。");
+    showToast("TXT更新を開始しました。");
     try {
       const res = await api.post("/txt_update/run");
       const payload = res.data as UpdateTxtPayload;
@@ -1465,7 +1555,7 @@ export default function GridView() {
       if (payload) {
         handleUpdateError(payload);
       } else {
-        setToastMessage("TXT更新に失敗しました。");
+        showToast("TXT更新に失敗しました。");
       }
     } finally {
       setUpdateRequestInFlight(false);
@@ -1475,14 +1565,10 @@ export default function GridView() {
   useEffect(() => {
     if (!backendReady) return;
     fetchTxtUpdateStatus();
-  }, [backendReady, fetchTxtUpdateStatus]);
-
-  useEffect(() => {
-    if (!backendReady) return;
-    if (!txtUpdateStatus?.running) return;
+    const intervalMs = txtUpdateStatus?.running ? 1000 : 5000;
     const timer = window.setInterval(() => {
       fetchTxtUpdateStatus();
-    }, 1000);
+    }, intervalMs);
     return () => window.clearInterval(timer);
   }, [backendReady, txtUpdateStatus?.running, fetchTxtUpdateStatus]);
 
@@ -1507,7 +1593,7 @@ export default function GridView() {
         fetchSplitSuspects().then((items) => {
           if (items.length) {
             setShowSplitSuspects(true);
-            setToastMessage(`分割疑い ${items.length}件。TXT削除→再更新してください。`);
+            showToast(`分割疑い ${items.length}件。TXT削除→再更新してください。`);
           }
         });
         api
@@ -1515,7 +1601,7 @@ export default function GridView() {
           .then((res) => setHealth(res.data as HealthStatus))
           .catch(() => undefined);
       } else if (txtUpdateStatus?.phase === "error") {
-        setToastMessage("TXT更新に失敗しました。");
+        showToast("TXT更新に失敗しました。");
         setShowUpdateLog(true);
       }
     }
@@ -1708,10 +1794,31 @@ export default function GridView() {
                   onClick={handleUpdateTxt}
                   disabled={!backendReady || isUpdatingTxt}
                 />
-                {(updateProgressLabel || lastUpdatedLabel) && (
+                {backendReady && (
                   <div className="txt-update-meta">
-                    <span>{updateProgressLabel ?? "更新待ち"}</span>
-                    <span>最終更新：{lastUpdatedLabel ?? "--"}</span>
+                    <span className={`txt-update-status is-${updateStatusTone}`}>
+                      <span className="txt-update-dot" />
+                      {updateStatusText}
+                      {updateProgressDisplay != null ? `（${updateProgressDisplay}%）` : ""}
+                    </span>
+                    <div
+                      className={`txt-update-progress is-${updateStatusTone} ${
+                        (updateStatusTone === "running" && updateProgressPercent == null) ||
+                        isUpdateStarting
+                          ? "is-indeterminate"
+                          : ""
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <div
+                        className="txt-update-progress-bar"
+                        style={{ width: `${updateProgressValue}%` }}
+                      />
+                    </div>
+                    <span className="txt-update-detail">{updateDetailText}</span>
+                    <span className="txt-update-last">
+                      最終更新：{lastUpdatedLabel ?? "--"}
+                    </span>
                   </div>
                 )}
               </div>
@@ -2290,7 +2397,7 @@ export default function GridView() {
           setTechFilterDraft((prev) => ({ ...prev, defaultTimeframe: next }));
         }}
       />
-      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      <Toast message={toastMessage?.text ?? null} onClose={() => setToastMessage(null)} />
     </div>
   );
 }

@@ -13,7 +13,9 @@ from pathlib import Path
 
 import traceback
 
-from runtime_paths import base_path, local_app_dir, resolve_path
+
+from app.desktop.runtime_paths import base_path, local_app_dir, resolve_path
+from app.backend.core.config import config
 
 APP_NAME = "MeeMeeScreener"
 WINDOW_TITLE = "MeeMee Screener"
@@ -266,14 +268,31 @@ def _maximize_window(window) -> None:
 
 
 def _prepare_appdata() -> dict[str, str]:
-    root = local_app_dir(APP_NAME)
-    data_dir = root / "data"
+    # Use config for data_dir resolution logic
+    data_dir = config.DATA_DIR
+    
+    # We still use local_app for other non-data stuff? Or just unify?
+    # Original 'root' was local_app_dir(APP_NAME).
+    # If we are in portable mode, config.DATA_DIR is ./data.
+    # We want logs/config/state to follow data_dir ideally?
+    # Or keep them separate?
+    # Plan says "Log/DB/CSV保存先をdataDir配下に統一".
+    # So we should base *everything* on config.DATA_DIR or a parent?
+    # config.py defines DATA_DIR = .../data.
+    # So ROOT might be implicitly the parent of data_dir?
+    # Or we just assume "data", "txt", "logs" are all under DATA_DIR?
+    # config.py: LOG_FILE_PATH = DATA_DIR / "logs" / "app.log"
+    # So logs are inside DATA_DIR.
+    
+    # Let's pivot everything to be inside `config.DATA_DIR` for portability!
+    
     csv_dir = data_dir / "csv"
-    config_dir = root / "config"
-    state_dir = root / "state"
-    logs_dir = root / "logs"
-    txt_dir = data_dir / "txt"
-
+    txt_dir = config.PAN_OUT_TXT_DIR # which is data_dir / "txt" via config
+    config_dir = data_dir / "config"
+    state_dir = data_dir / "state"
+    logs_dir = data_dir / "logs"
+    
+    # Ensure dirs
     for path in (data_dir, csv_dir, config_dir, state_dir, logs_dir, txt_dir):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -284,9 +303,9 @@ def _prepare_appdata() -> dict[str, str]:
     bundled_update_state = resolve_path("app", "backend", "update_state.json")
     bundled_code_txt = resolve_path("tools", "code.txt")
 
-    stocks_db = str(data_dir / "stocks.duckdb")
-    favorites_db = str(data_dir / "favorites.sqlite")
-    practice_db = str(data_dir / "practice.sqlite")
+    stocks_db = str(config.DB_PATH)
+    favorites_db = str(config.FAVORITES_DB_PATH)
+    practice_db = str(config.PRACTICE_DB_PATH)
     rank_config = str(config_dir / "rank_config.json")
     update_state = str(state_dir / "update_state.json")
     code_txt = str(data_dir / "code.txt")
@@ -312,8 +331,9 @@ def _prepare_appdata() -> dict[str, str]:
                 pass
             shutil.copy2(bundled_db, stocks_db)
 
+    # Return dict with STRINGS as requested by consumer
     return {
-        "root": str(root),
+        "root": str(data_dir.parent), # Guessing parent?
         "data_dir": str(data_dir),
         "csv_dir": str(csv_dir),
         "config_dir": str(config_dir),
@@ -438,6 +458,10 @@ def main() -> None:
             _message_box(error_msg, WINDOW_TITLE)
             return
 
+
+        # Force pywebview to use Edge backend (avoid pythonnet/clr dependency)
+        os.environ["PYWEBVIEW_GUI"] = "edgechromium"
+        
         import webview
         import base64
         import subprocess
@@ -497,13 +521,13 @@ def main() -> None:
                 except Exception:
                     return False
 
+
         window = webview.create_window(
             WINDOW_TITLE,
             html=_loading_html(),
             width=1280,
             height=720,
             resizable=True,
-            maximized=True,
             js_api=JsApi()
         )
         def _on_shown() -> None:
@@ -530,11 +554,23 @@ def main() -> None:
             _update_loading(win, "Starting backend...")
             # Use a fixed port to ensure LocalStorage persistence (Origin must stay same)
             port = 28888
+            if _wait_for_health(port, 1):
+                _update_loading(win, "Opening app...")
+                _maximize_window(win)
+                win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
+                threading.Timer(0.2, _maximize_window, args=(win,)).start()
+                return
             server, thread = _start_server(port)
             server_state["server"] = server
             server_state["thread"] = thread
 
             if not _wait_for_health(port, HEALTH_TIMEOUT_SECONDS):
+                if _wait_for_health(port, 3):
+                    _update_loading(win, "Opening app...")
+                    _maximize_window(win)
+                    win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
+                    threading.Timer(0.2, _maximize_window, args=(win,)).start()
+                    return
                 _update_loading(win, "Backend failed to start.")
                 _stop_server(server, thread)
                 _message_box("Backend failed to start. See logs for details.", WINDOW_TITLE)
@@ -549,7 +585,9 @@ def main() -> None:
             win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
             threading.Timer(0.2, _maximize_window, args=(win,)).start()
 
-        webview.start(_bootstrap, window, icon=icon_path, gui="edgechromium", private_mode=False, storage_path=paths["state_dir"])
+        # Use None to let pywebview auto-detect the best available backend
+        # EdgeChromium requires WebView2 runtime, falls back to mshtml if unavailable
+        webview.start(_bootstrap, window, icon=icon_path, private_mode=False, storage_path=paths["state_dir"])
     except Exception as exc:
         detail = "".join(traceback.format_exception(exc))
         if log_path:

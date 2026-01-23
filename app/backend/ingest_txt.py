@@ -1,24 +1,30 @@
 ﻿import os
 import json
+import os
+import json
 import re
 import time
 from datetime import datetime, timezone
 
 import pandas as pd
 
+
+# Add parent directory to path to allow importing core
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from db import get_conn, init_schema
+from core.config import config
 
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+REPO_ROOT = str(config.REPO_ROOT)
 DEFAULT_PAN_CODE_PATH = os.path.join(REPO_ROOT, "tools", "code.txt")
-DEFAULT_PAN_OUT_DIR = os.path.join(REPO_ROOT, "data", "txt")
+DEFAULT_PAN_OUT_DIR = str(config.PAN_OUT_TXT_DIR)
+INGEST_STATE_PATH = str(config.DATA_DIR / "ingest_state.json")
 
 
 def resolve_data_dir() -> str:
-    env = os.getenv("PAN_OUT_TXT_DIR") or os.getenv("TXT_DATA_DIR")
-    if env:
-        return os.path.abspath(env)
-    return os.path.abspath(DEFAULT_PAN_OUT_DIR)
+    return str(config.PAN_OUT_TXT_DIR)
 
 
 DATA_DIR = resolve_data_dir()
@@ -954,7 +960,25 @@ def log_volume_stats(stage: str, df: pd.DataFrame) -> None:
     )
 
 
-def ingest() -> None:
+def _load_ingest_state() -> dict[str, float]:
+    if not os.path.exists(INGEST_STATE_PATH):
+        return {}
+    try:
+        with open(INGEST_STATE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_ingest_state(state: dict[str, float]) -> None:
+    try:
+        with open(INGEST_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Failed to save ingest state: {e}")
+
+
+def ingest(incremental: bool = False) -> None:
     def step_start(label: str) -> float:
         print(f"[STEP_START] {label}")
         return time.perf_counter()
@@ -978,13 +1002,54 @@ def ingest() -> None:
     start = step_start("list_txt_files")
     print(f"TXT_DIR={DATA_DIR}")
     files = list_txt_files(DATA_DIR)
+    
+    # Differential Logic
+    state = _load_ingest_state()
+    new_state = {}
+    changed_files = []
+    
     total_bytes = 0
+    skipped_count = 0
+    now_ts = time.time()
+    
+    force_full = False
+    
     for path in files:
         try:
-            total_bytes += os.path.getsize(path)
+            mtime = os.path.getmtime(path)
+            size = os.path.getsize(path)
+            filename = os.path.basename(path)
+            new_state[filename] = mtime
+            total_bytes += size
+            
+            # Sanity Check: Future mtime (allow 1 day slack)
+            if mtime > now_ts + 86400:
+                print(f"Warning: File {filename} has future mtime. Forcing full update.")
+                force_full = True
+            
+            if incremental and not force_full:
+                last_mtime = state.get(filename)
+                if last_mtime is not None:
+                    # Sanity Check: Size drop? (Optional, but user suggested)
+                    # We don't store last size in state, so we can't check size drop easily 
+                    # unless we update state schema. Skipping size check for now.
+                    if mtime <= last_mtime:
+                        skipped_count += 1
+                        continue
+            
+            changed_files.append(path)
         except OSError:
             pass
-    step_end("list_txt_files", start, file_count=len(files), total_bytes=total_bytes)
+
+    if incremental and not force_full:
+        print(f"Incremental Mode: Found {len(changed_files)} changed files, skipped {skipped_count}.")
+        files = changed_files
+    else:
+        reason = "Forced Full" if force_full else "Full Mode"
+        print(f"{reason}: Processing {len(files)} files.")
+        incremental = False # Disable incremental flag for DB operations downstream
+
+    step_end("list_txt_files", start, file_count=len(files), total_bytes=total_bytes, skipped=skipped_count)
 
     counts = {
         "missing_code": 0,
@@ -999,9 +1064,14 @@ def ingest() -> None:
     }
 
     if not files:
-        clear_tables()
-        log_counts(counts, 0)
-        print("No TXT data found. Tables cleared.")
+        if not incremental:
+             clear_tables()
+             log_counts(counts, 0)
+             print("No TXT data found. Tables cleared.")
+        else:
+             print("No changed files to process.")
+             _save_ingest_state(new_state) # Update state anyway to sync mtimes
+        
         total_ms = int((time.perf_counter() - total_start) * 1000)
         print(f"[STEP_END] ingest_total ms={total_ms} rows=0")
         return
@@ -1055,15 +1125,31 @@ def ingest() -> None:
         missing_text = ",".join(f"{key}:{value}" for key, value in missing_sorted)
         print(f"MISSING_REASONS_TOP={missing_text}")
 
+
     start = step_start("db_replace")
     log_volume_stats("pre_db", daily)
+    
     with get_conn() as conn:
-        conn.execute("DELETE FROM daily_bars")
-        conn.execute("DELETE FROM daily_ma")
-        conn.execute("DELETE FROM monthly_bars")
-        conn.execute("DELETE FROM monthly_ma")
-        conn.execute("DELETE FROM stock_meta")
-        conn.execute("DELETE FROM tickers")
+        if not incremental:
+            conn.execute("DELETE FROM daily_bars")
+            conn.execute("DELETE FROM daily_ma")
+            conn.execute("DELETE FROM monthly_bars")
+            conn.execute("DELETE FROM monthly_ma")
+            conn.execute("DELETE FROM stock_meta")
+            conn.execute("DELETE FROM tickers")
+        else:
+            # Incremental: Delete only processed codes
+            codes = daily["code"].unique().tolist()
+            if codes:
+                placeholders = ",".join(["?"] * len(codes))
+                # Note: DuckDB supports DELETE FROM ... WHERE code IN (...)
+                # We need to run delete for all tables
+                conn.execute(f"DELETE FROM daily_bars WHERE code IN ({placeholders})", codes)
+                conn.execute(f"DELETE FROM daily_ma WHERE code IN ({placeholders})", codes)
+                conn.execute(f"DELETE FROM monthly_bars WHERE code IN ({placeholders})", codes)
+                conn.execute(f"DELETE FROM monthly_ma WHERE code IN ({placeholders})", codes)
+                conn.execute(f"DELETE FROM stock_meta WHERE code IN ({placeholders})", codes)
+                conn.execute(f"DELETE FROM tickers WHERE code IN ({placeholders})", codes)
 
         conn.register("daily_df", daily)
         conn.execute("INSERT INTO daily_bars SELECT code, date, o, h, l, c, v FROM daily_df")
@@ -1125,6 +1211,8 @@ def ingest() -> None:
 
         conn.execute("INSERT INTO tickers SELECT code, name FROM meta_df")
     step_end("db_replace", start, daily_rows=len(daily), monthly_rows=len(monthly), meta_rows=len(meta))
+
+    _save_ingest_state(new_state)
 
     log_counts(counts, len(daily))
     print(f"Inserted {len(meta)} tickers")

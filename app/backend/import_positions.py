@@ -1,5 +1,5 @@
-from app.backend.db import get_conn
-from app.backend.positions import parse_rakuten_csv, parse_sbi_csv, rebuild_positions, TradeEvent
+from db import get_conn
+from positions import parse_rakuten_csv, parse_sbi_csv, rebuild_positions, TradeEvent
 
 
 def _insert_events(conn, events: list[TradeEvent]) -> int:

@@ -1,12 +1,10 @@
-﻿import os
+﻿
+
 import duckdb
-
-DEFAULT_DB_PATH = os.path.join(os.path.dirname(__file__), "stocks.duckdb")
-
+from core.config import config
 
 def get_conn():
-    db_path = os.getenv("STOCKS_DB_PATH", DEFAULT_DB_PATH)
-    return duckdb.connect(db_path)
+    return duckdb.connect(str(config.DB_PATH))
 
 
 def init_schema() -> None:
@@ -218,6 +216,22 @@ def init_schema() -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (symbol, date, timeframe)
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sys_jobs (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                started_at TIMESTAMP,
+                finished_at TIMESTAMP,
+                progress INTEGER DEFAULT 0,
+                message TEXT,
+                error TEXT,
+                meta_json TEXT
             );
             """
         )

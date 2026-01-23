@@ -29,13 +29,75 @@ from events import fetch_earnings_snapshot, fetch_rights_snapshot, jst_now
 from positions import parse_rakuten_csv, parse_sbi_csv, rebuild_positions
 from import_positions import process_import_rakuten, process_import_sbi
 from position_engine import get_events
+from core.jobs import job_manager
+from core.txt_update_job import handle_txt_update
+from core.force_sync_job import handle_force_sync
+
+# Register Job Handlers
+job_manager.register_handler("txt_update", handle_txt_update)
+job_manager.register_handler("force_sync", handle_force_sync)
+
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    lock_path = config.LOCK_FILE_PATH
+    lock_handle = None
+    
+    # --- Lock Logic ---
+    try:
+        if lock_path.exists():
+            try:
+                # Check for stale lock
+                old_pid_str = lock_path.read_text().strip()
+                if old_pid_str.isdigit():
+                    old_pid = int(old_pid_str)
+                    # Check if process exists (Windows specific)
+                    # tasklist /fi "PID eq <pid>"
+                    # Output contains "No tasks are running" if not found, or image name if found.
+                    # Note: PID reuse is possible but rare enough for this check.
+                    cmd = f'tasklist /fi "PID eq {old_pid}" /fo csv /nh'
+                    output = subprocess.check_output(cmd, shell=True).decode('cp932', errors='ignore')
+                    
+                    if str(old_pid) in output:
+                        print(f"[startup] FATAL: Process {old_pid} holds lock. Exiting.")
+                        # Could raise exception here to abort
+                        raise RuntimeError(f"Another instance (PID {old_pid}) is running.")
+                    else:
+                        print(f"[startup] removing stale lock from PID {old_pid}")
+                        os.remove(lock_path)
+                else:
+                    # Invalid content, remove
+                    print("[startup] removing invalid lock file")
+                    os.remove(lock_path)
+            except Exception as e:
+                print(f"[startup] Warning checking lock: {e}")
+                # If we can't check, we assume it's locked? Or try to overwrite?
+                # Safest is to try overwrite, assuming OS handles file interactions or just fail.
+                # If we successfully removed it above, we are good.
+                pass
+
+        # Acquire Lock
+        lock_handle = open(lock_path, "w")
+        lock_handle.write(str(os.getpid()))
+        lock_handle.flush()
+        print(f"[startup] Lock acquired: {lock_path} (PID {os.getpid()})")
+        
+    except OSError as e:
+        print(f"[startup] FATAL: Could not acquire lock: {e}", file=sys.stderr)
+        raise RuntimeError("Could not acquire lock.")
+    except Exception as e:
+        print(f"[startup] FATAL: {e}", file=sys.stderr)
+        if lock_handle:
+            lock_handle.close()
+        raise e
+
+    # --- DB Init ---
     try:
         print("[startup] Initializing database schema...")
         init_schema()
+        _cleanup_stale_jobs()
         print("[startup] Initializing favorites schema...")
         _init_favorites_schema()
         print("[startup] Initializing practice schema...")
@@ -45,35 +107,83 @@ async def lifespan(app: FastAPI):
             _similarity_service.load_artifacts()
         except Exception as e:
             print(f"[startup] Warning: Failed to load similarity artifacts: {e}", file=sys.stderr)
+        
+        print(f"[startup] Data Directory: {config.DATA_DIR}")
         print("[startup] All schemas initialized successfully.")
+    
     except Exception as exc:
-        print(f"[startup] FATAL: An exception occurred during schema initialization: {exc}", file=sys.stderr)
+        print(f"[startup] FATAL: An exception occurred during startup: {exc}", file=sys.stderr)
         traceback.print_exc()
-        # Re-raise the exception to ensure uvicorn exits with an error
+        if lock_handle:
+            lock_handle.close()
+            try:
+                if lock_path.exists():
+                    os.remove(lock_path)
+            except:
+                pass
         raise exc
     
     yield
     # Shutdown
     print("[shutdown] Application shutting down.")
+    if lock_handle:
+        lock_handle.close()
+        try:
+            # Verify we are deleting OUR lock (optional safety but keeping it simple)
+            if lock_path.exists():
+                os.remove(lock_path)
+                print("[shutdown] Lock released.")
+        except Exception as e:
+            print(f"[shutdown] Error releasing lock: {e}")
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-DEFAULT_PAN_VBS_PATH = os.path.join(REPO_ROOT, "tools", "export_pan.vbs")
-DEFAULT_PAN_CODE_PATH = os.path.join(REPO_ROOT, "tools", "code.txt")
-DEFAULT_PAN_OUT_DIR = os.path.join(REPO_ROOT, "data", "txt")
+
+from core.config import config
+
+SERVER_BOOT_AT = datetime.now()
+
+def _cleanup_stale_jobs() -> None:
+    # Mark long-stuck jobs as failed so new runs are not blocked.
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE sys_jobs
+                SET status = 'failed',
+                    finished_at = CURRENT_TIMESTAMP,
+                    error = 'stale_job',
+                    message = 'Stale job cleanup'
+                WHERE status = 'queued'
+                  AND (created_at < CURRENT_TIMESTAMP - INTERVAL '2 hours'
+                       OR created_at < ?)
+                """,
+                [SERVER_BOOT_AT]
+            )
+            conn.execute(
+                """
+                UPDATE sys_jobs
+                SET status = 'failed',
+                    finished_at = CURRENT_TIMESTAMP,
+                    error = 'stale_job',
+                    message = 'Stale job cleanup'
+                WHERE status = 'running'
+                  AND (COALESCE(started_at, created_at) < CURRENT_TIMESTAMP - INTERVAL '2 hours'
+                       OR COALESCE(started_at, created_at) < ?)
+                """,
+                [SERVER_BOOT_AT]
+            )
+    except Exception as exc:
+        print(f"[startup] Warning: Failed to cleanup stale jobs: {exc}", file=sys.stderr)
+
+REPO_ROOT = str(config.REPO_ROOT)
 APP_VERSION = os.getenv("APP_VERSION", "dev")
 APP_ENV = os.getenv("APP_ENV") or os.getenv("ENV") or "dev"
 DEBUG = os.getenv("DEBUG", "0") == "1"
 
-
-def resolve_data_dir() -> str:
-    env = os.getenv("PAN_OUT_TXT_DIR") or os.getenv("TXT_DATA_DIR")
-    if env:
-        return os.path.abspath(env)
-    return os.path.abspath(DEFAULT_PAN_OUT_DIR)
-
-
-DATA_DIR = resolve_data_dir()
+# Redirect data paths to config
+DATA_DIR = str(config.DATA_DIR)
 STATIC_DIR = os.path.abspath(os.getenv("STATIC_DIR") or os.path.join(os.path.dirname(__file__), "static"))
+
+# Path Resolution helpers (Delegated mostly to config, but some specifics stay or use config.DATA_DIR)
 DEFAULT_TRADE_RAKUTEN_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "data", "楽天証券取引履歴.csv")
 )
@@ -81,106 +191,81 @@ DEFAULT_TRADE_SBI_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "data", "SBI証券取引履歴.csv")
 )
 
+def resolve_data_dir() -> str:
+    """Compat wrapper."""
+    return str(config.PAN_OUT_TXT_DIR)
 
 def resolve_trade_csv_paths() -> list[str]:
-    env = os.getenv("TRADE_CSV_PATH")
-    if env:
-        parts = [p.strip() for p in re.split(r"[;,\\n]+", env) if p.strip()]
-        return [os.path.abspath(part) for part in parts]
-    trade_dir = os.getenv("TRADE_CSV_DIR")
-    if trade_dir:
-        base_dir = os.path.abspath(trade_dir)
-        candidates = [
-            os.path.join(base_dir, "楽天証券取引履歴.csv"),
-            os.path.join(base_dir, "SBI証券取引履歴.csv")
-        ]
-        return [path for path in candidates if os.path.isfile(path)] or candidates
-    
+    # Use config.DATA_DIR first
     paths: list[str] = []
     
-    # Check DATA_DIR
-    if DATA_DIR:
-        candidates = [
-            os.path.join(DATA_DIR, "楽天証券取引履歴.csv"),
-            os.path.join(DATA_DIR, "SBI証券取引履歴.csv")
-        ]
-        for p in candidates:
-            if os.path.isfile(p):
-                paths.append(p)
-    
-    # Check user AppData directly (Fix for dev environment)
-    user_data = r"C:\Users\enish\AppData\Local\MeeMeeScreener\data"
-    if os.path.isdir(user_data):
-        rakuten_path = os.path.join(user_data, "楽天証券取引履歴.csv")
-        sbi_path = os.path.join(user_data, "SBI証券取引履歴.csv")
-        if os.path.isfile(rakuten_path):
-            paths.append(rakuten_path)
-        if os.path.isfile(sbi_path):
-            paths.append(sbi_path)
+    # Check config.DATA_DIR
+    candidates = [
+        config.DATA_DIR / "楽天証券取引履歴.csv",
+        config.DATA_DIR / "SBI証券取引履歴.csv"
+    ]
+    for p in candidates:
+        if p.exists():
+            paths.append(str(p))
 
+    # Env vars
+    env = os.getenv("TRADE_CSV_PATH")
+    if env:
+        parts = [p.strip() for p in re.split(r"[;,\n]+", env) if p.strip()]
+        paths.extend([os.path.abspath(part) for part in parts])
+        
+    # Old defaults (fallback)
     if os.path.isfile(DEFAULT_TRADE_RAKUTEN_PATH):
         paths.append(DEFAULT_TRADE_RAKUTEN_PATH)
     if os.path.isfile(DEFAULT_TRADE_SBI_PATH):
         paths.append(DEFAULT_TRADE_SBI_PATH)
-        
+
     # Dedup
     unique_paths = list(set(paths))
-    if not unique_paths and not paths: # if empty, fallback
-        unique_paths.append(DEFAULT_TRADE_RAKUTEN_PATH)
-        
+    if not unique_paths and not paths: 
+         # If truly nothing, return at least one valid-looking path so UI might guide user
+         unique_paths.append(str(config.DATA_DIR / "楽天証券取引履歴.csv"))
+         
     return unique_paths
 
-
 def resolve_trade_csv_dir() -> str:
-    env = os.getenv("TRADE_CSV_DIR")
-    if env:
-        return os.path.abspath(env)
-    return os.path.abspath(os.path.join(REPO_ROOT, "data"))
+    return str(config.DATA_DIR)
 
 
 TRADE_CSV_PATHS = resolve_trade_csv_paths()
 USE_CODE_TXT = os.getenv("USE_CODE_TXT", "0") == "1"
-DEFAULT_DB_PATH = os.getenv("STOCKS_DB_PATH", os.path.join(os.path.dirname(__file__), "stocks.duckdb"))
+
+DEFAULT_DB_PATH = str(config.DB_PATH)
 RANK_CONFIG_PATH = os.getenv("RANK_CONFIG_PATH", os.path.join(os.path.dirname(__file__), "rank_config.json"))
-FAVORITES_DB_PATH = os.getenv(
-    "FAVORITES_DB_PATH", os.path.join(os.path.dirname(__file__), "favorites.sqlite")
-)
-PRACTICE_DB_PATH = os.getenv(
-    "PRACTICE_DB_PATH", os.path.join(os.path.dirname(__file__), "practice.sqlite")
-)
+
+FAVORITES_DB_PATH = str(config.FAVORITES_DB_PATH)
+PRACTICE_DB_PATH = str(config.PRACTICE_DB_PATH)
+
+DEFAULT_PAN_VBS_PATH = os.path.join(REPO_ROOT, "tools", "export_pan.vbs")
+DEFAULT_PAN_CODE_PATH = os.path.join(REPO_ROOT, "tools", "code.txt")
+
 PAN_EXPORT_VBS_PATH = os.path.abspath(
     os.getenv("PAN_EXPORT_VBS_PATH") or os.getenv("UPDATE_VBS_PATH") or DEFAULT_PAN_VBS_PATH
 )
 PAN_CODE_TXT_PATH = os.path.abspath(
     os.getenv("PAN_CODE_TXT_PATH") or DEFAULT_PAN_CODE_PATH
 )
-PAN_OUT_TXT_DIR = os.path.abspath(
-    os.getenv("PAN_OUT_TXT_DIR") or DEFAULT_PAN_OUT_DIR
-)
+PAN_OUT_TXT_DIR = str(config.PAN_OUT_TXT_DIR)
+
 UPDATE_VBS_PATH = PAN_EXPORT_VBS_PATH
 INGEST_SCRIPT_PATH = os.getenv(
     "INGEST_SCRIPT_PATH",
     os.path.abspath(os.path.join(os.path.dirname(__file__), "ingest_txt.py"))
 )
-UPDATE_STATE_PATH = os.getenv(
-    "UPDATE_STATE_PATH",
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "update_state.json"))
-)
-SPLIT_SUSPECTS_PATH = os.path.abspath(os.path.join(DATA_DIR, "_split_suspects.csv"))
-WATCHLIST_TRASH_DIR = os.path.abspath(os.path.join(DATA_DIR, "trash"))
+UPDATE_STATE_PATH = str(config.DATA_DIR / "update_state.json")
+SPLIT_SUSPECTS_PATH = str(config.DATA_DIR / "_split_suspects.csv")
+WATCHLIST_TRASH_DIR = str(config.DATA_DIR / "trash")
+
 WATCHLIST_TRASH_PATTERNS = [
-    pattern
-    for pattern in re.split(
-        r"[;\n]+",
-        os.getenv(
-            "WATCHLIST_TRASH_PATTERNS",
-            os.path.join(REPO_ROOT, "data", "csv", "{code}*.csv")
-            + ";"
-            + os.path.join(REPO_ROOT, "data", "txt", "{code}*.txt")
-        )
-    )
-    if pattern.strip()
+    str(config.DATA_DIR / "csv" / "{code}*.csv"),
+    str(config.DATA_DIR / "txt" / "{code}*.txt")
 ]
+
 WATCHLIST_CODE_RE = re.compile(r"^\d{4}[A-Z]?$")
 _watchlist_lock = threading.Lock()
 
@@ -207,19 +292,7 @@ _trade_cache = {"key": None, "rows": [], "warnings": []}
 _screener_cache = {"mtime": None, "rows": []}
 _rank_cache = {"mtime": None, "config_mtime": None, "weekly": {}, "monthly": {}}
 _rank_config_cache = {"mtime": None, "config": None}
-_update_txt_lock = threading.Lock()
-_update_txt_status = {
-    "running": False,
-    "phase": "idle",
-    "started_at": None,
-    "finished_at": None,
-    "processed": 0,
-    "total": 0,
-    "summary": {},
-    "error": None,
-    "stdout_tail": [],
-    "last_updated_at": None
-}
+
 _similarity_service = SimilarityService()
 _similarity_refresh_lock = threading.Lock()
 _similarity_refresh_status = {
@@ -4821,72 +4894,7 @@ def _read_text_lines(path: str) -> list[str]:
     return []
 
 
-def _count_codes(path: str) -> int:
-    count = 0
-    for line in _read_text_lines(path):
-        text = line.strip()
-        if not text:
-            continue
-        if text.startswith("#") or text.startswith("'"):
-            continue
-        count += 1
-    return count
 
-
-def _append_stdout_tail(line: str) -> None:
-    with _update_txt_lock:
-        tail = list(_update_txt_status.get("stdout_tail") or [])
-        tail.append(line)
-        if len(tail) > 20:
-            tail = tail[-20:]
-        _update_txt_status["stdout_tail"] = tail
-
-
-def _set_update_status(**kwargs) -> None:
-    with _update_txt_lock:
-        _update_txt_status.update(kwargs)
-
-
-def _get_update_status_snapshot() -> dict:
-    with _update_txt_lock:
-        return dict(_update_txt_status)
-
-
-def _run_streaming_command(cmd: list[str], timeout: int, on_line) -> tuple[int, str, bool]:
-    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="cp932" if os.name == "nt" else "utf-8",
-        errors="replace",
-        creationflags=creationflags
-    )
-    output_lines: list[str] = []
-    start = time.time()
-    timed_out = False
-    while True:
-        if process.stdout is None:
-            break
-        line = process.stdout.readline()
-        if line:
-            text = line.rstrip()
-            output_lines.append(text)
-            on_line(text)
-        if process.poll() is not None:
-            break
-        if time.time() - start > timeout:
-            process.kill()
-            timed_out = True
-            break
-    if process.stdout is not None:
-        remaining = process.stdout.read()
-        if remaining:
-            for extra in remaining.splitlines():
-                output_lines.append(extra)
-                on_line(extra)
-    return process.wait(), "\n".join(output_lines).strip(), timed_out
 
 
 def _load_update_state() -> dict:
@@ -4907,209 +4915,177 @@ def _save_update_state(state: dict) -> None:
         pass
 
 
-def _parse_vbs_summary(output: str) -> dict:
-    summary: dict[str, int] = {}
-    for line in output.splitlines():
-        if line.startswith("SUMMARY:"):
-            for key, value in re.findall(r"(\\w+)=(\\d+)", line):
-                summary[key] = int(value)
-    return summary
 
 
-def _run_txt_update_job(code_path: str, out_dir: str) -> None:
-    processed = 0
 
-    def on_line(line: str) -> None:
-        nonlocal processed
-        _append_stdout_tail(line)
-        if line.startswith(("OK   :", "ERROR:", "SPLIT :")):
-            processed += 1
-            _set_update_status(processed=processed)
-
-    try:
-        sys_root = os.environ.get("SystemRoot") or "C:\\Windows"
-        cscript = os.path.join(sys_root, "SysWOW64", "cscript.exe")
-        if not os.path.isfile(cscript):
-            cscript = os.path.join(sys_root, "System32", "cscript.exe")
-        vbs_cmd = [cscript, "//nologo", UPDATE_VBS_PATH, code_path, out_dir]
-        timeout_sec = 1800
-        vbs_code, vbs_output, timed_out = _run_streaming_command(
-            vbs_cmd, timeout=timeout_sec, on_line=on_line
-        )
-        summary = _parse_vbs_summary(vbs_output)
-        _set_update_status(summary=summary)
-        if timed_out:
-            _set_update_status(
-                running=False,
-                phase="error",
-                error="timeout",
-                finished_at=datetime.now().isoformat(),
-                timeout_sec=timeout_sec
-            )
-            return
-        if vbs_code != 0:
-            _set_update_status(
-                running=False,
-                phase="error",
-                error=f"vbs_failed:{vbs_code}",
-                finished_at=datetime.now().isoformat()
-            )
-            return
-
-        _set_update_status(phase="ingesting")
-        ingest_code, ingest_output = _run_ingest_command()
-        for line in ingest_output.splitlines():
-            _append_stdout_tail(line)
-        if ingest_code != 0:
-            _set_update_status(
-                running=False,
-                phase="error",
-                error=f"ingest_failed:{ingest_code}",
-                finished_at=datetime.now().isoformat(),
-                summary=summary
-            )
-            return
-
-        state = _load_update_state()
-        state["last_txt_update_date"] = datetime.now().date().isoformat()
-        state["last_txt_update_at"] = datetime.now().isoformat()
-        _save_update_state(state)
-        _set_update_status(
-            running=False,
-            phase="done",
-            error=None,
-            finished_at=datetime.now().isoformat(),
-            summary=summary,
-            last_updated_at=state.get("last_txt_update_at"),
-            processed=processed
-        )
-    except Exception as exc:
-        _append_stdout_tail(str(exc))
-        _set_update_status(
-            running=False,
-            phase="error",
-            error=f"update_txt_failed:{exc}",
-            finished_at=datetime.now().isoformat()
-        )
+@app.post("/api/jobs/txt-update")
+def job_txt_update():
+    job_id = job_manager.submit("txt_update", unique=True)
+    if not job_id:
+        return JSONResponse(status_code=409, content={"ok": False, "error": "already_running"})
+    return {"ok": True, "job_id": job_id}
 
 
-def _start_txt_update(code_path: str, out_dir: str, total: int, cscript: str) -> dict:
-    started_at = datetime.now().isoformat()
-    with _update_txt_lock:
-        if _update_txt_status.get("running"):
-            return {}
-        _update_txt_status.update(
-            {
-                "running": True,
-                "phase": "running",
-                "started_at": started_at,
-                "finished_at": None,
-                "processed": 0,
-                "total": total,
-                "summary": {},
-                "error": None,
-                "stdout_tail": [],
-                "code_path": code_path,
-                "out_dir": out_dir,
-                "script_path": UPDATE_VBS_PATH,
-                "cscript_path": cscript
-            }
-        )
-    thread = threading.Thread(target=_run_txt_update_job, args=(code_path, out_dir), daemon=True)
-    thread.start()
-    return {"ok": True, "started": True, "started_at": started_at, "total": total}
-
-
-def _run_ingest_command() -> tuple[int, str]:
-    # Always use in-process import to avoid subprocess issues
-    # (subprocess may try to initialize pywebview and show "already running" dialog)
-    import importlib
-    import io
-    from contextlib import redirect_stdout, redirect_stderr
-
-    output = io.StringIO()
-    try:
-        with redirect_stdout(output), redirect_stderr(output):
-            module = None
-            for name in ("ingest_txt", "app.backend.ingest_txt"):
-                try:
-                    module = importlib.import_module(name)
-                    break
-                except Exception:
-                    continue
-            if module is None:
-                raise ModuleNotFoundError("ingest_txt")
-            module.ingest()
-        return 0, output.getvalue()
-    except Exception as exc:
-        output.write(f"ingest_module_failed:{exc}\n")
-        output.write(traceback.format_exc())
-        return 1, output.getvalue()
-
+@app.post("/api/jobs/force-sync")
+def job_force_sync():
+    job_id = job_manager.submit("force_sync", unique=True)
+    if not job_id:
+        return JSONResponse(status_code=409, content={"ok": False, "error": "already_running"})
+    return {"ok": True, "job_id": job_id}
 
 @app.post("/api/txt_update/run")
 def txt_update_run():
-    state = _load_update_state()
-    today = datetime.now().date().isoformat()
-    # Daily limit check removed at user request
-    # if state.get("last_txt_update_date") == today:
-    #     return JSONResponse(
-    #         status_code=200,
-    #         content={
-    #             "ok": False,
-    #             "error": "already_updated_today",
-    #             "last_updated_at": state.get("last_txt_update_at")
-    #         }
-    #     )
-
+    # Legacy wrapper
     if not os.path.isfile(UPDATE_VBS_PATH):
-        return JSONResponse(
-            status_code=404,
-            content={"ok": False, "error": f"vbs_not_found:{UPDATE_VBS_PATH}"}
-        )
-
-    code_path = PAN_CODE_TXT_PATH if os.path.isfile(PAN_CODE_TXT_PATH) else None
-    if not code_path:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "ok": False,
-                "error": "code_txt_missing",
-                "searched": [PAN_CODE_TXT_PATH]
-            }
-        )
-
-    os.makedirs(PAN_OUT_TXT_DIR, exist_ok=True)
-    total = _count_codes(code_path)
-    sys_root = os.environ.get("SystemRoot") or "C:\\Windows"
-    cscript = os.path.join(sys_root, "SysWOW64", "cscript.exe")
-    if not os.path.isfile(cscript):
-        cscript = os.path.join(sys_root, "System32", "cscript.exe")
-    started = _start_txt_update(code_path, PAN_OUT_TXT_DIR, total, cscript)
-    if not started:
+        return JSONResponse(status_code=404, content={"ok": False, "error": f"vbs_not_found:{UPDATE_VBS_PATH}"})
+    if not os.path.isfile(PAN_CODE_TXT_PATH):
+        return JSONResponse(status_code=400, content={"ok": False, "error": "code_txt_missing"})
+        
+    job_id = job_manager.submit("txt_update", unique=True)
+    if not job_id:
         return JSONResponse(status_code=409, content={"ok": False, "error": "update_in_progress"})
-    return started
+    
+    # Pseudo legacy response 
+    return {
+        "ok": True, 
+        "started": True, 
+        "started_at": datetime.now().isoformat(), 
+        "total": 0,
+        "job_id": job_id
+    }
 
 
 @app.get("/api/txt_update/status")
 def txt_update_status():
-    snapshot = _get_update_status_snapshot()
-    if not snapshot.get("last_updated_at"):
-        state = _load_update_state()
-        snapshot["last_updated_at"] = state.get("last_txt_update_at")
-    summary = snapshot.get("summary") or {}
-    if summary.get("ok", 0) > 0 and summary.get("err", 0) > 0:
-        snapshot["warning"] = True
-    else:
-        snapshot["warning"] = False
-    elapsed_ms = None
-    if snapshot.get("started_at"):
-        try:
-            started = datetime.fromisoformat(snapshot["started_at"])
-            elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
-        except ValueError:
-            elapsed_ms = None
-    snapshot["elapsed_ms"] = elapsed_ms
+    # Map JobManager status to Legacy schema
+    _cleanup_stale_jobs()
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT status, started_at, finished_at, message, error, progress, type, created_at
+            FROM sys_jobs 
+            WHERE type IN ('txt_update', 'force_sync') 
+            ORDER BY created_at DESC 
+            LIMIT 10
+            """
+        ).fetchall()
+
+    row = None
+    if rows:
+        for candidate in rows:
+            status, _started_at, _finished_at, _message, _error, _progress, job_type, _created_at = candidate
+            if job_type == "txt_update" and status in ("queued", "running"):
+                row = candidate
+                break
+        if row is None:
+            for candidate in rows:
+                status, _started_at, _finished_at, _message, _error, _progress, job_type, _created_at = candidate
+                if job_type == "force_sync" and status in ("queued", "running"):
+                    row = candidate
+                    break
+        if row is None:
+            for candidate in rows:
+                _status, _started_at, _finished_at, _message, _error, _progress, job_type, _created_at = candidate
+                if job_type == "txt_update":
+                    row = candidate
+                    break
+        if row is None and rows:
+            row = rows[0]
+
+    snapshot = {
+        "running": False,
+        "phase": "idle",
+        "started_at": None,
+        "finished_at": None,
+        "processed": 0,
+        "total": 0,
+        "summary": {},
+        "error": None,
+        "stdout_tail": [],
+        "status_message": None,
+        "last_updated_at": None,
+        "elapsed_ms": None,
+        "warning": False
+    }
+
+    if row:
+        status, started_at, finished_at, message, error, progress, job_type, _created_at = row
+        snapshot["running"] = (status in ("queued", "running"))
+        
+        # Map Phase
+        if status == "queued":
+            snapshot["phase"] = "queued"
+        elif status == "running":
+            snapshot["phase"] = "running"
+        elif status == "success":
+            snapshot["phase"] = "done"
+        elif status == "failed":
+            snapshot["phase"] = "error"
+        else:
+            snapshot["phase"] = status
+
+        inferred_progress = None
+        message_lower = (message or "").lower()
+        if status in ("queued", "running") and message_lower:
+            if "ingest" in message_lower:
+                snapshot["phase"] = "ingesting"
+                inferred_progress = 50
+            elif "export" in message_lower or "vbs" in message_lower:
+                snapshot["phase"] = "exporting"
+                inferred_progress = 10
+            elif "initializ" in message_lower or "waiting in queue" in message_lower:
+                snapshot["phase"] = "starting"
+                inferred_progress = 5
+
+        progress_value = None
+        if isinstance(progress, (int, float)) and progress > 0:
+            progress_value = progress
+        elif inferred_progress is not None:
+            progress_value = inferred_progress
+        elif status == "success":
+            progress_value = 100
+
+        # Map Progress to legacy Processed/Total (for progress bar)
+        if progress_value is not None and progress_value > 0:
+            snapshot["processed"] = int(progress_value)
+            snapshot["total"] = 100
+        
+        # Prefix message for force_sync to distinguish in UI
+        if job_type == "force_sync" and message:
+             message = f"[Force Sync] {message}"
+
+        snapshot["started_at"] = _format_event_timestamp(started_at)
+        snapshot["finished_at"] = _format_event_timestamp(finished_at)
+        snapshot["error"] = error
+        if message:
+            snapshot["stdout_tail"] = [message]
+            snapshot["status_message"] = message
+        
+        # Calculate elapsed
+        if started_at:
+            try:
+                # Handle string/datetime mix
+                start_dt = started_at if isinstance(started_at, datetime) else datetime.fromisoformat(str(started_at))
+                end_dt = datetime.now()
+                if finished_at:
+                    end_dt = finished_at if isinstance(finished_at, datetime) else datetime.fromisoformat(str(finished_at))
+                snapshot["elapsed_ms"] = int((end_dt - start_dt).total_seconds() * 1000)
+            except Exception:
+                pass
+
+    state = _load_update_state()
+    snapshot["last_updated_at"] = state.get("last_txt_update_at")
+
+    if snapshot["error"] == "stale_job":
+        snapshot["running"] = False
+        snapshot["phase"] = "idle"
+        snapshot["processed"] = 0
+        snapshot["total"] = 0
+        snapshot["error"] = None
+        snapshot["stdout_tail"] = []
+        snapshot["status_message"] = None
+        snapshot["elapsed_ms"] = None
+    
     return snapshot
 
 
@@ -6731,6 +6707,87 @@ def _calc_current_positions_by_broker(trades: list[dict]) -> list[dict]:
             }
         )
     return results
+
+
+
+# --- Job Manager Integrations ---
+# API endpoints are below. Handlers are registered at startup.
+
+
+@app.post("/api/jobs/txt-update")
+def api_submit_txt_update():
+    try:
+        _cleanup_stale_jobs()
+        # Check if running? job_manager.submit queues it.
+        # User Req: "Reject double run".
+        # We should check if any running job exists of same type.
+        # Simple check:
+        # (This should be in JobManager.submit but we can do it here for now or update JobManager)
+        # Let's rely on JobManager handling it or just check DB here.
+        with get_conn() as conn:
+            cnt = conn.execute("SELECT COUNT(*) FROM sys_jobs WHERE type = ? AND status IN ('queued', 'running')", ["txt_update"]).fetchone()[0]
+            if cnt > 0:
+                return JSONResponse(status_code=409, content={"error": "Job already running"})
+        
+        job_id = job_manager.submit("txt_update", {})
+        return {"id": job_id, "status": "queued"}
+    except Exception as e:
+        print(f"Error submitting txt_update: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/jobs/force-sync")
+def api_submit_force_sync():
+    try:
+        _cleanup_stale_jobs()
+        with get_conn() as conn:
+            cnt = conn.execute("SELECT COUNT(*) FROM sys_jobs WHERE type = ? AND status IN ('queued', 'running')", ["force_sync"]).fetchone()[0]
+            if cnt > 0:
+                return JSONResponse(status_code=409, content={"error": "Job already running"})
+        
+        job_id = job_manager.submit("force_sync", {})
+        return {"id": job_id, "status": "queued"}
+    except Exception as e:
+        print(f"Error submitting force_sync: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/jobs/current")
+def api_get_current_job():
+    try:
+        _cleanup_stale_jobs()
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT id, type, status, created_at, started_at, progress, message FROM sys_jobs WHERE status = 'running' ORDER BY started_at DESC LIMIT 1"
+            ).fetchone()
+            if not row:
+                return JSONResponse(content=None)
+            return {
+                "id": row[0],
+                "type": row[1],
+                "status": row[2],
+                "created_at": row[3],
+                "started_at": row[4],
+                "progress": row[5],
+                "message": row[6]
+            }
+    except Exception as e:
+        print(f"Error current job: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/api/jobs/history")
+def api_get_job_history(limit: int = 20):
+    return job_manager.get_history(limit)
+
+@app.get("/api/jobs/{job_id}")
+def api_get_job_status(job_id: str):
+    status = job_manager.get_status(job_id)
+    if not status:
+        return JSONResponse(status_code=404, content={"error": "Not Found"})
+    return status
+
+@app.post("/api/jobs/{job_id}/cancel")
+def api_cancel_job(job_id: str):
+    success = job_manager.cancel(job_id)
+    return {"id": job_id, "cancel_requested": success}
 
 
 @app.get("/")
