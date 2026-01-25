@@ -1,12 +1,20 @@
+from __future__ import annotations
 
 import os
 import duckdb
-import pandas as pd
 import numpy as np
 import pickle
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple, Literal, Any
+from typing import List, Dict, Optional, Tuple, Literal, Any, TYPE_CHECKING
 from dataclasses import dataclass
+
+try:
+    import pandas as pd
+except Exception:  # pragma: no cover - runtime fallback for missing pandas in packaged app
+    pd = None  # type: ignore[assignment]
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 # Constants
 # User specified: C:\work\meemee-data\ or similar outside repo.
@@ -42,13 +50,19 @@ class SimilarityService:
         self.tag_index_path = os.path.join(self.data_dir, "tag_index.pkl")
 
         # In-memory Cache
-        self.df_vec60: Optional[pd.DataFrame] = None
-        self.df_vec24: Optional[pd.DataFrame] = None
-        self.df_env: Optional[pd.DataFrame] = None
+        self.df_vec60: Optional["pd.DataFrame"] = None
+        self.df_vec24: Optional["pd.DataFrame"] = None
+        self.df_env: Optional["pd.DataFrame"] = None
         self.tag_index: Optional[Dict[str, List[int]]] = None
         self.loaded = False
 
-    def _load_monthly_bars(self, conn: duckdb.DuckDBPyConnection, codes: Optional[list[str]] = None) -> pd.DataFrame:
+    def _load_monthly_bars(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        codes: Optional[list[str]] = None
+    ) -> "pd.DataFrame":
+        if pd is None:
+            raise RuntimeError("pandas_missing")
         if codes:
             placeholders = ",".join(["?"] * len(codes))
             query = f"""
@@ -79,8 +93,10 @@ class SimilarityService:
         return df_monthly
 
     def _build_vectors_and_tags(
-        self, df_monthly: pd.DataFrame
-    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        self, df_monthly: "pd.DataFrame"
+    ) -> tuple["pd.DataFrame", "pd.DataFrame", "pd.DataFrame"]:
+        if pd is None:
+            raise RuntimeError("pandas_missing")
         df_monthly = df_monthly.sort_values(["code", "period"]).copy()
 
         df_monthly["prev_c"] = df_monthly.groupby("code")["c"].shift(1)
@@ -147,6 +163,8 @@ class SimilarityService:
         return df_vec60, df_vec24, df_env
 
     def _persist_artifacts(self) -> None:
+        if pd is None:
+            raise RuntimeError("pandas_missing")
         self.df_vec60 = self.df_vec60.sort_values(["code", "asof"]).reset_index(drop=True)
         self.df_vec24 = self.df_vec24.sort_values(["code", "asof"]).reset_index(drop=True)
         self.df_env = self.df_env.sort_values(["code", "asof"]).reset_index(drop=True)
@@ -172,6 +190,8 @@ class SimilarityService:
         """Load pre-computed data into memory."""
         if self.loaded:
             return
+        if pd is None:
+            raise RuntimeError("pandas_missing")
 
         required_paths = [
             self.df_vec60_path,
@@ -204,6 +224,8 @@ class SimilarityService:
     def refresh_data(self, incremental: bool = False):
         """Rebuilds the similarity dataset from DuckDB. Incremental updates are supported."""
         print("Starting Refresh Data...")
+        if pd is None:
+            raise RuntimeError("pandas_missing")
 
         if incremental and not os.path.exists(self.df_vec60_path):
             incremental = False
@@ -303,6 +325,8 @@ class SimilarityService:
         k: int = 30, 
         alpha: float = 0.7
     ) -> List[SearchResult]:
+        if pd is None:
+            raise RuntimeError("pandas_missing")
         
         if not self.loaded:
             self.load_artifacts()

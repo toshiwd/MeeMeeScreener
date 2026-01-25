@@ -1,10 +1,36 @@
 ﻿
 
+import threading
 import duckdb
 from core.config import config
 
-def get_conn():
-    return duckdb.connect(str(config.DB_PATH))
+
+# DuckDB on Windows can throw "file is already open" when multiple threads open
+# overlapping connections to the same DB file. We keep a single shared connection
+# and serialize access with a lock.
+_CONN_LOCK = threading.RLock()
+_CONN: duckdb.DuckDBPyConnection | None = None
+
+
+def _ensure_conn() -> duckdb.DuckDBPyConnection:
+    global _CONN
+    if _CONN is None:
+        _CONN = duckdb.connect(str(config.DB_PATH))
+    return _CONN
+
+
+class _ConnContext:
+    def __enter__(self) -> duckdb.DuckDBPyConnection:
+        _CONN_LOCK.acquire()
+        return _ensure_conn()
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        _CONN_LOCK.release()
+        return False
+
+
+def get_conn() -> _ConnContext:
+    return _ConnContext()
 
 
 def init_schema() -> None:

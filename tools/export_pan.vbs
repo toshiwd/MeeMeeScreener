@@ -19,6 +19,7 @@ Const COM_CREATE_RETRY_SLEEP_MS = 1000
 Const USE_ADJUSTED_PRICE = True
 Const MANIFEST_NAME = "_manifest.csv"
 Const SPLIT_SUSPECTS_NAME = "_split_suspects.csv"
+Const PROGRESS_FILE_NAME = "vbs_progress.json"
 Const TAIL_READ_BYTES = 4096
 
 Const ForReading   = 1
@@ -40,6 +41,7 @@ Sub Main()
     Dim totalCount, okCount, errCount, splitCount
     Dim sLine, code
     Dim manifestPath, splitPath
+    Dim progressPath
     Dim manifest
 
     totalCount = 0
@@ -75,9 +77,14 @@ Sub Main()
     End If
     manifestPath = outFolder & "\" & MANIFEST_NAME
     splitPath = outFolder & "\" & SPLIT_SUSPECTS_NAME
+    progressPath = outFolder & "\" & PROGRESS_FILE_NAME
+
+    ' Write a boot record early so the UI can detect "script started" even when COM init fails.
+    WriteProgressFile progressPath, "booting", "", 0, 0, 0, 0, ""
 
     If Not fso.FileExists(codesFile) Then
         SafeOut "ERROR: code.txt not found: " & codesFile
+        WriteProgressFile progressPath, "error", "", 0, 0, 0, 0, "code.txt not found"
         WScript.Quit 1
     End If
 
@@ -101,6 +108,7 @@ Sub Main()
         SafeOut "HOST : " & WScript.FullName
         SafeOut "HINT : Use 32bit cscript (SysWOW64)."
         SafeOut "TRY  : %SystemRoot%\SysWOW64\cscript.exe //nologo ""export_pan.vbs"""
+        WriteProgressFile progressPath, "error", "", 0, 0, 0, 0, "ActiveMarket COM init failed"
         WScript.Quit 1
     End If
 
@@ -112,6 +120,7 @@ Sub Main()
     SafeOut "CODES: " & codesFile
     SafeOut "OUT  : " & outFolder
     SafeOut "HOST : " & WScript.FullName
+    WriteProgressFile progressPath, "starting", "", totalCount, okCount, errCount, splitCount, ""
 
     Do While Not tsCodes.AtEndOfStream
         sLine = Trim(RemoveBOM(tsCodes.ReadLine))
@@ -120,6 +129,7 @@ Sub Main()
                 code = NormalizeCode(sLine)
                 If Len(code) > 0 Then
                     totalCount = totalCount + 1
+                    WriteProgressFile progressPath, "exporting", code, totalCount, okCount, errCount, splitCount, ""
                     Dim splitSuspected
                     splitSuspected = False
                     If ExportOneCode_Incremental(code, outFolder, cal, prices, manifest, splitPath, splitSuspected) Then
@@ -131,6 +141,7 @@ Sub Main()
                             errCount = errCount + 1
                         End If
                     End If
+                    WriteProgressFile progressPath, "exporting", code, totalCount, okCount, errCount, splitCount, ""
                 End If
             End If
         End If
@@ -145,6 +156,7 @@ Sub Main()
     SafeOut "ERR  : " & errCount
     SafeOut "SPLIT_SUSPECT: " & splitCount
     SafeOut "SUMMARY: total=" & totalCount & " ok=" & okCount & " err=" & errCount & " split=" & splitCount
+    WriteProgressFile progressPath, "done", "", totalCount, okCount, errCount, splitCount, ""
 
     If errCount > 0 Then
         SafeOut "WARN: errors detected"
@@ -156,6 +168,35 @@ Sub Main()
         WScript.Quit 0
     End If
 End Sub
+
+'============================================================
+' Progress file (used by UI polling if stdout streaming is not available)
+'============================================================
+Sub WriteProgressFile(ByVal path, ByVal phase, ByVal currentCode, ByVal startedCount, ByVal okCount, ByVal errCount, ByVal splitCount, ByVal errorMessage)
+    On Error Resume Next
+    Dim ts, processedCount, updatedAt, jsonText
+    processedCount = CLng(okCount) + CLng(errCount) + CLng(splitCount)
+    updatedAt = FormatTimestamp(Now)
+    Set ts = fso.OpenTextFile(path, ForWriting, True)
+    If Err.Number <> 0 Then
+        Err.Clear
+        Exit Sub
+    End If
+    jsonText = "{""phase"":""" & CleanJson(phase) & """,""current"":""" & CleanJson(currentCode) & """,""started"": " & startedCount & ",""processed"": " & processedCount & ",""ok"": " & okCount & ",""err"": " & errCount & ",""split"": " & splitCount & ",""error"":""" & CleanJson(errorMessage) & """,""updatedAt"":""" & CleanJson(updatedAt) & """}"
+    ts.WriteLine jsonText
+    ts.Close
+    On Error GoTo 0
+End Sub
+
+Function CleanJson(ByVal value)
+    Dim s
+    s = CStr(value)
+    s = Replace(s, "\", "\\")
+    s = Replace(s, Chr(34), "\""")
+    s = Replace(s, vbCrLf, " ")
+    s = Replace(s, vbLf, " ")
+    CleanJson = s
+End Function
 
 '============================================================
 ' 32-bit cscript check (relaunch if needed)

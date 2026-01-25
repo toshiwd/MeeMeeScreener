@@ -104,6 +104,14 @@ def _find_free_port() -> int:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
 
+def _can_bind_port(port: int) -> bool:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+
 
 def _wait_for_health(port: int, timeout_seconds: int) -> bool:
     deadline = time.monotonic() + timeout_seconds
@@ -359,7 +367,12 @@ def _configure_environment(paths: dict[str, str]) -> None:
     os.environ["UPDATE_STATE_PATH"] = paths["update_state"]
     os.environ["PAN_OUT_TXT_DIR"] = paths["txt_dir"]
     os.environ["TXT_DATA_DIR"] = paths["txt_dir"]
-    os.environ["PAN_EXPORT_VBS_PATH"] = resolve_path("tools", "export_pan.vbs")
+    # Prefer external tools folder if available (allow user modification)
+    external_tools_vbs = os.path.join(os.path.dirname(sys.executable), "tools", "export_pan.vbs")
+    if getattr(sys, "frozen", False) and os.path.exists(external_tools_vbs):
+        os.environ["PAN_EXPORT_VBS_PATH"] = external_tools_vbs
+    else:
+        os.environ["PAN_EXPORT_VBS_PATH"] = resolve_path("tools", "export_pan.vbs")
     os.environ["PAN_CODE_TXT_PATH"] = paths["code_txt"]
     os.environ["STATIC_DIR"] = resolve_path("app", "backend", "static")
     os.environ["TRADE_CSV_DIR"] = paths["data_dir"]
@@ -553,13 +566,25 @@ def main() -> None:
 
             _update_loading(win, "Starting backend...")
             # Use a fixed port to ensure LocalStorage persistence (Origin must stay same)
-            port = 28888
+            fixed_port = 28888
+            port = fixed_port
             if _wait_for_health(port, 1):
                 _update_loading(win, "Opening app...")
                 _maximize_window(win)
                 win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
                 threading.Timer(0.2, _maximize_window, args=(win,)).start()
                 return
+            if not _can_bind_port(port):
+                if _wait_for_health(port, HEALTH_TIMEOUT_SECONDS):
+                    _update_loading(win, "Opening app...")
+                    _maximize_window(win)
+                    win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
+                    threading.Timer(0.2, _maximize_window, args=(win,)).start()
+                    return
+                alt_port = _find_free_port()
+                _update_loading(win, f"Port {fixed_port} in use. Switching to {alt_port}...")
+                print(f"[launcher] Port {fixed_port} in use. Switching to {alt_port}.")
+                port = alt_port
             server, thread = _start_server(port)
             server_state["server"] = server
             server_state["thread"] = thread
@@ -571,6 +596,21 @@ def main() -> None:
                     win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
                     threading.Timer(0.2, _maximize_window, args=(win,)).start()
                     return
+                if port == fixed_port and not _can_bind_port(fixed_port):
+                    alt_port = _find_free_port()
+                    _update_loading(win, f"Port {fixed_port} in use. Switching to {alt_port}...")
+                    print(f"[launcher] Port {fixed_port} in use. Switching to {alt_port}.")
+                    _stop_server(server, thread)
+                    server, thread = _start_server(alt_port)
+                    server_state["server"] = server
+                    server_state["thread"] = thread
+                    port = alt_port
+                    if _wait_for_health(port, HEALTH_TIMEOUT_SECONDS):
+                        _update_loading(win, "Opening app...")
+                        _maximize_window(win)
+                        win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
+                        threading.Timer(0.2, _maximize_window, args=(win,)).start()
+                        return
                 _update_loading(win, "Backend failed to start.")
                 _stop_server(server, thread)
                 _message_box("Backend failed to start. See logs for details.", WINDOW_TITLE)

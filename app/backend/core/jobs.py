@@ -16,35 +16,38 @@ logger = logging.getLogger(__name__)
 STALE_JOB_HOURS = 2
 PROCESS_BOOT_AT = datetime.now()
 
-def _cleanup_stale_jobs(conn) -> None:
+def cleanup_stale_jobs() -> None:
     try:
-        conn.execute(
-            f"""
-            UPDATE sys_jobs
-            SET status = 'failed',
-                finished_at = CURRENT_TIMESTAMP,
-                error = 'stale_job',
-                message = 'Stale job cleanup'
-            WHERE status = 'queued'
-              AND (created_at < CURRENT_TIMESTAMP - INTERVAL '{STALE_JOB_HOURS} hours'
-                   OR created_at < ?)
-            """,
-            [PROCESS_BOOT_AT]
-        )
-        conn.execute(
-            f"""
-            UPDATE sys_jobs
-            SET status = 'failed',
-                finished_at = CURRENT_TIMESTAMP,
-                error = 'stale_job',
-                message = 'Stale job cleanup'
-            WHERE status = 'running'
-              AND (COALESCE(started_at, created_at) < CURRENT_TIMESTAMP - INTERVAL '{STALE_JOB_HOURS} hours'
-                   OR COALESCE(started_at, created_at) < ?)
-            """,
-            [PROCESS_BOOT_AT]
-        )
-    except Exception:
+        with get_conn() as conn:
+            conn.execute(
+                f"""
+                UPDATE sys_jobs
+                SET status = 'failed',
+                    finished_at = CURRENT_TIMESTAMP,
+                    error = 'stale_job',
+                    message = 'Stale job cleanup'
+                WHERE status = 'queued'
+                  AND (created_at < CURRENT_TIMESTAMP - INTERVAL '{STALE_JOB_HOURS} hours'
+                       OR created_at < ?)
+                """,
+                [PROCESS_BOOT_AT]
+            )
+            conn.execute(
+                f"""
+                UPDATE sys_jobs
+                SET status = 'failed',
+                    finished_at = CURRENT_TIMESTAMP,
+                    error = 'stale_job',
+                    message = 'Stale job cleanup'
+                WHERE status = 'running'
+                  AND (COALESCE(started_at, created_at) < CURRENT_TIMESTAMP - INTERVAL '{STALE_JOB_HOURS} hours'
+                       OR COALESCE(started_at, created_at) < ?)
+                """,
+                [PROCESS_BOOT_AT]
+            )
+            print("[JobManager] Stale jobs cleaned up.")
+    except Exception as e:
+        logger.error(f"Failed to cleanup stale jobs: {e}")
         pass
 
 class JobManager:
@@ -72,6 +75,12 @@ class JobManager:
         self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True, name="JobWorker")
         self._worker_thread.start()
 
+    def _ensure_worker(self) -> None:
+        if self._worker_thread and self._worker_thread.is_alive():
+            return
+        print("[JobManager] Worker thread was not alive. Restarting...")
+        self._start_worker()
+
     def register_handler(self, job_type: str, handler: Callable[[str, dict], None]):
         """
         Register a handler for a job type.
@@ -83,7 +92,7 @@ class JobManager:
     def is_active(self, job_type: str) -> bool:
         """Check if a job of the given type is currently queued or running."""
         with get_conn() as conn:
-            _cleanup_stale_jobs(conn)
+            cleanup_stale_jobs()
             count = conn.execute(
                 "SELECT COUNT(*) FROM sys_jobs WHERE type = ? AND status IN ('queued', 'running')",
                 [job_type]
@@ -95,6 +104,7 @@ class JobManager:
         Submit a job.
         If unique=True and the job type is already active, returns None.
         """
+        self._ensure_worker()
         print(f"[JobManager] submit called: type={job_type}, unique={unique}")
         print(f"[JobManager] registered handlers: {list(self._handlers.keys())}")
         

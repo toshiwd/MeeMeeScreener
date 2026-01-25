@@ -87,6 +87,7 @@ type HealthStatus = {
   code_count: number;
   last_updated: string | null;
   code_txt_missing: boolean;
+  pan_out_txt_dir?: string | null;
 };
 
 export default function GridView() {
@@ -1276,46 +1277,59 @@ export default function GridView() {
   const isUpdateRunning = Boolean(txtUpdateStatus?.running);
   const isUpdateStarting = updateRequestInFlight && !isUpdateRunning;
   const isUpdatingTxt = isUpdateRunning || isUpdateStarting;
+  const normalizeCountValue = (value: unknown) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
   const updateProgressPercent = (() => {
     if (!isUpdateRunning) return null;
-    const processed = txtUpdateStatus.processed;
-    const total = txtUpdateStatus.total;
+    const processed = normalizeCountValue(txtUpdateStatus?.processed);
+    const total = normalizeCountValue(txtUpdateStatus?.total);
     if (typeof processed === "number" && processed >= 0) {
-      if (total === 100) {
-        return Math.min(100, Math.round(processed));
-      }
       if (typeof total === "number" && total > 0) {
         return Math.min(100, Math.round((processed / total) * 100));
       }
+      if (total === 100) return Math.min(100, Math.round(processed));
     }
     return null;
   })();
+  const formatUpdateCount = () => {
+    const processed = normalizeCountValue(txtUpdateStatus?.processed);
+    const total = normalizeCountValue(txtUpdateStatus?.total);
+    if (typeof total === "number" && total > 0) {
+      const safeProcessedRaw = typeof processed === "number" && processed >= 0 ? processed : 0;
+      const safeProcessed = Math.min(safeProcessedRaw, total);
+      return `${safeProcessed}/${total}`;
+    }
+    if (typeof processed === "number") {
+      return `${processed}`;
+    }
+    return null;
+  };
   const updateProgressLabel = (() => {
     if (!isUpdateRunning) return null;
     const statusMessage = txtUpdateStatus.status_message?.trim();
-    if (txtUpdateStatus.phase === "ingesting") return "取り込み中";
-    if (txtUpdateStatus.phase === "exporting") return "エクスポート中";
+    if (txtUpdateStatus.phase === "ingesting") {
+      return statusMessage || "?????????";
+    }
+    if (txtUpdateStatus.phase === "exporting") {
+      return statusMessage || "?????????????";
+    }
     if (txtUpdateStatus.phase === "queued" || txtUpdateStatus.phase === "starting") {
-      return "準備中";
+      return "?????";
     }
-    if (
-      typeof txtUpdateStatus.processed === "number" &&
-      typeof txtUpdateStatus.total === "number" &&
-      txtUpdateStatus.total > 0
-    ) {
-      if (txtUpdateStatus.total === 100 && txtUpdateStatus.processed <= 100) {
-        return `更新中 ${Math.round(txtUpdateStatus.processed)}%`;
-      }
-      return `更新中 ${txtUpdateStatus.processed}/${txtUpdateStatus.total}`;
-    }
-    if (statusMessage) return statusMessage;
-    return "更新中";
+    return statusMessage || "??????";
   })();
   const updatePhase = txtUpdateStatus?.phase ?? null;
-  const updateStatusTone = isUpdateStarting
-    ? "idle"
-    : isUpdateRunning
-      ? "running"
+  const updateStatusTone = isUpdateRunning || isUpdateStarting
+    ? "running"
       : updatePhase === "done"
         ? "done"
         : updatePhase === "error"
@@ -1324,7 +1338,7 @@ export default function GridView() {
             ? "idle"
             : "idle";
   const updateStatusText = (() => {
-    if (isUpdateStarting) return "開始中";
+    if (isUpdateStarting) return "更新中";
     if (isUpdateRunning) return updateProgressLabel ?? "更新中";
     if (updatePhase === "done") return "更新完了";
     if (updatePhase === "error") return "更新エラー";
@@ -1338,8 +1352,13 @@ export default function GridView() {
     if (updateStatusTone === "done") return 100;
     return 0;
   })();
-  const updateProgressDisplay =
-    updateProgressPercent ?? (updateStatusTone === "done" ? 100 : null);
+  const updateProgressDisplay = (() => {
+    const countLabel = formatUpdateCount();
+    if (countLabel) return countLabel;
+    if (updateProgressPercent != null) return `${updateProgressPercent}%`;
+    if (updateStatusTone === "done") return "100%";
+    return null;
+  })();
 
   const formatUpdateSummary = (summary?: UpdateSummary) => {
     if (!summary) return null;
@@ -1362,7 +1381,7 @@ export default function GridView() {
   };
 
   const updateDetailText = (() => {
-    if (isUpdateStarting) return "準備中";
+    if (isUpdateStarting) return "更新中";
     if (isUpdateRunning) {
       const elapsed = formatElapsed(txtUpdateStatus?.elapsed_ms);
       return elapsed ? `経過 ${elapsed}` : "経過 --:--";
@@ -1565,12 +1584,12 @@ export default function GridView() {
   useEffect(() => {
     if (!backendReady) return;
     fetchTxtUpdateStatus();
-    const intervalMs = txtUpdateStatus?.running ? 1000 : 5000;
+    // Use a fixed interval to avoid "stopping" feel on navigation return
     const timer = window.setInterval(() => {
       fetchTxtUpdateStatus();
-    }, intervalMs);
+    }, 2000);
     return () => window.clearInterval(timer);
-  }, [backendReady, txtUpdateStatus?.running, fetchTxtUpdateStatus]);
+  }, [backendReady, fetchTxtUpdateStatus]);
 
   useEffect(() => {
     const wasRunning = prevUpdateRunningRef.current;
@@ -1799,15 +1818,14 @@ export default function GridView() {
                     <span className={`txt-update-status is-${updateStatusTone}`}>
                       <span className="txt-update-dot" />
                       {updateStatusText}
-                      {updateProgressDisplay != null ? `（${updateProgressDisplay}%）` : ""}
+                      {updateProgressDisplay != null ? `（${updateProgressDisplay}）` : ""}
                     </span>
                     <div
-                      className={`txt-update-progress is-${updateStatusTone} ${
-                        (updateStatusTone === "running" && updateProgressPercent == null) ||
+                      className={`txt-update-progress is-${updateStatusTone} ${(updateStatusTone === "running" && updateProgressPercent == null) ||
                         isUpdateStarting
-                          ? "is-indeterminate"
-                          : ""
-                      }`}
+                        ? "is-indeterminate"
+                        : ""
+                        }`}
                       aria-hidden="true"
                     >
                       <div
@@ -2019,7 +2037,9 @@ export default function GridView() {
       </header>
       {health && health.txt_count === 0 && (
         <div className="data-warning">
-          TXTが見つかりません。PANROLLINGで出力したTXTを `data/txt` に配置してください。
+          TXTが見つかりません。PANROLLINGで出力したTXTを
+          {health.pan_out_txt_dir ? ` ${health.pan_out_txt_dir} ` : ""}
+          に配置してください。
         </div>
       )}
       {health && health.code_txt_missing && health.txt_count > 0 && (

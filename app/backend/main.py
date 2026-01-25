@@ -5,6 +5,7 @@ import csv
 import glob
 import json
 import os
+import queue
 import re
 import shutil
 import sqlite3
@@ -29,7 +30,7 @@ from events import fetch_earnings_snapshot, fetch_rights_snapshot, jst_now
 from positions import parse_rakuten_csv, parse_sbi_csv, rebuild_positions
 from import_positions import process_import_rakuten, process_import_sbi
 from position_engine import get_events
-from core.jobs import job_manager
+from core.jobs import job_manager, cleanup_stale_jobs
 from core.txt_update_job import handle_txt_update
 from core.force_sync_job import handle_force_sync
 
@@ -97,7 +98,7 @@ async def lifespan(app: FastAPI):
     try:
         print("[startup] Initializing database schema...")
         init_schema()
-        _cleanup_stale_jobs()
+        cleanup_stale_jobs()
         print("[startup] Initializing favorites schema...")
         _init_favorites_schema()
         print("[startup] Initializing practice schema...")
@@ -145,6 +146,30 @@ def _cleanup_stale_jobs() -> None:
     # Mark long-stuck jobs as failed so new runs are not blocked.
     try:
         with get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE sys_jobs
+                SET status = 'failed',
+                    finished_at = CURRENT_TIMESTAMP,
+                    error = 'stale_job',
+                    message = 'Stale job cleanup (boot)'
+                WHERE status = 'queued'
+                  AND created_at < ?
+                """,
+                [SERVER_BOOT_AT]
+            )
+            conn.execute(
+                """
+                UPDATE sys_jobs
+                SET status = 'failed',
+                    finished_at = CURRENT_TIMESTAMP,
+                    error = 'stale_job',
+                    message = 'Stale job cleanup (boot)'
+                WHERE status = 'running'
+                  AND COALESCE(started_at, created_at) < ?
+                """,
+                [SERVER_BOOT_AT]
+            )
             conn.execute(
                 """
                 UPDATE sys_jobs
@@ -243,6 +268,7 @@ PRACTICE_DB_PATH = str(config.PRACTICE_DB_PATH)
 
 DEFAULT_PAN_VBS_PATH = os.path.join(REPO_ROOT, "tools", "export_pan.vbs")
 DEFAULT_PAN_CODE_PATH = os.path.join(REPO_ROOT, "tools", "code.txt")
+DEFAULT_PAN_OUT_DIR = str(config.PAN_OUT_TXT_DIR)
 
 PAN_EXPORT_VBS_PATH = os.path.abspath(
     os.getenv("PAN_EXPORT_VBS_PATH") or os.getenv("UPDATE_VBS_PATH") or DEFAULT_PAN_VBS_PATH
@@ -250,15 +276,20 @@ PAN_EXPORT_VBS_PATH = os.path.abspath(
 PAN_CODE_TXT_PATH = os.path.abspath(
     os.getenv("PAN_CODE_TXT_PATH") or DEFAULT_PAN_CODE_PATH
 )
-PAN_OUT_TXT_DIR = str(config.PAN_OUT_TXT_DIR)
+PAN_OUT_TXT_DIR = os.path.abspath(
+    os.getenv("PAN_OUT_TXT_DIR") or os.getenv("TXT_DATA_DIR") or DEFAULT_PAN_OUT_DIR
+)
 
 UPDATE_VBS_PATH = PAN_EXPORT_VBS_PATH
 INGEST_SCRIPT_PATH = os.getenv(
     "INGEST_SCRIPT_PATH",
     os.path.abspath(os.path.join(os.path.dirname(__file__), "ingest_txt.py"))
 )
-UPDATE_STATE_PATH = str(config.DATA_DIR / "update_state.json")
+DEFAULT_UPDATE_STATE_PATH = str(config.DATA_DIR / "update_state.json")
+UPDATE_STATE_PATH = os.path.abspath(os.getenv("UPDATE_STATE_PATH") or DEFAULT_UPDATE_STATE_PATH)
 SPLIT_SUSPECTS_PATH = str(config.DATA_DIR / "_split_suspects.csv")
+VBS_PROGRESS_PATH = os.path.join(PAN_OUT_TXT_DIR, "vbs_progress.json")
+VBS_PROGRESS_PATH_LEGACY = os.path.join(PAN_OUT_TXT_DIR, "_vbs_progress.json")
 WATCHLIST_TRASH_DIR = str(config.DATA_DIR / "trash")
 
 WATCHLIST_TRASH_PATTERNS = [
@@ -292,6 +323,19 @@ _trade_cache = {"key": None, "rows": [], "warnings": []}
 _screener_cache = {"mtime": None, "rows": []}
 _rank_cache = {"mtime": None, "config_mtime": None, "weekly": {}, "monthly": {}}
 _rank_config_cache = {"mtime": None, "config": None}
+_update_txt_lock = threading.Lock()
+_update_txt_status = {
+    "running": False,
+    "phase": "idle",
+    "started_at": None,
+    "finished_at": None,
+    "processed": 0,
+    "total": 0,
+    "summary": {},
+    "error": None,
+    "stdout_tail": [],
+    "last_updated_at": None
+}
 
 _similarity_service = SimilarityService()
 _similarity_refresh_lock = threading.Lock()
@@ -4894,6 +4938,326 @@ def _read_text_lines(path: str) -> list[str]:
     return []
 
 
+def _load_vbs_progress() -> dict | None:
+    try:
+        path = None
+        for candidate in (VBS_PROGRESS_PATH, VBS_PROGRESS_PATH_LEGACY):
+            if candidate and os.path.isfile(candidate):
+                path = candidate
+                break
+        if not path:
+            return None
+        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+            text = handle.read().strip()
+        if not text:
+            return None
+        payload = json.loads(text)
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def _write_vbs_progress(
+    *,
+    phase: str,
+    current: str = "",
+    started: int = 0,
+    ok: int = 0,
+    err: int = 0,
+    split: int = 0,
+    error: str = ""
+) -> None:
+    # Some Windows hosts don't stream stdout from cscript reliably. Persist a tiny JSON
+    # progress file so the UI can still show progress/errors.
+    try:
+        os.makedirs(PAN_OUT_TXT_DIR, exist_ok=True)
+        payload = {
+            "phase": phase,
+            "current": current,
+            "started": int(started),
+            "processed": int(ok) + int(err) + int(split),
+            "ok": int(ok),
+            "err": int(err),
+            "split": int(split),
+            "error": error,
+            "updatedAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        with open(VBS_PROGRESS_PATH, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False)
+    except Exception:
+        pass
+
+def _count_codes(path: str) -> int:
+    count = 0
+    for line in _read_text_lines(path):
+        text = line.strip()
+        if not text:
+            continue
+        if text.startswith("#") or text.startswith("'"):
+            continue
+        count += 1
+    return count
+
+
+def _append_stdout_tail(line: str) -> None:
+    with _update_txt_lock:
+        tail = list(_update_txt_status.get("stdout_tail") or [])
+        tail.append(line)
+        if len(tail) > 20:
+            tail = tail[-20:]
+        _update_txt_status["stdout_tail"] = tail
+
+
+def _set_update_status(**kwargs) -> None:
+    with _update_txt_lock:
+        _update_txt_status.update(kwargs)
+
+
+def _get_update_status_snapshot() -> dict:
+    with _update_txt_lock:
+        return dict(_update_txt_status)
+
+
+def _run_streaming_command(cmd: list[str], timeout: int, on_line) -> tuple[int, str, bool]:
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        universal_newlines=True,
+        encoding="cp932" if os.name == "nt" else "utf-8",
+        errors="replace",
+        creationflags=creationflags
+    )
+    output_lines: list[str] = []
+    start = time.time()
+    timed_out = False
+
+    line_queue: queue.Queue[str] = queue.Queue()
+    reader_done = threading.Event()
+
+    def reader():
+        if process.stdout is None:
+            reader_done.set()
+            return
+        for raw in process.stdout:
+            line_queue.put(raw.rstrip("\r\n"))
+        reader_done.set()
+
+    reader_thread = threading.Thread(target=reader, daemon=True)
+    reader_thread.start()
+
+    while True:
+        try:
+            line = line_queue.get(timeout=0.2)
+        except queue.Empty:
+            line = None
+
+        if line:
+            output_lines.append(line)
+            on_line(line)
+
+        if time.time() - start > timeout:
+            timed_out = True
+            try:
+                process.kill()
+            except Exception:
+                pass
+            break
+
+        if process.poll() is not None and line_queue.empty() and reader_done.is_set():
+            break
+
+    if process.stdout is not None:
+        try:
+            process.stdout.close()
+        except Exception:
+            pass
+    if not reader_done.is_set():
+        reader_thread.join(timeout=1)
+
+    return process.wait(), "\n".join(output_lines).strip(), timed_out
+
+
+def _parse_vbs_summary(output: str) -> dict:
+    summary: dict[str, int] = {}
+    for line in output.splitlines():
+        if line.startswith("SUMMARY:"):
+            for key, value in re.findall(r"(\w+)=(\d+)", line):
+                summary[key] = int(value)
+    return summary
+
+
+def _run_txt_update_job(code_path: str, out_dir: str) -> None:
+    processed = 0
+    started_count = 0
+    done_count = 0
+
+    def on_line(line: str) -> None:
+        nonlocal processed, started_count, done_count
+        _append_stdout_tail(line)
+        stripped = line.strip()
+        if stripped.startswith("START:"):
+            current_code = stripped.split(":", 1)[1].strip()
+            if current_code:
+                _set_update_status(status_message=f"Exporting {current_code}")
+            started_count += 1
+        is_ok = stripped.startswith("OK")
+        is_err = stripped.startswith("ERROR")
+        is_split = stripped.startswith("SPLIT")
+        if is_ok or is_err or is_split:
+            done_count += 1
+
+        updated_processed = max(started_count, done_count)
+        if updated_processed != processed:
+            processed = updated_processed
+            _set_update_status(processed=processed)
+
+    try:
+        _set_update_status(phase="exporting", status_message="Exporting...")
+        _write_vbs_progress(phase="starting")
+        sys_root = os.environ.get("SystemRoot") or "C:\\Windows"
+        cscript = os.path.join(sys_root, "SysWOW64", "cscript.exe")
+        if not os.path.isfile(cscript):
+            cscript = os.path.join(sys_root, "System32", "cscript.exe")
+        vbs_cmd = [cscript, "//nologo", UPDATE_VBS_PATH, code_path, out_dir]
+        timeout_sec = 1800
+        vbs_code, vbs_output, timed_out = _run_streaming_command(
+            vbs_cmd, timeout=timeout_sec, on_line=on_line
+        )
+        summary = _parse_vbs_summary(vbs_output)
+        _set_update_status(summary=summary)
+        if summary:
+            snapshot = _get_update_status_snapshot()
+            summary_total = summary.get("total")
+            summary_done = sum(
+                value for key, value in summary.items() if key in ("ok", "err", "split")
+            )
+            if isinstance(summary_total, int) and (snapshot.get("total") is None or snapshot.get("total", 0) <= 0):
+                _set_update_status(total=summary_total)
+            if isinstance(summary_done, int) and summary_done > processed:
+                processed = summary_done
+                _set_update_status(processed=processed)
+            if isinstance(summary_total, int) and processed > summary_total:
+                processed = summary_total
+                _set_update_status(processed=processed)
+        if timed_out:
+            _write_vbs_progress(phase="error", error=f"timeout:{timeout_sec}s")
+            _set_update_status(
+                running=False,
+                phase="error",
+                error="timeout",
+                finished_at=datetime.now().isoformat(),
+                timeout_sec=timeout_sec
+            )
+            return
+        if vbs_code != 0:
+            # Write a hint so the UI can show something even if stdout was empty.
+            _write_vbs_progress(phase="error", error=f"vbs_failed:{vbs_code}")
+            _set_update_status(
+                running=False,
+                phase="error",
+                error=f"vbs_failed:{vbs_code}",
+                finished_at=datetime.now().isoformat()
+            )
+            return
+
+        _set_update_status(phase="ingesting", status_message="Ingesting...")
+        ingest_code, ingest_output = _run_ingest_command()
+        for line in ingest_output.splitlines():
+            _append_stdout_tail(line)
+        if ingest_code != 0:
+            _set_update_status(
+                running=False,
+                phase="error",
+                error=f"ingest_failed:{ingest_code}",
+                finished_at=datetime.now().isoformat(),
+                summary=summary
+            )
+            return
+
+        state = _load_update_state()
+        state["last_txt_update_date"] = datetime.now().date().isoformat()
+        state["last_txt_update_at"] = datetime.now().isoformat()
+        _save_update_state(state)
+        _set_update_status(
+            running=False,
+            phase="done",
+            error=None,
+            finished_at=datetime.now().isoformat(),
+            summary=summary,
+            last_updated_at=state.get("last_txt_update_at"),
+            processed=processed
+        )
+    except Exception as exc:
+        _append_stdout_tail(str(exc))
+        _set_update_status(
+            running=False,
+            phase="error",
+            error=f"update_txt_failed:{exc}",
+            finished_at=datetime.now().isoformat()
+        )
+
+
+def _start_txt_update(code_path: str, out_dir: str, total: int, cscript: str) -> dict:
+    started_at = datetime.now().isoformat()
+    job_id = str(uuid.uuid4())
+    with _update_txt_lock:
+        if _update_txt_status.get("running"):
+            return {}
+        _update_txt_status.update(
+            {
+                "running": True,
+                "phase": "running",
+                "started_at": started_at,
+                "finished_at": None,
+                "processed": 0,
+                "total": total,
+                "summary": {},
+                "error": None,
+                "stdout_tail": [],
+                "status_message": None,
+                "job_id": job_id,
+                "code_path": code_path,
+                "out_dir": out_dir,
+                "script_path": UPDATE_VBS_PATH,
+                "cscript_path": cscript
+            }
+        )
+    thread = threading.Thread(target=_run_txt_update_job, args=(code_path, out_dir), daemon=True)
+    thread.start()
+    return {"ok": True, "started": True, "started_at": started_at, "total": total, "job_id": job_id}
+
+
+def _run_ingest_command() -> tuple[int, str]:
+    if os.path.isfile(INGEST_SCRIPT_PATH):
+        return _run_command([sys.executable, INGEST_SCRIPT_PATH], timeout=3600)
+    import importlib
+    import io
+    from contextlib import redirect_stdout, redirect_stderr
+
+    output = io.StringIO()
+    try:
+        with redirect_stdout(output), redirect_stderr(output):
+            module = None
+            for name in ("ingest_txt", "app.backend.ingest_txt"):
+                try:
+                    module = importlib.import_module(name)
+                    break
+                except Exception:
+                    continue
+            if module is None:
+                raise ModuleNotFoundError("ingest_txt")
+            module.ingest()
+        return 0, output.getvalue()
+    except Exception as exc:
+        output.write(f"ingest_module_failed:{exc}\n")
+        output.write(traceback.format_exc())
+        return 1, output.getvalue()
+
+
 
 
 
@@ -4935,157 +5299,180 @@ def job_force_sync():
 
 @app.post("/api/txt_update/run")
 def txt_update_run():
-    # Legacy wrapper
+    # Use the job manager so progress/state survives SPA navigation and we can
+    # report failures reliably via sys_jobs.
     if not os.path.isfile(UPDATE_VBS_PATH):
-        return JSONResponse(status_code=404, content={"ok": False, "error": f"vbs_not_found:{UPDATE_VBS_PATH}"})
-    if not os.path.isfile(PAN_CODE_TXT_PATH):
-        return JSONResponse(status_code=400, content={"ok": False, "error": "code_txt_missing"})
-        
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "error": f"vbs_not_found:{UPDATE_VBS_PATH}"}
+        )
+
+    code_path = PAN_CODE_TXT_PATH if os.path.isfile(PAN_CODE_TXT_PATH) else None
+    if not code_path:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "code_txt_missing",
+                "searched": [PAN_CODE_TXT_PATH]
+            }
+        )
+
     job_id = job_manager.submit("txt_update", unique=True)
     if not job_id:
         return JSONResponse(status_code=409, content={"ok": False, "error": "update_in_progress"})
-    
-    # Pseudo legacy response 
+
     return {
-        "ok": True, 
-        "started": True, 
-        "started_at": datetime.now().isoformat(), 
-        "total": 0,
+        "ok": True,
+        "started": True,
+        "started_at": datetime.now().isoformat(),
+        "total": _count_codes(code_path),
         "job_id": job_id
     }
 
 
+
+_last_stale_cleanup_ts = 0
+
 @app.get("/api/txt_update/status")
 def txt_update_status():
-    # Map JobManager status to Legacy schema
-    _cleanup_stale_jobs()
-    with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT status, started_at, finished_at, message, error, progress, type, created_at
-            FROM sys_jobs 
-            WHERE type IN ('txt_update', 'force_sync') 
-            ORDER BY created_at DESC 
-            LIMIT 10
-            """
-        ).fetchall()
-
-    row = None
-    if rows:
-        for candidate in rows:
-            status, _started_at, _finished_at, _message, _error, _progress, job_type, _created_at = candidate
-            if job_type == "txt_update" and status in ("queued", "running"):
-                row = candidate
-                break
-        if row is None:
-            for candidate in rows:
-                status, _started_at, _finished_at, _message, _error, _progress, job_type, _created_at = candidate
-                if job_type == "force_sync" and status in ("queued", "running"):
-                    row = candidate
-                    break
-        if row is None:
-            for candidate in rows:
-                _status, _started_at, _finished_at, _message, _error, _progress, job_type, _created_at = candidate
-                if job_type == "txt_update":
-                    row = candidate
-                    break
-        if row is None and rows:
-            row = rows[0]
-
-    snapshot = {
-        "running": False,
-        "phase": "idle",
-        "started_at": None,
-        "finished_at": None,
-        "processed": 0,
-        "total": 0,
-        "summary": {},
-        "error": None,
-        "stdout_tail": [],
-        "status_message": None,
-        "last_updated_at": None,
-        "elapsed_ms": None,
-        "warning": False
-    }
-
-    if row:
-        status, started_at, finished_at, message, error, progress, job_type, _created_at = row
-        snapshot["running"] = (status in ("queued", "running"))
-        
-        # Map Phase
-        if status == "queued":
-            snapshot["phase"] = "queued"
-        elif status == "running":
-            snapshot["phase"] = "running"
-        elif status == "success":
-            snapshot["phase"] = "done"
-        elif status == "failed":
-            snapshot["phase"] = "error"
-        else:
-            snapshot["phase"] = status
-
-        inferred_progress = None
-        message_lower = (message or "").lower()
-        if status in ("queued", "running") and message_lower:
-            if "ingest" in message_lower:
-                snapshot["phase"] = "ingesting"
-                inferred_progress = 50
-            elif "export" in message_lower or "vbs" in message_lower:
-                snapshot["phase"] = "exporting"
-                inferred_progress = 10
-            elif "initializ" in message_lower or "waiting in queue" in message_lower:
-                snapshot["phase"] = "starting"
-                inferred_progress = 5
-
-        progress_value = None
-        if isinstance(progress, (int, float)) and progress > 0:
-            progress_value = progress
-        elif inferred_progress is not None:
-            progress_value = inferred_progress
-        elif status == "success":
-            progress_value = 100
-
-        # Map Progress to legacy Processed/Total (for progress bar)
-        if progress_value is not None and progress_value > 0:
-            snapshot["processed"] = int(progress_value)
-            snapshot["total"] = 100
-        
-        # Prefix message for force_sync to distinguish in UI
-        if job_type == "force_sync" and message:
-             message = f"[Force Sync] {message}"
-
-        snapshot["started_at"] = _format_event_timestamp(started_at)
-        snapshot["finished_at"] = _format_event_timestamp(finished_at)
-        snapshot["error"] = error
-        if message:
-            snapshot["stdout_tail"] = [message]
-            snapshot["status_message"] = message
-        
-        # Calculate elapsed
-        if started_at:
+    snapshot = _get_update_status_snapshot()
+    def _parse_status_time(value: object | None) -> datetime | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            cleaned = value.replace("Z", "")
             try:
-                # Handle string/datetime mix
-                start_dt = started_at if isinstance(started_at, datetime) else datetime.fromisoformat(str(started_at))
-                end_dt = datetime.now()
-                if finished_at:
-                    end_dt = finished_at if isinstance(finished_at, datetime) else datetime.fromisoformat(str(finished_at))
-                snapshot["elapsed_ms"] = int((end_dt - start_dt).total_seconds() * 1000)
-            except Exception:
-                pass
+                return datetime.fromisoformat(cleaned)
+            except ValueError:
+                return None
+        return None
 
-    state = _load_update_state()
-    snapshot["last_updated_at"] = state.get("last_txt_update_at")
+    snapshot_time = _parse_status_time(snapshot.get("started_at"))
+    if snapshot_time is None:
+        snapshot_time = _parse_status_time(snapshot.get("finished_at"))
+    try:
+        with get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT status, progress, message, started_at, finished_at, error, created_at
+                FROM sys_jobs
+                WHERE type = 'txt_update'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        if row:
+            status, progress, message, started_at, finished_at, error, created_at = row
+            row_time = _parse_status_time(started_at) or _parse_status_time(created_at)
+            should_override = False
+            snapshot_running = bool(snapshot.get("running"))
+            if snapshot_time is None:
+                should_override = True
+            elif row_time is not None and snapshot_time is not None:
+                should_override = row_time > snapshot_time
 
-    if snapshot["error"] == "stale_job":
-        snapshot["running"] = False
-        snapshot["phase"] = "idle"
+            if should_override and status == "failed" and error:
+                error_text = str(error).lower()
+                if "code.txt not found" in error_text and os.path.isfile(PAN_CODE_TXT_PATH):
+                    should_override = False
+                elif error_text == "stale_job":
+                    should_override = False
+
+            if row_time is not None and status in ("success", "failed"):
+                # Don't surface very old results on boot, but do surface recent failures
+                # (e.g. if the backend restarted mid-run).
+                if row_time < SERVER_BOOT_AT:
+                    try:
+                        age_sec = (datetime.now() - row_time).total_seconds()
+                    except Exception:
+                        age_sec = 999999
+                    if age_sec > 300:
+                        should_override = False
+
+            # Do not override an active legacy update with a queued/running job record.
+            if should_override:
+                if status in ("queued", "running"):
+                    if snapshot_running:
+                        should_override = False
+                    else:
+                        snapshot["running"] = True
+                        snapshot["phase"] = "running"
+                        snapshot["processed"] = int(progress or 0)
+                        if message:
+                            snapshot["status_message"] = str(message)
+                        if started_at:
+                            snapshot["started_at"] = (
+                                started_at.isoformat() if hasattr(started_at, "isoformat") else str(started_at)
+                            )
+                        snapshot["finished_at"] = None
+                elif status in ("success", "failed"):
+                    snapshot["running"] = False
+                    snapshot["phase"] = "done" if status == "success" else "error"
+                    if progress is not None:
+                        snapshot["processed"] = int(progress)
+                    if message:
+                        snapshot["status_message"] = str(message)
+                    if finished_at:
+                        snapshot["finished_at"] = (
+                            finished_at.isoformat() if hasattr(finished_at, "isoformat") else str(finished_at)
+                        )
+                    if error:
+                        snapshot["error"] = str(error)
+    except Exception:
+        # Keep legacy snapshot if DB lookup fails.
+        pass
+    total_value = snapshot.get("total")
+    if total_value is None or total_value <= 0:
+        code_path = snapshot.get("code_path") or PAN_CODE_TXT_PATH
+        if code_path and os.path.isfile(code_path):
+            snapshot["total"] = _count_codes(code_path)
+    if snapshot.get("running") and snapshot.get("processed") is None:
         snapshot["processed"] = 0
-        snapshot["total"] = 0
-        snapshot["error"] = None
-        snapshot["stdout_tail"] = []
-        snapshot["status_message"] = None
-        snapshot["elapsed_ms"] = None
-    
+    if not snapshot.get("last_updated_at"):
+        state = _load_update_state()
+        snapshot["last_updated_at"] = state.get("last_txt_update_at")
+    summary = snapshot.get("summary") or {}
+    if summary.get("ok", 0) > 0 and summary.get("err", 0) > 0:
+        snapshot["warning"] = True
+    else:
+        snapshot["warning"] = False
+
+    # If stdout streaming is unavailable (some Windows hosts), fall back to the VBS-written progress file.
+    if snapshot.get("running") and snapshot.get("phase") in ("running", "exporting"):
+        progress = _load_vbs_progress()
+        if progress:
+            processed = progress.get("processed")
+            if isinstance(processed, int):
+                cur = snapshot.get("processed")
+                if cur is None or processed > int(cur):
+                    snapshot["processed"] = processed
+            ok = progress.get("ok")
+            err = progress.get("err")
+            split = progress.get("split")
+            if all(isinstance(value, int) for value in (ok, err, split)):
+                merged_summary = dict(summary)
+                merged_summary.setdefault("ok", ok)
+                merged_summary.setdefault("err", err)
+                merged_summary.setdefault("split", split)
+                snapshot["summary"] = merged_summary
+            current = progress.get("current")
+            if isinstance(current, str) and current.strip():
+                snapshot["status_message"] = f"Exporting {current.strip()}"
+                snapshot["phase"] = "exporting"
+            progress_error = progress.get("error")
+            if isinstance(progress_error, str) and progress_error.strip():
+                snapshot["status_message"] = f"VBS: {progress_error.strip()}"
+    elapsed_ms = None
+    if snapshot.get("started_at"):
+        try:
+            started = datetime.fromisoformat(snapshot["started_at"])
+            elapsed_ms = int((datetime.now() - started).total_seconds() * 1000)
+        except ValueError:
+            elapsed_ms = None
+    snapshot["elapsed_ms"] = elapsed_ms
     return snapshot
 
 
@@ -5315,6 +5702,7 @@ def health():
         },
         "txt_count": status.get("txt_count"),
         "code_count": stats["tickers"],
+        "pan_out_txt_dir": PAN_OUT_TXT_DIR,
         "last_updated": status.get("last_updated"),
         "code_txt_missing": status.get("code_txt_missing"),
         "errors": []
@@ -6788,6 +7176,28 @@ def api_get_job_status(job_id: str):
 def api_cancel_job(job_id: str):
     success = job_manager.cancel(job_id)
     return {"id": job_id, "cancel_requested": success}
+
+
+@app.get("/health")
+def health_check():
+    # Basic health check for launcher
+    return {
+        "status": "ok", 
+        "last_updated": _get_last_updated_timestamp() # Helper needed or just timestamp
+    }
+
+def _get_last_updated_timestamp():
+    # Try to get meaningful timestamp of data
+    try:
+        # Check update_state
+        if os.path.isfile(UPDATE_STATE_PATH):
+             with open(UPDATE_STATE_PATH, "r", encoding="utf-8") as f:
+                 state = json.load(f)
+                 return state.get("last_txt_update_at")
+    except:
+        pass
+    return datetime.now().isoformat()
+
 
 
 @app.get("/")

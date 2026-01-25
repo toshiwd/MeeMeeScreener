@@ -19,41 +19,39 @@ def get_events(conn, symbols=None):
 
 def recalculate_positions(target_symbols=None):
     # target_symbols: list of str or None (all)
-    conn = get_conn()
-    try:
-        if target_symbols:
-            # Delete existing live positions for these symbols
-            placeholders = ",".join(["?"] * len(target_symbols))
-            conn.execute(f"DELETE FROM positions_live WHERE symbol IN ({placeholders})", target_symbols)
-            # Not deleting history to preserve rounds? Or clear rounds too?
-            # User wants "Re-aggregation from scratch". Safest is to clear everything for the symbol.
-            # But position_rounds might contain user notes?
-            # Implementation spec: "Safest: Re-aggregate from stored trade details every time"
-            # So clearing is correct for "calculated" state.
-            # But positions_live has "issue_note" which might be valuable? 
-            # Actually, issue_note is generated from calculation in the new logic ("Integrity Warning").
-            
-            events = get_events(conn, target_symbols)
-        else:
-            conn.execute("DELETE FROM positions_live")
-            events = get_events(conn)
-            
-        events_by_symbol = {}
-        for ev in events:
-            # ev index: 0:id, 1:broker, 2:exec_dt, 3:symbol, 4:action, 5:qty, 6:price, 7:hash, 8:created, 9:txn, 10:side
-            sym = ev[3]
-            if sym not in events_by_symbol:
-                events_by_symbol[sym] = []
-            events_by_symbol[sym].append(ev)
-            
-        for symbol, ev_list in events_by_symbol.items():
-            process_symbol_events(conn, symbol, ev_list)
-            
-    except Exception as e:
-        print(f"Error recalculating positions: {e}")
-        raise e
-    finally:
-        conn.close()
+    with get_conn() as conn:
+        try:
+            if target_symbols:
+                # Delete existing live positions for these symbols
+                placeholders = ",".join(["?"] * len(target_symbols))
+                conn.execute(f"DELETE FROM positions_live WHERE symbol IN ({placeholders})", target_symbols)
+                # Not deleting history to preserve rounds? Or clear rounds too?
+                # User wants "Re-aggregation from scratch". Safest is to clear everything for the symbol.
+                # But position_rounds might contain user notes?
+                # Implementation spec: "Safest: Re-aggregate from stored trade details every time"
+                # So clearing is correct for "calculated" state.
+                # But positions_live has "issue_note" which might be valuable?
+                # Actually, issue_note is generated from calculation in the new logic ("Integrity Warning").
+
+                events = get_events(conn, target_symbols)
+            else:
+                conn.execute("DELETE FROM positions_live")
+                events = get_events(conn)
+
+            events_by_symbol = {}
+            for ev in events:
+                # ev index: 0:id, 1:broker, 2:exec_dt, 3:symbol, 4:action, 5:qty, 6:price, 7:hash, 8:created, 9:txn, 10:side
+                sym = ev[3]
+                if sym not in events_by_symbol:
+                    events_by_symbol[sym] = []
+                events_by_symbol[sym].append(ev)
+
+            for symbol, ev_list in events_by_symbol.items():
+                process_symbol_events(conn, symbol, ev_list)
+
+        except Exception as e:
+            print(f"Error recalculating positions: {e}")
+            raise e
 
 def process_symbol_events(conn, symbol, events):
     spot_qty = 0.0
