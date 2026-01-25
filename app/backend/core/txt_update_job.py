@@ -8,6 +8,7 @@ import logging
 import traceback
 import io
 import json
+import re
 from datetime import datetime
 from contextlib import redirect_stdout, redirect_stderr
 
@@ -24,17 +25,21 @@ except ImportError:
         ingest_txt = None
 
 logger = logging.getLogger(__name__)
+_CODE_RE = re.compile(r"^\d{4}[A-Z]?$")
 
 UPDATE_VBS_PATH = config.PAN_EXPORT_VBS_PATH
 PAN_OUT_TXT_DIR = config.PAN_OUT_TXT_DIR
 PAN_CODE_TXT_PATH = config.PAN_CODE_TXT_PATH
-UPDATE_STATE_PATH = config.DATA_DIR / "update_state.json"
+DEFAULT_UPDATE_STATE_PATH = config.DATA_DIR / "update_state.json"
+# Keep consistent with app/backend/main.py which can override this via env var (launcher sets it).
+UPDATE_STATE_PATH = os.path.abspath(os.getenv("UPDATE_STATE_PATH") or str(DEFAULT_UPDATE_STATE_PATH))
 PROGRESS_JSON_PATH = config.PAN_OUT_TXT_DIR / "vbs_progress.json"
 
 
 def _write_progress_file(
     *,
     phase: str,
+    job_id: str = "",
     current: str = "",
     started: int = 0,
     ok: int = 0,
@@ -48,6 +53,7 @@ def _write_progress_file(
         os.makedirs(PAN_OUT_TXT_DIR, exist_ok=True)
         payload = {
             "phase": phase,
+            "job_id": job_id,
             "current": current,
             "started": int(started),
             "processed": int(ok) + int(err) + int(split),
@@ -64,6 +70,7 @@ def _write_progress_file(
 
 def _save_update_state(state: dict) -> None:
     try:
+        os.makedirs(os.path.dirname(UPDATE_STATE_PATH), exist_ok=True)
         with open(UPDATE_STATE_PATH, "w", encoding="utf-8") as handle:
             json.dump(state, handle, ensure_ascii=False, indent=2)
     except OSError:
@@ -137,7 +144,7 @@ def run_vbs_update(
     }
 
     try:
-        _write_progress_file(phase="starting", current="", started=0, ok=0, err=0, split=0, error="")
+        _write_progress_file(phase="starting", job_id=job_id, current="", started=0, ok=0, err=0, split=0, error="")
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -160,14 +167,32 @@ def run_vbs_update(
 
             normalized = line.strip()
             is_start = normalized.startswith("START:")
-            is_ok = normalized.startswith("OK")
-            is_err = normalized.startswith("ERROR")
-            is_split = normalized.startswith("SPLIT")
+
+            # VBS also prints summary lines like "OK   : 679" and "SPLIT_SUSPECT: 0".
+            # Only count per-code lines by validating the extracted code token.
+            is_ok = False
+            is_err = False
+            is_split = False
+            code_token = ""
+
+            if normalized.startswith("OK"):
+                after = normalized.split(":", 1)[1].strip() if ":" in normalized else ""
+                code_token = after.split()[0] if after else ""
+                is_ok = bool(code_token and _CODE_RE.match(code_token))
+            elif normalized.startswith("ERROR:"):
+                after = normalized.split(":", 1)[1].strip() if ":" in normalized else ""
+                code_token = after.split()[0] if after else ""
+                is_err = bool(code_token and _CODE_RE.match(code_token))
+            elif normalized.startswith("SPLIT :"):
+                after = normalized.split(":", 1)[1].strip() if ":" in normalized else ""
+                code_token = after.split()[0] if after else ""
+                is_split = bool(code_token and _CODE_RE.match(code_token))
             if is_start:
                 started_count += 1
                 current = normalized.split(":", 1)[1].strip() if ":" in normalized else ""
                 _write_progress_file(
                     phase="exporting",
+                    job_id=job_id,
                     current=current,
                     started=started_count,
                     ok=ok_count,
@@ -201,6 +226,7 @@ def run_vbs_update(
                     )
                     _write_progress_file(
                         phase="exporting",
+                        job_id=job_id,
                         current="",
                         started=started_count,
                         ok=ok_count,
@@ -223,6 +249,7 @@ def run_vbs_update(
         print(f"[txt_update_job] VBS returncode: {return_code}")
         _write_progress_file(
             phase=("done" if return_code == 0 else "error"),
+            job_id=job_id,
             current="",
             started=started_count,
             ok=ok_count,
@@ -241,6 +268,7 @@ def run_vbs_update(
         print("[txt_update_job] VBS timed out")
         _write_progress_file(
             phase="error",
+            job_id=job_id,
             current="",
             started=started_count,
             ok=ok_count,
@@ -258,6 +286,7 @@ def run_vbs_update(
         print(f"[txt_update_job] VBS exception: {e}")
         _write_progress_file(
             phase="error",
+            job_id=job_id,
             current="",
             started=started_count,
             ok=ok_count,
@@ -284,13 +313,13 @@ def handle_txt_update(job_id: str, payload: dict):
     
     # Update status to running (already done by manager, but we can set message)
     job_manager._update_db(job_id, "txt_update", "running", message="Initializing...")
-    _write_progress_file(phase="starting", current="", started=0, ok=0, err=0, split=0, error="")
+    _write_progress_file(phase="starting", job_id=job_id, current="", started=0, ok=0, err=0, split=0, error="")
 
     print(f"[txt_update_job] Checking code.txt at: {PAN_CODE_TXT_PATH}")
     if not os.path.isfile(PAN_CODE_TXT_PATH):
         error_msg = f"code.txt not found at {PAN_CODE_TXT_PATH}"
         print(f"[txt_update_job] ERROR: {error_msg}")
-        _write_progress_file(phase="error", current="", started=0, ok=0, err=0, split=0, error=error_msg)
+        _write_progress_file(phase="error", job_id=job_id, current="", started=0, ok=0, err=0, split=0, error=error_msg)
         job_manager._update_db(job_id, "txt_update", "failed", error=error_msg, finished_at=datetime.now())
         return
 
@@ -328,6 +357,16 @@ def handle_txt_update(job_id: str, payload: dict):
     if vbs_code != 0:
         print(f"[txt_update_job] VBS failed with code {vbs_code}")
         logger.error(f"VBS failed with code {vbs_code}. Output: {vbs_output[:500]}")
+        _write_progress_file(
+            phase="error",
+            job_id=job_id,
+            current="",
+            started=int(vbs_summary.get("processed") or 0) if isinstance(vbs_summary, dict) else 0,
+            ok=int(vbs_summary.get("ok") or 0) if isinstance(vbs_summary, dict) else 0,
+            err=int(vbs_summary.get("err") or 0) if isinstance(vbs_summary, dict) else 0,
+            split=int(vbs_summary.get("split") or 0) if isinstance(vbs_summary, dict) else 0,
+            error=f"vbs_failed:{vbs_code}"
+        )
         job_manager._update_db(
             job_id, "txt_update", "failed", 
             error=f"VBS Failed ({vbs_code})", 
@@ -345,6 +384,17 @@ def handle_txt_update(job_id: str, payload: dict):
         message=f"Export Done. {summary_line}. Ingesting...",
         progress=total_count if total_count else 50
     )
+    # VBS marks phase=done at export completion; overwrite to reflect the real next phase.
+    _write_progress_file(
+        phase="ingesting",
+        job_id=job_id,
+        current="",
+        started=int(vbs_summary.get("processed") or 0) if isinstance(vbs_summary, dict) else 0,
+        ok=int(vbs_summary.get("ok") or 0) if isinstance(vbs_summary, dict) else 0,
+        err=int(vbs_summary.get("err") or 0) if isinstance(vbs_summary, dict) else 0,
+        split=int(vbs_summary.get("split") or 0) if isinstance(vbs_summary, dict) else 0,
+        error=""
+    )
 
     # 2. Run Ingest
     print(f"[txt_update_job] Starting ingest...")
@@ -353,6 +403,16 @@ def handle_txt_update(job_id: str, payload: dict):
     if ingest_err:
         print(f"[txt_update_job] Ingest failed: {ingest_err}")
         logger.error(f"Ingest failed: {ingest_err}")
+        _write_progress_file(
+            phase="error",
+            job_id=job_id,
+            current="",
+            started=int(vbs_summary.get("processed") or 0) if isinstance(vbs_summary, dict) else 0,
+            ok=int(vbs_summary.get("ok") or 0) if isinstance(vbs_summary, dict) else 0,
+            err=int(vbs_summary.get("err") or 0) if isinstance(vbs_summary, dict) else 0,
+            split=int(vbs_summary.get("split") or 0) if isinstance(vbs_summary, dict) else 0,
+            error=f"ingest_failed:{ingest_err}"
+        )
         job_manager._update_db(
             job_id, "txt_update", "failed", 
             error=f"Ingest Logic Failed", 
@@ -387,4 +447,14 @@ def handle_txt_update(job_id: str, payload: dict):
         "last_txt_update_at": datetime.now().isoformat(),
         "last_txt_update_date": datetime.now().date().isoformat()
     })
+    _write_progress_file(
+        phase="done",
+        job_id=job_id,
+        current="",
+        started=int(vbs_summary.get("processed") or 0) if isinstance(vbs_summary, dict) else 0,
+        ok=int(vbs_summary.get("ok") or 0) if isinstance(vbs_summary, dict) else 0,
+        err=int(vbs_summary.get("err") or 0) if isinstance(vbs_summary, dict) else 0,
+        split=int(vbs_summary.get("split") or 0) if isinstance(vbs_summary, dict) else 0,
+        error=""
+    )
     print(f"[txt_update_job] Job {job_id} completed successfully")

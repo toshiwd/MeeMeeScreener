@@ -1,36 +1,79 @@
-﻿
-
+import time
 import threading
 import duckdb
 from core.config import config
 
 
-# DuckDB on Windows can throw "file is already open" when multiple threads open
-# overlapping connections to the same DB file. We keep a single shared connection
-# and serialize access with a lock.
-_CONN_LOCK = threading.RLock()
-_CONN: duckdb.DuckDBPyConnection | None = None
+# Notes:
+# - We intentionally avoid a single global DuckDB connection. In practice it can
+#   serialize the whole app behind one lock during long queries (e.g. ingest),
+#   which makes the UI appear "dead".
+# - Windows may still surface "file is already open" errors when another *process*
+#   holds the DB. For that case we do a short retry.
+
+_OPEN_LOCK = threading.Lock()
 
 
-def _ensure_conn() -> duckdb.DuckDBPyConnection:
-    global _CONN
-    if _CONN is None:
-        _CONN = duckdb.connect(str(config.DB_PATH))
-    return _CONN
+def _connect_with_retry(max_wait_sec: float = 1.0) -> duckdb.DuckDBPyConnection:
+    deadline = time.time() + max_wait_sec
+    last_err: Exception | None = None
+    # Guard connect() itself to reduce race-y open/close churn.
+    while True:
+        try:
+            with _OPEN_LOCK:
+                return duckdb.connect(str(config.DB_PATH))
+        except Exception as exc:  # duckdb throws its own exception types
+            last_err = exc
+            msg = str(exc).lower()
+            # If another *process* holds the file, retry briefly.
+            if "already open" in msg or "used by" in msg or "cannot open file" in msg:
+                if time.time() < deadline:
+                    time.sleep(0.05)
+                    continue
+            raise
 
 
 class _ConnContext:
     def __enter__(self) -> duckdb.DuckDBPyConnection:
-        _CONN_LOCK.acquire()
-        return _ensure_conn()
+        self._conn = _connect_with_retry(max_wait_sec=1.0)
+        return self._conn
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        _CONN_LOCK.release()
+        try:
+            self._conn.close()
+        except Exception:
+            pass
         return False
 
 
 def get_conn() -> _ConnContext:
     return _ConnContext()
+
+
+class _TryConnContext:
+    def __init__(self, timeout_sec: float = 0.0):
+        self._timeout_sec = max(0.0, float(timeout_sec))
+        self._conn: duckdb.DuckDBPyConnection | None = None
+
+    def __enter__(self) -> duckdb.DuckDBPyConnection | None:
+        try:
+            self._conn = _connect_with_retry(max_wait_sec=self._timeout_sec)
+        except Exception:
+            self._conn = None
+        return self._conn
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+        return False
+
+
+def try_get_conn(timeout_sec: float = 0.0) -> _TryConnContext:
+    """Best-effort DB access to avoid blocking the UI during long-running tasks."""
+    return _TryConnContext(timeout_sec=timeout_sec)
 
 
 def init_schema() -> None:
@@ -77,7 +120,6 @@ def init_schema() -> None:
                 o DOUBLE,
                 h DOUBLE,
                 l DOUBLE,
-
                 c DOUBLE,
                 v BIGINT,
                 PRIMARY KEY(code, month)
@@ -102,227 +144,17 @@ def init_schema() -> None:
         )
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS stock_meta (
-                code TEXT PRIMARY KEY,
-                name TEXT,
-                stage TEXT,
-                score DOUBLE,
-                reason TEXT,
-                score_status TEXT,
-                missing_reasons_json TEXT,
-                score_breakdown_json TEXT,
-                latest_close REAL,
-                monthly_box_status TEXT,
-                box_duration INTEGER,
-                box_upper REAL,
-                box_lower REAL,
-                ma20_monthly_trend INTEGER,
-                days_since_peak INTEGER,
-                days_since_bottom INTEGER,
-                signal_flags TEXT,
-                updated_at TIMESTAMP
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS earnings_planned (
-                code TEXT,
-                planned_date DATE,
-                kind TEXT,
-                company_name TEXT,
-                source TEXT,
-                fetched_at TIMESTAMP
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS ex_rights (
-                code TEXT,
-                ex_date DATE,
-                record_date DATE,
-                category TEXT,
-                last_rights_date DATE,
-                source TEXT,
-                fetched_at TIMESTAMP
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS events_meta (
-                id INTEGER PRIMARY KEY,
-                earnings_last_success_at TIMESTAMP,
-                rights_last_success_at TIMESTAMP,
-                last_error TEXT,
-                last_attempt_at TIMESTAMP,
-                is_refreshing BOOLEAN,
-                refresh_lock_job_id TEXT,
-                refresh_lock_started_at TIMESTAMP
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS events_refresh_jobs (
-                job_id TEXT PRIMARY KEY,
+            CREATE TABLE IF NOT EXISTS sys_jobs (
+                id TEXT PRIMARY KEY,
+                type TEXT,
                 status TEXT,
-                reason TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 started_at TIMESTAMP,
                 finished_at TIMESTAMP,
+                progress INTEGER,
+                message TEXT,
                 error TEXT
             );
             """
         )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS trade_events (
-                id BIGINT,
-                broker TEXT,
-                exec_dt TIMESTAMP,
-                symbol TEXT,
-                action TEXT,
-                qty DOUBLE,
-                price DOUBLE,
-                source_row_hash TEXT UNIQUE,
-                transaction_type TEXT,
-                side_type TEXT,
-                margin_type TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS positions_live (
-                symbol TEXT PRIMARY KEY,
-                spot_qty DOUBLE DEFAULT 0,
-                margin_long_qty DOUBLE DEFAULT 0,
-                margin_short_qty DOUBLE DEFAULT 0,
-                opened_at TIMESTAMP,
-                updated_at TIMESTAMP,
-                has_issue BOOLEAN,
-                issue_note TEXT
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS position_rounds (
-                round_id TEXT PRIMARY KEY,
-                symbol TEXT,
-                opened_at TIMESTAMP,
-                closed_at TIMESTAMP,
-                closed_reason TEXT,
-                last_state_sell_buy TEXT,
-                has_issue BOOLEAN,
-                issue_note TEXT
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS initial_positions_seed (
-                symbol TEXT PRIMARY KEY,
-                buy_qty DOUBLE,
-                sell_qty DOUBLE,
-                asof_dt TIMESTAMP,
-                memo TEXT
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS daily_memo (
-                symbol TEXT NOT NULL,
-                date DATE NOT NULL,
-                timeframe TEXT NOT NULL DEFAULT 'D',
-                memo TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (symbol, date, timeframe)
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sys_jobs (
-                id TEXT PRIMARY KEY,
-                type TEXT NOT NULL,
-                status TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                started_at TIMESTAMP,
-                finished_at TIMESTAMP,
-                progress INTEGER DEFAULT 0,
-                message TEXT,
-                error TEXT,
-                meta_json TEXT
-            );
-            """
-        )
-        def add_col(table, col_def):
-            try:
-                # Try simple add column
-                # Extract column name for check? duckdb "ADD COLUMN IF NOT EXISTS" is standard but if it fails?
-                # Actually, catch the specific error.
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col_def}")
-            except Exception:
-                pass
 
-        add_col("stock_meta", "score_status TEXT")
-        add_col("stock_meta", "missing_reasons_json TEXT")
-        add_col("stock_meta", "score_breakdown_json TEXT")
-        add_col("stock_meta", "latest_close REAL")
-        add_col("stock_meta", "monthly_box_status TEXT")
-        add_col("stock_meta", "box_duration INTEGER")
-        add_col("stock_meta", "box_upper REAL")
-        add_col("stock_meta", "box_lower REAL")
-        add_col("stock_meta", "ma20_monthly_trend INTEGER")
-        add_col("stock_meta", "days_since_peak INTEGER")
-        add_col("stock_meta", "days_since_bottom INTEGER")
-        add_col("stock_meta", "signal_flags TEXT")
-        add_col("earnings_planned", "company_name TEXT")
-        add_col("earnings_planned", "source TEXT")
-        add_col("earnings_planned", "fetched_at TIMESTAMP")
-        add_col("ex_rights", "record_date DATE")
-        add_col("ex_rights", "category TEXT")
-        add_col("ex_rights", "last_rights_date DATE")
-        add_col("ex_rights", "source TEXT")
-        add_col("ex_rights", "fetched_at TIMESTAMP")
-        add_col("events_meta", "earnings_last_success_at TIMESTAMP")
-        add_col("events_meta", "rights_last_success_at TIMESTAMP")
-        add_col("events_meta", "last_error TEXT")
-        add_col("events_meta", "last_attempt_at TIMESTAMP")
-        add_col("events_meta", "is_refreshing BOOLEAN")
-        add_col("events_meta", "refresh_lock_job_id TEXT")
-        add_col("events_meta", "refresh_lock_started_at TIMESTAMP")
-        add_col("trade_events", "broker TEXT")
-        add_col("trade_events", "exec_dt TIMESTAMP")
-        add_col("trade_events", "symbol TEXT")
-        add_col("trade_events", "action TEXT")
-        add_col("trade_events", "qty DOUBLE")
-        add_col("trade_events", "price DOUBLE")
-        add_col("trade_events", "source_row_hash TEXT")
-        add_col("positions_live", "buy_qty DOUBLE")
-        add_col("positions_live", "sell_qty DOUBLE")
-        add_col("positions_live", "opened_at TIMESTAMP")
-        add_col("positions_live", "updated_at TIMESTAMP")
-        add_col("positions_live", "has_issue BOOLEAN")
-        add_col("positions_live", "issue_note TEXT")
-        add_col("position_rounds", "symbol TEXT")
-        add_col("position_rounds", "opened_at TIMESTAMP")
-        add_col("position_rounds", "closed_at TIMESTAMP")
-        add_col("position_rounds", "closed_reason TEXT")
-        add_col("position_rounds", "has_issue BOOLEAN")
-        add_col("positions_live", "spot_qty DOUBLE DEFAULT 0")
-        add_col("positions_live", "margin_long_qty DOUBLE DEFAULT 0")
-        add_col("positions_live", "margin_short_qty DOUBLE DEFAULT 0")
-        add_col("trade_events", "transaction_type TEXT")
-        add_col("trade_events", "side_type TEXT")
-        add_col("trade_events", "margin_type TEXT")
-        add_col("position_rounds", "issue_note TEXT")
-        add_col("initial_positions_seed", "buy_qty DOUBLE")
-        add_col("initial_positions_seed", "sell_qty DOUBLE")
-        add_col("initial_positions_seed", "asof_dt TIMESTAMP")
-        add_col("initial_positions_seed", "memo TEXT")

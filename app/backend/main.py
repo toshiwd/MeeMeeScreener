@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse
 # Ensure current directory is in path for local imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from db import get_conn, init_schema
+from db import get_conn, try_get_conn, init_schema
 from box_detector import detect_boxes
 from similarity import SimilarityService, SearchResult
 from events import fetch_earnings_snapshot, fetch_rights_snapshot, jst_now
@@ -4960,6 +4960,7 @@ def _load_vbs_progress() -> dict | None:
 def _write_vbs_progress(
     *,
     phase: str,
+    job_id: str | None = None,
     current: str = "",
     started: int = 0,
     ok: int = 0,
@@ -4973,6 +4974,7 @@ def _write_vbs_progress(
         os.makedirs(PAN_OUT_TXT_DIR, exist_ok=True)
         payload = {
             "phase": phase,
+            "job_id": job_id or "",
             "current": current,
             "started": int(started),
             "processed": int(ok) + int(err) + int(split),
@@ -5322,6 +5324,9 @@ def txt_update_run():
     if not job_id:
         return JSONResponse(status_code=409, content={"ok": False, "error": "update_in_progress"})
 
+    # Reset progress immediately so the UI doesn't reuse stale vbs_progress.json from a prior run.
+    _write_vbs_progress(phase="queued", job_id=job_id, current="", started=0, ok=0, err=0, split=0, error="")
+
     return {
         "ok": True,
         "started": True,
@@ -5354,10 +5359,14 @@ def txt_update_status():
     if snapshot_time is None:
         snapshot_time = _parse_status_time(snapshot.get("finished_at"))
     try:
-        with get_conn() as conn:
+        # Don't block status polling during long DuckDB work (e.g. ingest). We can
+        # still show progress via the progress file / in-memory snapshot.
+        with try_get_conn(timeout_sec=0.05) as conn:
+            if conn is None:
+                raise TimeoutError("db_busy")
             row = conn.execute(
                 """
-                SELECT status, progress, message, started_at, finished_at, error, created_at
+                SELECT id, status, progress, message, started_at, finished_at, error, created_at
                 FROM sys_jobs
                 WHERE type = 'txt_update'
                 ORDER BY created_at DESC
@@ -5365,7 +5374,8 @@ def txt_update_status():
                 """
             ).fetchone()
         if row:
-            status, progress, message, started_at, finished_at, error, created_at = row
+            job_id, status, progress, message, started_at, finished_at, error, created_at = row
+            snapshot["job_id"] = str(job_id)
             row_time = _parse_status_time(started_at) or _parse_status_time(created_at)
             should_override = False
             snapshot_running = bool(snapshot.get("running"))
@@ -5431,8 +5441,8 @@ def txt_update_status():
             snapshot["total"] = _count_codes(code_path)
     if snapshot.get("running") and snapshot.get("processed") is None:
         snapshot["processed"] = 0
+    state = _load_update_state()
     if not snapshot.get("last_updated_at"):
-        state = _load_update_state()
         snapshot["last_updated_at"] = state.get("last_txt_update_at")
     summary = snapshot.get("summary") or {}
     if summary.get("ok", 0) > 0 and summary.get("err", 0) > 0:
@@ -5440,31 +5450,92 @@ def txt_update_status():
     else:
         snapshot["warning"] = False
 
-    # If stdout streaming is unavailable (some Windows hosts), fall back to the VBS-written progress file.
-    if snapshot.get("running") and snapshot.get("phase") in ("running", "exporting"):
-        progress = _load_vbs_progress()
-        if progress:
-            processed = progress.get("processed")
-            if isinstance(processed, int):
-                cur = snapshot.get("processed")
-                if cur is None or processed > int(cur):
-                    snapshot["processed"] = processed
-            ok = progress.get("ok")
-            err = progress.get("err")
-            split = progress.get("split")
-            if all(isinstance(value, int) for value in (ok, err, split)):
-                merged_summary = dict(summary)
-                merged_summary.setdefault("ok", ok)
-                merged_summary.setdefault("err", err)
-                merged_summary.setdefault("split", split)
-                snapshot["summary"] = merged_summary
-            current = progress.get("current")
-            if isinstance(current, str) and current.strip():
-                snapshot["status_message"] = f"Exporting {current.strip()}"
-                snapshot["phase"] = "exporting"
-            progress_error = progress.get("error")
-            if isinstance(progress_error, str) and progress_error.strip():
-                snapshot["status_message"] = f"VBS: {progress_error.strip()}"
+    # Fall back to the progress file. This matters when the DB is busy/locked and the UI
+    # can't rely on sys_jobs polling, and also to survive backend restarts.
+    progress = _load_vbs_progress()
+    if progress:
+        progress_job_id = progress.get("job_id")
+        snapshot_job_id = snapshot.get("job_id")
+        # Ignore stale progress files from previous runs when we can correlate job id.
+        if (
+            isinstance(progress_job_id, str)
+            and progress_job_id.strip()
+            and isinstance(snapshot_job_id, str)
+            and snapshot_job_id.strip()
+            and progress_job_id.strip() != snapshot_job_id.strip()
+        ):
+            progress = None
+
+    if progress:
+        processed = progress.get("processed")
+        if isinstance(processed, int):
+            cur = snapshot.get("processed")
+            if cur is None or processed > int(cur):
+                snapshot["processed"] = processed
+
+        ok = progress.get("ok")
+        err = progress.get("err")
+        split = progress.get("split")
+        if all(isinstance(value, int) for value in (ok, err, split)):
+            merged_summary = dict(summary)
+            merged_summary["ok"] = ok
+            merged_summary["err"] = err
+            merged_summary["split"] = split
+            snapshot["summary"] = merged_summary
+
+        current = progress.get("current")
+        progress_error = progress.get("error")
+        progress_phase = progress.get("phase")
+
+        def _parse_progress_time(value: object | None) -> datetime | None:
+            if not isinstance(value, str):
+                return None
+            cleaned = value.strip()
+            if not cleaned:
+                return None
+            for candidate in (cleaned, cleaned.replace(" ", "T")):
+                try:
+                    return datetime.fromisoformat(candidate)
+                except ValueError:
+                    continue
+            return None
+
+        progress_time = _parse_progress_time(progress.get("updatedAt"))
+        last_update_time = _parse_status_time(state.get("last_txt_update_at"))
+
+        if isinstance(progress_error, str) and progress_error.strip():
+            snapshot["status_message"] = f"VBS: {progress_error.strip()}"
+
+        if isinstance(progress_phase, str):
+            phase = progress_phase.strip().lower()
+            if phase in ("starting", "booting", "exporting", "ingesting"):
+                snapshot["running"] = True
+                snapshot["phase"] = "starting" if phase in ("starting", "booting") else phase
+            elif phase == "error":
+                snapshot["running"] = False
+                snapshot["phase"] = "error"
+            elif phase == "done":
+                # Older releases wrote phase=done at the end of VBS export, before ingest.
+                # If update_state hasn't advanced yet, treat this as "export done -> ingesting".
+                if (
+                    last_update_time is None
+                    or progress_time is None
+                    or last_update_time < (progress_time - timedelta(seconds=30))
+                ):
+                    snapshot["running"] = True
+                    snapshot["phase"] = "ingesting"
+                    snapshot.setdefault("status_message", "Ingesting...")
+                else:
+                    snapshot["running"] = False
+                    snapshot["phase"] = "done"
+
+        if isinstance(current, str) and current.strip():
+            snapshot["status_message"] = f"Exporting {current.strip()}"
+            snapshot["phase"] = "exporting"
+
+    # Recompute warning after progress merge.
+    merged_summary = snapshot.get("summary") or {}
+    snapshot["warning"] = bool(merged_summary.get("ok", 0) > 0 and merged_summary.get("err", 0) > 0)
     elapsed_ms = None
     if snapshot.get("started_at"):
         try:

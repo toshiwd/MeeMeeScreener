@@ -315,13 +315,24 @@ def _prepare_appdata() -> dict[str, str]:
     favorites_db = str(config.FAVORITES_DB_PATH)
     practice_db = str(config.PRACTICE_DB_PATH)
     rank_config = str(config_dir / "rank_config.json")
-    update_state = str(state_dir / "update_state.json")
+    # Keep update_state in the data root. Older builds used data/state/update_state.json
+    # which caused the backend/UI to read stale values depending on env overrides.
+    legacy_update_state_path = state_dir / "update_state.json"
+    update_state_path = data_dir / "update_state.json"
+    update_state = str(update_state_path)
     code_txt = str(data_dir / "code.txt")
 
     _copy_if_missing(bundled_db, stocks_db)
     _copy_if_missing(bundled_favorites, favorites_db)
     _copy_if_missing(bundled_practice, practice_db)
     _copy_if_missing(bundled_rank_config, rank_config)
+    # Prefer bundled defaults if nothing exists; otherwise migrate legacy state forward.
+    if legacy_update_state_path.exists():
+        try:
+            if (not update_state_path.exists()) or (legacy_update_state_path.stat().st_mtime > update_state_path.stat().st_mtime):
+                shutil.copy2(str(legacy_update_state_path), str(update_state_path))
+        except OSError:
+            pass
     if os.path.isfile(bundled_update_state):
         _copy_if_missing(bundled_update_state, update_state)
     else:

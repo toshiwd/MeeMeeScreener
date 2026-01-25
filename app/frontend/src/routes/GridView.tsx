@@ -141,6 +141,8 @@ export default function GridView() {
   const [displayOpen, setDisplayOpen] = useState(false);
   const [isSorting, setIsSorting] = useState(false);
   const [updateRequestInFlight, setUpdateRequestInFlight] = useState(false);
+  const updateRequestStartedAtRef = useRef<number | null>(null);
+  const prevUpdateJobIdRef = useRef<string | null>(null);
   const [txtUpdateStatus, setTxtUpdateStatus] = useState<TxtUpdateStatus | null>(null);
   const [splitSuspects, setSplitSuspects] = useState<SplitSuspect[]>([]);
   const [showSplitSuspects, setShowSplitSuspects] = useState(false);
@@ -1235,6 +1237,7 @@ export default function GridView() {
     summary?: UpdateSummary;
     error?: string | null;
     last_updated_at?: string | null;
+    job_id?: string | null;
     stdout_tail?: string[];
     status_message?: string | null;
     elapsed_ms?: number | null;
@@ -1551,7 +1554,19 @@ export default function GridView() {
 
   const handleUpdateTxt = useCallback(async () => {
     if (isUpdatingTxt || !backendReady) return;
+    updateRequestStartedAtRef.current = Date.now();
     setUpdateRequestInFlight(true);
+    // Clear any stale completed count (e.g. 679/679) so a new run doesn't look "instantly finished".
+    // Keep running=false until we observe it from the backend.
+    setTxtUpdateStatus((prev) => {
+      const fallbackTotal = (prev?.total ?? health?.code_count ?? 0) || 0;
+      return {
+        ...(prev ?? {}),
+        running: prev?.running ?? false,
+        processed: 0,
+        total: fallbackTotal > 0 ? fallbackTotal : prev?.total
+      };
+    });
     setShowSplitSuspects(false);
     setSplitSuspects([]);
     setShowUpdateLog(false);
@@ -1578,8 +1593,29 @@ export default function GridView() {
       }
     } finally {
       setUpdateRequestInFlight(false);
+      updateRequestStartedAtRef.current = null;
     }
   }, [isUpdatingTxt, backendReady, fetchTxtUpdateStatus, handleUpdateError]);
+
+  useEffect(() => {
+    // If the request promise got stuck (webview/network hiccup), don't let the UI
+    // show "starting" forever once we can observe the job is not running.
+    if (!updateRequestInFlight) return;
+    if (txtUpdateStatus && txtUpdateStatus.running === false) {
+      setUpdateRequestInFlight(false);
+      updateRequestStartedAtRef.current = null;
+      return;
+    }
+    const startedAt = updateRequestStartedAtRef.current;
+    if (startedAt == null) return;
+    const timer = window.setTimeout(() => {
+      if (updateRequestStartedAtRef.current === startedAt) {
+        setUpdateRequestInFlight(false);
+        updateRequestStartedAtRef.current = null;
+      }
+    }, 20000);
+    return () => window.clearTimeout(timer);
+  }, [updateRequestInFlight, txtUpdateStatus]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1626,6 +1662,39 @@ export default function GridView() {
     }
     prevUpdateRunningRef.current = isRunning;
   }, [txtUpdateStatus, resetBarsCache, loadList, formatUpdateToast, fetchSplitSuspects]);
+
+  useEffect(() => {
+    // If a job finishes between polling intervals, we may never observe running=true and
+    // would miss the completion side effects (cache reset, reload, toasts).
+    const jobId = (txtUpdateStatus?.job_id as string | null | undefined) ?? null;
+    const prevJobId = prevUpdateJobIdRef.current;
+    prevUpdateJobIdRef.current = jobId;
+    if (!jobId || !prevJobId || jobId === prevJobId) return;
+    if (txtUpdateStatus?.running) return;
+    if (txtUpdateStatus?.phase !== "done") return;
+
+    const summary = txtUpdateStatus.summary;
+    resetBarsCache();
+    loadList();
+    const hasWarning = Boolean(txtUpdateStatus.warning);
+    setToastMessage(
+      formatUpdateToast(hasWarning ? "TXT update done (warnings)" : "TXT update done.", summary)
+    );
+    if (hasWarning) {
+      setShowUpdateLog(true);
+    }
+    fetchSplitSuspects().then((items) => {
+      if (items.length) {
+        setShowSplitSuspects(true);
+        showToast("split suspects: " + items.length);
+      }
+    });
+    api
+      .get("/health")
+      .then((res) => setHealth(res.data as HealthStatus))
+      .catch(() => undefined);
+  }, [txtUpdateStatus, resetBarsCache, loadList, formatUpdateToast, fetchSplitSuspects]);
+
 
   return (
     <div className="app-shell">
