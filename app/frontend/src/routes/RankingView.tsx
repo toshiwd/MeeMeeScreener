@@ -418,7 +418,7 @@ export default function RankingView() {
         }}
       />
       <div
-        className={`rank - shell list - shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
+        className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
       >
         {showSkeleton && (

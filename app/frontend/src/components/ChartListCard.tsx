@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+ï»¿import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { BarsPayload, MaSetting } from "../store";
 import type { SignalChip } from "../utils/signals";
@@ -157,22 +157,90 @@ const getRangeStartTime = (candles: Candle[], rangeMonths?: number | null) => {
   return Math.floor(start.getTime() / 1000);
 };
 
-const useInView = (rootMargin = "220px") => {
+const parseRootMarginPx = (value: string): number => {
+  const first = value.split(/\s+/)[0] ?? "0px";
+  const parsed = Number.parseFloat(first.replace("px", ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getScrollParent = (element: HTMLElement): HTMLElement | null => {
+  let current: HTMLElement | null = element.parentElement;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    const overflowY = style.overflowY;
+    const overflowX = style.overflowX;
+    const isScrollableY =
+      (overflowY === "auto" || overflowY === "scroll") && current.scrollHeight > current.clientHeight;
+    const isScrollableX =
+      (overflowX === "auto" || overflowX === "scroll") && current.scrollWidth > current.clientWidth;
+    if (isScrollableY || isScrollableX) return current;
+    current = current.parentElement;
+  }
+  return null;
+};
+
+const useInView = (enabled: boolean, rootMargin = "220px") => {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [inView, setInView] = useState(false);
+  const [inView, setInView] = useState(!enabled);
 
   useEffect(() => {
+    if (!enabled) {
+      setInView(true);
+      return;
+    }
     const element = ref.current;
     if (!element) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setInView(entry.isIntersecting);
-      },
-      { rootMargin, threshold: 0.1 }
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [rootMargin]);
+
+    if (typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          setInView(entry.isIntersecting);
+        },
+        { rootMargin, threshold: 0.1 }
+      );
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+
+    const margin = parseRootMarginPx(rootMargin);
+    const scrollParent = getScrollParent(element);
+    let rafId: number | null = null;
+    const check = () => {
+      rafId = null;
+      const rect = element.getBoundingClientRect();
+      const intersects =
+        rect.bottom >= -margin &&
+        rect.right >= 0 &&
+        rect.top <= window.innerHeight + margin &&
+        rect.left <= window.innerWidth;
+      setInView(intersects);
+    };
+    const scheduleCheck = () => {
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(check);
+    };
+
+    scheduleCheck();
+    const options: AddEventListenerOptions = { passive: true };
+    window.addEventListener("resize", scheduleCheck, options);
+    if (scrollParent) {
+      scrollParent.addEventListener("scroll", scheduleCheck, options);
+    } else {
+      window.addEventListener("scroll", scheduleCheck, options);
+    }
+
+    return () => {
+      window.removeEventListener("resize", scheduleCheck);
+      if (scrollParent) {
+        scrollParent.removeEventListener("scroll", scheduleCheck);
+      } else {
+        window.removeEventListener("scroll", scheduleCheck);
+      }
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+    };
+  }, [enabled, rootMargin]);
 
   return { ref, inView };
 };
@@ -197,7 +265,7 @@ const ChartListCard = memo(function ChartListCard({
   signals,
   action
 }: ChartListCardProps) {
-  const { ref, inView } = useInView(rootMargin);
+  const { ref, inView } = useInView(deferUntilInView, rootMargin);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const hoverRafRef = useRef<number | null>(null);
   const hoverPendingRef = useRef<number | null>(null);
@@ -275,10 +343,10 @@ const ChartListCard = memo(function ChartListCard({
   const rightsLabel = formatEventBadgeDate(eventRightsDate);
   const loadingLabel =
     status === "error"
-      ? "“Ç‚İ‚İ¸”s"
+      ? "èª­ã¿è¾¼ã¿å¤±æ•—"
       : status === "empty"
-      ? "ƒf[ƒ^‚È‚µ"
-      : "“Ç‚İ‚İ’†...";
+      ? "ãƒ‡ãƒ¼ã‚¿ãªã—"
+      : "èª­ã¿è¾¼ã¿ä¸­...";
 
   return (
     <div

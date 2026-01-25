@@ -922,7 +922,6 @@ body {
   align-items: center;
   gap: 8px;
   flex-wrap: nowrap;
-  min-height: calc(var(--list-header-height, 48px) - 8px);
   min-width: 0;
 }
 
@@ -2098,7 +2097,7 @@ body {
 }
 
 .list-view {
-  --list-header-height: 48px;
+  --list-header-height: 120px;
   --list-chart-height: clamp(180px,
       calc((100vh - var(--list-header-height) - 220px) / var(--list-rows, 3)),
       460px);
@@ -2131,7 +2130,7 @@ body {
 
 .list-view .rank-grid {
   grid-template-columns: repeat(var(--list-cols, 1), minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
   grid-auto-rows: var(--list-card-height);
   align-content: start;
 }

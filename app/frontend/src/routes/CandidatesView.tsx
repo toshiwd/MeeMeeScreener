@@ -384,7 +384,7 @@ export default function CandidatesView() {
         }}
       />
       <div
-        className={`rank - shell list - shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
+        className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
       >
         {loadingList && <div className="rank-status">読み込み中...</div>}

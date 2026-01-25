@@ -413,7 +413,7 @@ export default function FavoritesView() {
         }}
       />
       <div
-        className={`rank - shell list - shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
+        className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
       >
         {loading && <div className="rank-status">読み込み中...</div>}
