@@ -325,7 +325,8 @@ export default function PositionsView() {
     const file = e.target.files[0];
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("broker", "rakuten");
+    // Let backend detect broker from the CSV contents/headers.
+    formData.append("broker", "auto");
 
     try {
       setLoading(true);

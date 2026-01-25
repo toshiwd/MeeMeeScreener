@@ -257,6 +257,37 @@ def resolve_trade_csv_dir() -> str:
     return str(config.DATA_DIR)
 
 
+def _canonical_trade_csv_path(broker: str) -> str:
+    # Keep filenames stable so other parts (auto sync, dashboards) can find them.
+    if broker == "sbi":
+        return str(config.DATA_DIR / "SBI証券取引履歴.csv")
+    return str(config.DATA_DIR / "楽天証券取引履歴.csv")
+
+
+def _detect_trade_broker(raw_data: bytes, filename: str | None = None) -> tuple[str, str]:
+    """
+    Returns (broker, reason). broker is "rakuten" or "sbi".
+    """
+    name = (filename or "").lower()
+    if "sbi" in name:
+        return "sbi", "filename"
+    if "rakuten" in name or "楽天" in (filename or ""):
+        return "rakuten", "filename"
+
+    # Header heuristics (both cp932 and utf-8 just in case)
+    for enc in ("cp932", "utf-8"):
+        try:
+            head = raw_data[:8192].decode(enc, errors="ignore")
+        except Exception:
+            continue
+        if "受渡金額/決済損益" in head or "信用新規買" in head:
+            return "sbi", f"header:{enc}"
+        if "口座" in head and "手数料" in head:
+            return "rakuten", f"header:{enc}"
+
+    return "rakuten", "default"
+
+
 TRADE_CSV_PATHS = resolve_trade_csv_paths()
 USE_CODE_TXT = os.getenv("USE_CODE_TXT", "0") == "1"
 
@@ -1471,32 +1502,35 @@ async def trade_csv_upload(file: UploadFile = File(...)):
         return JSONResponse(status_code=400, content={"ok": False, "error": "csv_required"})
     dest_dir = resolve_trade_csv_dir()
     os.makedirs(dest_dir, exist_ok=True)
-    filename = os.path.basename(file.filename)
-    dest_path = os.path.join(dest_dir, filename)
+    original_filename = os.path.basename(file.filename)
     
     # Save file
     file.file.seek(0)
     content = file.file.read()
-    with open(dest_path, "wb") as handle:
-        handle.write(content)
         
     # Ingest
     try:
-        broker = "rakuten"
-        try:
-            head_sample = content[:8192].decode("cp932", errors="ignore")
-            if "受渡金額/決済損益" in head_sample or "信用新規買" in head_sample:
-                broker = "sbi"
-            elif "口座" in head_sample and "手数料" in head_sample:
-                broker = "rakuten"
-        except Exception:
-            pass
+        broker, detected_by = _detect_trade_broker(content, original_filename)
+        dest_path = _canonical_trade_csv_path(broker)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        with open(dest_path, "wb") as handle:
+            handle.write(content)
 
         if broker == "sbi":
             result = process_import_sbi(content, replace_existing=True)
         else:
             result = process_import_rakuten(content, replace_existing=True)
-        return JSONResponse(content={"ok": True, "filename": filename, "path": dest_path, "ingest": result})
+        return JSONResponse(
+            content={
+                "ok": True,
+                "broker": broker,
+                "detected_by": detected_by,
+                "original_filename": original_filename,
+                "saved_as": os.path.basename(dest_path),
+                "path": dest_path,
+                "ingest": result
+            }
+        )
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": f"ingest_failed:{e}"})
 
@@ -6344,30 +6378,45 @@ def practice_session_upsert(payload: dict = Body(...)):
 @app.post("/api/imports/trade-history")
 async def import_trade_history(
     file: UploadFile = File(...),
-    broker: str = Form("rakuten")
+    broker: str = Form("auto")
 ):
     try:
         raw_data = await file.read()
-        
-        # Auto-detect broker logic
-        try:
-            head_sample = raw_data[:8192].decode("cp932", errors="ignore")
-            if "受渡金額/決済損益" in head_sample or "信用新規買" in head_sample:
-                broker = "sbi"
-            elif "口座" in head_sample and "手数料" in head_sample:
-                broker = "rakuten"
-        except:
-            pass
-            
-        if broker == "rakuten":
-            result = process_import_rakuten(raw_data, replace_existing=True)
-        elif broker == "sbi":
-            result = process_import_sbi(raw_data, replace_existing=True)
-        else:
+
+        original_filename = file.filename or ""
+        detected_broker, detected_by = _detect_trade_broker(raw_data, original_filename)
+        selected = (broker or "auto").strip().lower()
+        if selected not in ("auto", "rakuten", "sbi"):
             return JSONResponse(status_code=400, content={"error": f"Unknown broker: {broker}"})
+        final_broker = detected_broker if selected == "auto" else selected
+        mismatch = selected in ("rakuten", "sbi") and detected_broker != selected
+
+        # Always overwrite the canonical filename so subsequent reads/syncs work even
+        # when the user imported a differently-named file.
+        dest_path = _canonical_trade_csv_path(final_broker)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        with open(dest_path, "wb") as handle:
+            handle.write(raw_data)
+
+        if final_broker == "rakuten":
+            result = process_import_rakuten(raw_data, replace_existing=True)
+        else:
+            result = process_import_sbi(raw_data, replace_existing=True)
         if result.get("received", 0) == 0:
             return JSONResponse(status_code=400, content={"error": "No events parsed", "warnings": result.get("warnings")})
-        return JSONResponse(content={"result": "success", **result})
+        return JSONResponse(
+            content={
+                "result": "success",
+                "broker": final_broker,
+                "saved_as": os.path.basename(dest_path),
+                "path": dest_path,
+                "original_filename": original_filename,
+                "detected_broker": detected_broker,
+                "detected_by": detected_by,
+                "detected_mismatch": mismatch,
+                **result
+            }
+        )
             
     except Exception as e:
         traceback.print_exc()
