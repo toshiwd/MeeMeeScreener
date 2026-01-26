@@ -1,77 +1,109 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
 echo === MeeMee Screener Release Build ===
 echo.
 
-:: Check if running from correct directory
-if not exist "app\backend\main.py" (
-    echo ERROR: Please run this script from the project root directory
-    exit /b 1
-)
+rem Check if running from correct directory
+if not exist "app\backend\main.py" goto :fail_wrong_dir
 
-:: Step 1: Build Frontend
+rem Step 1: Build Frontend
 echo [1/3] Building Frontend...
-cd app\frontend
+pushd app\frontend
 call npm install
-if errorlevel 1 (
-    echo ERROR: npm install failed
-    cd ..\..
-    exit /b 1
-)
+if errorlevel 1 goto :fail_npm_install
 call npm run build
-if errorlevel 1 (
-    echo ERROR: Frontend build failed
-    cd ..\..
-    exit /b 1
-)
-cd ..\..
+if errorlevel 1 goto :fail_frontend_build
+popd
 echo Frontend build completed.
 echo.
 
-:: Step 2: Copy frontend dist to backend static
+rem Step 2: Copy frontend dist to backend static
 echo [2/3] Copying frontend to backend static...
 if exist "app\backend\static" rmdir /s /q "app\backend\static"
 mkdir "app\backend\static"
-xcopy /s /e /q "app\frontend\dist\*" "app\backend\static\"
+xcopy /y /s /e /q /i "app\frontend\dist\*" "app\backend\static"
+if errorlevel 1 goto :fail_copy_static
 echo Static files copied.
 echo.
 
-:: Step 3: Build PyInstaller package
+rem Step 3: Build PyInstaller package
 echo [3/3] Building PyInstaller package...
-cd build\pyinstaller
+pushd build\pyinstaller
 
-:: Create necessary files if they don't exist
-if not exist "..\\..\\app\\backend\\update_state.json" (
-    echo {} > "..\\..\\app\\backend\\update_state.json"
-)
-if not exist "..\\..\\app\\backend\\rank_config.json" (
-    echo {} > "..\\..\\app\\backend\\rank_config.json"
-)
+rem Create necessary files if they don't exist
+if not exist "..\\..\\app\\backend\\update_state.json" echo {} > "..\\..\\app\\backend\\update_state.json"
+if not exist "..\\..\\app\\backend\\rank_config.json" echo {} > "..\\..\\app\\backend\\rank_config.json"
 
-:: Run PyInstaller
-pyinstaller --noconfirm MeeMeeScreener.spec
-if errorlevel 1 (
-    echo ERROR: PyInstaller build failed
-    cd ..\..
-    exit /b 1
-)
-cd ..\..
+pyinstaller --noconfirm MeeMeeScreener.spec > pyinstaller_build.log 2>&1
+if errorlevel 1 goto :fail_pyinstaller
+popd
 echo PyInstaller build completed.
 echo.
 
-:: Step 4: Copy to release folder
+rem Step 4: Copy to release folder
 echo [4/4] Preparing release folder...
 if not exist "release" mkdir "release"
-if exist "release\MeeMeeScreener" rmdir /s /q "release\MeeMeeScreener"
-xcopy /s /e /q "build\pyinstaller\dist\MeeMeeScreener\*" "release\MeeMeeScreener\"
 
-:: Copy additional tools
-xcopy /s /e /q "tools\*.vbs" "release\MeeMeeScreener\tools\" 2>nul
-xcopy /s /e /q "tools\code.txt" "release\MeeMeeScreener\tools\" 2>nul
+rem Prevent partial/dirty copies when a previous release is running and files are locked.
+tasklist /nh 2>nul | findstr /i /c:"MeeMeeScreener.exe" >nul
+if not errorlevel 1 goto :fail_app_running
+
+if exist "release\\MeeMeeScreener" rmdir /s /q "release\\MeeMeeScreener"
+if exist "release\\MeeMeeScreener" goto :fail_release_locked
+
+xcopy /y /s /e /q /i "build\\pyinstaller\\dist\\MeeMeeScreener\\*" "release\\MeeMeeScreener"
+if errorlevel 1 goto :fail_copy_release
+
+rem Copy additional tools
+xcopy /y /s /e /q /i "tools\\*.vbs" "release\\MeeMeeScreener\\tools" 2>nul
+if errorlevel 1 goto :fail_copy_tools
+xcopy /y /s /e /q /i "tools\\code.txt" "release\\MeeMeeScreener\\tools" 2>nul
+if errorlevel 1 goto :fail_copy_tools
 
 echo.
 echo === Build Complete ===
-echo Release package is in: release\MeeMeeScreener
+echo Release package is in: release\\MeeMeeScreener
 echo.
-:: pause
+exit /b 0
+
+:fail_wrong_dir
+echo ERROR: Please run this script from the project root directory
+exit /b 1
+
+:fail_npm_install
+popd
+echo ERROR: npm install failed
+exit /b 1
+
+:fail_frontend_build
+popd
+echo ERROR: Frontend build failed
+exit /b 1
+
+:fail_copy_static
+echo ERROR: Copying static files failed
+exit /b 1
+
+:fail_pyinstaller
+echo ERROR: PyInstaller build failed
+echo ---- PyInstaller log tail ----
+powershell -NoProfile -Command "Get-Content -Path 'pyinstaller_build.log' -Tail 200"
+popd
+exit /b 1
+
+:fail_app_running
+echo ERROR: MeeMeeScreener.exe is running. Please close the app before building.
+exit /b 1
+
+:fail_release_locked
+echo ERROR: Failed to remove existing release folder (files may be locked).
+exit /b 1
+
+:fail_copy_release
+echo ERROR: Copy to release folder failed
+exit /b 1
+
+:fail_copy_tools
+echo ERROR: Copying tools failed
+exit /b 1

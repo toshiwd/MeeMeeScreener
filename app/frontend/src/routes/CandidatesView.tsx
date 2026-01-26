@@ -37,11 +37,11 @@ export default function CandidatesView() {
   const boxesCache = useStore((state) => state.boxesCache);
   const maSettings = useStore((state) => state.maSettings);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
-  const listRangeMonths = useStore((state) => state.settings.listRangeMonths);
+  const listRangeBars = useStore((state) => state.settings.listRangeBars);
   const listColumns = useStore((state) => state.settings.listColumns);
   const listRows = useStore((state) => state.settings.listRows);
   const setListTimeframe = useStore((state) => state.setListTimeframe);
-  const setListRangeMonths = useStore((state) => state.setListRangeMonths);
+  const setListRangeBars = useStore((state) => state.setListRangeBars);
   const setListColumns = useStore((state) => state.setListColumns);
   const setListRows = useStore((state) => state.setListRows);
 
@@ -364,8 +364,8 @@ export default function CandidatesView() {
       <UnifiedListHeader
         timeframe={listTimeframe}
         onTimeframeChange={setListTimeframe}
-        rangeMonths={listRangeMonths}
-        onRangeChange={setListRangeMonths}
+        rangeBars={listRangeBars}
+        onRangeChange={setListRangeBars}
         search={search}
         onSearchChange={setSearch}
         sortValue={sortKey}
@@ -402,7 +402,7 @@ export default function CandidatesView() {
                 payload={payload}
                 status={status}
                 maSettings={maSettings[listTimeframe]}
-                rangeMonths={listRangeMonths}
+                rangeBars={listRangeBars}
                 eventEarningsDate={ticker?.eventEarningsDate ?? null}
                 eventRightsDate={ticker?.eventRightsDate ?? null}
                 densityKey={densityKey}

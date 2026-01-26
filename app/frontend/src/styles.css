@@ -2098,9 +2098,11 @@ body {
 
 .list-view {
   --list-header-height: 120px;
-  --list-chart-height: clamp(180px,
+  --list-chart-min: 180px;
+  --list-chart-max: 520px;
+  --list-chart-height: clamp(var(--list-chart-min),
       calc((100vh - var(--list-header-height) - 220px) / var(--list-rows, 3)),
-      460px);
+      var(--list-chart-max));
   height: 100vh;
 }
 
@@ -2115,7 +2117,7 @@ body {
 
 .list-shell.is-single {
   --list-card-height: calc(100vh - var(--list-header-height) - 32px);
-  --list-chart-height: calc(var(--list-card-height) - 110px);
+  --list-chart-height: clamp(320px, calc(var(--list-card-height) - 110px), var(--list-chart-max));
 }
 
 .list-shell.is-single .rank-grid {
@@ -6186,6 +6188,28 @@ body {
   font-size: 12px;
   line-height: 1;
   white-space: nowrap;
+}
+
+.unified-list-header .icon-button.icon-button-label {
+  padding: 6px 20px;
+  font-size: 12px;
+  min-width: fit-content;
+}
+
+.unified-list-header .icon-button.icon-button-label .icon-button-icon {
+  display: none;
+}
+
+.unified-list-header .consult-trigger {
+  padding: 6px 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.unified-list-header .consult-trigger svg {
+  display: none;
 }
 
 .toolbar-right .icon-button-label {

@@ -1,5 +1,12 @@
-from db import get_conn
-from positions import parse_rakuten_csv, parse_sbi_csv, rebuild_positions, TradeEvent
+try:
+    from app.db.session import get_conn
+except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
+    from db import get_conn  # type: ignore
+
+try:
+    from app.backend.positions import TradeEvent, parse_rakuten_csv, parse_sbi_csv, rebuild_positions
+except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
+    from positions import TradeEvent, parse_rakuten_csv, parse_sbi_csv, rebuild_positions  # type: ignore
 
 
 def _insert_events(conn, events: list[TradeEvent]) -> int:

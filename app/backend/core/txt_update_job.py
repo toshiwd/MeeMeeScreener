@@ -27,13 +27,28 @@ except ImportError:
 logger = logging.getLogger(__name__)
 _CODE_RE = re.compile(r"^\d{4}[A-Z]?$")
 
-UPDATE_VBS_PATH = config.PAN_EXPORT_VBS_PATH
-PAN_OUT_TXT_DIR = config.PAN_OUT_TXT_DIR
-PAN_CODE_TXT_PATH = config.PAN_CODE_TXT_PATH
-DEFAULT_UPDATE_STATE_PATH = config.DATA_DIR / "update_state.json"
-# Keep consistent with app/backend/main.py which can override this via env var (launcher sets it).
-UPDATE_STATE_PATH = os.path.abspath(os.getenv("UPDATE_STATE_PATH") or str(DEFAULT_UPDATE_STATE_PATH))
-PROGRESS_JSON_PATH = config.PAN_OUT_TXT_DIR / "vbs_progress.json"
+def _update_vbs_path() -> str:
+    # Resolve at call time so launcher can set env vars before/after import safely.
+    return os.path.abspath(str(config.PAN_EXPORT_VBS_PATH))
+
+
+def _pan_out_txt_dir() -> str:
+    return os.path.abspath(str(config.PAN_OUT_TXT_DIR))
+
+
+def _pan_code_txt_path() -> str:
+    # config.PAN_CODE_TXT_PATH checks PAN_CODE_TXT_PATH env var internally.
+    return os.path.abspath(str(config.PAN_CODE_TXT_PATH))
+
+
+def _update_state_path() -> str:
+    default_path = str(config.DATA_DIR / "update_state.json")
+    # Keep consistent with app/backend/main.py which can override this via env var (launcher sets it).
+    return os.path.abspath(os.getenv("UPDATE_STATE_PATH") or default_path)
+
+
+def _progress_json_path() -> str:
+    return os.path.join(_pan_out_txt_dir(), "vbs_progress.json")
 
 
 def _write_progress_file(
@@ -50,7 +65,8 @@ def _write_progress_file(
     # Some environments don't stream stdout from cscript reliably. Persist a tiny JSON
     # progress file under the txt folder so the UI can still show progress/errors.
     try:
-        os.makedirs(PAN_OUT_TXT_DIR, exist_ok=True)
+        pan_out_txt_dir = _pan_out_txt_dir()
+        os.makedirs(pan_out_txt_dir, exist_ok=True)
         payload = {
             "phase": phase,
             "job_id": job_id,
@@ -63,15 +79,16 @@ def _write_progress_file(
             "error": error,
             "updatedAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-        with open(PROGRESS_JSON_PATH, "w", encoding="utf-8") as handle:
+        with open(_progress_json_path(), "w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False)
     except Exception:
         pass
 
 def _save_update_state(state: dict) -> None:
     try:
-        os.makedirs(os.path.dirname(UPDATE_STATE_PATH), exist_ok=True)
-        with open(UPDATE_STATE_PATH, "w", encoding="utf-8") as handle:
+        update_state_path = _update_state_path()
+        os.makedirs(os.path.dirname(update_state_path), exist_ok=True)
+        with open(update_state_path, "w", encoding="utf-8") as handle:
             json.dump(state, handle, ensure_ascii=False, indent=2)
     except OSError:
         pass
@@ -124,7 +141,7 @@ def run_vbs_update(
     if not os.path.isfile(cscript):
         cscript = os.path.join(sys_root, "System32", "cscript.exe")
 
-    cmd = [cscript, "//nologo", str(UPDATE_VBS_PATH), str(code_path), str(out_dir)]
+    cmd = [cscript, "//nologo", _update_vbs_path(), str(code_path), str(out_dir)]
 
     print(f"[txt_update_job] VBS command: {cmd}")
     logger.info(f"Job {job_id}: Running VBS: {cmd}")
@@ -315,31 +332,34 @@ def handle_txt_update(job_id: str, payload: dict):
     job_manager._update_db(job_id, "txt_update", "running", message="Initializing...")
     _write_progress_file(phase="starting", job_id=job_id, current="", started=0, ok=0, err=0, split=0, error="")
 
-    print(f"[txt_update_job] Checking code.txt at: {PAN_CODE_TXT_PATH}")
-    if not os.path.isfile(PAN_CODE_TXT_PATH):
-        error_msg = f"code.txt not found at {PAN_CODE_TXT_PATH}"
+    code_txt_path = _pan_code_txt_path()
+    pan_out_txt_dir = _pan_out_txt_dir()
+
+    print(f"[txt_update_job] Checking code.txt at: {code_txt_path}")
+    if not os.path.isfile(code_txt_path):
+        error_msg = f"code.txt not found at {code_txt_path}"
         print(f"[txt_update_job] ERROR: {error_msg}")
         _write_progress_file(phase="error", job_id=job_id, current="", started=0, ok=0, err=0, split=0, error=error_msg)
         job_manager._update_db(job_id, "txt_update", "failed", error=error_msg, finished_at=datetime.now())
         return
 
     # Ensure output dir exists
-    os.makedirs(PAN_OUT_TXT_DIR, exist_ok=True)
+    os.makedirs(pan_out_txt_dir, exist_ok=True)
 
     # 1. Run VBS
     print(f"[txt_update_job] Starting VBS export...")
     job_manager._update_db(job_id, "txt_update", "running", message="Running Pan Rolling Export (VBS)...", progress=0)
     total_count = None
     try:
-        with open(PAN_CODE_TXT_PATH, "r", encoding="utf-8") as handle:
+        with open(code_txt_path, "r", encoding="utf-8") as handle:
             total_count = sum(1 for line in handle if line.strip() and not line.strip().startswith(("#", "'")))
     except OSError:
         total_count = None
 
     vbs_code, vbs_output, vbs_summary = run_vbs_update(
         job_id,
-        PAN_CODE_TXT_PATH,
-        PAN_OUT_TXT_DIR,
+        code_txt_path,
+        pan_out_txt_dir,
         total_count=total_count
     )
 

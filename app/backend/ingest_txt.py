@@ -13,8 +13,13 @@ import pandas as pd
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from db import get_conn, init_schema
-from core.config import config
+try:
+    from app.db.session import get_conn
+    from app.db.schema import init_schema
+    from app.core.config import config
+except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
+    from db import get_conn, init_schema  # type: ignore
+    from core.config import config  # type: ignore
 
 
 REPO_ROOT = str(config.REPO_ROOT)

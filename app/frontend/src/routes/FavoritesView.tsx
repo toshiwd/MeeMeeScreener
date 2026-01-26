@@ -42,11 +42,11 @@ export default function FavoritesView() {
   const tickers = useStore((state) => state.tickers);
   const loadList = useStore((state) => state.loadList);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
-  const listRangeMonths = useStore((state) => state.settings.listRangeMonths);
+  const listRangeBars = useStore((state) => state.settings.listRangeBars);
   const listColumns = useStore((state) => state.settings.listColumns);
   const listRows = useStore((state) => state.settings.listRows);
   const setListTimeframe = useStore((state) => state.setListTimeframe);
-  const setListRangeMonths = useStore((state) => state.setListRangeMonths);
+  const setListRangeBars = useStore((state) => state.setListRangeBars);
   const setListColumns = useStore((state) => state.setListColumns);
   const setListRows = useStore((state) => state.setListRows);
 
@@ -393,8 +393,8 @@ export default function FavoritesView() {
       <UnifiedListHeader
         timeframe={listTimeframe}
         onTimeframeChange={setListTimeframe}
-        rangeMonths={listRangeMonths}
-        onRangeChange={setListRangeMonths}
+        rangeBars={listRangeBars}
+        onRangeChange={setListRangeBars}
         search={search}
         onSearchChange={setSearch}
         sortValue={sortKey}
@@ -431,7 +431,7 @@ export default function FavoritesView() {
                 payload={payload}
                 status={status}
                 maSettings={maSettings[listTimeframe]}
-                rangeMonths={listRangeMonths}
+                rangeBars={listRangeBars}
                 eventEarningsDate={ticker?.eventEarningsDate ?? null}
                 eventRightsDate={ticker?.eventRightsDate ?? null}
                 densityKey={densityKey}

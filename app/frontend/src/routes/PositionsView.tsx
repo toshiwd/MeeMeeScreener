@@ -75,11 +75,11 @@ export default function PositionsView() {
 
   // Settings
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
-  const listRangeMonths = useStore((state) => state.settings.listRangeMonths);
+  const listRangeBars = useStore((state) => state.settings.listRangeBars);
   const listColumns = useStore((state) => state.settings.listColumns);
   const listRows = useStore((state) => state.settings.listRows);
   const setListTimeframe = useStore((state) => state.setListTimeframe);
-  const setListRangeMonths = useStore((state) => state.setListRangeMonths);
+  const setListRangeBars = useStore((state) => state.setListRangeBars);
   const setListColumns = useStore((state) => state.setListColumns);
   const setListRows = useStore((state) => state.setListRows);
 
@@ -466,7 +466,7 @@ export default function PositionsView() {
         maSettings: maSettings[listTimeframe] ?? []
       }));
       const result = downloadChartScreenshots(itemsForShots, {
-        rangeMonths: listRangeMonths,
+        rangeBars: listRangeBars,
         timeframeLabel: listTimeframe
       });
       if (!result.created) {
@@ -484,7 +484,7 @@ export default function PositionsView() {
     listTimeframe,
     barsCache,
     maSettings,
-    listRangeMonths
+    listRangeBars
   ]);
 
   const selectedChips = useMemo(() => {
@@ -569,7 +569,7 @@ export default function PositionsView() {
         payload={payload}
         status={status}
         maSettings={maSettings[listTimeframe]}
-        rangeMonths={listRangeMonths}
+        rangeBars={listRangeBars}
         eventEarningsDate={ticker?.eventEarningsDate ?? null}
         eventRightsDate={ticker?.eventRightsDate ?? null}
         densityKey={densityKey}
@@ -593,8 +593,8 @@ export default function PositionsView() {
       <UnifiedListHeader
         timeframe={listTimeframe}
         onTimeframeChange={setListTimeframe}
-        rangeMonths={listRangeMonths}
-        onRangeChange={setListRangeMonths}
+        rangeBars={listRangeBars}
+        onRangeChange={setListRangeBars}
         search=""
         onSearchChange={() => { }}
         sortValue={sortKey}

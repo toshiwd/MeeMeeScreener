@@ -1,7 +1,10 @@
 import time
 import threading
 import duckdb
-from core.config import config
+try:
+    from app.core.config import config
+except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
+    from core.config import config  # type: ignore
 
 
 # Notes:
@@ -12,6 +15,8 @@ from core.config import config
 #   holds the DB. For that case we do a short retry.
 
 _OPEN_LOCK = threading.Lock()
+_SCHEMA_INIT_LOCK = threading.Lock()
+_SCHEMA_INITIALIZED = False
 
 
 def _connect_with_retry(max_wait_sec: float = 1.0) -> duckdb.DuckDBPyConnection:
@@ -36,6 +41,7 @@ def _connect_with_retry(max_wait_sec: float = 1.0) -> duckdb.DuckDBPyConnection:
 class _ConnContext:
     def __enter__(self) -> duckdb.DuckDBPyConnection:
         self._conn = _connect_with_retry(max_wait_sec=1.0)
+        _ensure_schema(self._conn)
         return self._conn
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -60,6 +66,8 @@ class _TryConnContext:
             self._conn = _connect_with_retry(max_wait_sec=self._timeout_sec)
         except Exception:
             self._conn = None
+        if self._conn is not None:
+            _ensure_schema(self._conn)
         return self._conn
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -76,85 +84,99 @@ def try_get_conn(timeout_sec: float = 0.0) -> _TryConnContext:
     return _TryConnContext(timeout_sec=timeout_sec)
 
 
+def _init_schema_on_conn(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tickers (
+            code TEXT PRIMARY KEY,
+            name TEXT
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_bars (
+            code TEXT,
+            date INTEGER,
+            o DOUBLE,
+            h DOUBLE,
+            l DOUBLE,
+            c DOUBLE,
+            v BIGINT,
+            PRIMARY KEY(code, date)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_ma (
+            code TEXT,
+            date INTEGER,
+            ma7 DOUBLE,
+            ma20 DOUBLE,
+            ma60 DOUBLE,
+            PRIMARY KEY(code, date)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS monthly_bars (
+            code TEXT,
+            month INTEGER,
+            o DOUBLE,
+            h DOUBLE,
+            l DOUBLE,
+            c DOUBLE,
+            v BIGINT,
+            PRIMARY KEY(code, month)
+        );
+        """
+    )
+    try:
+        conn.execute("ALTER TABLE monthly_bars ADD COLUMN v BIGINT")
+    except Exception:
+        pass  # Already exists
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS monthly_ma (
+            code TEXT,
+            month INTEGER,
+            ma7 DOUBLE,
+            ma20 DOUBLE,
+            ma60 DOUBLE,
+            PRIMARY KEY(code, month)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sys_jobs (
+            id TEXT PRIMARY KEY,
+            type TEXT,
+            status TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            started_at TIMESTAMP,
+            finished_at TIMESTAMP,
+            progress INTEGER,
+            message TEXT,
+            error TEXT
+        );
+        """
+    )
+
+
+def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    global _SCHEMA_INITIALIZED
+    if _SCHEMA_INITIALIZED:
+        return
+    with _SCHEMA_INIT_LOCK:
+        if _SCHEMA_INITIALIZED:
+            return
+        _init_schema_on_conn(conn)
+        _SCHEMA_INITIALIZED = True
+
+
 def init_schema() -> None:
     with get_conn() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS tickers (
-                code TEXT PRIMARY KEY,
-                name TEXT
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS daily_bars (
-                code TEXT,
-                date INTEGER,
-                o DOUBLE,
-                h DOUBLE,
-                l DOUBLE,
-                c DOUBLE,
-                v BIGINT,
-                PRIMARY KEY(code, date)
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS daily_ma (
-                code TEXT,
-                date INTEGER,
-                ma7 DOUBLE,
-                ma20 DOUBLE,
-                ma60 DOUBLE,
-                PRIMARY KEY(code, date)
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS monthly_bars (
-                code TEXT,
-                month INTEGER,
-                o DOUBLE,
-                h DOUBLE,
-                l DOUBLE,
-                c DOUBLE,
-                v BIGINT,
-                PRIMARY KEY(code, month)
-            );
-            """
-        )
-        try:
-            conn.execute("ALTER TABLE monthly_bars ADD COLUMN v BIGINT")
-        except Exception:
-            pass  # Already exists
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS monthly_ma (
-                code TEXT,
-                month INTEGER,
-                ma7 DOUBLE,
-                ma20 DOUBLE,
-                ma60 DOUBLE,
-                PRIMARY KEY(code, month)
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sys_jobs (
-                id TEXT PRIMARY KEY,
-                type TEXT,
-                status TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                started_at TIMESTAMP,
-                finished_at TIMESTAMP,
-                progress INTEGER,
-                message TEXT,
-                error TEXT
-            );
-            """
-        )
-
+        _ensure_schema(conn)

@@ -1,50 +1,39 @@
 ﻿import { NavLink } from "react-router-dom";
-import {
-  IconLayoutGrid,
-  IconChartBar,
-  IconStar,
-  IconPin,
-  IconBriefcase
-} from "@tabler/icons-react";
-
 export default function TopNav() {
   return (
-    <nav className="top-nav">
+    <nav className="list-tabs">
       <NavLink
         to="/"
         end
-        className={({ isActive }) => (isActive ? "top-nav-link active" : "top-nav-link")}
+        className={({ isActive }) =>
+          isActive ? "list-tab list-home active" : "list-tab list-home"
+        }
       >
-        <IconLayoutGrid size={16} />
-        <span>スクリーナー</span>
+        一覧に戻る
       </NavLink>
       <NavLink
         to="/ranking"
-        className={({ isActive }) => (isActive ? "top-nav-link active" : "top-nav-link")}
+        className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
       >
-        <IconChartBar size={16} />
-        <span>ランキング</span>
+        ランキング
       </NavLink>
       <NavLink
         to="/favorites"
-        className={({ isActive }) => (isActive ? "top-nav-link active" : "top-nav-link")}
+        className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
       >
-        <IconStar size={16} />
-        <span>お気に入り</span>
+        お気に入り
       </NavLink>
       <NavLink
         to="/candidates"
-        className={({ isActive }) => (isActive ? "top-nav-link active" : "top-nav-link")}
+        className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
       >
-        <IconPin size={16} />
-        <span>候補</span>
+        候補
       </NavLink>
       <NavLink
         to="/positions"
-        className={({ isActive }) => (isActive ? "top-nav-link active" : "top-nav-link")}
+        className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
       >
-        <IconBriefcase size={16} />
-        <span>保有</span>
+        保有
       </NavLink>
     </nav>
   );

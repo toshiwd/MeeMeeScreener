@@ -219,20 +219,81 @@ print(json.dumps(missing))
     Copy-Item -Path $bootstrapPs1 -Destination (Join-Path $onedir "portable_bootstrap.ps1") -Force
     Copy-Item -Path $bootstrapCmd -Destination (Join-Path $onedir "portable_bootstrap.cmd") -Force
 
+    # Also place export_pan.vbs at the app root for compatibility with environments
+    # where the app resolves the VBS path relative to the executable directory.
+    $exportVbsSrc = Join-Path $repoRoot "tools\export_pan.vbs"
+    if (Test-Path $exportVbsSrc) {
+        Copy-Item -Path $exportVbsSrc -Destination (Join-Path $onedir "export_pan.vbs") -Force
+    }
+
     Write-Host "Creating portable zip..."
     $zipPath = $releaseZip
     $zipAttempts = 5
     $zipDelaySeconds = 2
     $zipSuccess = $false
+
+    function New-PortableZip([string]$SourceDir, [string]$DestinationZip) {
+        Add-Type -AssemblyName System.IO.Compression
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+        if (Test-Path $DestinationZip) {
+            Remove-Item -Force $DestinationZip
+        }
+
+        $zipStream = [System.IO.File]::Open(
+            $DestinationZip,
+            [System.IO.FileMode]::Create,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+        try {
+            $archive = New-Object System.IO.Compression.ZipArchive($zipStream, ([System.IO.Compression.ZipArchiveMode]::Create), $false)
+            try {
+                $root = (Resolve-Path $SourceDir).Path.TrimEnd('\')
+                $files = Get-ChildItem -Path $root -Recurse -File -Force
+                foreach ($file in $files) {
+                    $full = $file.FullName
+                    $relative = $full.Substring($root.Length).TrimStart('\')
+                    $entryName = $relative -replace '\\', '/'
+                    $entry = $archive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+
+                    $entryStream = $entry.Open()
+                    try {
+                        # Compress-Archive (ZipArchiveHelper) can fail when other processes hold a read handle
+                        # because it opens with restrictive sharing. Use ReadWrite|Delete sharing for robustness.
+                        $fs = New-Object System.IO.FileStream(
+                            $full,
+                            [System.IO.FileMode]::Open,
+                            [System.IO.FileAccess]::Read,
+                            ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+                        )
+                        try {
+                            $fs.CopyTo($entryStream)
+                        } finally {
+                            $fs.Dispose()
+                        }
+                    } finally {
+                        $entryStream.Dispose()
+                    }
+                }
+            } finally {
+                $archive.Dispose()
+            }
+        } finally {
+            $zipStream.Dispose()
+        }
+    }
+
     for ($i = 1; $i -le $zipAttempts; $i++) {
         try {
             # Create ZIP with the contents of MeeMeeScreener folder (not the folder itself)
             # This allows users to extract and run directly
-            Compress-Archive -Path "$onedir\*" -DestinationPath $zipPath -Force
+            New-PortableZip -SourceDir $onedir -DestinationZip $zipPath
             $zipSuccess = $true
             break
         } catch {
-            Write-Host "Zip failed (attempt $i/$zipAttempts). Retrying in $zipDelaySeconds sec..."
+            Write-Host "Zip failed (attempt $i/$zipAttempts): $($_.Exception.Message)"
+            Write-Host "Retrying in $zipDelaySeconds sec..."
             Start-Sleep -Seconds $zipDelaySeconds
         }
     }
@@ -247,7 +308,7 @@ print(json.dumps(missing))
     Write-Host ""
     Write-Host "To enable portable mode (data stored in same folder):"
     Write-Host "  1. Extract the ZIP"
-    Write-Host "  2. Create a file named 'portable.txt' in the same folder as MeeMeeScreener.exe"
+    Write-Host "  2. Create a file named 'portable.flag' in the same folder as MeeMeeScreener.exe"
     Write-Host "  3. Run MeeMeeScreener.exe"
 } finally {
     if ($LogPath) {

@@ -9,7 +9,7 @@ type ScreenshotItem = {
 };
 
 type ScreenshotOptions = {
-  rangeMonths?: number | null;
+  rangeBars?: number | null;
   width?: number;
   height?: number;
   maxBars?: number | null;
@@ -27,86 +27,19 @@ type ScreenshotResult = {
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 720;
 
-const normalizeDateParts = (year: number, month: number, day: number) => {
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
-  if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return null;
-  return Math.floor(Date.UTC(year, month - 1, day) / 1000);
-};
-
-const normalizeTime = (value: unknown) => {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    if (value > 10_000_000_000_000) return Math.floor(value / 1000);
-    if (value > 10_000_000_000) return Math.floor(value / 10);
-    if (value >= 10_000_000 && value < 100_000_000) {
-      const year = Math.floor(value / 10000);
-      const month = Math.floor((value % 10000) / 100);
-      const day = value % 100;
-      return normalizeDateParts(year, month, day);
-    }
-    if (value >= 100_000 && value < 1_000_000) {
-      const year = Math.floor(value / 100);
-      const month = value % 100;
-      return normalizeDateParts(year, month, 1);
-    }
-    return Math.floor(value);
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (/^\d{8}$/.test(trimmed)) {
-      const year = Number(trimmed.slice(0, 4));
-      const month = Number(trimmed.slice(4, 6));
-      const day = Number(trimmed.slice(6, 8));
-      return normalizeDateParts(year, month, day);
-    }
-    if (/^\d{6}$/.test(trimmed)) {
-      const year = Number(trimmed.slice(0, 4));
-      const month = Number(trimmed.slice(4, 6));
-      return normalizeDateParts(year, month, 1);
-    }
-    const match = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
-    if (match) {
-      const year = Number(match[1]);
-      const month = Number(match[2]);
-      const day = Number(match[3]);
-      return normalizeDateParts(year, month, day);
-    }
-  }
-  return null;
-};
-
-const getRangeStartTime = (bars: number[][], rangeMonths?: number | null) => {
-  if (!rangeMonths || rangeMonths <= 0) return null;
-  if (!bars.length) return null;
-  const lastTime = normalizeTime(bars[bars.length - 1]?.[0]);
-  if (!Number.isFinite(lastTime)) return null;
-  const anchor = new Date((lastTime as number) * 1000);
-  if (Number.isNaN(anchor.getTime())) return null;
-  const start = new Date(
-    Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate())
-  );
-  start.setUTCMonth(start.getUTCMonth() - rangeMonths);
-  return Math.floor(start.getTime() / 1000);
-};
-
-const countBarsInRange = (bars: number[][], rangeMonths?: number | null) => {
-  if (!rangeMonths || rangeMonths <= 0) return bars.length;
-  const rangeStart = getRangeStartTime(bars, rangeMonths);
-  if (rangeStart == null) return bars.length;
-  return bars.reduce((count, bar) => {
-    const time = normalizeTime(bar?.[0]);
-    if (time != null && time >= rangeStart) return count + 1;
-    return count;
-  }, 0);
+const countBarsInRange = (bars: number[][], rangeBars?: number | null) => {
+  if (!rangeBars || rangeBars <= 0) return bars.length;
+  return Math.min(rangeBars, bars.length);
 };
 
 const resolveMaxBars = (
   bars: number[][],
-  rangeMonths?: number | null,
+  rangeBars?: number | null,
   maxBarsLimit?: number | null
 ) => {
   const total = bars.length;
   if (!total) return 0;
-  let count = countBarsInRange(bars, rangeMonths);
+  let count = countBarsInRange(bars, rangeBars);
   if (!count) count = total;
   if (maxBarsLimit && maxBarsLimit > 0) {
     count = Math.min(count, maxBarsLimit);
@@ -178,7 +111,7 @@ export const downloadChartScreenshots = async (
       skipped += 1;
       continue;
     }
-    const maxBars = resolveMaxBars(payload.bars, options.rangeMonths, options.maxBars ?? null);
+    const maxBars = resolveMaxBars(payload.bars, options.rangeBars, options.maxBars ?? null);
     if (!maxBars) {
       skipped += 1;
       continue;

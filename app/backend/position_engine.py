@@ -1,7 +1,10 @@
 
 import uuid
 from datetime import datetime
-from db import get_conn
+try:
+    from app.db.session import get_conn
+except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
+    from db import get_conn  # type: ignore
 
 def get_events(conn, symbols=None):
     query = """

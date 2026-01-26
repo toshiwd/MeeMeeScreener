@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import time
+import traceback
+from contextlib import asynccontextmanager
+from typing import Any
+
+import duckdb
+from fastapi import FastAPI
+
+from app.core.config import config
+from app.db.schema import ensure_schema, init_extra_schemas, init_schema
+
+_OPEN_LOCK: Any = None
+
+
+def _connect_with_retry(max_wait_sec: float = 1.0) -> duckdb.DuckDBPyConnection:
+    import threading
+
+    global _OPEN_LOCK
+    if _OPEN_LOCK is None:
+        _OPEN_LOCK = threading.Lock()
+
+    deadline = time.time() + max_wait_sec
+    while True:
+        try:
+            with _OPEN_LOCK:
+                conn = duckdb.connect(str(config.DB_PATH))
+            ensure_schema(conn)
+            return conn
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "already open" in msg or "used by" in msg or "cannot open file" in msg:
+                if time.time() < deadline:
+                    time.sleep(0.05)
+                    continue
+            raise
+
+
+class _ConnContext:
+    def __enter__(self) -> duckdb.DuckDBPyConnection:
+        self._conn = _connect_with_retry(max_wait_sec=1.0)
+        return self._conn
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+        return False
+
+
+def get_conn() -> _ConnContext:
+    return _ConnContext()
+
+
+class _TryConnContext:
+    def __init__(self, timeout_sec: float = 0.0):
+        self._timeout_sec = max(0.0, float(timeout_sec))
+        self._conn: duckdb.DuckDBPyConnection | None = None
+
+    def __enter__(self) -> duckdb.DuckDBPyConnection | None:
+        try:
+            self._conn = _connect_with_retry(max_wait_sec=self._timeout_sec)
+        except Exception:
+            self._conn = None
+        return self._conn
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+        return False
+
+
+def try_get_conn(timeout_sec: float = 0.0) -> _TryConnContext:
+    return _TryConnContext(timeout_sec=timeout_sec)
+
+
+def _acquire_lock() -> tuple[object | None, Any]:
+    lock_path = config.LOCK_FILE_PATH
+    lock_handle = None
+
+    try:
+        if lock_path.exists():
+            try:
+                old_pid_str = lock_path.read_text().strip()
+                if old_pid_str.isdigit():
+                    old_pid = int(old_pid_str)
+                    cmd = f'tasklist /fi "PID eq {old_pid}" /fo csv /nh'
+                    output = subprocess.check_output(cmd, shell=True).decode("cp932", errors="ignore")
+                    if str(old_pid) in output:
+                        raise RuntimeError(f"Another instance (PID {old_pid}) is running.")
+                    lock_path.unlink(missing_ok=True)
+                else:
+                    lock_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        lock_handle = open(lock_path, "w")
+        lock_handle.write(str(os.getpid()))
+        lock_handle.flush()
+        return lock_handle, lock_path
+    except OSError as exc:
+        print(f"[startup] FATAL: Could not acquire lock: {exc}", file=sys.stderr)
+        raise RuntimeError("Could not acquire lock.") from exc
+    except Exception:
+        if lock_handle:
+            try:
+                lock_handle.close()
+            except Exception:
+                pass
+        raise
+
+
+def _release_lock(lock_handle: object | None, lock_path: Any) -> None:
+    if lock_handle:
+        try:
+            lock_handle.close()
+        except Exception:
+            pass
+    try:
+        if lock_path and lock_path.exists():
+            lock_path.unlink()
+    except Exception:
+        pass
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    lock_handle = None
+    lock_path = None
+    try:
+        lock_handle, lock_path = _acquire_lock()
+        try:
+            init_schema()
+            init_extra_schemas()
+            _auto_sync_trade_csvs_if_needed()
+        except Exception as exc:
+            print(f"[startup] FATAL: An exception occurred during startup: {exc}", file=sys.stderr)
+            traceback.print_exc()
+            raise
+        yield
+    finally:
+        _release_lock(lock_handle, lock_path)
+
+
+def _auto_sync_trade_csvs_if_needed() -> None:
+    """
+    Best-effort startup sync for trade CSVs -> DuckDB.
+
+    Why:
+    - After the main split, parts of the app relied on trade CSVs already sitting in the data dir.
+    - If `trade_events` is empty, the Positions UI will show nothing.
+    - We only auto-sync when the DB has zero trade rows to avoid overwriting user data.
+    """
+    if os.getenv("AUTO_SYNC_TRADES_ON_STARTUP", "1") != "1":
+        return
+
+    # Avoid importing this at module import time (circular imports).
+    try:
+        from app.backend.core.csv_sync import resolve_trade_csv_paths, sync_trade_csvs
+    except Exception:
+        return
+
+    try:
+        with get_conn() as conn:
+            try:
+                count = conn.execute("SELECT COUNT(*) FROM trade_events").fetchone()[0]
+            except Exception:
+                count = 0
+        if int(count or 0) > 0:
+            return
+
+        candidates = [path for path in resolve_trade_csv_paths() if path and os.path.isfile(path)]
+        if not candidates:
+            return
+
+        result = sync_trade_csvs()
+        imported = int(result.get("imported") or 0)
+        if imported > 0:
+            print(f"[startup] Auto-synced trade CSVs: {imported} rows")
+    except Exception:
+        # Never block startup on trade sync issues.
+        return

@@ -47,13 +47,20 @@ import {
   type AnchorInfo,
   type TechnicalFilterState
 } from "../utils/technicalFilter";
-import { formatEventDateYmd } from "../utils/events";
+import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
 
 const GRID_GAP = 12;
 const KEEP_LIMIT = 24;
 type Timeframe = "monthly" | "weekly" | "daily";
 type SortOption = { key: SortKey; label: string };
 type SortSection = { title: string; options: SortOption[] };
+
+const rangeOptions = [
+  { label: "60本", count: 60 },
+  { label: "120本", count: 120 },
+  { label: "240本", count: 240 },
+  { label: "360本", count: 360 }
+];
 
 const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalFilterState => ({
   defaultTimeframe,
@@ -107,6 +114,7 @@ export default function GridView() {
   const search = useStore((state) => state.settings.search);
   const gridScrollTop = useStore((state) => state.settings.gridScrollTop);
   const gridTimeframe = useStore((state) => state.settings.gridTimeframe);
+  const listRangeBars = useStore((state) => state.settings.listRangeBars);
   const keepList = useStore((state) => state.keepList);
   const addKeep = useStore((state) => state.addKeep);
   const removeKeep = useStore((state) => state.removeKeep);
@@ -116,6 +124,7 @@ export default function GridView() {
   const setSearch = useStore((state) => state.setSearch);
   const setGridScrollTop = useStore((state) => state.setGridScrollTop);
   const setGridTimeframe = useStore((state) => state.setGridTimeframe);
+  const setListRangeBars = useStore((state) => state.setListRangeBars);
   const showBoxes = useStore((state) => state.settings.showBoxes);
   const setShowBoxes = useStore((state) => state.setShowBoxes);
   const sortKey = useStore((state) => state.settings.sortKey);
@@ -133,6 +142,26 @@ export default function GridView() {
     () => formatEventDateYmd(eventsMeta?.lastAttemptAt),
     [eventsMeta?.lastAttemptAt]
   );
+  const eventsLastSuccessLabel = useMemo(() => {
+    const earningsMs = parseEventDateMs(eventsMeta?.earningsLastSuccessAt);
+    const rightsMs = parseEventDateMs(eventsMeta?.rightsLastSuccessAt);
+    const candidates = [
+      { value: eventsMeta?.earningsLastSuccessAt ?? null, ms: earningsMs },
+      { value: eventsMeta?.rightsLastSuccessAt ?? null, ms: rightsMs }
+    ].filter((item) => item.value && item.ms != null) as { value: string; ms: number }[];
+    if (!candidates.length) return null;
+    const oldest = candidates.reduce((prev, next) => (next.ms < prev.ms ? next : prev));
+    return formatEventDateYmd(oldest.value);
+  }, [eventsMeta]);
+  const rightsCoverageLabel = useMemo(() => {
+    const rightsMaxDate = eventsMeta?.dataCoverage?.rightsMaxDate ?? null;
+    const maxMs = parseEventDateMs(rightsMaxDate);
+    if (!rightsMaxDate || maxMs == null) return null;
+    const thresholdMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    if (maxMs >= thresholdMs) return null;
+    const formatted = formatEventDateYmd(rightsMaxDate);
+    return formatted ? `権利データ範囲: 〜${formatted}` : null;
+  }, [eventsMeta]);
 
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [showIndicators, setShowIndicators] = useState(false);
@@ -196,6 +225,11 @@ export default function GridView() {
       ? "consult-padding-expanded"
       : "consult-padding-mini"
     : "";
+
+  const gridMaxBars = useMemo(() => {
+    const count = listRangeBars ?? 120;
+    return Math.max(12, Math.min(260, Math.floor(count)));
+  }, [listRangeBars]);
 
   const handleTradeCsvPick = () => {
     tradeCsvInputRef.current?.click();
@@ -1320,15 +1354,15 @@ export default function GridView() {
     if (!isUpdateRunning) return null;
     const statusMessage = txtUpdateStatus.status_message?.trim();
     if (txtUpdateStatus.phase === "ingesting") {
-      return statusMessage || "?????????";
+      return statusMessage || "取り込み中…";
     }
     if (txtUpdateStatus.phase === "exporting") {
-      return statusMessage || "?????????????";
+      return statusMessage || "出力中…";
     }
     if (txtUpdateStatus.phase === "queued" || txtUpdateStatus.phase === "starting") {
-      return "?????";
+      return "準備中…";
     }
-    return statusMessage || "??????";
+    return statusMessage || "更新中…";
   })();
   const updatePhase = txtUpdateStatus?.phase ?? null;
   const updateStatusTone = isUpdateRunning || isUpdateStarting
@@ -1697,18 +1731,13 @@ export default function GridView() {
 
 
   return (
-    <div className="app-shell">
+    <div className="app-shell list-view">
       <header className="unified-list-header">
         <div className="list-header-row">
           <div className="header-row-top">
-            <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-              <div className="app-brand">
-                <div className="title">MeeMee Screener</div>
-                <div className="subtitle">Mee Mee - Fast grid with canvas sparklines</div>
-              </div>
-              <TopNav />
-            </div>
-            <div className="list-header-actions">
+            <TopNav />
+            <div className="list-header-actions-wrapper">
+              <div className="list-header-actions">
               {keepList.length > 0 && (
                 <button
                   type="button"
@@ -2038,10 +2067,11 @@ export default function GridView() {
                   style={{ display: "none" }}
                 />
               </div>
+              </div>
             </div>
           </div>
           <div className="header-row-bottom">
-            <div className="list-timeframe">
+            <div className="segmented list-timeframe">
               {(["monthly", "weekly", "daily"] as const).map((frame) => (
                 <button
                   key={frame}
@@ -2057,18 +2087,50 @@ export default function GridView() {
                 </button>
               ))}
             </div>
-            <div className="list-search">
+            <div className="segmented segmented-compact list-range">
+              {rangeOptions.map((option) => (
+                <button
+                  key={option.label}
+                  className={listRangeBars === option.count ? "active" : ""}
+                  onClick={() => setListRangeBars(option.count)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className="search-field list-search">
               <input
-                className="list-search-input"
+                className="search-input"
                 type="search"
                 placeholder="コード / 銘柄名で検索"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              {search && (
+                <button type="button" className="search-clear" onClick={() => setSearch("")}>
+                  クリア
+                </button>
+              )}
               {canAddWatchlist && (
                 <button type="button" onClick={() => addKeep(canAddWatchlist)}>
                   +
                 </button>
+              )}
+            </div>
+            <div className="list-events-inline">
+              <span className="event-meta-status">
+                状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+              </span>
+              {eventsMeta?.lastError && (
+                <span className="event-meta-error" title={eventsMeta.lastError}>
+                  エラー: {eventsMeta.lastError}
+                </span>
+              )}
+              <span className="event-meta-last">
+                イベント最終更新: {eventsLastSuccessLabel ?? "--"}
+              </span>
+              {rightsCoverageLabel && (
+                <span className="event-meta-rights">{rightsCoverageLabel}</span>
               )}
             </div>
           </div>
@@ -2270,6 +2332,7 @@ export default function GridView() {
                         <StockTile
                           ticker={item.ticker}
                           timeframe={gridTimeframe}
+                          maxBars={gridMaxBars}
                           signals={item.metrics?.signals ?? []}
                           active={activeCode === item.ticker.code}
                           kept={keepSet.has(item.ticker.code)}

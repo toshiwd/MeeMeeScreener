@@ -33,7 +33,7 @@ type ChartListCardProps = {
   fallbackSeries?: number[][] | null;
   status?: "idle" | "loading" | "success" | "empty" | "error";
   maSettings: MaSetting[];
-  rangeMonths?: number | null;
+  rangeBars?: number | null;
   eventEarningsDate?: string | null;
   eventRightsDate?: string | null;
   headerLeft?: ReactNode;
@@ -143,20 +143,6 @@ const computeMA = (candles: Candle[], period: number) => {
   return data;
 };
 
-const getRangeStartTime = (candles: Candle[], rangeMonths?: number | null) => {
-  if (!rangeMonths || rangeMonths <= 0) return null;
-  if (!candles.length) return null;
-  const lastTime = candles[candles.length - 1]?.time;
-  if (!Number.isFinite(lastTime)) return null;
-  const anchor = new Date(lastTime * 1000);
-  if (Number.isNaN(anchor.getTime())) return null;
-  const start = new Date(
-    Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate())
-  );
-  start.setUTCMonth(start.getUTCMonth() - rangeMonths);
-  return Math.floor(start.getTime() / 1000);
-};
-
 const parseRootMarginPx = (value: string): number => {
   const first = value.split(/\s+/)[0] ?? "0px";
   const parsed = Number.parseFloat(first.replace("px", ""));
@@ -252,7 +238,7 @@ const ChartListCard = memo(function ChartListCard({
   fallbackSeries,
   status,
   maSettings,
-  rangeMonths,
+  rangeBars,
   eventEarningsDate,
   eventRightsDate,
   headerLeft,
@@ -277,18 +263,14 @@ const ChartListCard = memo(function ChartListCard({
   );
   const candlesAll = useMemo(() => buildCandles(rows), [rows]);
   const volumeAll = useMemo(() => buildVolume(rows), [rows]);
-  const rangeStart = useMemo(
-    () => getRangeStartTime(candlesAll, rangeMonths),
-    [candlesAll, rangeMonths]
-  );
   const candles = useMemo(() => {
-    if (rangeStart == null) return candlesAll;
-    return candlesAll.filter((bar) => bar.time >= rangeStart);
-  }, [candlesAll, rangeStart]);
+    if (!rangeBars || rangeBars <= 0) return candlesAll;
+    return candlesAll.slice(-rangeBars);
+  }, [candlesAll, rangeBars]);
   const volume = useMemo(() => {
-    if (rangeStart == null) return volumeAll;
-    return volumeAll.filter((bar) => bar.time >= rangeStart);
-  }, [volumeAll, rangeStart]);
+    if (!rangeBars || rangeBars <= 0) return volumeAll;
+    return volumeAll.slice(-rangeBars);
+  }, [volumeAll, rangeBars]);
   const maLines = useMemo(
     () =>
       maSettings.map((setting) => ({
@@ -303,17 +285,17 @@ const ChartListCard = memo(function ChartListCard({
     [candlesAll, maSettings]
   );
   const rangedMaLines = useMemo(() => {
-    if (rangeStart == null) return maLines;
+    if (!rangeBars || rangeBars <= 0) return maLines;
     return maLines.map((line) => ({
       ...line,
-      data: line.data.filter((point) => point.time >= rangeStart)
+      data: line.data.slice(-rangeBars)
     }));
-  }, [maLines, rangeStart]);
+  }, [maLines, rangeBars]);
   const barsForInfo = useMemo(
     () => candles.map((bar) => ({ time: bar.time, close: bar.close })),
     [candles]
   );
-  const chartKey = `${code}-${rangeMonths ?? "all"}-${densityKey ?? "default"}`;
+  const chartKey = `${code}-${rangeBars ?? "all"}-${densityKey ?? "default"}`;
 
   const scheduleHoverTime = useCallback((time: number | null) => {
     hoverPendingRef.current = time;

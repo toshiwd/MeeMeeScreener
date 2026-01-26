@@ -149,7 +149,7 @@ type Settings = {
   gridScrollTop: number;
   gridTimeframe: GridTimeframe;
   listTimeframe: GridTimeframe;
-  listRangeMonths: 3 | 6 | 12 | 24;
+  listRangeBars: 60 | 120 | 240 | 360;
   listColumns: 1 | 2 | 3 | 4;
   listRows: 1 | 2 | 3 | 4 | 5 | 6;
   showBoxes: boolean;
@@ -204,7 +204,7 @@ type StoreState = {
   setColumns: (columns: Settings["columns"]) => void;
   setRows: (rows: Settings["rows"]) => void;
   setListTimeframe: (value: Settings["listTimeframe"]) => void;
-  setListRangeMonths: (value: Settings["listRangeMonths"]) => void;
+  setListRangeBars: (value: Settings["listRangeBars"]) => void;
   setListColumns: (value: Settings["listColumns"]) => void;
   setListRows: (value: Settings["listRows"]) => void;
   setSearch: (search: string) => void;
@@ -299,9 +299,17 @@ const KEEP_STORAGE_KEY = "keepList";
 const GRID_COLS_KEY = "gridCols";
 const GRID_ROWS_KEY = "gridRows";
 const LIST_TIMEFRAME_KEY = "listTimeframe";
-const LIST_RANGE_KEY = "listRangeMonths";
+const LIST_RANGE_KEY = "listRangeBars";
+const LEGACY_LIST_RANGE_KEY = "listRangeMonths";
 const LIST_COLS_KEY = "listCols";
 const LIST_ROWS_KEY = "listRows";
+const LIST_RANGE_VALUES = [60, 120, 240, 360] as const;
+const LEGACY_RANGE_MONTHS_TO_BARS: Record<number, Settings["listRangeBars"]> = {
+  3: 60,
+  6: 120,
+  12: 240,
+  24: 360
+};
 const MA_STORAGE_PREFIX = "maSettings";
 const COMPARE_MA_STORAGE_PREFIX = "compareMaSettings";
 const inFlightBatchRequests = new Map<
@@ -712,12 +720,16 @@ const getInitialListRows = (): Settings["listRows"] => {
   return 3;
 };
 
-const getInitialListRangeMonths = (): Settings["listRangeMonths"] => {
-  if (typeof window === "undefined") return 6;
+const getInitialListRangeBars = (): Settings["listRangeBars"] => {
+  if (typeof window === "undefined") return 120;
   const saved = Number(window.localStorage.getItem(LIST_RANGE_KEY));
-  return saved === 3 || saved === 6 || saved === 12 || saved === 24
-    ? (saved as Settings["listRangeMonths"])
-    : 6;
+  if (LIST_RANGE_VALUES.includes(saved as Settings["listRangeBars"])) {
+    return saved as Settings["listRangeBars"];
+  }
+  const legacy = Number(window.localStorage.getItem(LEGACY_LIST_RANGE_KEY));
+  const mapped = LEGACY_RANGE_MONTHS_TO_BARS[legacy];
+  if (mapped) return mapped;
+  return 120;
 };
 
 const getInitialSortKey = (): SortKey => {
@@ -816,7 +828,7 @@ export const useStore = create<StoreState>((set, get) => ({
     gridScrollTop: 0,
     gridTimeframe: getInitialTimeframe(),
     listTimeframe: getInitialListTimeframe(),
-    listRangeMonths: getInitialListRangeMonths(),
+    listRangeBars: getInitialListRangeBars(),
     listColumns: getInitialListColumns(),
     listRows: getInitialListRows(),
     showBoxes: true,
@@ -1312,11 +1324,11 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     set((state) => ({ settings: { ...state.settings, listTimeframe: value } }));
   },
-  setListRangeMonths: (value) => {
+  setListRangeBars: (value) => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(LIST_RANGE_KEY, String(value));
     }
-    set((state) => ({ settings: { ...state.settings, listRangeMonths: value } }));
+    set((state) => ({ settings: { ...state.settings, listRangeBars: value } }));
   },
   setListColumns: (value) => {
     if (typeof window !== "undefined") {

@@ -1984,7 +1984,7 @@ export default function DetailView() {
           <div className="detail-title-text">
             <div className="detail-title-top">
               <div className="detail-title-code">{code}</div>
-              <div className="detail-title-name">{tickerName || "?????"}</div>
+              <div className="detail-title-name">{tickerName || "（名称不明）"}</div>
             </div>
             {(rightsLabel || earningsLabel) && (
               <div className="detail-event-badges">

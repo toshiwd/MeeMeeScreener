@@ -20,7 +20,7 @@ type FilterItem = {
 type UnifiedListHeaderProps = {
   timeframe: ListTimeframe;
   onTimeframeChange: (value: ListTimeframe) => void;
-  rangeMonths: number;
+  rangeBars: number;
   onRangeChange: (value: number) => void;
   search: string;
   onSearchChange: (value: string) => void;
@@ -65,16 +65,16 @@ const LABELS = {
 };
 
 const rangeOptions = [
-  { label: "3M", months: 3 },
-  { label: "6M", months: 6 },
-  { label: "1Y", months: 12 },
-  { label: "2Y", months: 24 }
+  { label: "60本", count: 60 },
+  { label: "120本", count: 120 },
+  { label: "240本", count: 240 },
+  { label: "360本", count: 360 }
 ];
 
 export default function UnifiedListHeader({
   timeframe,
   onTimeframeChange,
-  rangeMonths,
+  rangeBars,
   onRangeChange,
   search,
   onSearchChange,
@@ -553,8 +553,8 @@ export default function UnifiedListHeader({
             {rangeOptions.map((option) => (
               <button
                 key={option.label}
-                className={rangeMonths === option.months ? "active" : ""}
-                onClick={() => onRangeChange(option.months)}
+                className={rangeBars === option.count ? "active" : ""}
+                onClick={() => onRangeChange(option.count)}
               >
                 {option.label}
               </button>

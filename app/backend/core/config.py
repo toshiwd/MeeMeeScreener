@@ -121,9 +121,14 @@ class AppConfig:
         env = os.getenv("PAN_EXPORT_VBS_PATH") or os.getenv("UPDATE_VBS_PATH")
         if env:
             return Path(env)
-        legacy = self.REPO_ROOT / "tools" / "PanRollingExport.vbs"
+        preferred_root = self.REPO_ROOT / "export_pan.vbs"
+        if preferred_root.exists():
+            return preferred_root
         preferred = self.REPO_ROOT / "tools" / "export_pan.vbs"
-        return preferred if preferred.exists() else legacy
+        if preferred.exists():
+            return preferred
+        legacy = self.REPO_ROOT / "tools" / "PanRollingExport.vbs"
+        return legacy
 
 # Singleton Instance
 config = AppConfig()

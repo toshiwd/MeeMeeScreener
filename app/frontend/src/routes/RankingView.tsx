@@ -55,11 +55,11 @@ export default function RankingView() {
   const tickers = useStore((state) => state.tickers);
   const loadList = useStore((state) => state.loadList);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
-  const listRangeMonths = useStore((state) => state.settings.listRangeMonths);
+  const listRangeBars = useStore((state) => state.settings.listRangeBars);
   const listColumns = useStore((state) => state.settings.listColumns);
   const listRows = useStore((state) => state.settings.listRows);
   const setListTimeframe = useStore((state) => state.setListTimeframe);
-  const setListRangeMonths = useStore((state) => state.setListRangeMonths);
+  const setListRangeBars = useStore((state) => state.setListRangeBars);
   const setListColumns = useStore((state) => state.setListColumns);
   const setListRows = useStore((state) => state.setListRows);
 
@@ -398,8 +398,8 @@ export default function RankingView() {
       <UnifiedListHeader
         timeframe={listTimeframe}
         onTimeframeChange={setListTimeframe}
-        rangeMonths={listRangeMonths}
-        onRangeChange={setListRangeMonths}
+        rangeBars={listRangeBars}
+        onRangeChange={setListRangeBars}
         search={search}
         onSearchChange={setSearch}
         sortValue={dir}
@@ -454,7 +454,7 @@ export default function RankingView() {
                     fallbackSeries={series}
                     status={status}
                     maSettings={resolvedMaSettings}
-                    rangeMonths={listRangeMonths}
+                    rangeBars={listRangeBars}
                     densityKey={densityKey}
                     signals={signalMap.get(item.code) ?? []}
                     onOpenDetail={handleOpenDetail}

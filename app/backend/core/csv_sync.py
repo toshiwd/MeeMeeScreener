@@ -1,23 +1,51 @@
 
 import os
 import logging
-from import_positions import process_import_rakuten, process_import_sbi
-from db import get_conn
-from core.config import config
+from pathlib import Path
+try:
+    from app.backend.import_positions import process_import_rakuten, process_import_sbi
+    from app.db.session import get_conn
+    from app.core.config import config
+except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
+    from import_positions import process_import_rakuten, process_import_sbi  # type: ignore
+    from db import get_conn  # type: ignore
+    from core.config import config  # type: ignore
 
 logger = logging.getLogger(__name__)
 
 def resolve_trade_csv_paths() -> list[str]:
     paths = []
     
-    # Check config.DATA_DIR
-    candidates = [
-        config.DATA_DIR / "楽天証券取引履歴.csv",
-        config.DATA_DIR / "SBI証券取引履歴.csv"
-    ]
-    for p in candidates:
-        if p.exists():
-            paths.append(str(p))
+    def _scan_dir(base: Path) -> None:
+        if not base or not base.is_dir():
+            return
+        for filename in ("楽天証券取引履歴.csv", "SBI証券取引履歴.csv"):
+            candidate = base / filename
+            if candidate.exists():
+                paths.append(str(candidate))
+        try:
+            for entry in base.iterdir():
+                if not entry.is_file():
+                    continue
+                if entry.suffix.lower() != ".csv":
+                    continue
+                name = entry.name.lower()
+                if "取引履歴" not in entry.name and "trade" not in name:
+                    continue
+                if any(key in entry.name for key in ("楽天", "ＳＢＩ", "SBI")) or any(key in name for key in ("rakuten", "sbi")):
+                    paths.append(str(entry))
+        except OSError:
+            return
+
+    _scan_dir(config.DATA_DIR)
+    _scan_dir(config.DATA_DIR / "csv")
+
+    trade_csv_dir = os.getenv("TRADE_CSV_DIR")
+    if trade_csv_dir:
+        try:
+            _scan_dir(Path(trade_csv_dir))
+        except Exception:
+            pass
 
     # Env vars (legacy support)
     env = os.getenv("TRADE_CSV_PATH")

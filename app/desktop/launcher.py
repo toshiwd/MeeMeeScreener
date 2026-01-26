@@ -116,13 +116,21 @@ def _can_bind_port(port: int) -> bool:
 def _wait_for_health(port: int, timeout_seconds: int) -> bool:
     deadline = time.monotonic() + timeout_seconds
     url = f"http://127.0.0.1:{port}/health"
+    # Ensure localhost health checks are not routed through system proxy settings
+    # (common on corporate Windows setups), otherwise we can mistakenly think the
+    # backend is down and shut it back off.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    last_err: Exception | None = None
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=1) as response:
+            with opener.open(url, timeout=1) as response:
                 if response.status == 200:
                     return True
-        except Exception:
+        except Exception as exc:
+            last_err = exc
             time.sleep(0.2)
+    if last_err is not None:
+        print(f"[launcher] Health check failed for {url}: {last_err}")
     return False
 
 
@@ -371,6 +379,9 @@ def _prepare_appdata() -> dict[str, str]:
 def _configure_environment(paths: dict[str, str]) -> None:
     os.environ.setdefault("APP_ENV", "prod")
     os.environ.setdefault("DEBUG", "0")
+    # Unify data-dir resolution across split modules (app.core.config vs app.backend.core.config).
+    # The backend API uses app.core.config, which prioritizes MEEMEE_DATA_DIR.
+    os.environ["MEEMEE_DATA_DIR"] = paths["data_dir"]
     os.environ["STOCKS_DB_PATH"] = paths["stocks_db"]
     os.environ["FAVORITES_DB_PATH"] = paths["favorites_db"]
     os.environ["PRACTICE_DB_PATH"] = paths["practice_db"]
@@ -378,15 +389,25 @@ def _configure_environment(paths: dict[str, str]) -> None:
     os.environ["UPDATE_STATE_PATH"] = paths["update_state"]
     os.environ["PAN_OUT_TXT_DIR"] = paths["txt_dir"]
     os.environ["TXT_DATA_DIR"] = paths["txt_dir"]
-    # Prefer external tools folder if available (allow user modification)
-    external_tools_vbs = os.path.join(os.path.dirname(sys.executable), "tools", "export_pan.vbs")
-    if getattr(sys, "frozen", False) and os.path.exists(external_tools_vbs):
-        os.environ["PAN_EXPORT_VBS_PATH"] = external_tools_vbs
+    # Prefer external vbs if available (allow user modification).
+    # Release builds may ship export_pan.vbs either at the app root or under tools/.
+    exe_dir = os.path.dirname(sys.executable)
+    external_vbs_candidates = [
+        os.path.join(exe_dir, "export_pan.vbs"),
+        os.path.join(exe_dir, "tools", "export_pan.vbs"),
+    ]
+    if getattr(sys, "frozen", False):
+        for candidate in external_vbs_candidates:
+            if os.path.exists(candidate):
+                os.environ["PAN_EXPORT_VBS_PATH"] = candidate
+                break
+        else:
+            os.environ["PAN_EXPORT_VBS_PATH"] = resolve_path("tools", "export_pan.vbs")
     else:
         os.environ["PAN_EXPORT_VBS_PATH"] = resolve_path("tools", "export_pan.vbs")
     os.environ["PAN_CODE_TXT_PATH"] = paths["code_txt"]
     os.environ["STATIC_DIR"] = resolve_path("app", "backend", "static")
-    os.environ["TRADE_CSV_DIR"] = paths["data_dir"]
+    os.environ["TRADE_CSV_DIR"] = paths["csv_dir"]
     os.environ.setdefault(
         "WATCHLIST_TRASH_PATTERNS",
         os.path.join(paths["csv_dir"], "{code}*.csv")
@@ -596,7 +617,17 @@ def main() -> None:
                 _update_loading(win, f"Port {fixed_port} in use. Switching to {alt_port}...")
                 print(f"[launcher] Port {fixed_port} in use. Switching to {alt_port}.")
                 port = alt_port
-            server, thread = _start_server(port)
+            try:
+                server, thread = _start_server(port)
+            except Exception as exc:
+                _update_loading(win, "Backend crashed while starting.")
+                traceback.print_exc()
+                _message_box(f"Backend crashed while starting:\n{exc}", WINDOW_TITLE)
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+                return
             server_state["server"] = server
             server_state["thread"] = thread
 

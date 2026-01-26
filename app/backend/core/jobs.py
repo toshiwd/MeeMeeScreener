@@ -9,8 +9,12 @@ import logging
 from datetime import datetime
 from typing import Callable, Any
 
-from db import get_conn
-from core.config import config
+try:
+    from app.db.session import get_conn
+    from app.core.config import config
+except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
+    from db import get_conn  # type: ignore
+    from core.config import config  # type: ignore
 
 logger = logging.getLogger(__name__)
 STALE_JOB_HOURS = 2

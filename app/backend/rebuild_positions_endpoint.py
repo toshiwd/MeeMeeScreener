@@ -6,8 +6,12 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from positions import rebuild_positions
-from db import get_conn
+try:
+    from app.backend.positions import rebuild_positions
+    from app.db.session import get_conn
+except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
+    from positions import rebuild_positions  # type: ignore
+    from db import get_conn  # type: ignore
 
 def main():
     print("Rebuilding positions...")

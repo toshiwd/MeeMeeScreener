@@ -8,6 +8,7 @@ import { buildThumbnailCacheKey, getThumbnailCache } from "./thumbnailCache";
 type StockTileProps = {
   ticker: Ticker;
   timeframe: "monthly" | "weekly" | "daily";
+  maxBars?: number;
   signals?: SignalChip[];
   active?: boolean;
   kept?: boolean;
@@ -23,6 +24,7 @@ type StockTileProps = {
 const StockTile = memo(function StockTile({
   ticker,
   timeframe,
+  maxBars,
   signals,
   active = false,
   kept = false,
@@ -158,6 +160,7 @@ const StockTile = memo(function StockTile({
             showBoxes={showBoxes}
             maSettings={maSettings}
             cacheKey={cacheKey}
+            maxBars={maxBars}
             showAxes
             theme={theme}
           />
