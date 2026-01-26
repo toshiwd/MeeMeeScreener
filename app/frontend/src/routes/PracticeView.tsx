@@ -2045,25 +2045,55 @@ export default function PracticeView() {
         setToastMessage(result.error ?? "スクショに失敗しました");
         return;
       }
+      const handleSaveSuccess = (saveResult: { success: boolean, savedPath?: string, savedDir?: string, error?: string }) => {
+        if (saveResult.savedPath || saveResult.savedDir) {
+          setToastMessage("スクショを保存しました");
+          setToastAction({
+            label: "フォルダを開く",
+            onClick: async () => {
+              if (window.pywebview?.api?.open_path) {
+                const target = saveResult.savedPath || saveResult.savedDir;
+                if (target) {
+                  await window.pywebview.api.open_path(target);
+                }
+              }
+            }
+          });
+        } else {
+          setToastMessage("スクショを保存しました (保存先不明)");
+          setToastAction(null);
+        }
+      };
+
       if (result.copied) {
         // Clipboard copy succeeded - show toast with save action
         const blob = result.blob!;
         const filename = result.filename!;
         setToastMessage("スクショをクリップボードにコピーしました");
         setToastAction({
-          label: "保存…",
+          label: "保存...",
           onClick: async () => {
-            await saveBlobToFile(blob, filename);
-            setToastMessage("スクショを保存しました");
-            setToastAction(null);
+            const saveResult = await saveBlobToFile(blob, filename);
+            if (saveResult.success) {
+              handleSaveSuccess(saveResult);
+            } else {
+              setToastMessage(saveResult.error || "保存に失敗しました");
+              setToastAction(null);
+            }
           },
         });
       } else {
         // Clipboard failed - fallback to save
-        setToastMessage("クリップボードにコピーできないため保存します");
+        setToastMessage("クリップボードにコピーできなかったため保存しました");
         setToastAction(null);
         if (result.blob && result.filename) {
-          await saveBlobToFile(result.blob, result.filename);
+          const saveResult = await saveBlobToFile(result.blob, result.filename);
+          if (saveResult.success) {
+            handleSaveSuccess(saveResult);
+          } else {
+            setToastMessage(saveResult.error || "保存に失敗しました");
+            setToastAction(null);
+          }
         }
       }
     } finally {

@@ -21,6 +21,8 @@ const BACKOFF_STEPS = [200, 500, 1000];
 const ERROR_THRESHOLD = 5;
 const ERROR_GRACE_MS = 60000;
 const HEALTH_TIMEOUT_MS = 5000;
+const KEEPALIVE_INTERVAL_MS = 5000;
+const KEEPALIVE_FAIL_THRESHOLD = 2;
 
 const getDefaultMessage = (phase: string) => {
   if (phase === "ingesting") return "データ準備中";
@@ -41,6 +43,7 @@ const useBackendReadyInternal = (): BackendReadyState => {
   const inFlightRef = useRef(false);
   const readyRef = useRef(false);
   const startRef = useRef(Date.now());
+  const keepaliveFailRef = useRef(0);
 
   const clearTimer = () => {
     if (timerRef.current !== null) {
@@ -91,6 +94,7 @@ const useBackendReadyInternal = (): BackendReadyState => {
         setMessage("準備完了");
         setError(null);
         setErrorDetails(null);
+        keepaliveFailRef.current = 0;
         return;
       }
 
@@ -137,6 +141,41 @@ const useBackendReadyInternal = (): BackendReadyState => {
     }
   };
 
+  const keepalive = async () => {
+    if (!readyRef.current || inFlightRef.current) return;
+    inFlightRef.current = true;
+    try {
+      const res = await api.get("/health", {
+        timeout: 2000,
+        validateStatus: () => true
+      });
+      const isHttpOk = res.status >= 200 && res.status < 300;
+      const data = res.data as { ready?: boolean; phase?: string; message?: string };
+      const isReady = typeof data?.ready === "boolean" ? data.ready : isHttpOk;
+      if (isHttpOk && isReady) {
+        keepaliveFailRef.current = 0;
+        return;
+      }
+      keepaliveFailRef.current += 1;
+    } catch {
+      keepaliveFailRef.current += 1;
+    } finally {
+      inFlightRef.current = false;
+    }
+
+    if (keepaliveFailRef.current >= KEEPALIVE_FAIL_THRESHOLD) {
+      // Backend likely restarted/crashed after initial ready. Flip to not-ready and resume probing.
+      readyRef.current = false;
+      setReady(false);
+      setError(null);
+      setErrorDetails(null);
+      setNotReadyState("starting", "バックエンド再接続中");
+      keepaliveFailRef.current = 0;
+      clearTimer();
+      void probe();
+    }
+  };
+
   const retry = () => {
     failureRef.current = 0;
     attemptRef.current = 0;
@@ -157,6 +196,14 @@ const useBackendReadyInternal = (): BackendReadyState => {
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
+    const timer = window.setInterval(() => {
+      void keepalive();
+    }, KEEPALIVE_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [ready]);
+
+  useEffect(() => {
     if (ready) return;
     const timer = window.setInterval(() => {
       setElapsedMs(Date.now() - startRef.current);
@@ -170,6 +217,8 @@ const useBackendReadyInternal = (): BackendReadyState => {
 export function BackendReadyProvider({ children }: { children: ReactNode }) {
   const state = useBackendReadyInternal();
   const lastApiError = useStore((store) => store.lastApiError);
+  const refreshEventsIfStale = useStore((store) => store.refreshEventsIfStale);
+  const loadEventsMeta = useStore((store) => store.loadEventsMeta);
   const [renderOverlay, setRenderOverlay] = useState(true);
   const [overlayVisible, setOverlayVisible] = useState(true);
 
@@ -183,6 +232,15 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
     setOverlayVisible(true);
     return undefined;
   }, [state.ready]);
+
+  useEffect(() => {
+    if (!state.ready) return undefined;
+    void refreshEventsIfStale();
+    const timer = window.setInterval(() => {
+      void loadEventsMeta();
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, [state.ready, refreshEventsIfStale, loadEventsMeta]);
 
   return (
     <BackendReadyContext.Provider value={state}>

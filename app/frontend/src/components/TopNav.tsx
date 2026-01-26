@@ -1,32 +1,39 @@
 ﻿import { NavLink } from "react-router-dom";
-
 export default function TopNav() {
   return (
-    <nav className="top-nav">
+    <nav className="list-tabs">
       <NavLink
         to="/"
         end
-        className={({ isActive }) => (isActive ? "top-nav-link active" : "top-nav-link")}
+        className={({ isActive }) =>
+          isActive ? "list-tab list-home active" : "list-tab list-home"
+        }
       >
-        スクリーナー
+        一覧に戻る
       </NavLink>
       <NavLink
         to="/ranking"
-        className={({ isActive }) => (isActive ? "top-nav-link active" : "top-nav-link")}
+        className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
       >
         ランキング
       </NavLink>
       <NavLink
         to="/favorites"
-        className={({ isActive }) => (isActive ? "top-nav-link active" : "top-nav-link")}
+        className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
       >
         お気に入り
       </NavLink>
       <NavLink
         to="/candidates"
-        className={({ isActive }) => (isActive ? "top-nav-link active" : "top-nav-link")}
+        className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
       >
         候補
+      </NavLink>
+      <NavLink
+        to="/positions"
+        className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
+      >
+        保有
       </NavLink>
     </nav>
   );

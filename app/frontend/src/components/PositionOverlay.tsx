@@ -1,12 +1,14 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import type { ISeriesApi } from "lightweight-charts";
-import type { DailyPosition, TradeEvent, TradeMarker } from "../utils/positions";
+import type { CurrentPosition, DailyPosition, TradeEvent, TradeMarker } from "../utils/positions";
 
 type PositionOverlayProps = {
   candleSeries: ISeriesApi<"Candlestick"> | null;
   chart: { timeScale?: () => any } | null;
   dailyPositions: DailyPosition[];
   tradeMarkers: TradeMarker[];
+  currentPositions?: CurrentPosition[];
+  latestTradeTime?: number | null;
   showOverlay: boolean;
   showPnL: boolean;
   hoverTime: number | null;
@@ -31,6 +33,7 @@ type PositionOverlayProps = {
     data: { time: number; value: number }[];
     visible: boolean;
   }[];
+  hidePanel?: boolean;
 };
 
 const formatNumber = (value: number) => {
@@ -174,6 +177,8 @@ export default function PositionOverlay({
   chart,
   dailyPositions,
   tradeMarkers,
+  currentPositions,
+  latestTradeTime,
   showOverlay,
   showPnL,
   hoverTime,
@@ -181,7 +186,8 @@ export default function PositionOverlay({
   volume,
   showMarkers = true,
   markerSuffix,
-  maLines = []
+  maLines = [],
+  hidePanel = false
 }: PositionOverlayProps) {
   const [rangeTick, setRangeTick] = useState(0);
   const rangeRafRef = useRef<number | null>(null);
@@ -366,8 +372,8 @@ export default function PositionOverlay({
         brokerKey === "rakuten"
           ? "RAKUTEN"
           : brokerKey === "sbi"
-          ? "SBI"
-          : pos.brokerLabel ?? "N/A";
+            ? "SBI"
+            : pos.brokerLabel ?? "N/A";
       const entry = map.get(brokerKey);
       if (entry) {
         entry.longLots += pos.longLots;
@@ -420,6 +426,40 @@ export default function PositionOverlay({
       })
       .sort((a, b) => compareBrokerKey(a.brokerKey, b.brokerKey));
   }, [positionsByTime, activePositionTime]);
+  const currentPositionEntries = useMemo(() => {
+    if (!currentPositions || currentPositions.length === 0) return [];
+    if (!bars.length) return [];
+    const lastBar = bars[bars.length - 1];
+    if (!lastBar) return [];
+    // Only show current positions if we're viewing the latest bar
+    if (activePositionTime !== lastBar.time) return [];
+    const close = lastBar.close;
+    return currentPositions.map((pos) => {
+      const avgLongPrice = pos.longLots > 0 ? pos.avgLongPrice : 0;
+      const avgShortPrice = pos.shortLots > 0 ? pos.avgShortPrice : 0;
+      const unrealizedLong = pos.longLots > 0 ? (close - avgLongPrice) * pos.longLots * 100 : 0;
+      const unrealizedShort = pos.shortLots > 0 ? (avgShortPrice - close) * pos.shortLots * 100 : 0;
+      const unrealizedPnL = unrealizedLong + unrealizedShort;
+      const totalPnL = pos.realizedPnL + unrealizedPnL;
+      return {
+        time: lastBar.time,
+        date: formatDate(lastBar.time),
+        shortLots: pos.shortLots,
+        longLots: pos.longLots,
+        longText: formatLots(pos.longLots),
+        shortText: formatLots(pos.shortLots),
+        avgLongPrice,
+        avgShortPrice,
+        realizedPnL: pos.realizedPnL,
+        unrealizedPnL,
+        totalPnL,
+        close,
+        brokerKey: pos.brokerKey,
+        brokerLabel: pos.brokerLabel,
+        brokerGroupKey: pos.brokerKey
+      };
+    });
+  }, [currentPositions, bars, activePositionTime]);
   const activeTradeMarkers = useMemo(() => {
     if (!showOverlay || !showMarkers || activePositionTime == null) return [];
     return tradeMarkers.filter((trade) => trade.time === activePositionTime);
@@ -457,7 +497,7 @@ export default function PositionOverlay({
         const longText = formatLots(pos.longLots);
         const shortText = formatLots(pos.shortLots);
         const nextKey = `${longText}:${shortText}`;
-        if (nextKey === "0:0") {
+        if (prevKey === "" && nextKey === "0:0") {
           prevKey = nextKey;
           return;
         }
@@ -578,26 +618,26 @@ export default function PositionOverlay({
           ))}
         </div>
       )}
-      <div className="position-overlay-panel">
+      <div className="position-overlay-panel" style={{ display: hidePanel ? 'none' : 'block' }}>
         <div className="position-overlay-header">
-        <div className="position-overlay-date">{formatDate(activeBar.time)}</div>
-        {delta != null && percent != null && (
-          <div className={`position-overlay-change ${deltaClass}`}>
-            前日比{formatSignedNumber(delta)} ({formatPercent(percent)})
-          </div>
-        )}
+          <div className="position-overlay-date">{formatDate(activeBar.time)}</div>
+          {delta != null && percent != null && (
+            <div className={`position-overlay-change ${deltaClass}`}>
+              前日比{formatSignedNumber(delta)} ({formatPercent(percent)})
+            </div>
+          )}
         </div>
         <div className="position-overlay-grid">
-        <div className="position-overlay-label">O</div>
-        <div className="position-overlay-value">{formatNumber(activeBar.open)}</div>
-        <div className="position-overlay-label">H</div>
-        <div className="position-overlay-value">{formatNumber(activeBar.high)}</div>
-        <div className="position-overlay-label">L</div>
-        <div className="position-overlay-value">{formatNumber(activeBar.low)}</div>
-        <div className="position-overlay-label">C</div>
-        <div className="position-overlay-value">{formatNumber(activeBar.close)}</div>
-        <div className="position-overlay-label">出来高</div>
-        <div className="position-overlay-value">{volumeText}</div>
+          <div className="position-overlay-label">O</div>
+          <div className="position-overlay-value">{formatNumber(activeBar.open)}</div>
+          <div className="position-overlay-label">H</div>
+          <div className="position-overlay-value">{formatNumber(activeBar.high)}</div>
+          <div className="position-overlay-label">L</div>
+          <div className="position-overlay-value">{formatNumber(activeBar.low)}</div>
+          <div className="position-overlay-label">C</div>
+          <div className="position-overlay-value">{formatNumber(activeBar.close)}</div>
+          <div className="position-overlay-label">出来高</div>
+          <div className="position-overlay-value">{volumeText}</div>
         </div>
         {activeMaValues.length > 0 && (
           <div className="position-overlay-ma">
@@ -628,9 +668,9 @@ export default function PositionOverlay({
             ))}
           </div>
         )}
-        {showPositionInfo && activePositions.length > 0 && (
+        {showPositionInfo && (activePositions.length > 0 || currentPositionEntries.length > 0) && (
           <div className="position-overlay-block">
-            {activePositions.map((position) => {
+            {(activePositions.length > 0 ? activePositions : currentPositionEntries).map((position) => {
               const brokerKey = position.brokerKey ?? "unknown";
               const brokerLabel = position.brokerLabel ?? "N/A";
               return (

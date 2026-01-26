@@ -6,24 +6,38 @@ import {
   IconArrowBackUp,
   IconArrowLeft,
   IconArrowRight,
+  IconBox,
+  IconBriefcase,
   IconCamera,
   IconCopy,
+  IconCurrencyYen,
   IconHeart,
   IconHeartFilled,
+  IconLink,
+  IconListDetails,
   IconTrash,
-  IconSparkles
+  IconSparkles,
+  IconChartArrows,
+  IconPointer
 } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import DetailChart, { DetailChartHandle } from "../components/DetailChart";
 import Toast from "../components/Toast";
 import IconButton from "../components/IconButton";
+import SimilarSearchPanel from "../components/SimilarSearchPanel";
 import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
-import type { TradeEvent } from "../utils/positions";
-import { buildDailyPositions, buildPositionLedger } from "../utils/positions";
+import type { TradeEvent, CurrentPosition, DailyPosition } from "../utils/positions";
+import { buildCurrentPositions, buildDailyPositions, buildPositionLedger } from "../utils/positions";
 import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
 import { buildAIExport, copyToClipboard, saveAsFile } from "../utils/aiExport";
+import { formatEventBadgeDate, formatEventDateYmd, parseEventDateMs } from "../utils/events";
+import DailyMemoPanel from "../components/DailyMemoPanel";
+import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from "../utils/consultCopy";
+import { useChartSync } from "../hooks/useChartSync";
+import { useDetailInfo } from "../hooks/useDetailInfo";
+
 
 type Timeframe = "daily" | "weekly" | "monthly";
 type FocusPanel = Timeframe | null;
@@ -66,6 +80,17 @@ type BarsResponse = {
   errors?: string[];
 };
 
+type CompareListItem = {
+  ticker: string;
+  asof: string | null;
+};
+
+type CompareListPayload = {
+  queryTicker: string;
+  mainAsOf: string | null;
+  items: CompareListItem[];
+};
+
 const DEFAULT_LIMITS = {
   daily: 2000,
   monthly: 240
@@ -100,6 +125,42 @@ const formatNumber = (value: number | null | undefined, digits = 0) => {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
   });
+};
+
+const formatSignedNumber = (value: number | null | undefined, digits = 0) => {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return value.toLocaleString("ja-JP", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    signDisplay: "always"
+  });
+};
+
+const formatLotValue = (value: number) => {
+  if (!Number.isFinite(value)) return "0";
+  return Number.isInteger(value) ? `${value}` : value.toFixed(1);
+};
+
+const formatSignedLot = (value: number) => {
+  if (value === 0) return "0";
+  const sign = value > 0 ? "+" : "-";
+  return `${sign}${formatLotValue(Math.abs(value))}`;
+};
+
+const formatShares = (shares: number | null | undefined) => {
+  if (shares == null || !Number.isFinite(shares)) return "--";
+  return formatNumber(shares, 0);
+};
+
+const formatLedgerDate = (value: string) => {
+  const trimmed = value?.trim();
+  if (!trimmed) return "--";
+  const match = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+  if (!match) return trimmed;
+  const year = match[1];
+  const month = match[2].padStart(2, "0");
+  const day = match[3].padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
 const normalizeTime = (value: unknown) => {
@@ -208,6 +269,7 @@ const buildVolume = (rows: number[][]): VolumePoint[] => {
     if (!Array.isArray(row) || row.length < 6) continue;
     const time = normalizeTime(row[0]);
     if (time == null) continue;
+    if (row[5] == null || row[5] === "") continue;
     const value = Number(row[5]);
     if (!Number.isFinite(value)) continue;
     entries.push({ time, value });
@@ -272,6 +334,42 @@ const buildRange = (candles: Candle[], months: number) => {
   return { from: Math.floor(startDate.getTime() / 1000), to: end };
 };
 
+const buildRangeEndingAt = (candles: Candle[], months: number, endTime: number | null) => {
+  if (!candles.length) return null;
+  if (!endTime) return buildRange(candles, months);
+  let nearest = candles[candles.length - 1].time;
+  let bestDiff = Number.POSITIVE_INFINITY;
+  for (const candle of candles) {
+    const diff = Math.abs(candle.time - endTime);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      nearest = candle.time;
+    }
+  }
+  const endDate = new Date(nearest * 1000);
+  const startDate = new Date(endDate);
+  startDate.setMonth(endDate.getMonth() - months);
+  return { from: Math.floor(startDate.getTime() / 1000), to: nearest };
+};
+
+const buildRangeFromEndTime = (months: number, endTime: number | null) => {
+  if (!endTime) return null;
+  const endDate = new Date(endTime * 1000);
+  const startDate = new Date(endDate);
+  startDate.setMonth(endDate.getMonth() - months);
+  return { from: Math.floor(startDate.getTime() / 1000), to: endTime };
+};
+
+const formatDateLabel = (value: number | null) => {
+  if (!value) return "";
+  const date = new Date(value * 1000);
+  if (Number.isNaN(date.getTime())) return "";
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  return `${yyyy}/${mm}/${dd}`;
+};
+
 const countInRange = (candles: Candle[], months: number | null) => {
   if (!months) return candles.length;
   const range = buildRange(candles, months);
@@ -287,6 +385,8 @@ export default function DetailView() {
   const dailyChartRef = useRef<DetailChartHandle | null>(null);
   const weeklyChartRef = useRef<DetailChartHandle | null>(null);
   const monthlyChartRef = useRef<DetailChartHandle | null>(null);
+  const compareDailyChartRef = useRef<DetailChartHandle | null>(null);
+  const compareMonthlyChartRef = useRef<DetailChartHandle | null>(null);
   const bottomRowRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
   const hoverTimeRef = useRef<number | null>(null);
@@ -296,6 +396,7 @@ export default function DetailView() {
   const tickers = useStore((state) => state.tickers);
   const loadList = useStore((state) => state.loadList);
   const loadingList = useStore((state) => state.loadingList);
+  const eventsMeta = useStore((state) => state.eventsMeta);
   const favorites = useStore((state) => state.favorites);
   const favoritesLoaded = useStore((state) => state.favoritesLoaded);
   const loadFavorites = useStore((state) => state.loadFavorites);
@@ -303,17 +404,23 @@ export default function DetailView() {
   const showBoxes = useStore((state) => state.settings.showBoxes);
   const setShowBoxes = useStore((state) => state.setShowBoxes);
   const maSettings = useStore((state) => state.maSettings);
+  const compareMaSettings = useStore((state) => state.compareMaSettings);
   const updateMaSetting = useStore((state) => state.updateMaSetting);
+  const updateCompareMaSetting = useStore((state) => state.updateCompareMaSetting);
   const resetMaSettings = useStore((state) => state.resetMaSettings);
+  const resetCompareMaSettings = useStore((state) => state.resetCompareMaSettings);
 
   const [dailyLimit, setDailyLimit] = useState(DEFAULT_LIMITS.daily);
   const [monthlyLimit, setMonthlyLimit] = useState(DEFAULT_LIMITS.monthly);
   const [dailyData, setDailyData] = useState<number[][]>([]);
   const [monthlyData, setMonthlyData] = useState<number[][]>([]);
   const [boxes, setBoxes] = useState<Box[]>([]);
+  const [compareBoxes, setCompareBoxes] = useState<Box[]>([]);
   const [trades, setTrades] = useState<TradeEvent[]>([]);
+  const [compareTrades, setCompareTrades] = useState<TradeEvent[]>([]);
   const [tradeWarnings, setTradeWarnings] = useState<ApiWarnings>({ items: [] });
   const [tradeErrors, setTradeErrors] = useState<string[]>([]);
+  const [currentPositionsFromApi, setCurrentPositionsFromApi] = useState<CurrentPosition[] | null>(null);
   const [dailyErrors, setDailyErrors] = useState<string[]>([]);
   const [monthlyErrors, setMonthlyErrors] = useState<string[]>([]);
   const [dailyFetch, setDailyFetch] = useState<FetchState>({
@@ -331,6 +438,7 @@ export default function DetailView() {
   const [hasMoreDaily, setHasMoreDaily] = useState(true);
   const [hasMoreMonthly, setHasMoreMonthly] = useState(true);
   const [showIndicators, setShowIndicators] = useState(false);
+  const [maEditMode, setMaEditMode] = useState<"main" | "compare">("main");
   const [weeklyRatio, setWeeklyRatio] = useState(DEFAULT_WEEKLY_RATIO);
   const [rangeMonths, setRangeMonths] = useState<number | null>(12);
   const [showTradesOverlay, setShowTradesOverlay] = useState(true);
@@ -344,9 +452,71 @@ export default function DetailView() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [showPositionLedger, setShowPositionLedger] = useState(false);
   const [positionLedgerExpanded, setPositionLedgerExpanded] = useState(false);
+  const [ledgerViewMode, setLedgerViewMode] = useState<"iizuka" | "stock">(() => {
+    try {
+      const stored = window.localStorage.getItem("positionLedgerMode");
+      return stored === "stock" ? "stock" : "iizuka";
+    } catch {
+      return "iizuka";
+    }
+  });
+
+  // Cursor mode state
+  const [cursorMode, setCursorMode] = useState(false);
+  const [selectedBarIndex, setSelectedBarIndex] = useState<number | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedBarData, setSelectedBarData] = useState<Candle | null>(null);
+
   const syncRangesRef = useRef(syncRanges);
   const pendingRangeRef = useRef<{ from: number; to: number } | null>(null);
   const syncRafRef = useRef<number | null>(null);
+  const [showSimilar, setShowSimilar] = useState(false);
+  const compareCode = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get("compare");
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === code) return null;
+    return trimmed;
+  }, [location.search, code]);
+  const compareAsOf = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get("compareAsOf");
+    return raw ? raw.trim() : null;
+  }, [location.search]);
+  const mainAsOf = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get("mainAsOf");
+    return raw ? raw.trim() : null;
+  }, [location.search]);
+  const compareAsOfTime = useMemo(() => {
+    if (!compareAsOf) return null;
+    return normalizeTime(compareAsOf);
+  }, [compareAsOf]);
+  const mainAsOfTime = useMemo(() => {
+    if (!mainAsOf) return null;
+    return normalizeTime(mainAsOf);
+  }, [mainAsOf]);
+  const [compareMonthlyData, setCompareMonthlyData] = useState<number[][]>([]);
+  const [compareMonthlyErrors, setCompareMonthlyErrors] = useState<string[]>([]);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareDailyData, setCompareDailyData] = useState<number[][]>([]);
+  const [compareDailyErrors, setCompareDailyErrors] = useState<string[]>([]);
+  const [compareDailyLoading, setCompareDailyLoading] = useState(false);
+  const [compareDailyLimit, setCompareDailyLimit] = useState(DEFAULT_LIMITS.daily);
+
+  useEffect(() => {
+    if (compareCode) return;
+    setCompareMonthlyData([]);
+    setCompareMonthlyErrors([]);
+    setCompareLoading(false);
+    setCompareDailyData([]);
+    setCompareDailyErrors([]);
+    setCompareDailyLoading(false);
+    setCompareBoxes([]);
+    setCompareTrades([]);
+    setCompareDailyLimit(DEFAULT_LIMITS.daily);
+  }, [compareCode]);
 
   const tickerName = useMemo(() => {
     if (!code) return "";
@@ -354,8 +524,30 @@ export default function DetailView() {
     const cleaned = raw.replace(/\s*\?\s*$/, "").trim();
     return cleaned === "?" ? "" : cleaned;
   }, [tickers, code]);
-
-  const subtitle = "Daily / Weekly / Monthly";
+  const activeTicker = useMemo(() => tickers.find((item) => item.code === code) ?? null, [tickers, code]);
+  const earningsLabel = useMemo(
+    () => formatEventBadgeDate(activeTicker?.eventEarningsDate),
+    [activeTicker?.eventEarningsDate]
+  );
+  const rightsLabel = useMemo(
+    () => formatEventBadgeDate(activeTicker?.eventRightsDate),
+    [activeTicker?.eventRightsDate]
+  );
+  const rightsCoverageLabel = useMemo(() => {
+    const rightsMaxDate = eventsMeta?.dataCoverage?.rightsMaxDate ?? null;
+    const maxMs = parseEventDateMs(rightsMaxDate);
+    if (!rightsMaxDate || maxMs == null) return null;
+    const thresholdMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    if (maxMs >= thresholdMs) return null;
+    const formatted = formatEventDateYmd(rightsMaxDate);
+    return formatted ? `権利データ範囲: ～${formatted}` : null;
+  }, [eventsMeta]);
+  const compareTickerName = useMemo(() => {
+    if (!compareCode) return "";
+    const raw = tickers.find((item) => item.code === compareCode)?.name ?? "";
+    const cleaned = raw.replace(/\s*\?\s*$/, "").trim();
+    return cleaned === "?" ? "" : cleaned;
+  }, [tickers, compareCode]);
 
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
   const isFavorite = useMemo(() => (code ? favoritesSet.has(code) : false), [favoritesSet, code]);
@@ -430,6 +622,46 @@ export default function DetailView() {
 
   useEffect(() => {
     if (!backendReady) return;
+    if (!compareCode) return;
+    setCompareLoading(true);
+    setCompareMonthlyErrors([]);
+    api
+      .get("/ticker/monthly", { params: { code: compareCode, limit: monthlyLimit } })
+      .then((res) => {
+        const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "monthly");
+        setCompareMonthlyData(rows);
+        setCompareMonthlyErrors(errors);
+      })
+      .catch((error) => {
+        const message = error?.message || "Monthly fetch failed";
+        setCompareMonthlyErrors([message]);
+        setCompareMonthlyData([]);
+      })
+      .finally(() => setCompareLoading(false));
+  }, [backendReady, compareCode, monthlyLimit]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!compareCode) return;
+    setCompareDailyLoading(true);
+    setCompareDailyErrors([]);
+    api
+      .get("/ticker/daily", { params: { code: compareCode, limit: compareDailyLimit } })
+      .then((res) => {
+        const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "daily");
+        setCompareDailyData(rows);
+        setCompareDailyErrors(errors);
+      })
+      .catch((error) => {
+        const message = error?.message || "Daily fetch failed";
+        setCompareDailyErrors([message]);
+        setCompareDailyData([]);
+      })
+      .finally(() => setCompareDailyLoading(false));
+  }, [backendReady, compareCode, compareDailyLimit]);
+
+  useEffect(() => {
+    if (!backendReady) return;
     if (!code) return;
     api
       .get("/ticker/boxes", { params: { code } })
@@ -443,10 +675,34 @@ export default function DetailView() {
   }, [backendReady, code]);
 
   useEffect(() => {
+    if (!compareCode) return;
+    setFocusPanel(null);
+  }, [compareCode]);
+  useEffect(() => {
+    if (compareCode) return;
+    setMaEditMode("main");
+  }, [compareCode]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!compareCode) return;
+    api
+      .get("/ticker/boxes", { params: { code: compareCode } })
+      .then((res) => {
+        const rows = (res.data || []) as Box[];
+        setCompareBoxes(rows);
+      })
+      .catch(() => {
+        setCompareBoxes([]);
+      });
+  }, [backendReady, compareCode]);
+
+  useEffect(() => {
     if (!backendReady) return;
     if (!code) return;
     setTradeErrors([]);
     setTradeWarnings({ items: [] });
+    setCurrentPositionsFromApi(null);
     api
       .get(`/trades/${code}`)
       .then((res) => {
@@ -454,12 +710,18 @@ export default function DetailView() {
           events?: TradeEvent[];
           warnings?: ApiWarnings;
           errors?: string[];
-          currentPosition?: { buyUnits: number; sellUnits: number; text?: string };
+          currentPosition?: { longLots: number; shortLots: number };
+          currentPositions?: CurrentPosition[];
         };
         if (!payload || !Array.isArray(payload.events)) {
           throw new Error("Trades response is invalid");
         }
         setTrades(payload.events ?? []);
+        if (Array.isArray(payload.currentPositions)) {
+          setCurrentPositionsFromApi(payload.currentPositions);
+        } else {
+          setCurrentPositionsFromApi(null);
+        }
         setTradeWarnings(normalizeWarnings(payload.warnings));
         setTradeErrors(Array.isArray(payload.errors) ? payload.errors : []);
       })
@@ -468,15 +730,46 @@ export default function DetailView() {
         setTradeErrors([message]);
         setTrades([]);
         setTradeWarnings({ items: [] });
+        setCurrentPositionsFromApi(null);
       });
   }, [backendReady, code]);
 
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!compareCode) return;
+    api
+      .get(`/trades/${compareCode}`)
+      .then((res) => {
+        const payload = res.data as {
+          events?: TradeEvent[];
+          errors?: string[];
+        };
+        if (!payload || !Array.isArray(payload.events)) {
+          throw new Error("Trades response is invalid");
+        }
+        setCompareTrades(payload.events ?? []);
+      })
+      .catch((error) => {
+        const message = error?.message || "Trades fetch failed";
+        setCompareTrades([]);
+      });
+  }, [backendReady, compareCode]);
+
   const dailyParse = useMemo(() => buildCandlesWithStats(dailyData), [dailyData]);
   const monthlyParse = useMemo(() => buildCandlesWithStats(monthlyData), [monthlyData]);
+  const compareDailyParse = useMemo(() => buildCandlesWithStats(compareDailyData), [compareDailyData]);
+  const compareMonthlyParse = useMemo(
+    () => buildCandlesWithStats(compareMonthlyData),
+    [compareMonthlyData]
+  );
   const dailyCandles = dailyParse.candles;
   const monthlyCandles = monthlyParse.candles;
+  const compareDailyCandles = compareDailyParse.candles;
+  const compareMonthlyCandles = compareMonthlyParse.candles;
   const dailyVolume = useMemo(() => buildVolume(dailyData), [dailyData]);
   const monthlyVolume = useMemo(() => buildVolume(monthlyData), [monthlyData]);
+  const compareDailyVolume = useMemo(() => buildVolume(compareDailyData), [compareDailyData]);
   const weeklyData = useMemo(() => buildWeekly(dailyCandles, dailyVolume), [dailyCandles, dailyVolume]);
 
   const weeklyCandles = weeklyData.candles;
@@ -496,7 +789,36 @@ export default function DetailView() {
   );
   const dailyPositions = positionData.dailyPositions;
   const tradeMarkers = positionData.tradeMarkers;
+  const currentPositions = useMemo(
+    () => (currentPositionsFromApi !== null ? currentPositionsFromApi : buildCurrentPositions(trades)),
+    [currentPositionsFromApi, trades]
+  );
+  const latestTradeTime = useMemo(() => {
+    if (trades.length === 0) return null;
+    const times = trades
+      .map((trade) => Date.parse(`${trade.date}T00:00:00Z`))
+      .filter((value) => Number.isFinite(value))
+      .map((value) => Math.floor(value / 1000));
+    if (!times.length) return null;
+    return Math.max(...times);
+  }, [trades]);
+  const comparePositionData = useMemo(
+    () => buildDailyPositions(compareDailyCandles, compareTrades),
+    [compareDailyCandles, compareTrades]
+  );
+  const compareDailyPositions = comparePositionData.dailyPositions;
+  const compareTradeMarkers = comparePositionData.tradeMarkers;
   const positionLedger = useMemo(() => buildPositionLedger(trades), [trades]);
+  const dailyPositionMap = useMemo(() => {
+    const map = new Map<string, Map<string, DailyPosition>>();
+    dailyPositions.forEach((pos) => {
+      const groupKey = pos.brokerGroupKey ?? `${pos.brokerKey ?? "unknown"}|${pos.account ?? ""}`;
+      const dateMap = map.get(groupKey) ?? new Map<string, DailyPosition>();
+      dateMap.set(pos.date, pos);
+      map.set(groupKey, dateMap);
+    });
+    return map;
+  }, [dailyPositions]);
   const ledgerGroups = useMemo(() => {
     const brokerOrder = (key: string) => {
       if (key === "rakuten") return 0;
@@ -529,6 +851,156 @@ export default function DetailView() {
   const ledgerEligible = ledgerGroups.some((group) =>
     group.rows.some((row) => row.realizedPnL !== null || row.price !== null)
   );
+  const ledgerIizukaGroups = useMemo(() => {
+    return ledgerGroups
+      .map((group) => {
+        const groupKey = `${group.brokerKey}|${group.account}`;
+        const dateMap = new Map<string, typeof group.rows>();
+        group.rows.forEach((row) => {
+          const dateKey = formatLedgerDate(row.date);
+          const list = dateMap.get(dateKey) ?? [];
+          list.push(row);
+          dateMap.set(dateKey, list);
+        });
+        const dates = Array.from(dateMap.keys()).sort((a, b) => a.localeCompare(b));
+        let prevLong = 0;
+        let prevShort = 0;
+        let prevRealized = 0;
+        const rows = dates.map((date) => {
+          const pos = dailyPositionMap.get(groupKey)?.get(date);
+          const longLots = pos?.longLots ?? prevLong;
+          const shortLots = pos?.shortLots ?? prevShort;
+          const realized = pos?.realizedPnL ?? prevRealized;
+          const deltaLong = longLots - prevLong;
+          const deltaShort = shortLots - prevShort;
+          const realizedDelta = realized - prevRealized;
+          prevLong = longLots;
+          prevShort = shortLots;
+          prevRealized = realized;
+          const kindSet = new Set<string>();
+          (dateMap.get(date) ?? []).forEach((row) => {
+            const raw = row.kindLabel?.trim();
+            if (!raw) return;
+            const lower = raw.toLowerCase();
+            if (lower.includes("open") || raw.includes("新規")) {
+              kindSet.add("新規");
+              return;
+            }
+            if (lower.includes("close") || raw.includes("返済")) {
+              kindSet.add("返済");
+              return;
+            }
+            if (lower.includes("delivery") || raw.includes("現渡")) {
+              kindSet.add("現渡");
+              return;
+            }
+            if (lower.includes("take_delivery") || raw.includes("現引")) {
+              kindSet.add("現引");
+              return;
+            }
+            if (lower.includes("inbound") || raw.includes("入庫")) {
+              kindSet.add("入庫");
+              return;
+            }
+            if (lower.includes("outbound") || raw.includes("出庫")) {
+              kindSet.add("出庫");
+              return;
+            }
+            kindSet.add(raw);
+          });
+          const kindLabel = kindSet.size === 0 ? "--" : Array.from(kindSet).slice(0, 2).join(" / ");
+          return {
+            date,
+            kindLabel,
+            deltaLong,
+            deltaShort,
+            longLots,
+            shortLots,
+            avgLongPrice: pos?.avgLongPrice ?? null,
+            avgShortPrice: pos?.avgShortPrice ?? null,
+            realizedDelta
+          };
+        });
+        return { ...group, rows };
+      })
+      .filter((group) => group.rows.length > 0);
+  }, [ledgerGroups, dailyPositionMap]);
+  const ledgerStockGroups = useMemo(() => {
+    return ledgerGroups
+      .map((group) => {
+        const groupKey = `${group.brokerKey}|${group.account}`;
+        const dateMap = new Map<string, typeof group.rows>();
+        group.rows.forEach((row) => {
+          const dateKey = formatLedgerDate(row.date);
+          const list = dateMap.get(dateKey) ?? [];
+          list.push(row);
+          dateMap.set(dateKey, list);
+        });
+        const dates = Array.from(dateMap.keys()).sort((a, b) => a.localeCompare(b));
+        let prevLong = 0;
+        let prevShort = 0;
+        let prevRealized = 0;
+        const rows = dates.map((date) => {
+          const pos = dailyPositionMap.get(groupKey)?.get(date);
+          const longLots = pos?.longLots ?? prevLong;
+          const shortLots = pos?.shortLots ?? prevShort;
+          const realized = pos?.realizedPnL ?? prevRealized;
+          const deltaLong = longLots - prevLong;
+          const deltaShort = shortLots - prevShort;
+          const realizedDelta = realized - prevRealized;
+          prevLong = longLots;
+          prevShort = shortLots;
+          prevRealized = realized;
+          const kindSet = new Set<string>();
+          (dateMap.get(date) ?? []).forEach((row) => {
+            const raw = row.kindLabel?.trim();
+            if (!raw) return;
+            const lower = raw.toLowerCase();
+            if (lower.includes("open") || raw.includes("新規")) {
+              kindSet.add("新規");
+              return;
+            }
+            if (lower.includes("close") || raw.includes("返済")) {
+              kindSet.add("返済");
+              return;
+            }
+            if (lower.includes("delivery") || raw.includes("現渡")) {
+              kindSet.add("現渡");
+              return;
+            }
+            if (lower.includes("take_delivery") || raw.includes("現引")) {
+              kindSet.add("現引");
+              return;
+            }
+            if (lower.includes("inbound") || raw.includes("入庫")) {
+              kindSet.add("入庫");
+              return;
+            }
+            if (lower.includes("outbound") || raw.includes("出庫")) {
+              kindSet.add("出庫");
+              return;
+            }
+            kindSet.add(raw);
+          });
+          const kindLabel = kindSet.size === 0 ? "--" : Array.from(kindSet).slice(0, 2).join(" / ");
+          const qtyShares = (dateMap.get(date) ?? []).reduce((sum, row) => sum + row.qtyShares, 0);
+          return {
+            date,
+            kindLabel,
+            qtyShares,
+            deltaSellShares: deltaShort * 100,
+            deltaBuyShares: deltaLong * 100,
+            closeSellShares: shortLots * 100,
+            closeBuyShares: longLots * 100,
+            buyAvgPrice: pos?.avgLongPrice ?? null,
+            sellAvgPrice: pos?.avgShortPrice ?? null,
+            realizedDelta
+          };
+        });
+        return { ...group, rows };
+      })
+      .filter((group) => group.rows.length > 0);
+  }, [ledgerGroups, dailyPositionMap]);
   const dailyRangeCount = useMemo(
     () => countInRange(dailyCandles, rangeMonths),
     [dailyCandles, rangeMonths]
@@ -687,6 +1159,182 @@ export default function DetailView() {
     }, 800);
   };
 
+  // Cursor mode functions
+  const toggleCursorMode = () => {
+    setCursorMode(prev => !prev);
+    if (!cursorMode && dailyCandles.length > 0) {
+      // Initialize with last bar when turning on
+      updateSelectedBar(dailyCandles.length - 1);
+    }
+  };
+
+  const updateSelectedBar = (index: number) => {
+    if (index < 0 || index >= dailyCandles.length) return;
+
+    const bar = dailyCandles[index];
+    setSelectedBarIndex(index);
+    setSelectedBarData(bar);
+
+    // Convert time to date string (YYYY-MM-DD)
+    const date = new Date(bar.time * 1000);
+    const dateStr = date.toISOString().split('T')[0];
+    setSelectedDate(dateStr);
+
+    // Auto-pan if needed
+    autoPanToBar(bar.time);
+  };
+
+  const autoPanToBar = (time: number) => {
+    if (!dailyChartRef.current) return;
+
+    // Get current visible range from dailyVisibleRange
+    if (!dailyVisibleRange) return;
+
+    const { from, to } = dailyVisibleRange;
+    const rangeSize = to - from;
+    const margin = rangeSize * 0.1; // 10% margin
+
+    // Check if time is outside visible range
+    if (time < from + margin || time > to - margin) {
+      // Pan to center the selected bar
+      const newFrom = time - rangeSize / 2;
+      const newTo = time + rangeSize / 2;
+      dailyChartRef.current.setVisibleRange({ from: newFrom, to: newTo });
+    }
+  };
+
+  const moveToPrevDay = () => {
+    if (selectedBarIndex === null || selectedBarIndex <= 0) return;
+    updateSelectedBar(selectedBarIndex - 1);
+  };
+
+  const moveToNextDay = () => {
+    if (selectedBarIndex === null || selectedBarIndex >= dailyCandles.length - 1) return;
+    updateSelectedBar(selectedBarIndex + 1);
+  };
+
+  const handleDailyChartClick = (time: number | null) => {
+    if (!cursorMode || time === null) return;
+
+    // Find nearest bar index
+    let nearestIndex = -1;
+    let minDiff = Infinity;
+
+    for (let i = 0; i < dailyCandles.length; i++) {
+      const diff = Math.abs(dailyCandles[i].time - time);
+      if (diff < minDiff) {
+        minDiff = diff;
+        nearestIndex = i;
+      }
+    }
+
+    if (nearestIndex >= 0) {
+      updateSelectedBar(nearestIndex);
+    }
+  };
+
+  const handleCopyForConsult = async () => {
+    if (!selectedDate || !selectedBarData || !code) return;
+
+    // Get current memo
+    let memo = "";
+    try {
+      const response = await api.get("/memo", {
+        params: { symbol: code, date: selectedDate, timeframe: "D" },
+      });
+      memo = response.data.memo || "";
+    } catch (error) {
+      console.error("Failed to fetch memo:", error);
+    }
+
+    // Get position for selected date
+    const selectedTime = selectedBarData.time;
+    const positionsAtTime = dailyPositions.filter(p => p.time === selectedTime);
+    let totalLong = 0;
+    let totalShort = 0;
+    positionsAtTime.forEach(p => {
+      totalLong += p.longLots;
+      totalShort += p.shortLots;
+    });
+
+    // Get MA values and trends for selected date
+    const maData: any = {};
+    const ma7Line = dailyMaLines.find(line => line.period === 7);
+    const ma20Line = dailyMaLines.find(line => line.period === 20);
+    const ma60Line = dailyMaLines.find(line => line.period === 60);
+
+    const getMaTrend = (maLine: typeof ma7Line, barIndex: number | null) => {
+      if (!maLine || barIndex == null || barIndex < 1) return "—";
+      const currentValue = maLine.data.find(d => d.time === selectedBarData.time)?.value;
+      const prevBar = dailyCandles[barIndex - 1];
+      const prevValue = prevBar ? maLine.data.find(d => d.time === prevBar.time)?.value : null;
+      if (currentValue == null || prevValue == null) return "—";
+      if (selectedBarData.close > currentValue && prevBar.close > prevValue) return "上昇";
+      if (selectedBarData.close < currentValue && prevBar.close < prevValue) return "下降";
+      return "転換";
+    };
+
+    const barIndex = dailyCandles.findIndex(c => c.time === selectedTime);
+
+    if (ma7Line?.visible) {
+      const value = ma7Line.data.find(d => d.time === selectedTime)?.value;
+      if (value != null) {
+        maData.ma7 = { value, trend: getMaTrend(ma7Line, barIndex) };
+      }
+    }
+    if (ma20Line?.visible) {
+      const value = ma20Line.data.find(d => d.time === selectedTime)?.value;
+      if (value != null) {
+        maData.ma20 = { value, trend: getMaTrend(ma20Line, barIndex) };
+      }
+    }
+    if (ma60Line?.visible) {
+      const value = ma60Line.data.find(d => d.time === selectedTime)?.value;
+      if (value != null) {
+        maData.ma60 = { value, trend: getMaTrend(ma60Line, barIndex) };
+      }
+    }
+
+    // Get signals for selected date
+    const signalLabels: string[] = [];
+    if (dailySignals && Array.isArray(dailySignals)) {
+      dailySignals.forEach(signal => {
+        if (signal && typeof signal === 'object' && 'label' in signal) {
+          signalLabels.push(signal.label);
+        }
+      });
+    }
+
+    const consultData = {
+      symbol: code,
+      name: tickerName || code,
+      date: selectedDate,
+      ohlc: {
+        open: selectedBarData.open,
+        high: selectedBarData.high,
+        low: selectedBarData.low,
+        close: selectedBarData.close,
+      },
+      volume: dailyVolume.find(v => v.time === selectedBarData.time)?.value,
+      position: totalLong > 0 || totalShort > 0 ? { sell: totalShort, buy: totalLong } : undefined,
+      ma: Object.keys(maData).length > 0 ? maData : undefined,
+      signals: signalLabels.length > 0 ? signalLabels : undefined,
+      memo,
+    };
+
+    const text = buildConsultCopyText(consultData);
+    const success = await copyConsultToClipboard(text);
+
+    if (success) {
+      setToastMessage("相談用データをコピーしました");
+      setTimeout(() => setToastMessage(null), 2000);
+    } else {
+      setToastMessage("コピーに失敗しました");
+      setTimeout(() => setToastMessage(null), 2000);
+    }
+  };
+
+
   const handleCopyDebug = async () => {
     const timestamp = new Date().toISOString();
     const textToCopy = [`Timestamp: ${timestamp}`, ...debugLines].join("\n");
@@ -738,6 +1386,17 @@ export default function DetailView() {
       data: computeMA(dailyCandles, setting.period)
     }));
   }, [dailyCandles, maSettings.daily]);
+  const compareDailyMaLines = useMemo(() => {
+    return compareMaSettings.daily.map((setting) => ({
+      key: setting.key,
+      label: setting.label,
+      period: setting.period,
+      color: setting.color,
+      visible: setting.visible,
+      lineWidth: setting.lineWidth,
+      data: computeMA(compareDailyCandles, setting.period)
+    }));
+  }, [compareDailyCandles, compareMaSettings.daily]);
 
   const weeklyMaLines = useMemo(() => {
     return maSettings.weekly.map((setting) => ({
@@ -762,21 +1421,152 @@ export default function DetailView() {
       data: computeMA(monthlyCandles, setting.period)
     }));
   }, [monthlyCandles, maSettings.monthly]);
+  const compareMonthlyMaLines = useMemo(() => {
+    return compareMaSettings.monthly.map((setting) => ({
+      key: setting.key,
+      label: setting.label,
+      period: setting.period,
+      color: setting.color,
+      visible: setting.visible,
+      lineWidth: setting.lineWidth,
+      data: computeMA(compareMonthlyCandles, setting.period)
+    }));
+  }, [compareMonthlyCandles, compareMaSettings.monthly]);
 
-  const dailyVisibleRange = useMemo(
-    () => (rangeMonths ? buildRange(dailyCandles, rangeMonths) : null),
-    [dailyCandles, rangeMonths]
+  const mainDailyTargetRange = useMemo(
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
+    [rangeMonths, mainAsOfTime]
   );
+  const compareDailyTargetRange = useMemo(
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, compareAsOfTime) : null),
+    [rangeMonths, compareAsOfTime]
+  );
+  const mainMonthlyTargetRange = useMemo(
+    () => (mainAsOfTime ? buildRangeFromEndTime(24, mainAsOfTime) : null),
+    [mainAsOfTime]
+  );
+  const compareMonthlyTargetRange = useMemo(
+    () => (compareAsOfTime ? buildRangeFromEndTime(24, compareAsOfTime) : null),
+    [compareAsOfTime]
+  );
+  const dailyVisibleRange = useMemo(() => {
+    if (!rangeMonths) return null;
+    if (mainDailyTargetRange) {
+      return mainDailyTargetRange;
+    }
+    return buildRange(dailyCandles, rangeMonths);
+  }, [dailyCandles, rangeMonths, mainDailyTargetRange]);
 
   const weeklyVisibleRange = useMemo(
     () => (rangeMonths ? buildRange(weeklyCandles, rangeMonths) : null),
     [weeklyCandles, rangeMonths]
   );
 
-  const monthlyVisibleRange = useMemo(
-    () => (rangeMonths ? buildRange(monthlyCandles, rangeMonths) : null),
-    [monthlyCandles, rangeMonths]
+  const monthlyVisibleRange = useMemo(() => {
+    if (!rangeMonths) return null;
+    if (mainAsOfTime) {
+      return buildRangeEndingAt(monthlyCandles, rangeMonths, mainAsOfTime);
+    }
+    return buildRange(monthlyCandles, rangeMonths);
+  }, [monthlyCandles, rangeMonths, mainAsOfTime]);
+  const compareMonthlyVisibleRange = useMemo(() => {
+    if (compareMonthlyTargetRange) return compareMonthlyTargetRange;
+    return buildRange(compareMonthlyCandles, 24);
+  }, [compareMonthlyTargetRange, compareMonthlyCandles]);
+  const compareMonthlyBaseRange = useMemo(() => {
+    if (mainMonthlyTargetRange) return mainMonthlyTargetRange;
+    return buildRange(monthlyCandles, 24);
+  }, [mainMonthlyTargetRange, monthlyCandles]);
+  const compareRequiredFrom = useMemo(
+    () => compareDailyTargetRange?.from ?? null,
+    [compareDailyTargetRange]
   );
+  const compareDailyVisibleRange = useMemo(() => {
+    if (!compareDailyTargetRange) return null;
+    if (!compareDailyCandles.length) return null;
+    return compareDailyTargetRange;
+  }, [compareDailyTargetRange, compareDailyCandles]);
+  const dailyRangeLabel = useMemo(() => {
+    if (!rangeMonths) return "全期間";
+    if (rangeMonths === 3) return "3M";
+    if (rangeMonths === 6) return "6M";
+    if (rangeMonths === 12) return "1Y";
+    if (rangeMonths === 24) return "2Y";
+    return `${rangeMonths}M`;
+  }, [rangeMonths]);
+  const leftDailyRangeLabel = useMemo(() => {
+    if (mainDailyTargetRange) {
+      return `対象期間: ${formatDateLabel(mainDailyTargetRange.from)} - ${formatDateLabel(mainDailyTargetRange.to)}`;
+    }
+    return `表示期間: ${dailyRangeLabel}`;
+  }, [mainDailyTargetRange, dailyRangeLabel]);
+  const rightDailyRangeLabel = useMemo(() => {
+    if (compareDailyTargetRange) {
+      return `一致期間: ${formatDateLabel(compareDailyTargetRange.from)} - ${formatDateLabel(compareDailyTargetRange.to)}`;
+    }
+    if (compareAsOfTime) {
+      return `一致日: ${formatDateLabel(compareAsOfTime)}`;
+    }
+    return "一致期間: --";
+  }, [compareDailyTargetRange, compareAsOfTime]);
+  const leftMonthlyRangeLabel = useMemo(() => {
+    if (mainMonthlyTargetRange) {
+      return `対象期間: ${formatDateLabel(mainMonthlyTargetRange.from)} - ${formatDateLabel(mainMonthlyTargetRange.to)}`;
+    }
+    return "24本";
+  }, [mainMonthlyTargetRange]);
+  const rightMonthlyRangeLabel = useMemo(() => {
+    if (compareMonthlyVisibleRange) {
+      return `一致期間: ${formatDateLabel(compareMonthlyVisibleRange.from)} - ${formatDateLabel(compareMonthlyVisibleRange.to)}`;
+    }
+    return "24本";
+  }, [compareMonthlyVisibleRange]);
+  const compareDailyNeedsMore = useMemo(() => {
+    if (!compareDailyTargetRange || !compareDailyCandles.length) return false;
+    const earliest = compareDailyCandles[0]?.time;
+    if (!earliest) return false;
+    const hasMore = compareDailyData.length >= compareDailyLimit;
+    return compareDailyTargetRange.from < earliest && hasMore;
+  }, [compareDailyTargetRange, compareDailyCandles, compareDailyData.length, compareDailyLimit]);
+  const mainMonthlyNeedsMore = useMemo(() => {
+    if (!compareCode || !compareRequiredFrom || !monthlyCandles.length) return false;
+    const earliest = monthlyCandles[0]?.time;
+    if (!earliest) return false;
+    const hasMore = monthlyData.length >= monthlyLimit;
+    return compareRequiredFrom < earliest && hasMore;
+  }, [compareCode, compareRequiredFrom, monthlyCandles, monthlyData.length, monthlyLimit]);
+  const compareMonthlyNeedsMore = useMemo(() => {
+    if (!compareCode || !compareRequiredFrom || !compareMonthlyCandles.length) return false;
+    const earliest = compareMonthlyCandles[0]?.time;
+    if (!earliest) return false;
+    const hasMore = compareMonthlyData.length >= monthlyLimit;
+    return compareRequiredFrom < earliest && hasMore;
+  }, [
+    compareCode,
+    compareRequiredFrom,
+    compareMonthlyCandles,
+    compareMonthlyData.length,
+    monthlyLimit
+  ]);
+
+  useEffect(() => {
+    if (!compareCode) return;
+    if (compareDailyLoading) return;
+    if (!compareDailyNeedsMore) return;
+    setCompareDailyLimit((prev) => prev + LIMIT_STEP.daily);
+  }, [compareCode, compareDailyLoading, compareDailyNeedsMore]);
+  useEffect(() => {
+    if (!compareCode) return;
+    if (loadingMonthly || compareLoading) return;
+    if (!mainMonthlyNeedsMore && !compareMonthlyNeedsMore) return;
+    setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly);
+  }, [
+    compareCode,
+    loadingMonthly,
+    compareLoading,
+    mainMonthlyNeedsMore,
+    compareMonthlyNeedsMore
+  ]);
 
   useEffect(() => {
     const handleMove = (event: MouseEvent | TouchEvent) => {
@@ -829,48 +1619,76 @@ export default function DetailView() {
     };
   }, [showPositionLedger]);
 
+  // Cursor mode keyboard handler
   useEffect(() => {
-    if (hoverRafRef.current !== null) {
-      window.cancelAnimationFrame(hoverRafRef.current);
-      hoverRafRef.current = null;
-    }
-    hoverTimePendingRef.current = null;
-    hoverTimeRef.current = null;
-    setHoverTime(null);
-    dailyChartRef.current?.clearCrosshair();
-    weeklyChartRef.current?.clearCrosshair();
-    monthlyChartRef.current?.clearCrosshair();
-  }, [focusPanel]);
+    if (!cursorMode) return;
 
-  useEffect(() => {
-    return () => {
-      if (hoverRafRef.current !== null) {
-        window.cancelAnimationFrame(hoverRafRef.current);
-        hoverRafRef.current = null;
+    const handleCursorKeyDown = (e: KeyboardEvent) => {
+      // Don't handle if typing in textarea or input
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+        return;
+      }
+
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          moveToPrevDay();
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          moveToNextDay();
+          break;
+        case 'c':
+        case 'C':
+          if (!e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            toggleCursorMode();
+          }
+          break;
+        case 'Escape':
+          e.preventDefault();
+          setCursorMode(false);
+          break;
       }
     };
-  }, []);
 
-  useEffect(() => {
-    return () => {
-      if (syncRafRef.current !== null) {
-        window.cancelAnimationFrame(syncRafRef.current);
-        syncRafRef.current = null;
-      }
-    };
-  }, []);
+    window.addEventListener('keydown', handleCursorKeyDown);
+    return () => window.removeEventListener('keydown', handleCursorKeyDown);
+  }, [cursorMode, selectedBarIndex, dailyCandles]);
 
-  const scheduleHoverTime = (time: number | null) => {
-    hoverTimePendingRef.current = time;
-    if (hoverRafRef.current !== null) return;
-    hoverRafRef.current = window.requestAnimationFrame(() => {
-      hoverRafRef.current = null;
-      const next = hoverTimePendingRef.current ?? null;
-      if (hoverTimeRef.current === next) return;
-      hoverTimeRef.current = next;
-      setHoverTime(next);
-    });
-  };
+
+  const compareHasMoreDaily = compareDailyData.length >= compareDailyLimit;
+  const compareHasMoreMonthly = compareMonthlyData.length >= monthlyLimit; // monthlyLimit is shared
+
+  const mainSync = useChartSync(dailyChartRef, monthlyChartRef, weeklyChartRef, {
+    enabled: syncRanges ?? true,
+    cursorEnabled: true,
+    onLoadMoreDaily: () => setDailyLimit((prev) => prev + LIMIT_STEP.daily),
+    onLoadMoreMonthly: () => setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly),
+    hasMoreDaily,
+    loadingDaily,
+    hasMoreMonthly,
+    loadingMonthly,
+    dailyCandles,
+    monthlyCandles
+  });
+
+  const compareSync = useChartSync(compareDailyChartRef, compareMonthlyChartRef, undefined, {
+    enabled: syncRanges ?? true,
+    cursorEnabled: true,
+    onLoadMoreDaily: () => setCompareDailyLimit((prev) => prev + LIMIT_STEP.daily),
+    // compare monthly load more is implicitly handled by shared monthlyLimit, but comparing data length:
+    onLoadMoreMonthly: () => setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly),
+    hasMoreDaily: compareHasMoreDaily,
+    loadingDaily: compareDailyLoading,
+    hasMoreMonthly: compareHasMoreMonthly,
+    loadingMonthly: compareLoading, // compareLoading is for monthly
+    dailyCandles: compareDailyCandles,
+    monthlyCandles: compareMonthlyCandles
+  });
+
+  // Removed scheduleHoverTime
 
   const showVolumeDaily = dailyVolume.length > 0;
 
@@ -886,37 +1704,7 @@ export default function DetailView() {
     setRangeMonths((prev) => (prev === months ? null : months));
   };
 
-  const syncRangeToSecondary = (range: { from: number; to: number }) => {
-    if (!syncRangesRef.current) return;
-    const weeklyMin = weeklyCandles[0]?.time;
-    const monthlyMin = monthlyCandles[0]?.time;
-    if (weeklyMin && range.from < weeklyMin && hasMoreDaily && !loadingDaily) {
-      loadMoreDaily();
-    }
-    if (monthlyMin && range.from < monthlyMin && hasMoreMonthly && !loadingMonthly) {
-      loadMoreMonthly();
-    }
-    weeklyChartRef.current?.setVisibleRange(range);
-    monthlyChartRef.current?.setVisibleRange(range);
-  };
-
-  const handleDailyVisibleRangeChange = (range: { from: number; to: number } | null) => {
-    if (!range) return;
-    pendingRangeRef.current = range;
-    if (syncRafRef.current !== null) return;
-    syncRafRef.current = window.requestAnimationFrame(() => {
-      syncRafRef.current = null;
-      const pending = pendingRangeRef.current;
-      if (!pending) return;
-      syncRangeToSecondary(pending);
-    });
-  };
-
-  useEffect(() => {
-    const pending = pendingRangeRef.current;
-    if (!pending || !syncRangesRef.current) return;
-    syncRangeToSecondary(pending);
-  }, [weeklyCandles, monthlyCandles, loadingDaily, loadingMonthly]);
+  // Removed syncRangeToSecondary and handleDailyVisibleRangeChange (handled by hook)
 
   const parseBarsResponse = (payload: BarsResponse | number[][], label: string) => {
     if (Array.isArray(payload)) {
@@ -945,11 +1733,21 @@ export default function DetailView() {
     return { items, info, unrecognized_labels: { count: unrecognized.count, samples } };
   };
 
+  const activeMaSettings = maEditMode === "compare" ? compareMaSettings : maSettings;
+
   const updateSetting = (timeframe: Timeframe, index: number, patch: Partial<MaSetting>) => {
+    if (maEditMode === "compare") {
+      updateCompareMaSetting(timeframe, index, patch);
+      return;
+    }
     updateMaSetting(timeframe, index, patch);
   };
 
   const resetSettings = (timeframe: Timeframe) => {
+    if (maEditMode === "compare") {
+      resetCompareMaSettings(timeframe);
+      return;
+    }
     resetMaSettings(timeframe);
   };
 
@@ -984,8 +1782,8 @@ export default function DetailView() {
       typeof window === "undefined"
         ? false
         : window.confirm(
-            `${code} を完全に削除しますか？\ncode.txt、data/txt、DB、お気に入り、練習セッションも削除します。`
-          );
+          `${code} を完全に削除しますか？\ncode.txt、data/txt、DB、お気に入り、練習セッションも削除します。`
+        );
     if (!confirmed) return;
     setDeleteBusy(true);
     setToastAction(null);
@@ -1033,27 +1831,26 @@ export default function DetailView() {
     }
   };
 
-  const handleDailyCrosshair = (time: number | null, point?: { x: number; y: number } | null) => {
-    weeklyChartRef.current?.setCrosshair(time, null);
-    monthlyChartRef.current?.setCrosshair(time, null);
-    if (focusPanel === null || focusPanel === "daily") {
-      scheduleHoverTime(time);
+  /* Handlers replaced by hooks */
+  const handleDailyCrosshair = mainSync.handleDailyCrosshair;
+  const handleWeeklyCrosshair = mainSync.handleWeeklyCrosshair;
+  const handleMonthlyCrosshair = mainSync.handleMonthlyCrosshair;
+
+  const handleCompareMonthlyCrosshair = (time: number | null, source: "left" | "right") => {
+    if (source === "left") {
+      // Main chart (Left)
+      mainSync.handleMonthlyCrosshair(time);
+    } else {
+      // Compare chart (Right)
+      compareSync.handleMonthlyCrosshair(time);
     }
   };
 
-  const handleWeeklyCrosshair = (time: number | null, point?: { x: number; y: number } | null) => {
-    dailyChartRef.current?.setCrosshair(time, null);
-    monthlyChartRef.current?.setCrosshair(time, null);
-    if (focusPanel === "weekly") {
-      scheduleHoverTime(time);
-    }
-  };
-
-  const handleMonthlyCrosshair = (time: number | null, point?: { x: number; y: number } | null) => {
-    dailyChartRef.current?.setCrosshair(time, null);
-    weeklyChartRef.current?.setCrosshair(time, null);
-    if (focusPanel === "monthly") {
-      scheduleHoverTime(time);
+  const handleCompareDailyCrosshair = (time: number | null, source: "left" | "right") => {
+    if (source === "left") {
+      mainSync.handleDailyCrosshair(time);
+    } else {
+      compareSync.handleDailyCrosshair(time);
     }
   };
 
@@ -1098,12 +1895,60 @@ export default function DetailView() {
       return [];
     }
   }, [code]);
+  const compareList = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = window.sessionStorage.getItem("similarCompareList");
+      if (!stored) return null;
+      const parsed = JSON.parse(stored) as CompareListPayload;
+      if (!parsed || typeof parsed !== "object") return null;
+      if (typeof parsed.queryTicker !== "string" || !Array.isArray(parsed.items)) return null;
+      const items = parsed.items
+        .map((item) => ({
+          ticker: typeof item?.ticker === "string" ? item.ticker : "",
+          asof: typeof item?.asof === "string" ? item.asof : null
+        }))
+        .filter((item) => item.ticker);
+      return {
+        queryTicker: parsed.queryTicker,
+        mainAsOf: typeof parsed.mainAsOf === "string" ? parsed.mainAsOf : null,
+        items
+      };
+    } catch {
+      return null;
+    }
+  }, [code, compareCode, mainAsOf]);
+  const compareListItems = compareList?.items ?? [];
+  const compareListEligible = useMemo(() => {
+    if (!compareList) return false;
+    if (compareList.queryTicker !== code) return false;
+    const storedMainAsOf = compareList.mainAsOf ?? null;
+    const currentMainAsOf = mainAsOf ?? null;
+    return storedMainAsOf === currentMainAsOf;
+  }, [compareList, code, mainAsOf]);
+  const nextCompareItem = useMemo(() => {
+    if (!compareListEligible || !compareCode) return null;
+    const index = compareListItems.findIndex(
+      (item) => item.ticker === compareCode && (item.asof ?? null) === (compareAsOf ?? null)
+    );
+    if (index < 0) return null;
+    return compareListItems[index + 1] ?? null;
+  }, [compareListEligible, compareListItems, compareCode, compareAsOf]);
   const nextCode = useMemo(() => {
     if (!code) return null;
     const index = listCodes.indexOf(code);
     if (index < 0) return null;
     return listCodes[index + 1] ?? null;
   }, [listCodes, code]);
+
+  // Use shared hook for memo panel data
+  const memoPanelData = useDetailInfo(
+    selectedBarData,
+    selectedBarIndex,
+    dailyCandles,
+    dailyPositions,
+    dailyMaLines
+  );
 
   return (
     <div className={`detail-shell ${focusPanel ? "detail-shell-focus" : ""}`}>
@@ -1139,9 +1984,14 @@ export default function DetailView() {
           <div className="detail-title-text">
             <div className="detail-title-top">
               <div className="detail-title-code">{code}</div>
-              <div className="detail-title-name">{tickerName || "?????"}</div>
+              <div className="detail-title-name">{tickerName || "（名称不明）"}</div>
             </div>
-            <div className="subtitle">{subtitle}</div>
+            {(rightsLabel || earningsLabel) && (
+              <div className="detail-event-badges">
+                {rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
+                {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
+              </div>
+            )}
           </div>
           <div className="detail-title-actions">
             <button
@@ -1191,20 +2041,23 @@ export default function DetailView() {
             </div>
           </div>
           <div className="detail-controls-group">
-            <button
-              className={showBoxes ? "indicator-button active" : "indicator-button"}
+            <IconButton
+              icon={<IconBox size={18} />}
+              label="Boxes"
+              variant="iconLabel"
+              tooltip="Boxes"
+              ariaLabel="Boxes"
+              selected={showBoxes}
               onClick={() => setShowBoxes(!showBoxes)}
-            >
-              Boxes
-            </button>
-            <button
-              className={showTradesOverlay ? "indicator-button active" : "indicator-button"}
-              onClick={() => setShowTradesOverlay((prev) => !prev)}
-            >
-              Positions
-            </button>
-            <button
-              className={showPositionLedger ? "indicator-button active" : "indicator-button"}
+            />
+
+            <IconButton
+              icon={<IconListDetails size={18} />}
+              label="建玉推移"
+              variant="iconLabel"
+              tooltip="建玉推移"
+              ariaLabel="建玉推移"
+              selected={showPositionLedger}
               onClick={() =>
                 setShowPositionLedger((prev) => {
                   const next = !prev;
@@ -1214,34 +2067,39 @@ export default function DetailView() {
                   return next;
                 })
               }
-            >
-              建玉推移
-            </button>
-            <button
-              className={showPnLPanel ? "indicator-button active" : "indicator-button"}
-              onClick={() => setShowPnLPanel(!showPnLPanel)}
-            >
-              PnL
-            </button>
-            <button
-              className={syncRanges ? "indicator-button active" : "indicator-button"}
+            />
+
+            <IconButton
+              icon={<IconLink size={18} />}
+              label={`連動 ${syncRanges ? "ON" : "OFF"}`}
+              variant="iconLabel"
+              tooltip={`連動 ${syncRanges ? "ON" : "OFF"}`}
+              ariaLabel="連動"
+              selected={syncRanges}
               onClick={() => setSyncRanges((prev) => !prev)}
-            >
-              連動: {syncRanges ? "ON" : "OFF"}
-            </button>
+            />
+            <IconButton
+              icon={<IconPointer size={18} />}
+              label={`カーソル ${cursorMode ? "ON" : "OFF"}`}
+              variant="iconLabel"
+              tooltip="カーソルモード切替 (C)"
+              ariaLabel="カーソルモード切替"
+              selected={cursorMode}
+              onClick={toggleCursorMode}
+            />
           </div>
           <div className="detail-controls-group detail-controls-icons">
             <IconButton
               label="Indicators"
               icon={<IconAdjustments size={18} />}
               onClick={() => setShowIndicators(true)}
-              title="Indicators"
+              tooltip="Indicators"
             />
             <IconButton
               label="スクショ"
               icon={<IconCamera size={18} />}
               disabled={screenshotBusy}
-              title="スクショ"
+              tooltip="スクショ"
               onClick={async () => {
                 if (screenshotBusy) return;
                 setScreenshotBusy(true);
@@ -1253,6 +2111,28 @@ export default function DetailView() {
                     setToastMessage(result.error ?? "スクショに失敗しました");
                     return;
                   }
+
+                  const handleSaveSuccess = (saveResult: { success: boolean, savedPath?: string, savedDir?: string, error?: string }) => {
+                    if (saveResult.savedPath || saveResult.savedDir) {
+                      setToastMessage("スクショを保存しました");
+                      setToastAction({
+                        label: "フォルダを開く",
+                        onClick: async () => {
+                          if (window.pywebview?.api?.open_path) {
+                            const target = saveResult.savedPath || saveResult.savedDir;
+                            if (target) {
+                              await window.pywebview.api.open_path(target);
+                            }
+                          }
+                        }
+                      });
+                    } else {
+                      // Fallback for browser download or missing path
+                      setToastMessage("スクショを保存しました (保存先不明)");
+                      setToastAction(null);
+                    }
+                  };
+
                   if (result.copied) {
                     // Clipboard copy succeeded - show toast with save action
                     const blob = result.blob!;
@@ -1261,9 +2141,13 @@ export default function DetailView() {
                     setToastAction({
                       label: "保存...",
                       onClick: async () => {
-                        await saveBlobToFile(blob, filename);
-                        setToastMessage("スクショを保存しました");
-                        setToastAction(null);
+                        const saveResult = await saveBlobToFile(blob, filename);
+                        if (saveResult.success) {
+                          handleSaveSuccess(saveResult);
+                        } else {
+                          setToastMessage(saveResult.error || "保存に失敗しました");
+                          setToastAction(null);
+                        }
                       },
                     });
                   } else {
@@ -1271,7 +2155,13 @@ export default function DetailView() {
                     setToastMessage("クリップボードにコピーできなかったため保存しました");
                     setToastAction(null);
                     if (result.blob && result.filename) {
-                      await saveBlobToFile(result.blob, result.filename);
+                      const saveResult = await saveBlobToFile(result.blob, result.filename);
+                      if (saveResult.success) {
+                        handleSaveSuccess(saveResult);
+                      } else {
+                        setToastMessage(saveResult.error || "保存に失敗しました");
+                        setToastAction(null);
+                      }
                     }
                   }
                 } finally {
@@ -1282,21 +2172,98 @@ export default function DetailView() {
             <IconButton
               label="AI出力"
               icon={<IconSparkles size={18} />}
-              title="AI出力"
+              tooltip="AI出力"
               onClick={async () => {
+                let dailyMemos: Record<string, string> = {};
+                if (code) {
+                  try {
+                    const memoRes = await api.get("/memo/list", {
+                      params: { symbol: code, timeframe: "D" }
+                    });
+                    const items = memoRes.data?.items;
+                    if (Array.isArray(items)) {
+                      items.forEach((item: { date?: string; memo?: string }) => {
+                        const rawDate = (item?.date ?? "").trim();
+                        if (!rawDate) return;
+                        const normalized = rawDate.replace(/\//g, "-");
+                        dailyMemos[normalized] = item.memo ?? "";
+                      });
+                    }
+                  } catch {
+                    dailyMemos = {};
+                  }
+                }
+
+                const dailyVolumeMap = new Map(dailyVolume.map((item) => [item.time, item.value]));
+                const weeklyVolumeCounts = new Map<number, number>();
+                dailyCandles.forEach((candle) => {
+                  if (!dailyVolumeMap.has(candle.time)) return;
+                  const date = new Date(candle.time * 1000);
+                  const day = date.getUTCDay();
+                  const diff = (day + 6) % 7;
+                  const weekStart = Date.UTC(
+                    date.getUTCFullYear(),
+                    date.getUTCMonth(),
+                    date.getUTCDate() - diff
+                  );
+                  const key = Math.floor(weekStart / 1000);
+                  weeklyVolumeCounts.set(key, (weeklyVolumeCounts.get(key) ?? 0) + 1);
+                });
+                const weeklyVolumeMap = new Map<number, number | null>();
+                weeklyVolume.forEach((item) => {
+                  const count = weeklyVolumeCounts.get(item.time) ?? 0;
+                  weeklyVolumeMap.set(item.time, count > 0 ? item.value : null);
+                });
+                const monthlyVolumeSums = new Map<number, number>();
+                dailyCandles.forEach((candle) => {
+                  const volume = dailyVolumeMap.get(candle.time);
+                  if (volume == null || !Number.isFinite(volume)) return;
+                  const date = new Date(candle.time * 1000);
+                  const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+                  const key = Math.floor(monthStart / 1000);
+                  monthlyVolumeSums.set(key, (monthlyVolumeSums.get(key) ?? 0) + volume);
+                });
+                const monthlyVolumeMap = new Map<number, number>();
+                monthlyCandles.forEach((candle) => {
+                  const sum = monthlyVolumeSums.get(candle.time);
+                  monthlyVolumeMap.set(candle.time, Number.isFinite(sum) ? Math.round(sum ?? 0) : 0);
+                });
                 const exportData = buildAIExport({
                   code: code ?? "",
                   name: tickerName,
                   visibleTimeframe: "daily",
                   rangeMonths: rangeMonths,
-                  dailyBars: dailyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
-                  weeklyBars: weeklyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
-                  monthlyBars: monthlyCandles.map((c) => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
+                  dailyBars: dailyCandles.map((c) => ({
+                    time: c.time,
+                    open: c.open,
+                    high: c.high,
+                    low: c.low,
+                    close: c.close,
+                    volume: dailyVolumeMap.get(c.time) ?? null
+                  })),
+                  weeklyBars: weeklyCandles.map((c) => ({
+                    time: c.time,
+                    open: c.open,
+                    high: c.high,
+                    low: c.low,
+                    close: c.close,
+                    volume: weeklyVolumeMap.get(c.time) ?? null
+                  })),
+                  monthlyBars: monthlyCandles.map((c) => ({
+                    time: c.time,
+                    open: c.open,
+                    high: c.high,
+                    low: c.low,
+                    close: c.close,
+                    volume: monthlyVolumeMap.get(c.time) ?? null
+                  })),
                   maSettings,
                   signals: dailySignals,
                   showBoxes,
                   showPositions: showTradesOverlay,
                   boxes,
+                  dailyMemos,
+                  currentPositions,
                 });
                 const copied = await copyToClipboard(exportData.markdown);
                 if (copied) {
@@ -1307,149 +2274,219 @@ export default function DetailView() {
               }}
             />
             <IconButton
+              label="類似"
+              icon={<IconChartArrows size={18} />}
+              tooltip="類似チャート検索"
+              onClick={() => setShowSimilar(true)}
+            />
+            <IconButton
               label="削除"
               icon={<IconTrash size={18} />}
-              title="削除"
+              tooltip="削除"
               disabled={deleteBusy || !code}
               onClick={handleDeleteTicker}
             />
           </div>
         </div>
       </div>
-      <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""}`}>
-        {focusPanel ? (
-          <div className="detail-row detail-row-focus">
-            <div className="detail-pane-header">{focusTitle}</div>
-            <div
-              className="detail-chart detail-chart-focused"
-              onDoubleClick={() => toggleFocus(focusPanel)}
-            >
-              {focusPanel === "daily" && (
-                <DetailChart
-                  ref={dailyChartRef}
-                  candles={dailyCandles}
-                  volume={dailyVolume}
-                  maLines={dailyMaLines}
-                  showVolume={showVolumeDaily}
-                  boxes={boxes}
-                  showBoxes={showBoxes}
-                  visibleRange={dailyVisibleRange}
-                  positionOverlay={{
-                    dailyPositions,
-                    tradeMarkers,
-                    showOverlay: showTradesOverlay,
-                    showMarkers: true,
-                    showPnL: showPnLPanel,
-                    hoverTime
-                  }}
-                  onCrosshairMove={handleDailyCrosshair}
-                  onVisibleRangeChange={handleDailyVisibleRangeChange}
-                />
-              )}
-              {focusPanel === "weekly" && (
-                <DetailChart
-                  ref={weeklyChartRef}
-                  candles={weeklyCandles}
-                  volume={weeklyVolume}
-                  maLines={weeklyMaLines}
-                  showVolume={false}
-                  boxes={boxes}
-                  showBoxes={showBoxes}
-                  visibleRange={weeklyVisibleRange}
-                  positionOverlay={{
-                    dailyPositions,
-                    tradeMarkers,
-                    showOverlay: showTradesOverlay,
-                    showMarkers: false,
-                    showPnL: showPnLPanel,
-                    hoverTime
-                  }}
-                  onCrosshairMove={handleWeeklyCrosshair}
-                />
-              )}
-              {focusPanel === "monthly" && (
-                <DetailChart
-                  ref={monthlyChartRef}
-                  candles={monthlyCandles}
-                  volume={monthlyVolume}
-                  maLines={monthlyMaLines}
-                  showVolume={false}
-                  boxes={boxes}
-                  showBoxes={showBoxes}
-                  visibleRange={monthlyVisibleRange}
-                  positionOverlay={{
-                    dailyPositions,
-                    tradeMarkers,
-                    showOverlay: showTradesOverlay,
-                    showMarkers: false,
-                    showPnL: showPnLPanel,
-                    hoverTime
-                  }}
-                  onCrosshairMove={handleMonthlyCrosshair}
-                />
-              )}
-              {focusPanel === "daily" && dailyEmptyMessage && (
-                <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
-              )}
-              {focusPanel === "weekly" && weeklyEmptyMessage && (
-                <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
-              )}
-              {focusPanel === "monthly" && monthlyEmptyMessage && (
-                <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
-              )}
-              <button
-                type="button"
-                className="detail-focus-back"
-                onClick={() => setFocusPanel(null)}
-              >
-                Back to 3 charts
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="detail-row detail-row-top" style={{ flex: `${DAILY_ROW_RATIO} 1 0%` }}>
-              <div className="detail-pane-header">Daily</div>
-              <div
-                className="detail-chart detail-chart-focusable"
-                onDoubleClick={() => toggleFocus("daily")}
-              >
-                <DetailChart
-                  ref={dailyChartRef}
-                  candles={dailyCandles}
-                  volume={dailyVolume}
-                  maLines={dailyMaLines}
-                  showVolume={showVolumeDaily}
-                  boxes={boxes}
-                  showBoxes={showBoxes}
-                  visibleRange={dailyVisibleRange}
-                  positionOverlay={{
-                    dailyPositions,
-                    tradeMarkers,
-                    showOverlay: showTradesOverlay,
-                    showMarkers: true,
-                    showPnL: showPnLPanel,
-                    hoverTime
-                  }}
-                  onCrosshairMove={handleDailyCrosshair}
-                  onVisibleRangeChange={handleDailyVisibleRangeChange}
-                />
-                {dailyEmptyMessage && (
-                  <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
-                )}
+      <div className="detail-content">
+        <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""} ${cursorMode ? "with-memo-panel" : ""}`}>
+          {compareCode && (
+            <div className="detail-compare">
+              <div className="detail-compare-header">
+                <div>
+                  <div className="detail-compare-title">
+                    比較: {code} / {compareCode}
+                  </div>
+                  {compareAsOf && (
+                    <div className="detail-compare-subtitle">類似日付: {compareAsOf}</div>
+                  )}
+                </div>
+                <div className="detail-compare-actions">
+                  <button
+                    type="button"
+                    className="detail-compare-close"
+                    disabled={!nextCompareItem}
+                    onClick={() => {
+                      if (!nextCompareItem) return;
+                      const params = new URLSearchParams();
+                      params.set("compare", nextCompareItem.ticker);
+                      if (mainAsOf) {
+                        params.set("mainAsOf", mainAsOf);
+                      }
+                      if (nextCompareItem.asof) {
+                        params.set("compareAsOf", nextCompareItem.asof);
+                      }
+                      navigate(`/detail/${code}?${params.toString()}`);
+                    }}
+                  >
+                    次の比較
+                  </button>
+                  <button
+                    type="button"
+                    className="detail-compare-close"
+                    onClick={() => navigate(`/detail/${code}`)}
+                  >
+                    比較解除
+                  </button>
+                </div>
+              </div>
+              <div className="detail-compare-grid">
+                <div className="detail-compare-cell">
+                  <div className="detail-compare-cell-header">
+                    <div className="detail-compare-cell-title">{code} {tickerName}</div>
+                    <div className="detail-compare-cell-meta">月足 ({leftMonthlyRangeLabel})</div>
+                  </div>
+                  <div className="detail-chart detail-compare-chart">
+                    <DetailChart
+                      ref={monthlyChartRef}
+                      candles={monthlyCandles}
+                      volume={monthlyVolume}
+                      maLines={monthlyMaLines}
+                      showVolume={false}
+                      boxes={boxes}
+                      showBoxes={showBoxes}
+                      visibleRange={monthlyCandles.length ? compareMonthlyBaseRange : null}
+                      onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "left")}
+                    />
+                    {monthlyEmptyMessage && (
+                      <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="detail-compare-cell">
+                  <div className="detail-compare-cell-header">
+                    <div className="detail-compare-cell-title">{compareCode} {compareTickerName}</div>
+                    <div className="detail-compare-cell-meta">月足 ({rightMonthlyRangeLabel})</div>
+                  </div>
+                  <div className="detail-chart detail-compare-chart">
+                    <DetailChart
+                      ref={compareMonthlyChartRef}
+                      candles={compareMonthlyCandles}
+                      volume={[]}
+                      maLines={compareMonthlyMaLines}
+                      showVolume={false}
+                      boxes={compareBoxes}
+                      showBoxes={showBoxes}
+                      visibleRange={compareMonthlyCandles.length ? compareMonthlyVisibleRange : null}
+                      onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "right")}
+                    />
+                    {compareLoading && (
+                      <div className="detail-chart-empty">Loading...</div>
+                    )}
+                    {!compareLoading && compareMonthlyErrors.length > 0 && (
+                      <div className="detail-chart-empty">Monthly: {compareMonthlyErrors[0]}</div>
+                    )}
+                    {!compareLoading && compareMonthlyErrors.length === 0 && compareMonthlyCandles.length === 0 && (
+                      <div className="detail-chart-empty">Monthly: データがありません</div>
+                    )}
+                  </div>
+                </div>
+                <div className="detail-compare-cell">
+                  <div className="detail-compare-cell-header">
+                    <div className="detail-compare-cell-title">{code} {tickerName}</div>
+                    <div className="detail-compare-cell-meta">日足 ({leftDailyRangeLabel})</div>
+                  </div>
+                  <div className="detail-chart detail-compare-chart">
+                    <DetailChart
+                      ref={dailyChartRef}
+                      candles={dailyCandles}
+                      volume={dailyVolume}
+                      maLines={dailyMaLines}
+                      showVolume={showVolumeDaily}
+                      boxes={boxes}
+                      showBoxes={showBoxes}
+                      visibleRange={dailyCandles.length ? dailyVisibleRange : null}
+                      positionOverlay={{
+                        dailyPositions,
+                        tradeMarkers,
+                        showOverlay: showTradesOverlay,
+                        showMarkers: true,
+                        showPnL: showPnLPanel,
+                        hoverTime: mainSync.hoverTime,
+                        currentPositions,
+                        latestTradeTime
+                      }}
+                      onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "left")}
+                      onVisibleRangeChange={mainSync.handleDailyVisibleRangeChange}
+                    />
+                    {dailyEmptyMessage && (
+                      <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="detail-compare-cell">
+                  <div className="detail-compare-cell-header">
+                    <div className="detail-compare-cell-title">{compareCode} {compareTickerName}</div>
+                    <div className="detail-compare-cell-meta">日足 ({rightDailyRangeLabel})</div>
+                  </div>
+                  <div className="detail-chart detail-compare-chart">
+                    <DetailChart
+                      ref={compareDailyChartRef}
+                      candles={compareDailyCandles}
+                      volume={compareDailyVolume}
+                      maLines={compareDailyMaLines}
+                      showVolume={compareDailyVolume.length > 0}
+                      boxes={compareBoxes}
+                      showBoxes={showBoxes}
+                      visibleRange={compareDailyVisibleRange}
+                      positionOverlay={{
+                        dailyPositions: compareDailyPositions,
+                        tradeMarkers: compareTradeMarkers,
+                        showOverlay: showTradesOverlay,
+                        showMarkers: true,
+                        showPnL: showPnLPanel,
+                        hoverTime: compareSync.hoverTime
+                      }}
+                      onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "right")}
+                      onVisibleRangeChange={compareSync.handleDailyVisibleRangeChange}
+                    />
+                    {(compareDailyLoading || compareDailyNeedsMore) && (
+                      <div className="detail-chart-empty">一致期間のデータを読み込み中...</div>
+                    )}
+                    {!compareDailyLoading && compareDailyErrors.length > 0 && (
+                      <div className="detail-chart-empty">Daily: {compareDailyErrors[0]}</div>
+                    )}
+                    {!compareDailyLoading && compareDailyErrors.length === 0 && compareDailyCandles.length === 0 && (
+                      <div className="detail-chart-empty">Daily: データがありません</div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
-            <div
-              className="detail-row detail-row-bottom"
-              style={{ flex: `${1 - DAILY_ROW_RATIO} 1 0%` }}
-              ref={bottomRowRef}
-            >
-              <div className="detail-pane" style={{ flex: `${weeklyRatio} 1 0%` }}>
-                <div className="detail-pane-header">Weekly</div>
-                <div
-                  className="detail-chart detail-chart-focusable"
-                  onDoubleClick={() => toggleFocus("weekly")}
-                >
+          )}
+          {compareCode ? null : focusPanel ? (
+            <div className="detail-row detail-row-focus">
+              <div className="detail-pane-header">{focusTitle}</div>
+              <div
+                className="detail-chart detail-chart-focused"
+                onDoubleClick={() => toggleFocus(focusPanel)}
+              >
+                {focusPanel === "daily" && (
+                  <DetailChart
+                    ref={dailyChartRef}
+                    candles={dailyCandles}
+                    volume={dailyVolume}
+                    maLines={dailyMaLines}
+                    showVolume={showVolumeDaily}
+                    boxes={boxes}
+                    showBoxes={showBoxes}
+                    visibleRange={dailyVisibleRange}
+                    positionOverlay={{
+                      dailyPositions,
+                      tradeMarkers,
+                      showOverlay: showTradesOverlay,
+                      showMarkers: true,
+                      showPnL: showPnLPanel,
+                      hoverTime: mainSync.hoverTime,
+                      currentPositions,
+                      latestTradeTime
+                    }}
+                    onCrosshairMove={handleDailyCrosshair}
+                    onVisibleRangeChange={mainSync.handleDailyVisibleRangeChange}
+                  />
+                )}
+                {focusPanel === "weekly" && (
                   <DetailChart
                     ref={weeklyChartRef}
                     candles={weeklyCandles}
@@ -1459,24 +2496,20 @@ export default function DetailView() {
                     boxes={boxes}
                     showBoxes={showBoxes}
                     visibleRange={weeklyVisibleRange}
+                    positionOverlay={{
+                      dailyPositions,
+                      tradeMarkers,
+                      showOverlay: showTradesOverlay,
+                      showMarkers: false,
+                      showPnL: showPnLPanel,
+                      hoverTime,
+                      currentPositions,
+                      latestTradeTime
+                    }}
                     onCrosshairMove={handleWeeklyCrosshair}
                   />
-                  {weeklyEmptyMessage && (
-                    <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
-                  )}
-                </div>
-              </div>
-              <div
-                className="detail-divider detail-divider-vertical"
-                onMouseDown={startDrag()}
-                onTouchStart={startDrag()}
-              />
-              <div className="detail-pane" style={{ flex: `${monthlyRatio} 1 0%` }}>
-                <div className="detail-pane-header">Monthly</div>
-                <div
-                  className="detail-chart detail-chart-focusable"
-                  onDoubleClick={() => toggleFocus("monthly")}
-                >
+                )}
+                {focusPanel === "monthly" && (
                   <DetailChart
                     ref={monthlyChartRef}
                     candles={monthlyCandles}
@@ -1486,15 +2519,144 @@ export default function DetailView() {
                     boxes={boxes}
                     showBoxes={showBoxes}
                     visibleRange={monthlyVisibleRange}
+                    positionOverlay={{
+                      dailyPositions,
+                      tradeMarkers,
+                      showOverlay: showTradesOverlay,
+                      showMarkers: false,
+                      showPnL: showPnLPanel,
+                      hoverTime,
+                      currentPositions,
+                      latestTradeTime
+                    }}
                     onCrosshairMove={handleMonthlyCrosshair}
                   />
-                  {monthlyEmptyMessage && (
-                    <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                )}
+                {focusPanel === "daily" && dailyEmptyMessage && (
+                  <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
+                )}
+                {focusPanel === "weekly" && weeklyEmptyMessage && (
+                  <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
+                )}
+                {focusPanel === "monthly" && monthlyEmptyMessage && (
+                  <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                )}
+                <button
+                  type="button"
+                  className="detail-focus-back"
+                  onClick={() => setFocusPanel(null)}
+                >
+                  Back to 3 charts
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="detail-row detail-row-top" style={{ flex: `${DAILY_ROW_RATIO} 1 0%` }}>
+                <div className="detail-pane-header">Daily</div>
+                <div
+                  className="detail-chart detail-chart-focusable"
+                  onDoubleClick={() => toggleFocus("daily")}
+                >
+                  <DetailChart
+                    ref={dailyChartRef}
+                    candles={dailyCandles}
+                    volume={dailyVolume}
+                    maLines={dailyMaLines}
+                    showVolume={showVolumeDaily}
+                    boxes={boxes}
+                    showBoxes={showBoxes}
+                    visibleRange={dailyVisibleRange}
+                    positionOverlay={{
+                      dailyPositions,
+                      tradeMarkers,
+                      showOverlay: showTradesOverlay,
+                      showMarkers: true,
+                      showPnL: showPnLPanel,
+                      hoverTime: mainSync.hoverTime,
+                      currentPositions,
+                      latestTradeTime
+                    }}
+                    cursorTime={cursorMode && selectedBarData ? selectedBarData.time : null}
+                    onCrosshairMove={handleDailyCrosshair}
+                    onVisibleRangeChange={mainSync.handleDailyVisibleRangeChange}
+                    onChartClick={handleDailyChartClick}
+                  />
+                  {dailyEmptyMessage && (
+                    <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
                   )}
                 </div>
               </div>
-            </div>
-          </>
+              <div
+                className="detail-row detail-row-bottom"
+                style={{ flex: `${1 - DAILY_ROW_RATIO} 1 0%` }}
+                ref={bottomRowRef}
+              >
+                <div className="detail-pane" style={{ flex: `${weeklyRatio} 1 0%` }}>
+                  <div className="detail-pane-header">Weekly</div>
+                  <div
+                    className="detail-chart detail-chart-focusable"
+                    onDoubleClick={() => toggleFocus("weekly")}
+                  >
+                    <DetailChart
+                      ref={weeklyChartRef}
+                      candles={weeklyCandles}
+                      volume={weeklyVolume}
+                      maLines={weeklyMaLines}
+                      showVolume={false}
+                      boxes={boxes}
+                      showBoxes={showBoxes}
+                      visibleRange={weeklyVisibleRange}
+                      onCrosshairMove={handleWeeklyCrosshair}
+                    />
+                    {weeklyEmptyMessage && (
+                      <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
+                    )}
+                  </div>
+                </div>
+                <div
+                  className="detail-divider detail-divider-vertical"
+                  onMouseDown={startDrag()}
+                  onTouchStart={startDrag()}
+                />
+                <div className="detail-pane" style={{ flex: `${monthlyRatio} 1 0%` }}>
+                  <div className="detail-pane-header">Monthly</div>
+                  <div
+                    className="detail-chart detail-chart-focusable"
+                    onDoubleClick={() => toggleFocus("monthly")}
+                  >
+                    <DetailChart
+                      ref={monthlyChartRef}
+                      candles={monthlyCandles}
+                      volume={monthlyVolume}
+                      maLines={monthlyMaLines}
+                      showVolume={false}
+                      boxes={boxes}
+                      showBoxes={showBoxes}
+                      visibleRange={monthlyVisibleRange}
+                      onCrosshairMove={handleMonthlyCrosshair}
+                    />
+                    {monthlyEmptyMessage && (
+                      <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        {cursorMode && !compareCode && (
+          <DailyMemoPanel
+            code={code || ''}
+            selectedDate={selectedDate}
+            selectedBarData={selectedBarData}
+            {...(memoPanelData || {})}
+            cursorMode={cursorMode}
+            onToggleCursorMode={toggleCursorMode}
+            onPrevDay={moveToPrevDay}
+            onNextDay={moveToNextDay}
+            onCopyForConsult={handleCopyForConsult}
+          />
         )}
       </div>
       {!focusPanel && (
@@ -1529,12 +2691,45 @@ export default function DetailView() {
             type="button"
             className="position-ledger-handle"
             onClick={() => setPositionLedgerExpanded((prev) => !prev)}
-            aria-label={positionLedgerExpanded ? "Collapse position ledger" : "Expand position ledger"}
+            aria-label={positionLedgerExpanded ? "建玉推移を折りたたむ" : "建玉推移を展開する"}
           />
           <div className="position-ledger-header">
-            <div>
-              <div className="position-ledger-title">Position Ledger (Per Broker)</div>
-              <div className="position-ledger-sub">Grouped by broker</div>
+            <div className="position-ledger-header-main">
+              <div>
+                <div className="position-ledger-title">建玉推移（証券会社別）</div>
+                <div className="position-ledger-sub">証券会社別に集計</div>
+              </div>
+              <div className="position-ledger-toggle" role="tablist" aria-label="表示モード">
+                <span className="position-ledger-toggle-label">表示モード:</span>
+                <button
+                  type="button"
+                  className={ledgerViewMode === "iizuka" ? "is-active" : ""}
+                  onClick={() => {
+                    setLedgerViewMode("iizuka");
+                    try {
+                      window.localStorage.setItem("positionLedgerMode", "iizuka");
+                    } catch {
+                      // ignore storage errors
+                    }
+                  }}
+                >
+                  飯塚式（玉）
+                </button>
+                <button
+                  type="button"
+                  className={ledgerViewMode === "stock" ? "is-active" : ""}
+                  onClick={() => {
+                    setLedgerViewMode("stock");
+                    try {
+                      window.localStorage.setItem("positionLedgerMode", "stock");
+                    } catch {
+                      // ignore storage errors
+                    }
+                  }}
+                >
+                  通常（株）
+                </button>
+              </div>
             </div>
             <button
               type="button"
@@ -1543,70 +2738,208 @@ export default function DetailView() {
                 setShowPositionLedger(false);
                 setPositionLedgerExpanded(false);
               }}
-              aria-label="Close position ledger"
+              aria-label="建玉推移を閉じる"
             >
               x
             </button>
           </div>
           {!ledgerEligible ? (
             <div className="position-ledger-empty">
-              No eligible position ledger data.
+              建玉推移の対象データがありません。
             </div>
           ) : (
             <div className="position-ledger-group-list">
-              {ledgerGroups.map((group) => (
-                <div
-                  key={`${group.brokerKey}-${group.account}`}
-                  className={`position-ledger-group broker-${group.brokerKey}`}
-                >
-                  <div className="position-ledger-group-header">
-                    <span className="broker-badge">{group.brokerLabel}</span>
-                    {group.account && (
-                      <span className="position-ledger-account">{group.account}</span>
-                    )}
-                  </div>
-                  <div className="position-ledger-table">
-                    <div className="position-ledger-row position-ledger-head">
-                      <span>Date</span>
-                      <span>Type</span>
-                      <span>Qty</span>
-                      <span>Price</span>
-                      <span>Long</span>
-                      <span>Short</span>
-                      <span>PnL</span>
-                      <span>Total</span>
+              {ledgerViewMode === "iizuka"
+                ? ledgerIizukaGroups.map((group) => (
+                  <div
+                    key={`${group.brokerKey}-${group.account}`}
+                    className={`position-ledger-group broker-${group.brokerKey}`}
+                  >
+                    <div className="position-ledger-group-header">
+                      <span className="broker-badge">{group.brokerLabel}</span>
+                      {group.account && (
+                        <span className="position-ledger-account">{group.account}</span>
+                      )}
                     </div>
-                    {group.rows.map((row, index) => (
-                      <div className="position-ledger-row" key={`${row.date}-${index}`}>
-                        <span>{row.date}</span>
-                        <span className="position-ledger-kind">{row.kindLabel}</span>
-                        <span>{formatNumber(row.qtyShares, 0)}</span>
-                        <span>{formatNumber(row.price, 2)}</span>
-                        <span>{formatNumber(row.buyShares, 0)}</span>
-                        <span>{formatNumber(row.sellShares, 0)}</span>
-                        <span
-                          className={
-                            row.realizedPnL == null
-                              ? "position-ledger-pnl"
-                              : row.realizedPnL >= 0
-                                ? "position-ledger-pnl up"
-                                : "position-ledger-pnl down"
-                          }
-                        >
-                          {row.realizedPnL == null ? "--" : formatNumber(row.realizedPnL, 0)}
+                    <div className="position-ledger-table is-iizuka">
+                      <div className="position-ledger-row position-ledger-head">
+                        <span className="position-ledger-cell position-ledger-sticky-left" title="日付">
+                          日付
+                        </span>
+                        <span className="position-ledger-cell position-ledger-sticky-left second" title="取引種別">
+                          区分
+                        </span>
+                        <span className="position-ledger-cell align-right" title="売玉の増減">
+                          当日Δ（売玉）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="買玉の増減">
+                          当日Δ（買玉）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="当日引けの売玉">
+                          当日引け（売玉）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="当日引けの買玉">
+                          当日引け（買玉）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="建玉表記（売-買）">
+                          建玉表記
+                        </span>
+                        <span className="position-ledger-cell align-right" title="買い単価（玉）">
+                          買い単価
+                        </span>
+                        <span className="position-ledger-cell align-right" title="売り単価（玉）">
+                          売り単価
                         </span>
                         <span
-                          className={
-                            row.totalPnL >= 0 ? "position-ledger-pnl up" : "position-ledger-pnl down"
-                          }
+                          className="position-ledger-cell align-right"
+                          title="実現損益（返済・現渡などで確定した分）"
                         >
-                          {formatNumber(row.totalPnL, 0)}
+                          損益（実現）
                         </span>
                       </div>
-                    ))}
+                      {group.rows.map((row, index) => {
+                        const realizedClass =
+                          row.realizedDelta === 0
+                            ? "position-ledger-pnl"
+                            : row.realizedDelta > 0
+                              ? "position-ledger-pnl up"
+                              : "position-ledger-pnl down";
+                        return (
+                          <div
+                            className={`position-ledger-row ${index % 2 === 0 ? "is-even" : "is-odd"}`}
+                            key={`${row.date}-${index}`}
+                          >
+                            <span className="position-ledger-cell position-ledger-sticky-left">
+                              {formatLedgerDate(row.date)}
+                            </span>
+                            <span className="position-ledger-cell position-ledger-sticky-left second position-ledger-kind">
+                              {row.kindLabel}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatSignedLot(row.deltaShort)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatSignedLot(row.deltaLong)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatLotValue(row.shortLots)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatLotValue(row.longLots)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {`${formatLotValue(row.shortLots)}-${formatLotValue(row.longLots)}`}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {row.avgLongPrice != null ? formatNumber(row.avgLongPrice, 2) : "--"}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {row.avgShortPrice != null ? formatNumber(row.avgShortPrice, 2) : "--"}
+                            </span>
+                            <span className={`position-ledger-cell align-right ${realizedClass}`}>
+                              {formatSignedNumber(row.realizedDelta, 0)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+                : ledgerStockGroups.map((group) => (
+                  <div
+                    key={`${group.brokerKey}-${group.account}`}
+                    className={`position-ledger-group broker-${group.brokerKey}`}
+                  >
+                    <div className="position-ledger-group-header">
+                      <span className="broker-badge">{group.brokerLabel}</span>
+                      {group.account && (
+                        <span className="position-ledger-account">{group.account}</span>
+                      )}
+                    </div>
+                    <div className="position-ledger-table is-stock">
+                      <div className="position-ledger-row position-ledger-head">
+                        <span className="position-ledger-cell position-ledger-sticky-left" title="日付">
+                          日付
+                        </span>
+                        <span className="position-ledger-cell position-ledger-sticky-left second" title="取引種別">
+                          区分
+                        </span>
+                        <span className="position-ledger-cell align-right" title="約定数量（株）。100株=1玉。">
+                          数量（株）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="売株の増減">
+                          当日Δ（売株）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="買株の増減">
+                          当日Δ（買株）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="当日引けの売株">
+                          当日引け（売株）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="当日引けの買株">
+                          当日引け（買株）
+                        </span>
+                        <span className="position-ledger-cell align-right" title="買い単価（株）">
+                          買い単価
+                        </span>
+                        <span className="position-ledger-cell align-right" title="売り単価（株）">
+                          売り単価
+                        </span>
+                        <span
+                          className="position-ledger-cell align-right"
+                          title="実現損益（返済・現渡などで確定した分）"
+                        >
+                          損益（実現）
+                        </span>
+                      </div>
+                      {group.rows.map((row, index) => {
+                        const realizedClass =
+                          row.realizedDelta === 0
+                            ? "position-ledger-pnl"
+                            : row.realizedDelta > 0
+                              ? "position-ledger-pnl up"
+                              : "position-ledger-pnl down";
+                        return (
+                          <div
+                            className={`position-ledger-row ${index % 2 === 0 ? "is-even" : "is-odd"}`}
+                            key={`${row.date}-${index}`}
+                          >
+                            <span className="position-ledger-cell position-ledger-sticky-left">
+                              {formatLedgerDate(row.date)}
+                            </span>
+                            <span className="position-ledger-cell position-ledger-sticky-left second position-ledger-kind">
+                              {row.kindLabel}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatShares(row.qtyShares)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatSignedNumber(row.deltaSellShares, 0)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatSignedNumber(row.deltaBuyShares, 0)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatShares(row.closeSellShares)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {formatShares(row.closeBuyShares)}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {row.buyAvgPrice != null ? formatNumber(row.buyAvgPrice, 2) : "--"}
+                            </span>
+                            <span className="position-ledger-cell align-right">
+                              {row.sellAvgPrice != null ? formatNumber(row.sellAvgPrice, 2) : "--"}
+                            </span>
+                            <span className={`position-ledger-cell align-right ${realizedClass}`}>
+                              {formatSignedNumber(row.realizedDelta, 0)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
             </div>
           )}
         </div>
@@ -1662,7 +2995,7 @@ export default function DetailView() {
                 </div>
               )}
             </div>
-            )}
+          )}
         </div>
       )}
       {showIndicators && (
@@ -1670,6 +3003,24 @@ export default function DetailView() {
           <div className="indicator-panel" onClick={(event) => event.stopPropagation()}>
             <div className="indicator-header">
               <div className="indicator-title">Indicators</div>
+              {compareCode && (
+                <div className="ma-toggle">
+                  <button
+                    type="button"
+                    className={`indicator-button${maEditMode === "main" ? " active" : ""}`}
+                    onClick={() => setMaEditMode("main")}
+                  >
+                    通常
+                  </button>
+                  <button
+                    type="button"
+                    className={`indicator-button${maEditMode === "compare" ? " active" : ""}`}
+                    onClick={() => setMaEditMode("compare")}
+                  >
+                    比較
+                  </button>
+                </div>
+              )}
               <button className="indicator-close" onClick={() => setShowIndicators(false)}>
                 Close
               </button>
@@ -1678,7 +3029,7 @@ export default function DetailView() {
               <div className="indicator-section" key={frame}>
                 <div className="indicator-subtitle">Moving Averages ({frame})</div>
                 <div className="indicator-rows">
-                  {maSettings[frame].map((setting, index) => (
+                  {activeMaSettings[frame].map((setting, index) => (
                     <div className="indicator-row" key={setting.key}>
                       <input
                         type="checkbox"
@@ -1727,6 +3078,11 @@ export default function DetailView() {
         onClose={() => { setToastMessage(null); setToastAction(null); }}
         action={toastAction}
         duration={toastAction ? 8000 : 4000}
+      />
+      <SimilarSearchPanel
+        isOpen={showSimilar}
+        onClose={() => setShowSimilar(false)}
+        queryTicker={code ?? null}
       />
     </div>
   );

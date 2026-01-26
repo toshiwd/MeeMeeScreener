@@ -67,6 +67,17 @@ export type TradeMarker = {
   brokerGroupKey?: string;
 };
 
+export type CurrentPosition = {
+  brokerKey: string;
+  brokerLabel: string;
+  account?: string;
+  longLots: number;
+  shortLots: number;
+  avgLongPrice: number;
+  avgShortPrice: number;
+  realizedPnL: number;
+};
+
 export type PositionSource = {
   getTrades: (code: string) => Promise<TradeEvent[]>;
 };
@@ -116,6 +127,13 @@ const resolveBrokerMeta = (trade: TradeEvent) => {
   return { key: "unknown", label: "N/A", account };
 };
 
+const resolveTradeAction = (trade: TradeEvent) => {
+  if (trade.action) return trade.action;
+  if (trade.kind?.includes("open")) return "open";
+  if (trade.kind?.includes("close")) return "close";
+  return "open";
+};
+
 const resolveKindLabel = (trade: TradeEvent) => {
   if (trade.memo) return trade.memo;
   if (trade.raw && typeof trade.raw === "object") {
@@ -124,6 +142,129 @@ const resolveKindLabel = (trade: TradeEvent) => {
     if (raw.type) return raw.type;
   }
   return trade.kind ?? "N/A";
+};
+
+const brokerOrder = (key: string) => {
+  if (key === "rakuten") return 0;
+  if (key === "sbi") return 1;
+  if (key === "unknown") return 2;
+  return 3;
+};
+
+const compareBrokerKey = (a?: string, b?: string) => {
+  const keyA = a ?? "unknown";
+  const keyB = b ?? "unknown";
+  const rankA = brokerOrder(keyA);
+  const rankB = brokerOrder(keyB);
+  if (rankA !== rankB) return rankA - rankB;
+  return keyA.localeCompare(keyB);
+};
+
+export const buildCurrentPositions = (trades: TradeEvent[]) => {
+  const groups = new Map<string, { meta: { key: string; label: string; account: string }; items: TradeEvent[] }>();
+  trades.forEach((trade) => {
+    const meta = resolveBrokerMeta(trade);
+    const groupKey = `${meta.key}|${meta.account}`;
+    const existing = groups.get(groupKey);
+    if (existing) {
+      existing.items.push(trade);
+    } else {
+      groups.set(groupKey, { meta, items: [trade] });
+    }
+  });
+
+  const results: CurrentPosition[] = [];
+  groups.forEach((group) => {
+    const ordered = group.items
+      .map((trade, index) => ({ trade, index }))
+      .sort((a, b) => {
+        if (a.trade.date !== b.trade.date) return a.trade.date.localeCompare(b.trade.date);
+        const aOrder = a.trade.action === "open" ? 0 : a.trade.action === "close" ? 1 : 2;
+        const bOrder = b.trade.action === "open" ? 0 : b.trade.action === "close" ? 1 : 2;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return a.index - b.index;
+      });
+
+    let longLots = 0;
+    let shortLots = 0;
+    let avgLongPrice = 0;
+    let avgShortPrice = 0;
+    let realizedPnL = 0;
+
+    ordered.forEach(({ trade }) => {
+      const lots = clampLots(trade.units);
+      const price = Number(trade.price ?? 0);
+      const action = trade.action ?? "open";
+      const kind = trade.kind ?? "";
+
+      if (kind === "DELIVERY") {
+        longLots = Math.max(0, longLots - lots);
+        shortLots = Math.max(0, shortLots - lots);
+        return;
+      }
+      if (kind === "TAKE_DELIVERY") {
+        return;
+      }
+      if (kind === "INBOUND") {
+        if (longLots > 0 && lots > 0) {
+          const totalCost = avgLongPrice * longLots;
+          longLots += lots;
+          avgLongPrice = totalCost / longLots;
+        } else if (lots > 0) {
+          longLots += lots;
+          avgLongPrice = price || avgLongPrice;
+        }
+        return;
+      }
+      if (kind === "OUTBOUND") {
+        longLots = Math.max(0, longLots - lots);
+        if (longLots === 0) avgLongPrice = 0;
+        return;
+      }
+
+      if (trade.side === "buy" && action === "open") {
+        const nextLots = longLots + lots;
+        avgLongPrice = nextLots > 0 ? (avgLongPrice * longLots + price * lots) / nextLots : 0;
+        longLots = nextLots;
+      } else if (trade.side === "sell" && action === "close") {
+        const closeLots = Math.min(longLots, lots);
+        if (Number.isFinite(trade.realizedPnlNet)) {
+          realizedPnL += Number(trade.realizedPnlNet);
+        } else {
+          realizedPnL += (price - avgLongPrice) * closeLots * 100;
+        }
+        longLots = Math.max(0, longLots - lots);
+        if (longLots === 0) avgLongPrice = 0;
+      } else if (trade.side === "sell" && action === "open") {
+        const nextLots = shortLots + lots;
+        avgShortPrice =
+          nextLots > 0 ? (avgShortPrice * shortLots + price * lots) / nextLots : 0;
+        shortLots = nextLots;
+      } else if (trade.side === "buy" && action === "close") {
+        const closeLots = Math.min(shortLots, lots);
+        if (Number.isFinite(trade.realizedPnlNet)) {
+          realizedPnL += Number(trade.realizedPnlNet);
+        } else {
+          realizedPnL += (avgShortPrice - price) * closeLots * 100;
+        }
+        shortLots = Math.max(0, shortLots - lots);
+        if (shortLots === 0) avgShortPrice = 0;
+      }
+    });
+
+    results.push({
+      brokerKey: group.meta.key,
+      brokerLabel: group.meta.label,
+      account: group.meta.account,
+      longLots,
+      shortLots,
+      avgLongPrice,
+      avgShortPrice,
+      realizedPnL
+    });
+  });
+
+  return results.sort((a, b) => compareBrokerKey(a.brokerKey, b.brokerKey));
 };
 
 const buildPositionsForGroup = (
@@ -163,20 +304,24 @@ const buildPositionsForGroup = (
   bars.forEach((bar) => {
     const date = formatDate(bar.time);
     const dayTrades = tradeMap.get(date) ?? [];
+    const orderedDayTrades = dayTrades
+      .map((trade, index) => ({ trade, index }))
+      .sort((a, b) => {
+        const aAction = resolveTradeAction(a.trade);
+        const bAction = resolveTradeAction(b.trade);
+        const aOrder = aAction === "open" ? 0 : aAction === "close" ? 1 : 2;
+        const bOrder = bAction === "open" ? 0 : bAction === "close" ? 1 : 2;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return a.index - b.index;
+      });
     let buyLots = 0;
     let sellLots = 0;
     const markerTrades: TradeEvent[] = [];
 
-    dayTrades.forEach((trade) => {
+    orderedDayTrades.forEach(({ trade }) => {
       const lots = clampLots(trade.units);
       const price = Number(trade.price ?? 0);
-      const action =
-        trade.action ??
-        (trade.kind?.includes("open")
-          ? "open"
-          : trade.kind?.includes("close")
-          ? "close"
-          : "open");
+      const action = resolveTradeAction(trade);
       const kind = trade.kind ?? "";
       const isMarker =
         kind !== "DELIVERY" && kind !== "TAKE_DELIVERY" && kind !== "INBOUND" && kind !== "OUTBOUND";

@@ -1,7 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+Ôªøimport { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { BarsPayload, MaSetting } from "../store";
 import type { SignalChip } from "../utils/signals";
+import { formatEventBadgeDate } from "../utils/events";
 import ChartInfoPanel from "./ChartInfoPanel";
 import DetailChart from "./DetailChart";
 
@@ -32,7 +33,9 @@ type ChartListCardProps = {
   fallbackSeries?: number[][] | null;
   status?: "idle" | "loading" | "success" | "empty" | "error";
   maSettings: MaSetting[];
-  rangeMonths?: number | null;
+  rangeBars?: number | null;
+  eventEarningsDate?: string | null;
+  eventRightsDate?: string | null;
   headerLeft?: ReactNode;
   headerRight?: ReactNode;
   tileClassName?: string;
@@ -140,36 +143,90 @@ const computeMA = (candles: Candle[], period: number) => {
   return data;
 };
 
-const getRangeStartTime = (candles: Candle[], rangeMonths?: number | null) => {
-  if (!rangeMonths || rangeMonths <= 0) return null;
-  if (!candles.length) return null;
-  const lastTime = candles[candles.length - 1]?.time;
-  if (!Number.isFinite(lastTime)) return null;
-  const anchor = new Date(lastTime * 1000);
-  if (Number.isNaN(anchor.getTime())) return null;
-  const start = new Date(
-    Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate())
-  );
-  start.setUTCMonth(start.getUTCMonth() - rangeMonths);
-  return Math.floor(start.getTime() / 1000);
+const parseRootMarginPx = (value: string): number => {
+  const first = value.split(/\s+/)[0] ?? "0px";
+  const parsed = Number.parseFloat(first.replace("px", ""));
+  return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const useInView = (rootMargin = "220px") => {
+const getScrollParent = (element: HTMLElement): HTMLElement | null => {
+  let current: HTMLElement | null = element.parentElement;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    const overflowY = style.overflowY;
+    const overflowX = style.overflowX;
+    const isScrollableY =
+      (overflowY === "auto" || overflowY === "scroll") && current.scrollHeight > current.clientHeight;
+    const isScrollableX =
+      (overflowX === "auto" || overflowX === "scroll") && current.scrollWidth > current.clientWidth;
+    if (isScrollableY || isScrollableX) return current;
+    current = current.parentElement;
+  }
+  return null;
+};
+
+const useInView = (enabled: boolean, rootMargin = "220px") => {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [inView, setInView] = useState(false);
+  const [inView, setInView] = useState(!enabled);
 
   useEffect(() => {
+    if (!enabled) {
+      setInView(true);
+      return;
+    }
     const element = ref.current;
     if (!element) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setInView(entry.isIntersecting);
-      },
-      { rootMargin, threshold: 0.1 }
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [rootMargin]);
+
+    if (typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          setInView(entry.isIntersecting);
+        },
+        { rootMargin, threshold: 0.1 }
+      );
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+
+    const margin = parseRootMarginPx(rootMargin);
+    const scrollParent = getScrollParent(element);
+    let rafId: number | null = null;
+    const check = () => {
+      rafId = null;
+      const rect = element.getBoundingClientRect();
+      const intersects =
+        rect.bottom >= -margin &&
+        rect.right >= 0 &&
+        rect.top <= window.innerHeight + margin &&
+        rect.left <= window.innerWidth;
+      setInView(intersects);
+    };
+    const scheduleCheck = () => {
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(check);
+    };
+
+    scheduleCheck();
+    const options: AddEventListenerOptions = { passive: true };
+    window.addEventListener("resize", scheduleCheck, options);
+    if (scrollParent) {
+      scrollParent.addEventListener("scroll", scheduleCheck, options);
+    } else {
+      window.addEventListener("scroll", scheduleCheck, options);
+    }
+
+    return () => {
+      window.removeEventListener("resize", scheduleCheck);
+      if (scrollParent) {
+        scrollParent.removeEventListener("scroll", scheduleCheck);
+      } else {
+        window.removeEventListener("scroll", scheduleCheck);
+      }
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+    };
+  }, [enabled, rootMargin]);
 
   return { ref, inView };
 };
@@ -181,7 +238,9 @@ const ChartListCard = memo(function ChartListCard({
   fallbackSeries,
   status,
   maSettings,
-  rangeMonths,
+  rangeBars,
+  eventEarningsDate,
+  eventRightsDate,
   headerLeft,
   headerRight,
   tileClassName,
@@ -192,7 +251,7 @@ const ChartListCard = memo(function ChartListCard({
   signals,
   action
 }: ChartListCardProps) {
-  const { ref, inView } = useInView(rootMargin);
+  const { ref, inView } = useInView(deferUntilInView, rootMargin);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const hoverRafRef = useRef<number | null>(null);
   const hoverPendingRef = useRef<number | null>(null);
@@ -204,18 +263,14 @@ const ChartListCard = memo(function ChartListCard({
   );
   const candlesAll = useMemo(() => buildCandles(rows), [rows]);
   const volumeAll = useMemo(() => buildVolume(rows), [rows]);
-  const rangeStart = useMemo(
-    () => getRangeStartTime(candlesAll, rangeMonths),
-    [candlesAll, rangeMonths]
-  );
   const candles = useMemo(() => {
-    if (rangeStart == null) return candlesAll;
-    return candlesAll.filter((bar) => bar.time >= rangeStart);
-  }, [candlesAll, rangeStart]);
+    if (!rangeBars || rangeBars <= 0) return candlesAll;
+    return candlesAll.slice(-rangeBars);
+  }, [candlesAll, rangeBars]);
   const volume = useMemo(() => {
-    if (rangeStart == null) return volumeAll;
-    return volumeAll.filter((bar) => bar.time >= rangeStart);
-  }, [volumeAll, rangeStart]);
+    if (!rangeBars || rangeBars <= 0) return volumeAll;
+    return volumeAll.slice(-rangeBars);
+  }, [volumeAll, rangeBars]);
   const maLines = useMemo(
     () =>
       maSettings.map((setting) => ({
@@ -230,17 +285,17 @@ const ChartListCard = memo(function ChartListCard({
     [candlesAll, maSettings]
   );
   const rangedMaLines = useMemo(() => {
-    if (rangeStart == null) return maLines;
+    if (!rangeBars || rangeBars <= 0) return maLines;
     return maLines.map((line) => ({
       ...line,
-      data: line.data.filter((point) => point.time >= rangeStart)
+      data: line.data.slice(-rangeBars)
     }));
-  }, [maLines, rangeStart]);
+  }, [maLines, rangeBars]);
   const barsForInfo = useMemo(
     () => candles.map((bar) => ({ time: bar.time, close: bar.close })),
     [candles]
   );
-  const chartKey = `${code}-${rangeMonths ?? "all"}-${densityKey ?? "default"}`;
+  const chartKey = `${code}-${rangeBars ?? "all"}-${densityKey ?? "default"}`;
 
   const scheduleHoverTime = useCallback((time: number | null) => {
     hoverPendingRef.current = time;
@@ -266,12 +321,14 @@ const ChartListCard = memo(function ChartListCard({
 
   const handleOpen = () => onOpenDetail(code);
   const showLoading = rows.length === 0;
+  const earningsLabel = formatEventBadgeDate(eventEarningsDate);
+  const rightsLabel = formatEventBadgeDate(eventRightsDate);
   const loadingLabel =
     status === "error"
-      ? "ì«Ç›çûÇ›é∏îs"
+      ? "Ë™≠„ÅøËæº„ÅøÂ§±Êïó"
       : status === "empty"
-      ? "ÉfÅ[É^Ç»Çµ"
-      : "ì«Ç›çûÇ›íÜ...";
+      ? "„Éá„Éº„Çø„Å™„Åó"
+      : "Ë™≠„ÅøËæº„Åø‰∏≠...";
 
   return (
     <div
@@ -289,6 +346,14 @@ const ChartListCard = memo(function ChartListCard({
             <div className="tile-id">
               <span className="tile-code">{code}</span>
               <span className="tile-name">{name}</span>
+              {(rightsLabel || earningsLabel) && (
+                <span className="event-badges">
+                  {rightsLabel && <span className="event-badge event-rights">{"\u6a29\u5229"} {rightsLabel}</span>}
+                  {earningsLabel && (
+                    <span className="event-badge event-earnings">{"\u6c7a\u7b97"} {earningsLabel}</span>
+                  )}
+                </span>
+              )}
             </div>
           </div>
         )}

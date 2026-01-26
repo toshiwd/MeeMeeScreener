@@ -13,7 +13,7 @@ import {
   ConsultationSort,
   ConsultationTimeframe
 } from "../utils/consultation";
-import { downloadChartScreenshots } from "../utils/chartScreenshot";
+import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
 
 type FavoriteItem = {
   code: string;
@@ -25,7 +25,7 @@ type FavoritesResponse = {
   errors?: string[];
 };
 
-type FavoriteSortKey = "added" | "code" | "name";
+type FavoriteSortKey = "code" | "change" | "scoreUp" | "scoreDown";
 const SCREENSHOT_LIMIT = 10;
 
 export default function FavoritesView() {
@@ -40,20 +40,22 @@ export default function FavoritesView() {
   const boxesCache = useStore((state) => state.boxesCache);
   const maSettings = useStore((state) => state.maSettings);
   const tickers = useStore((state) => state.tickers);
+  const loadList = useStore((state) => state.loadList);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
-  const listRangeMonths = useStore((state) => state.settings.listRangeMonths);
+  const listRangeBars = useStore((state) => state.settings.listRangeBars);
   const listColumns = useStore((state) => state.settings.listColumns);
   const listRows = useStore((state) => state.settings.listRows);
   const setListTimeframe = useStore((state) => state.setListTimeframe);
-  const setListRangeMonths = useStore((state) => state.setListRangeMonths);
+  const setListRangeBars = useStore((state) => state.setListRangeBars);
   const setListColumns = useStore((state) => state.setListColumns);
   const setListRows = useStore((state) => state.setListRows);
 
   const [items, setItems] = useState<FavoriteItem[]>([]);
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<FavoriteSortKey>("added");
+  const [sortKey, setSortKey] = useState<FavoriteSortKey>("code");
   const [loading, setLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
   const [filterDataOnly, setFilterDataOnly] = useState(false);
   const [consultVisible, setConsultVisible] = useState(false);
@@ -84,9 +86,10 @@ export default function FavoritesView() {
 
   const sortOptions = useMemo(
     () => [
-      { value: "added", label: "追加順" },
-      { value: "code", label: "コード順" },
-      { value: "name", label: "名前順" }
+      { value: "code", label: "\u30b3\u30fc\u30c9\u9806" },
+      { value: "change", label: "\u9a30\u843d\u9806" },
+      { value: "scoreUp", label: "\u4e0a\u6607\u30b9\u30b3\u30a2\u9806" },
+      { value: "scoreDown", label: "\u4e0b\u843d\u30b9\u30b3\u30a2\u9806" }
     ],
     []
   );
@@ -128,6 +131,12 @@ export default function FavoritesView() {
       .finally(() => setLoading(false));
   }, [replaceFavorites, backendReady]);
 
+  useEffect(() => {
+    if (!backendReady) return;
+    if (tickers.length) return;
+    loadList().catch(() => { });
+  }, [backendReady, loadList, tickers.length]);
+
   const tickerMap = useMemo(() => {
     return new Map(tickers.map((ticker) => [ticker.code, ticker]));
   }, [tickers]);
@@ -166,16 +175,55 @@ export default function FavoritesView() {
     });
   }, [searchResults, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
 
+  const metricsMap = useMemo(() => {
+    const map = new Map<string, { change: number; score: number }>();
+    filteredItems.forEach((item) => {
+      const payload = barsCache[listTimeframe][item.code];
+      const bars = payload?.bars ?? [];
+      if (!bars.length) {
+        map.set(item.code, { change: 0, score: 0 });
+        return;
+      }
+      const ordered =
+        bars.length >= 2 && Number(bars[0][0]) > Number(bars[bars.length - 1][0])
+          ? [...bars].reverse()
+          : bars;
+      const last = ordered[ordered.length - 1];
+      const prev = ordered.length > 1 ? ordered[ordered.length - 2] : null;
+      const lastClose = Number(last?.[4]);
+      const prevClose = Number(prev?.[4]);
+      const change =
+        Number.isFinite(lastClose) && Number.isFinite(prevClose) && prevClose != 0
+          ? (lastClose - prevClose) / prevClose
+          : 0;
+      const score = ordered.length ? computeSignalMetrics(ordered, 4).trendStrength : 0;
+      map.set(item.code, { change, score });
+    });
+    return map;
+  }, [filteredItems, barsCache, listTimeframe]);
+
   const sortedItems = useMemo(() => {
-    if (sortKey === "added") return filteredItems;
     const next = [...filteredItems];
     if (sortKey === "code") {
       next.sort((a, b) => a.code.localeCompare(b.code, "ja"));
-    } else if (sortKey === "name") {
-      next.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "ja"));
+    } else if (sortKey === "change") {
+      next.sort(
+        (a, b) =>
+          (metricsMap.get(b.code)?.change ?? 0) - (metricsMap.get(a.code)?.change ?? 0)
+      );
+    } else if (sortKey === "scoreUp") {
+      next.sort(
+        (a, b) =>
+          (metricsMap.get(b.code)?.score ?? 0) - (metricsMap.get(a.code)?.score ?? 0)
+      );
+    } else if (sortKey === "scoreDown") {
+      next.sort(
+        (a, b) =>
+          (metricsMap.get(a.code)?.score ?? 0) - (metricsMap.get(b.code)?.score ?? 0)
+      );
     }
     return next;
-  }, [filteredItems, sortKey]);
+  }, [filteredItems, sortKey, metricsMap]);
 
   const listCodes = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
 
@@ -296,46 +344,33 @@ export default function FavoritesView() {
     }
   }, [consultText]);
 
+  const { generateScreenshots, isProcessing: isScreenshotProcessing, progress: screenshotProgress } = useConsultScreenshot();
+
   const handleCreateScreenshots = useCallback(async () => {
-    if (!consultTargets.length) {
+    if (consultTargets.length === 0) {
       setToastMessage("スクショ対象がありません。");
       return;
     }
-    const targets = consultTargets.slice(0, SCREENSHOT_LIMIT);
-    const omitted = Math.max(0, consultTargets.length - targets.length);
-    setScreenshotBusy(true);
-    try {
-      try {
-        await ensureBarsForVisible(listTimeframe, targets, "chart-screenshot");
-      } catch {
-        // Use available cache even if fetch fails.
+
+    setToastMessage("スクショ生成を開始します...");
+    const result = await generateScreenshots(consultTargets);
+
+    if (result.success) {
+      setToastMessage(`${result.count}件のスクショを保存しました`);
+      if (result.success && window.pywebview?.api?.open_screenshot_dir) {
+        setToastAction({
+          label: "フォルダを開く",
+          onClick: async () => {
+            await window.pywebview!.api.open_screenshot_dir();
+          }
+        });
       }
-      const itemsForShots = targets.map((code) => ({
-        code,
-        payload: barsCache[listTimeframe][code] ?? null,
-        boxes: [],
-        maSettings: maSettings[listTimeframe] ?? []
-      }));
-      const result = downloadChartScreenshots(itemsForShots, {
-        rangeMonths: listRangeMonths,
-        timeframeLabel: listTimeframe
-      });
-      if (!result.created) {
-        setToastMessage("スクショを作成できませんでした。");
-        return;
-      }
-      const omittedLabel = omitted ? ` (残り${omitted}件は省略)` : "";
-      setToastMessage(`スクショを${result.created}件作成しました。${omittedLabel}`);
-    } finally {
-      setScreenshotBusy(false);
+    } else {
+      setToastMessage(`保存失敗: ${result.error || "不明なエラー"}`);
     }
   }, [
     consultTargets,
-    ensureBarsForVisible,
-    listTimeframe,
-    barsCache,
-    maSettings,
-    listRangeMonths
+    generateScreenshots
   ]);
 
   const emptyLabel =
@@ -358,8 +393,8 @@ export default function FavoritesView() {
       <UnifiedListHeader
         timeframe={listTimeframe}
         onTimeframeChange={setListTimeframe}
-        rangeMonths={listRangeMonths}
-        onRangeChange={setListRangeMonths}
+        rangeBars={listRangeBars}
+        onRangeChange={setListRangeBars}
         search={search}
         onSearchChange={setSearch}
         sortValue={sortKey}
@@ -387,6 +422,7 @@ export default function FavoritesView() {
           {sortedItems.map((item) => {
             const payload = barsCache[listTimeframe][item.code] ?? null;
             const status = barsStatus[listTimeframe][item.code];
+            const ticker = tickerMap.get(item.code);
             return (
               <ChartListCard
                 key={item.code}
@@ -395,7 +431,9 @@ export default function FavoritesView() {
                 payload={payload}
                 status={status}
                 maSettings={maSettings[listTimeframe]}
-                rangeMonths={listRangeMonths}
+                rangeBars={listRangeBars}
+                eventEarningsDate={ticker?.eventEarningsDate ?? null}
+                eventRightsDate={ticker?.eventRightsDate ?? null}
                 densityKey={densityKey}
                 signals={signalMap.get(item.code) ?? []}
                 onOpenDetail={handleOpenDetail}
@@ -412,7 +450,7 @@ export default function FavoritesView() {
         </div>
       </div>
       <div
-        className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
+        className={`consult - sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
           }`}
       >
         <button
@@ -458,6 +496,13 @@ export default function FavoritesView() {
               <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                 コピー
               </button>
+              <button
+                type="button"
+                onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                disabled={!window.pywebview?.api?.open_screenshot_dir}
+              >
+                フォルダ
+              </button>
               <button type="button" onClick={() => setConsultVisible(false)}>
                 閉じる
               </button>
@@ -502,6 +547,13 @@ export default function FavoritesView() {
                 <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                   コピー
                 </button>
+                <button
+                  type="button"
+                  onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                  disabled={!window.pywebview?.api?.open_screenshot_dir}
+                >
+                  フォルダ
+                </button>
                 <button type="button" onClick={() => setConsultVisible(false)}>
                   閉じる
                 </button>
@@ -539,7 +591,14 @@ export default function FavoritesView() {
           </div>
         )}
       </div>
-      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      <Toast
+        message={toastMessage}
+        onClose={() => {
+          setToastMessage(null);
+          setToastAction(null);
+        }}
+        action={toastAction}
+      />
     </div>
   );
 }

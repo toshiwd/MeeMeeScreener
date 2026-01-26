@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   FixedSizeGrid as Grid,
   type FixedSizeGrid,
@@ -12,6 +12,20 @@ import { useStore } from "../store";
 import StockTile from "../components/StockTile";
 import Toast from "../components/Toast";
 import TopNav from "../components/TopNav";
+import IconButton from "../components/IconButton";
+import {
+  IconMessage,
+  IconArrowsSort,
+  IconLayoutGrid,
+  IconFilter,
+  IconRefresh,
+  IconSettings,
+  IconMoon,
+  IconSun,
+  IconUpload,
+  IconDownload,
+  IconFileText
+} from "@tabler/icons-react";
 import TechnicalFilterDrawer from "../components/TechnicalFilterDrawer";
 import { computeSignalMetrics } from "../utils/signals";
 import {
@@ -33,12 +47,20 @@ import {
   type AnchorInfo,
   type TechnicalFilterState
 } from "../utils/technicalFilter";
+import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
 
 const GRID_GAP = 12;
 const KEEP_LIMIT = 24;
 type Timeframe = "monthly" | "weekly" | "daily";
 type SortOption = { key: SortKey; label: string };
 type SortSection = { title: string; options: SortOption[] };
+
+const rangeOptions = [
+  { label: "60本", count: 60 },
+  { label: "120本", count: 120 },
+  { label: "240本", count: 240 },
+  { label: "360本", count: 360 }
+];
 
 const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalFilterState => ({
   defaultTimeframe,
@@ -72,6 +94,7 @@ type HealthStatus = {
   code_count: number;
   last_updated: string | null;
   code_txt_missing: boolean;
+  pan_out_txt_dir?: string | null;
 };
 
 export default function GridView() {
@@ -91,6 +114,7 @@ export default function GridView() {
   const search = useStore((state) => state.settings.search);
   const gridScrollTop = useStore((state) => state.settings.gridScrollTop);
   const gridTimeframe = useStore((state) => state.settings.gridTimeframe);
+  const listRangeBars = useStore((state) => state.settings.listRangeBars);
   const keepList = useStore((state) => state.keepList);
   const addKeep = useStore((state) => state.addKeep);
   const removeKeep = useStore((state) => state.removeKeep);
@@ -100,6 +124,7 @@ export default function GridView() {
   const setSearch = useStore((state) => state.setSearch);
   const setGridScrollTop = useStore((state) => state.setGridScrollTop);
   const setGridTimeframe = useStore((state) => state.setGridTimeframe);
+  const setListRangeBars = useStore((state) => state.setListRangeBars);
   const showBoxes = useStore((state) => state.settings.showBoxes);
   const setShowBoxes = useStore((state) => state.setShowBoxes);
   const sortKey = useStore((state) => state.settings.sortKey);
@@ -111,6 +136,32 @@ export default function GridView() {
   const maSettings = useStore((state) => state.maSettings);
   const updateMaSetting = useStore((state) => state.updateMaSetting);
   const resetMaSettings = useStore((state) => state.resetMaSettings);
+  const eventsMeta = useStore((state) => state.eventsMeta);
+  const refreshEvents = useStore((state) => state.refreshEvents);
+  const eventsAttemptLabel = useMemo(
+    () => formatEventDateYmd(eventsMeta?.lastAttemptAt),
+    [eventsMeta?.lastAttemptAt]
+  );
+  const eventsLastSuccessLabel = useMemo(() => {
+    const earningsMs = parseEventDateMs(eventsMeta?.earningsLastSuccessAt);
+    const rightsMs = parseEventDateMs(eventsMeta?.rightsLastSuccessAt);
+    const candidates = [
+      { value: eventsMeta?.earningsLastSuccessAt ?? null, ms: earningsMs },
+      { value: eventsMeta?.rightsLastSuccessAt ?? null, ms: rightsMs }
+    ].filter((item) => item.value && item.ms != null) as { value: string; ms: number }[];
+    if (!candidates.length) return null;
+    const oldest = candidates.reduce((prev, next) => (next.ms < prev.ms ? next : prev));
+    return formatEventDateYmd(oldest.value);
+  }, [eventsMeta]);
+  const rightsCoverageLabel = useMemo(() => {
+    const rightsMaxDate = eventsMeta?.dataCoverage?.rightsMaxDate ?? null;
+    const maxMs = parseEventDateMs(rightsMaxDate);
+    if (!rightsMaxDate || maxMs == null) return null;
+    const thresholdMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    if (maxMs >= thresholdMs) return null;
+    const formatted = formatEventDateYmd(rightsMaxDate);
+    return formatted ? `権利データ範囲: 〜${formatted}` : null;
+  }, [eventsMeta]);
 
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [showIndicators, setShowIndicators] = useState(false);
@@ -119,12 +170,15 @@ export default function GridView() {
   const [displayOpen, setDisplayOpen] = useState(false);
   const [isSorting, setIsSorting] = useState(false);
   const [updateRequestInFlight, setUpdateRequestInFlight] = useState(false);
+  const updateRequestStartedAtRef = useRef<number | null>(null);
+  const prevUpdateJobIdRef = useRef<string | null>(null);
   const [txtUpdateStatus, setTxtUpdateStatus] = useState<TxtUpdateStatus | null>(null);
   const [splitSuspects, setSplitSuspects] = useState<SplitSuspect[]>([]);
   const [showSplitSuspects, setShowSplitSuspects] = useState(false);
   const [updateLogLines, setUpdateLogLines] = useState<string[]>([]);
   const [showUpdateLog, setShowUpdateLog] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: string; key: number } | null>(null);
+  const toastKeyRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [consultVisible, setConsultVisible] = useState(false);
   const [consultExpanded, setConsultExpanded] = useState(false);
@@ -139,6 +193,7 @@ export default function GridView() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<Theme>(() => getStoredTheme());
   const [tradeUploadInFlight, setTradeUploadInFlight] = useState(false);
+  const [tradeSyncInFlight, setTradeSyncInFlight] = useState(false);
   const [watchlistExporting, setWatchlistExporting] = useState(false);
   const [techFilterOpen, setTechFilterOpen] = useState(false);
   const [keepBarCollapsed, setKeepBarCollapsed] = useState(false);
@@ -158,6 +213,11 @@ export default function GridView() {
   const lastVisibleCodesRef = useRef<string[]>([]);
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
   const undoTimerRef = useRef<number | null>(null);
+
+  const showToast = useCallback((text: string) => {
+    toastKeyRef.current += 1;
+    showToast({ text, key: toastKeyRef.current });
+  }, []);
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
   const consultPaddingClass = consultVisible
@@ -165,6 +225,11 @@ export default function GridView() {
       ? "consult-padding-expanded"
       : "consult-padding-mini"
     : "";
+
+  const gridMaxBars = useMemo(() => {
+    const count = listRangeBars ?? 120;
+    return Math.max(12, Math.min(260, Math.floor(count)));
+  }, [listRangeBars]);
 
   const handleTradeCsvPick = () => {
     tradeCsvInputRef.current?.click();
@@ -178,14 +243,43 @@ export default function GridView() {
       const form = new FormData();
       form.append("file", file);
       await api.post("/trade_csv/upload", form, {
-        headers: { "Content-Type": "multipart/form-data" }
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 120000
       });
-      setToastMessage("トレードCSVをアップロードしました。");
-    } catch {
-      setToastMessage("トレードCSVのアップロードに失敗しました。");
+      showToast("トレードCSVをアップロードしました。");
+    } catch (err: any) {
+      const detail =
+        err?.response?.data?.error ||
+        err?.response?.data?.detail ||
+        err?.message ||
+        "Unknown error";
+      showToast(`トレードCSVのアップロードに失敗しました。 (${detail})`);
     } finally {
       setTradeUploadInFlight(false);
       event.target.value = "";
+    }
+  };
+
+  const handleForceTradeSync = async () => {
+    if (tradeSyncInFlight) return;
+    setTradeSyncInFlight(true);
+    try {
+      const res = await api.get("/debug/trade-sync");
+      const errors = res.data?.errors ?? [];
+      if (Array.isArray(errors) && errors.length) {
+        showToast(`強制同期でエラーが発生しました。 (${errors[0]})`);
+      } else {
+        showToast("強制同期を実行しました。");
+      }
+    } catch (err: any) {
+      const detail =
+        err?.response?.data?.error ||
+        err?.response?.data?.detail ||
+        err?.message ||
+        "Unknown error";
+      showToast(`強制同期に失敗しました。 (${detail})`);
+    } finally {
+      setTradeSyncInFlight(false);
     }
   };
 
@@ -193,18 +287,17 @@ export default function GridView() {
     if (watchlistExporting) return;
     const exportItems = sortedTickers.map((item) => item.ticker);
     if (!exportItems.length) {
-      setToastMessage("エクスポート対象の銘柄がありません。");
+      showToast("エクスポート対象の銘柄がありません。");
       return;
     }
     setWatchlistExporting(true);
     try {
       const lines = exportItems.map((item) => `JP#${item.code}`);
-      const now = new Date();
-      const filename = `watchlist_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}.ebk`;
+      const filename = "watchlist.ebk";
       const ok = await saveAsFile(lines.join("\n"), filename, "text/plain");
-      setToastMessage(ok ? "銘柄一覧をエクスポートしました。" : "エクスポートをキャンセルしました。");
+      showToast(ok ? "銘柄一覧をエクスポートしました。" : "エクスポートをキャンセルしました。");
     } catch {
-      setToastMessage("銘柄一覧のエクスポートに失敗しました。");
+      showToast("銘柄一覧のエクスポートに失敗しました。");
     } finally {
       setWatchlistExporting(false);
     }
@@ -214,12 +307,12 @@ export default function GridView() {
     try {
       const res = await api.post("/watchlist/open");
       if (res.status >= 200 && res.status < 300 && res.data?.ok) {
-        setToastMessage("code.txt を開きました。");
+        showToast("code.txt を開きました。");
       } else {
-        setToastMessage("code.txt を開けませんでした。");
+        showToast("code.txt を開けませんでした。");
       }
     } catch {
-      setToastMessage("code.txt を開けませんでした。");
+      showToast("code.txt を開けませんでした。");
     }
   };
 
@@ -902,7 +995,7 @@ export default function GridView() {
             : `${code} を追加しました。次回TXT更新で反映されます。`
         );
       } catch {
-        setToastMessage("ウォッチリスト追加に失敗しました。");
+        showToast("ウォッチリスト追加に失敗しました。");
       }
     },
     [loadList]
@@ -922,10 +1015,10 @@ export default function GridView() {
         undoTimerRef.current = window.setTimeout(() => {
           setUndoInfo(null);
         }, 5000);
-        setToastMessage(`${code} を除外しました。`);
+        showToast(`${code} を除外しました。`);
       } catch (error) {
         const message = error instanceof Error ? error.message : "ウォッチリスト削除に失敗しました。";
-        setToastMessage(message);
+        showToast(message);
       }
     },
     [loadList]
@@ -939,7 +1032,7 @@ export default function GridView() {
         return;
       }
       if (keepList.length >= KEEP_LIMIT) {
-        setToastMessage(`候補箱は最大${KEEP_LIMIT}件までです。`);
+        showToast(`候補箱は最大${KEEP_LIMIT}件までです。`);
         return;
       }
       addKeep(code);
@@ -1056,9 +1149,9 @@ export default function GridView() {
         trashToken: undoInfo.trashToken
       });
       await loadList();
-      setToastMessage(`${undoInfo.code} を復元しました。`);
+      showToast(`${undoInfo.code} を復元しました。`);
     } catch {
-      setToastMessage("復元に失敗しました。");
+      showToast("復元に失敗しました。");
     } finally {
       if (undoTimerRef.current) {
         window.clearTimeout(undoTimerRef.current);
@@ -1103,7 +1196,7 @@ export default function GridView() {
       defaultTimeframe
     );
     if (result.dropped > 0 && !techFilterDropNoticeRef.current) {
-      setToastMessage("旧条件の一部は削除しました。");
+      showToast("旧条件の一部は削除しました。");
       techFilterDropNoticeRef.current = true;
     }
     return {
@@ -1178,7 +1271,9 @@ export default function GridView() {
     summary?: UpdateSummary;
     error?: string | null;
     last_updated_at?: string | null;
+    job_id?: string | null;
     stdout_tail?: string[];
+    status_message?: string | null;
     elapsed_ms?: number | null;
     timeout_sec?: number;
     warning?: boolean;
@@ -1205,21 +1300,101 @@ export default function GridView() {
     )}:${pad(date.getMinutes())}`;
   };
 
+  const formatElapsed = (elapsedMs?: number | null) => {
+    if (!elapsedMs || elapsedMs < 1000) return null;
+    const totalSeconds = Math.floor(elapsedMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  };
+
   const lastUpdatedLabel = formatUpdatedAt(
     (txtUpdateStatus?.last_updated_at as string | null | undefined) ?? health?.last_updated
   );
-  const isUpdatingTxt = updateRequestInFlight || Boolean(txtUpdateStatus?.running);
-  const updateProgressLabel = (() => {
-    if (!txtUpdateStatus?.running) return null;
-    if (txtUpdateStatus.phase === "ingesting") return "取り込み中";
-    if (
-      typeof txtUpdateStatus.processed === "number" &&
-      typeof txtUpdateStatus.total === "number" &&
-      txtUpdateStatus.total > 0
-    ) {
-      return `更新中 ${txtUpdateStatus.processed}/${txtUpdateStatus.total}`;
+  const isUpdateRunning = Boolean(txtUpdateStatus?.running);
+  const isUpdateStarting = updateRequestInFlight && !isUpdateRunning;
+  const isUpdatingTxt = isUpdateRunning || isUpdateStarting;
+  const normalizeCountValue = (value: unknown) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) ? parsed : null;
     }
-    return "更新中";
+    return null;
+  };
+
+  const updateProgressPercent = (() => {
+    if (!isUpdateRunning) return null;
+    const processed = normalizeCountValue(txtUpdateStatus?.processed);
+    const total = normalizeCountValue(txtUpdateStatus?.total);
+    if (typeof processed === "number" && processed >= 0) {
+      if (typeof total === "number" && total > 0) {
+        return Math.min(100, Math.round((processed / total) * 100));
+      }
+      if (total === 100) return Math.min(100, Math.round(processed));
+    }
+    return null;
+  })();
+  const formatUpdateCount = () => {
+    const processed = normalizeCountValue(txtUpdateStatus?.processed);
+    const total = normalizeCountValue(txtUpdateStatus?.total);
+    if (typeof total === "number" && total > 0) {
+      const safeProcessedRaw = typeof processed === "number" && processed >= 0 ? processed : 0;
+      const safeProcessed = Math.min(safeProcessedRaw, total);
+      return `${safeProcessed}/${total}`;
+    }
+    if (typeof processed === "number") {
+      return `${processed}`;
+    }
+    return null;
+  };
+  const updateProgressLabel = (() => {
+    if (!isUpdateRunning) return null;
+    const statusMessage = txtUpdateStatus.status_message?.trim();
+    if (txtUpdateStatus.phase === "ingesting") {
+      return statusMessage || "取り込み中…";
+    }
+    if (txtUpdateStatus.phase === "exporting") {
+      return statusMessage || "出力中…";
+    }
+    if (txtUpdateStatus.phase === "queued" || txtUpdateStatus.phase === "starting") {
+      return "準備中…";
+    }
+    return statusMessage || "更新中…";
+  })();
+  const updatePhase = txtUpdateStatus?.phase ?? null;
+  const updateStatusTone = isUpdateRunning || isUpdateStarting
+    ? "running"
+      : updatePhase === "done"
+        ? "done"
+        : updatePhase === "error"
+          ? "error"
+          : updatePhase === "idle"
+            ? "idle"
+            : "idle";
+  const updateStatusText = (() => {
+    if (isUpdateStarting) return "更新中";
+    if (isUpdateRunning) return updateProgressLabel ?? "更新中";
+    if (updatePhase === "done") return "更新完了";
+    if (updatePhase === "error") return "更新エラー";
+    if (updatePhase === "idle") return "待機中";
+    if (!txtUpdateStatus) return "状態確認中";
+    return "待機中";
+  })();
+  const updateProgressValue = (() => {
+    if (updateProgressPercent != null) return updateProgressPercent;
+    if (isUpdateStarting || updateStatusTone === "running") return 60;
+    if (updateStatusTone === "done") return 100;
+    return 0;
+  })();
+  const updateProgressDisplay = (() => {
+    const countLabel = formatUpdateCount();
+    if (countLabel) return countLabel;
+    if (updateProgressPercent != null) return `${updateProgressPercent}%`;
+    if (updateStatusTone === "done") return "100%";
+    return null;
   })();
 
   const formatUpdateSummary = (summary?: UpdateSummary) => {
@@ -1242,6 +1417,27 @@ export default function GridView() {
     return suffix ? `${message}（${suffix}）` : message;
   };
 
+  const updateDetailText = (() => {
+    if (isUpdateStarting) return "更新中";
+    if (isUpdateRunning) {
+      const elapsed = formatElapsed(txtUpdateStatus?.elapsed_ms);
+      return elapsed ? `経過 ${elapsed}` : "経過 --:--";
+    }
+    if (updatePhase === "done") {
+      const summary = formatUpdateSummary(txtUpdateStatus?.summary);
+      if (summary) return `結果 ${summary}`;
+      const statusMessage = txtUpdateStatus?.status_message?.trim();
+      if (statusMessage) return statusMessage;
+      return "更新完了";
+    }
+    if (updatePhase === "error") {
+      const statusMessage = txtUpdateStatus?.status_message?.trim();
+      return statusMessage ? statusMessage : "更新に失敗しました";
+    }
+    if (!txtUpdateStatus) return "状態を取得中";
+    return "手動で開始";
+  })();
+
   const handleUpdateError = (payload?: UpdateTxtPayload) => {
     const error = payload?.error ?? "unknown";
     if (error === "already_updated_today") {
@@ -1254,19 +1450,19 @@ export default function GridView() {
       return;
     }
     if (error === "update_in_progress") {
-      setToastMessage("TXT更新は実行中です。");
+      showToast("TXT更新は実行中です。");
       return;
     }
     if (error.startsWith("vbs_failed")) {
-      setToastMessage(formatUpdateToast("TXT更新でエラーが発生しました。", payload?.summary));
+      showToast(formatUpdateToast("TXT更新でエラーが発生しました。", payload?.summary));
       return;
     }
     if (error.startsWith("ingest_failed")) {
-      setToastMessage(formatUpdateToast("TXT取り込みでエラーが発生しました。", payload?.summary));
+      showToast(formatUpdateToast("TXT取り込みでエラーが発生しました。", payload?.summary));
       return;
     }
     if (error.startsWith("vbs_not_found")) {
-      setToastMessage("TXT更新スクリプトが見つかりません。");
+      showToast("TXT更新スクリプトが見つかりません。");
       return;
     }
     if (error === "code_txt_missing") {
@@ -1285,7 +1481,7 @@ export default function GridView() {
       );
       return;
     }
-    setToastMessage("TXT更新に失敗しました。");
+    showToast("TXT更新に失敗しました。");
   };
 
   const fetchTxtUpdateStatus = useCallback(async () => {
@@ -1372,14 +1568,14 @@ export default function GridView() {
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
-      setToastMessage("相談パックがまだありません。");
+      showToast("相談パックがまだありません。");
       return;
     }
     try {
       await navigator.clipboard.writeText(consultText);
-      setToastMessage("相談パックをコピーしました。");
+      showToast("相談パックをコピーしました。");
     } catch {
-      setToastMessage("コピーに失敗しました。");
+      showToast("コピーに失敗しました。");
     }
   }, [consultText]);
 
@@ -1392,12 +1588,24 @@ export default function GridView() {
 
   const handleUpdateTxt = useCallback(async () => {
     if (isUpdatingTxt || !backendReady) return;
+    updateRequestStartedAtRef.current = Date.now();
     setUpdateRequestInFlight(true);
+    // Clear any stale completed count (e.g. 679/679) so a new run doesn't look "instantly finished".
+    // Keep running=false until we observe it from the backend.
+    setTxtUpdateStatus((prev) => {
+      const fallbackTotal = (prev?.total ?? health?.code_count ?? 0) || 0;
+      return {
+        ...(prev ?? {}),
+        running: prev?.running ?? false,
+        processed: 0,
+        total: fallbackTotal > 0 ? fallbackTotal : prev?.total
+      };
+    });
     setShowSplitSuspects(false);
     setSplitSuspects([]);
     setShowUpdateLog(false);
     setUpdateLogLines([]);
-    setToastMessage("TXT更新を開始しました。");
+    showToast("TXT更新を開始しました。");
     try {
       const res = await api.post("/txt_update/run");
       const payload = res.data as UpdateTxtPayload;
@@ -1415,26 +1623,43 @@ export default function GridView() {
       if (payload) {
         handleUpdateError(payload);
       } else {
-        setToastMessage("TXT更新に失敗しました。");
+        showToast("TXT更新に失敗しました。");
       }
     } finally {
       setUpdateRequestInFlight(false);
+      updateRequestStartedAtRef.current = null;
     }
   }, [isUpdatingTxt, backendReady, fetchTxtUpdateStatus, handleUpdateError]);
 
   useEffect(() => {
-    if (!backendReady) return;
-    fetchTxtUpdateStatus();
-  }, [backendReady, fetchTxtUpdateStatus]);
+    // If the request promise got stuck (webview/network hiccup), don't let the UI
+    // show "starting" forever once we can observe the job is not running.
+    if (!updateRequestInFlight) return;
+    if (txtUpdateStatus && txtUpdateStatus.running === false) {
+      setUpdateRequestInFlight(false);
+      updateRequestStartedAtRef.current = null;
+      return;
+    }
+    const startedAt = updateRequestStartedAtRef.current;
+    if (startedAt == null) return;
+    const timer = window.setTimeout(() => {
+      if (updateRequestStartedAtRef.current === startedAt) {
+        setUpdateRequestInFlight(false);
+        updateRequestStartedAtRef.current = null;
+      }
+    }, 20000);
+    return () => window.clearTimeout(timer);
+  }, [updateRequestInFlight, txtUpdateStatus]);
 
   useEffect(() => {
     if (!backendReady) return;
-    if (!txtUpdateStatus?.running) return;
+    fetchTxtUpdateStatus();
+    // Use a fixed interval to avoid "stopping" feel on navigation return
     const timer = window.setInterval(() => {
       fetchTxtUpdateStatus();
-    }, 1000);
+    }, 2000);
     return () => window.clearInterval(timer);
-  }, [backendReady, txtUpdateStatus?.running, fetchTxtUpdateStatus]);
+  }, [backendReady, fetchTxtUpdateStatus]);
 
   useEffect(() => {
     const wasRunning = prevUpdateRunningRef.current;
@@ -1457,7 +1682,7 @@ export default function GridView() {
         fetchSplitSuspects().then((items) => {
           if (items.length) {
             setShowSplitSuspects(true);
-            setToastMessage(`分割疑い ${items.length}件。TXT削除→再更新してください。`);
+            showToast(`分割疑い ${items.length}件。TXT削除→再更新してください。`);
           }
         });
         api
@@ -1465,386 +1690,456 @@ export default function GridView() {
           .then((res) => setHealth(res.data as HealthStatus))
           .catch(() => undefined);
       } else if (txtUpdateStatus?.phase === "error") {
-        setToastMessage("TXT更新に失敗しました。");
+        showToast("TXT更新に失敗しました。");
         setShowUpdateLog(true);
       }
     }
     prevUpdateRunningRef.current = isRunning;
   }, [txtUpdateStatus, resetBarsCache, loadList, formatUpdateToast, fetchSplitSuspects]);
 
+  useEffect(() => {
+    // If a job finishes between polling intervals, we may never observe running=true and
+    // would miss the completion side effects (cache reset, reload, toasts).
+    const jobId = (txtUpdateStatus?.job_id as string | null | undefined) ?? null;
+    const prevJobId = prevUpdateJobIdRef.current;
+    prevUpdateJobIdRef.current = jobId;
+    if (!jobId || !prevJobId || jobId === prevJobId) return;
+    if (txtUpdateStatus?.running) return;
+    if (txtUpdateStatus?.phase !== "done") return;
+
+    const summary = txtUpdateStatus.summary;
+    resetBarsCache();
+    loadList();
+    const hasWarning = Boolean(txtUpdateStatus.warning);
+    setToastMessage(
+      formatUpdateToast(hasWarning ? "TXT update done (warnings)" : "TXT update done.", summary)
+    );
+    if (hasWarning) {
+      setShowUpdateLog(true);
+    }
+    fetchSplitSuspects().then((items) => {
+      if (items.length) {
+        setShowSplitSuspects(true);
+        showToast("split suspects: " + items.length);
+      }
+    });
+    api
+      .get("/health")
+      .then((res) => setHealth(res.data as HealthStatus))
+      .catch(() => undefined);
+  }, [txtUpdateStatus, resetBarsCache, loadList, formatUpdateToast, fetchSplitSuspects]);
+
+
   return (
-    <div className="app-shell">
-      <header className="top-bar">
-        <div className="top-bar-row top-bar-row-nav">
-          <div className="app-brand">
-            <div className="title">MeeMee Screener</div>
-            <div className="subtitle">Mee Mee - Fast grid with canvas sparklines</div>
-          </div>
-          <TopNav />
-        </div>
-        <div className="top-bar-row top-bar-row-tools">
-          <div className="toolbar-left">
-            <div className="segmented timeframe-segment">
-              {(["monthly", "weekly", "daily"] as const).map((value) => (
-                <button
-                  key={value}
-                  className={gridTimeframe === value ? "active" : ""}
-                  onClick={() => setGridTimeframe(value)}
-                >
-                  {value === "monthly" ? "月足" : value === "weekly" ? "週足" : "日足"}
-                </button>
-              ))}
-            </div>
-            <div className="anchor-display">
-              <span>基準日</span>
-              <button type="button" className="anchor-button" onClick={handleOpenTechFilter}>
-                最新 {activeAnchorLabel ? `(${activeAnchorLabel})` : ""}
-                <span className="caret">▼</span>
-              </button>
-            </div>
-            <div className="search-area">
-              <div className="search-field">
-                <input
-                  className="search-input"
-                  placeholder="コード / 銘柄名で検索"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
-                {search && (
-                  <button type="button" className="search-clear" onClick={() => setSearch("")}>
-                    クリア
-                  </button>
-                )}
-              </div>
-              {canAddWatchlist && (
+    <div className="app-shell list-view">
+      <header className="unified-list-header">
+        <div className="list-header-row">
+          <div className="header-row-top">
+            <TopNav />
+            <div className="list-header-actions-wrapper">
+              <div className="list-header-actions">
+              {keepList.length > 0 && (
                 <button
                   type="button"
-                  className="search-add-row"
-                  onClick={() => handleAddWatchlist(canAddWatchlist)}
+                  className={`consult-trigger ${consultVisible ? "active" : ""}`}
+                  onClick={() => setConsultVisible(!consultVisible)}
                 >
-                  “{canAddWatchlist}” は未登録です → ウォッチリストに追加
+                  <IconMessage size={16} />
+                  <span>相談</span>
+                  <span className="badge">{keepList.length}</span>
                 </button>
               )}
-            </div>
-          </div>
-          <div className="toolbar-right">
-            <button type="button" className="consult-trigger" onClick={handleOpenTechFilter}>
-              条件検索
-            </button>
-            <button
-              type="button"
-              className="consult-trigger"
-              onClick={() => {
-                setConsultVisible(true);
-                setConsultExpanded(false);
-              }}
-            >
-              相談
-            </button>
-            {/* Basic Sort Button - always visible */}
-            <div className="popover-anchor">
-              <button
-                type="button"
-                className={`sort-button ${isSorting ? "is-sorting" : ""}`}
-                onClick={() => {
-                  setBasicSortOpen((prev) => !prev);
-                  setSortOpen(false);
-                  setDisplayOpen(false);
-                }}
-              >
-                並び替え：{sortLabel}・{sortDirLabel}
-                <span className="caret">▼</span>
-              </button>
-              {basicSortOpen && (
-                <div className="popover-panel">
-                  <div className="popover-section">
-                    <div className="popover-title">並び替え項目</div>
-                    <div className="popover-groups">
-                      {basicSortSections.map((section) => (
-                        <div className="popover-group" key={section.title}>
-                          <div className="popover-group-title">{section.title}</div>
-                          <div className="popover-group-list">
-                            {section.options.map((option) => (
-                              <button
-                                type="button"
-                                key={option.key}
-                                className={
-                                  sortKey === option.key ? "popover-item active" : "popover-item"
+              <div className="list-header-spacer" style={{ width: 8 }} />
+              <div className="popover-anchor" ref={sortRef}>
+                <IconButton
+                  icon={<IconArrowsSort size={18} />}
+                  label={`並び: ${sortLabel}`}
+                  variant="iconLabel"
+                  tooltip="並び替え"
+                  ariaLabel="並び替えメニューを開く"
+                  selected={sortOpen}
+                  onClick={() => {
+                    setSortOpen(!sortOpen);
+                    setDisplayOpen(false);
+                    setSettingsOpen(false);
+                  }}
+                />
+                {sortOpen && (
+                  <div className="popover-panel">
+                    {(isCandidateView ? candidateSortSections : sortSections).map((section) => (
+                      <div className="popover-section" key={section.title}>
+                        <div className="popover-title">{section.title}</div>
+                        <div className="popover-grid">
+                          {section.options.map((opt) => (
+                            <button
+                              key={opt.key}
+                              type="button"
+                              className={`popover-item ${sortKey === opt.key ? "active" : ""}`}
+                              onClick={() => {
+                                if (sortKey === opt.key) {
+                                  setSortDir(sortDir === "asc" ? "desc" : "asc");
+                                } else {
+                                  setSortKey(opt.key);
+                                  setSortDir("desc");
                                 }
-                                onClick={() => {
-                                  setSortKey(option.key);
-                                  setBasicSortOpen(false);
-                                }}
-                              >
-                                <span>{option.label}</span>
-                                {sortKey === option.key && (
-                                  <span className="popover-status">選択中</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
+                                setSortOpen(false);
+                              }}
+                            >
+                              <span className="popover-item-label">{opt.label}</span>
+                              {sortKey === opt.key && (
+                                <span className="popover-check">{sortDirLabel}</span>
+                              )}
+                            </button>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="popover-section">
-                    <div className="popover-title">順序</div>
-                    <div className="segmented">
-                      {(["desc", "asc"] as SortDir[]).map((dir) => (
-                        <button
-                          key={dir}
-                          className={sortDir === dir ? "active" : ""}
-                          onClick={() => setSortDir(dir)}
-                        >
-                          {dir === "desc" ? "降順" : "昇順"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Performance period selector - shown when performance sorting is active */}
-                  {sortKey === "performance" && (
+                )}
+              </div>
+              <div className="popover-anchor" ref={displayRef}>
+                <IconButton
+                  icon={<IconLayoutGrid size={18} />}
+                  label="表示"
+                  variant="iconLabel"
+                  tooltip="表示設定"
+                  ariaLabel="表示設定メニューを開く"
+                  selected={displayOpen}
+                  onClick={() => {
+                    setDisplayOpen(!displayOpen);
+                    setSortOpen(false);
+                    setSettingsOpen(false);
+                  }}
+                />
+                {displayOpen && (
+                  <div className="popover-panel">
                     <div className="popover-section">
-                      <div className="popover-title">騰落率の期間</div>
+                      <div className="popover-title">行数</div>
                       <div className="segmented">
-                        {([
-                          { key: "1D", label: "1日" },
-                          { key: "1W", label: "1週" },
-                          { key: "1M", label: "1ヶ月" },
-                          { key: "1Q", label: "3ヶ月" },
-                          { key: "1Y", label: "1年" }
-                        ] as const).map((p) => (
+                        {[1, 2, 3, 4, 5, 6].map((r) => (
                           <button
-                            key={p.key}
-                            className={performancePeriod === p.key ? "active" : ""}
-                            onClick={() => setPerformancePeriod(p.key)}
+                            key={r}
+                            className={rows === r ? "active" : ""}
+                            onClick={() => setRows(r as any)}
                           >
-                            {p.label}
+                            {r}
                           </button>
                         ))}
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-            {/* Candidate Sort Button - always visible */}
-            <div className="popover-anchor" ref={sortRef}>
-              <button
-                type="button"
-                className={`sort-button ${isSorting ? "is-sorting" : ""}`}
-                onClick={() => {
-                  setSortOpen((prev) => !prev);
-                  setBasicSortOpen(false);
-                  setDisplayOpen(false);
-                }}
-              >
-                候補
-                <span className="caret">▼</span>
-              </button>
-              {sortOpen && (
-                <div className="popover-panel">
-                  <div className="popover-section">
-                    <div className="popover-title">候補プリセット</div>
-                    <div className="popover-groups">
-                      {candidateSortSections.map((section) => (
-                        <div className="popover-group" key={section.title}>
-                          <div className="popover-group-title">{section.title}</div>
-                          <div className="popover-group-list">
-                            {section.options.map((option) => (
-                              <button
-                                type="button"
-                                key={option.key}
-                                className={
-                                  sortKey === option.key ? "popover-item active" : "popover-item"
-                                }
-                                onClick={() => {
-                                  setSortKey(option.key);
-                                  setSortOpen(false);
-                                }}
-                              >
-                                <span>{option.label}</span>
-                                {sortKey === option.key && (
-                                  <span className="popover-status">選択中</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                    <div className="popover-section">
+                      <div className="popover-title">列数</div>
+                      <div className="segmented">
+                        {[1, 2, 3, 4].map((c) => (
+                          <button
+                            key={c}
+                            className={columns === c ? "active" : ""}
+                            onClick={() => setColumns(c as any)}
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="popover-anchor" ref={displayRef}>
-              <button
-                type="button"
-                className="display-button"
-                onClick={() => {
-                  setDisplayOpen((prev) => !prev);
-                  setSortOpen(false);
-                }}
-              >
-                表示
-                <span className="caret">▼</span>
-              </button>
-              {displayOpen && (
-                <div className="popover-panel">
-                  <div className="popover-section">
-                    <div className="popover-title">列数</div>
-                    <div className="segmented">
-                      {[1, 2, 3, 4].map((count) => (
-                        <button
-                          key={count}
-                          className={columns === count ? "active" : ""}
-                          onClick={() => setColumns(count as 1 | 2 | 3 | 4)}
-                        >
-                          {count}列
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="popover-section">
-                    <div className="popover-title">行数</div>
-                    <div className="segmented">
-                      {[1, 2, 3, 4, 5, 6].map((count) => (
-                        <button
-                          key={count}
-                          className={rows === count ? "active" : ""}
-                          onClick={() => setRows(count as 1 | 2 | 3 | 4 | 5 | 6)}
-                        >
-                          {count}行
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="popover-section">
-                    <div className="popover-title">チャート表示</div>
-                    <div className="popover-list">
+                    <div className="popover-section">
                       <button
-                        type="button"
-                        className={showBoxes ? "popover-item active" : "popover-item"}
+                        className="popover-item"
+                        onClick={() => {
+                          setRows(3);
+                          setColumns(3);
+                          setDisplayOpen(false);
+                        }}
+                      >
+                        <span className="popover-item-label">3x3に戻す</span>
+                      </button>
+                    </div>
+                    <div className="popover-section">
+                      <div className="popover-title">表示オプション</div>
+                      <button
+                        className={`popover-item ${showBoxes ? "active" : ""}`}
                         onClick={() => setShowBoxes(!showBoxes)}
                       >
-                        <span>ボックス表示</span>
-                        <span className="popover-status">{showBoxes ? "オン" : "オフ"}</span>
+                        <span className="popover-item-label">ボックス枠を表示</span>
+                        {showBoxes && <span className="popover-check">ON</span>}
+                      </button>
+                      <button
+                        className={`popover-item ${showIndicators ? "active" : ""}`}
+                        onClick={() => {
+                          setShowIndicators(!showIndicators);
+                          setDisplayOpen(false);
+                        }}
+                      >
+                        <span className="popover-item-label">インジケーター設定</span>
+                      </button>
+                      <button
+                        className={`popover-item ${maSettings[gridTimeframe].some(s => s.visible) ? "active" : ""}`}
+                        onClick={() => {
+                          if (maSettings[gridTimeframe].some(s => s.visible)) {
+                            const newState = maSettings[gridTimeframe].map(s => ({ ...s, visible: false }));
+                            newState.forEach((s, i) => updateMaSetting(gridTimeframe, i, { visible: false }));
+                          } else {
+                            resetMaSettings(gridTimeframe);
+                          }
+                        }}
+                      >
+                        <span className="popover-item-label">MA一括表示切替</span>
+                        <span className="popover-status">
+                          {maSettings[gridTimeframe].some(s => s.visible) ? "ON" : "OFF"}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="popover-anchor">
+                <IconButton
+                  icon={<IconFilter size={18} />}
+                  label="フィルタ"
+                  selected={techFilterActive.conditions.length > 0}
+                  variant="iconLabel"
+                  onClick={() => setTechFilterOpen(true)}
+                />
+              </div>
+              <div className="txt-update-group">
+                <IconButton
+                  icon={<IconRefresh size={18} />}
+                  label={isUpdatingTxt ? "更新中" : "TXT更新"}
+                  variant="iconLabel"
+                  tooltip="TXT更新"
+                  ariaLabel="TXT更新"
+                  className={`txt-update-button ${isUpdatingTxt ? "is-updating" : ""}`}
+                  onClick={handleUpdateTxt}
+                  disabled={!backendReady || isUpdatingTxt}
+                />
+                {backendReady && (
+                  <div className="txt-update-meta">
+                    <span className={`txt-update-status is-${updateStatusTone}`}>
+                      <span className="txt-update-dot" />
+                      {updateStatusText}
+                      {updateProgressDisplay != null ? `（${updateProgressDisplay}）` : ""}
+                    </span>
+                    <div
+                      className={`txt-update-progress is-${updateStatusTone} ${(updateStatusTone === "running" && updateProgressPercent == null) ||
+                        isUpdateStarting
+                        ? "is-indeterminate"
+                        : ""
+                        }`}
+                      aria-hidden="true"
+                    >
+                      <div
+                        className="txt-update-progress-bar"
+                        style={{ width: `${updateProgressValue}%` }}
+                      />
+                    </div>
+                    <span className="txt-update-detail">{updateDetailText}</span>
+                    <span className="txt-update-last">
+                      最終更新：{lastUpdatedLabel ?? "--"}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="popover-anchor" ref={settingsRef}>
+                <IconButton
+                  icon={<IconSettings size={18} />}
+                  tooltip="設定"
+                  ariaLabel="設定"
+                  onClick={() => {
+                    setSettingsOpen(!settingsOpen);
+                    setSortOpen(false);
+                    setDisplayOpen(false);
+                  }}
+                />
+                {settingsOpen && (
+                  <div className="popover-panel popover-right-aligned" style={{ right: 0 }}>
+                    <div className="popover-section">
+                      <div className="popover-title">外観設定</div>
+                      <div className="segmented">
+                        <button
+                          className={currentTheme === "dark" ? "active" : ""}
+                          onClick={() => currentTheme !== "dark" && handleThemeToggle()}
+                        >
+                          <IconMoon size={16} />
+                          <span>ダーク</span>
+                        </button>
+                        <button
+                          className={currentTheme === "light" ? "active" : ""}
+                          onClick={() => currentTheme !== "light" && handleThemeToggle()}
+                        >
+                          <IconSun size={16} />
+                          <span>ライト</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="popover-section">
+                      <div className="popover-title">取引CSV</div>
+                      <button
+                        type="button"
+                        className="popover-item"
+                        onClick={handleTradeCsvPick}
+                        disabled={tradeUploadInFlight}
+                      >
+                        <span className="popover-item-label">
+                          <IconUpload size={16} />
+                          <span>{tradeUploadInFlight ? "取り込み中..." : "CSV取り込み"}</span>
+                        </span>
+                        <span className="popover-status">手動</span>
                       </button>
                       <button
                         type="button"
                         className="popover-item"
+                        onClick={handleForceTradeSync}
+                        disabled={tradeSyncInFlight}
+                      >
+                        <span className="popover-item-label">
+                          <IconRefresh size={16} />
+                          <span>{tradeSyncInFlight ? "同期中..." : "強制同期"}</span>
+                        </span>
+                        <span className="popover-status">強制</span>
+                      </button>
+                      <div className="popover-hint">
+                        保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
+                      </div>
+                    </div>
+                    <div className="popover-section">
+                      <div className="popover-title">スクショ</div>
+                      <div className="popover-hint">
+                        保存先: %USERPROFILE%\\Downloads\\MeeMeeScreener
+                      </div>
+                    </div>
+                    <div className="popover-section">
+                      <div className="popover-title">銘柄一覧</div>
+                      <button
+                        type="button"
+                        className="popover-item"
+                        onClick={handleExportWatchlist}
+                        disabled={watchlistExporting}
+                      >
+                        <span className="popover-item-label">
+                          <IconDownload size={16} />
+                          <span>{watchlistExporting ? "エクスポート中..." : "EXPORT"}</span>
+                        </span>
+                        <span className="popover-status">EBK</span>
+                      </button>
+                      <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
+                        <span className="popover-item-label">
+                          <IconFileText size={16} />
+                          <span>code.txt</span>
+                        </span>
+                        <span className="popover-status">編集</span>
+                      </button>
+                    </div>
+                    <div className="popover-section">
+                      <div className="popover-title">イベント</div>
+                      <button
+                        type="button"
+                        className="popover-item"
+                        disabled={eventsMeta?.isRefreshing}
                         onClick={() => {
-                          setShowIndicators(true);
-                          setDisplayOpen(false);
+                          void refreshEvents();
+                          setSettingsOpen(false);
                         }}
                       >
-                        <span>移動平均設定</span>
-                        <span className="popover-status">開く</span>
+                        <span className="popover-item-label">
+                          <IconRefresh size={16} />
+                          <span>
+                            {eventsMeta?.isRefreshing ? "更新中..." : "イベント更新"}
+                          </span>
+                        </span>
+                        <span className="popover-status">手動</span>
                       </button>
+                      <div className="popover-hint">
+                        状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+                      </div>
+                      <div className="popover-hint">
+                        最終試行: {eventsAttemptLabel ?? "--"}
+                      </div>
+                      {eventsMeta?.lastError && (
+                        <div className="popover-hint">エラー: {eventsMeta.lastError}</div>
+                      )}
                     </div>
                   </div>
-                  <div className="popover-section">
-                    <button type="button" className="popover-reset" onClick={resetDisplay}>
-                      おすすめに戻す
-                    </button>
-                  </div>
-                </div>
-              )}
+                )}
+                <input
+                  ref={tradeCsvInputRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={handleTradeCsvChange}
+                  style={{ display: "none" }}
+                />
+              </div>
+              </div>
             </div>
-            <div className="txt-update-group">
-              <button
-                type="button"
-                className={`txt-update-button ${isUpdatingTxt ? "is-updating" : ""}`}
-                onClick={handleUpdateTxt}
-                disabled={!backendReady || isUpdatingTxt}
-              >
-                {isUpdatingTxt ? "TXT更新中..." : "TXT更新"}
-              </button>
-              {(updateProgressLabel || lastUpdatedLabel) && (
-                <div className="txt-update-meta">
-                  <span>{updateProgressLabel ?? "更新待ち"}</span>
-                  <span>最終更新：{lastUpdatedLabel ?? "--"}</span>
-                </div>
-              )}
+          </div>
+          <div className="header-row-bottom">
+            <div className="segmented list-timeframe">
+              {(["monthly", "weekly", "daily"] as const).map((frame) => (
+                <button
+                  key={frame}
+                  type="button"
+                  className={gridTimeframe === frame ? "active" : ""}
+                  onClick={() => setGridTimeframe(frame)}
+                >
+                  {frame === "daily"
+                    ? "日足"
+                    : frame === "weekly"
+                      ? "週足"
+                      : "月足"}
+                </button>
+              ))}
             </div>
-            <div className="popover-anchor" ref={settingsRef}>
-              <button
-                type="button"
-                className="icon-button settings-trigger"
-                onClick={() => {
-                  setSettingsOpen(!settingsOpen);
-                  setSortOpen(false);
-                  setDisplayOpen(false);
-                }}
-                title="設定"
-                style={{ padding: "6px", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "34px", width: "34px" }}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.72l-.15.1a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              </button>
-              {settingsOpen && (
-                <div className="popover-panel popover-right-aligned" style={{ right: 0 }}>
-                  <div className="popover-section">
-                    <div className="popover-title">外観設定</div>
-                    <div className="segmented">
-                      <button
-                        className={currentTheme === "dark" ? "active" : ""}
-                        onClick={() => currentTheme !== "dark" && handleThemeToggle()}
-                      >
-                        ダーク
-                      </button>
-                      <button
-                        className={currentTheme === "light" ? "active" : ""}
-                        onClick={() => currentTheme !== "light" && handleThemeToggle()}
-                      >
-                        ライト
-                      </button>
-                    </div>
-                  </div>
-                  <div className="popover-section">
-                    <div className="popover-title">取引CSV</div>
-                    <button
-                      type="button"
-                      className="popover-item"
-                      onClick={handleTradeCsvPick}
-                      disabled={tradeUploadInFlight}
-                    >
-                      <span>{tradeUploadInFlight ? "取り込み中..." : "CSVを取り込む"}</span>
-                      <span className="popover-status">手動</span>
-                    </button>
-                    <div className="popover-hint">
-                      保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
-                    </div>
-                  </div>
-                  <div className="popover-section">
-                    <div className="popover-title">銘柄一覧</div>
-                    <button
-                      type="button"
-                      className="popover-item"
-                      onClick={handleExportWatchlist}
-                      disabled={watchlistExporting}
-                    >
-                      <span>{watchlistExporting ? "エクスポート中..." : "銘柄一覧をEXPORTする"}</span>
-                      <span className="popover-status">EBK</span>
-                    </button>
-                    <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
-                      <span>code.txtを開く</span>
-                      <span className="popover-status">編集</span>
-                    </button>
-                  </div>
-                </div>
-              )}
+            <div className="segmented segmented-compact list-range">
+              {rangeOptions.map((option) => (
+                <button
+                  key={option.label}
+                  className={listRangeBars === option.count ? "active" : ""}
+                  onClick={() => setListRangeBars(option.count)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className="search-field list-search">
               <input
-                ref={tradeCsvInputRef}
-                type="file"
-                accept=".csv"
-                onChange={handleTradeCsvChange}
-                style={{ display: "none" }}
+                className="search-input"
+                type="search"
+                placeholder="コード / 銘柄名で検索"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
               />
+              {search && (
+                <button type="button" className="search-clear" onClick={() => setSearch("")}>
+                  クリア
+                </button>
+              )}
+              {canAddWatchlist && (
+                <button type="button" onClick={() => addKeep(canAddWatchlist)}>
+                  +
+                </button>
+              )}
+            </div>
+            <div className="list-events-inline">
+              <span className="event-meta-status">
+                状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+              </span>
+              {eventsMeta?.lastError && (
+                <span className="event-meta-error" title={eventsMeta.lastError}>
+                  エラー: {eventsMeta.lastError}
+                </span>
+              )}
+              <span className="event-meta-last">
+                イベント最終更新: {eventsLastSuccessLabel ?? "--"}
+              </span>
+              {rightsCoverageLabel && (
+                <span className="event-meta-rights">{rightsCoverageLabel}</span>
+              )}
             </div>
           </div>
         </div>
+
+
+
+
+
         {techFilterActive.conditions.length > 0 && (
           <div className="tech-filter-chips-row">
             <span className="tech-filter-chip">
@@ -1873,7 +2168,9 @@ export default function GridView() {
       </header>
       {health && health.txt_count === 0 && (
         <div className="data-warning">
-          TXTが見つかりません。PANROLLINGで出力したTXTを `data/txt` に配置してください。
+          TXTが見つかりません。PANROLLINGで出力したTXTを
+          {health.pan_out_txt_dir ? ` ${health.pan_out_txt_dir} ` : ""}
+          に配置してください。
         </div>
       )}
       {health && health.code_txt_missing && health.txt_count > 0 && (
@@ -2035,6 +2332,7 @@ export default function GridView() {
                         <StockTile
                           ticker={item.ticker}
                           timeframe={gridTimeframe}
+                          maxBars={gridMaxBars}
                           signals={item.metrics?.signals ?? []}
                           active={activeCode === item.ticker.code}
                           kept={keepSet.has(item.ticker.code)}
@@ -2251,7 +2549,7 @@ export default function GridView() {
           setTechFilterDraft((prev) => ({ ...prev, defaultTimeframe: next }));
         }}
       />
-      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      <Toast message={toastMessage?.text ?? null} onClose={() => setToastMessage(null)} />
     </div>
   );
 }

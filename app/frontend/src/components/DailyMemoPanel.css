@@ -1,0 +1,277 @@
+/* Daily Memo Panel Styles */
+.daily-memo-panel {
+  width: 200px;
+  flex-shrink: 0;
+
+  background: var(--theme-bg-secondary);
+  border-left: 1px solid var(--theme-border);
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.memo-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.memo-panel-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--theme-text-primary);
+}
+
+.cursor-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-bg-primary);
+  color: var(--theme-text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.cursor-mode-toggle:hover {
+  background: var(--theme-bg-hover);
+}
+
+.cursor-mode-toggle.active {
+  background: var(--theme-accent);
+  color: white;
+  border-color: var(--theme-accent);
+}
+
+.memo-panel-info {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.info-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.info-date {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--theme-text-primary);
+}
+
+.info-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.nav-btn {
+  padding: 4px 8px;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-bg-primary);
+  color: var(--theme-text-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.nav-btn:hover {
+  background: var(--theme-bg-hover);
+}
+
+.info-section {
+  margin-bottom: 12px;
+  padding: 8px;
+  background: var(--theme-bg-primary);
+  border-radius: 4px;
+}
+
+.info-label {
+  font-size: 12px;
+  color: var(--theme-text-secondary);
+  margin-bottom: 4px;
+}
+
+.info-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--theme-text-primary);
+}
+
+.info-value {
+  font-size: 13px;
+  color: var(--theme-text-primary);
+}
+
+.info-actions {
+  margin-top: 16px;
+}
+
+.consult-copy-btn {
+  width: 100%;
+  padding: 10px;
+  background: var(--theme-accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: opacity 0.2s;
+}
+
+.consult-copy-btn:hover {
+  opacity: 0.9;
+}
+
+.memo-panel-input {
+  flex-shrink: 0;
+  border-top: 1px solid var(--theme-border);
+  padding-top: 16px;
+}
+
+.memo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.memo-header label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--theme-text-primary);
+}
+
+.memo-status {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+}
+
+.status-saving {
+  color: var(--theme-text-secondary);
+}
+
+.status-saved {
+  color: #10b981;
+}
+
+.status-error {
+  color: #ef4444;
+}
+
+.char-count {
+  color: var(--theme-text-secondary);
+}
+
+.char-count.warning {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.memo-textarea {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--theme-border);
+  border-radius: 4px;
+  background: var(--theme-bg-primary);
+  color: var(--theme-text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.memo-textarea:focus {
+  outline: none;
+  border-color: var(--theme-accent);
+}
+
+.memo-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ef4444;
+}
+
+.memo-panel-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--theme-text-secondary);
+  font-size: 14px;
+}
+
+/* Light mode adjustments */
+:root[data-theme="light"] .status-saved {
+  color: #059669;
+}
+
+:root[data-theme="light"] .status-error {
+  color: #dc2626;
+}
+
+:root[data-theme="light"] .char-count.warning {
+  color: #d97706;
+}
+/* Expanded Info Styles */
+.info-grid-2col {
+  display: grid;
+  grid-template-columns: 30px 1fr 30px 1fr;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--theme-text-primary);
+}
+
+.prev-day-info {
+  margin-bottom: 12px;
+  padding: 8px;
+  background: var(--theme-bg-primary);
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.ma-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ma-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.ma-name {
+  font-weight: 600;
+  width: 30px;
+}
+
+.ma-value {
+  color: var(--theme-text-primary);
+}
+
+.position-info {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--theme-text-primary);
+}
+
+.position-empty {
+  color: var(--theme-text-secondary);
+}

@@ -132,6 +132,9 @@ print(json.dumps(missing))
         $pyInstallerArgs += "--clean"
     }
     $pyInstallerArgs += @(
+        "--paths", "$repoRoot"
+    )
+    $pyInstallerArgs += @(
         "--onedir",
         "--noconsole",
         "--name", "MeeMeeScreener",
@@ -143,10 +146,24 @@ print(json.dumps(missing))
         "--hidden-import", "uvicorn.lifespan.on",
         "--hidden-import", "uvicorn.protocols.http.h11_impl",
         "--hidden-import", "uvicorn.protocols.websockets.websockets_impl",
+        "--hidden-import", "pythonnet",
+        "--hidden-import", "clr",
+        "--hidden-import", "clr_loader",
+        "--hidden-import", "System",
+        "--hidden-import", "System.Windows.Forms",
+        "--hidden-import", "webview.platforms.winforms",
+        "--collect-submodules", "multipart",
         "--collect-all", "uvicorn",
         "--hidden-import", "app.backend",
         "--hidden-import", "app.backend.main",
         "--collect-submodules", "app.backend",
+        "--collect-submodules", "app",
+        "--add-data", "$(Join-Path $repoRoot "app/__init__.py");app",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/__init__.py");app/backend",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/*.py");app/backend",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/core/__init__.py");app/backend/core",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/core/*.py");app/backend/core",
+        "--add-data", "$(Join-Path $repoRoot "app/desktop/*.py");app/desktop",
         "--add-data", "$backendStatic;app/backend/static",
         "--add-data", "$iconPath;resources/icons",
         "--add-data", "$(Join-Path $repoRoot "tools/export_pan.vbs");tools",
@@ -186,18 +203,97 @@ print(json.dumps(missing))
         throw "Build failed: release/MeeMeeScreener not found."
     }
 
+    # Copy README.txt to the release package
+    $readmeSrc = Join-Path $repoRoot "resources\README.txt"
+    if (Test-Path $readmeSrc) {
+        Write-Host "Copying README.txt to release package..."
+        Copy-Item -Path $readmeSrc -Destination (Join-Path $onedir "README.txt") -Force
+    } else {
+        Write-Host "Warning: README.txt not found at $readmeSrc"
+    }
+
+    write-Host "Copying bootstrap scripts to release package..."
+    $bootstrapPs1 = Join-Path $repoRoot "tools\portable_bootstrap.ps1"
+    $bootstrapCmd = Join-Path $repoRoot "tools\portable_bootstrap.cmd"
+    
+    Copy-Item -Path $bootstrapPs1 -Destination (Join-Path $onedir "portable_bootstrap.ps1") -Force
+    Copy-Item -Path $bootstrapCmd -Destination (Join-Path $onedir "portable_bootstrap.cmd") -Force
+
+    # Also place export_pan.vbs at the app root for compatibility with environments
+    # where the app resolves the VBS path relative to the executable directory.
+    $exportVbsSrc = Join-Path $repoRoot "tools\export_pan.vbs"
+    if (Test-Path $exportVbsSrc) {
+        Copy-Item -Path $exportVbsSrc -Destination (Join-Path $onedir "export_pan.vbs") -Force
+    }
+
     Write-Host "Creating portable zip..."
     $zipPath = $releaseZip
     $zipAttempts = 5
     $zipDelaySeconds = 2
     $zipSuccess = $false
+
+    function New-PortableZip([string]$SourceDir, [string]$DestinationZip) {
+        Add-Type -AssemblyName System.IO.Compression
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+        if (Test-Path $DestinationZip) {
+            Remove-Item -Force $DestinationZip
+        }
+
+        $zipStream = [System.IO.File]::Open(
+            $DestinationZip,
+            [System.IO.FileMode]::Create,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+        try {
+            $archive = New-Object System.IO.Compression.ZipArchive($zipStream, ([System.IO.Compression.ZipArchiveMode]::Create), $false)
+            try {
+                $root = (Resolve-Path $SourceDir).Path.TrimEnd('\')
+                $files = Get-ChildItem -Path $root -Recurse -File -Force
+                foreach ($file in $files) {
+                    $full = $file.FullName
+                    $relative = $full.Substring($root.Length).TrimStart('\')
+                    $entryName = $relative -replace '\\', '/'
+                    $entry = $archive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+
+                    $entryStream = $entry.Open()
+                    try {
+                        # Compress-Archive (ZipArchiveHelper) can fail when other processes hold a read handle
+                        # because it opens with restrictive sharing. Use ReadWrite|Delete sharing for robustness.
+                        $fs = New-Object System.IO.FileStream(
+                            $full,
+                            [System.IO.FileMode]::Open,
+                            [System.IO.FileAccess]::Read,
+                            ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+                        )
+                        try {
+                            $fs.CopyTo($entryStream)
+                        } finally {
+                            $fs.Dispose()
+                        }
+                    } finally {
+                        $entryStream.Dispose()
+                    }
+                }
+            } finally {
+                $archive.Dispose()
+            }
+        } finally {
+            $zipStream.Dispose()
+        }
+    }
+
     for ($i = 1; $i -le $zipAttempts; $i++) {
         try {
-            Compress-Archive -Path $onedir -DestinationPath $zipPath
+            # Create ZIP with the contents of MeeMeeScreener folder (not the folder itself)
+            # This allows users to extract and run directly
+            New-PortableZip -SourceDir $onedir -DestinationZip $zipPath
             $zipSuccess = $true
             break
         } catch {
-            Write-Host "Zip failed (attempt $i/$zipAttempts). Retrying in $zipDelaySeconds sec..."
+            Write-Host "Zip failed (attempt $i/$zipAttempts): $($_.Exception.Message)"
+            Write-Host "Retrying in $zipDelaySeconds sec..."
             Start-Sleep -Seconds $zipDelaySeconds
         }
     }
@@ -206,6 +302,14 @@ print(json.dumps(missing))
     }
 
     Write-Host "Done."
+    Write-Host ""
+    Write-Host "Portable package created: $zipPath"
+    Write-Host "Users can extract this ZIP and run MeeMeeScreener.exe directly."
+    Write-Host ""
+    Write-Host "To enable portable mode (data stored in same folder):"
+    Write-Host "  1. Extract the ZIP"
+    Write-Host "  2. Create a file named 'portable.flag' in the same folder as MeeMeeScreener.exe"
+    Write-Host "  3. Run MeeMeeScreener.exe"
 } finally {
     if ($LogPath) {
         Stop-Transcript | Out-Null

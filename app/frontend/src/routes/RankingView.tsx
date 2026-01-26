@@ -8,12 +8,14 @@ import ChartListCard from "../components/ChartListCard";
 import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import { MaSetting, useStore } from "../store";
+import { formatEventBadgeDate } from "../utils/events";
 import { computeSignalMetrics } from "../utils/signals";
 import {
   buildConsultationPack,
   ConsultationSort,
   ConsultationTimeframe
 } from "../utils/consultation";
+import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
 
 type RankItem = {
@@ -50,12 +52,14 @@ export default function RankingView() {
   const barsStatus = useStore((state) => state.barsStatus);
   const boxesCache = useStore((state) => state.boxesCache);
   const maSettings = useStore((state) => state.maSettings);
+  const tickers = useStore((state) => state.tickers);
+  const loadList = useStore((state) => state.loadList);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
-  const listRangeMonths = useStore((state) => state.settings.listRangeMonths);
+  const listRangeBars = useStore((state) => state.settings.listRangeBars);
   const listColumns = useStore((state) => state.settings.listColumns);
   const listRows = useStore((state) => state.settings.listRows);
   const setListTimeframe = useStore((state) => state.setListTimeframe);
-  const setListRangeMonths = useStore((state) => state.setListRangeMonths);
+  const setListRangeBars = useStore((state) => state.setListRangeBars);
   const setListColumns = useStore((state) => state.setListColumns);
   const setListRows = useStore((state) => state.setListRows);
 
@@ -67,6 +71,7 @@ export default function RankingView() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
   const [consultVisible, setConsultVisible] = useState(false);
   const [consultExpanded, setConsultExpanded] = useState(false);
@@ -83,6 +88,9 @@ export default function RankingView() {
       ? "consult-padding-expanded"
       : "consult-padding-mini"
     : "";
+
+  // Use the screenshot hook
+  const { generateScreenshots } = useConsultScreenshot();
 
   const listStyles = useMemo(
     () =>
@@ -164,6 +172,16 @@ export default function RankingView() {
   }, [searchResults, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
   const listCodes = useMemo(() => filteredItems.map((item) => item.code), [filteredItems]);
   const densityKey = `${listColumns}x${listRows}`;
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (tickers.length) return;
+    loadList().catch(() => { });
+  }, [backendReady, loadList, tickers.length]);
+
+  const tickerMap = useMemo(() => {
+    return new Map(tickers.map((ticker) => [ticker.code, ticker]));
+  }, [tickers]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -319,46 +337,32 @@ export default function RankingView() {
   ]);
 
   const handleCreateScreenshots = useCallback(async () => {
-    if (!selectedCodes.length) {
+    if (selectedCodes.length === 0) {
       setToastMessage("スクショ対象がありません。");
       return;
     }
-    const targets = selectedCodes.slice(0, SCREENSHOT_LIMIT);
-    const omitted = Math.max(0, selectedCodes.length - targets.length);
-    setScreenshotBusy(true);
-    try {
-      try {
-        await ensureBarsForVisible(listTimeframe, targets, "chart-screenshot");
-      } catch {
-        // Use available cache even if fetch fails.
+
+    // Check setting for Consult mode (Use new method)
+    // The user requirement says "Replace" so we just use the new one.
+
+    setToastMessage("スクショ生成を開始します...");
+
+    const result = await generateScreenshots(selectedCodes);
+
+    if (result.success) {
+      setToastMessage(`${result.count}件のスクショを保存しました`);
+      if (result.success && window.pywebview?.api?.open_screenshot_dir) {
+        setToastAction({
+          label: "フォルダを開く",
+          onClick: async () => {
+            await window.pywebview!.api.open_screenshot_dir();
+          }
+        });
       }
-      const itemsForShots = targets.map((code) => ({
-        code,
-        payload: barsCache[listTimeframe][code] ?? null,
-        boxes: [],
-        maSettings: listMaSettings ?? []
-      }));
-      const result = downloadChartScreenshots(itemsForShots, {
-        rangeMonths: listRangeMonths,
-        timeframeLabel: listTimeframe
-      });
-      if (!result.created) {
-        setToastMessage("スクショを作成できませんでした。");
-        return;
-      }
-      const omittedLabel = omitted ? ` (残り${omitted}件は省略)` : "";
-      setToastMessage(`スクショを${result.created}件作成しました。${omittedLabel}`);
-    } finally {
-      setScreenshotBusy(false);
+    } else {
+      setToastMessage(`保存失敗: ${result.error || "不明なエラー"}`);
     }
-  }, [
-    selectedCodes,
-    ensureBarsForVisible,
-    listTimeframe,
-    barsCache,
-    listMaSettings,
-    listRangeMonths
-  ]);
+  }, [selectedCodes, generateScreenshots]);
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
@@ -394,8 +398,8 @@ export default function RankingView() {
       <UnifiedListHeader
         timeframe={listTimeframe}
         onTimeframeChange={setListTimeframe}
-        rangeMonths={listRangeMonths}
-        onRangeChange={setListRangeMonths}
+        rangeBars={listRangeBars}
+        onRangeChange={setListRangeBars}
         search={search}
         onSearchChange={setSearch}
         sortValue={dir}
@@ -420,7 +424,7 @@ export default function RankingView() {
         {showSkeleton && (
           <div className="rank-skeleton">
             {Array.from({ length: 4 }).map((_, index) => (
-              <div className="tile skeleton-card" key={`rank-skeleton-${index}`}>
+              <div className="tile skeleton-card" key={`rank - skeleton - ${index}`}>
                 <div className="skeleton-line wide" />
                 <div className="skeleton-line" />
                 <div className="skeleton-block tall" />
@@ -438,6 +442,9 @@ export default function RankingView() {
                 const status = barsStatus[listTimeframe][item.code];
                 const series =
                   payload && payload.bars?.length ? payload.bars : item.series ?? [];
+                const ticker = tickerMap.get(item.code);
+                const earningsLabel = formatEventBadgeDate(ticker?.eventEarningsDate);
+                const rightsLabel = formatEventBadgeDate(ticker?.eventRightsDate);
                 return (
                   <ChartListCard
                     key={item.code}
@@ -447,7 +454,7 @@ export default function RankingView() {
                     fallbackSeries={series}
                     status={status}
                     maSettings={resolvedMaSettings}
-                    rangeMonths={listRangeMonths}
+                    rangeBars={listRangeBars}
                     densityKey={densityKey}
                     signals={signalMap.get(item.code) ?? []}
                     onOpenDetail={handleOpenDetail}
@@ -471,6 +478,18 @@ export default function RankingView() {
                             <span className="tile-code">{item.code}</span>
                           </label>
                           <span className="tile-name">{item.name ?? item.code}</span>
+                          {(rightsLabel || earningsLabel) && (
+                            <span className="event-badges">
+                              {rightsLabel && (
+                                <span className="event-badge event-rights">権利 {rightsLabel}</span>
+                              )}
+                              {earningsLabel && (
+                                <span className="event-badge event-earnings">
+                                  決算 {earningsLabel}
+                                </span>
+                              )}
+                            </span>
+                          )}
                         </div>
                       </>
                     }
@@ -481,7 +500,7 @@ export default function RankingView() {
                         </span>
                         <button
                           type="button"
-                          className={`favorite-toggle ${item.is_favorite ? "active" : ""}`}
+                          className={`favorite - toggle ${item.is_favorite ? "active" : ""}`}
                           aria-pressed={Boolean(item.is_favorite)}
                           aria-label={item.is_favorite ? "お気に入り解除" : "お気に入り追加"}
                           onClick={(event) => {
@@ -502,7 +521,7 @@ export default function RankingView() {
         )}
       </div>
       <div
-        className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
+        className={`consult - sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
           }`}
       >
         <button
@@ -548,6 +567,13 @@ export default function RankingView() {
               <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                 コピー
               </button>
+              <button
+                type="button"
+                onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                disabled={!window.pywebview?.api?.open_screenshot_dir}
+              >
+                フォルダ
+              </button>
               <button type="button" onClick={() => setConsultVisible(false)}>
                 閉じる
               </button>
@@ -592,6 +618,13 @@ export default function RankingView() {
                 <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
                   コピー
                 </button>
+                <button
+                  type="button"
+                  onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
+                  disabled={!window.pywebview?.api?.open_screenshot_dir}
+                >
+                  フォルダ
+                </button>
                 <button type="button" onClick={() => setConsultVisible(false)}>
                   閉じる
                 </button>
@@ -629,7 +662,14 @@ export default function RankingView() {
           </div>
         )}
       </div>
-      <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      <Toast
+        message={toastMessage}
+        onClose={() => {
+          setToastMessage(null);
+          setToastAction(null);
+        }}
+        action={toastAction}
+      />
     </div>
   );
 }

@@ -1,12 +1,14 @@
 import { memo, type MouseEvent } from "react";
 import { Ticker, useStore } from "../store";
 import type { SignalChip } from "../utils/signals";
+import { formatEventBadgeDate } from "../utils/events";
 import ThumbnailCanvas from "./ThumbnailCanvas";
 import { buildThumbnailCacheKey, getThumbnailCache } from "./thumbnailCache";
 
 type StockTileProps = {
   ticker: Ticker;
   timeframe: "monthly" | "weekly" | "daily";
+  maxBars?: number;
   signals?: SignalChip[];
   active?: boolean;
   kept?: boolean;
@@ -22,6 +24,7 @@ type StockTileProps = {
 const StockTile = memo(function StockTile({
   ticker,
   timeframe,
+  maxBars,
   signals,
   active = false,
   kept = false,
@@ -57,6 +60,8 @@ const StockTile = memo(function StockTile({
   const showBoxes = useStore((state) => state.settings.showBoxes);
   const cacheKey = buildThumbnailCacheKey(ticker.code, timeframe, showBoxes, maSettings, theme ?? "dark");
   const cachedThumb = getThumbnailCache(cacheKey);
+  const earningsLabel = formatEventBadgeDate(ticker.eventEarningsDate);
+  const rightsLabel = formatEventBadgeDate(ticker.eventRightsDate);
 
   const handleActivate = () => onActivate?.(ticker.code);
   const handleOpenDetail = () => onOpenDetail(ticker.code);
@@ -94,6 +99,12 @@ const StockTile = memo(function StockTile({
           {asofLabel && (
             <span className="asof-badge" title={asofTooltip ?? undefined}>
               asof: {asofLabel}
+            </span>
+          )}
+          {(rightsLabel || earningsLabel) && (
+            <span className="event-badges">
+              {rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
+              {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
             </span>
           )}
           {ticker.dataStatus === "missing" && (
@@ -149,6 +160,7 @@ const StockTile = memo(function StockTile({
             showBoxes={showBoxes}
             maSettings={maSettings}
             cacheKey={cacheKey}
+            maxBars={maxBars}
             showAxes
             theme={theme}
           />

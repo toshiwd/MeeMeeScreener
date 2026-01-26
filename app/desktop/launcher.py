@@ -13,12 +13,71 @@ from pathlib import Path
 
 import traceback
 
-from runtime_paths import base_path, local_app_dir, resolve_path
+
+from app.desktop.runtime_paths import base_path, local_app_dir, resolve_path
+from app.backend.core.config import config
 
 APP_NAME = "MeeMeeScreener"
 WINDOW_TITLE = "MeeMee Screener"
 MUTEX_NAME = "Global\\MeeMeeScreenerSingleton"
 HEALTH_TIMEOUT_SECONDS = 10
+
+
+def _check_webview2_runtime() -> bool:
+    """Check if Microsoft Edge WebView2 Runtime is installed."""
+    import winreg
+    
+    # Check common installation paths
+    paths = [
+        os.path.join(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)"), 
+                     "Microsoft", "EdgeWebView", "Application", "msedgewebview2.exe"),
+        os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), 
+                     "Microsoft", "EdgeWebView", "Application", "msedgewebview2.exe"),
+    ]
+    
+    for path in paths:
+        if os.path.exists(path):
+            return True
+    
+    # Check registry
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
+                            r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}")
+        winreg.CloseKey(key)
+        return True
+    except:
+        pass
+    
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
+                            r"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}")
+        winreg.CloseKey(key)
+        return True
+    except:
+        pass
+    
+    return False
+
+
+def _check_dotnet_framework() -> bool:
+    """Check if .NET Framework 4.8 or higher is installed."""
+    import winreg
+    
+    try:
+        # Check for .NET Framework 4.8 or higher
+        # Release value 528040 = .NET 4.8
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full")
+        try:
+            release, _ = winreg.QueryValueEx(key, "Release")
+            winreg.CloseKey(key)
+            # 528040 = .NET 4.8, 528049 = .NET 4.8 on Windows 10 May 2019 Update
+            return release >= 528040
+        except:
+            winreg.CloseKey(key)
+            return False
+    except:
+        return False
 
 
 def _message_box(text: str, title: str) -> None:
@@ -45,17 +104,33 @@ def _find_free_port() -> int:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
 
+def _can_bind_port(port: int) -> bool:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+
 
 def _wait_for_health(port: int, timeout_seconds: int) -> bool:
     deadline = time.monotonic() + timeout_seconds
     url = f"http://127.0.0.1:{port}/health"
+    # Ensure localhost health checks are not routed through system proxy settings
+    # (common on corporate Windows setups), otherwise we can mistakenly think the
+    # backend is down and shut it back off.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    last_err: Exception | None = None
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=1) as response:
+            with opener.open(url, timeout=1) as response:
                 if response.status == 200:
                     return True
-        except Exception:
+        except Exception as exc:
+            last_err = exc
             time.sleep(0.2)
+    if last_err is not None:
+        print(f"[launcher] Health check failed for {url}: {last_err}")
     return False
 
 
@@ -209,14 +284,31 @@ def _maximize_window(window) -> None:
 
 
 def _prepare_appdata() -> dict[str, str]:
-    root = local_app_dir(APP_NAME)
-    data_dir = root / "data"
+    # Use config for data_dir resolution logic
+    data_dir = config.DATA_DIR
+    
+    # We still use local_app for other non-data stuff? Or just unify?
+    # Original 'root' was local_app_dir(APP_NAME).
+    # If we are in portable mode, config.DATA_DIR is ./data.
+    # We want logs/config/state to follow data_dir ideally?
+    # Or keep them separate?
+    # Plan says "Log/DB/CSV保存先をdataDir配下に統一".
+    # So we should base *everything* on config.DATA_DIR or a parent?
+    # config.py defines DATA_DIR = .../data.
+    # So ROOT might be implicitly the parent of data_dir?
+    # Or we just assume "data", "txt", "logs" are all under DATA_DIR?
+    # config.py: LOG_FILE_PATH = DATA_DIR / "logs" / "app.log"
+    # So logs are inside DATA_DIR.
+    
+    # Let's pivot everything to be inside `config.DATA_DIR` for portability!
+    
     csv_dir = data_dir / "csv"
-    config_dir = root / "config"
-    state_dir = root / "state"
-    logs_dir = root / "logs"
-    txt_dir = data_dir / "txt"
-
+    txt_dir = config.PAN_OUT_TXT_DIR # which is data_dir / "txt" via config
+    config_dir = data_dir / "config"
+    state_dir = data_dir / "state"
+    logs_dir = data_dir / "logs"
+    
+    # Ensure dirs
     for path in (data_dir, csv_dir, config_dir, state_dir, logs_dir, txt_dir):
         path.mkdir(parents=True, exist_ok=True)
 
@@ -227,17 +319,28 @@ def _prepare_appdata() -> dict[str, str]:
     bundled_update_state = resolve_path("app", "backend", "update_state.json")
     bundled_code_txt = resolve_path("tools", "code.txt")
 
-    stocks_db = str(data_dir / "stocks.duckdb")
-    favorites_db = str(data_dir / "favorites.sqlite")
-    practice_db = str(data_dir / "practice.sqlite")
+    stocks_db = str(config.DB_PATH)
+    favorites_db = str(config.FAVORITES_DB_PATH)
+    practice_db = str(config.PRACTICE_DB_PATH)
     rank_config = str(config_dir / "rank_config.json")
-    update_state = str(state_dir / "update_state.json")
+    # Keep update_state in the data root. Older builds used data/state/update_state.json
+    # which caused the backend/UI to read stale values depending on env overrides.
+    legacy_update_state_path = state_dir / "update_state.json"
+    update_state_path = data_dir / "update_state.json"
+    update_state = str(update_state_path)
     code_txt = str(data_dir / "code.txt")
 
     _copy_if_missing(bundled_db, stocks_db)
     _copy_if_missing(bundled_favorites, favorites_db)
     _copy_if_missing(bundled_practice, practice_db)
     _copy_if_missing(bundled_rank_config, rank_config)
+    # Prefer bundled defaults if nothing exists; otherwise migrate legacy state forward.
+    if legacy_update_state_path.exists():
+        try:
+            if (not update_state_path.exists()) or (legacy_update_state_path.stat().st_mtime > update_state_path.stat().st_mtime):
+                shutil.copy2(str(legacy_update_state_path), str(update_state_path))
+        except OSError:
+            pass
     if os.path.isfile(bundled_update_state):
         _copy_if_missing(bundled_update_state, update_state)
     else:
@@ -255,8 +358,9 @@ def _prepare_appdata() -> dict[str, str]:
                 pass
             shutil.copy2(bundled_db, stocks_db)
 
+    # Return dict with STRINGS as requested by consumer
     return {
-        "root": str(root),
+        "root": str(data_dir.parent), # Guessing parent?
         "data_dir": str(data_dir),
         "csv_dir": str(csv_dir),
         "config_dir": str(config_dir),
@@ -275,6 +379,9 @@ def _prepare_appdata() -> dict[str, str]:
 def _configure_environment(paths: dict[str, str]) -> None:
     os.environ.setdefault("APP_ENV", "prod")
     os.environ.setdefault("DEBUG", "0")
+    # Unify data-dir resolution across split modules (app.core.config vs app.backend.core.config).
+    # The backend API uses app.core.config, which prioritizes MEEMEE_DATA_DIR.
+    os.environ["MEEMEE_DATA_DIR"] = paths["data_dir"]
     os.environ["STOCKS_DB_PATH"] = paths["stocks_db"]
     os.environ["FAVORITES_DB_PATH"] = paths["favorites_db"]
     os.environ["PRACTICE_DB_PATH"] = paths["practice_db"]
@@ -282,10 +389,25 @@ def _configure_environment(paths: dict[str, str]) -> None:
     os.environ["UPDATE_STATE_PATH"] = paths["update_state"]
     os.environ["PAN_OUT_TXT_DIR"] = paths["txt_dir"]
     os.environ["TXT_DATA_DIR"] = paths["txt_dir"]
-    os.environ["PAN_EXPORT_VBS_PATH"] = resolve_path("tools", "export_pan.vbs")
+    # Prefer external vbs if available (allow user modification).
+    # Release builds may ship export_pan.vbs either at the app root or under tools/.
+    exe_dir = os.path.dirname(sys.executable)
+    external_vbs_candidates = [
+        os.path.join(exe_dir, "export_pan.vbs"),
+        os.path.join(exe_dir, "tools", "export_pan.vbs"),
+    ]
+    if getattr(sys, "frozen", False):
+        for candidate in external_vbs_candidates:
+            if os.path.exists(candidate):
+                os.environ["PAN_EXPORT_VBS_PATH"] = candidate
+                break
+        else:
+            os.environ["PAN_EXPORT_VBS_PATH"] = resolve_path("tools", "export_pan.vbs")
+    else:
+        os.environ["PAN_EXPORT_VBS_PATH"] = resolve_path("tools", "export_pan.vbs")
     os.environ["PAN_CODE_TXT_PATH"] = paths["code_txt"]
     os.environ["STATIC_DIR"] = resolve_path("app", "backend", "static")
-    os.environ["TRADE_CSV_DIR"] = paths["data_dir"]
+    os.environ["TRADE_CSV_DIR"] = paths["csv_dir"]
     os.environ.setdefault(
         "WATCHLIST_TRASH_PATTERNS",
         os.path.join(paths["csv_dir"], "{code}*.csv")
@@ -341,6 +463,11 @@ def main() -> None:
         _message_box("MeeMee Screener is already running.", WINDOW_TITLE)
         return
 
+    if not mutex:
+        _message_box("MeeMee Screener is already running.", WINDOW_TITLE)
+        return
+
+    import sys
     log_path: Path | None = None
     try:
         icon_path = resolve_path("resources", "icons", "app_icon.ico")
@@ -355,14 +482,98 @@ def main() -> None:
         log_path = _configure_logging(paths["logs_dir"])
         _configure_environment(paths)
 
+        # Check for .NET Framework 4.8 before initializing pywebview
+        if not _check_dotnet_framework():
+            error_msg = (
+                ".NET Framework 4.8 or higher is not installed.\n\n"
+                "Please install it from:\n"
+                "https://go.microsoft.com/fwlink/?LinkId=2085155\n\n"
+                "Or run portable_bootstrap.ps1 as administrator to install automatically."
+            )
+            _message_box(error_msg, WINDOW_TITLE)
+            return
+
+        if not _check_webview2_runtime():
+            error_msg = (
+                "Microsoft Edge WebView2 Runtime is not installed.\n\n"
+                "Please install it from:\n"
+                "https://go.microsoft.com/fwlink/p/?LinkId=2124703\n\n"
+                "Or run portable_bootstrap.ps1 as administrator to install automatically."
+            )
+            _message_box(error_msg, WINDOW_TITLE)
+            return
+
+
+        # Force pywebview to use Edge backend (avoid pythonnet/clr dependency)
+        os.environ["PYWEBVIEW_GUI"] = "edgechromium"
+        
         import webview
+        import base64
+        import subprocess
+
+        class JsApi:
+            def save_screenshot(self, data_uri: str, filename: str) -> dict:
+                try:
+                    # Remove header if present (data:image/png;base64,...)
+                    if "," in data_uri:
+                        header, encoded = data_uri.split(",", 1)
+                    else:
+                        encoded = data_uri
+
+                    data = base64.b64decode(encoded)
+                    
+                    # Determine save path (Downloads folder)
+                    downloads_path = str(Path.home() / "Downloads" / "MeeMeeScreener")
+                    os.makedirs(downloads_path, exist_ok=True)
+                    save_path = os.path.join(downloads_path, filename)
+                    
+                    # Write file
+                    with open(save_path, "wb") as f:
+                        f.write(data)
+                        
+                    return {
+                        "success": True,
+                        "savedPath": save_path,
+                        "savedDir": downloads_path,
+                        "fileName": filename
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": str(e)
+                    }
+
+            def open_path(self, path: str) -> bool:
+                try:
+                    if not os.path.exists(path):
+                        return False
+                    
+                    # Select file in explorer
+                    if os.path.isfile(path):
+                        subprocess.run(['explorer', '/select,', path])
+                    else:
+                        os.startfile(path)
+                    return True
+                except Exception:
+                    return False
+
+            def open_screenshot_dir(self) -> bool:
+                try:
+                    downloads_path = str(Path.home() / "Downloads" / "MeeMeeScreener")
+                    os.makedirs(downloads_path, exist_ok=True)
+                    os.startfile(downloads_path)
+                    return True
+                except Exception:
+                    return False
+
+
         window = webview.create_window(
             WINDOW_TITLE,
             html=_loading_html(),
             width=1280,
             height=720,
             resizable=True,
-            maximized=True
+            js_api=JsApi()
         )
         def _on_shown() -> None:
             _maximize_window(window)
@@ -386,12 +597,62 @@ def main() -> None:
                     _run_ingest(paths["txt_dir"], paths["stocks_db"])
 
             _update_loading(win, "Starting backend...")
-            port = _find_free_port()
-            server, thread = _start_server(port)
+            # Use a fixed port to ensure LocalStorage persistence (Origin must stay same)
+            fixed_port = 28888
+            port = fixed_port
+            if _wait_for_health(port, 1):
+                _update_loading(win, "Opening app...")
+                _maximize_window(win)
+                win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
+                threading.Timer(0.2, _maximize_window, args=(win,)).start()
+                return
+            if not _can_bind_port(port):
+                if _wait_for_health(port, HEALTH_TIMEOUT_SECONDS):
+                    _update_loading(win, "Opening app...")
+                    _maximize_window(win)
+                    win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
+                    threading.Timer(0.2, _maximize_window, args=(win,)).start()
+                    return
+                alt_port = _find_free_port()
+                _update_loading(win, f"Port {fixed_port} in use. Switching to {alt_port}...")
+                print(f"[launcher] Port {fixed_port} in use. Switching to {alt_port}.")
+                port = alt_port
+            try:
+                server, thread = _start_server(port)
+            except Exception as exc:
+                _update_loading(win, "Backend crashed while starting.")
+                traceback.print_exc()
+                _message_box(f"Backend crashed while starting:\n{exc}", WINDOW_TITLE)
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+                return
             server_state["server"] = server
             server_state["thread"] = thread
 
             if not _wait_for_health(port, HEALTH_TIMEOUT_SECONDS):
+                if _wait_for_health(port, 3):
+                    _update_loading(win, "Opening app...")
+                    _maximize_window(win)
+                    win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
+                    threading.Timer(0.2, _maximize_window, args=(win,)).start()
+                    return
+                if port == fixed_port and not _can_bind_port(fixed_port):
+                    alt_port = _find_free_port()
+                    _update_loading(win, f"Port {fixed_port} in use. Switching to {alt_port}...")
+                    print(f"[launcher] Port {fixed_port} in use. Switching to {alt_port}.")
+                    _stop_server(server, thread)
+                    server, thread = _start_server(alt_port)
+                    server_state["server"] = server
+                    server_state["thread"] = thread
+                    port = alt_port
+                    if _wait_for_health(port, HEALTH_TIMEOUT_SECONDS):
+                        _update_loading(win, "Opening app...")
+                        _maximize_window(win)
+                        win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
+                        threading.Timer(0.2, _maximize_window, args=(win,)).start()
+                        return
                 _update_loading(win, "Backend failed to start.")
                 _stop_server(server, thread)
                 _message_box("Backend failed to start. See logs for details.", WINDOW_TITLE)
@@ -403,10 +664,12 @@ def main() -> None:
 
             _update_loading(win, "Opening app...")
             _maximize_window(win)
-            win.load_url(f"http://127.0.0.1:{port}/")
+            win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
             threading.Timer(0.2, _maximize_window, args=(win,)).start()
 
-        webview.start(_bootstrap, window, icon=icon_path)
+        # Use None to let pywebview auto-detect the best available backend
+        # EdgeChromium requires WebView2 runtime, falls back to mshtml if unavailable
+        webview.start(_bootstrap, window, icon=icon_path, private_mode=False, storage_path=paths["state_dir"])
     except Exception as exc:
         detail = "".join(traceback.format_exception(exc))
         if log_path:

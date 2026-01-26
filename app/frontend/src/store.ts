@@ -63,6 +63,20 @@ export type Ticker = {
   shortBadges?: string[];
   shortReasons?: string[];
   shortProhibition?: "Z1" | "Z2" | "Z3" | null;
+  eventEarningsDate?: string | null;
+  eventRightsDate?: string | null;
+};
+
+export type EventsMeta = {
+  earningsLastSuccessAt: string | null;
+  rightsLastSuccessAt: string | null;
+  isRefreshing: boolean;
+  refreshJobId: string | null;
+  lastError: string | null;
+  lastAttemptAt: string | null;
+  dataCoverage?: {
+    rightsMaxDate?: string | null;
+  };
 };
 
 type GridTimeframe = "monthly" | "weekly" | "daily";
@@ -135,7 +149,7 @@ type Settings = {
   gridScrollTop: number;
   gridTimeframe: GridTimeframe;
   listTimeframe: GridTimeframe;
-  listRangeMonths: 3 | 6 | 12 | 24;
+  listRangeBars: 60 | 120 | 240 | 360;
   listColumns: 1 | 2 | 3 | 4;
   listRows: 1 | 2 | 3 | 4 | 5 | 6;
   showBoxes: boolean;
@@ -161,7 +175,10 @@ type StoreState = {
   barsStatus: StatusMap;
   loadingList: boolean;
   lastApiError: ApiErrorInfo | null;
+  eventsMeta: EventsMeta | null;
+  eventsMetaLoading: boolean;
   maSettings: MaSettings;
+  compareMaSettings: MaSettings;
   settings: Settings;
   setLastApiError: (info: ApiErrorInfo | null) => void;
   loadList: () => Promise<void>;
@@ -187,7 +204,7 @@ type StoreState = {
   setColumns: (columns: Settings["columns"]) => void;
   setRows: (rows: Settings["rows"]) => void;
   setListTimeframe: (value: Settings["listTimeframe"]) => void;
-  setListRangeMonths: (value: Settings["listRangeMonths"]) => void;
+  setListRangeBars: (value: Settings["listRangeBars"]) => void;
   setListColumns: (value: Settings["listColumns"]) => void;
   setListRows: (value: Settings["listRows"]) => void;
   setSearch: (search: string) => void;
@@ -202,8 +219,13 @@ type StoreState = {
   setBasicSortDir: (value: SortDir) => void;
   setPerformancePeriod: (value: PerformancePeriod) => void;
   updateMaSetting: (timeframe: MaTimeframe, index: number, patch: Partial<MaSetting>) => void;
+  updateCompareMaSetting: (timeframe: MaTimeframe, index: number, patch: Partial<MaSetting>) => void;
   resetMaSettings: (timeframe: MaTimeframe) => void;
+  resetCompareMaSettings: (timeframe: MaTimeframe) => void;
   resetBarsCache: () => void;
+  loadEventsMeta: () => Promise<EventsMeta | null>;
+  refreshEventsIfStale: () => Promise<void>;
+  refreshEvents: () => Promise<void>;
 };
 
 // Candidate sort presets (for buy/sell candidate screens only)
@@ -271,13 +293,25 @@ const MIN_BATCH_LIMIT = 60;
 const MAX_BATCH_LIMIT = 2000;
 const WEEKLY_DAILY_FACTOR = 7;
 const BATCH_TTL_MS = 60_000;
+const EVENTS_POLL_INTERVAL_MS = 10_000;
+const EVENTS_POLL_MAX_ATTEMPTS = 180;
 const KEEP_STORAGE_KEY = "keepList";
 const GRID_COLS_KEY = "gridCols";
 const GRID_ROWS_KEY = "gridRows";
 const LIST_TIMEFRAME_KEY = "listTimeframe";
-const LIST_RANGE_KEY = "listRangeMonths";
+const LIST_RANGE_KEY = "listRangeBars";
+const LEGACY_LIST_RANGE_KEY = "listRangeMonths";
 const LIST_COLS_KEY = "listCols";
 const LIST_ROWS_KEY = "listRows";
+const LIST_RANGE_VALUES = [60, 120, 240, 360] as const;
+const LEGACY_RANGE_MONTHS_TO_BARS: Record<number, Settings["listRangeBars"]> = {
+  3: 60,
+  6: 120,
+  12: 240,
+  24: 360
+};
+const MA_STORAGE_PREFIX = "maSettings";
+const COMPARE_MA_STORAGE_PREFIX = "compareMaSettings";
 const inFlightBatchRequests = new Map<
   string,
   { promise: Promise<void>; controller: AbortController }
@@ -294,10 +328,11 @@ const barsFetchedLimit: Record<GridTimeframe, Record<string, number>> = {
   daily: {}
 };
 let batchRequestCount = 0;
+let eventsPollPromise: Promise<void> | null = null;
 const DEFAULT_PERIODS: Record<MaTimeframe, number[]> = {
-  daily: [7, 20, 60, 100, 200],
-  weekly: [7, 20, 60, 100, 200],
-  monthly: [7, 20, 60, 100, 200]
+  daily: [7, 20, 60, 120, 200],
+  weekly: [7, 20, 60, 120, 200],
+  monthly: [7, 20, 60, 120, 200]
 };
 
 const makeDefaultSettings = (timeframe: MaTimeframe): MaSetting[] =>
@@ -356,6 +391,56 @@ const normalizeLineWidth = (value: unknown, fallback: number) => {
   return Math.min(6, Math.max(1, Math.round(width)));
 };
 
+const parseIsoMs = (value: string | null | undefined) => {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const normalizeBool = (value: unknown) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed === "true") return true;
+    if (trimmed === "false") return false;
+    if (trimmed === "1") return true;
+    if (trimmed === "0") return false;
+  }
+  return false;
+};
+
+const normalizeEventsMeta = (payload: unknown): EventsMeta | null => {
+  if (!payload || typeof payload !== "object") return null;
+  const data = payload as Record<string, unknown>;
+  return {
+    earningsLastSuccessAt: (data.earnings_last_success_at as string | null) ?? null,
+    rightsLastSuccessAt: (data.rights_last_success_at as string | null) ?? null,
+    isRefreshing: normalizeBool(data.is_refreshing),
+    refreshJobId: (data.refresh_job_id as string | null) ?? null,
+    lastError: (data.last_error as string | null) ?? null,
+    lastAttemptAt: (data.last_attempt_at as string | null) ?? null,
+    dataCoverage:
+      data.data_coverage && typeof data.data_coverage === "object"
+        ? {
+            rightsMaxDate:
+              ((data.data_coverage as Record<string, unknown>).rights_max_date as string | null) ??
+              null
+          }
+        : undefined
+  };
+};
+
+const isEventsStale = (meta: EventsMeta | null) => {
+  if (!meta) return true;
+  const now = Date.now();
+  const earningsMs = parseIsoMs(meta.earningsLastSuccessAt);
+  const rightsMs = parseIsoMs(meta.rightsLastSuccessAt);
+  if (earningsMs == null || rightsMs == null) return true;
+  const oldest = Math.min(earningsMs, rightsMs);
+  return now - oldest >= 4 * 24 * 60 * 60 * 1000;
+};
+
 const normalizeSettings = (timeframe: MaTimeframe, input: unknown): MaSetting[] => {
   const defaults = makeDefaultSettings(timeframe);
   if (!Array.isArray(input)) return defaults;
@@ -372,9 +457,9 @@ const normalizeSettings = (timeframe: MaTimeframe, input: unknown): MaSetting[] 
   });
 };
 
-const loadSettings = (timeframe: MaTimeframe): MaSetting[] => {
+const loadSettings = (timeframe: MaTimeframe, storagePrefix = MA_STORAGE_PREFIX): MaSetting[] => {
   if (typeof window === "undefined") return makeDefaultSettings(timeframe);
-  const raw = window.localStorage.getItem(`maSettings:${timeframe}`);
+  const raw = window.localStorage.getItem(`${storagePrefix}:${timeframe}`);
   if (!raw) return makeDefaultSettings(timeframe);
   try {
     return normalizeSettings(timeframe, JSON.parse(raw));
@@ -383,7 +468,11 @@ const loadSettings = (timeframe: MaTimeframe): MaSetting[] => {
   }
 };
 
-const persistSettings = (timeframe: MaTimeframe, settings: MaSetting[]) => {
+const persistSettings = (
+  timeframe: MaTimeframe,
+  settings: MaSetting[],
+  storagePrefix = MA_STORAGE_PREFIX
+) => {
   if (typeof window === "undefined") return;
   const payload = settings.map((item) => ({
     period: item.period,
@@ -391,7 +480,7 @@ const persistSettings = (timeframe: MaTimeframe, settings: MaSetting[]) => {
     color: item.color,
     lineWidth: item.lineWidth
   }));
-  window.localStorage.setItem(`maSettings:${timeframe}`, JSON.stringify(payload));
+  window.localStorage.setItem(`${storagePrefix}:${timeframe}`, JSON.stringify(payload));
 };
 
 const getMaxPeriod = (settings: MaSetting[]) =>
@@ -405,6 +494,100 @@ const getRequiredBars = (settings: MaSetting[]) => {
 const getDailyLimitForWeekly = (settings: MaSetting[]) => {
   const weeklyBars = getRequiredBars(settings);
   return Math.min(MAX_BATCH_LIMIT, Math.max(MIN_BATCH_LIMIT, weeklyBars * WEEKLY_DAILY_FACTOR));
+};
+
+const startEventsMetaPolling = (
+  get: () => StoreState,
+  set: (partial: Partial<StoreState> | ((state: StoreState) => Partial<StoreState>)) => void
+) => {
+  if (eventsPollPromise) return eventsPollPromise;
+  eventsPollPromise = (async () => {
+    let sawRefreshing = false;
+    let attempts = 0;
+    const maxAttempts = EVENTS_POLL_MAX_ATTEMPTS;
+    const intervalMs = EVENTS_POLL_INTERVAL_MS;
+
+    while (attempts < maxAttempts) {
+      const meta = await get().loadEventsMeta();
+
+      if (meta?.refreshJobId) {
+        try {
+          const res = await api.get(`/events/refresh/${meta.refreshJobId}`);
+          const payload = res.data as { status?: string; error?: string | null } | null;
+          const status = payload?.status;
+          if (status && status !== "running") {
+            set((prev) => ({
+              eventsMeta: {
+                ...(prev.eventsMeta ?? {
+                  earningsLastSuccessAt: null,
+                  rightsLastSuccessAt: null,
+                  lastAttemptAt: null,
+                  lastError: null,
+                  isRefreshing: false,
+                  refreshJobId: null
+                }),
+                isRefreshing: false,
+                lastError: payload?.error ?? prev.eventsMeta?.lastError ?? null
+              }
+            }));
+            if (status === "success") {
+              try {
+                await get().loadList();
+              } catch {
+                // ignore list reload failures after events refresh
+              }
+            }
+            try {
+              await get().loadEventsMeta();
+            } catch {
+              // ignore meta reload failures after events refresh
+            }
+            break;
+          }
+        } catch {
+          // ignore status fetch failures and retry on next loop
+        }
+      }
+
+      if (meta?.isRefreshing) {
+        sawRefreshing = true;
+      } else {
+        if (sawRefreshing) {
+          try {
+            await get().loadList();
+          } catch {
+            // ignore list reload failures after refresh completes
+          }
+        }
+        break;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      attempts += 1;
+    }
+
+    if (attempts >= maxAttempts) {
+      set((prev) => ({
+        eventsMeta: {
+          ...(prev.eventsMeta ?? {
+            earningsLastSuccessAt: null,
+            rightsLastSuccessAt: null,
+            lastAttemptAt: null,
+            lastError: null,
+            isRefreshing: false,
+            refreshJobId: null
+          }),
+          isRefreshing: false,
+          lastError: "refresh_timeout"
+        }
+      }));
+    }
+
+    eventsPollPromise = null;
+  })().catch(() => {
+    eventsPollPromise = null;
+  });
+  return eventsPollPromise;
 };
 
 const normalizeDateParts = (year: number, month: number, day: number) => {
@@ -537,12 +720,16 @@ const getInitialListRows = (): Settings["listRows"] => {
   return 3;
 };
 
-const getInitialListRangeMonths = (): Settings["listRangeMonths"] => {
-  if (typeof window === "undefined") return 6;
+const getInitialListRangeBars = (): Settings["listRangeBars"] => {
+  if (typeof window === "undefined") return 120;
   const saved = Number(window.localStorage.getItem(LIST_RANGE_KEY));
-  return saved === 3 || saved === 6 || saved === 12 || saved === 24
-    ? (saved as Settings["listRangeMonths"])
-    : 6;
+  if (LIST_RANGE_VALUES.includes(saved as Settings["listRangeBars"])) {
+    return saved as Settings["listRangeBars"];
+  }
+  const legacy = Number(window.localStorage.getItem(LEGACY_LIST_RANGE_KEY));
+  const mapped = LEGACY_RANGE_MONTHS_TO_BARS[legacy];
+  if (mapped) return mapped;
+  return 120;
 };
 
 const getInitialSortKey = (): SortKey => {
@@ -615,10 +802,24 @@ export const useStore = create<StoreState>((set, get) => ({
   barsStatus: { monthly: {}, weekly: {}, daily: {} },
   loadingList: false,
   lastApiError: null,
+  eventsMeta: {
+    earningsLastSuccessAt: null,
+    rightsLastSuccessAt: null,
+    lastAttemptAt: null,
+    lastError: null,
+    refreshJobId: null,
+    isRefreshing: false
+  },
+  eventsMetaLoading: false,
   maSettings: {
     daily: loadSettings("daily"),
     weekly: loadSettings("weekly"),
     monthly: loadSettings("monthly")
+  },
+  compareMaSettings: {
+    daily: loadSettings("daily", COMPARE_MA_STORAGE_PREFIX),
+    weekly: loadSettings("weekly", COMPARE_MA_STORAGE_PREFIX),
+    monthly: loadSettings("monthly", COMPARE_MA_STORAGE_PREFIX)
   },
   settings: {
     columns: getInitialColumns(),
@@ -627,7 +828,7 @@ export const useStore = create<StoreState>((set, get) => ({
     gridScrollTop: 0,
     gridTimeframe: getInitialTimeframe(),
     listTimeframe: getInitialListTimeframe(),
-    listRangeMonths: getInitialListRangeMonths(),
+    listRangeBars: getInitialListRangeBars(),
     listColumns: getInitialListColumns(),
     listRows: getInitialListRows(),
     showBoxes: true,
@@ -817,7 +1018,9 @@ export const useStore = create<StoreState>((set, get) => ({
           shortType: item.shortType ?? null,
           shortBadges: Array.isArray(item.shortBadges) ? item.shortBadges : [],
           shortReasons: Array.isArray(item.shortReasons) ? item.shortReasons : [],
-          shortProhibition: item.shortProhibition ?? null
+          shortProhibition: item.shortProhibition ?? null,
+          eventEarningsDate: item.eventEarningsDate ?? item.event_earnings_date ?? null,
+          eventRightsDate: item.eventRightsDate ?? item.event_rights_date ?? null
         };
       });
       try {
@@ -1121,11 +1324,11 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     set((state) => ({ settings: { ...state.settings, listTimeframe: value } }));
   },
-  setListRangeMonths: (value) => {
+  setListRangeBars: (value) => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(LIST_RANGE_KEY, String(value));
     }
-    set((state) => ({ settings: { ...state.settings, listRangeMonths: value } }));
+    set((state) => ({ settings: { ...state.settings, listRangeBars: value } }));
   },
   setListColumns: (value) => {
     if (typeof window !== "undefined") {
@@ -1212,11 +1415,39 @@ export const useStore = create<StoreState>((set, get) => ({
       return { maSettings: { ...state.maSettings, [timeframe]: next } };
     });
   },
+  updateCompareMaSetting: (timeframe, index, patch) => {
+    set((state) => {
+      const current = state.compareMaSettings[timeframe][index];
+      if (!current) return state;
+      const next = [...state.compareMaSettings[timeframe]];
+      const updated: MaSetting = {
+        ...current,
+        ...patch,
+        period:
+          Number.isFinite(Number(patch.period)) && Number(patch.period) > 0
+            ? Math.floor(Number(patch.period))
+            : current.period,
+        color: normalizeColor(patch.color ?? current.color, current.color),
+        lineWidth: normalizeLineWidth(patch.lineWidth ?? current.lineWidth, current.lineWidth),
+        visible: typeof patch.visible === "boolean" ? patch.visible : current.visible
+      };
+      next[index] = updated;
+      persistSettings(timeframe, next, COMPARE_MA_STORAGE_PREFIX);
+      return { compareMaSettings: { ...state.compareMaSettings, [timeframe]: next } };
+    });
+  },
   resetMaSettings: (timeframe) => {
     set((state) => {
       const next = makeDefaultSettings(timeframe);
       persistSettings(timeframe, next);
       return { maSettings: { ...state.maSettings, [timeframe]: next } };
+    });
+  },
+  resetCompareMaSettings: (timeframe) => {
+    set((state) => {
+      const next = makeDefaultSettings(timeframe);
+      persistSettings(timeframe, next, COMPARE_MA_STORAGE_PREFIX);
+      return { compareMaSettings: { ...state.compareMaSettings, [timeframe]: next } };
     });
   },
   resetBarsCache: () => {
@@ -1236,6 +1467,133 @@ export const useStore = create<StoreState>((set, get) => ({
       barsStatus: { monthly: {}, weekly: {}, daily: {} },
       barsLoading: { monthly: {}, weekly: {}, daily: {} }
     }));
+  },
+  loadEventsMeta: async () => {
+    if (get().eventsMetaLoading) return get().eventsMeta;
+    set({ eventsMetaLoading: true });
+    try {
+      const res = await api.get("/events/meta");
+      const meta = normalizeEventsMeta(res.data);
+      if (meta) {
+        set({ eventsMeta: meta });
+      }
+      return meta;
+    } catch {
+      return get().eventsMeta;
+    } finally {
+      set({ eventsMetaLoading: false });
+    }
+  },
+  refreshEventsIfStale: async () => {
+    const meta = await get().loadEventsMeta();
+    if (!isEventsStale(meta)) return;
+    if (meta?.isRefreshing) return;
+    try {
+      const res = await api.post("/events/refresh", null, {
+        params: { reason: "startup_stale" }
+      });
+      const jobId =
+        (res.data as { jobId?: string; refresh_job_id?: string } | null)?.jobId ??
+        (res.data as { refresh_job_id?: string } | null)?.refresh_job_id ??
+        null;
+      if (jobId) {
+        set((prev) => ({
+          eventsMeta: {
+            ...(prev.eventsMeta ?? {
+              earningsLastSuccessAt: null,
+              rightsLastSuccessAt: null,
+              lastAttemptAt: null,
+              lastError: null,
+              isRefreshing: false,
+              refreshJobId: null
+            }),
+            isRefreshing: true,
+            refreshJobId: jobId
+          }
+        }));
+        void startEventsMetaPolling(get, set);
+      } else {
+        set((prev) => ({
+          eventsMeta: {
+            ...(prev.eventsMeta ?? {
+              earningsLastSuccessAt: null,
+              rightsLastSuccessAt: null,
+              lastAttemptAt: null,
+              lastError: null,
+              isRefreshing: false,
+              refreshJobId: null
+            }),
+            isRefreshing: false,
+            lastError: "refresh_job_missing",
+            refreshJobId: null
+          }
+        }));
+      }
+    } catch {
+      // ignore refresh failures
+    }
+  },
+  refreshEvents: async () => {
+    if (get().eventsMeta?.isRefreshing) return;
+    try {
+      const res = await api.post("/events/refresh", null, {
+        params: { reason: "manual" }
+      });
+      const jobId =
+        (res.data as { jobId?: string; refresh_job_id?: string } | null)?.jobId ??
+        (res.data as { refresh_job_id?: string } | null)?.refresh_job_id ??
+        null;
+      if (!jobId) {
+        set((prev) => ({
+          eventsMeta: {
+            ...(prev.eventsMeta ?? {
+              earningsLastSuccessAt: null,
+              rightsLastSuccessAt: null,
+              lastAttemptAt: null,
+              lastError: null,
+              isRefreshing: false,
+              refreshJobId: null
+            }),
+            isRefreshing: false,
+            lastError: "refresh_job_missing",
+            refreshJobId: null
+          }
+        }));
+        return;
+      }
+      set((prev) => ({
+        eventsMeta: {
+          ...(prev.eventsMeta ?? {
+            earningsLastSuccessAt: null,
+            rightsLastSuccessAt: null,
+            lastAttemptAt: null,
+            lastError: null,
+            isRefreshing: false,
+            refreshJobId: null
+          }),
+          isRefreshing: true,
+          refreshJobId: jobId
+        }
+      }));
+      void startEventsMetaPolling(get, set);
+    } catch {
+      set((prev) => ({
+        eventsMeta: {
+          ...(prev.eventsMeta ?? {
+            earningsLastSuccessAt: null,
+            rightsLastSuccessAt: null,
+            lastAttemptAt: null,
+            lastError: null,
+            isRefreshing: false,
+            refreshJobId: null
+          }),
+          isRefreshing: false,
+          lastError: "refresh_failed"
+        }
+      }));
+    } finally {
+      void get().loadEventsMeta();
+    }
   }
 }));
 

@@ -151,7 +151,7 @@ export const captureWindowBlob = async (
  */
 export const copyBlobToClipboard = async (blob: Blob): Promise<boolean> => {
     try {
-        // Check if clipboard API is available
+        // Check for File System Access API
         if (!navigator.clipboard || !("write" in navigator.clipboard)) {
             return false;
         }
@@ -170,46 +170,65 @@ export const copyBlobToClipboard = async (blob: Blob): Promise<boolean> => {
     }
 };
 
+// Define pywebview interface
+declare global {
+    interface Window {
+        pywebview?: {
+            api: {
+                save_screenshot: (dataUri: string, filename: string) => Promise<{
+                    success: boolean;
+                    savedPath?: string;
+                    savedDir?: string;
+                    fileName?: string;
+                    error?: string;
+                }>;
+                open_path: (path: string) => Promise<boolean>;
+                open_screenshot_dir: () => Promise<boolean>;
+            };
+        };
+    }
+}
+
 /**
- * Save a Blob to file via dialog or download
+ * Save a Blob to file via backend (preferred) or download
  */
-export const saveBlobToFile = async (blob: Blob, filename: string): Promise<boolean> => {
-    // Check for File System Access API
-    if ("showSaveFilePicker" in window) {
+export const saveBlobToFile = async (blob: Blob, filename: string): Promise<{
+    success: boolean;
+    savedPath?: string;
+    savedDir?: string;
+    fileName?: string;
+    error?: string;
+}> => {
+    // 1. Try pywebview backend first
+    if (window.pywebview) {
         try {
-            const handle = await (window as unknown as { showSaveFilePicker: (options: object) => Promise<FileSystemFileHandle> }).showSaveFilePicker({
-                suggestedName: filename,
-                types: [
-                    {
-                        description: "PNG Image",
-                        accept: { "image/png": [".png"] },
-                    },
-                ],
+            const dataUri = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
             });
-            const writable = await handle.createWritable();
-            await writable.write(blob);
-            await writable.close();
-            return true;
-        } catch (error) {
-            if ((error as Error).name === "AbortError") {
-                // User cancelled
-                return false;
-            }
-            // Fall through to download
+            return await window.pywebview.api.save_screenshot(dataUri, filename);
+        } catch (e) {
+            console.error("Backend save failed:", e);
+            // Fallthrough to download
         }
     }
 
-    // Fallback: trigger download
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    link.style.display = "none";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    return true;
+    // 2. Fallback: trigger download
+    try {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        link.style.display = "none";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        return { success: true, fileName: filename };
+    } catch (e) {
+        return { success: false, error: "保存に失敗しました" };
+    }
 };
 
 /**
@@ -266,8 +285,8 @@ export const captureWindowScreenshot = async (
     }
     // Fallback to save
     if (result.blob && result.filename) {
-        const saved = await saveBlobToFile(result.blob, result.filename);
-        if (saved) {
+        const saveResult = await saveBlobToFile(result.blob, result.filename);
+        if (saveResult.success) {
             return { success: true, filename: result.filename };
         }
     }

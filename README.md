@@ -20,6 +20,10 @@ MeeMee Screener は Microsoft WebView2 Runtime が必要です。
 `release/MeeMeeScreener-portable.zip` を展開し、  
 `MeeMeeScreener/MeeMeeScreener.exe` を起動します。
 
+### 2a. 導入を自動化して起動（管理者権限ありの場合）
+`tools/portable_bootstrap.cmd` と `MeeMeeScreener-portable.zip` を同じフォルダに置いて実行すると、
+WebView2 Runtime の導入 → ZIP 展開 → 起動まで自動で行います。
+
 ## デスクトップ配布ビルド（Windows）
 
 ### 事前準備

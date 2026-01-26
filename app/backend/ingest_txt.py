@@ -1,24 +1,35 @@
 ﻿import os
 import json
+import os
+import json
 import re
 import time
 from datetime import datetime, timezone
 
 import pandas as pd
 
-from db import get_conn, init_schema
+
+# Add parent directory to path to allow importing core
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    from app.db.session import get_conn
+    from app.db.schema import init_schema
+    from app.core.config import config
+except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
+    from db import get_conn, init_schema  # type: ignore
+    from core.config import config  # type: ignore
 
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+REPO_ROOT = str(config.REPO_ROOT)
 DEFAULT_PAN_CODE_PATH = os.path.join(REPO_ROOT, "tools", "code.txt")
-DEFAULT_PAN_OUT_DIR = os.path.join(REPO_ROOT, "data", "txt")
+DEFAULT_PAN_OUT_DIR = str(config.PAN_OUT_TXT_DIR)
+INGEST_STATE_PATH = str(config.DATA_DIR / "ingest_state.json")
 
 
 def resolve_data_dir() -> str:
-    env = os.getenv("PAN_OUT_TXT_DIR") or os.getenv("TXT_DATA_DIR")
-    if env:
-        return os.path.abspath(env)
-    return os.path.abspath(DEFAULT_PAN_OUT_DIR)
+    return str(config.PAN_OUT_TXT_DIR)
 
 
 DATA_DIR = resolve_data_dir()
@@ -26,6 +37,16 @@ CODE_PATTERN_DEFAULT = r"^[0-9A-Za-z]{4,16}$"
 CODE_PATTERN = re.compile(os.getenv("CODE_PATTERN", CODE_PATTERN_DEFAULT))
 STRICT_CODE_VALIDATION = os.getenv("CODE_STRICT", "0") == "1"
 USE_CODE_TXT = os.getenv("USE_CODE_TXT", "0") == "1"
+
+HEADER_ALIASES = {
+    "code": {"code", "ticker", "symbol", "銘柄", "銘柄コード", "コード"},
+    "date": {"date", "日付", "年月日", "日時", "dateymd", "dateyyyymmdd"},
+    "o": {"o", "open", "始値", "始"},
+    "h": {"h", "high", "高値", "高"},
+    "l": {"l", "low", "安値", "安"},
+    "c": {"c", "close", "終値", "終"},
+    "v": {"v", "volume", "vol", "出来高", "出来高株", "売買高", "売買高株"},
+}
 
 TRADE_FLAG_CONFIG = {
     "BOX_MONTHS_MIN": 4,
@@ -123,14 +144,55 @@ def _safe_float(value) -> float | None:
     return result
 
 
-def _compute_volume_ratio(volumes: list[float], period: int = 20) -> float | None:
-    if len(volumes) < period:
+def _compute_volume_ratio(volumes: list[float | None], period: int = 20) -> float | None:
+    cleaned = [value for value in volumes if value is not None]
+    if len(cleaned) < period:
         return None
-    window = volumes[-period:]
+    window = cleaned[-period:]
     avg = sum(window) / period
     if avg <= 0:
         return None
-    return volumes[-1] / avg
+    return cleaned[-1] / avg
+
+
+def _normalize_header_label(value: str) -> str:
+    text = str(value).strip().lower()
+    text = text.replace("（", "(").replace("）", ")")
+    text = re.sub(r"[\\s_\\-]", "", text)
+    text = re.sub(r"[()]", "", text)
+    text = text.replace("株数", "株")
+    return text
+
+
+def _match_header_key(value: str) -> str | None:
+    normalized = _normalize_header_label(value)
+    for key, aliases in HEADER_ALIASES.items():
+        if normalized in aliases:
+            return key
+    return None
+
+
+def _map_headered_frame(df: pd.DataFrame) -> pd.DataFrame | None:
+    mapping: dict[str, str] = {}
+    for col in df.columns:
+        key = _match_header_key(col)
+        if key and key not in mapping:
+            mapping[key] = col
+    required = {"code", "date", "o", "h", "l", "c"}
+    if not required.issubset(mapping.keys()):
+        return None
+    result = pd.DataFrame(
+        {
+            "code": df[mapping["code"]],
+            "date": df[mapping["date"]],
+            "o": df[mapping["o"]],
+            "h": df[mapping["h"]],
+            "l": df[mapping["l"]],
+            "c": df[mapping["c"]],
+            "v": df[mapping["v"]] if "v" in mapping else None,
+        }
+    )
+    return result
 
 
 def _compute_monthly_box_info(monthly_df: pd.DataFrame, config: dict) -> dict:
@@ -400,7 +462,7 @@ def compute_stage_score(
 
     daily = daily_df.sort_values("date")
     closes = [float(v) for v in daily["c"].tolist() if _safe_float(v) is not None]
-    volumes = [float(v) if _safe_float(v) is not None else 0.0 for v in daily["v"].tolist()]
+    volumes = [_safe_float(v) for v in daily["v"].tolist()]
 
     last_close = closes[-1] if closes else None
     if last_close is None:
@@ -598,6 +660,10 @@ def read_csv_with_fallback(path: str) -> pd.DataFrame:
     last_err: Exception | None = None
     for encoding in encodings:
         try:
+            header_df = pd.read_csv(path, header=0, dtype="string", encoding=encoding)
+            mapped = _map_headered_frame(header_df)
+            if mapped is not None:
+                return mapped
             return pd.read_csv(
                 path,
                 header=None,
@@ -616,8 +682,10 @@ def read_csv_with_fallback(path: str) -> pd.DataFrame:
 def strip_header_row(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
-    first = df.iloc[0].astype(str).str.lower().tolist()
-    if len(first) >= 6 and first[0] in {"code", "ticker"} and "date" in first[1]:
+    first = df.iloc[0].astype(str).tolist()
+    header_hits = {_match_header_key(value) for value in first}
+    header_hits.discard(None)
+    if "code" in header_hits and "date" in header_hits:
         return df.iloc[1:].reset_index(drop=True)
     return df
 
@@ -677,13 +745,13 @@ def parse_file(path: str, watchlist: set[str] | None, counts: dict) -> pd.DataFr
     for col in ["o", "h", "l", "c", "v"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    non_numeric_mask = df[["o", "h", "l", "c", "v"]].isna().any(axis=1)
+    non_numeric_mask = df[["o", "h", "l", "c"]].isna().any(axis=1)
     counts["non_numeric"] += int(non_numeric_mask.sum())
     df = df[~non_numeric_mask]
     if df.empty:
         return df
 
-    df["v"] = df["v"].round().astype("int64")
+    df["v"] = df["v"].round().astype("Int64")
     return df
 
 
@@ -722,6 +790,9 @@ def read_daily_files(
     daily = pd.concat(frames, ignore_index=True)
     daily["date"] = daily["date"].dt.tz_localize("UTC")
     daily["date"] = (daily["date"].astype("int64") // 1_000_000_000).astype("int64")
+    before_dedup = len(daily)
+    daily = daily.sort_values(["code", "date"]).drop_duplicates(["code", "date"], keep="last")
+    counts["duplicate_rows"] += int(before_dedup - len(daily))
     return daily, name_map
 
 
@@ -734,10 +805,12 @@ def build_monthly(daily: pd.DataFrame) -> pd.DataFrame:
         o=("o", "first"),
         h=("h", "max"),
         l=("l", "min"),
-        c=("c", "last")
+        c=("c", "last"),
+        v=("v", lambda s: s.sum(min_count=1))
     )
     monthly["month"] = (monthly["month"].astype("int64") // 1_000_000_000).astype("int64")
     return monthly
+
 
 
 def build_monthly_ma(monthly: pd.DataFrame) -> pd.DataFrame:
@@ -856,7 +929,8 @@ def log_counts(counts: dict, parsed_rows: int) -> None:
             "non_numeric",
             "invalid_code",
             "older_file",
-            "filtered_watchlist"
+            "filtered_watchlist",
+            "duplicate_rows"
         ]
     )
     reason_text = (
@@ -865,7 +939,8 @@ def log_counts(counts: dict, parsed_rows: int) -> None:
         f"non_numeric={counts['non_numeric']}, "
         f"invalid_code={counts['invalid_code']}, "
         f"older_file={counts['older_file']}, "
-        f"filtered_watchlist={counts['filtered_watchlist']}"
+        f"filtered_watchlist={counts['filtered_watchlist']}, "
+        f"duplicate_rows={counts['duplicate_rows']}"
     )
     print(f"PARSED_ROWS={parsed_rows}")
     print(f"SKIPPED_ROWS={skipped_total} ({reason_text})")
@@ -873,7 +948,42 @@ def log_counts(counts: dict, parsed_rows: int) -> None:
     print(f"FILE_ERRORS={counts['file_error']}")
 
 
-def ingest() -> None:
+def log_volume_stats(stage: str, df: pd.DataFrame) -> None:
+    if "v" not in df.columns:
+        print(f"VOLUME_STATS stage={stage} missing_column=true")
+        return
+    series = df["v"]
+    total = len(series)
+    nulls = int(series.isna().sum())
+    zeros = int(series.eq(0).fillna(False).sum())
+    non_null = series.dropna()
+    min_v = int(non_null.min()) if not non_null.empty else None
+    max_v = int(non_null.max()) if not non_null.empty else None
+    print(
+        f"VOLUME_STATS stage={stage} total={total} null={nulls} zero={zeros} "
+        f"min={min_v} max={max_v}"
+    )
+
+
+def _load_ingest_state() -> dict[str, float]:
+    if not os.path.exists(INGEST_STATE_PATH):
+        return {}
+    try:
+        with open(INGEST_STATE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_ingest_state(state: dict[str, float]) -> None:
+    try:
+        with open(INGEST_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Failed to save ingest state: {e}")
+
+
+def ingest(incremental: bool = False) -> None:
     def step_start(label: str) -> float:
         print(f"[STEP_START] {label}")
         return time.perf_counter()
@@ -897,13 +1007,54 @@ def ingest() -> None:
     start = step_start("list_txt_files")
     print(f"TXT_DIR={DATA_DIR}")
     files = list_txt_files(DATA_DIR)
+    
+    # Differential Logic
+    state = _load_ingest_state()
+    new_state = {}
+    changed_files = []
+    
     total_bytes = 0
+    skipped_count = 0
+    now_ts = time.time()
+    
+    force_full = False
+    
     for path in files:
         try:
-            total_bytes += os.path.getsize(path)
+            mtime = os.path.getmtime(path)
+            size = os.path.getsize(path)
+            filename = os.path.basename(path)
+            new_state[filename] = mtime
+            total_bytes += size
+            
+            # Sanity Check: Future mtime (allow 1 day slack)
+            if mtime > now_ts + 86400:
+                print(f"Warning: File {filename} has future mtime. Forcing full update.")
+                force_full = True
+            
+            if incremental and not force_full:
+                last_mtime = state.get(filename)
+                if last_mtime is not None:
+                    # Sanity Check: Size drop? (Optional, but user suggested)
+                    # We don't store last size in state, so we can't check size drop easily 
+                    # unless we update state schema. Skipping size check for now.
+                    if mtime <= last_mtime:
+                        skipped_count += 1
+                        continue
+            
+            changed_files.append(path)
         except OSError:
             pass
-    step_end("list_txt_files", start, file_count=len(files), total_bytes=total_bytes)
+
+    if incremental and not force_full:
+        print(f"Incremental Mode: Found {len(changed_files)} changed files, skipped {skipped_count}.")
+        files = changed_files
+    else:
+        reason = "Forced Full" if force_full else "Full Mode"
+        print(f"{reason}: Processing {len(files)} files.")
+        incremental = False # Disable incremental flag for DB operations downstream
+
+    step_end("list_txt_files", start, file_count=len(files), total_bytes=total_bytes, skipped=skipped_count)
 
     counts = {
         "missing_code": 0,
@@ -912,14 +1063,20 @@ def ingest() -> None:
         "invalid_code": 0,
         "older_file": 0,
         "filtered_watchlist": 0,
+        "duplicate_rows": 0,
         "nonstandard_code": 0,
         "file_error": 0
     }
 
     if not files:
-        clear_tables()
-        log_counts(counts, 0)
-        print("No TXT data found. Tables cleared.")
+        if not incremental:
+             clear_tables()
+             log_counts(counts, 0)
+             print("No TXT data found. Tables cleared.")
+        else:
+             print("No changed files to process.")
+             _save_ingest_state(new_state) # Update state anyway to sync mtimes
+        
         total_ms = int((time.perf_counter() - total_start) * 1000)
         print(f"[STEP_END] ingest_total ms={total_ms} rows=0")
         return
@@ -933,6 +1090,8 @@ def ingest() -> None:
     daily_rows = len(daily)
     daily_codes = int(daily["code"].nunique()) if not daily.empty else 0
     step_end("read_daily_files", start, daily_rows=daily_rows, daily_codes=daily_codes)
+    if not daily.empty:
+        log_volume_stats("after_read", daily)
 
     if daily.empty:
         clear_tables()
@@ -971,14 +1130,31 @@ def ingest() -> None:
         missing_text = ",".join(f"{key}:{value}" for key, value in missing_sorted)
         print(f"MISSING_REASONS_TOP={missing_text}")
 
+
     start = step_start("db_replace")
+    log_volume_stats("pre_db", daily)
+    
     with get_conn() as conn:
-        conn.execute("DELETE FROM daily_bars")
-        conn.execute("DELETE FROM daily_ma")
-        conn.execute("DELETE FROM monthly_bars")
-        conn.execute("DELETE FROM monthly_ma")
-        conn.execute("DELETE FROM stock_meta")
-        conn.execute("DELETE FROM tickers")
+        if not incremental:
+            conn.execute("DELETE FROM daily_bars")
+            conn.execute("DELETE FROM daily_ma")
+            conn.execute("DELETE FROM monthly_bars")
+            conn.execute("DELETE FROM monthly_ma")
+            conn.execute("DELETE FROM stock_meta")
+            conn.execute("DELETE FROM tickers")
+        else:
+            # Incremental: Delete only processed codes
+            codes = daily["code"].unique().tolist()
+            if codes:
+                placeholders = ",".join(["?"] * len(codes))
+                # Note: DuckDB supports DELETE FROM ... WHERE code IN (...)
+                # We need to run delete for all tables
+                conn.execute(f"DELETE FROM daily_bars WHERE code IN ({placeholders})", codes)
+                conn.execute(f"DELETE FROM daily_ma WHERE code IN ({placeholders})", codes)
+                conn.execute(f"DELETE FROM monthly_bars WHERE code IN ({placeholders})", codes)
+                conn.execute(f"DELETE FROM monthly_ma WHERE code IN ({placeholders})", codes)
+                conn.execute(f"DELETE FROM stock_meta WHERE code IN ({placeholders})", codes)
+                conn.execute(f"DELETE FROM tickers WHERE code IN ({placeholders})", codes)
 
         conn.register("daily_df", daily)
         conn.execute("INSERT INTO daily_bars SELECT code, date, o, h, l, c, v FROM daily_df")
@@ -987,7 +1163,7 @@ def ingest() -> None:
         conn.execute("INSERT INTO daily_ma SELECT code, date, ma7, ma20, ma60 FROM daily_ma_df")
 
         conn.register("monthly_df", monthly)
-        conn.execute("INSERT INTO monthly_bars SELECT code, month, o, h, l, c FROM monthly_df")
+        conn.execute("INSERT INTO monthly_bars SELECT code, month, o, h, l, c, v FROM monthly_df")
 
         conn.register("monthly_ma_df", monthly_ma)
         conn.execute("INSERT INTO monthly_ma SELECT code, month, ma7, ma20, ma60 FROM monthly_ma_df")
@@ -1040,6 +1216,8 @@ def ingest() -> None:
 
         conn.execute("INSERT INTO tickers SELECT code, name FROM meta_df")
     step_end("db_replace", start, daily_rows=len(daily), monthly_rows=len(monthly), meta_rows=len(meta))
+
+    _save_ingest_state(new_state)
 
     log_counts(counts, len(daily))
     print(f"Inserted {len(meta)} tickers")
