@@ -1,11 +1,16 @@
 ﻿# ignore data and local env
 /data/txt/
 *.duckdb
+/data/*.sqlite
+/data/*.csv
+!/data/*.example.csv
+!/data/*.example.sqlite
 /app/backend/.venv/
 /app/frontend/node_modules/
 /app/frontend/dist/
 /app/backend/static/
 /build/
+/dist/
 /release/
 __pycache__/
 .pytest_cache/
@@ -13,6 +18,8 @@ __pycache__/
 /.tmp.drivedownload/
 /.tmp.driveupload/
 /data_store/
+!/data_store/.gitkeep
+/tools/_scratch/
 *.parquet
 *.pickle
 
@@ -20,6 +27,9 @@ __pycache__/
 out.txt
 *.tmp
 *.log
+/review_pack/
+/review-src.zip
+/artifacts/
 
 # Development databases (root level only)
 /stocks.duckdb

@@ -61,6 +61,10 @@ tools\run_export.cmd C:\path\to\moomoo.ebk
 - 状態: `%LOCALAPPDATA%\MeeMeeScreener\state\`
 - ログ: `%LOCALAPPDATA%\MeeMeeScreener\logs\launcher.log`
 
+Data policy:
+- data/ contains example files only.
+- Real CSV/SQLite/duckdb data should be placed in data_store/ (gitignored).
+
 ## 開発用（Windows PowerShell）
 
 ### Backend
