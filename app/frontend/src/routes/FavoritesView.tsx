@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -118,15 +118,27 @@ export default function FavoritesView() {
     api
       .get("/favorites")
       .then((res) => {
-        const payload = res.data as FavoritesResponse;
-        const list = Array.isArray(payload.items) ? payload.items : [];
+        const payload = res.data as FavoritesResponse & { codes?: string[] };
+        let list = Array.isArray(payload.items) ? payload.items : [];
+        if (!list.length && Array.isArray(payload.codes)) {
+          list = payload.codes.map((code) => ({ code }));
+        }
         setItems(list);
         replaceFavorites(list.map((item) => item.code));
       })
-      .catch(() => {
+      .catch((error) => {
+        const err = error as {
+          message?: string;
+          response?: { status?: number; data?: unknown };
+        };
+        console.error("[favorites] load failed (view)", {
+          status: err?.response?.status ?? null,
+          data: err?.response?.data ?? null,
+          message: err?.message ?? null
+        });
         setItems([]);
         replaceFavorites([]);
-        setToastMessage("お気に入りの取得に失敗しました。");
+        setToastMessage("縺頑ｰ励↓蜈･繧翫・蜿門ｾ励↓螟ｱ謨励＠縺ｾ縺励◆縲・");
       })
       .finally(() => setLoading(false));
   }, [replaceFavorites, backendReady]);
@@ -141,15 +153,20 @@ export default function FavoritesView() {
     return new Map(tickers.map((ticker) => [ticker.code, ticker]));
   }, [tickers]);
 
+  const resolveName = useCallback(
+    (item: FavoriteItem) => item.name ?? tickerMap.get(item.code)?.name ?? item.code,
+    [tickerMap]
+  );
+
   const searchResults = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return items;
     return items.filter((item) => {
       const codeMatch = item.code.toLowerCase().includes(term);
-      const nameMatch = (item.name ?? "").toLowerCase().includes(term);
+      const nameMatch = resolveName(item).toLowerCase().includes(term);
       return codeMatch || nameMatch;
     });
-  }, [items, search]);
+  }, [items, search, resolveName]);
 
   const signalMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
@@ -256,7 +273,7 @@ export default function FavoritesView() {
     } catch {
       setItems(prevItems);
       setFavoriteLocal(code, true);
-      setToastMessage("お気に入りの更新に失敗しました。");
+      setToastMessage("縺頑ｰ励↓蜈･繧翫・譖ｴ譁ｰ縺ｫ螟ｱ謨励＠縺ｾ縺励◆縲・");
     }
   };
 
@@ -289,7 +306,7 @@ export default function FavoritesView() {
         const boxes = boxesCache[consultTimeframe][code] ?? [];
         return {
           code,
-          name: favorite?.name ?? ticker?.name ?? null,
+          name: favorite ? resolveName(favorite) : ticker?.name ?? null,
           market: null,
           sector: null,
           bars: payload?.bars ?? null,
@@ -333,14 +350,14 @@ export default function FavoritesView() {
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
-      setToastMessage("相談パックがまだありません。");
+    setToastMessage("Consult text is empty.");
       return;
     }
     try {
       await navigator.clipboard.writeText(consultText);
-      setToastMessage("相談パックをコピーしました。");
+      setToastMessage("Consult text copied.");
     } catch {
-      setToastMessage("コピーに失敗しました。");
+      setToastMessage("Clipboard write failed.");
     }
   }, [consultText]);
 
@@ -405,7 +422,7 @@ export default function FavoritesView() {
         onColumnsChange={setListColumns}
         onRowsChange={setListRows}
         filterItems={filterItems}
-        helpLabel="相談"
+        helpLabel="使い方"
         onHelpClick={() => {
           setConsultVisible(true);
           setConsultExpanded(false);
@@ -416,7 +433,7 @@ export default function FavoritesView() {
         className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
       >
-        {loading && <div className="rank-status">読み込み中...</div>}
+        {loading && <div className="rank-status">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</div>}
         {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
         <div className="rank-grid">
           {sortedItems.map((item) => {
@@ -427,7 +444,7 @@ export default function FavoritesView() {
               <ChartListCard
                 key={item.code}
                 code={item.code}
-                name={item.name ?? item.code}
+                name={resolveName(item)}
                 payload={payload}
                 status={status}
                 maSettings={maSettings[listTimeframe]}
@@ -439,7 +456,7 @@ export default function FavoritesView() {
                 onOpenDetail={handleOpenDetail}
                 action={{
                   label: "\u2605",
-                  ariaLabel: "お気に入り解除",
+                  ariaLabel: "縺頑ｰ励↓蜈･繧願ｧ｣髯､",
                   className: "favorite-toggle active",
                   onClick: () => handleRemoveFavorite(item.code)
                 }}
@@ -460,12 +477,12 @@ export default function FavoritesView() {
             if (!consultVisible) return;
             setConsultExpanded((prev) => !prev);
           }}
-          aria-label={consultExpanded ? "相談バーを折りたたむ" : "相談バーを展開する"}
+          aria-label={consultExpanded ? "逶ｸ隲・ヰ繝ｼ繧呈釜繧翫◆縺溘・" : "逶ｸ隲・ヰ繝ｼ繧貞ｱ暮幕縺吶ｋ"}
         />
         {!consultExpanded && (
           <div className="consult-mini">
             <div className="consult-mini-left">
-              <div className="consult-mini-count">お気に入り {consultTargets.length}件</div>
+              <div className="consult-mini-count">縺頑ｰ励↓蜈･繧・{consultTargets.length}莉ｶ</div>
               <div className="consult-chips">
                 {selectedChips.visible.map((code) => (
                   <span key={code} className="consult-chip">
@@ -484,27 +501,27 @@ export default function FavoritesView() {
                 onClick={buildConsultation}
                 disabled={!consultTargets.length || consultBusy}
               >
-                {consultBusy ? "作成中..." : "相談作成"}
+                {consultBusy ? "菴懈・荳ｭ..." : "逶ｸ隲・ｽ懈・"}
               </button>
               <button
                 type="button"
                 onClick={handleCreateScreenshots}
                 disabled={!consultTargets.length || screenshotBusy}
               >
-                {screenshotBusy ? "作成中..." : "スクショ作成"}
+                {screenshotBusy ? "菴懈・荳ｭ..." : "繧ｹ繧ｯ繧ｷ繝ｧ菴懈・"}
               </button>
               <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
-                コピー
+                繧ｳ繝斐・
               </button>
               <button
                 type="button"
                 onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
                 disabled={!window.pywebview?.api?.open_screenshot_dir}
               >
-                フォルダ
+                繝輔か繝ｫ繝
               </button>
               <button type="button" onClick={() => setConsultVisible(false)}>
-                閉じる
+                髢峨§繧・
               </button>
             </div>
           </div>
@@ -602,3 +619,7 @@ export default function FavoritesView() {
     </div>
   );
 }
+
+
+
+

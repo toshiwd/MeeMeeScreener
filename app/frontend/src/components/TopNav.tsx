@@ -18,6 +18,12 @@ export default function TopNav() {
         ランキング
       </NavLink>
       <NavLink
+        to="/market"
+        className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
+      >
+        市場概況
+      </NavLink>
+      <NavLink
         to="/favorites"
         className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
       >

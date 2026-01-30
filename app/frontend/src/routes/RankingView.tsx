@@ -62,6 +62,7 @@ export default function RankingView() {
   const setListRangeBars = useStore((state) => state.setListRangeBars);
   const setListColumns = useStore((state) => state.setListColumns);
   const setListRows = useStore((state) => state.setListRows);
+  const favorites = useStore((state) => state.favorites);
 
   const [dir, setDir] = useState<"up" | "down">("up");
   const [items, setItems] = useState<RankItem[]>([]);
@@ -88,6 +89,7 @@ export default function RankingView() {
       ? "consult-padding-expanded"
       : "consult-padding-mini"
     : "";
+  const [useFallback, setUseFallback] = useState(false);
 
   // Use the screenshot hook
   const { generateScreenshots } = useConsultScreenshot();
@@ -134,6 +136,27 @@ export default function RankingView() {
     ],
     [filterSignalsOnly, filterDataOnly]
   );
+
+  const fallbackItems = useMemo(() => {
+    const list = tickers.map((ticker) => {
+      const scoreValue =
+        Number.isFinite(ticker.score ?? NaN) && ticker.score != null ? ticker.score : 0;
+      return {
+        code: ticker.code,
+        name: ticker.name ?? ticker.code,
+        total_score: scoreValue,
+        is_favorite: favorites.includes(ticker.code)
+      };
+    });
+    return [...list]
+      .sort((a, b) => {
+        if (dir === "up") {
+          return b.total_score - a.total_score;
+        }
+        return a.total_score - b.total_score;
+      })
+      .slice(0, 50);
+  }, [tickers, favorites, dir]);
 
   const searchResults = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -187,19 +210,22 @@ export default function RankingView() {
     if (!backendReady) return;
     setLoading(true);
     setErrorMessage(null);
+    setUseFallback(false);
     api
-      .get("/rank", { params: { dir, limit: 50 } })
+      .get("/grid/ranking", { params: { limit: 50 } })
       .then((res) => {
-        const payload = res.data as RankResponse;
-        const list = Array.isArray(payload.items) ? payload.items : [];
+        const payload = res.data as { up?: RankItem[]; down?: RankItem[]; errors?: string[] };
+        const list = Array.isArray(payload[dir]) ? payload[dir] : [];
         setItems(list);
+        setUseFallback(false);
         if (payload.errors?.length) {
           setErrorMessage(payload.errors[0]);
         }
       })
       .catch(() => {
-        setItems([]);
-        setErrorMessage("ランキングの取得に失敗しました。");
+        setItems(fallbackItems);
+        setUseFallback(true);
+        setErrorMessage("ランキングの取得に失敗しました。簡易データを表示しています。");
       })
       .finally(() => setLoading(false));
   }, [backendReady, dir]);
@@ -213,6 +239,11 @@ export default function RankingView() {
       "ranking"
     );
   }, [backendReady, ensureBarsForVisible, searchResults, listTimeframe]);
+
+  useEffect(() => {
+    if (!useFallback) return;
+    setItems(fallbackItems);
+  }, [fallbackItems, useFallback]);
 
   useEffect(() => {
     if (!items.length) {
@@ -500,7 +531,7 @@ export default function RankingView() {
                         </span>
                         <button
                           type="button"
-                          className={`favorite - toggle ${item.is_favorite ? "active" : ""}`}
+                          className={`favorite-toggle ${item.is_favorite ? "active" : ""}`}
                           aria-pressed={Boolean(item.is_favorite)}
                           aria-label={item.is_favorite ? "お気に入り解除" : "お気に入り追加"}
                           onClick={(event) => {

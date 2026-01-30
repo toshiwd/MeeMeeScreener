@@ -46,7 +46,7 @@ export type Ticker = {
     monthly?: number | null;
     weekly?: number | null;
     daily?: number | null;
-  };
+  } | null;
   scores?: {
     upScore?: number | null;
     downScore?: number | null;
@@ -330,9 +330,9 @@ const barsFetchedLimit: Record<GridTimeframe, Record<string, number>> = {
 let batchRequestCount = 0;
 let eventsPollPromise: Promise<void> | null = null;
 const DEFAULT_PERIODS: Record<MaTimeframe, number[]> = {
-  daily: [7, 20, 60, 120, 200],
-  weekly: [7, 20, 60, 120, 200],
-  monthly: [7, 20, 60, 120, 200]
+  daily: [7, 20, 60, 100, 200],
+  weekly: [7, 20, 60, 100, 200],
+  monthly: [7, 20, 60, 100, 200]
 };
 
 const makeDefaultSettings = (timeframe: MaTimeframe): MaSetting[] =>
@@ -423,10 +423,10 @@ const normalizeEventsMeta = (payload: unknown): EventsMeta | null => {
     dataCoverage:
       data.data_coverage && typeof data.data_coverage === "object"
         ? {
-            rightsMaxDate:
-              ((data.data_coverage as Record<string, unknown>).rights_max_date as string | null) ??
-              null
-          }
+          rightsMaxDate:
+            ((data.data_coverage as Record<string, unknown>).rights_max_date as string | null) ??
+            null
+        }
         : undefined
   };
 };
@@ -841,23 +841,32 @@ export const useStore = create<StoreState>((set, get) => ({
     performancePeriod: "1M" as PerformancePeriod
   },
   setLastApiError: (info) => set({ lastApiError: info }),
-  loadFavorites: async () => {
-    if (get().favoritesLoading) return;
-    set({ favoritesLoading: true });
-    try {
-      const res = await api.get("/favorites");
-      const payload = res.data as { items?: { code?: string }[] } | { code?: string }[];
+    loadFavorites: async () => {
+      if (get().favoritesLoading) return;
+      set({ favoritesLoading: true });
+      try {
+        const res = await api.get("/favorites");
+        const payload = res.data as { items?: { code?: string }[] } | { code?: string }[];
       const items = Array.isArray(payload) ? payload : payload.items ?? [];
       const codes = items
         .map((item) => (typeof item.code === "string" ? item.code : ""))
         .filter((code) => code);
       set({ favorites: codes, favoritesLoaded: true });
-    } catch {
-      set({ favorites: [], favoritesLoaded: true });
-    } finally {
-      set({ favoritesLoading: false });
-    }
-  },
+      } catch (error) {
+        const err = error as {
+          message?: string;
+          response?: { status?: number; data?: unknown };
+        };
+        console.error("[favorites] load failed", {
+          status: err?.response?.status ?? null,
+          data: err?.response?.data ?? null,
+          message: err?.message ?? null
+        });
+        set({ favorites: [], favoritesLoaded: true });
+      } finally {
+        set({ favoritesLoading: false });
+      }
+    },
   replaceFavorites: (codes) =>
     set({ favorites: [...new Set(codes.filter((code) => code))], favoritesLoaded: true }),
   setFavoriteLocal: (code, isFavorite) =>
@@ -914,7 +923,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (get().loadingList) return;
     set({ loadingList: true });
     try {
-      const res = await api.get("/screener");
+      const res = await api.get("/grid/screener");
       const payload = res.data as { items?: Ticker[] } | Ticker[];
       const items = Array.isArray(payload) ? payload : payload.items ?? [];
       if (!items.length) {
@@ -936,7 +945,8 @@ export const useStore = create<StoreState>((set, get) => ({
         }
         return [];
       };
-      const tickers = items.map((item) => {
+      const tickers: Ticker[] = items.map((rawItem) => {
+        const item = rawItem as any;
         const statusLabel = item.statusLabel ?? null;
         const stageRaw = item.stage ?? statusLabel ?? "UNKNOWN";
         const stage =
@@ -1037,10 +1047,10 @@ export const useStore = create<StoreState>((set, get) => ({
               score: null,
               reason: "WATCHLIST_ONLY",
               scoreStatus: "INSUFFICIENT_DATA",
-              missingReasons: null,
+              missingReasons: [],
               scoreBreakdown: null,
               dataStatus: "missing"
-            });
+            } as Ticker);
           });
         }
       } catch {
@@ -1214,6 +1224,7 @@ export const useStore = create<StoreState>((set, get) => ({
           },
           boxesCache: {
             monthly: { ...prev.boxesCache.monthly, ...boxesMonthly },
+            weekly: prev.boxesCache.weekly,
             daily: { ...prev.boxesCache.daily, ...boxesDaily }
           },
           barsStatus: {

@@ -339,7 +339,7 @@ export default function CandidatesView() {
       } catch {
         // ignore storage failures
       }
-      navigate(`/ detail / ${code}`, { state: { from: location.pathname } });
+    navigate(`/detail/${code}`, { state: { from: location.pathname } });
     },
     [navigate, location.pathname, listCodes]
   );

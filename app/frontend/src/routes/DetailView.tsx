@@ -152,6 +152,7 @@ const formatShares = (shares: number | null | undefined) => {
   return formatNumber(shares, 0);
 };
 
+
 const formatLedgerDate = (value: string) => {
   const trimmed = value?.trim();
   if (!trimmed) return "--";
@@ -1397,6 +1398,13 @@ export default function DetailView() {
       data: computeMA(compareDailyCandles, setting.period)
     }));
   }, [compareDailyCandles, compareMaSettings.daily]);
+  const memoPanelData = useDetailInfo(
+    selectedBarData,
+    selectedBarIndex ?? -1,
+    dailyCandles,
+    dailyPositions,
+    dailyMaLines
+  );
 
   const weeklyMaLines = useMemo(() => {
     return maSettings.weekly.map((setting) => ({
@@ -1761,7 +1769,10 @@ export default function DetailView() {
   };
 
   const handleToggleFavorite = async () => {
-    if (!code) return;
+    if (!code) {
+      setToastMessage("お気に入りの更新に失敗しました。(code未設定)");
+      return;
+    }
     const next = !isFavorite;
     setFavoriteLocal(code, next);
     try {
@@ -1770,9 +1781,21 @@ export default function DetailView() {
       } else {
         await api.delete(`/favorites/${encodeURIComponent(code)}`);
       }
-    } catch {
+    } catch (error: any) {
       setFavoriteLocal(code, !next);
-      setToastMessage("お気に入りの更新に失敗しました。");
+      const status = error?.response?.status;
+      const detail =
+        error?.response?.data?.error ??
+        error?.response?.data?.detail ??
+        error?.response?.data ??
+        error?.message;
+      if (status) {
+        setToastMessage(`お気に入りの更新に失敗しました。(HTTP ${status})`);
+      } else if (detail) {
+        setToastMessage(`お気に入りの更新に失敗しました。(${String(detail)})`);
+      } else {
+        setToastMessage("お気に入りの更新に失敗しました。");
+      }
     }
   };
 
@@ -1934,91 +1957,84 @@ export default function DetailView() {
     if (index < 0) return null;
     return compareListItems[index + 1] ?? null;
   }, [compareListEligible, compareListItems, compareCode, compareAsOf]);
-  const nextCode = useMemo(() => {
-    if (!code) return null;
-    const index = listCodes.indexOf(code);
-    if (index < 0) return null;
-    return listCodes[index + 1] ?? null;
-  }, [listCodes, code]);
+    const nextCode = useMemo(() => {
+      if (!code) return null;
+      const index = listCodes.indexOf(code);
+      if (index < 0) return null;
+      return listCodes[index + 1] ?? null;
+    }, [listCodes, code]);
 
-  // Use shared hook for memo panel data
-  const memoPanelData = useDetailInfo(
-    selectedBarData,
-    selectedBarIndex,
-    dailyCandles,
-    dailyPositions,
-    dailyMaLines
-  );
 
   return (
     <div className={`detail-shell ${focusPanel ? "detail-shell-focus" : ""}`}>
       <div className="detail-header">
-        <div className="detail-header-nav">
-          <button className="back nav-button nav-primary" onClick={() => navigate(listBackPath)}>
-            <span className="nav-icon">
-              <IconArrowLeft size={16} />
-            </span>
-            <span className="nav-label">一覧に戻る</span>
-          </button>
-          <button className="back nav-button" onClick={() => navigate(-1)}>
-            <span className="nav-icon">
-              <IconArrowBackUp size={16} />
-            </span>
-            <span className="nav-label">前の画面</span>
-          </button>
-          <button
-            className="back nav-button"
-            onClick={() => {
-              if (!nextCode) return;
-              navigate(`/detail/${nextCode}`, { state: { from: listBackPath } });
-            }}
-            disabled={!nextCode}
-          >
-            <span className="nav-icon">
-              <IconArrowRight size={16} />
-            </span>
-            <span className="nav-label">次の銘柄</span>
-          </button>
-        </div>
-        <div className="detail-title">
-          <div className="detail-title-text">
-            <div className="detail-title-top">
-              <div className="detail-title-code">{code}</div>
-              <div className="detail-title-name">{tickerName || "（名称不明）"}</div>
-            </div>
-            {(rightsLabel || earningsLabel) && (
-              <div className="detail-event-badges">
-                {rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
-                {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
-              </div>
-            )}
+        <div className="detail-summary-row">
+          <div className="detail-summary-back">
+            <button className="back nav-button nav-primary" onClick={() => navigate(listBackPath)}>
+              <span className="nav-icon">
+                <IconArrowLeft size={16} />
+              </span>
+              <span className="nav-label">一覧に戻る</span>
+            </button>
           </div>
-          <div className="detail-title-actions">
+          <div className="detail-summary-main">
+            <div className="detail-summary-title">
+              <div className="detail-summary-code">{code}</div>
+              {tickerName && <div className="detail-summary-name">{tickerName}</div>}
+            </div>
+            <div className="detail-summary-status">
+              {(rightsLabel || earningsLabel) && (
+                <div className="detail-event-badges detail-event-badges-inline">
+                  {rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
+                  {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
+                </div>
+              )}
+              {dailySignals.length > 0 && (
+                <div className="detail-signals-inline summary-signals">
+                  {dailySignals.map((signal) => (
+                    <span
+                      key={signal.label}
+                      className={`signal-chip ${signal.kind === 'warning' ? 'warning' : 'achieved'}`}
+                    >
+                      {signal.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="detail-summary-actions">
             <button
               type="button"
               className={isFavorite ? "favorite-toggle active" : "favorite-toggle"}
               aria-pressed={isFavorite}
-              aria-label={isFavorite ? "\u304a\u6c17\u306b\u5165\u308a\u89e3\u9664" : "\u304a\u6c17\u306b\u5165\u308a\u8ffd\u52a0"}
+              aria-label={isFavorite ? "お気に入り解除" : "お気に入り追加"}
               onClick={handleToggleFavorite}
-              title={isFavorite ? "\u304a\u6c17\u306b\u5165\u308a\u89e3\u9664" : "\u304a\u6c17\u306b\u5165\u308a\u8ffd\u52a0"}
             >
               {isFavorite ? <IconHeartFilled size={18} /> : <IconHeart size={18} />}
             </button>
-            {dailySignals.length > 0 && (
-              <div className="detail-signals-inline">
-                {dailySignals.map((signal) => (
-                  <span
-                    key={signal.label}
-                    className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
-                  >
-                    {signal.label}
-                  </span>
-                ))}
-              </div>
-            )}
+            <button className="back nav-button" onClick={() => navigate(-1)}>
+              <span className="nav-icon">
+                <IconArrowBackUp size={16} />
+              </span>
+              <span className="nav-label">前の画面</span>
+            </button>
+            <button
+              className="back nav-button"
+              onClick={() => {
+                if (!nextCode) return;
+                navigate(`/detail/${nextCode}`, { state: { from: listBackPath } });
+              }}
+              disabled={!nextCode}
+            >
+              <span className="nav-icon">
+                <IconArrowRight size={16} />
+              </span>
+              <span className="nav-label">次の銘柄</span>
+              </button>
+            </div>
           </div>
-        </div>
-        <div className="detail-controls">
+          <div className="detail-controls detail-header-toolbar">
           <div className="detail-controls-group">
             <button
               className="indicator-button is-primary"

@@ -1,4 +1,8 @@
 import { memo, type MouseEvent } from "react";
+import { useEffect } from "react";
+import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
+import { api } from "../api";
+import { useBackendReadyState } from "../backendReady";
 import { Ticker, useStore } from "../store";
 import type { SignalChip } from "../utils/signals";
 import { formatEventBadgeDate } from "../utils/events";
@@ -40,6 +44,11 @@ const StockTile = memo(function StockTile({
     const map = state.barsCache?.[timeframe] ?? {};
     return map[ticker.code];
   });
+  const { ready: backendReady } = useBackendReadyState();
+  const favorites = useStore((state) => state.favorites);
+  const favoritesLoaded = useStore((state) => state.favoritesLoaded);
+  const loadFavorites = useStore((state) => state.loadFavorites);
+  const setFavoriteLocal = useStore((state) => state.setFavoriteLocal);
   const boxes = useStore((state) => {
     const map = state.boxesCache?.[timeframe] ?? {};
     return map[ticker.code] ?? [];
@@ -62,6 +71,12 @@ const StockTile = memo(function StockTile({
   const cachedThumb = getThumbnailCache(cacheKey);
   const earningsLabel = formatEventBadgeDate(ticker.eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(ticker.eventRightsDate);
+  const isFavorite = favorites.includes(ticker.code);
+
+  useEffect(() => {
+    if (!backendReady || favoritesLoaded) return;
+    loadFavorites();
+  }, [backendReady, favoritesLoaded, loadFavorites]);
 
   const handleActivate = () => onActivate?.(ticker.code);
   const handleOpenDetail = () => onOpenDetail(ticker.code);
@@ -72,6 +87,21 @@ const StockTile = memo(function StockTile({
   const handleExclude = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     onExclude?.(ticker.code);
+  };
+  const handleToggleFavorite = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (!backendReady) return;
+    const next = !isFavorite;
+    setFavoriteLocal(ticker.code, next);
+    try {
+      if (next) {
+        await api.post(`/favorites/${encodeURIComponent(ticker.code)}`);
+      } else {
+        await api.delete(`/favorites/${encodeURIComponent(ticker.code)}`);
+      }
+    } catch {
+      setFavoriteLocal(ticker.code, isFavorite);
+    }
   };
   const handleOpenClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
@@ -112,6 +142,14 @@ const StockTile = memo(function StockTile({
           )}
         </div>
         <div className="tile-actions">
+          <button
+            type="button"
+            className={`favorite-toggle ${isFavorite ? "active" : ""}`}
+            onClick={handleToggleFavorite}
+            aria-label={isFavorite ? "お気に入り解除" : "お気に入り追加"}
+          >
+            {isFavorite ? <IconHeartFilled size={16} /> : <IconHeart size={16} />}
+          </button>
           <button
             type="button"
             className={`tile-action ${kept ? "active" : ""}`}

@@ -169,14 +169,6 @@ export default function GridView() {
   const [basicSortOpen, setBasicSortOpen] = useState(false);  // Basic sort menu
   const [displayOpen, setDisplayOpen] = useState(false);
   const [isSorting, setIsSorting] = useState(false);
-  const [updateRequestInFlight, setUpdateRequestInFlight] = useState(false);
-  const updateRequestStartedAtRef = useRef<number | null>(null);
-  const prevUpdateJobIdRef = useRef<string | null>(null);
-  const [txtUpdateStatus, setTxtUpdateStatus] = useState<TxtUpdateStatus | null>(null);
-  const [splitSuspects, setSplitSuspects] = useState<SplitSuspect[]>([]);
-  const [showSplitSuspects, setShowSplitSuspects] = useState(false);
-  const [updateLogLines, setUpdateLogLines] = useState<string[]>([]);
-  const [showUpdateLog, setShowUpdateLog] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; key: number } | null>(null);
   const toastKeyRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -209,14 +201,13 @@ export default function GridView() {
   const techFilterDropNoticeRef = useRef(false);
   const gridRef = useRef<FixedSizeGrid | null>(null);
   const tradeCsvInputRef = useRef<HTMLInputElement | null>(null);
-  const prevUpdateRunningRef = useRef(false);
   const lastVisibleCodesRef = useRef<string[]>([]);
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
   const undoTimerRef = useRef<number | null>(null);
 
   const showToast = useCallback((text: string) => {
     toastKeyRef.current += 1;
-    showToast({ text, key: toastKeyRef.current });
+    setToastMessage({ text, key: toastKeyRef.current });
   }, []);
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
@@ -1245,270 +1236,31 @@ export default function GridView() {
     }
   };
 
-  type UpdateSummary = {
-    total?: number;
-    ok?: number;
-    err?: number;
-    split?: number;
-  };
-
   type UpdateTxtPayload = {
     ok?: boolean;
     error?: string;
-    last_updated_at?: string;
-    summary?: UpdateSummary;
+    job_id?: string;
     searched?: string[];
-    stdout_tail?: string[];
   };
-
-  type TxtUpdateStatus = {
-    running?: boolean;
-    phase?: string;
-    started_at?: string;
-    finished_at?: string;
-    processed?: number;
-    total?: number;
-    summary?: UpdateSummary;
-    error?: string | null;
-    last_updated_at?: string | null;
-    job_id?: string | null;
-    stdout_tail?: string[];
-    status_message?: string | null;
-    elapsed_ms?: number | null;
-    timeout_sec?: number;
-    warning?: boolean;
-  };
-
-  type SplitSuspect = {
-    code: string;
-    file_date?: string;
-    file_close?: string;
-    pan_date?: string;
-    pan_close?: string;
-    diff_ratio?: string;
-    reason?: string;
-    detected_at?: string;
-  };
-
-  const formatUpdatedAt = (value: string | null | undefined) => {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    const pad = (num: number) => String(num).padStart(2, "0");
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-      date.getHours()
-    )}:${pad(date.getMinutes())}`;
-  };
-
-  const formatElapsed = (elapsedMs?: number | null) => {
-    if (!elapsedMs || elapsedMs < 1000) return null;
-    const totalSeconds = Math.floor(elapsedMs / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes}:${String(seconds).padStart(2, "0")}`;
-  };
-
-  const lastUpdatedLabel = formatUpdatedAt(
-    (txtUpdateStatus?.last_updated_at as string | null | undefined) ?? health?.last_updated
-  );
-  const isUpdateRunning = Boolean(txtUpdateStatus?.running);
-  const isUpdateStarting = updateRequestInFlight && !isUpdateRunning;
-  const isUpdatingTxt = isUpdateRunning || isUpdateStarting;
-  const normalizeCountValue = (value: unknown) => {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed) return null;
-      const parsed = Number(trimmed);
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-    return null;
-  };
-
-  const updateProgressPercent = (() => {
-    if (!isUpdateRunning) return null;
-    const processed = normalizeCountValue(txtUpdateStatus?.processed);
-    const total = normalizeCountValue(txtUpdateStatus?.total);
-    if (typeof processed === "number" && processed >= 0) {
-      if (typeof total === "number" && total > 0) {
-        return Math.min(100, Math.round((processed / total) * 100));
-      }
-      if (total === 100) return Math.min(100, Math.round(processed));
-    }
-    return null;
-  })();
-  const formatUpdateCount = () => {
-    const processed = normalizeCountValue(txtUpdateStatus?.processed);
-    const total = normalizeCountValue(txtUpdateStatus?.total);
-    if (typeof total === "number" && total > 0) {
-      const safeProcessedRaw = typeof processed === "number" && processed >= 0 ? processed : 0;
-      const safeProcessed = Math.min(safeProcessedRaw, total);
-      return `${safeProcessed}/${total}`;
-    }
-    if (typeof processed === "number") {
-      return `${processed}`;
-    }
-    return null;
-  };
-  const updateProgressLabel = (() => {
-    if (!isUpdateRunning) return null;
-    const statusMessage = txtUpdateStatus.status_message?.trim();
-    if (txtUpdateStatus.phase === "ingesting") {
-      return statusMessage || "取り込み中…";
-    }
-    if (txtUpdateStatus.phase === "exporting") {
-      return statusMessage || "出力中…";
-    }
-    if (txtUpdateStatus.phase === "queued" || txtUpdateStatus.phase === "starting") {
-      return "準備中…";
-    }
-    return statusMessage || "更新中…";
-  })();
-  const updatePhase = txtUpdateStatus?.phase ?? null;
-  const updateStatusTone = isUpdateRunning || isUpdateStarting
-    ? "running"
-      : updatePhase === "done"
-        ? "done"
-        : updatePhase === "error"
-          ? "error"
-          : updatePhase === "idle"
-            ? "idle"
-            : "idle";
-  const updateStatusText = (() => {
-    if (isUpdateStarting) return "更新中";
-    if (isUpdateRunning) return updateProgressLabel ?? "更新中";
-    if (updatePhase === "done") return "更新完了";
-    if (updatePhase === "error") return "更新エラー";
-    if (updatePhase === "idle") return "待機中";
-    if (!txtUpdateStatus) return "状態確認中";
-    return "待機中";
-  })();
-  const updateProgressValue = (() => {
-    if (updateProgressPercent != null) return updateProgressPercent;
-    if (isUpdateStarting || updateStatusTone === "running") return 60;
-    if (updateStatusTone === "done") return 100;
-    return 0;
-  })();
-  const updateProgressDisplay = (() => {
-    const countLabel = formatUpdateCount();
-    if (countLabel) return countLabel;
-    if (updateProgressPercent != null) return `${updateProgressPercent}%`;
-    if (updateStatusTone === "done") return "100%";
-    return null;
-  })();
-
-  const formatUpdateSummary = (summary?: UpdateSummary) => {
-    if (!summary) return null;
-    const parts: string[] = [];
-    if (typeof summary.ok === "number") {
-      parts.push(`成功 ${summary.ok}`);
-    }
-    if (typeof summary.err === "number" && summary.err > 0) {
-      parts.push(`エラー ${summary.err}`);
-    }
-    if (typeof summary.split === "number" && summary.split > 0) {
-      parts.push(`分割疑い ${summary.split}`);
-    }
-    return parts.length > 0 ? parts.join(" / ") : null;
-  };
-
-  const formatUpdateToast = (message: string, summary?: UpdateSummary) => {
-    const suffix = formatUpdateSummary(summary);
-    return suffix ? `${message}（${suffix}）` : message;
-  };
-
-  const updateDetailText = (() => {
-    if (isUpdateStarting) return "更新中";
-    if (isUpdateRunning) {
-      const elapsed = formatElapsed(txtUpdateStatus?.elapsed_ms);
-      return elapsed ? `経過 ${elapsed}` : "経過 --:--";
-    }
-    if (updatePhase === "done") {
-      const summary = formatUpdateSummary(txtUpdateStatus?.summary);
-      if (summary) return `結果 ${summary}`;
-      const statusMessage = txtUpdateStatus?.status_message?.trim();
-      if (statusMessage) return statusMessage;
-      return "更新完了";
-    }
-    if (updatePhase === "error") {
-      const statusMessage = txtUpdateStatus?.status_message?.trim();
-      return statusMessage ? statusMessage : "更新に失敗しました";
-    }
-    if (!txtUpdateStatus) return "状態を取得中";
-    return "手動で開始";
-  })();
 
   const handleUpdateError = (payload?: UpdateTxtPayload) => {
-    const error = payload?.error ?? "unknown";
-    if (error === "already_updated_today") {
-      const lastUpdated = formatUpdatedAt(payload?.last_updated_at);
-      setToastMessage(
-        lastUpdated
-          ? `本日はTXT更新済みです（最終 ${lastUpdated}）`
-          : "本日はTXT更新済みです。"
-      );
+    const error = payload?.error ?? 'unknown';
+    if (error === 'update_in_progress') {
+      showToast('TXT更新は現在実行中です。');
       return;
     }
-    if (error === "update_in_progress") {
-      showToast("TXT更新は実行中です。");
+    if (error === 'code_txt_missing') {
+      showToast('code.txt が見つかりません。PanRolling でコード一覧を生成してください。');
       return;
     }
-    if (error.startsWith("vbs_failed")) {
-      showToast(formatUpdateToast("TXT更新でエラーが発生しました。", payload?.summary));
+    if (error.startsWith('vbs_not_found')) {
+      showToast('TXT更新スクリプトが見つかりません。');
       return;
     }
-    if (error.startsWith("ingest_failed")) {
-      showToast(formatUpdateToast("TXT取り込みでエラーが発生しました。", payload?.summary));
-      return;
-    }
-    if (error.startsWith("vbs_not_found")) {
-      showToast("TXT更新スクリプトが見つかりません。");
-      return;
-    }
-    if (error === "code_txt_missing") {
-      const searched = payload?.searched?.filter(Boolean).join(" / ");
-      setToastMessage(
-        searched ? `code.txt が見つかりません（探索: ${searched}）` : "code.txt が見つかりません。"
-      );
-      return;
-    }
-    if (error.startsWith("ingest_not_found")) {
-      const missingPath = error.split(":").slice(1).join(":").trim();
-      setToastMessage(
-        missingPath
-          ? `TXT取り込みスクリプトが見つかりません（${missingPath}）`
-          : "TXT取り込みスクリプトが見つかりません。"
-      );
-      return;
-    }
-    showToast("TXT更新に失敗しました。");
+    showToast('TXT更新の起動に失敗しました。');
   };
 
-  const fetchTxtUpdateStatus = useCallback(async () => {
-    if (!backendReady) return;
-    try {
-      const res = await api.get("/txt_update/status");
-      const payload = res.data as TxtUpdateStatus;
-      setTxtUpdateStatus(payload);
-      if (payload.stdout_tail && payload.stdout_tail.length) {
-        setUpdateLogLines(payload.stdout_tail);
-      }
-    } catch {
-      // Ignore status fetch errors while offline.
-    }
-  }, [backendReady]);
 
-  const fetchSplitSuspects = useCallback(async () => {
-    if (!backendReady) return [];
-    try {
-      const res = await api.get("/txt_update/split_suspects");
-      const items = (res.data?.items as SplitSuspect[]) ?? [];
-      setSplitSuspects(items);
-      return items;
-    } catch {
-      return [];
-    }
-  }, [backendReady]);
 
   const buildConsultation = useCallback(async () => {
     if (!keepList.length) return;
@@ -1587,31 +1339,12 @@ export default function GridView() {
   }, [keepList]);
 
   const handleUpdateTxt = useCallback(async () => {
-    if (isUpdatingTxt || !backendReady) return;
-    updateRequestStartedAtRef.current = Date.now();
-    setUpdateRequestInFlight(true);
-    // Clear any stale completed count (e.g. 679/679) so a new run doesn't look "instantly finished".
-    // Keep running=false until we observe it from the backend.
-    setTxtUpdateStatus((prev) => {
-      const fallbackTotal = (prev?.total ?? health?.code_count ?? 0) || 0;
-      return {
-        ...(prev ?? {}),
-        running: prev?.running ?? false,
-        processed: 0,
-        total: fallbackTotal > 0 ? fallbackTotal : prev?.total
-      };
-    });
-    setShowSplitSuspects(false);
-    setSplitSuspects([]);
-    setShowUpdateLog(false);
-    setUpdateLogLines([]);
+    if (!backendReady) return;
     showToast("TXT更新を開始しました。");
     try {
       const res = await api.post("/txt_update/run");
       const payload = res.data as UpdateTxtPayload;
-      if (payload.ok) {
-        await fetchTxtUpdateStatus();
-      } else {
+      if (!payload.ok) {
         handleUpdateError(payload);
       }
     } catch (error) {
@@ -1623,111 +1356,10 @@ export default function GridView() {
       if (payload) {
         handleUpdateError(payload);
       } else {
-        showToast("TXT更新に失敗しました。");
-      }
-    } finally {
-      setUpdateRequestInFlight(false);
-      updateRequestStartedAtRef.current = null;
-    }
-  }, [isUpdatingTxt, backendReady, fetchTxtUpdateStatus, handleUpdateError]);
-
-  useEffect(() => {
-    // If the request promise got stuck (webview/network hiccup), don't let the UI
-    // show "starting" forever once we can observe the job is not running.
-    if (!updateRequestInFlight) return;
-    if (txtUpdateStatus && txtUpdateStatus.running === false) {
-      setUpdateRequestInFlight(false);
-      updateRequestStartedAtRef.current = null;
-      return;
-    }
-    const startedAt = updateRequestStartedAtRef.current;
-    if (startedAt == null) return;
-    const timer = window.setTimeout(() => {
-      if (updateRequestStartedAtRef.current === startedAt) {
-        setUpdateRequestInFlight(false);
-        updateRequestStartedAtRef.current = null;
-      }
-    }, 20000);
-    return () => window.clearTimeout(timer);
-  }, [updateRequestInFlight, txtUpdateStatus]);
-
-  useEffect(() => {
-    if (!backendReady) return;
-    fetchTxtUpdateStatus();
-    // Use a fixed interval to avoid "stopping" feel on navigation return
-    const timer = window.setInterval(() => {
-      fetchTxtUpdateStatus();
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [backendReady, fetchTxtUpdateStatus]);
-
-  useEffect(() => {
-    const wasRunning = prevUpdateRunningRef.current;
-    const isRunning = Boolean(txtUpdateStatus?.running);
-    if (wasRunning && !isRunning) {
-      if (txtUpdateStatus?.phase === "done") {
-        const summary = txtUpdateStatus.summary;
-        resetBarsCache();
-        loadList();
-        const hasWarning = Boolean(txtUpdateStatus.warning);
-        setToastMessage(
-          formatUpdateToast(
-            hasWarning ? "TXT更新が完了しました（警告あり）。" : "TXT更新が完了しました。",
-            summary
-          )
-        );
-        if (hasWarning) {
-          setShowUpdateLog(true);
-        }
-        fetchSplitSuspects().then((items) => {
-          if (items.length) {
-            setShowSplitSuspects(true);
-            showToast(`分割疑い ${items.length}件。TXT削除→再更新してください。`);
-          }
-        });
-        api
-          .get("/health")
-          .then((res) => setHealth(res.data as HealthStatus))
-          .catch(() => undefined);
-      } else if (txtUpdateStatus?.phase === "error") {
-        showToast("TXT更新に失敗しました。");
-        setShowUpdateLog(true);
+        showToast("TXT更新の起動に失敗しました。");
       }
     }
-    prevUpdateRunningRef.current = isRunning;
-  }, [txtUpdateStatus, resetBarsCache, loadList, formatUpdateToast, fetchSplitSuspects]);
-
-  useEffect(() => {
-    // If a job finishes between polling intervals, we may never observe running=true and
-    // would miss the completion side effects (cache reset, reload, toasts).
-    const jobId = (txtUpdateStatus?.job_id as string | null | undefined) ?? null;
-    const prevJobId = prevUpdateJobIdRef.current;
-    prevUpdateJobIdRef.current = jobId;
-    if (!jobId || !prevJobId || jobId === prevJobId) return;
-    if (txtUpdateStatus?.running) return;
-    if (txtUpdateStatus?.phase !== "done") return;
-
-    const summary = txtUpdateStatus.summary;
-    resetBarsCache();
-    loadList();
-    const hasWarning = Boolean(txtUpdateStatus.warning);
-    setToastMessage(
-      formatUpdateToast(hasWarning ? "TXT update done (warnings)" : "TXT update done.", summary)
-    );
-    if (hasWarning) {
-      setShowUpdateLog(true);
-    }
-    fetchSplitSuspects().then((items) => {
-      if (items.length) {
-        setShowSplitSuspects(true);
-        showToast("split suspects: " + items.length);
-      }
-    });
-    api
-      .get("/health")
-      .then((res) => setHealth(res.data as HealthStatus))
-      .catch(() => undefined);
-  }, [txtUpdateStatus, resetBarsCache, loadList, formatUpdateToast, fetchSplitSuspects]);
+  }, [backendReady, handleUpdateError]);
 
 
   return (
@@ -1735,338 +1367,318 @@ export default function GridView() {
       <header className="unified-list-header">
         <div className="list-header-row">
           <div className="header-row-top">
-            <TopNav />
+            <div className="header-row-left">
+              <div className="app-brand">
+                <div className="app-brand-title">MeeMee</div>
+                <div className="app-brand-sub">Screener</div>
+              </div>
+              <TopNav />
+            </div>
             <div className="list-header-actions-wrapper">
               <div className="list-header-actions">
-              {keepList.length > 0 && (
-                <button
-                  type="button"
-                  className={`consult-trigger ${consultVisible ? "active" : ""}`}
-                  onClick={() => setConsultVisible(!consultVisible)}
-                >
-                  <IconMessage size={16} />
-                  <span>相談</span>
-                  <span className="badge">{keepList.length}</span>
-                </button>
-              )}
-              <div className="list-header-spacer" style={{ width: 8 }} />
-              <div className="popover-anchor" ref={sortRef}>
-                <IconButton
-                  icon={<IconArrowsSort size={18} />}
-                  label={`並び: ${sortLabel}`}
-                  variant="iconLabel"
-                  tooltip="並び替え"
-                  ariaLabel="並び替えメニューを開く"
-                  selected={sortOpen}
-                  onClick={() => {
-                    setSortOpen(!sortOpen);
-                    setDisplayOpen(false);
-                    setSettingsOpen(false);
-                  }}
-                />
-                {sortOpen && (
-                  <div className="popover-panel">
-                    {(isCandidateView ? candidateSortSections : sortSections).map((section) => (
-                      <div className="popover-section" key={section.title}>
-                        <div className="popover-title">{section.title}</div>
-                        <div className="popover-grid">
-                          {section.options.map((opt) => (
+                {keepList.length > 0 && (
+                  <button
+                    type="button"
+                    className={`consult-trigger ${consultVisible ? "active" : ""}`}
+                    onClick={() => setConsultVisible(!consultVisible)}
+                  >
+                    <IconMessage size={16} />
+                    <span>相談</span>
+                    <span className="badge">{keepList.length}</span>
+                  </button>
+                )}
+                <div className="list-header-spacer" style={{ width: 8 }} />
+                <div className="popover-anchor" ref={sortRef}>
+                  <IconButton
+                    icon={<IconArrowsSort size={18} />}
+                    label={`並び: ${sortLabel}`}
+                    variant="iconLabel"
+                    tooltip="並び替え"
+                    ariaLabel="並び替えメニューを開く"
+                    selected={sortOpen}
+                    onClick={() => {
+                      setSortOpen(!sortOpen);
+                      setDisplayOpen(false);
+                      setSettingsOpen(false);
+                    }}
+                  />
+                  {sortOpen && (
+                    <div className="popover-panel">
+                      {(isCandidateView ? candidateSortSections : sortSections).map((section) => (
+                        <div className="popover-section" key={section.title}>
+                          <div className="popover-title">{section.title}</div>
+                          <div className="popover-grid">
+                            {section.options.map((opt) => (
+                              <button
+                                key={opt.key}
+                                type="button"
+                                className={`popover-item ${sortKey === opt.key ? "active" : ""}`}
+                                onClick={() => {
+                                  if (sortKey === opt.key) {
+                                    setSortDir(sortDir === "asc" ? "desc" : "asc");
+                                  } else {
+                                    setSortKey(opt.key);
+                                    setSortDir("desc");
+                                  }
+                                  setSortOpen(false);
+                                }}
+                              >
+                                <span className="popover-item-label">{opt.label}</span>
+                                {sortKey === opt.key && (
+                                  <span className="popover-check">{sortDirLabel}</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="popover-anchor" ref={displayRef}>
+                  <IconButton
+                    icon={<IconLayoutGrid size={18} />}
+                    label="表示"
+                    variant="iconLabel"
+                    tooltip="表示設定"
+                    ariaLabel="表示設定メニューを開く"
+                    selected={displayOpen}
+                    onClick={() => {
+                      setDisplayOpen(!displayOpen);
+                      setSortOpen(false);
+                      setSettingsOpen(false);
+                    }}
+                  />
+                  {displayOpen && (
+                    <div className="popover-panel">
+                      <div className="popover-section">
+                        <div className="popover-title">行数</div>
+                        <div className="segmented">
+                          {[1, 2, 3, 4, 5, 6].map((r) => (
                             <button
-                              key={opt.key}
-                              type="button"
-                              className={`popover-item ${sortKey === opt.key ? "active" : ""}`}
-                              onClick={() => {
-                                if (sortKey === opt.key) {
-                                  setSortDir(sortDir === "asc" ? "desc" : "asc");
-                                } else {
-                                  setSortKey(opt.key);
-                                  setSortDir("desc");
-                                }
-                                setSortOpen(false);
-                              }}
+                              key={r}
+                              className={rows === r ? "active" : ""}
+                              onClick={() => setRows(r as any)}
                             >
-                              <span className="popover-item-label">{opt.label}</span>
-                              {sortKey === opt.key && (
-                                <span className="popover-check">{sortDirLabel}</span>
-                              )}
+                              {r}
                             </button>
                           ))}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="popover-anchor" ref={displayRef}>
-                <IconButton
-                  icon={<IconLayoutGrid size={18} />}
-                  label="表示"
-                  variant="iconLabel"
-                  tooltip="表示設定"
-                  ariaLabel="表示設定メニューを開く"
-                  selected={displayOpen}
-                  onClick={() => {
-                    setDisplayOpen(!displayOpen);
-                    setSortOpen(false);
-                    setSettingsOpen(false);
-                  }}
-                />
-                {displayOpen && (
-                  <div className="popover-panel">
-                    <div className="popover-section">
-                      <div className="popover-title">行数</div>
-                      <div className="segmented">
-                        {[1, 2, 3, 4, 5, 6].map((r) => (
-                          <button
-                            key={r}
-                            className={rows === r ? "active" : ""}
-                            onClick={() => setRows(r as any)}
-                          >
-                            {r}
-                          </button>
-                        ))}
+                      <div className="popover-section">
+                        <div className="popover-title">列数</div>
+                        <div className="segmented">
+                          {[1, 2, 3, 4].map((c) => (
+                            <button
+                              key={c}
+                              className={columns === c ? "active" : ""}
+                              onClick={() => setColumns(c as any)}
+                            >
+                              {c}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">列数</div>
-                      <div className="segmented">
-                        {[1, 2, 3, 4].map((c) => (
-                          <button
-                            key={c}
-                            className={columns === c ? "active" : ""}
-                            onClick={() => setColumns(c as any)}
-                          >
-                            {c}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="popover-section">
-                      <button
-                        className="popover-item"
-                        onClick={() => {
-                          setRows(3);
-                          setColumns(3);
-                          setDisplayOpen(false);
-                        }}
-                      >
-                        <span className="popover-item-label">3x3に戻す</span>
-                      </button>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">表示オプション</div>
-                      <button
-                        className={`popover-item ${showBoxes ? "active" : ""}`}
-                        onClick={() => setShowBoxes(!showBoxes)}
-                      >
-                        <span className="popover-item-label">ボックス枠を表示</span>
-                        {showBoxes && <span className="popover-check">ON</span>}
-                      </button>
-                      <button
-                        className={`popover-item ${showIndicators ? "active" : ""}`}
-                        onClick={() => {
-                          setShowIndicators(!showIndicators);
-                          setDisplayOpen(false);
-                        }}
-                      >
-                        <span className="popover-item-label">インジケーター設定</span>
-                      </button>
-                      <button
-                        className={`popover-item ${maSettings[gridTimeframe].some(s => s.visible) ? "active" : ""}`}
-                        onClick={() => {
-                          if (maSettings[gridTimeframe].some(s => s.visible)) {
-                            const newState = maSettings[gridTimeframe].map(s => ({ ...s, visible: false }));
-                            newState.forEach((s, i) => updateMaSetting(gridTimeframe, i, { visible: false }));
-                          } else {
-                            resetMaSettings(gridTimeframe);
-                          }
-                        }}
-                      >
-                        <span className="popover-item-label">MA一括表示切替</span>
-                        <span className="popover-status">
-                          {maSettings[gridTimeframe].some(s => s.visible) ? "ON" : "OFF"}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="popover-anchor">
-                <IconButton
-                  icon={<IconFilter size={18} />}
-                  label="フィルタ"
-                  selected={techFilterActive.conditions.length > 0}
-                  variant="iconLabel"
-                  onClick={() => setTechFilterOpen(true)}
-                />
-              </div>
-              <div className="txt-update-group">
-                <IconButton
-                  icon={<IconRefresh size={18} />}
-                  label={isUpdatingTxt ? "更新中" : "TXT更新"}
-                  variant="iconLabel"
-                  tooltip="TXT更新"
-                  ariaLabel="TXT更新"
-                  className={`txt-update-button ${isUpdatingTxt ? "is-updating" : ""}`}
-                  onClick={handleUpdateTxt}
-                  disabled={!backendReady || isUpdatingTxt}
-                />
-                {backendReady && (
-                  <div className="txt-update-meta">
-                    <span className={`txt-update-status is-${updateStatusTone}`}>
-                      <span className="txt-update-dot" />
-                      {updateStatusText}
-                      {updateProgressDisplay != null ? `（${updateProgressDisplay}）` : ""}
-                    </span>
-                    <div
-                      className={`txt-update-progress is-${updateStatusTone} ${(updateStatusTone === "running" && updateProgressPercent == null) ||
-                        isUpdateStarting
-                        ? "is-indeterminate"
-                        : ""
-                        }`}
-                      aria-hidden="true"
-                    >
-                      <div
-                        className="txt-update-progress-bar"
-                        style={{ width: `${updateProgressValue}%` }}
-                      />
-                    </div>
-                    <span className="txt-update-detail">{updateDetailText}</span>
-                    <span className="txt-update-last">
-                      最終更新：{lastUpdatedLabel ?? "--"}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div className="popover-anchor" ref={settingsRef}>
-                <IconButton
-                  icon={<IconSettings size={18} />}
-                  tooltip="設定"
-                  ariaLabel="設定"
-                  onClick={() => {
-                    setSettingsOpen(!settingsOpen);
-                    setSortOpen(false);
-                    setDisplayOpen(false);
-                  }}
-                />
-                {settingsOpen && (
-                  <div className="popover-panel popover-right-aligned" style={{ right: 0 }}>
-                    <div className="popover-section">
-                      <div className="popover-title">外観設定</div>
-                      <div className="segmented">
+                      <div className="popover-section">
                         <button
-                          className={currentTheme === "dark" ? "active" : ""}
-                          onClick={() => currentTheme !== "dark" && handleThemeToggle()}
+                          className="popover-item"
+                          onClick={() => {
+                            setRows(3);
+                            setColumns(3);
+                            setDisplayOpen(false);
+                          }}
                         >
-                          <IconMoon size={16} />
-                          <span>ダーク</span>
-                        </button>
-                        <button
-                          className={currentTheme === "light" ? "active" : ""}
-                          onClick={() => currentTheme !== "light" && handleThemeToggle()}
-                        >
-                          <IconSun size={16} />
-                          <span>ライト</span>
+                          <span className="popover-item-label">3x3に戻す</span>
                         </button>
                       </div>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">取引CSV</div>
-                      <button
-                        type="button"
-                        className="popover-item"
-                        onClick={handleTradeCsvPick}
-                        disabled={tradeUploadInFlight}
-                      >
-                        <span className="popover-item-label">
-                          <IconUpload size={16} />
-                          <span>{tradeUploadInFlight ? "取り込み中..." : "CSV取り込み"}</span>
-                        </span>
-                        <span className="popover-status">手動</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="popover-item"
-                        onClick={handleForceTradeSync}
-                        disabled={tradeSyncInFlight}
-                      >
-                        <span className="popover-item-label">
-                          <IconRefresh size={16} />
-                          <span>{tradeSyncInFlight ? "同期中..." : "強制同期"}</span>
-                        </span>
-                        <span className="popover-status">強制</span>
-                      </button>
-                      <div className="popover-hint">
-                        保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
-                      </div>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">スクショ</div>
-                      <div className="popover-hint">
-                        保存先: %USERPROFILE%\\Downloads\\MeeMeeScreener
-                      </div>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">銘柄一覧</div>
-                      <button
-                        type="button"
-                        className="popover-item"
-                        onClick={handleExportWatchlist}
-                        disabled={watchlistExporting}
-                      >
-                        <span className="popover-item-label">
-                          <IconDownload size={16} />
-                          <span>{watchlistExporting ? "エクスポート中..." : "EXPORT"}</span>
-                        </span>
-                        <span className="popover-status">EBK</span>
-                      </button>
-                      <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
-                        <span className="popover-item-label">
-                          <IconFileText size={16} />
-                          <span>code.txt</span>
-                        </span>
-                        <span className="popover-status">編集</span>
-                      </button>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">イベント</div>
-                      <button
-                        type="button"
-                        className="popover-item"
-                        disabled={eventsMeta?.isRefreshing}
-                        onClick={() => {
-                          void refreshEvents();
-                          setSettingsOpen(false);
-                        }}
-                      >
-                        <span className="popover-item-label">
-                          <IconRefresh size={16} />
-                          <span>
-                            {eventsMeta?.isRefreshing ? "更新中..." : "イベント更新"}
+                      <div className="popover-section">
+                        <div className="popover-title">表示オプション</div>
+                        <button
+                          className={`popover-item ${showBoxes ? "active" : ""}`}
+                          onClick={() => setShowBoxes(!showBoxes)}
+                        >
+                          <span className="popover-item-label">ボックス枠を表示</span>
+                          {showBoxes && <span className="popover-check">ON</span>}
+                        </button>
+                        <button
+                          className={`popover-item ${showIndicators ? "active" : ""}`}
+                          onClick={() => {
+                            setShowIndicators(!showIndicators);
+                            setDisplayOpen(false);
+                          }}
+                        >
+                          <span className="popover-item-label">インジケーター設定</span>
+                        </button>
+                        <button
+                          className={`popover-item ${maSettings[gridTimeframe].some(s => s.visible) ? "active" : ""}`}
+                          onClick={() => {
+                            if (maSettings[gridTimeframe].some(s => s.visible)) {
+                              const newState = maSettings[gridTimeframe].map(s => ({ ...s, visible: false }));
+                              newState.forEach((s, i) => updateMaSetting(gridTimeframe, i, { visible: false }));
+                            } else {
+                              resetMaSettings(gridTimeframe);
+                            }
+                          }}
+                        >
+                          <span className="popover-item-label">MA一括表示切替</span>
+                          <span className="popover-status">
+                            {maSettings[gridTimeframe].some(s => s.visible) ? "ON" : "OFF"}
                           </span>
-                        </span>
-                        <span className="popover-status">手動</span>
-                      </button>
-                      <div className="popover-hint">
-                        状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+                        </button>
                       </div>
-                      <div className="popover-hint">
-                        最終試行: {eventsAttemptLabel ?? "--"}
-                      </div>
-                      {eventsMeta?.lastError && (
-                        <div className="popover-hint">エラー: {eventsMeta.lastError}</div>
-                      )}
                     </div>
-                  </div>
-                )}
-                <input
-                  ref={tradeCsvInputRef}
-                  type="file"
-                  accept=".csv"
-                  onChange={handleTradeCsvChange}
-                  style={{ display: "none" }}
-                />
-              </div>
+                  )}
+                </div>
+                <div className="popover-anchor">
+                  <IconButton
+                    icon={<IconFilter size={18} />}
+                    label="フィルタ"
+                    selected={techFilterActive.conditions.length > 0}
+                    variant="iconLabel"
+                    onClick={() => setTechFilterOpen(true)}
+                  />
+                </div>
+                <div className="txt-update-group">
+                  <IconButton
+                    icon={<IconRefresh size={18} />}
+                    label="TXT更新"
+                    variant="iconLabel"
+                    tooltip="TXT更新"
+                    ariaLabel="TXT更新"
+                    className="txt-update-button"
+                    onClick={handleUpdateTxt}
+                    disabled={!backendReady}
+                  />
+                </div>
+                <div className="popover-anchor" ref={settingsRef}>
+                  <IconButton
+                    icon={<IconSettings size={18} />}
+                    tooltip="設定"
+                    ariaLabel="設定"
+                    onClick={() => {
+                      setSettingsOpen(!settingsOpen);
+                      setSortOpen(false);
+                      setDisplayOpen(false);
+                    }}
+                  />
+                  {settingsOpen && (
+                    <div className="popover-panel popover-right-aligned" style={{ right: 0 }}>
+                      <div className="popover-section">
+                        <div className="popover-title">外観設定</div>
+                        <div className="segmented">
+                          <button
+                            className={currentTheme === "dark" ? "active" : ""}
+                            onClick={() => currentTheme !== "dark" && handleThemeToggle()}
+                          >
+                            <IconMoon size={16} />
+                            <span>ダーク</span>
+                          </button>
+                          <button
+                            className={currentTheme === "light" ? "active" : ""}
+                            onClick={() => currentTheme !== "light" && handleThemeToggle()}
+                          >
+                            <IconSun size={16} />
+                            <span>ライト</span>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="popover-section">
+                        <div className="popover-title">取引CSV</div>
+                        <button
+                          type="button"
+                          className="popover-item"
+                          onClick={handleTradeCsvPick}
+                          disabled={tradeUploadInFlight}
+                        >
+                          <span className="popover-item-label">
+                            <IconUpload size={16} />
+                            <span>{tradeUploadInFlight ? "取り込み中..." : "CSV取り込み"}</span>
+                          </span>
+                          <span className="popover-status">手動</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="popover-item"
+                          onClick={handleForceTradeSync}
+                          disabled={tradeSyncInFlight}
+                        >
+                          <span className="popover-item-label">
+                            <IconRefresh size={16} />
+                            <span>{tradeSyncInFlight ? "同期中..." : "強制同期"}</span>
+                          </span>
+                          <span className="popover-status">強制</span>
+                        </button>
+                        <div className="popover-hint">
+                          保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
+                        </div>
+                      </div>
+                      <div className="popover-section">
+                        <div className="popover-title">スクショ</div>
+                        <div className="popover-hint">
+                          保存先: %USERPROFILE%\\Downloads\\MeeMeeScreener
+                        </div>
+                      </div>
+                      <div className="popover-section">
+                        <div className="popover-title">銘柄一覧</div>
+                        <button
+                          type="button"
+                          className="popover-item"
+                          onClick={handleExportWatchlist}
+                          disabled={watchlistExporting}
+                        >
+                          <span className="popover-item-label">
+                            <IconDownload size={16} />
+                            <span>{watchlistExporting ? "エクスポート中..." : "EXPORT"}</span>
+                          </span>
+                          <span className="popover-status">EBK</span>
+                        </button>
+                        <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
+                          <span className="popover-item-label">
+                            <IconFileText size={16} />
+                            <span>code.txt</span>
+                          </span>
+                          <span className="popover-status">編集</span>
+                        </button>
+                      </div>
+                      <div className="popover-section">
+                        <div className="popover-title">イベント</div>
+                        <button
+                          type="button"
+                          className="popover-item"
+                          disabled={eventsMeta?.isRefreshing}
+                          onClick={() => {
+                            void refreshEvents();
+                            setSettingsOpen(false);
+                          }}
+                        >
+                          <span className="popover-item-label">
+                            <IconRefresh size={16} />
+                            <span>
+                              {eventsMeta?.isRefreshing ? "更新中..." : "イベント更新"}
+                            </span>
+                          </span>
+                          <span className="popover-status">手動</span>
+                        </button>
+                        <div className="popover-hint">
+                          状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+                        </div>
+                        <div className="popover-hint">
+                          最終試行: {eventsAttemptLabel ?? "--"}
+                        </div>
+                        {eventsMeta?.lastError && (
+                          <div className="popover-hint">エラー: {eventsMeta.lastError}</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <input
+                    ref={tradeCsvInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={handleTradeCsvChange}
+                    style={{ display: "none" }}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -2098,6 +1710,7 @@ export default function GridView() {
                 </button>
               ))}
             </div>
+            
             <div className="search-field list-search">
               <input
                 className="search-input"
@@ -2176,53 +1789,6 @@ export default function GridView() {
       {health && health.code_txt_missing && health.txt_count > 0 && (
         <div className="data-warning subtle">
           code.txt がありません。ファイル名から銘柄コードを推定しています（code.txt推奨）。
-        </div>
-      )}
-      {showSplitSuspects && splitSuspects.length > 0 && (
-        <div className="split-suspects-panel">
-          <div className="split-suspects-header">
-            <div className="split-suspects-title">分割疑い {splitSuspects.length}件</div>
-            <button type="button" onClick={() => setShowSplitSuspects(false)}>
-              閉じる
-            </button>
-          </div>
-          <div className="split-suspects-body">
-            <div className="split-suspects-note">
-              該当銘柄のTXTを削除してから再更新してください。
-            </div>
-            <div className="split-suspects-list">
-              {splitSuspects.slice(0, 50).map((item) => (
-                <div key={`${item.code}-${item.file_date}`} className="split-suspects-row">
-                  <span className="split-suspects-code">{item.code}</span>
-                  <span className="split-suspects-date">{item.file_date ?? "--"}</span>
-                  <span className="split-suspects-diff">
-                    差異 {item.diff_ratio ?? "--"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-      {showUpdateLog && (
-        <div className="update-log-panel">
-          <div className="update-log-header">
-            <div className="update-log-title">TXT更新ログ（末尾）</div>
-            <button type="button" onClick={() => setShowUpdateLog(false)}>
-              閉じる
-            </button>
-          </div>
-          {txtUpdateStatus?.error && (
-            <div className="update-log-error">
-              原因: {txtUpdateStatus.error}
-              {txtUpdateStatus.error === "timeout" && txtUpdateStatus.timeout_sec
-                ? `（${txtUpdateStatus.timeout_sec}s）`
-                : ""}
-            </div>
-          )}
-          <pre className="update-log-body">
-            {updateLogLines.length ? updateLogLines.join("\n") : "ログはまだありません。"}
-          </pre>
         </div>
       )}
       <div className={`keep-bar ${keepBarCollapsed ? "is-collapsed" : ""}`}>

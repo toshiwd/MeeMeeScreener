@@ -109,6 +109,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   const onVisibleRangeChangeRef = useRef<DetailChartProps["onVisibleRangeChange"]>(
     onVisibleRangeChange
   );
+  const lastCrosshairTimeRef = useRef<number | null>(null);
   const resizeRafRef = useRef<number | null>(null);
   const pendingResizeRef = useRef<{ width: number; height: number; fit: boolean } | null>(null);
 
@@ -418,6 +419,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       if (!chart || !series) return;
       const clearCrosshair = chart.clearCrosshairPosition;
       if (time == null) {
+        lastCrosshairTimeRef.current = null;
         if (typeof clearCrosshair === "function") {
           suppressCrosshairRef.current = true;
           clearCrosshair.call(chart);
@@ -426,6 +428,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       }
       const nearest = findNearestCandle(time);
       if (!nearest) {
+        lastCrosshairTimeRef.current = null;
         if (typeof clearCrosshair === "function") {
           suppressCrosshairRef.current = true;
           clearCrosshair.call(chart);
@@ -449,6 +452,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
             }
           }
         }
+        lastCrosshairTimeRef.current = nearest.time;
         suppressCrosshairRef.current = true;
         setCrosshairPosition.call(chart, price, nearest.time, series);
       }
@@ -456,6 +460,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     clearCrosshair: () => {
       const chart = chartRef.current as any;
       if (!chart) return;
+      lastCrosshairTimeRef.current = null;
       if (typeof chart.clearCrosshairPosition === "function") {
         suppressCrosshairRef.current = true;
         chart.clearCrosshairPosition();
@@ -590,10 +595,22 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           param && param.point && Number.isFinite(param.point.x) && Number.isFinite(param.point.y)
             ? { x: param.point.x, y: param.point.y }
             : null;
-        if (!param || !param.time) {
+        if (!param || !param.point) {
+          lastCrosshairTimeRef.current = null;
           onCrosshairMoveRef.current(null, point);
           return;
         }
+        const normalizedTime = normalizeRangeTime(param.time);
+        if (normalizedTime == null) {
+          const fallbackTime = lastCrosshairTimeRef.current;
+          if (fallbackTime != null) {
+            onCrosshairMoveRef.current(fallbackTime, point);
+          } else {
+            onCrosshairMoveRef.current(null, point);
+          }
+          return;
+        }
+        lastCrosshairTimeRef.current = normalizedTime;
         if (point && chartRef.current && candleSeriesRef.current) {
           const priceScale = chartRef.current.priceScale?.("right");
           const setCrosshairPosition = (chartRef.current as any).setCrosshairPosition;
@@ -601,23 +618,16 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
             const price = priceScale.coordinateToPrice(point.y);
             if (price != null && Number.isFinite(price) && typeof setCrosshairPosition === "function") {
               suppressCrosshairRef.current = true;
-              setCrosshairPosition.call(chartRef.current, price, param.time, candleSeriesRef.current);
+              setCrosshairPosition.call(
+                chartRef.current,
+                price,
+                normalizedTime,
+                candleSeriesRef.current
+              );
             }
           }
         }
-        if (typeof param.time === "number") {
-          onCrosshairMoveRef.current(param.time, point);
-          return;
-        }
-        if (typeof param.time === "object" && param.time !== null) {
-          const { year, month, day } = param.time as { year?: number; month?: number; day?: number };
-          if (year && month && day) {
-            const timestamp = Math.floor(Date.UTC(year, month - 1, day) / 1000);
-            onCrosshairMoveRef.current(timestamp, point);
-            return;
-          }
-        }
-        onCrosshairMoveRef.current(null, point);
+        onCrosshairMoveRef.current(normalizedTime, point);
       };
 
       chart.subscribeCrosshairMove(crosshairHandler);

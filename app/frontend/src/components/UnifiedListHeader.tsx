@@ -41,6 +41,7 @@ type UnifiedListHeaderProps = {
 const LABELS = {
   home: "\u4e00\u89a7\u306b\u623b\u308b",
   ranking: "\u30e9\u30f3\u30ad\u30f3\u30b0",
+  market: "\u5e02\u5834\u6982\u6cc1",
   favorites: "\u304a\u6c17\u306b\u5165\u308a",
   candidates: "\u5019\u88dc",
   positions: "\u4fdd\u6709",
@@ -211,6 +212,12 @@ export default function UnifiedListHeader({
               className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
             >
               {LABELS.ranking}
+            </NavLink>
+            <NavLink
+              to="/market"
+              className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
+            >
+              {LABELS.market}
             </NavLink>
             <NavLink
               to="/favorites"
