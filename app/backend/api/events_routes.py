@@ -3,32 +3,19 @@ from fastapi.responses import JSONResponse
 
 from app.backend.db import get_conn
 from app.backend.events import jst_now
+from app.backend.services.events import (
+    _format_event_date,
+    _format_event_timestamp,
+    _is_events_lock_stale,
+    _load_events_meta,
+    _start_events_refresh,
+)
 
 router = APIRouter()
 
 
-def _load_helpers():
-    # 遅延importで循環参照を回避する。
-    from app.backend import main as main_module
-
-    return (
-        main_module._format_event_date,
-        main_module._format_event_timestamp,
-        main_module._is_events_lock_stale,
-        main_module._load_events_meta,
-        main_module._start_events_refresh,
-    )
-
-
 @router.get("/api/events/meta")
 def events_meta():
-    (
-        _format_event_date,
-        _format_event_timestamp,
-        _is_events_lock_stale,
-        _load_events_meta,
-        _,
-    ) = _load_helpers()
     with get_conn() as conn:
         meta = _load_events_meta(conn)
         if meta.get("is_refreshing"):
@@ -45,9 +32,8 @@ def events_meta():
                         refresh_lock_job_id = NULL,
                         refresh_lock_started_at = NULL
                     WHERE id = 1
-                    """
-                    ,
-                    ["refresh_timeout", finished_at]
+                    """,
+                    ["refresh_timeout", finished_at],
                 )
                 job_id = meta.get("refresh_lock_job_id")
                 if job_id:
@@ -57,7 +43,7 @@ def events_meta():
                         SET status = ?, finished_at = ?, error = ?
                         WHERE job_id = ? AND status = 'running'
                         """,
-                        ["failed", finished_at, "refresh_timeout", job_id]
+                        ["failed", finished_at, "refresh_timeout", job_id],
                     )
                 meta = _load_events_meta(conn)
         rights_max = conn.execute(
@@ -73,16 +59,13 @@ def events_meta():
         "refresh_job_id": meta.get("refresh_lock_job_id"),
         "last_error": meta.get("last_error"),
         "last_attempt_at": _format_event_timestamp(meta.get("last_attempt_at")),
-        "data_coverage": {
-            "rights_max_date": _format_event_date(rights_max)
-        }
+        "data_coverage": {"rights_max_date": _format_event_date(rights_max)},
     }
     return payload
 
 
 @router.post("/api/events/refresh")
 def events_refresh(reason: str | None = None):
-    (_, _, _, _, _start_events_refresh) = _load_helpers()
     job_id = _start_events_refresh(reason)
     if not job_id:
         return JSONResponse(content={"error": "refresh_lock_failed"}, status_code=409)
@@ -91,7 +74,6 @@ def events_refresh(reason: str | None = None):
 
 @router.get("/api/events/refresh/{job_id}")
 def events_refresh_status(job_id: str):
-    (_, _format_event_timestamp, _, _, _) = _load_helpers()
     with get_conn() as conn:
         row = conn.execute(
             """
@@ -99,7 +81,7 @@ def events_refresh_status(job_id: str):
             FROM events_refresh_jobs
             WHERE job_id = ?
             """,
-            [job_id]
+            [job_id],
         ).fetchone()
     if not row:
         return JSONResponse(content={"error": "job_not_found"}, status_code=404)
@@ -108,6 +90,6 @@ def events_refresh_status(job_id: str):
             "status": row[0],
             "started_at": _format_event_timestamp(row[1]),
             "finished_at": _format_event_timestamp(row[2]),
-            "error": row[3]
+            "error": row[3],
         }
     )

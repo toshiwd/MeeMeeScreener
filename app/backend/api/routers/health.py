@@ -6,7 +6,19 @@ from datetime import datetime
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from app.core.config import config, resolve_trade_csv_paths
+from app.backend.services.system_status import (
+    _collect_db_stats,
+    _get_last_updated_timestamp,
+)
+from app.backend.services.txt_update import get_txt_status
+from app.core.config import (
+    APP_ENV,
+    APP_VERSION,
+    DATA_DIR,
+    config,
+    resolve_pan_out_txt_dir,
+    resolve_trade_csv_paths,
+)
 
 router = APIRouter()
 
@@ -14,18 +26,14 @@ router = APIRouter()
 @router.get("/health")
 def health_check():
     # Basic health check for launcher
-    from app.backend import main as main_module
-
-    return {"status": "ok", "last_updated": main_module._get_last_updated_timestamp()}
+    return {"status": "ok", "last_updated": _get_last_updated_timestamp()}
 
 
 @router.get("/api/health")
 def health():
-    from app.backend import main as main_module
-
     now = datetime.utcnow().isoformat()
-    status = main_module.get_txt_status()
-    stats = main_module._collect_db_stats()
+    status = get_txt_status()
+    stats = _collect_db_stats()
     has_daily = (stats["daily_rows"] or 0) > 0
     has_monthly = (stats["monthly_rows"] or 0) > 0
     is_data_ready = (
@@ -43,8 +51,8 @@ def health():
                 "phase": "starting",
                 "message": "起動中",
                 "error_code": "DATA_NOT_INITIALIZED",
-                "version": main_module.APP_VERSION,
-                "env": main_module.APP_ENV,
+                "version": APP_VERSION,
+                "env": APP_ENV,
                 "time": now,
                 "retryAfterMs": 1000,
                 "stats": stats,
@@ -62,13 +70,13 @@ def health():
         "ready": True,
         "phase": "ready",
         "message": "準備完了",
-        "version": main_module.APP_VERSION,
-        "env": main_module.APP_ENV,
+        "version": APP_VERSION,
+        "env": APP_ENV,
         "time": now,
         "stats": {"tickers": stats["tickers"], "daily_rows": stats["daily_rows"], "monthly_rows": stats["monthly_rows"]},
         "txt_count": status.get("txt_count"),
         "code_count": stats["tickers"],
-        "pan_out_txt_dir": main_module._resolve_pan_out_txt_dir(),
+        "pan_out_txt_dir": resolve_pan_out_txt_dir(),
         "last_updated": status.get("last_updated"),
         "code_txt_missing": status.get("code_txt_missing"),
         "errors": [],
@@ -77,18 +85,16 @@ def health():
 
 @router.get("/api/diagnostics")
 def diagnostics():
-    from app.backend import main as main_module
-
     now = datetime.utcnow().isoformat()
     db_path = str(config.DB_PATH)
-    stats = main_module._collect_db_stats()
+    stats = _collect_db_stats()
     return {
         "ok": True,
-        "version": main_module.APP_VERSION,
-        "env": main_module.APP_ENV,
+        "version": APP_VERSION,
+        "env": APP_ENV,
         "time": now,
-        "data_dir": main_module.DATA_DIR,
-        "pan_out_txt_dir": main_module._resolve_pan_out_txt_dir(),
+        "data_dir": DATA_DIR,
+        "pan_out_txt_dir": resolve_pan_out_txt_dir(),
         "db_path": db_path,
         "db_exists": os.path.isfile(db_path),
         "trade_csv_dir_env": os.getenv("TRADE_CSV_DIR"),
