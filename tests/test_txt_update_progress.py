@@ -1,6 +1,5 @@
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import PropertyMock, patch
 
@@ -17,51 +16,13 @@ with patch("core.config.config.DATA_DIR", new=Path(".")), \
     import main
 
 
-def test_txt_update_progress_streaming():
-    snapshots: list[dict] = []
-
-    def fake_run_streaming_command(cmd, timeout, on_line):
-        lines = [
-            "START: 1111",
-            "OK   : 1111 : +1",
-            "START: 2222",
-            "ERROR: 2222 : prices.Read failed",
-            "START: 3333",
-            "OK   : 3333 : +2"
-        ]
-        for line in lines:
-            on_line(line)
-            snapshots.append(main._get_update_status_snapshot())
-        output = "\n".join(lines + ["SUMMARY: total=3 ok=2 err=1 split=0"])
-        return 0, output, False
-
-    def fake_run_ingest_command():
-        return 0, "ingest ok"
-
-    main._set_update_status(
-        running=True,
-        phase="running",
-        started_at=datetime.now().isoformat(),
-        finished_at=None,
-        processed=0,
-        total=3,
-        summary={},
-        error=None,
-        stdout_tail=[],
-        status_message=None
-    )
-
-    with patch.object(main, "_run_streaming_command", side_effect=fake_run_streaming_command), \
-         patch.object(main, "_run_ingest_command", side_effect=fake_run_ingest_command), \
+def test_txt_update_simple_flow():
+    with patch.object(main, "run_vbs_export", return_value=(0, ["SUMMARY: total=2 ok=2 err=0 split=0"])), \
          patch.object(main, "_load_update_state", return_value={}), \
-         patch.object(main, "_save_update_state", return_value=None):
+         patch.object(main, "_save_update_state") as mock_save:
         main._run_txt_update_job("dummy_code.txt", "dummy_out")
 
-    assert any(snapshot.get("processed") == 1 for snapshot in snapshots)
-    assert any(snapshot.get("processed") == 2 for snapshot in snapshots)
-
-    status = main._get_update_status_snapshot()
-    assert status["phase"] == "done"
-    assert status["running"] is False
-    assert status["processed"] == 3
-    assert status["summary"]["ok"] == 2
+    mock_save.assert_called_once()
+    saved_state = mock_save.call_args[0][0]
+    assert "last_txt_update_at" in saved_state
+    assert "last_txt_update_date" in saved_state

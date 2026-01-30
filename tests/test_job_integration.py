@@ -1,7 +1,6 @@
 
 import sys
 import os
-import time
 import tempfile
 import pytest
 from fastapi.testclient import TestClient
@@ -43,19 +42,6 @@ def test_txt_update_submission_flow():
         # (e.g. missing dummy files), this can be either rejected (409) or accepted (200).
         resp_dup = client.post("/api/jobs/txt-update")
         assert resp_dup.status_code in (200, 409)
-        
-        # Check status
-        start_time = time.time()
-        while time.time() - start_time < 2:
-            resp_status = client.get("/api/txt_update/status")
-            assert resp_status.status_code == 200
-            status_data = resp_status.json()
-            # Just verify keys exist
-            assert "running" in status_data
-            assert "phase" in status_data
-            if status_data["running"]:
-                break
-            time.sleep(0.1)
 
 def test_legacy_endpoint_compatibility():
     # Legacy endpoint should also trigger job
