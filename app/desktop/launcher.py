@@ -596,6 +596,48 @@ def main() -> None:
                     _update_loading(win, "Loading data files...")
                     _run_ingest(paths["txt_dir"], paths["stocks_db"])
 
+            # Update Check
+            try:
+                from app.backend.infra.google_drive.update_client import UpdateClient
+                _update_loading(win, "Checking for updates...")
+                client = UpdateClient()
+                # Assuming VERSION is defined or imported, else hardcode for now
+                current_ver = "2.0.0" 
+                update = client.check_for_updates(current_ver)
+                
+                if update:
+                    # Simplified prompt - in real app use native dialog or JS modal
+                    do_update = ctypes.windll.user32.MessageBoxW(
+                        0, 
+                        f"New version {update.version} is available.\n\n{update.notes}\n\nUpdate now?", 
+                        "Update Available", 
+                        4 # Yes/No
+                    ) == 6 # Yes
+                    
+                    if do_update:
+                        _update_loading(win, "Downloading update...")
+                        src = client.download_update(update.url)
+                        if src:
+                            # We need to find updater.exe or run python script if in dev
+                            # For compiled build, updater.exe should be next to main exe
+                            updater_exe = os.path.join(os.path.dirname(sys.executable), "updater.exe") 
+                            if not os.path.exists(updater_exe):
+                                # Fallback for dev: assume python
+                                pass
+                            else:
+                                _update_loading(win, "Installing update...")
+                                subprocess.Popen([
+                                    updater_exe, 
+                                    str(os.getpid()), 
+                                    src, 
+                                    str(local_app_dir), # dest dir? No, exe dir.
+                                    "MeeMeeScreener.exe"
+                                ])
+                                win.destroy()
+                                return
+            except Exception as e:
+                print(f"Update check failed: {e}")
+
             _update_loading(win, "Starting backend...")
             # Use a fixed port to ensure LocalStorage persistence (Origin must stay same)
             fixed_port = 28888

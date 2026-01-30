@@ -152,107 +152,72 @@ def _normalize_symbol(raw: str) -> str:
     return text
 
 
-def _rakuten_action(trade_type: str, side_type: str) -> str | None:
-    trade_norm = _normalize_label(trade_type)
-    side_norm = _normalize_label(side_type)
 
-    if trade_norm == "信用新規":
-        if side_norm == "買建":
-            return ACTION_MARGIN_OPEN_LONG
-        if side_norm == "売建":
-            return ACTION_MARGIN_OPEN_SHORT
-    if trade_norm == "信用返済":
-        if side_norm == "売埋":
-            return ACTION_MARGIN_CLOSE_LONG
-        if side_norm == "買埋":
-            return ACTION_MARGIN_CLOSE_SHORT
-    if trade_norm == "現物":
-        if side_norm == "買付":
-            return ACTION_SPOT_BUY
-        if side_norm == "売付":
-            return ACTION_SPOT_SELL
-    if trade_norm == "現引":
-        return ACTION_MARGIN_SWAP_TO_SPOT
-    if trade_norm == "現渡":
-        return ACTION_DELIVERY_SHORT
-    if side_norm == "入庫":
-        return ACTION_SPOT_IN
-    if side_norm == "出庫":
-        return ACTION_SPOT_OUT
+def _map_parser_row_to_event(row: dict) -> TradeEvent:
+    kind = row.get("kind")
+    memo = row.get("memo", "")
+    
+    action = ACTION_UNKNOWN
+    
+    is_spot = "現物" in memo or "買付" in memo or "売付" in memo or "現渡" in memo or "現引" in memo or "入庫" in memo or "出庫" in memo
+    
+    if kind == "BUY_OPEN":
+        action = ACTION_SPOT_BUY if is_spot else ACTION_MARGIN_OPEN_LONG
+    elif kind == "SELL_CLOSE":
+        action = ACTION_SPOT_SELL if is_spot else ACTION_MARGIN_CLOSE_LONG
+    elif kind == "SELL_OPEN":
+        action = ACTION_MARGIN_OPEN_SHORT
+    elif kind == "BUY_CLOSE":
+        action = ACTION_MARGIN_CLOSE_SHORT
+    elif kind == "DELIVERY":
+        action = ACTION_DELIVERY_SHORT
+    elif kind == "TAKE_DELIVERY":
+        action = ACTION_MARGIN_SWAP_TO_SPOT
+    elif kind == "INBOUND":
+        action = ACTION_SPOT_IN
+    elif kind == "OUTBOUND":
+        action = ACTION_SPOT_OUT
+        
+    if action == ACTION_UNKNOWN:
+        if "現渡" in memo: action = ACTION_DELIVERY_SHORT
+        elif "現引" in memo: action = ACTION_MARGIN_SWAP_TO_SPOT
+        elif "入庫" in memo: action = ACTION_SPOT_IN
+        elif "出庫" in memo: action = ACTION_SPOT_OUT
 
-    return None
+    unique_str = f"{row.get('broker')}|{row.get('tradeDate')}|{row.get('code')}|{row.get('qty')}|{row.get('price')}|{row.get('memo')}|{row.get('_row_index')}"
+    source_hash = hashlib.sha256(unique_str.encode("utf-8")).hexdigest()
+
+    return TradeEvent(
+        broker=str(row.get("broker", "")).lower(),
+        exec_dt=datetime.strptime(row["tradeDate"], "%Y-%m-%d"),
+        symbol=str(row["code"]),
+        action=action,
+        qty=float(row["qty"]),
+        price=float(row["price"]) if row["price"] is not None else None,
+        source_row_hash=source_hash,
+        transaction_type=row.get("memo"),
+        side_type=row.get("side", ""),
+        margin_type="" 
+    )
+
 
 
 def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
-    rows, warnings = _read_csv_bytes(data)
-    if not rows:
-        return [], warnings + ["rakuten:empty"]
-
-    headers = rows[0]
-    resolved = {
-        "約定日": _resolve_header(headers, ["約定日"]),
-        "銘柄コード": _resolve_header(headers, ["銘柄コード"]),
-        "取引区分": _resolve_header(headers, ["取引区分"]),
-        "売買区分": _resolve_header(headers, ["売買区分"]),
-        "信用区分": _resolve_header(headers, ["信用区分"]),
-        "数量［株］": _resolve_header(headers, ["数量［株］", "数量[株]", "数量(株)", "数量"]),
-        "単価［円］": _resolve_header(headers, ["単価［円］", "単価(円)", "単価"])
-    }
-    required = ["約定日", "銘柄コード", "取引区分", "売買区分", "数量［株］"]
-    missing = [key for key in required if not resolved.get(key)]
-    if missing:
-        return [], warnings + [f"rakuten:missing_columns:{','.join(missing)}"]
-
-    events: list[TradeEvent] = []
-    for row_index, row in enumerate(rows[1:], start=1):
-        if not row:
-            continue
-        row_dict = {headers[idx]: row[idx] if idx < len(row) else "" for idx in range(len(headers))}
-
-        exec_dt = _parse_date(row_dict.get(resolved["約定日"]))
-        if exec_dt is None:
-            warnings.append("rakuten:invalid_date")
-            continue
-
-        symbol = _normalize_symbol(row_dict.get(resolved["銘柄コード"], ""))
-        if not symbol:
-            warnings.append(f"rakuten:missing_symbol:{exec_dt.date().isoformat()}")
-            continue
-
-        qty_raw = row_dict.get(resolved["数量［株］"], "")
-        qty = _parse_float(qty_raw)
-        if qty is None:
-            warnings.append(f"rakuten:invalid_qty:{symbol}:{_normalize_text(qty_raw)}")
-            continue
-        qty = float(int(qty))
-
-        trade_type = _normalize_text(row_dict.get(resolved["取引区分"], ""))
-        side_type = _normalize_text(row_dict.get(resolved["売買区分"], ""))
-        margin_type = _normalize_text(row_dict.get(resolved.get("信用区分") or "", ""))
-
-        action = _rakuten_action(trade_type, side_type)
-        if action is None:
-            warnings.append(f"rakuten:unmapped:{trade_type}:{side_type}:{symbol}")
-            action = ACTION_UNKNOWN
-
-        price = _parse_float(row_dict.get(resolved.get("単価［円］") or "", ""))
-        source_row_hash = _build_rakuten_row_hash(row_dict, headers, row_index)
-
-        events.append(
-            TradeEvent(
-                broker="rakuten",
-                exec_dt=exec_dt,
-                symbol=symbol,
-                action=action,
-                qty=qty,
-                price=price,
-                source_row_hash=source_row_hash,
-                transaction_type=trade_type,
-                side_type=side_type,
-                margin_type=margin_type
-            )
-        )
-
+    # Decode
+    text = ""
+    for enc in ("cp932", "utf-8-sig", "utf-8"):
+        try:
+             text = data.decode(enc)
+             break
+        except: continue
+    if not text:
+        return [], ["decode_failed"]
+        
+    rows_all = list(csv.reader(text.splitlines()))
+    result = TradeParser.parse_rakuten_rows(rows_all)
+    
+    events = [_map_parser_row_to_event(r) for r in result["rows"]]
+    warnings = [w["message"] for w in result["warnings"]]
     return events, warnings
 
 
@@ -264,82 +229,22 @@ def _find_header_row(rows: list[list[str]], header_keys: list[str]) -> int | Non
     return None
 
 
+
 def parse_sbi_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
-    rows, warnings = _read_csv_bytes(data)
-    if not rows:
-        return [], warnings + ["sbi:empty"]
-
-    header_idx = _find_header_row(rows, ["約定日", "銘柄コード", "取引", "約定数量"])
-    if header_idx is None:
-        return [], warnings + ["sbi:header_not_found"]
-
-    headers = rows[header_idx]
-    header_map = _build_header_map(headers, ["約定日", "銘柄コード", "取引", "約定数量", "約定単価"])
-    required = ["約定日", "銘柄コード", "取引", "約定数量"]
-    missing = [key for key in required if key not in header_map]
-    if missing:
-        return [], warnings + [f"sbi:missing_columns:{','.join(missing)}"]
-
-    events: list[TradeEvent] = []
-    for offset, row in enumerate(rows[header_idx + 1:], start=1):
-        if not row or len(row) < len(headers):
-            continue
-        row_index = header_idx + offset
-        row_dict = {headers[idx]: row[idx] if idx < len(row) else "" for idx in range(len(headers))}
-
-        exec_dt = _parse_date(row_dict.get(header_map["約定日"]))
-        symbol = _normalize_symbol(row_dict.get(header_map["銘柄コード"], ""))
-        qty = _parse_float(row_dict.get(header_map["約定数量"], ""))
-        trade_kind = _normalize_text(row_dict.get(header_map["取引"], ""))
-
-        if not symbol or exec_dt is None or qty is None:
-            warnings.append(f"sbi:invalid_row:{symbol}")
-            continue
-
-        action = None
-        if "信用新規買" in trade_kind:
-            action = ACTION_MARGIN_OPEN_LONG
-        elif "信用新規売" in trade_kind:
-            action = ACTION_MARGIN_OPEN_SHORT
-        elif "信用返済売" in trade_kind:
-            action = ACTION_MARGIN_CLOSE_LONG
-        elif "信用返済買" in trade_kind:
-            action = ACTION_MARGIN_CLOSE_SHORT
-        elif "現物買" in trade_kind:
-            action = ACTION_SPOT_BUY
-        elif "現物売" in trade_kind:
-            action = ACTION_SPOT_SELL
-        elif "現渡" in trade_kind:
-            action = ACTION_DELIVERY_SHORT
-        elif "現引" in trade_kind:
-            action = ACTION_MARGIN_SWAP_TO_SPOT
-        elif "入庫" in trade_kind:
-            action = ACTION_SPOT_IN
-        elif "出庫" in trade_kind:
-            action = ACTION_SPOT_OUT
-
-        if action is None:
-            warnings.append(f"sbi:unmapped:{trade_kind}:{symbol}")
-            action = ACTION_UNKNOWN
-
-        price = _parse_float(row_dict.get(header_map.get("約定単価", ""), ""))
-        source_row_hash = hashlib.sha256(f"sbi|{row_index}|{'|'.join(row)}".encode("utf-8")).hexdigest()
-
-        events.append(
-            TradeEvent(
-                broker="sbi",
-                exec_dt=exec_dt,
-                symbol=symbol,
-                action=action,
-                qty=qty,
-                price=price,
-                source_row_hash=source_row_hash,
-                transaction_type=trade_kind,
-                side_type="",
-                margin_type=""
-            )
-        )
-
+    text = ""
+    for enc in ("cp932", "utf-8-sig", "utf-8"):
+        try:
+             text = data.decode(enc)
+             break
+        except: continue
+    if not text:
+        return [], ["decode_failed"]
+        
+    rows_all = list(csv.reader(text.splitlines()))
+    result = TradeParser.parse_sbi_rows(rows_all)
+    
+    events = [_map_parser_row_to_event(r) for r in result["rows"]]
+    warnings = [w["message"] for w in result["warnings"]]
     return events, warnings
 
 

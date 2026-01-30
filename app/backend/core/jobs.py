@@ -6,7 +6,7 @@ import json
 import time
 import traceback
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, Any
 
 try:
@@ -18,11 +18,25 @@ except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from
 
 logger = logging.getLogger(__name__)
 STALE_JOB_HOURS = 2
+RUNNING_STALE_MINUTES = 5
 PROCESS_BOOT_AT = datetime.now()
 
 def cleanup_stale_jobs() -> None:
     try:
         with get_conn() as conn:
+            running_threshold = datetime.now() - timedelta(minutes=RUNNING_STALE_MINUTES)
+            conn.execute(
+                """
+                UPDATE sys_jobs
+                SET status = 'failed',
+                    finished_at = CURRENT_TIMESTAMP,
+                    error = 'stuck_job',
+                    message = 'Running job exceeded timeout'
+                WHERE status = 'running'
+                  AND COALESCE(started_at, created_at) < ?
+                """,
+                [running_threshold]
+            )
             conn.execute(
                 f"""
                 UPDATE sys_jobs
@@ -103,7 +117,15 @@ class JobManager:
             ).fetchone()[0]
             return count > 0
 
-    def submit(self, job_type: str, payload: dict = {}, unique: bool = False) -> str | None:
+    def submit(
+        self,
+        job_type: str,
+        payload: dict | None = None,
+        unique: bool = False,
+        *,
+        message: str = "Waiting in queue...",
+        progress: int | None = 0,
+    ) -> str | None:
         """
         Submit a job.
         If unique=True and the job type is already active, returns None.
@@ -124,9 +146,9 @@ class JobManager:
 
         job_id = str(uuid.uuid4())
         print(f"[JobManager] Created job_id: {job_id}")
-        
+        payload = payload or {}
         # Persist initial status
-        self._update_db(job_id, job_type, "queued", progress=0, message="Waiting in queue...")
+        self._update_db(job_id, job_type, "queued", progress=progress, message=message)
         
         self._queue.put({
             "id": job_id,

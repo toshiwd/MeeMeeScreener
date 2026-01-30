@@ -102,8 +102,10 @@ class SimilarityService:
         df_monthly["prev_c"] = df_monthly.groupby("code")["c"].shift(1)
         df_monthly["ret"] = (df_monthly["c"] / df_monthly["prev_c"]) - 1.0
 
+        df_monthly["ma7"] = df_monthly.groupby("code")["c"].transform(lambda x: x.rolling(7).mean())
         df_monthly["ma20"] = df_monthly.groupby("code")["c"].transform(lambda x: x.rolling(20).mean())
         df_monthly["ma60"] = df_monthly.groupby("code")["c"].transform(lambda x: x.rolling(60).mean())
+        df_monthly["ma100"] = df_monthly.groupby("code")["c"].transform(lambda x: x.rolling(100).mean())
 
         cols_60 = {}
         for i in range(LONG_TERM_WINDOW):
@@ -119,8 +121,7 @@ class SimilarityService:
         l2_norms = np.linalg.norm(z_scores, axis=1, keepdims=True) + 1e-9
         final_vec60 = z_scores / l2_norms
 
-        df_res_60 = df_monthly.loc[valid_vec_mask, ["code", "asof"]].copy()
-        df_res_60["vec60"] = list(final_vec60)
+        # subset will be created later after tags, but we already have vec60
 
         matrix_short = matrix_60[:, :SHORT_TERM_WINDOW]
         means_short = np.mean(matrix_short, axis=1, keepdims=True)
@@ -128,11 +129,12 @@ class SimilarityService:
         z_scores_short = (matrix_short - means_short) / stds_short
         l2_norms_short = np.linalg.norm(z_scores_short, axis=1, keepdims=True) + 1e-9
         final_vec24 = z_scores_short / l2_norms_short
-        df_res_60["vec24"] = list(final_vec24)
-
         df_monthly["prev_ma60"] = df_monthly.groupby("code")["ma60"].shift(1)
         df_monthly["low120"] = df_monthly.groupby("code")["l"].transform(lambda x: x.rolling(120).min())
         df_monthly["high120"] = df_monthly.groupby("code")["h"].transform(lambda x: x.rolling(120).max())
+
+        for ma_col in ["ma7", "ma20", "ma60", "ma100"]:
+            df_monthly[f"{ma_col}_slope"] = df_monthly.groupby("code")[ma_col].diff()
 
         subset = df_monthly.loc[valid_vec_mask].copy()
         subset["tag_ma20"] = np.where(subset["c"] > subset["ma20"], "UP", "DOWN")
@@ -156,9 +158,32 @@ class SimilarityService:
             subset["tag_range"]
         )
 
+        df_res_60 = subset[["code", "asof"]].copy()
+        df_res_60["tag_id"] = subset["tag_id"].values
+        df_res_60["vec60"] = list(final_vec60)
+        df_res_60["vec24"] = list(final_vec24)
         df_vec60 = df_res_60[["code", "asof", "vec60"]]
         df_vec24 = df_res_60[["code", "asof", "vec24"]]
-        df_env = subset[["code", "asof", "tag_id", "tag_ma20", "tag_ma60", "tag_dir60", "tag_range"]]
+        df_env = subset[
+            [
+                "code",
+                "asof",
+                "tag_id",
+                "tag_ma20",
+                "tag_ma60",
+                "tag_dir60",
+                "tag_range",
+                "c",
+                "ma7",
+                "ma20",
+                "ma60",
+                "ma100",
+                "ma7_slope",
+                "ma20_slope",
+                "ma60_slope",
+                "ma100_slope",
+            ]
+        ]
 
         return df_vec60, df_vec24, df_env
 
@@ -201,8 +226,18 @@ class SimilarityService:
         ]
         missing = [path for path in required_paths if not os.path.exists(path)]
         if missing:
-            missing_list = ", ".join(missing)
-            raise FileNotFoundError(f"Similarity artifacts not found: {missing_list}")
+            try:
+                # Attempt to rebuild artifacts on demand if missing
+                self.refresh_data(incremental=False)
+            except Exception as exc:
+                missing_list = ", ".join(missing)
+                raise FileNotFoundError(
+                    f"Similarity artifacts not found: {missing_list}"
+                ) from exc
+            missing = [path for path in required_paths if not os.path.exists(path)]
+            if missing:
+                missing_list = ", ".join(missing)
+                raise FileNotFoundError(f"Similarity artifacts not found: {missing_list}")
 
         try:
             self.df_vec60 = pd.read_parquet(self.df_vec60_path)
@@ -319,11 +354,12 @@ class SimilarityService:
         print("Refresh Complete.")
 
     def search(
-        self, 
-        ticker: str, 
-        asof: Optional[str] = None, 
-        k: int = 30, 
-        alpha: float = 0.7
+        self,
+        ticker: str,
+        asof: Optional[str] = None,
+        k: int = 30,
+        alpha: float = 0.7,
+        match_tag: bool = False,
     ) -> List[SearchResult]:
         if pd is None:
             raise RuntimeError("pandas_missing")
@@ -388,13 +424,16 @@ class SimilarityService:
         # Fallback Levels
         # 0: Exact Tag
         candidates_indices = self.tag_index.get(query_tag, [])
+        tag_focus_info = ""
+        if match_tag:
+            tag_focus_info = " (Tag Focus)" if candidates_indices else " (Tag Focus: none)"
         
         # If few candidates, relax
         # Parse Tag ID: MA20_MA60_DIR_RANGE
         # Ex: UP_UP_UP_HIGH
         parts = query_tag.split("_") # [MA20, MA60, DIR, RANGE]
         
-        level_desc = "Level 0 (Exact)"
+        level_desc = f"Level 0 (Exact{tag_focus_info})"
         
         if len(candidates_indices) < k:
             # Level 1: Ignore Range
@@ -435,22 +474,35 @@ class SimilarityService:
         # Increasing limit to cover full dataset if needed.
         if len(candidates_indices) > 300000: 
             candidates_indices = candidates_indices[:300000]
+
+        if not candidates_indices:
+            return []
             
         print(f"[Search Debug] Query: {ticker} (tag={query_tag}) -> {level_desc}, Candidates: {len(candidates_indices)}")
 
         # Calculate Scores
         # Vectorize!
-        # Gather vectors
+        cand_env = self.df_env.iloc[candidates_indices]
         cand_vec60 = np.vstack(self.df_vec60.iloc[candidates_indices]["vec60"].values) # (N, 60)
         cand_vec24 = np.vstack(self.df_vec24.iloc[candidates_indices]["vec24"].values) # (N, 24)
-        
-        # Dot Product
-        # query_vec is (D,)
-        # score = cand @ query
+
+        # Dot Product base
         s60 = np.dot(cand_vec60, query_vec60)
         s24 = np.dot(cand_vec24, query_vec24)
-        
         scores = alpha * s60 + (1 - alpha) * s24
+
+        # Monthly MA similarity boost
+        ma_cols = ["ma7", "ma20", "ma60", "ma100"]
+        slope_cols = [f"{col}_slope" for col in ma_cols]
+        query_ma = np.nan_to_num(query_row[ma_cols].to_numpy(dtype=np.float32), nan=0.0)
+        query_slopes = np.nan_to_num(query_row[slope_cols].to_numpy(dtype=np.float32), nan=0.0)
+        cand_ma = np.nan_to_num(cand_env[ma_cols].to_numpy(dtype=np.float32), nan=0.0)
+        cand_slopes = np.nan_to_num(cand_env[slope_cols].to_numpy(dtype=np.float32), nan=0.0)
+        ma_diff = np.abs(cand_ma - query_ma) / (np.abs(query_ma) + 1e-3)
+        slope_diff = np.abs(cand_slopes - query_slopes) / (np.abs(query_slopes) + 1e-3)
+        ma_similarity = np.exp(-np.sum(ma_diff, axis=1))
+        slope_similarity = np.exp(-np.sum(slope_diff, axis=1))
+        scores = scores + 0.25 * ma_similarity + 0.15 * slope_similarity
         
         # Build Result DF
         df_res = pd.DataFrame({
