@@ -140,7 +140,7 @@ export default function CandidatesView() {
   const signalMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
     searchResults.forEach((item) => {
-      const payload = barsCache[listTimeframe][item.code];
+      const payload = barsCache[listTimeframe]?.[item.code];
       if (!payload?.bars?.length) return;
       const signals = computeSignalMetrics(payload.bars, 4).signals;
       if (signals.length) {
@@ -153,7 +153,7 @@ export default function CandidatesView() {
   const filteredItems = useMemo(() => {
     if (!filterSignalsOnly && !filterDataOnly) return searchResults;
     return searchResults.filter((item) => {
-      const payload = barsCache[listTimeframe][item.code];
+      const payload = barsCache[listTimeframe]?.[item.code];
       const hasData = Boolean(payload?.bars?.length);
       if (filterDataOnly && !hasData) return false;
       if (filterSignalsOnly && !signalMap.has(item.code)) return false;
@@ -164,7 +164,7 @@ export default function CandidatesView() {
   const metricsMap = useMemo(() => {
     const map = new Map<string, { change: number; score: number }>();
     filteredItems.forEach((item) => {
-      const payload = barsCache[listTimeframe][item.code];
+      const payload = barsCache[listTimeframe]?.[item.code];
       const bars = payload?.bars ?? [];
       if (!bars.length) {
         map.set(item.code, { change: 0, score: 0 });
@@ -245,7 +245,7 @@ export default function CandidatesView() {
       const itemsForPack = consultTargets.map((code) => {
         const candidate = items.find((item) => item.code === code);
         const ticker = tickerMap.get(code);
-        const payload = barsCache[consultTimeframe][code];
+        const payload = barsCache[consultTimeframe]?.[code];
         const boxes = boxesCache[consultTimeframe][code] ?? [];
         return {
           code,
@@ -339,7 +339,7 @@ export default function CandidatesView() {
       } catch {
         // ignore storage failures
       }
-    navigate(`/detail/${code}`, { state: { from: location.pathname } });
+      navigate(`/detail/${code}`, { state: { from: location.pathname } });
     },
     [navigate, location.pathname, listCodes]
   );
@@ -391,7 +391,7 @@ export default function CandidatesView() {
         {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
         <div className="rank-grid">
           {sortedItems.map((item) => {
-            const payload = barsCache[listTimeframe][item.code] ?? null;
+            const payload = barsCache[listTimeframe]?.[item.code] ?? null;
             const status = barsStatus[listTimeframe][item.code];
             const ticker = tickerMap.get(item.code);
             return (

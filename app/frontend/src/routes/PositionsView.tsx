@@ -204,7 +204,9 @@ export default function PositionsView() {
   const signalMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
     heldItems.forEach((item) => {
-      const payload = barsCache[listTimeframe][item.symbol];
+      if (!item?.symbol) return;
+      const timeline = barsCache[listTimeframe];
+      const payload = timeline ? timeline[item.symbol] : null;
       if (!payload?.bars?.length) return;
       const signals = computeSignalMetrics(payload.bars, 4).signals;
       if (signals.length) {
@@ -218,7 +220,9 @@ export default function PositionsView() {
     if (tab !== "held") return heldItems;
     if (!filterSignalsOnly && !filterDataOnly) return heldItems;
     return heldItems.filter((item) => {
-      const payload = barsCache[listTimeframe][item.symbol];
+      if (!item?.symbol) return false;
+      const timeline = barsCache[listTimeframe];
+      const payload = timeline ? timeline[item.symbol] : null;
       const hasData = Boolean(payload?.bars?.length);
       if (filterDataOnly && !hasData) return false;
       if (filterSignalsOnly && !signalMap.has(item.symbol)) return false;
@@ -229,7 +233,9 @@ export default function PositionsView() {
   const heldMetricsMap = useMemo(() => {
     const map = new Map<string, { change: number; score: number }>();
     filteredHeldItems.forEach((item) => {
-      const payload = barsCache[listTimeframe][item.symbol];
+      if (!item?.symbol) return;
+      const timeline = barsCache[listTimeframe];
+      const payload = timeline ? timeline[item.symbol] : null;
       const bars = payload?.bars ?? [];
       if (!bars.length) {
         map.set(item.symbol, { change: 0, score: 0 });
@@ -385,7 +391,7 @@ export default function PositionsView() {
       const itemsForPack = consultTargets.map((code) => {
         const held = heldItems.find((item) => item.symbol === code);
         const ticker = tickerMap.get(code);
-        const payload = barsCache[consultTimeframe][code];
+        const payload = barsCache[consultTimeframe]?.[code];
         const boxes = boxesCache[consultTimeframe][code] ?? [];
         return {
           code,
@@ -461,11 +467,11 @@ export default function PositionsView() {
       }
       const itemsForShots = targets.map((code) => ({
         code,
-        payload: barsCache[listTimeframe][code] ?? null,
+        payload: (barsCache[listTimeframe] && barsCache[listTimeframe][code]) ?? null,
         boxes: [],
         maSettings: maSettings[listTimeframe] ?? []
       }));
-      const result = downloadChartScreenshots(itemsForShots, {
+      const result = await downloadChartScreenshots(itemsForShots, {
         rangeBars: listRangeBars,
         timeframeLabel: listTimeframe
       });
@@ -543,8 +549,12 @@ export default function PositionsView() {
       return null;
     }
     const code = item.symbol;
-    const payload = barsCache[listTimeframe][code] ?? null;
-    const status = barsStatus[listTimeframe][code];
+    if (!code) return null;
+
+    const timeline = barsCache[listTimeframe];
+    const statusMap = barsStatus[listTimeframe];
+    const payload = timeline ? timeline[code] ?? null : null;
+    const status = statusMap ? statusMap[code] : undefined;
     const signals = "buy_qty" in item ? (signalMap.get(code) ?? []) : ([] as any[]);
     const ticker = tickerMap.get(code);
 
@@ -579,8 +589,9 @@ export default function PositionsView() {
           label: "履歴",
           ariaLabel: "取引履歴",
           className: "favorite-toggle",
-          onClick: (e) => {
-            e.stopPropagation();
+          onClick: () => {
+            // e is likely not passed, so we cannot stopPropagation.
+            // Rely on parent handling or acceptable behavior.
             setSelectedRound(item as HistoryItem);
           }
         } : undefined}

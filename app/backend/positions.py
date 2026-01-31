@@ -8,6 +8,8 @@ import io
 import re
 import uuid
 
+from app.backend.trade_parser import TradeParser
+
 
 @dataclass
 class TradeEvent:

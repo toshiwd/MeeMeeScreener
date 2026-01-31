@@ -171,7 +171,7 @@ export default function FavoritesView() {
   const signalMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
     searchResults.forEach((item) => {
-      const payload = barsCache[listTimeframe][item.code];
+      const payload = barsCache[listTimeframe]?.[item.code];
       if (!payload?.bars?.length) return;
       const signals = computeSignalMetrics(payload.bars, 4).signals;
       if (signals.length) {
@@ -184,7 +184,7 @@ export default function FavoritesView() {
   const filteredItems = useMemo(() => {
     if (!filterSignalsOnly && !filterDataOnly) return searchResults;
     return searchResults.filter((item) => {
-      const payload = barsCache[listTimeframe][item.code];
+      const payload = barsCache[listTimeframe]?.[item.code];
       const hasData = Boolean(payload?.bars?.length);
       if (filterDataOnly && !hasData) return false;
       if (filterSignalsOnly && !signalMap.has(item.code)) return false;
@@ -195,7 +195,7 @@ export default function FavoritesView() {
   const metricsMap = useMemo(() => {
     const map = new Map<string, { change: number; score: number }>();
     filteredItems.forEach((item) => {
-      const payload = barsCache[listTimeframe][item.code];
+      const payload = barsCache[listTimeframe]?.[item.code];
       const bars = payload?.bars ?? [];
       if (!bars.length) {
         map.set(item.code, { change: 0, score: 0 });
@@ -302,7 +302,7 @@ export default function FavoritesView() {
       const itemsForPack = consultTargets.map((code) => {
         const favorite = items.find((item) => item.code === code);
         const ticker = tickerMap.get(code);
-        const payload = barsCache[consultTimeframe][code];
+        const payload = barsCache[consultTimeframe]?.[code];
         const boxes = boxesCache[consultTimeframe][code] ?? [];
         return {
           code,
@@ -350,7 +350,7 @@ export default function FavoritesView() {
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
-    setToastMessage("Consult text is empty.");
+      setToastMessage("Consult text is empty.");
       return;
     }
     try {
@@ -437,7 +437,7 @@ export default function FavoritesView() {
         {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
         <div className="rank-grid">
           {sortedItems.map((item) => {
-            const payload = barsCache[listTimeframe][item.code] ?? null;
+            const payload = barsCache[listTimeframe]?.[item.code] ?? null;
             const status = barsStatus[listTimeframe][item.code];
             const ticker = tickerMap.get(item.code);
             return (

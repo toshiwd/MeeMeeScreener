@@ -24,7 +24,8 @@ import {
   IconSun,
   IconUpload,
   IconDownload,
-  IconFileText
+  IconFileText,
+  IconBuildingArch // Added IconBuildingArch for Sector Sort
 } from "@tabler/icons-react";
 import TechnicalFilterDrawer from "../components/TechnicalFilterDrawer";
 import { computeSignalMetrics } from "../utils/signals";
@@ -100,6 +101,11 @@ type HealthStatus = {
 export default function GridView() {
   const location = useLocation();
   const navigate = useNavigate();
+  const sectorParam = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const value = params.get("sector");
+    return value && value.trim() ? value.trim() : null;
+  }, [location.search]);
   const { ref, size } = useResizeObserver();
   const { ready: backendReady } = useBackendReadyState();
   const tickers = useStore((state) => state.tickers);
@@ -138,6 +144,13 @@ export default function GridView() {
   const resetMaSettings = useStore((state) => state.resetMaSettings);
   const eventsMeta = useStore((state) => state.eventsMeta);
   const refreshEvents = useStore((state) => state.refreshEvents);
+
+  // Sector Sort Settings
+  const sectorSortEnabled = useStore((state) => state.settings.sectorSortEnabled);
+  const sectorSortInnerKey = useStore((state) => state.settings.sectorSortInnerKey);
+  const setSectorSortEnabled = useStore((state) => state.setSectorSortEnabled);
+  const setSectorSortInnerKey = useStore((state) => state.setSectorSortInnerKey);
+
   const eventsAttemptLabel = useMemo(
     () => formatEventDateYmd(eventsMeta?.lastAttemptAt),
     [eventsMeta?.lastAttemptAt]
@@ -183,6 +196,11 @@ export default function GridView() {
     null
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dataDir, setDataDir] = useState("");
+  const [dataDirInput, setDataDirInput] = useState("");
+  const [dataDirLoading, setDataDirLoading] = useState(false);
+  const [dataDirSaving, setDataDirSaving] = useState(false);
+  const [dataDirMessage, setDataDirMessage] = useState<string | null>(null);
   const [currentTheme, setCurrentTheme] = useState<Theme>(() => getStoredTheme());
   const [tradeUploadInFlight, setTradeUploadInFlight] = useState(false);
   const [tradeSyncInFlight, setTradeSyncInFlight] = useState(false);
@@ -195,9 +213,11 @@ export default function GridView() {
   const [techFilterActive, setTechFilterActive] = useState<TechnicalFilterState>(() =>
     createDefaultTechFilter(gridTimeframe)
   );
+  const [sectorSortOpen, setSectorSortOpen] = useState(false); // Popover state for Sector Sort
   const sortRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
+  const sectorSortRef = useRef<HTMLDivElement | null>(null); // Ref for Sector Sort Popover
   const techFilterDropNoticeRef = useRef(false);
   const gridRef = useRef<FixedSizeGrid | null>(null);
   const tradeCsvInputRef = useRef<HTMLInputElement | null>(null);
@@ -205,10 +225,18 @@ export default function GridView() {
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
   const undoTimerRef = useRef<number | null>(null);
 
+
   const showToast = useCallback((text: string) => {
     toastKeyRef.current += 1;
     setToastMessage({ text, key: toastKeyRef.current });
   }, []);
+
+  const clearSectorFilter = useCallback(() => {
+    const params = new URLSearchParams(location.search);
+    params.delete("sector");
+    const next = params.toString();
+    navigate(`${location.pathname}${next ? `?${next}` : ""}`);
+  }, [location.pathname, location.search, navigate]);
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
   const consultPaddingClass = consultVisible
@@ -307,10 +335,65 @@ export default function GridView() {
     }
   };
 
+  const handleDataDirSave = async () => {
+    if (!dataDirInput.trim()) {
+      setDataDirMessage("パスを入力してください。");
+      return;
+    }
+    setDataDirSaving(true);
+    setDataDirMessage(null);
+    try {
+      const res = await api.post("/system/data-dir", {
+        dataDir: dataDirInput.trim()
+      });
+      const next = res.data?.dataDir;
+      if (next) {
+        setDataDir(next);
+        setDataDirInput(next);
+      }
+      setDataDirMessage(res.data?.message ?? "保存しました。アプリを再起動してください。");
+      showToast("MEEMEE_DATA_DIR を更新しました。再起動してください。");
+    } catch (err: any) {
+      const detail =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
+        "Unknown error";
+      setDataDirMessage(`保存に失敗しました: ${detail}`);
+      showToast("MEEMEE_DATA_DIR の保存に失敗しました。");
+    } finally {
+      setDataDirSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (!backendReady) return;
     loadList();
   }, [backendReady, loadList]);
+
+  // Derive available sectors from tickers
+  const availableSectors = useMemo(() => {
+    const map = new Map<string, string>();
+    tickers.forEach((t) => {
+      if (t.sector33Code && t.sector33Name) {
+        map.set(t.sector33Code, t.sector33Name);
+      }
+    });
+    const list = Array.from(map.entries()).map(([code, name]) => ({ code, name }));
+    list.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+    return list;
+  }, [tickers]);
+
+  const handleSectorSelect = useCallback((code: string | null) => {
+    const params = new URLSearchParams(location.search);
+    if (code) {
+      params.set("sector", code);
+    } else {
+      params.delete("sector");
+    }
+    navigate({ search: params.toString() });
+    setSectorSortOpen(false);
+  }, [location.search, navigate]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -325,19 +408,37 @@ export default function GridView() {
   }, [backendReady]);
 
   useEffect(() => {
-    if (!sortOpen && !displayOpen && !settingsOpen) return;
+    if (!backendReady) return;
+    setDataDirLoading(true);
+    api
+      .get("/system/data-dir")
+      .then((res) => {
+        const dir = res.data?.dataDir ?? "";
+        if (dir) {
+          setDataDir(dir);
+          setDataDirInput(dir);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => setDataDirLoading(false));
+  }, [backendReady]);
+
+  useEffect(() => {
+    if (!sortOpen && !displayOpen && !settingsOpen && !sectorSortOpen) return;
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (sortRef.current && sortRef.current.contains(target)) return;
       if (displayRef.current && displayRef.current.contains(target)) return;
       if (settingsRef.current && settingsRef.current.contains(target)) return;
+      if (sectorSortRef.current && sectorSortRef.current.contains(target)) return;
       setSortOpen(false);
       setDisplayOpen(false);
       setSettingsOpen(false);
+      setSectorSortOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [sortOpen, displayOpen, settingsOpen]);
+  }, [sortOpen, displayOpen, settingsOpen, sectorSortOpen]);
 
   useEffect(() => {
     return () => {
@@ -351,7 +452,7 @@ export default function GridView() {
     setIsSorting(true);
     const timer = window.setTimeout(() => setIsSorting(false), 120);
     return () => window.clearTimeout(timer);
-  }, [sortKey, sortDir]);
+  }, [sortKey, sortDir, sectorSortEnabled, sectorSortInnerKey]);
 
   // Candidate sort sections (shown only on candidate screens)
   const candidateSortSections = useMemo<SortSection[]>(
@@ -383,7 +484,8 @@ export default function GridView() {
         title: "基本",
         options: [
           { key: "code", label: "コード" },
-          { key: "name", label: "銘柄名" }
+          { key: "name", label: "銘柄名" },
+          { key: "sector", label: "業種" } // Added Sector sort
         ]
       },
       {
@@ -465,7 +567,7 @@ export default function GridView() {
     [search, normalizeWatchCode]
   );
 
-  const filtered = useMemo(() => {
+  const searchFiltered = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return tickers;
     return tickers.filter((item) => {
@@ -473,10 +575,23 @@ export default function GridView() {
     });
   }, [tickers, search]);
 
+  const sectorFiltered = useMemo(() => {
+    if (!sectorParam) return searchFiltered;
+    return searchFiltered.filter((item) => item.sector33Code === sectorParam);
+  }, [searchFiltered, sectorParam]);
+
+  const sectorLabel = useMemo(() => {
+    if (!sectorParam) return null;
+    const match = tickers.find(
+      (item) => item.sector33Code === sectorParam && item.sector33Name
+    );
+    return match?.sector33Name ?? sectorParam;
+  }, [sectorParam, tickers]);
+
   useEffect(() => {
     if (!backendReady) return;
     if (techFilterActive.conditions.length === 0) return;
-    const codes = filtered.map((item) => item.code);
+    const codes = sectorFiltered.map((item) => item.code);
     if (!codes.length) return;
     const timeframes = Array.from(
       new Set(techFilterActive.conditions.map((condition) => condition.timeframe))
@@ -488,7 +603,7 @@ export default function GridView() {
     backendReady,
     techFilterActive.conditions.length,
     techFilterActive.conditions,
-    filtered,
+    sectorFiltered,
     ensureBarsForVisible
   ]);
 
@@ -551,33 +666,33 @@ export default function GridView() {
   const filterAnchorInfoByCode = useMemo(() => {
     const map = new Map<string, AnchorInfo>();
     if (activeAnchorTime == null || !filterAsofTimeframe) return map;
-    filtered.forEach((ticker) => {
+    sectorFiltered.forEach((ticker) => {
       const payload = barsCache[filterAsofTimeframe][ticker.code];
       if (!payload?.bars?.length) return;
       const anchor = resolveAnchorInfo(payload.bars, activeAnchorTime);
       if (anchor) map.set(ticker.code, anchor);
     });
     return map;
-  }, [filtered, barsCache, filterAsofTimeframe, activeAnchorTime]);
+  }, [sectorFiltered, barsCache, filterAsofTimeframe, activeAnchorTime]);
 
   const listAnchorInfoByCode = useMemo(() => {
     const map = new Map<string, AnchorInfo>();
     if (listAnchorTime == null) return map;
-    filtered.forEach((ticker) => {
+    sectorFiltered.forEach((ticker) => {
       const payload = barsCache[gridTimeframe][ticker.code];
       if (!payload?.bars?.length) return;
       const anchor = resolveAnchorInfo(payload.bars, listAnchorTime);
       if (anchor) map.set(ticker.code, anchor);
     });
     return map;
-  }, [filtered, barsCache, gridTimeframe, listAnchorTime]);
+  }, [sectorFiltered, barsCache, gridTimeframe, listAnchorTime]);
 
   const buildFilterResult = useCallback(
     (state: TechnicalFilterState) => {
       const { conditions } = state;
       if (!conditions.length) {
         return {
-          items: filtered,
+          items: sectorFiltered,
           asofMap: new Map<string, string>()
         };
       }
@@ -589,7 +704,7 @@ export default function GridView() {
       timeframes.forEach((timeframe) => {
         anchorTimes.set(timeframe, resolveAnchorTimeForTimeframe(timeframe, state));
       });
-      const items = filtered.filter((ticker) => {
+      const items = sectorFiltered.filter((ticker) => {
         const anchorCache = new Map<Timeframe, AnchorInfo | null>();
         for (const condition of conditions) {
           const timeframe = condition.timeframe;
@@ -612,16 +727,15 @@ export default function GridView() {
       });
       return { items, asofMap };
     },
-    [filtered, barsCache, resolveAnchorTimeForTimeframe]
+    [sectorFiltered, barsCache, resolveAnchorTimeForTimeframe]
   );
 
   const canAddWatchlist = useMemo(() => {
     if (!normalizedSearch) return null;
-    if (filtered.length > 0) return null;
+    if (searchFiltered.length > 0) return null;
     if (tickers.some((item) => item.code === normalizedSearch)) return null;
     return normalizedSearch;
-  }, [normalizedSearch, filtered.length, tickers]);
-
+  }, [normalizedSearch, searchFiltered.length, tickers]);
   const activeFilterResult = useMemo(
     () => buildFilterResult(techFilterActive),
     [buildFilterResult, techFilterActive]
@@ -671,8 +785,17 @@ export default function GridView() {
       BREAKOUT_DOWN: 2,
       NONE: 0
     };
+
+    // Determine the active sort configuration
+    const activeKey = sectorSortEnabled ? sectorSortInnerKey : sortKey;
+    // For inner sort, we might want to respect `sortDir` only if it makes sense?
+    // Actually, let's use `sortDir` for the inner sort direction.
+    // The Sector Grouping itself is always Sector Code ASC. 
+    // (Or should we allow reversing sectors? Standard is usually ASC).
+
     const isBuyCandidate =
-      sortKey === "buyCandidate" || sortKey === "buyInitial" || sortKey === "buyBase";
+      activeKey === "buyCandidate" || activeKey === "buyInitial" || activeKey === "buyBase";
+
     const resolveDeviation = (bars: number[][] | undefined, anchor: AnchorInfo | undefined, period: number) => {
       if (!bars || !anchor) return null;
       const close = resolveOperandValue(bars, anchor.index, { type: "field", field: "C" });
@@ -693,56 +816,60 @@ export default function GridView() {
       const bars = barsCache[gridTimeframe][ticker.code]?.bars;
       const anchor = listAnchorInfoByCode.get(ticker.code);
       let sortValue: string | number | null = null;
-      if ((sortKey === "upScore" || sortKey === "downScore") && ticker.statusLabel === "UNKNOWN") {
+
+      // Calculate sort value based on activeKey
+      if ((activeKey === "upScore" || activeKey === "downScore") && ticker.statusLabel === "UNKNOWN") {
         sortValue = null;
-      } else if (sortKey === "code") {
+      } else if (activeKey === "code") {
         sortValue = ticker.code;
-      } else if (sortKey === "name") {
+      } else if (activeKey === "name") {
         sortValue = ticker.name ?? "";
-      } else if (sortKey === "ma20Dev") {
+      } else if (activeKey === "sector" && !sectorSortEnabled) { // Avoid using 'sector' as sort value if it's the grouping key, though it doesn't hurt.
+        sortValue = ticker.sector33Code ?? null;
+      } else if (activeKey === "ma20Dev") {
         sortValue = resolveDeviation(bars, anchor, 20);
-      } else if (sortKey === "ma60Dev") {
+      } else if (activeKey === "ma60Dev") {
         sortValue = resolveDeviation(bars, anchor, 60);
-      } else if (sortKey === "ma20Slope") {
+      } else if (activeKey === "ma20Slope") {
         sortValue = resolveSlope(bars, anchor, 20);
-      } else if (sortKey === "ma60Slope") {
+      } else if (activeKey === "ma60Slope") {
         sortValue = resolveSlope(bars, anchor, 60);
-      } else if (sortKey === "chg1D") {
+      } else if (activeKey === "chg1D") {
         sortValue = ticker.chg1D ?? null;
-      } else if (sortKey === "chg1W") {
+      } else if (activeKey === "chg1W") {
         sortValue = ticker.chg1W ?? null;
-      } else if (sortKey === "chg1M") {
+      } else if (activeKey === "chg1M") {
         sortValue = ticker.chg1M ?? null;
-      } else if (sortKey === "chg1Q") {
+      } else if (activeKey === "chg1Q") {
         sortValue = ticker.chg1Q ?? null;
-      } else if (sortKey === "chg1Y") {
+      } else if (activeKey === "chg1Y") {
         sortValue = ticker.chg1Y ?? null;
-      } else if (sortKey === "prevWeekChg") {
+      } else if (activeKey === "prevWeekChg") {
         sortValue = ticker.prevWeekChg ?? null;
-      } else if (sortKey === "prevMonthChg") {
+      } else if (activeKey === "prevMonthChg") {
         sortValue = ticker.prevMonthChg ?? null;
-      } else if (sortKey === "prevQuarterChg") {
+      } else if (activeKey === "prevQuarterChg") {
         sortValue = ticker.prevQuarterChg ?? null;
-      } else if (sortKey === "prevYearChg") {
+      } else if (activeKey === "prevYearChg") {
         sortValue = ticker.prevYearChg ?? null;
-      } else if (sortKey === "upScore") {
+      } else if (activeKey === "upScore") {
         sortValue = ticker.scores?.upScore ?? null;
-      } else if (sortKey === "downScore") {
+      } else if (activeKey === "downScore") {
         sortValue = ticker.scores?.downScore ?? null;
-      } else if (sortKey === "overheatUp") {
+      } else if (activeKey === "overheatUp") {
         sortValue = ticker.scores?.overheatUp ?? null;
-      } else if (sortKey === "overheatDown") {
+      } else if (activeKey === "overheatDown") {
         sortValue = ticker.scores?.overheatDown ?? null;
-      } else if (sortKey === "boxState") {
+      } else if (activeKey === "boxState") {
         const state = ticker.boxState ?? "NONE";
         sortValue = boxOrder[state] ?? 0;
-      } else if (sortKey === "shortScore") {
+      } else if (activeKey === "shortScore") {
         sortValue = ticker.shortScore ?? null;
-      } else if (sortKey === "aScore") {
+      } else if (activeKey === "aScore") {
         sortValue = ticker.aScore ?? null;
-      } else if (sortKey === "bScore") {
+      } else if (activeKey === "bScore") {
         sortValue = ticker.bScore ?? null;
-      } else if (sortKey === "performance") {
+      } else if (activeKey === "performance") {
         // Use selected performance period
         switch (performancePeriod) {
           case "1D": sortValue = ticker.chg1D ?? null; break;
@@ -771,27 +898,16 @@ export default function GridView() {
     const compareBuyState = (a: typeof items[number], b: typeof items[number]) => {
       const aState = a.ticker.buyState ?? "";
       const bState = b.ticker.buyState ?? "";
-      const aRank = Number.isFinite(a.ticker.buyStateRank)
-        ? (a.ticker.buyStateRank as number)
-        : 0;
-      const bRank = Number.isFinite(b.ticker.buyStateRank)
-        ? (b.ticker.buyStateRank as number)
-        : 0;
-      const aScore = Number.isFinite(a.ticker.buyStateScore)
-        ? (a.ticker.buyStateScore as number)
-        : null;
-      const bScore = Number.isFinite(b.ticker.buyStateScore)
-        ? (b.ticker.buyStateScore as number)
-        : null;
-      const aRisk = Number.isFinite(a.ticker.buyRiskDistance)
-        ? (a.ticker.buyRiskDistance as number)
-        : null;
-      const bRisk = Number.isFinite(b.ticker.buyRiskDistance)
-        ? (b.ticker.buyRiskDistance as number)
-        : null;
+      // ... same logic as before, just using activeKey
+      const aRank = Number.isFinite(a.ticker.buyStateRank) ? (a.ticker.buyStateRank as number) : 0;
+      const bRank = Number.isFinite(b.ticker.buyStateRank) ? (b.ticker.buyStateRank as number) : 0;
+      const aScore = Number.isFinite(a.ticker.buyStateScore) ? (a.ticker.buyStateScore as number) : null;
+      const bScore = Number.isFinite(b.ticker.buyStateScore) ? (b.ticker.buyStateScore as number) : null;
+      const aRisk = Number.isFinite(a.ticker.buyRiskDistance) ? (a.ticker.buyRiskDistance as number) : null;
+      const bRisk = Number.isFinite(b.ticker.buyRiskDistance) ? (b.ticker.buyRiskDistance as number) : null;
 
-      if (sortKey === "buyInitial" || sortKey === "buyBase") {
-        const target = sortKey === "buyInitial" ? "初動" : "底がため";
+      if (activeKey === "buyInitial" || activeKey === "buyBase") {
+        const target = activeKey === "buyInitial" ? "初動" : "底がため";
         const aEligible = aState === target;
         const bEligible = bState === target;
         if (aEligible !== bEligible) return aEligible ? -1 : 1;
@@ -814,6 +930,22 @@ export default function GridView() {
     };
 
     const compare = (a: typeof items[number], b: typeof items[number]) => {
+      // 1. Sector Sort (Grouping) if enabled
+      if (sectorSortEnabled) {
+        const sA = a.ticker.sector33Code;
+        const sB = b.ticker.sector33Code;
+        // Put null/empty sectors at the end
+        if (sA && !sB) return -1;
+        if (!sA && sB) return 1;
+        if (sA && sB && sA !== sB) {
+          // Compare sector codes (or names if code implies order? codes are usually ordered)
+          // `sector33Code` is usually text "0050", "1050" etc.
+          return sA.localeCompare(sB);
+        }
+        // If sectors are same or both missing, fall through to inner sort
+      }
+
+      // 2. Inner Sort (using activeKey)
       if (isBuyCandidate) {
         return compareBuyState(a, b);
       }
@@ -843,7 +975,18 @@ export default function GridView() {
     };
     items.sort(compare);
     return items;
-  }, [scoredTickers, sortKey, sortDir, collator, barsCache, gridTimeframe, listAnchorInfoByCode, performancePeriod]);
+  }, [
+    scoredTickers,
+    sortKey,
+    sortDir,
+    collator,
+    barsCache,
+    gridTimeframe,
+    listAnchorInfoByCode,
+    performancePeriod,
+    sectorSortEnabled,
+    sectorSortInnerKey
+  ]);
   const sortedCodes = useMemo(
     () => sortedTickers.map((item) => item.ticker.code),
     [sortedTickers]
@@ -1071,6 +1214,7 @@ export default function GridView() {
       if (event.key === "Escape") {
         setSortOpen(false);
         setDisplayOpen(false);
+        setSectorSortOpen(false); // Close sector sort popover
         if (consultVisible) {
           setConsultVisible(false);
         }
@@ -1400,6 +1544,7 @@ export default function GridView() {
                       setSortOpen(!sortOpen);
                       setDisplayOpen(false);
                       setSettingsOpen(false);
+                      setSectorSortOpen(false);
                     }}
                   />
                   {sortOpen && (
@@ -1447,6 +1592,7 @@ export default function GridView() {
                       setDisplayOpen(!displayOpen);
                       setSortOpen(false);
                       setSettingsOpen(false);
+                      setSectorSortOpen(false);
                     }}
                   />
                   {displayOpen && (
@@ -1559,6 +1705,7 @@ export default function GridView() {
                       setSettingsOpen(!settingsOpen);
                       setSortOpen(false);
                       setDisplayOpen(false);
+                      setSectorSortOpen(false);
                     }}
                   />
                   {settingsOpen && (
@@ -1611,6 +1758,32 @@ export default function GridView() {
                         <div className="popover-hint">
                           保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
                         </div>
+                      </div>
+                      <div className="popover-section">
+                        <div className="popover-title">MEEMEE_DATA_DIR</div>
+                        <div className="popover-input-row">
+                          <input
+                            type="text"
+                            className="popover-input"
+                            placeholder="%LOCALAPPDATA%\\MeeMeeScreener\\data"
+                            value={dataDirInput}
+                            onChange={(event) => setDataDirInput(event.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className="popover-item"
+                            disabled={dataDirSaving}
+                            onClick={handleDataDirSave}
+                          >
+                            {dataDirSaving ? "保存中..." : "保存"}
+                          </button>
+                        </div>
+                        <div className="popover-hint">
+                          現在: {dataDir || (dataDirLoading ? "読み込み中..." : "未設定")}
+                        </div>
+                        {dataDirMessage && (
+                          <div className="popover-hint">{dataDirMessage}</div>
+                        )}
                       </div>
                       <div className="popover-section">
                         <div className="popover-title">スクショ</div>
@@ -1710,7 +1883,74 @@ export default function GridView() {
                 </button>
               ))}
             </div>
-            
+            {sectorParam && (
+              <div className="sector-filter-chip">
+                <span>セクター: {sectorLabel ?? sectorParam}</span>
+                <button type="button" onClick={clearSectorFilter}>
+                  解除
+                </button>
+              </div>
+            )}
+
+            {/* Sector Sort/Filter Button */}
+            <div className="sector-sort-button" style={{ marginRight: 8, position: "relative" }} ref={sectorSortRef}>
+              <IconButton
+                icon={<IconBuildingArch size={18} />}
+                label={sectorLabel ? sectorLabel : "業種"}
+                variant="iconLabel"
+                tooltip="業種で絞り込み / 並び替え"
+                selected={sectorSortOpen || !!sectorParam || sectorSortEnabled}
+                onClick={() => {
+                  setSectorSortOpen(!sectorSortOpen);
+                  setSortOpen(false);
+                  setDisplayOpen(false);
+                  setSettingsOpen(false);
+                }}
+              />
+              {sectorSortOpen && (
+                <div className="popover-panel" style={{ width: 320, maxHeight: 500, overflowY: "auto" }}>
+                  <div className="popover-section">
+                    <div className="popover-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span>業種で絞り込み</span>
+                      {sectorParam && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          style={{ fontSize: 11, color: "var(--theme-text-muted)" }}
+                          onClick={() => handleSectorSelect(null)}
+                        >
+                          解除
+                        </button>
+                      )}
+                    </div>
+                    <div className="popover-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                      <button
+                        type="button"
+                        className={`popover-item ${!sectorParam ? "active" : ""}`}
+                        onClick={() => handleSectorSelect(null)}
+                        style={{ justifyContent: "center" }}
+                      >
+                        <span className="popover-item-label">すべて</span>
+                      </button>
+                      {availableSectors.map((sec) => (
+                        <button
+                          key={sec.code}
+                          type="button"
+                          className={`popover-item ${sectorParam === sec.code ? "active" : ""}`}
+                          onClick={() => handleSectorSelect(sec.code)}
+                          style={{ justifyContent: "flex-start", padding: "6px 8px" }}
+                        >
+                          <span className="popover-item-label" style={{ fontSize: 11 }}>{sec.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+
+                </div>
+              )}
+            </div>
+
             <div className="search-field list-search">
               <input
                 className="search-input"

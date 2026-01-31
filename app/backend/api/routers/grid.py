@@ -59,6 +59,7 @@ def get_screener_rows(
     
     # 2. Process Data
     meta_map = {row[0]: row for row in meta_rows}
+    sector_map = screener_repo.fetch_sector_map(codes)
     daily_map = _group_rows_by_code(daily_rows)
     monthly_map = _group_rows_by_code(monthly_rows)
     earnings_map = {row[0]: row[1] for row in earnings_rows}
@@ -100,7 +101,9 @@ def get_screener_rows(
         # Fallback/Default logic (simplified from screener_engine)
         if not stage or stage == "UNKNOWN":
              stage = computed.get("statusLabel", "UNKNOWN")
-        
+
+        sector_info = sector_map.get(code)
+
         # Construct Result Item
         item = {
             "code": code,
@@ -111,6 +114,8 @@ def get_screener_rows(
             "scoreStatus": score_status,
             "eventEarningsDate": earnings_map.get(code),
             "eventRightsDate": rights_map.get(code),
+            "sector33_code": sector_info[0] if sector_info else None,
+            "sector33_name": sector_info[1] if sector_info else None,
             **computed
         }
         results.append(item)

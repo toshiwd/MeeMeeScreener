@@ -5,6 +5,8 @@ import type { ApiErrorInfo } from "./apiErrors";
 export type Ticker = {
   code: string;
   name: string;
+  sector33Code?: string | null;
+  sector33Name?: string | null;
   stage: string;
   score: number | null;
   reason: string;
@@ -153,6 +155,7 @@ type Settings = {
   listColumns: 1 | 2 | 3 | 4;
   listRows: 1 | 2 | 3 | 4 | 5 | 6;
   showBoxes: boolean;
+  showIndicators: boolean;
   // Legacy sort key (for backward compatibility during migration)
   sortKey: SortKey;
   sortDir: SortDir;
@@ -161,6 +164,8 @@ type Settings = {
   basicSortKey: BasicSortKey;
   basicSortDir: SortDir;
   performancePeriod: PerformancePeriod;
+  sectorSortEnabled: boolean;
+  sectorSortInnerKey: BasicSortKey;
 };
 
 type StoreState = {
@@ -187,38 +192,23 @@ type StoreState = {
   setFavoriteLocal: (code: string, isFavorite: boolean) => void;
   addKeep: (code: string) => void;
   removeKeep: (code: string) => void;
-  toggleKeep: (code: string) => void;
   clearKeep: () => void;
-  loadBarsBatch: (
-    timeframe: GridTimeframe,
-    codes: string[],
-    limitOverride?: number,
-    reason?: string
-  ) => Promise<void>;
-  loadBoxesBatch: (codes: string[]) => Promise<void>;
-  ensureBarsForVisible: (
-    timeframe: GridTimeframe,
-    codes: string[],
-    reason?: string
-  ) => Promise<void>;
-  setColumns: (columns: Settings["columns"]) => void;
-  setRows: (rows: Settings["rows"]) => void;
-  setListTimeframe: (value: Settings["listTimeframe"]) => void;
-  setListRangeBars: (value: Settings["listRangeBars"]) => void;
-  setListColumns: (value: Settings["listColumns"]) => void;
-  setListRows: (value: Settings["listRows"]) => void;
-  setSearch: (search: string) => void;
-  setGridScrollTop: (value: number) => void;
-  setGridTimeframe: (value: Settings["gridTimeframe"]) => void;
-  setShowBoxes: (value: boolean) => void;
-  setSortKey: (value: SortKey) => void;
-  setSortDir: (value: SortDir) => void;
-  // New separated sort setters
-  setCandidateSortKey: (value: CandidateSortKey) => void;
-  setBasicSortKey: (value: BasicSortKey) => void;
-  setBasicSortDir: (value: SortDir) => void;
-  setPerformancePeriod: (value: PerformancePeriod) => void;
-  updateMaSetting: (timeframe: MaTimeframe, index: number, patch: Partial<MaSetting>) => void;
+  replaceKeep: (codes: string[]) => void;
+
+  setBackendReady: (ready: boolean) => void;
+
+  setCandidateSortKey: (key: CandidateSortKey) => void;
+  setBasicSortKey: (key: BasicSortKey) => void;
+  setBasicSortDir: (dir: SortDir) => void;
+  setPerformancePeriod: (period: PerformancePeriod) => void;
+  setSectorSortEnabled: (enabled: boolean) => void;
+  setSectorSortInnerKey: (key: BasicSortKey) => void;
+
+  updateMaSetting: (
+    timeframe: MaTimeframe,
+    index: number,
+    patch: Partial<MaSetting>
+  ) => void;
   updateCompareMaSetting: (timeframe: MaTimeframe, index: number, patch: Partial<MaSetting>) => void;
   resetMaSettings: (timeframe: MaTimeframe) => void;
   resetCompareMaSettings: (timeframe: MaTimeframe) => void;
@@ -226,6 +216,22 @@ type StoreState = {
   loadEventsMeta: () => Promise<EventsMeta | null>;
   refreshEventsIfStale: () => Promise<void>;
   refreshEvents: () => Promise<void>;
+  loadBarsBatch: (timeframe: GridTimeframe, codes: string[], limitOverride?: number, reason?: string) => Promise<void>;
+  loadBoxesBatch: (codes: string[]) => Promise<void>;
+  ensureBarsForVisible: (timeframe: GridTimeframe, codes: string[], reason?: string) => Promise<void>;
+  setColumns: (value: 1 | 2 | 3 | 4) => void;
+  setRows: (value: 1 | 2 | 3 | 4 | 5 | 6) => void;
+  setListTimeframe: (value: GridTimeframe) => void;
+  setListRangeBars: (value: number) => void;
+  setListColumns: (value: 1 | 2 | 3 | 4) => void;
+  setListRows: (value: 1 | 2 | 3 | 4 | 5 | 6) => void;
+  setSearch: (value: string) => void;
+  setGridScrollTop: (value: number) => void;
+  setGridTimeframe: (value: GridTimeframe) => void;
+  setShowBoxes: (value: boolean) => void;
+  setSortKey: (value: SortKey) => void;
+  setSortDir: (value: SortDir) => void;
+  toggleKeep: (code: string) => void;
 };
 
 // Candidate sort presets (for buy/sell candidate screens only)
@@ -241,6 +247,7 @@ export type CandidateSortKey =
 export type BasicSortKey =
   | "code"
   | "name"
+  | "sector"
   | "ma20Dev"
   | "ma60Dev"
   | "ma20Slope"
@@ -259,6 +266,7 @@ export type PerformancePeriod = "1D" | "1W" | "1M" | "1Q" | "1Y";
 export type SortKey =
   | "code"
   | "name"
+  | "sector"
   | "buyCandidate"
   | "buyInitial"
   | "buyBase"
@@ -785,9 +793,49 @@ const loadKeepList = (): string[] => {
   }
 };
 
+const getInitialPerformancePeriod = (): PerformancePeriod => {
+  if (typeof window === "undefined") return "1M";
+  const saved = window.localStorage.getItem("performancePeriod");
+  const options: PerformancePeriod[] = ["1D", "1W", "1M", "1Q", "1Y"];
+  if (saved && options.includes(saved as PerformancePeriod)) {
+    return saved as PerformancePeriod;
+  }
+  return "1M";
+};
+
 const persistKeepList = (list: string[]) => {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(KEEP_STORAGE_KEY, JSON.stringify(list));
+};
+
+const getInitialSectorSortEnabled = (): boolean => {
+  if (typeof window === "undefined") return false;
+  const saved = window.localStorage.getItem("sectorSortEnabled");
+  return saved === "true";
+};
+
+const getInitialSectorSortInnerKey = (): BasicSortKey => {
+  if (typeof window === "undefined") return "code";
+  const saved = window.localStorage.getItem("sectorSortInnerKey");
+  const options: BasicSortKey[] = [
+    "code",
+    "name",
+    "sector",
+    "ma20Dev",
+    "ma60Dev",
+    "ma20Slope",
+    "ma60Slope",
+    "performance",
+    "upScore",
+    "downScore",
+    "overheatUp",
+    "overheatDown",
+    "boxState"
+  ];
+  if (saved && options.includes(saved as BasicSortKey)) {
+    return saved as BasicSortKey;
+  }
+  return "code";
 };
 
 export const useStore = create<StoreState>((set, get) => ({
@@ -824,49 +872,51 @@ export const useStore = create<StoreState>((set, get) => ({
   settings: {
     columns: getInitialColumns(),
     rows: getInitialRows(),
+    listColumns: getInitialListColumns(),
+    listRows: getInitialListRows(),
+    listRangeBars: getInitialListRangeBars(),
     search: "",
     gridScrollTop: 0,
     gridTimeframe: getInitialTimeframe(),
-    listTimeframe: getInitialListTimeframe(),
-    listRangeBars: getInitialListRangeBars(),
-    listColumns: getInitialListColumns(),
-    listRows: getInitialListRows(),
+    listTimeframe: "daily",
     showBoxes: true,
+    showIndicators: false,
     sortKey: getInitialSortKey(),
     sortDir: getInitialSortDir(),
-    // New separated sort states
-    candidateSortKey: "buyCandidate" as CandidateSortKey,
-    basicSortKey: "code" as BasicSortKey,
-    basicSortDir: "desc" as SortDir,
-    performancePeriod: "1M" as PerformancePeriod
+    candidateSortKey: getInitialSortKey() === "buyCandidate" ? "buyCandidate" : "shortScore", // Basic default
+    basicSortKey: "code",
+    basicSortDir: "asc",
+    performancePeriod: getInitialPerformancePeriod(),
+    sectorSortEnabled: getInitialSectorSortEnabled(),
+    sectorSortInnerKey: getInitialSectorSortInnerKey()
   },
   setLastApiError: (info) => set({ lastApiError: info }),
-    loadFavorites: async () => {
-      if (get().favoritesLoading) return;
-      set({ favoritesLoading: true });
-      try {
-        const res = await api.get("/favorites");
-        const payload = res.data as { items?: { code?: string }[] } | { code?: string }[];
+  loadFavorites: async () => {
+    if (get().favoritesLoading) return;
+    set({ favoritesLoading: true });
+    try {
+      const res = await api.get("/favorites");
+      const payload = res.data as { items?: { code?: string }[] } | { code?: string }[];
       const items = Array.isArray(payload) ? payload : payload.items ?? [];
       const codes = items
         .map((item) => (typeof item.code === "string" ? item.code : ""))
         .filter((code) => code);
       set({ favorites: codes, favoritesLoaded: true });
-      } catch (error) {
-        const err = error as {
-          message?: string;
-          response?: { status?: number; data?: unknown };
-        };
-        console.error("[favorites] load failed", {
-          status: err?.response?.status ?? null,
-          data: err?.response?.data ?? null,
-          message: err?.message ?? null
-        });
-        set({ favorites: [], favoritesLoaded: true });
-      } finally {
-        set({ favoritesLoading: false });
-      }
-    },
+    } catch (error) {
+      const err = error as {
+        message?: string;
+        response?: { status?: number; data?: unknown };
+      };
+      console.error("[favorites] load failed", {
+        status: err?.response?.status ?? null,
+        data: err?.response?.data ?? null,
+        message: err?.message ?? null
+      });
+      set({ favorites: [], favoritesLoaded: true });
+    } finally {
+      set({ favoritesLoading: false });
+    }
+  },
   replaceFavorites: (codes) =>
     set({ favorites: [...new Set(codes.filter((code) => code))], favoritesLoaded: true }),
   setFavoriteLocal: (code, isFavorite) =>
@@ -957,6 +1007,8 @@ export const useStore = create<StoreState>((set, get) => ({
         return {
           code: item.code,
           name: nameRaw || item.code,
+          sector33Code: item.sector33Code ?? item.sector33_code ?? null,
+          sector33Name: item.sector33Name ?? item.sector33_name ?? null,
           stage,
           score: Number.isFinite(item.score) ? item.score : null,
           reason: item.reason ?? "",
@@ -1339,7 +1391,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (typeof window !== "undefined") {
       window.localStorage.setItem(LIST_RANGE_KEY, String(value));
     }
-    set((state) => ({ settings: { ...state.settings, listRangeBars: value } }));
+    set((state) => ({ settings: { ...state.settings, listRangeBars: value as any } }));
   },
   setListColumns: (value) => {
     if (typeof window !== "undefined") {
@@ -1404,6 +1456,18 @@ export const useStore = create<StoreState>((set, get) => ({
       window.localStorage.setItem("performancePeriod", value);
     }
     set((state) => ({ settings: { ...state.settings, performancePeriod: value } }));
+  },
+  setSectorSortEnabled: (value) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("sectorSortEnabled", String(value));
+    }
+    set((state) => ({ settings: { ...state.settings, sectorSortEnabled: value } }));
+  },
+  setSectorSortInnerKey: (value) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("sectorSortInnerKey", value);
+    }
+    set((state) => ({ settings: { ...state.settings, sectorSortInnerKey: value } }));
   },
   updateMaSetting: (timeframe, index, patch) => {
     set((state) => {

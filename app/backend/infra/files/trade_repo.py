@@ -4,7 +4,7 @@ import csv
 import os
 from typing import List, Dict, Any
 
-from app.backend.domain.positions.parser import TradeParser
+from app.backend.trade_parser import TradeParser
 # Re-using config from legacy for now, or we can move it.
 # Ideally we should minimize deps on app.core if we want pure infra, 
 # but for now reusing app.core.config is practical.
@@ -54,27 +54,24 @@ class TradeRepository:
 
     @staticmethod
     def detect_broker_from_bytes(content: bytes, filename: str = "") -> tuple[str, str]:
-        # Simple heuristic wrapper reusing domain logic where possible, 
-        # but detection often needs raw string or bytes.
-        
-        # 1. Filename check
-        fname = filename.lower()
-        if "sbi" in fname: return "sbi", "filename"
-        if "rakuten" in fname or "楽天" in fname: return "rakuten", "filename"
-        
-        # 2. Content check (decode snippet)
-        head = b""
-        for enc in ("cp932", "utf-8"):
+        # Prefer content-based detection; filename is fallback only.
+        for enc in ("cp932", "utf-8-sig", "utf-8"):
             try:
-                head_str = content[:4096].decode(enc, errors="ignore")
-                
-                if "受渡金額/決済損益" in head_str or "信用新規買" in head_str:
-                    return "sbi", f"header:{enc}"
-                if "口座" in head_str and "手数料" in head_str:
-                    return "rakuten", f"header:{enc}"
-            except:
-                pass
-                
+                decoded = content.decode(enc)
+                rows = list(csv.reader(decoded.splitlines()))
+                if rows:
+                    if TradeParser.looks_like_sbi(rows):
+                        return "sbi", f"content:{enc}"
+                    return "rakuten", f"content:{enc}"
+            except Exception:
+                continue
+
+        fname = filename.lower()
+        if "sbi" in fname or "ＳＢＩ" in filename or "SBI" in filename:
+            return "sbi", "filename"
+        if "rakuten" in fname or "楽天" in filename:
+            return "rakuten", "filename"
+
         return "rakuten", "default"
 
     @staticmethod

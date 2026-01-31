@@ -171,7 +171,7 @@ export default function RankingView() {
   const signalMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
     searchResults.forEach((item) => {
-      const payload = barsCache[listTimeframe][item.code] ?? null;
+      const payload = barsCache[listTimeframe]?.[item.code] ?? null;
       const series = payload && payload.bars?.length ? payload.bars : item.series ?? [];
       if (!series.length) return;
       const signals = computeSignalMetrics(series, 4).signals;
@@ -185,7 +185,7 @@ export default function RankingView() {
   const filteredItems = useMemo(() => {
     if (!filterSignalsOnly && !filterDataOnly) return searchResults;
     return searchResults.filter((item) => {
-      const payload = barsCache[listTimeframe][item.code] ?? null;
+      const payload = barsCache[listTimeframe]?.[item.code] ?? null;
       const series = payload && payload.bars?.length ? payload.bars : item.series ?? [];
       const hasData = series.length > 0;
       if (filterDataOnly && !hasData) return false;
@@ -323,7 +323,7 @@ export default function RankingView() {
       }
       const itemsForPack = selectedCodes.map((code) => {
         const rankItem = items.find((item) => item.code === code);
-        const payload = barsCache[consultTimeframe][code];
+        const payload = barsCache[consultTimeframe]?.[code];
         const boxes = boxesCache[consultTimeframe][code] ?? [];
         return {
           code,
@@ -469,7 +469,7 @@ export default function RankingView() {
             {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
             <div className="rank-grid">
               {filteredItems.map((item, index) => {
-                const payload = barsCache[listTimeframe][item.code] ?? null;
+                const payload = barsCache[listTimeframe]?.[item.code] ?? null;
                 const status = barsStatus[listTimeframe][item.code];
                 const series =
                   payload && payload.bars?.length ? payload.bars : item.series ?? [];

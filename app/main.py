@@ -5,6 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+_LOGGED_RESOLVED_PATHS = False
+
 # Add project root to sys.path
 sys.path.insert(0, os.getcwd())
 
@@ -23,16 +25,38 @@ from app.backend.api.routers import (
     similar,
     favorites,
     market,
+    memo,
 )
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _LOGGED_RESOLVED_PATHS
     # Startup: Initialize Infra
     print("[Main] Initializing Resources...")
-    # Determine data directory (could be passed via env or args)
-    # For now, use current directory or a specific data dir
-    data_dir = os.path.join(os.getcwd(), "data")
+    # Determine data directory from env first; fall back to config if unset.
+    data_dir = os.getenv("MEEMEE_DATA_DIR")
+    if not data_dir:
+        from app.backend.core.config import config
+        data_dir = str(config.DATA_DIR)
+        os.environ.setdefault("MEEMEE_DATA_DIR", data_dir)
     os.makedirs(data_dir, exist_ok=True)
+    if not os.getenv("MEEMEE_RESOLVED_PATHS_LOGGED"):
+        if not _LOGGED_RESOLVED_PATHS:
+            _LOGGED_RESOLVED_PATHS = True
+            exe_dir = os.path.dirname(sys.executable)
+            app_env = os.getenv("APP_ENV", "")
+            data_store = os.getenv("MEEMEE_DATA_STORE", "")
+            db_path = os.getenv("STOCKS_DB_PATH", "")
+            auto_update_enabled = os.getenv("MEEMEE_ENABLE_AUTO_UPDATE", "").lower() in ("1", "true", "yes", "on")
+            print(
+                "[main] Resolved paths:"
+                f" exe_dir={exe_dir}"
+                f" APP_ENV={app_env}"
+                f" MEEMEE_DATA_DIR={data_dir}"
+                f" MEEMEE_DATA_STORE={data_store}"
+                f" STOCKS_DB_PATH={db_path}"
+                f" auto_update_enabled={auto_update_enabled}"
+            )
     
     init_resources(data_dir)
     print("[Main] Resources Initialized.")
@@ -65,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(events.router)
     app.include_router(favorites.router)
     app.include_router(market.router)
+    app.include_router(memo.router)
     app.include_router(spa.router)
 
     # Static Files (Frontend)

@@ -1,11 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from pydantic import BaseModel
+from pathlib import Path
 from app.backend.api.dependencies import get_config_repo
 from app.backend.infra.files.config_repo import ConfigRepository
 from app.backend.jobs.txt_update import run_txt_update_workflow
 from app.backend.infra.panrolling.client import PanRollingClient
+from app.backend.core import config as backend_config
+from app.backend.core.config import write_data_dir_override
 import os
+import sys
 
 router = APIRouter(prefix="/api/system", tags=["system"])
+
+
+class DataDirPayload(BaseModel):
+    dataDir: str
 
 @router.post("/update_data")
 def trigger_update_data(
@@ -71,6 +80,30 @@ def trigger_update_data(
 
     background_tasks.add_task(_run_job)
     return {"status": "accepted", "message": "Update job started"}
+
+
+@router.get("/data-dir")
+def get_data_dir():
+    current = backend_config.config.DATA_DIR
+    return {
+        "dataDir": str(current),
+        "source": "env" if os.getenv("MEEMEE_DATA_DIR") else "config"
+    }
+
+
+@router.post("/data-dir")
+def set_data_dir(payload: DataDirPayload):
+    target = Path(payload.dataDir).expanduser().resolve()
+    if not target:
+        raise HTTPException(status_code=400, detail="dataDir is required")
+    config_path = write_data_dir_override(target)
+    os.environ["MEEMEE_DATA_DIR"] = str(target)
+    return {
+        "dataDir": str(target),
+        "configPath": str(config_path),
+        "restartRequired": True,
+        "message": "Data directory override saved; restart the app for changes to fully apply."
+    }
 
 @router.get("/status")
 def get_system_status(config: ConfigRepository = Depends(get_config_repo)):

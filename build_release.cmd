@@ -35,7 +35,15 @@ rem Create necessary files if they don't exist
 if not exist "..\\..\\app\\backend\\update_state.json" echo {} > "..\\..\\app\\backend\\update_state.json"
 if not exist "..\\..\\app\\backend\\rank_config.json" echo {} > "..\\..\\app\\backend\\rank_config.json"
 
-pyinstaller --noconfirm MeeMeeScreener.spec > pyinstaller_build.log 2>&1
+rem Ensure industry_master exists in bundled DuckDB (build-time, no runtime dependency)
+call python ..\\..\\tools\\setup\\ensure_industry_master.py --db "..\\..\\app\\backend\\stocks.duckdb"
+if errorlevel 1 goto :fail_pyinstaller
+
+rem Clean stale PyInstaller artifacts
+if exist "build" rmdir /s /q "build"
+if exist "dist\\MeeMeeScreener" rmdir /s /q "dist\\MeeMeeScreener"
+
+pyinstaller --clean --noconfirm MeeMeeScreener.spec > pyinstaller_build.log 2>&1
 if errorlevel 1 goto :fail_pyinstaller
 popd
 echo PyInstaller build completed.

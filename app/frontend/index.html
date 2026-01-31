@@ -9,6 +9,54 @@
 
 <body>
   <div id="root"></div>
+  <script>
+    (function () {
+      var root = document.getElementById("root");
+      function renderBootError(title, detail) {
+        if (!root || root.childElementCount > 0) return;
+        var container = document.createElement("div");
+        container.style.cssText =
+          "min-height:100vh;background:#0b1020;color:#e2e8f0;font-family:Segoe UI, Meiryo, sans-serif;" +
+          "display:flex;align-items:center;justify-content:center;padding:32px;box-sizing:border-box;";
+        var card = document.createElement("div");
+        card.style.cssText =
+          "max-width:900px;width:100%;background:#0f172a;border:1px solid #1e293b;" +
+          "border-radius:16px;padding:24px;box-shadow:0 12px 30px rgba(15,23,42,0.45);";
+        var h1 = document.createElement("h1");
+        h1.textContent = title;
+        h1.style.cssText = "margin:0 0 12px;font-size:28px;";
+        var p = document.createElement("p");
+        p.textContent = "Frontend failed to render. Check backend.log and static assets.";
+        p.style.cssText = "margin:0 0 16px;color:#cbd5f5;";
+        var pre = document.createElement("pre");
+        pre.textContent = detail || "";
+        pre.style.cssText =
+          "margin:0;padding:12px;background:#0b1020;border:1px solid #1e293b;border-radius:8px;" +
+          "color:#e2e8f0;white-space:pre-wrap;line-height:1.4;font-size:13px;";
+        card.appendChild(h1);
+        card.appendChild(p);
+        card.appendChild(pre);
+        container.appendChild(card);
+        root.appendChild(container);
+      }
+
+      window.addEventListener("error", function (event) {
+        var detail = event && event.error && event.error.stack ? event.error.stack : String(event.message || event);
+        renderBootError("Javascript error", detail);
+      });
+
+      window.addEventListener("unhandledrejection", function (event) {
+        var reason = event && event.reason ? event.reason : "Unknown rejection";
+        renderBootError("Unhandled promise rejection", String(reason));
+      });
+
+      window.setTimeout(function () {
+        if (!root || root.childElementCount === 0) {
+          renderBootError("Boot timeout", "UI root is still empty after startup.");
+        }
+      }, 4000);
+    })();
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

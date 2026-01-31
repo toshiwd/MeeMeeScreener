@@ -125,6 +125,9 @@ print(json.dumps(missing))
     }
     New-Item -ItemType Directory -Force $buildWork | Out-Null
 
+    Write-Host "Ensuring industry_master in bundled DuckDB..."
+    python (Join-Path $repoRoot "tools/setup/ensure_industry_master.py") --db (Join-Path $repoRoot "app/backend/stocks.duckdb")
+
     $pyInstallerArgs = @(
         "--noconfirm"
     )
@@ -158,9 +161,15 @@ print(json.dumps(missing))
         "--hidden-import", "app.backend.main",
         "--collect-submodules", "app.backend",
         "--collect-submodules", "app",
+        "--hidden-import", "app.core",
+        "--hidden-import", "app.core.config",
+        "--add-data", "$(Join-Path $repoRoot "app/main.py");app",
         "--add-data", "$(Join-Path $repoRoot "app/__init__.py");app",
+        "--add-data", "$(Join-Path $repoRoot "app/core/__init__.py");app/core",
+        "--add-data", "$(Join-Path $repoRoot "app/core/*.py");app/core",
         "--add-data", "$(Join-Path $repoRoot "app/backend/__init__.py");app/backend",
         "--add-data", "$(Join-Path $repoRoot "app/backend/*.py");app/backend",
+        "--add-data", "$(Join-Path $repoRoot "app/backend/api");app/backend/api",
         "--add-data", "$(Join-Path $repoRoot "app/backend/core/__init__.py");app/backend/core",
         "--add-data", "$(Join-Path $repoRoot "app/backend/core/*.py");app/backend/core",
         "--add-data", "$(Join-Path $repoRoot "app/desktop/*.py");app/desktop",
@@ -173,6 +182,7 @@ print(json.dumps(missing))
         "--add-data", "$(Join-Path $repoRoot "app/backend/favorites.sqlite");app/backend",
         "--add-data", "$(Join-Path $repoRoot "app/backend/practice.sqlite");app/backend",
         "--add-data", "$(Join-Path $repoRoot "app/backend/stocks.duckdb");app/backend",
+        "--add-data", "$(Join-Path $repoRoot "fixtures");fixtures",
         "app/desktop/launcher.py"
     )
 
@@ -299,6 +309,13 @@ print(json.dumps(missing))
     }
     if (-not $zipSuccess) {
         throw "Failed to create portable zip. Files under release/MeeMeeScreener are locked. Close Explorer or antivirus scan and retry."
+    }
+
+    Write-Host "Running portable zip gate..."
+    $verifyScript = Join-Path $repoRoot "scripts\verify_portable_zip.py"
+    $verifyProc = Start-Process -FilePath "python" -ArgumentList @($verifyScript, $zipPath) -NoNewWindow -Wait -PassThru
+    if ($verifyProc.ExitCode -ne 0) {
+        throw "Portable zip gate failed."
     }
 
     Write-Host "Done."

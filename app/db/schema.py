@@ -90,6 +90,18 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_memos (
+            symbol TEXT,
+            date TEXT,
+            timeframe TEXT,
+            memo TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (symbol, date, timeframe)
+        );
+        """
+    )
 
     # Trade history / positions (used by /api/trades and Positions UI).
     # Keep schemas compatible with legacy inserts from `app.backend.import_positions`.

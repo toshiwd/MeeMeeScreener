@@ -164,6 +164,18 @@ def _init_schema_on_conn(conn: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_memos (
+            symbol TEXT,
+            date TEXT,
+            timeframe TEXT,
+            memo TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (symbol, date, timeframe)
+        );
+        """
+    )
 
 
 def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:

@@ -196,48 +196,54 @@ export default function UnifiedListHeader({
   return (
     <header className="unified-list-header">
       <div className="list-header-row">
-        <div className="header-row-top">
-          <nav className="list-tabs">
-            <NavLink
-              to="/"
-              end
-              className={({ isActive }) =>
-                isActive ? "list-tab list-home active" : "list-tab list-home"
-              }
-            >
-              {LABELS.home}
-            </NavLink>
-            <NavLink
-              to="/ranking"
-              className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
-            >
-              {LABELS.ranking}
-            </NavLink>
-            <NavLink
-              to="/market"
-              className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
-            >
-              {LABELS.market}
-            </NavLink>
-            <NavLink
-              to="/favorites"
-              className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
-            >
-              {LABELS.favorites}
-            </NavLink>
-            <NavLink
-              to="/candidates"
-              className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
-            >
-              {LABELS.candidates}
-            </NavLink>
-            <NavLink
-              to="/positions"
-              className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
-            >
-              {LABELS.positions}
-            </NavLink>
-          </nav>
+        <div className="dynamic-header-row header-row-top">
+          <div className="header-row-left">
+            <div className="app-brand">
+              <div className="app-brand-title">MeeMee</div>
+              <div className="app-brand-sub">Screener</div>
+            </div>
+            <nav className="list-tabs">
+              <NavLink
+                to="/"
+                end
+                className={({ isActive }) =>
+                  isActive ? "list-tab list-home active" : "list-tab list-home"
+                }
+              >
+                {LABELS.home}
+              </NavLink>
+              <NavLink
+                to="/ranking"
+                className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
+              >
+                {LABELS.ranking}
+              </NavLink>
+              <NavLink
+                to="/market"
+                className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
+              >
+                {LABELS.market}
+              </NavLink>
+              <NavLink
+                to="/favorites"
+                className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
+              >
+                {LABELS.favorites}
+              </NavLink>
+              <NavLink
+                to="/candidates"
+                className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
+              >
+                {LABELS.candidates}
+              </NavLink>
+              <NavLink
+                to="/positions"
+                className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
+              >
+                {LABELS.positions}
+              </NavLink>
+            </nav>
+          </div>
 
           <div className="list-header-actions-wrapper">
             <div className="list-header-actions">

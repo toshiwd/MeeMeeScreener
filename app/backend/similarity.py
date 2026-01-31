@@ -17,14 +17,20 @@ if TYPE_CHECKING:
     import pandas as pd
 
 # Constants
-# User specified: C:\work\meemee-data\ or similar outside repo.
-# We map to local gitignored dir for safety unless env var is set.
-DATA_STORE_DIR = os.getenv("MEEMEE_DATA_STORE", os.path.join(os.path.dirname(__file__), "..", "..", "data_store"))
+# Prefer MEEMEE_DATA_STORE if set, else MEEMEE_DATA_DIR/data_store, else fallback to repo-local data_store.
+_data_store_env = os.getenv("MEEMEE_DATA_STORE")
+_data_dir_env = os.getenv("MEEMEE_DATA_DIR")
+if _data_store_env:
+    DATA_STORE_DIR = _data_store_env
+elif _data_dir_env:
+    DATA_STORE_DIR = os.path.join(_data_dir_env, "data_store")
+else:
+    DATA_STORE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data_store")
 
 from pydantic import BaseModel
 
 LONG_TERM_WINDOW = 60
-SHORT_TERM_WINDOW = 12
+SHORT_TERM_WINDOW = 24
 
 class SearchResult(BaseModel):
     ticker: str
@@ -416,10 +422,10 @@ class SimilarityService:
             # Assumes sorted by time
             query_idx = df_ticker.index[-1]
             
-        query_row = self.df_env.iloc[query_idx]
+        query_row = self.df_env.loc[query_idx]
         query_tag = query_row["tag_id"]
-        query_vec60 = np.array(self.df_vec60.iloc[query_idx]["vec60"], dtype=np.float32)
-        query_vec24 = np.array(self.df_vec24.iloc[query_idx]["vec24"], dtype=np.float32)
+        query_vec60 = np.array(self.df_vec60.loc[query_idx]["vec60"], dtype=np.float32)
+        query_vec24 = np.array(self.df_vec24.loc[query_idx]["vec24"], dtype=np.float32)
         
         # Fallback Levels
         # 0: Exact Tag
@@ -482,9 +488,9 @@ class SimilarityService:
 
         # Calculate Scores
         # Vectorize!
-        cand_env = self.df_env.iloc[candidates_indices]
-        cand_vec60 = np.vstack(self.df_vec60.iloc[candidates_indices]["vec60"].values) # (N, 60)
-        cand_vec24 = np.vstack(self.df_vec24.iloc[candidates_indices]["vec24"].values) # (N, 24)
+        cand_env = self.df_env.loc[candidates_indices]
+        cand_vec60 = np.vstack(self.df_vec60.loc[candidates_indices]["vec60"].values) # (N, 60)
+        cand_vec24 = np.vstack(self.df_vec24.loc[candidates_indices]["vec24"].values) # (N, 24)
 
         # Dot Product base
         s60 = np.dot(cand_vec60, query_vec60)

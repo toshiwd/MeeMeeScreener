@@ -12,6 +12,13 @@ class ScreenerRepository:
         # Use the default (read/write) config to match other connections.
         return duckdb.connect(self.db_path)
 
+    def _table_exists(self, conn: duckdb.DuckDBPyConnection, name: str) -> bool:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+            [name],
+        ).fetchone()
+        return bool(row and row[0])
+
     def fetch_screener_batch(
         self,
         daily_limit: int,
@@ -88,6 +95,23 @@ class ScreenerRepository:
             ).fetchall()
 
             return codes, meta_rows, daily_rows, monthly_rows, earnings_rows, rights_rows
+
+    def fetch_sector_map(self, codes: List[str]) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
+        if not codes:
+            return {}
+        with self._get_conn() as conn:
+            if not self._table_exists(conn, "industry_master"):
+                return {}
+            placeholders = ",".join(["?"] * len(codes))
+            rows = conn.execute(
+                f"""
+                SELECT code, sector33_code, sector33_name
+                FROM industry_master
+                WHERE code IN ({placeholders})
+                """,
+                codes,
+            ).fetchall()
+            return {row[0]: (row[1], row[2]) for row in rows}
 
     def fetch_daily_rows_for_codes(self, codes: List[str], as_of: int | None, limit: int) -> Dict[str, List[Tuple]]:
         if not codes:

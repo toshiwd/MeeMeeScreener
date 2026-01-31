@@ -290,6 +290,16 @@ async def import_trade_history(
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+
+@router.get("/api/debug/trade-sync")
+def trade_sync_debug():
+    try:
+        from app.backend.core.csv_sync import sync_trade_csvs
+        result = sync_trade_csvs()
+        return JSONResponse(content={"ok": True, "errors": [], **result})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"ok": False, "errors": [str(exc)]})
+
 @router.post("/api/positions/seed")
 def upsert_position_seed(payload: dict = Body(...)):
     symbol = _normalize_code(payload.get("symbol"))

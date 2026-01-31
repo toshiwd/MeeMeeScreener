@@ -148,11 +148,23 @@ DEBUG = os.getenv("DEBUG", "0") == "1"
 
 def resolve_trade_csv_paths() -> list[str]:
     paths: list[str] = []
+    preferred_names = (
+        "rakuten_trade_history.csv",
+        "sbi_trade_history.csv",
+        "楽天証券取引履歴.csv",
+        "SBI証券取引履歴.csv",
+    )
+    legacy_names = (
+        "????????.csv",
+        "SBI??????.csv",
+        "????????????????.csv",
+        "SBI????????????.csv",
+    )
     def _scan_dir(base: Path) -> None:
         if not base or not base.is_dir():
             return
         # Common filenames (preferred).
-        for filename in ("楽天証券取引履歴.csv", "SBI証券取引履歴.csv"):
+        for filename in (*preferred_names, *legacy_names):
             candidate = base / filename
             if candidate.exists():
                 paths.append(str(candidate))
@@ -164,9 +176,9 @@ def resolve_trade_csv_paths() -> list[str]:
                 if entry.suffix.lower() != ".csv":
                     continue
                 name = entry.name.lower()
-                if "取引履歴" not in entry.name and "trade" not in name:
+                if "????????" not in entry.name and "trade" not in name:
                     continue
-                if any(key in entry.name for key in ("楽天", "ＳＢＩ", "SBI")) or any(key in name for key in ("rakuten", "sbi")):
+                if any(key in entry.name for key in ("????", "??????", "SBI")) or any(key in name for key in ("rakuten", "sbi")):
                     paths.append(str(entry))
         except OSError:
             return
@@ -188,16 +200,14 @@ def resolve_trade_csv_paths() -> list[str]:
         paths.extend([os.path.abspath(part) for part in parts])
 
     # Old repo-local defaults (fallback)
-    default_rakuten = os.path.abspath(os.path.join(REPO_ROOT, "data", "楽天証券取引履歴.csv"))
-    default_sbi = os.path.abspath(os.path.join(REPO_ROOT, "data", "SBI証券取引履歴.csv"))
-    if os.path.isfile(default_rakuten):
-        paths.append(default_rakuten)
-    if os.path.isfile(default_sbi):
-        paths.append(default_sbi)
+    for filename in (*preferred_names, *legacy_names):
+        candidate = os.path.abspath(os.path.join(REPO_ROOT, "data", filename))
+        if os.path.isfile(candidate):
+            paths.append(candidate)
 
     unique_paths = list(set(paths))
     if not unique_paths and not paths:
-        unique_paths.append(str(config.DATA_DIR / "楽天証券取引履歴.csv"))
+        unique_paths.append(str(config.DATA_DIR / preferred_names[0]))
     return unique_paths
 
 
@@ -214,6 +224,8 @@ def canonical_trade_csv_path(broker: str) -> str:
     if broker == "sbi":
         return str(base_dir / "SBI証券取引履歴.csv")
     return str(base_dir / "楽天証券取引履歴.csv")
+
+
 
 
 def resolve_pan_out_txt_dir() -> str:

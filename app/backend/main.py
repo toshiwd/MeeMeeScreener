@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -34,6 +35,59 @@ job_manager.register_handler("force_sync", handle_force_sync)
 job_manager.register_handler("txt_update", handle_txt_update)
 
 STATIC_DIR = os.path.abspath(os.getenv("STATIC_DIR") or os.path.join(os.path.dirname(__file__), "static"))
+_RESOLVED_PATHS_LOGGED = False
+
+
+def _resolve_backend_log_path() -> Path:
+    data_dir = os.getenv("MEEMEE_DATA_DIR")
+    if data_dir:
+        log_dir = Path(data_dir) / "logs"
+    else:
+        log_dir = _repo_root / "data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / "backend.log"
+
+
+def _log_resolved_paths_once() -> None:
+    global _RESOLVED_PATHS_LOGGED
+    if _RESOLVED_PATHS_LOGGED:
+        return
+    _RESOLVED_PATHS_LOGGED = True
+    exe_dir = os.path.dirname(sys.executable)
+    cwd = os.getcwd()
+    app_env = os.getenv("APP_ENV", "")
+    data_dir = os.getenv("MEEMEE_DATA_DIR", "")
+    data_store = os.getenv("MEEMEE_DATA_STORE", "")
+    db_path = os.getenv("STOCKS_DB_PATH", "")
+    auto_update_enabled = os.getenv("MEEMEE_ENABLE_AUTO_UPDATE", "").lower() in ("1", "true", "yes", "on")
+    print(
+        "[backend] Resolved paths:"
+        f" exe_dir={exe_dir}"
+        f" cwd={cwd}"
+        f" APP_ENV={app_env}"
+        f" MEEMEE_DATA_DIR={data_dir}"
+        f" MEEMEE_DATA_STORE={data_store}"
+        f" STOCKS_DB_PATH={db_path}"
+        f" auto_update_enabled={auto_update_enabled}"
+    )
+
+
+def _install_excepthook() -> None:
+    log_path = _resolve_backend_log_path()
+
+    def _hook(exctype, value, tb):
+        try:
+            with open(log_path, "a", encoding="utf-8") as handle:
+                handle.write("".join(traceback.format_exception(exctype, value, tb)))
+        except Exception:
+            pass
+        sys.__excepthook__(exctype, value, tb)
+
+    sys.excepthook = _hook
+
+
+_install_excepthook()
+_log_resolved_paths_once()
 
 def _cleanup_stale_jobs() -> None:
     cleanup_stale_jobs()

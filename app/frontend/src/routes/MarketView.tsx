@@ -17,7 +17,7 @@ export default function MarketView() {
           </div>
         </div>
       </div>
-      <main style={{ padding: "16px 24px 32px" }}>
+      <main className="market-main">
         <SectorHeatmap />
       </main>
     </div>

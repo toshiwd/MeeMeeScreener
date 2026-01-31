@@ -11,7 +11,7 @@ def get_daily_memo(symbol: str, date: str, timeframe: str = "D"):
         row = conn.execute(
             """
             SELECT memo, updated_at
-            FROM daily_memo
+            FROM daily_memos
             WHERE symbol = ? AND date = ? AND timeframe = ?
             """,
             [normalized_symbol, date, timeframe]
@@ -38,7 +38,7 @@ def list_daily_memo(symbol: str, timeframe: str = "D"):
         rows = conn.execute(
             """
             SELECT date, memo
-            FROM daily_memo
+            FROM daily_memos
             WHERE symbol = ? AND timeframe = ?
             ORDER BY date
             """,
@@ -71,7 +71,7 @@ def save_daily_memo(payload: dict = Body(...)):
             # Delete if memo is empty
             conn.execute(
                 """
-                DELETE FROM daily_memo
+                DELETE FROM daily_memos
                 WHERE symbol = ? AND date = ? AND timeframe = ?
                 """,
                 [symbol, date, timeframe]
@@ -81,7 +81,7 @@ def save_daily_memo(payload: dict = Body(...)):
             # Upsert memo
             conn.execute(
                 """
-                INSERT INTO daily_memo (symbol, date, timeframe, memo, created_at, updated_at)
+                INSERT INTO daily_memos (symbol, date, timeframe, memo, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (symbol, date, timeframe) DO UPDATE SET
                     memo = excluded.memo,
@@ -105,7 +105,7 @@ def delete_daily_memo(symbol: str, date: str, timeframe: str = "D"):
     with get_conn() as conn:
         cursor = conn.execute(
             """
-            DELETE FROM daily_memo
+                DELETE FROM daily_memos
             WHERE symbol = ? AND date = ? AND timeframe = ?
             """,
             [normalized_symbol, date, timeframe]
