@@ -585,16 +585,7 @@ export default function PositionsView() {
         densityKey={densityKey}
         signals={signals}
         onOpenDetail={handleOpenDetail}
-        action={"round_id" in item ? {
-          label: "履歴",
-          ariaLabel: "取引履歴",
-          className: "favorite-toggle",
-          onClick: () => {
-            // e is likely not passed, so we cannot stopPropagation.
-            // Rely on parent handling or acceptable behavior.
-            setSelectedRound(item as HistoryItem);
-          }
-        } : undefined}
+        action={undefined}
       />
     );
   };

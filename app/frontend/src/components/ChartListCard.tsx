@@ -45,12 +45,21 @@ type ChartListCardProps = {
   onOpenDetail: (code: string) => void;
   signals?: SignalChip[];
   action?: ActionConfig | null;
+  maxDate?: string | null;
 };
 
 const normalizeDateParts = (year: number, month: number, day: number) => {
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
   if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return null;
   return Math.floor(Date.UTC(year, month - 1, day) / 1000);
+};
+
+const parseMaxDate = (value: string | null | undefined): number | null => {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  // Use UTC midnight for comparison
+  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 1000);
 };
 
 const normalizeTime = (value: unknown) => {
@@ -249,7 +258,8 @@ const ChartListCard = memo(function ChartListCard({
   densityKey,
   onOpenDetail,
   signals,
-  action
+  action,
+  maxDate
 }: ChartListCardProps) {
   const { ref, inView } = useInView(deferUntilInView, rootMargin);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
@@ -261,16 +271,30 @@ const ChartListCard = memo(function ChartListCard({
     () => (payload?.bars?.length ? payload.bars : fallbackSeries ?? []),
     [payload, fallbackSeries]
   );
+
+  const maxTime = useMemo(() => parseMaxDate(maxDate), [maxDate]);
+
   const candlesAll = useMemo(() => buildCandles(rows), [rows]);
   const volumeAll = useMemo(() => buildVolume(rows), [rows]);
+
   const candles = useMemo(() => {
-    if (!rangeBars || rangeBars <= 0) return candlesAll;
-    return candlesAll.slice(-rangeBars);
-  }, [candlesAll, rangeBars]);
+    let filtered = candlesAll;
+    if (maxTime !== null) {
+      filtered = filtered.filter((c) => c.time <= maxTime);
+    }
+    if (!rangeBars || rangeBars <= 0) return filtered;
+    return filtered.slice(-rangeBars);
+  }, [candlesAll, rangeBars, maxTime]);
+
   const volume = useMemo(() => {
-    if (!rangeBars || rangeBars <= 0) return volumeAll;
-    return volumeAll.slice(-rangeBars);
-  }, [volumeAll, rangeBars]);
+    let filtered = volumeAll;
+    if (maxTime !== null) {
+      filtered = filtered.filter((v) => v.time <= maxTime);
+    }
+    if (!rangeBars || rangeBars <= 0) return filtered;
+    return filtered.slice(-rangeBars);
+  }, [volumeAll, rangeBars, maxTime]);
+
   const maLines = useMemo(
     () =>
       maSettings.map((setting) => ({
@@ -327,8 +351,8 @@ const ChartListCard = memo(function ChartListCard({
     status === "error"
       ? "読み込み失敗"
       : status === "empty"
-      ? "データなし"
-      : "読み込み中...";
+        ? "データなし"
+        : "読み込み中...";
 
   return (
     <div

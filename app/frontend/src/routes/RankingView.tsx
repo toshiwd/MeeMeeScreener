@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+﻿﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
@@ -21,16 +21,18 @@ import { downloadChartScreenshots } from "../utils/chartScreenshot";
 type RankItem = {
   code: string;
   name?: string;
-  total_score?: number;
-  badges?: string[];
+  changePct?: number | null;
+  changeAbs?: number | null;
+  asOf?: string | null;
+  close?: number | null;
+  prevClose?: number | null;
+  liquidity20d?: number | null;
   series?: number[][];
   is_favorite?: boolean;
 };
 
-type RankResponse = {
-  items?: RankItem[];
-  errors?: string[];
-};
+type RankTimeframe = "D" | "W" | "M";
+type RankWhich = "latest" | "prev";
 
 
 const RANK_MA_SETTINGS: MaSetting[] = [
@@ -65,6 +67,8 @@ export default function RankingView() {
   const favorites = useStore((state) => state.favorites);
 
   const [dir, setDir] = useState<"up" | "down">("up");
+  // const [rankTimeframe, setRankTimeframe] = useState<RankTimeframe>("D"); // REMOVED
+  const [rankWhich, setRankWhich] = useState<RankWhich>("latest");
   const [items, setItems] = useState<RankItem[]>([]);
   const [search, setSearch] = useState("");
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
@@ -84,6 +88,7 @@ export default function RankingView() {
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
+  const rankTileLogRef = useRef<Map<string, string>>(new Map());
   const consultPaddingClass = consultVisible
     ? consultExpanded
       ? "consult-padding-expanded"
@@ -110,6 +115,37 @@ export default function RankingView() {
         : maSettings.monthly;
 
   const resolvedMaSettings = listMaSettings ?? RANK_MA_SETTINGS;
+
+  // Map generic timeframe to single char for API and labels
+  const tfChar = useMemo(() => {
+    switch (listTimeframe) {
+      case "weekly": return "W";
+      case "monthly": return "M";
+      default: return "D";
+    }
+  }, [listTimeframe]);
+
+  /*
+  const timeframeButtons = useMemo(
+    () => [
+      { key: "D" as RankTimeframe, label: "日足" },
+      { key: "W" as RankTimeframe, label: "週足" },
+      { key: "M" as RankTimeframe, label: "月足" }
+    ],
+    []
+  );
+  */
+
+  const whichLabelMap = useMemo(
+    () => ({
+      D: { latest: "当日", prev: "前日" },
+      W: { latest: "今週", prev: "前週" },
+      M: { latest: "今月", prev: "前月" }
+    }),
+    []
+  );
+  // Decoupling: rankTimeframe and listTimeframe are now independent.
+  // The user can view Weekly Ranking while looking at Daily Charts, for example.
 
   const sortOptions = useMemo(
     () => [
@@ -138,25 +174,38 @@ export default function RankingView() {
   );
 
   const fallbackItems = useMemo(() => {
+    const normalizeBars = (bars: number[][]) => {
+      if (bars.length < 2) return bars;
+      return Number(bars[0]?.[0]) > Number(bars[bars.length - 1]?.[0]) ? [...bars].reverse() : bars;
+    };
+    const resolveChange = (bars: number[][]) => {
+      const normalized = normalizeBars(bars);
+      if (normalized.length < 3 && rankWhich === "prev") return { changePct: null, changeAbs: null };
+      if (normalized.length < 2) return { changePct: null, changeAbs: null };
+      const tIndex = rankWhich === "latest" ? normalized.length - 1 : normalized.length - 2;
+      const prevIndex = rankWhich === "latest" ? normalized.length - 2 : normalized.length - 3;
+      const close = Number(normalized[tIndex]?.[4]);
+      const prevClose = Number(normalized[prevIndex]?.[4]);
+      if (!Number.isFinite(close) || !Number.isFinite(prevClose) || prevClose === 0) {
+        return { changePct: null, changeAbs: null };
+      }
+      const changeAbs = close - prevClose;
+      return { changePct: changeAbs / prevClose, changeAbs };
+    };
     const list = tickers.map((ticker) => {
-      const scoreValue =
-        Number.isFinite(ticker.score ?? NaN) && ticker.score != null ? ticker.score : 0;
+      const payload = barsCache[listTimeframe]?.[ticker.code] ?? null;
+      const series = payload?.bars ?? [];
+      const change = resolveChange(series);
       return {
         code: ticker.code,
         name: ticker.name ?? ticker.code,
-        total_score: scoreValue,
+        changePct: change.changePct,
+        changeAbs: change.changeAbs,
         is_favorite: favorites.includes(ticker.code)
       };
     });
-    return [...list]
-      .sort((a, b) => {
-        if (dir === "up") {
-          return b.total_score - a.total_score;
-        }
-        return a.total_score - b.total_score;
-      })
-      .slice(0, 50);
-  }, [tickers, favorites, dir]);
+    return list;
+  }, [tickers, favorites, barsCache, listTimeframe, rankWhich]);
 
   const searchResults = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -193,7 +242,29 @@ export default function RankingView() {
       return true;
     });
   }, [searchResults, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
-  const listCodes = useMemo(() => filteredItems.map((item) => item.code), [filteredItems]);
+  const sortedItems = useMemo(() => {
+    const list = [...filteredItems];
+    const getLiquidity = (item: RankItem) =>
+      Number.isFinite(item.liquidity20d ?? NaN) ? (item.liquidity20d as number) : -1;
+    list.sort((a, b) => {
+      const aChange = Number.isFinite(a.changePct ?? NaN) ? (a.changePct as number) : null;
+      const bChange = Number.isFinite(b.changePct ?? NaN) ? (b.changePct as number) : null;
+      const aMissing = aChange == null;
+      const bMissing = bChange == null;
+      if (aMissing && bMissing) return a.code.localeCompare(b.code, "ja");
+      if (aMissing) return 1;
+      if (bMissing) return -1;
+      if (aChange !== bChange) {
+        return dir === "up" ? bChange - aChange : aChange - bChange;
+      }
+      const aLiq = getLiquidity(a);
+      const bLiq = getLiquidity(b);
+      if (aLiq !== bLiq) return bLiq - aLiq;
+      return a.code.localeCompare(b.code, "ja");
+    });
+    return list;
+  }, [filteredItems, dir]);
+  const listCodes = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
   const densityKey = `${listColumns}x${listRows}`;
 
   useEffect(() => {
@@ -212,10 +283,26 @@ export default function RankingView() {
     setErrorMessage(null);
     setUseFallback(false);
     api
-      .get("/grid/ranking", { params: { limit: 50 } })
+      .get("/rankings", { params: { tf: tfChar, which: rankWhich, dir, limit: 50 } })
       .then((res) => {
-        const payload = res.data as { up?: RankItem[]; down?: RankItem[]; errors?: string[] };
-        const list = Array.isArray(payload[dir]) ? payload[dir] : [];
+        const payload = res.data as { items?: RankItem[]; errors?: string[] };
+        const list = Array.isArray(payload.items) ? payload.items : [];
+        try {
+          const hasAsOf = list.some((item) => Boolean(item.asOf));
+          console.log(
+            JSON.stringify({
+              tag: "rank_api_response",
+              tf: tfChar,
+              which: rankWhich,
+              dir,
+              items: list.length,
+              has_asOf: hasAsOf,
+              sample: list.slice(0, 3).map((item) => ({ code: item.code, asOf: item.asOf })),
+            })
+          );
+        } catch {
+          // ignore debug log errors
+        }
         setItems(list);
         setUseFallback(false);
         if (payload.errors?.length) {
@@ -228,17 +315,48 @@ export default function RankingView() {
         setErrorMessage("ランキングの取得に失敗しました。簡易データを表示しています。");
       })
       .finally(() => setLoading(false));
-  }, [backendReady, dir]);
+  }, [backendReady, dir, tfChar, rankWhich, fallbackItems]);
 
   useEffect(() => {
     if (!backendReady) return;
-    if (!searchResults.length) return;
+    if (!sortedItems.length) return;
     ensureBarsForVisible(
       listTimeframe,
-      searchResults.map((item) => item.code),
+      sortedItems.map((item) => item.code),
       "ranking"
     );
-  }, [backendReady, ensureBarsForVisible, searchResults, listTimeframe]);
+  }, [backendReady, ensureBarsForVisible, sortedItems, listTimeframe]);
+
+  useEffect(() => {
+    if (!sortedItems.length) return;
+    const logs: Array<Record<string, unknown>> = [];
+    sortedItems.forEach((item) => {
+      const payload = barsCache[listTimeframe]?.[item.code] ?? null;
+      const series = payload?.bars ?? item.series ?? [];
+      if (!series.length) return;
+      const dtMin = series[0]?.[0] ?? null;
+      const dtMax = series[series.length - 1]?.[0] ?? null;
+      const label = formatAsOf(item.asOf);
+      const signature = `${dtMin}|${dtMax}|${series.length}|${label}|${item.asOf ?? ""}`;
+      const prevSignature = rankTileLogRef.current.get(item.code);
+      if (prevSignature === signature) return;
+      rankTileLogRef.current.set(item.code, signature);
+      const recentDt = series.slice(-3).map((bar) => bar?.[0] ?? null);
+      logs.push({
+        tag: "rank_tile_data",
+        code: item.code,
+        timeframe: listTimeframe,
+        dt_min: dtMin,
+        dt_max: dtMax,
+        len: series.length,
+        right_dt: dtMax,
+        label,
+        anchor_date: item.asOf ?? null,
+        recent_dt: recentDt,
+      });
+    });
+    logs.forEach((entry) => console.log(JSON.stringify(entry)));
+  }, [sortedItems, barsCache, listTimeframe]);
 
   useEffect(() => {
     if (!useFallback) return;
@@ -417,12 +535,17 @@ export default function RankingView() {
 
   const showSkeleton = backendReady && loading && items.length === 0;
   const emptyLabel =
-    !loading && backendReady && filteredItems.length === 0 && !errorMessage
+    !loading && backendReady && sortedItems.length === 0 && !errorMessage
       ? search.trim() || filterSignalsOnly || filterDataOnly
         ? "該当する銘柄がありません。"
         : "ランキングがありません。"
       : null;
   const isSingleDensity = listColumns === 1 && listRows === 1;
+  const formatPct = (value?: number | null) => {
+    if (!Number.isFinite(value ?? NaN)) return "--";
+    return `${((value ?? 0) * 100).toFixed(2)}%`;
+  };
+  const formatAsOf = (value?: string | null) => value ?? "--";
 
   return (
     <div className="app-shell list-view">
@@ -449,6 +572,43 @@ export default function RankingView() {
         }}
       />
       <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "8px",
+          alignItems: "center",
+          padding: "6px 16px",
+          borderBottom: "1px solid var(--theme-border)",
+          background: "var(--theme-bg-secondary)"
+        }}
+      >
+        {/* Timeframe buttons removed: Using Global Header Timeframe */}
+        <div className="segmented segmented-compact">
+          {(["latest", "prev"] as RankWhich[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={rankWhich === key ? "active" : ""}
+              onClick={() => setRankWhich(key)}
+            >
+              {whichLabelMap[tfChar][key]}
+            </button>
+          ))}
+        </div>
+        <div className="segmented segmented-compact">
+          {(["up", "down"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={dir === key ? "active" : ""}
+              onClick={() => setDir(key)}
+            >
+              {key === "up" ? "上昇" : "下落"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div
         className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
       >
@@ -468,7 +628,7 @@ export default function RankingView() {
             {errorMessage && <div className="rank-status">{errorMessage}</div>}
             {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
             <div className="rank-grid">
-              {filteredItems.map((item, index) => {
+              {sortedItems.map((item, index) => {
                 const payload = barsCache[listTimeframe]?.[item.code] ?? null;
                 const status = barsStatus[listTimeframe][item.code];
                 const series =
@@ -491,6 +651,7 @@ export default function RankingView() {
                     onOpenDetail={handleOpenDetail}
                     tileClassName={selectedSet.has(item.code) ? "is-selected" : ""}
                     deferUntilInView
+                    maxDate={item.asOf}
                     headerLeft={
                       <>
                         <span className="rank-badge">{index + 1}</span>
@@ -527,8 +688,9 @@ export default function RankingView() {
                     headerRight={
                       <>
                         <span className="rank-score-badge">
-                          スコア {Number.isFinite(item.total_score ?? NaN) ? item.total_score?.toFixed(1) : "--"}
+                          騰落率 {formatPct(item.changePct)}
                         </span>
+                        <span className="rank-score-badge">日付 {formatAsOf(item.asOf)}</span>
                         <button
                           type="button"
                           className={`favorite-toggle ${item.is_favorite ? "active" : ""}`}

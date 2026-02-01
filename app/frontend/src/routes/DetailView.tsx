@@ -112,6 +112,7 @@ const DAILY_ROW_RATIO = 12 / 16;
 const DEFAULT_WEEKLY_RATIO = 3 / 4;
 const MIN_WEEKLY_RATIO = 0.2;
 const MIN_MONTHLY_RATIO = 0.1;
+const MAX_EVENT_OFFSET_SEC = 3 * 24 * 60 * 60;
 
 const normalizeDateParts = (year: number, month: number, day: number) => {
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
@@ -378,6 +379,27 @@ const countInRange = (candles: Candle[], months: number | null) => {
   return candles.filter((c) => c.time >= range.from && c.time <= range.to).length;
 };
 
+const findNearestCandleTime = (candles: Candle[], time: number) => {
+  if (!candles.length) return null;
+  let left = 0;
+  let right = candles.length - 1;
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    const midTime = candles[mid].time;
+    if (midTime === time) return midTime;
+    if (midTime < time) {
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+  const lower = candles[Math.max(0, Math.min(candles.length - 1, right))];
+  const upper = candles[Math.max(0, Math.min(candles.length - 1, left))];
+  if (!lower) return upper?.time ?? null;
+  if (!upper) return lower.time;
+  return Math.abs(time - lower.time) <= Math.abs(upper.time - time) ? lower.time : upper.time;
+};
+
 export default function DetailView() {
   const { code } = useParams();
   const location = useLocation();
@@ -393,6 +415,8 @@ export default function DetailView() {
   const hoverTimeRef = useRef<number | null>(null);
   const hoverTimePendingRef = useRef<number | null>(null);
   const hoverRafRef = useRef<number | null>(null);
+  const manualDailyRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const manualMonthlyRangeRef = useRef<{ from: number; to: number } | null>(null);
 
   const tickers = useStore((state) => state.tickers);
   const loadList = useStore((state) => state.loadList);
@@ -505,6 +529,7 @@ export default function DetailView() {
   const [compareDailyErrors, setCompareDailyErrors] = useState<string[]>([]);
   const [compareDailyLoading, setCompareDailyLoading] = useState(false);
   const [compareDailyLimit, setCompareDailyLimit] = useState(DEFAULT_LIMITS.daily);
+  const detailChartLogRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (compareCode) return;
@@ -773,8 +798,57 @@ export default function DetailView() {
   const compareDailyVolume = useMemo(() => buildVolume(compareDailyData), [compareDailyData]);
   const weeklyData = useMemo(() => buildWeekly(dailyCandles, dailyVolume), [dailyCandles, dailyVolume]);
 
+  useEffect(() => {
+    if (!monthlyCandles.length || !code) return;
+    const dtMin = monthlyCandles[0].time;
+    const dtMax = monthlyCandles[monthlyCandles.length - 1].time;
+    const payload = {
+      tag: "detail_monthly_chart",
+      code,
+      dt_min: dtMin,
+      dt_max: dtMax,
+      len: monthlyCandles.length,
+      right_dt: dtMax
+    };
+    const signature = JSON.stringify(payload);
+    if (detailChartLogRef.current === signature) return;
+    detailChartLogRef.current = signature;
+    console.log(signature);
+  }, [monthlyCandles, code]);
+
+  const dailyEventMarkers = useMemo(() => {
+    const eventMs = parseEventDateMs(activeTicker?.eventEarningsDate);
+    if (eventMs == null || dailyCandles.length === 0) return [];
+    const eventTime = Math.floor(eventMs / 1000);
+    const nearestTime = findNearestCandleTime(dailyCandles, eventTime);
+    if (nearestTime == null) return [];
+    if (Math.abs(nearestTime - eventTime) > MAX_EVENT_OFFSET_SEC) return [];
+    return [{ time: nearestTime, kind: "earnings", label: "E" }];
+  }, [activeTicker?.eventEarningsDate, dailyCandles]);
+
   const weeklyCandles = weeklyData.candles;
   const weeklyVolume = weeklyData.volume;
+  useEffect(() => {
+    if (!code) return;
+    if (!monthlyCandles.length) return;
+    const dtMin = monthlyCandles[0]?.time ?? null;
+    const dtMax = monthlyCandles[monthlyCandles.length - 1]?.time ?? null;
+    const signature = `${code}|${dtMin}|${dtMax}|${monthlyCandles.length}|${mainAsOf ?? ""}|${compareAsOf ?? ""}`;
+    if (detailChartLogRef.current === signature) return;
+    detailChartLogRef.current = signature;
+    console.log(
+      JSON.stringify({
+        tag: "detail_monthly_chart",
+        code,
+        dt_min: dtMin,
+        dt_max: dtMax,
+        len: monthlyCandles.length,
+        right_dt: dtMax,
+        mainAsOf: mainAsOf ?? null,
+        compareAsOf: compareAsOf ?? null,
+      })
+    );
+  }, [code, monthlyCandles, mainAsOf, compareAsOf]);
   const dailySignalBars = useMemo(
     () => dailyCandles.map((candle) => [candle.time, candle.open, candle.high, candle.low, candle.close]),
     [dailyCandles]
@@ -1188,10 +1262,10 @@ export default function DetailView() {
   const autoPanToBar = (time: number) => {
     if (!dailyChartRef.current) return;
 
-    // Get current visible range from dailyVisibleRange
-    if (!dailyVisibleRange) return;
+    // Get current visible range from resolvedDailyVisibleRange
+    if (!resolvedDailyVisibleRange) return;
 
-    const { from, to } = dailyVisibleRange;
+    const { from, to } = resolvedDailyVisibleRange;
     const rangeSize = to - from;
     const margin = rangeSize * 0.1; // 10% margin
 
@@ -1477,6 +1551,8 @@ export default function DetailView() {
     }
     return buildRange(monthlyCandles, rangeMonths);
   }, [monthlyCandles, rangeMonths, mainAsOfTime]);
+  const resolvedDailyVisibleRange = rangeMonths ? dailyVisibleRange : manualDailyRangeRef.current;
+  const resolvedMonthlyVisibleRange = rangeMonths ? monthlyVisibleRange : manualMonthlyRangeRef.current;
   const compareMonthlyVisibleRange = useMemo(() => {
     if (compareMonthlyTargetRange) return compareMonthlyTargetRange;
     return buildRange(compareMonthlyCandles, 24);
@@ -1700,19 +1776,40 @@ export default function DetailView() {
 
   const showVolumeDaily = dailyVolume.length > 0;
 
-  const loadMoreDaily = () => {
-    setDailyLimit((prev) => prev + LIMIT_STEP.daily);
+  const handleDailyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+    mainSync.handleDailyVisibleRangeChange(range);
+    if (!rangeMonths && range) {
+      manualDailyRangeRef.current = range;
+    }
   };
 
-  const loadMoreMonthly = () => {
-    setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly);
+  const handleMonthlyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+    if (!rangeMonths && range) {
+      manualMonthlyRangeRef.current = range;
+    }
   };
+
+  const loadMoreDailyAndMonthly = () => {
+    if (hasMoreDaily) {
+      setDailyLimit((prev) => prev + LIMIT_STEP.daily);
+    }
+    if (hasMoreMonthly) {
+      setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly);
+    }
+  };
+  const loadMoreDisabled = loadingDaily || loadingMonthly || (!hasMoreDaily && !hasMoreMonthly);
+  const loadMoreLabel =
+    loadingDaily || loadingMonthly
+      ? "Loading..."
+      : hasMoreDaily || hasMoreMonthly
+        ? "Load more daily/monthly"
+        : "All loaded";
 
   const toggleRange = (months: number) => {
     setRangeMonths((prev) => (prev === months ? null : months));
   };
 
-  // Removed syncRangeToSecondary and handleDailyVisibleRangeChange (handled by hook)
+  // Visible range sync is handled by hook; wrapper keeps manual range for load-more.
 
   const parseBarsResponse = (payload: BarsResponse | number[][], label: string) => {
     if (Array.isArray(payload)) {
@@ -1957,12 +2054,12 @@ export default function DetailView() {
     if (index < 0) return null;
     return compareListItems[index + 1] ?? null;
   }, [compareListEligible, compareListItems, compareCode, compareAsOf]);
-    const nextCode = useMemo(() => {
-      if (!code) return null;
-      const index = listCodes.indexOf(code);
-      if (index < 0) return null;
-      return listCodes[index + 1] ?? null;
-    }, [listCodes, code]);
+  const nextCode = useMemo(() => {
+    if (!code) return null;
+    const index = listCodes.indexOf(code);
+    if (index < 0) return null;
+    return listCodes[index + 1] ?? null;
+  }, [listCodes, code]);
 
 
   return (
@@ -2031,10 +2128,10 @@ export default function DetailView() {
                 <IconArrowRight size={16} />
               </span>
               <span className="nav-label">次の銘柄</span>
-              </button>
-            </div>
+            </button>
           </div>
-          <div className="detail-controls detail-header-toolbar">
+        </div>
+        <div className="detail-controls detail-header-toolbar">
           <div className="detail-controls-group">
             <button
               className="indicator-button is-primary"
@@ -2364,6 +2461,7 @@ export default function DetailView() {
                       showBoxes={showBoxes}
                       visibleRange={monthlyCandles.length ? compareMonthlyBaseRange : null}
                       onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "left")}
+                      onVisibleRangeChange={handleMonthlyVisibleRangeChange}
                     />
                     {monthlyEmptyMessage && (
                       <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
@@ -2410,9 +2508,10 @@ export default function DetailView() {
                       volume={dailyVolume}
                       maLines={dailyMaLines}
                       showVolume={showVolumeDaily}
+                      eventMarkers={dailyEventMarkers}
                       boxes={boxes}
                       showBoxes={showBoxes}
-                      visibleRange={dailyCandles.length ? dailyVisibleRange : null}
+                      visibleRange={dailyCandles.length ? resolvedDailyVisibleRange : null}
                       positionOverlay={{
                         dailyPositions,
                         tradeMarkers,
@@ -2424,7 +2523,7 @@ export default function DetailView() {
                         latestTradeTime
                       }}
                       onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "left")}
-                      onVisibleRangeChange={mainSync.handleDailyVisibleRangeChange}
+                      onVisibleRangeChange={handleDailyVisibleRangeChange}
                     />
                     {dailyEmptyMessage && (
                       <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
@@ -2485,9 +2584,10 @@ export default function DetailView() {
                     volume={dailyVolume}
                     maLines={dailyMaLines}
                     showVolume={showVolumeDaily}
+                    eventMarkers={dailyEventMarkers}
                     boxes={boxes}
                     showBoxes={showBoxes}
-                    visibleRange={dailyVisibleRange}
+                    visibleRange={resolvedDailyVisibleRange}
                     positionOverlay={{
                       dailyPositions,
                       tradeMarkers,
@@ -2499,7 +2599,7 @@ export default function DetailView() {
                       latestTradeTime
                     }}
                     onCrosshairMove={handleDailyCrosshair}
-                    onVisibleRangeChange={mainSync.handleDailyVisibleRangeChange}
+                    onVisibleRangeChange={handleDailyVisibleRangeChange}
                   />
                 )}
                 {focusPanel === "weekly" && (
@@ -2534,7 +2634,7 @@ export default function DetailView() {
                     showVolume={false}
                     boxes={boxes}
                     showBoxes={showBoxes}
-                    visibleRange={monthlyVisibleRange}
+                    visibleRange={resolvedMonthlyVisibleRange}
                     positionOverlay={{
                       dailyPositions,
                       tradeMarkers,
@@ -2546,6 +2646,7 @@ export default function DetailView() {
                       latestTradeTime
                     }}
                     onCrosshairMove={handleMonthlyCrosshair}
+                    onVisibleRangeChange={handleMonthlyVisibleRangeChange}
                   />
                 )}
                 {focusPanel === "daily" && dailyEmptyMessage && (
@@ -2580,9 +2681,10 @@ export default function DetailView() {
                     volume={dailyVolume}
                     maLines={dailyMaLines}
                     showVolume={showVolumeDaily}
+                    eventMarkers={dailyEventMarkers}
                     boxes={boxes}
                     showBoxes={showBoxes}
-                    visibleRange={dailyVisibleRange}
+                    visibleRange={resolvedDailyVisibleRange}
                     positionOverlay={{
                       dailyPositions,
                       tradeMarkers,
@@ -2595,7 +2697,7 @@ export default function DetailView() {
                     }}
                     cursorTime={cursorMode && selectedBarData ? selectedBarData.time : null}
                     onCrosshairMove={handleDailyCrosshair}
-                    onVisibleRangeChange={mainSync.handleDailyVisibleRangeChange}
+                    onVisibleRangeChange={handleDailyVisibleRangeChange}
                     onChartClick={handleDailyChartClick}
                   />
                   {dailyEmptyMessage && (
@@ -2649,8 +2751,9 @@ export default function DetailView() {
                       showVolume={false}
                       boxes={boxes}
                       showBoxes={showBoxes}
-                      visibleRange={monthlyVisibleRange}
+                      visibleRange={resolvedMonthlyVisibleRange}
                       onCrosshairMove={handleMonthlyCrosshair}
+                      onVisibleRangeChange={handleMonthlyVisibleRangeChange}
                     />
                     {monthlyEmptyMessage && (
                       <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
@@ -2678,19 +2781,8 @@ export default function DetailView() {
       {!focusPanel && (
         <div className="detail-footer">
           <div className="detail-footer-left">
-            <button className="load-more" onClick={loadMoreDaily} disabled={loadingDaily || !hasMoreDaily}>
-              {loadingDaily ? "Loading daily..." : hasMoreDaily ? "Load more daily" : "Daily all loaded"}
-            </button>
-            <button
-              className="load-more"
-              onClick={loadMoreMonthly}
-              disabled={loadingMonthly || !hasMoreMonthly}
-            >
-              {loadingMonthly
-                ? "Loading monthly..."
-                : hasMoreMonthly
-                  ? "Load more monthly"
-                  : "Monthly all loaded"}
+            <button className="load-more" onClick={loadMoreDailyAndMonthly} disabled={loadMoreDisabled}>
+              {loadMoreLabel}
             </button>
           </div>
           <div className="detail-hint">

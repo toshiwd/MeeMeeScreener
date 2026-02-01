@@ -29,6 +29,12 @@ type MaLine = {
   lineWidth: number;
 };
 
+type EventMarker = {
+  time: number;
+  label?: string;
+  kind?: "earnings";
+};
+
 export type DetailChartHandle = {
   setVisibleRange: (range: { from: number; to: number } | null) => void;
   fitContent: () => void;
@@ -57,6 +63,7 @@ type DetailChartProps = {
     maLines?: MaLine[];
     hidePanel?: boolean;
   };
+  eventMarkers?: EventMarker[];
   cursorTime?: number | null;
   partialTimes?: number[];
   onCrosshairMove?: (time: number | null, point?: { x: number; y: number } | null) => void;
@@ -75,6 +82,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     showBoxes,
     visibleRange,
     positionOverlay,
+    eventMarkers,
     cursorTime,
     partialTimes,
     onCrosshairMove,
@@ -97,13 +105,22 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     candleSeries: any;
     chart: ReturnType<typeof createChart> | null;
   }>({ candleSeries: null, chart: null });
-  const dataRef = useRef({ candles, volume, maLines, showVolume, boxes, showBoxes, cursorTime });
+  const dataRef = useRef({
+    candles,
+    volume,
+    maLines,
+    showVolume,
+    boxes,
+    showBoxes,
+    cursorTime
+  });
   const visibleRangeRef = useRef<DetailChartProps["visibleRange"]>(visibleRange);
   const candlesRef = useRef<Candle[]>(candles);
   const boxesRef = useRef<Box[]>(boxes);
   const showBoxesRef = useRef(showBoxes);
   const cursorTimeRef = useRef<number | null>(cursorTime ?? null);
   const partialTimesRef = useRef<number[]>(partialTimes ?? []);
+  const eventMarkersRef = useRef<DetailChartProps["eventMarkers"]>(eventMarkers ?? []);
   const suppressCrosshairRef = useRef(false);
   const onCrosshairMoveRef = useRef<DetailChartProps["onCrosshairMove"]>(onCrosshairMove);
   const onVisibleRangeChangeRef = useRef<DetailChartProps["onVisibleRangeChange"]>(
@@ -122,7 +139,12 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     return {
       bg: pick("--theme-chart-bg", resolvedTheme === "light" ? "#ffffff" : "#0f1628"),
       text: pick("--theme-chart-text", resolvedTheme === "light" ? "#334155" : "#cbd5f5"),
-      grid: pick("--theme-chart-grid", resolvedTheme === "light" ? "#f1f5f9" : "rgba(255,255,255,0.06)")
+      grid: pick(
+        "--theme-chart-grid",
+        resolvedTheme === "light" ? "#f1f5f9" : "rgba(255,255,255,0.06)"
+      ),
+      muted: pick("--theme-text-muted", resolvedTheme === "light" ? "#94a3b8" : "#64748b"),
+      earnings: pick("--theme-event-earnings", "#ef4444")
     };
   };
 
@@ -241,6 +263,37 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
             ctx.strokeRect(rectX, rectY, rectW, rectH);
           });
         }
+      }
+    }
+
+    const eventMarkers = eventMarkersRef.current ?? [];
+    if (eventMarkers.length) {
+      const timeScale = chart.timeScale();
+      if (typeof timeScale.timeToCoordinate === "function") {
+        const colors = readChartColors();
+        const markerRadius = 3;
+        const markerY = Math.max(10, height - 14);
+        ctx.save();
+        ctx.font = "9px sans-serif";
+        ctx.textBaseline = "middle";
+        ctx.textAlign = "left";
+        eventMarkers.forEach((marker) => {
+          const x = timeScale.timeToCoordinate(marker.time as any);
+          if (x == null || !Number.isFinite(x)) return;
+          ctx.globalAlpha = 0.45;
+          ctx.fillStyle = colors.earnings;
+          ctx.strokeStyle = colors.earnings;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(x, markerY, markerRadius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 0.65;
+          ctx.stroke();
+          ctx.globalAlpha = 0.6;
+          ctx.fillStyle = colors.muted;
+          ctx.fillText(marker.label ?? "E", x + 6, markerY);
+        });
+        ctx.restore();
       }
     }
 
@@ -475,8 +528,19 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     showBoxesRef.current = showBoxes;
     cursorTimeRef.current = cursorTime ?? null;
     partialTimesRef.current = partialTimes ?? [];
+    eventMarkersRef.current = eventMarkers ?? [];
     applyData(dataRef.current);
-  }, [candles, volume, maLines, showVolume, boxes, showBoxes, cursorTime, partialTimes]);
+  }, [
+    candles,
+    volume,
+    maLines,
+    showVolume,
+    boxes,
+    showBoxes,
+    cursorTime,
+    partialTimes,
+    eventMarkers
+  ]);
 
   useEffect(() => {
     visibleRangeRef.current = visibleRange ?? null;

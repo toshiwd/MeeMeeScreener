@@ -27,6 +27,8 @@ from app.backend.api.routers import (
     market,
     memo,
 )
+from app.backend.api import watchlist_routes
+from app.backend.api.routers import rankings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -60,6 +62,12 @@ async def lifespan(app: FastAPI):
     
     init_resources(data_dir)
     print("[Main] Resources Initialized.")
+    try:
+        from app.backend.services import rankings_cache
+        rankings_cache.refresh_cache()
+        print("[main] Rankings cache refreshed.")
+    except Exception as exc:
+        print(f"[main] Rankings cache refresh failed: {exc}")
     yield
     # Shutdown
     print("[Main] Shutting down.")
@@ -90,6 +98,8 @@ def create_app() -> FastAPI:
     app.include_router(favorites.router)
     app.include_router(market.router)
     app.include_router(memo.router)
+    app.include_router(rankings.router)
+    app.include_router(watchlist_routes.router)
     app.include_router(spa.router)
 
     # Static Files (Frontend)

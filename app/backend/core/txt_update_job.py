@@ -184,14 +184,41 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         "txt_update",
         "success",
         message=f"{summary_line}. Export completed.",
-        progress=100,
-        finished_at=datetime.now(),
+        progress=70,
     )
+
+    # Run Ingest (Incremental)
+    job_manager._update_db(job_id, "txt_update", "running", message="Ingesting (Incremental)...", progress=85)
+    ingest_out, ingest_err, stats = run_ingest(incremental=True)
+    if ingest_err:
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "failed",
+            error="Ingest Failed",
+            message=f"Ingest Error: {ingest_err}",
+            finished_at=datetime.now(),
+        )
+        return
+
     _save_update_state(
         {
             "last_txt_update_at": datetime.now().isoformat(),
             "last_txt_update_date": datetime.now().date().isoformat(),
         }
+    )
+    try:
+        from app.backend.services import rankings_cache
+        rankings_cache.refresh_cache()
+    except Exception as exc:
+        print(f"[txt_update_job] ranking cache refresh failed: {exc}")
+    job_manager._update_db(
+        job_id,
+        "txt_update",
+        "success",
+        message=f"{summary_line}. Ingest completed.",
+        progress=100,
+        finished_at=datetime.now(),
     )
 
 

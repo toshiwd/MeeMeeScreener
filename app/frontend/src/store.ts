@@ -14,6 +14,8 @@ export type Ticker = {
   missingReasons?: string[] | null;
   scoreBreakdown?: Record<string, number> | null;
   dataStatus?: "missing" | null;
+  liquidity20d?: number | null;
+  atr14?: number | null;
   lastClose?: number | null;
   chg1D?: number | null;
   chg1W?: number | null;
@@ -39,11 +41,20 @@ export type Ticker = {
   breakoutMonth?: string | null;
   boxActive?: boolean;
   hasBox?: boolean;
+  // Buy Fields
   buyState?: string | null;
   buyStateRank?: number | null;
   buyStateScore?: number | null;
+  buyCandidateScore?: number | null;
+  buyEnvScore?: number | null;
+  buyTimingScore?: number | null;
+  buyRiskScore?: number | null;
   buyStateReason?: string | null;
-  buyRiskDistance?: number | null;
+  buyEligible?: boolean;
+  buySignalRecencyDays?: number | null;
+  buyRiskAtr?: number | null;
+  buyUpsideAtr?: number | null;
+  buyRiskDistance?: number | null; // legacy
   buyStateDetails?: {
     monthly?: number | null;
     weekly?: number | null;
@@ -58,13 +69,23 @@ export type Ticker = {
   statusLabel?: string;
   reasons?: string[];
   // Short-selling fields
-  shortScore?: number | null;
-  aScore?: number | null;
-  bScore?: number | null;
+  shortScore?: number | null; // legacy
+  shortCandidateScore?: number | null;
+  aScore?: number | null; // legacy
+  bScore?: number | null; // legacy
+  aCandidateScore?: number | null;
+  bCandidateScore?: number | null;
+  shortEligible?: boolean;
+  shortEnvScore?: number | null;
+  shortRiskScore?: number | null;
   shortType?: "A" | "B" | null;
   shortBadges?: string[];
   shortReasons?: string[];
-  shortProhibition?: "Z1" | "Z2" | "Z3" | null;
+  shortProhibitReason?: string | null;
+  sellStop?: number | null;
+  sellTarget?: number | null;
+  sellRiskAtr?: number | null;
+  sellDownsideAtr?: number | null;
   eventEarningsDate?: string | null;
   eventRightsDate?: string | null;
 };
@@ -179,6 +200,7 @@ type StoreState = {
   barsLoading: LoadingMap;
   barsStatus: StatusMap;
   loadingList: boolean;
+  backendReady: boolean;
   lastApiError: ApiErrorInfo | null;
   eventsMeta: EventsMeta | null;
   eventsMetaLoading: boolean;
@@ -849,6 +871,7 @@ export const useStore = create<StoreState>((set, get) => ({
   barsLoading: { monthly: {}, weekly: {}, daily: {} },
   barsStatus: { monthly: {}, weekly: {}, daily: {} },
   loadingList: false,
+  backendReady: false,
   lastApiError: null,
   eventsMeta: {
     earningsLastSuccessAt: null,
@@ -883,12 +906,12 @@ export const useStore = create<StoreState>((set, get) => ({
     showIndicators: false,
     sortKey: getInitialSortKey(),
     sortDir: getInitialSortDir(),
-    candidateSortKey: getInitialSortKey() === "buyCandidate" ? "buyCandidate" : "shortScore", // Basic default
+    candidateSortKey: "buyCandidate",
     basicSortKey: "code",
     basicSortDir: "asc",
-    performancePeriod: getInitialPerformancePeriod(),
-    sectorSortEnabled: getInitialSectorSortEnabled(),
-    sectorSortInnerKey: getInitialSectorSortInnerKey()
+    performancePeriod: "1M",
+    sectorSortEnabled: false,
+    sectorSortInnerKey: "code"
   },
   setLastApiError: (info) => set({ lastApiError: info }),
   loadFavorites: async () => {
@@ -969,6 +992,11 @@ export const useStore = create<StoreState>((set, get) => ({
       persistKeepList([]);
       return { keepList: [] };
     }),
+  replaceKeep: (codes) => {
+    persistKeepList(codes);
+    set({ keepList: codes });
+  },
+  setBackendReady: (ready) => set({ backendReady: ready }),
   loadList: async () => {
     if (get().loadingList) return;
     set({ loadingList: true });
@@ -1669,7 +1697,8 @@ export const useStore = create<StoreState>((set, get) => ({
     } finally {
       void get().loadEventsMeta();
     }
-  }
+  },
+
 }));
 
 setApiErrorReporter((info) => {

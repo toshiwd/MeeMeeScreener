@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import date
+from datetime import date, timedelta
 from typing import List, Tuple, Dict, Any, Optional
 
 import duckdb
@@ -72,16 +72,33 @@ class ScreenerRepository:
                 """
             ).fetchall()
 
-            # 5. Earnings
-            earnings_rows = conn.execute(
+            # 5. Earnings (prefer upcoming; fallback to recent past)
+            past_start = earnings_start - timedelta(days=180)
+            future_rows = conn.execute(
                 """
                 SELECT code, MIN(planned_date) AS planned_date
                 FROM earnings_planned
                 WHERE planned_date BETWEEN ? AND ?
                 GROUP BY code
                 """,
-                [earnings_start, earnings_end]
+                [earnings_start, earnings_end],
             ).fetchall()
+            past_rows = conn.execute(
+                """
+                SELECT code, MAX(planned_date) AS planned_date
+                FROM earnings_planned
+                WHERE planned_date BETWEEN ? AND ?
+                GROUP BY code
+                """,
+                [past_start, earnings_start],
+            ).fetchall()
+            future_map = {row[0]: row[1] for row in future_rows}
+            past_map = {row[0]: row[1] for row in past_rows}
+            earnings_rows = []
+            for code in set(future_map.keys()) | set(past_map.keys()):
+                planned_date = future_map.get(code) or past_map.get(code)
+                if planned_date:
+                    earnings_rows.append((code, planned_date))
 
             # 6. Rights
             rights_rows = conn.execute(

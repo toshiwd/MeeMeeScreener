@@ -53,7 +53,7 @@ import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
 const GRID_GAP = 12;
 const KEEP_LIMIT = 24;
 type Timeframe = "monthly" | "weekly" | "daily";
-type SortOption = { key: SortKey; label: string };
+type SortOption = { key: SortKey; label: string; fixedDirection?: SortDir };
 type SortSection = { title: string; options: SortOption[] };
 
 const rangeOptions = [
@@ -1559,7 +1559,10 @@ export default function GridView() {
                                 type="button"
                                 className={`popover-item ${sortKey === opt.key ? "active" : ""}`}
                                 onClick={() => {
-                                  if (sortKey === opt.key) {
+                                  if (opt.fixedDirection) {
+                                    setSortKey(opt.key);
+                                    setSortDir(opt.fixedDirection); // Use fixed direction
+                                  } else if (sortKey === opt.key) {
                                     setSortDir(sortDir === "asc" ? "desc" : "asc");
                                   } else {
                                     setSortKey(opt.key);
