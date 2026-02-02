@@ -20,7 +20,7 @@ type VolumePoint = {
 };
 
 type ActionConfig = {
-  label: string;
+  label: ReactNode;
   ariaLabel: string;
   className?: string;
   onClick: () => void;

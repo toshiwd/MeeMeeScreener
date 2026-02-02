@@ -163,8 +163,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   const BOX_FILL = getBoxFill();
   const BOX_STROKE = getBoxStroke();
   const CURSOR_STROKE = "rgba(148, 163, 184, 0.7)";
-  const PARTIAL_STROKE = "rgba(245, 158, 11, 0.7)";
-  const PARTIAL_LABEL = "Partial";
+  const PARTIAL_STROKE = "rgba(125, 211, 252, 0.75)";
+  const PARTIAL_LABEL = "";
 
   const normalizeRangeTime = (value: unknown) => {
     if (typeof value === "number") return value;
@@ -319,7 +319,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       if (typeof timeScale.timeToCoordinate === "function") {
         ctx.save();
         ctx.strokeStyle = PARTIAL_STROKE;
-        ctx.setLineDash([4, 4]);
+        ctx.setLineDash([]);
         ctx.lineWidth = 1;
         ctx.font = "11px sans-serif";
         partialTimes.forEach((time) => {
@@ -329,13 +329,15 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           ctx.moveTo(x, 0);
           ctx.lineTo(x, height);
           ctx.stroke();
-          const labelWidth = ctx.measureText(PARTIAL_LABEL).width;
-          const labelX = Math.max(4, x - labelWidth / 2 - 4);
-          const labelY = 6;
-          ctx.fillStyle = "rgba(15, 23, 42, 0.8)";
-          ctx.fillRect(labelX, labelY, labelWidth + 8, 14);
-          ctx.fillStyle = PARTIAL_STROKE;
-          ctx.fillText(PARTIAL_LABEL, labelX + 4, labelY + 11);
+          if (PARTIAL_LABEL) {
+            const labelWidth = ctx.measureText(PARTIAL_LABEL).width;
+            const labelX = Math.max(4, x - labelWidth / 2 - 4);
+            const labelY = 6;
+            ctx.fillStyle = "rgba(15, 23, 42, 0.8)";
+            ctx.fillRect(labelX, labelY, labelWidth + 8, 14);
+            ctx.fillStyle = PARTIAL_STROKE;
+            ctx.fillText(PARTIAL_LABEL, labelX + 4, labelY + 11);
+          }
         });
         ctx.restore();
       }

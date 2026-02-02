@@ -5,7 +5,8 @@ import uuid
 from datetime import datetime, timedelta
 
 from app.backend.db import get_conn
-from app.backend.events import fetch_earnings_snapshot, fetch_rights_snapshot, jst_now
+from app.backend.events import fetch_earnings_snapshot, fetch_rights_snapshot, fetch_industry_snapshot, jst_now
+from app.backend.infra.duckdb.industry_master import ensure_industry_master
 from app.services.screener_engine import _invalidate_screener_cache
 
 _events_refresh_lock = threading.Lock()
@@ -123,15 +124,20 @@ def _update_events_job(job_id: str, status: str, finished_at: datetime, error: s
 def _run_events_refresh(job_id: str, reason: str | None) -> None:
     earnings_rows: list[dict] = []
     rights_rows: list[dict] = []
+    industry_rows: list[dict] = []
     errors: list[str] = []
     finished_at = None
     error_text = None
+    
+    # 1. Earnings
     try:
         earnings_rows = fetch_earnings_snapshot()
         if not earnings_rows:
             errors.append("earnings:no_rows")
     except Exception as exc:
         errors.append(f"earnings:{exc}")
+        
+    # 2. Rights
     try:
         rights_rows = fetch_rights_snapshot()
         if not rights_rows:
@@ -139,12 +145,24 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
     except Exception as exc:
         errors.append(f"rights:{exc}")
 
+    # 3. Industry Master (Sector Data)
+    try:
+        industry_rows = fetch_industry_snapshot()
+        if not industry_rows:
+            errors.append("industry:no_rows")
+    except Exception as exc:
+        # Industry fetch failure isn't critical enough to stop others, but log it
+        errors.append(f"industry:{exc}")
+        
+
     try:
         finished_at = jst_now().replace(tzinfo=None)
         error_text = "; ".join(errors) if errors else None
 
         with get_conn() as conn:
             _ensure_events_meta_row(conn)
+            
+            # Update Earnings
             if earnings_rows:
                 conn.execute("DELETE FROM earnings_planned WHERE source = 'JPX'")
                 conn.executemany(
@@ -174,6 +192,8 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
                     "UPDATE events_meta SET earnings_last_success_at = ? WHERE id = 1",
                     [finished_at],
                 )
+                
+            # Update Rights
             if rights_rows:
                 conn.execute("DELETE FROM ex_rights WHERE source = 'JPX'")
                 conn.executemany(
@@ -205,6 +225,39 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
                     "UPDATE events_meta SET rights_last_success_at = ? WHERE id = 1",
                     [finished_at],
                 )
+
+            # Update Industry Master
+            if industry_rows:
+                # Ensure table exists first (safe to call repeatedly)
+                ensure_industry_master(conn)
+                
+                # Replace industry_master
+                conn.execute("DELETE FROM industry_master")
+                deduped = {}
+                for row in industry_rows:
+                    code = row.get("code")
+                    if not code:
+                        continue
+                    deduped[code] = row
+                conn.executemany(
+                    """
+                    INSERT INTO industry_master (code, name, sector33_code, sector33_name, market_code)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            row.get("code"),
+                            row.get("name"),
+                            row.get("sector33_code"),
+                            row.get("sector33_name"),
+                            row.get("market_code")
+                        )
+                        for row in deduped.values()
+                    ]
+                )
+                # We don't save industry_last_success_at in events_meta yet as schema change is risky/not strictly needed
+                # User will see 'success' status for the job if it works.
+
             conn.execute(
                 """
                 UPDATE events_meta
@@ -241,6 +294,7 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
 
     status = "success" if not error_text else "failed"
     _update_events_job(job_id, status, finished_at, error_text)
+
 
 
 def _start_events_refresh(reason: str | None) -> str:

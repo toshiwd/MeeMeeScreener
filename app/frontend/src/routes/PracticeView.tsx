@@ -8,6 +8,21 @@ import Toast from "../components/Toast";
 import { useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
 import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
+import {
+  IconArrowLeft,
+  IconArrowBackUp,
+  IconCamera,
+  IconFileDownload,
+  IconSparkles,
+  IconRefresh,
+  IconChevronLeft,
+  IconChevronRight,
+  IconBriefcase,
+  IconPlus,
+  IconPlayerStop,
+  IconChartArrows
+} from "@tabler/icons-react";
+import IconButton from "../components/IconButton";
 import { buildAIExport, copyToClipboard } from "../utils/aiExport";
 
 const PositionDonutChart = ({
@@ -1007,7 +1022,7 @@ export default function PracticeView() {
     if (!dailyBars.length) return;
     if (cursorTime == null) {
       const fallbackTime = sessionStartTime ?? dailyBars[dailyBars.length - 1].time;
-      const idx = resolveCursorIndex(dailyBars, fallbackTime);
+      const idx = resolveCursorIndex(dailyBars, fallbackTime) ?? 0;
       const nextTime = dailyBars[idx]?.time ?? dailyBars[dailyBars.length - 1].time;
       setCursorTime(nextTime);
       if (maxUnlockedTime == null) {
@@ -1015,13 +1030,13 @@ export default function PracticeView() {
       }
       return;
     }
-    const idx = resolveCursorIndex(dailyBars, cursorTime);
+    const idx = resolveCursorIndex(dailyBars, cursorTime) ?? 0;
     const resolved = dailyBars[idx]?.time;
     if (resolved != null && resolved != cursorTime) {
       setCursorTime(resolved);
     }
     if (maxUnlockedTime != null) {
-      const maxIdx = resolveCursorIndex(dailyBars, maxUnlockedTime);
+      const maxIdx = resolveCursorIndex(dailyBars, maxUnlockedTime) ?? 0;
       const resolvedMax = dailyBars[maxIdx]?.time;
       if (resolvedMax != null && resolvedMax != maxUnlockedTime) {
         setMaxUnlockedTime(resolvedMax);
@@ -2133,6 +2148,98 @@ export default function PracticeView() {
     syncCrosshair("daily", time);
   };
 
+  const handleAIExport = async () => {
+    const dailyMemos: Record<string, string> = {};
+    const dailyVolumeMap = new Map(dailyVolume.map((item) => [item.time, item.value]));
+    const weeklyVolumeCounts = new Map<number, number>();
+    dailyCandles.forEach((candle) => {
+      if (!dailyVolumeMap.has(candle.time)) return;
+      const date = new Date(candle.time * 1000);
+      const day = date.getUTCDay();
+      const diff = (day + 6) % 7;
+      const weekStart = Date.UTC(
+        date.getUTCFullYear(),
+        date.getUTCMonth(),
+        date.getUTCDate() - diff
+      );
+      const key = Math.floor(weekStart / 1000);
+      weeklyVolumeCounts.set(key, (weeklyVolumeCounts.get(key) ?? 0) + 1);
+    });
+    const weeklyVolumeMap = new Map<number, number | null>();
+    weeklyVolume.forEach((item) => {
+      const count = weeklyVolumeCounts.get(item.time) ?? 0;
+      weeklyVolumeMap.set(item.time, count > 0 ? item.value : null);
+    });
+    const monthlyVolumeSums = new Map<number, number>();
+    dailyCandles.forEach((candle) => {
+      const volume = dailyVolumeMap.get(candle.time);
+      if (volume == null || !Number.isFinite(volume)) return;
+      const date = new Date(candle.time * 1000);
+      const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+      const key = Math.floor(monthStart / 1000);
+      monthlyVolumeSums.set(key, (monthlyVolumeSums.get(key) ?? 0) + volume);
+    });
+    const monthlyVolumeMap = new Map<number, number>();
+    monthlyCandles.forEach((candle) => {
+      const sum = monthlyVolumeSums.get(candle.time);
+      monthlyVolumeMap.set(candle.time, Number.isFinite(sum) ? Math.round(sum ?? 0) : 0);
+    });
+    const exportData = buildAIExport({
+      code: code ?? "",
+      name: tickerName,
+      visibleTimeframe: "daily",
+      rangeMonths: rangeMonths,
+      dailyBars: dailyCandles.map((c) => ({
+        time: c.time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: dailyVolumeMap.get(c.time) ?? null
+      })),
+      weeklyBars: weeklyCandles.map((c) => ({
+        time: c.time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: weeklyVolumeMap.get(c.time) ?? null
+      })),
+      monthlyBars: monthlyCandles.map((c) => ({
+        time: c.time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: monthlyVolumeMap.get(c.time) ?? null
+      })),
+      maSettings,
+      signals: practiceSignals,
+      showBoxes: false,
+      showPositions: true,
+      boxes: [],
+      dailyMemos,
+      currentPositions: [
+        {
+          brokerKey: "practice",
+          brokerLabel: "practice",
+          longLots: positionSummary.longLots,
+          shortLots: positionSummary.shortLots,
+          avgLongPrice: positionSummary.avgLongPrice,
+          avgShortPrice: positionSummary.avgShortPrice,
+          realizedPnL: positionSummary.realizedPnL
+        }
+      ],
+      currentPrice: cursorCandle?.close ?? null
+    });
+    const copied = await copyToClipboard(exportData.markdown);
+    if (copied) {
+      setToastMessage("AI用銘柄情報をクリップボードにコピーしました");
+    } else {
+      setToastMessage("クリップボードへのコピーに失敗しました");
+    }
+  };
+
   const dailyEmptyMessage = dailyCandles.length === 0 ? dailyErrors[0] ?? "No data" : null;
   const weeklyEmptyMessage = weeklyCandles.length === 0 ? dailyErrors[0] ?? "No data" : null;
   const monthlyEmptyMessage = monthlyCandles.length === 0 ? dailyErrors[0] ?? "No data" : null;
@@ -2141,9 +2248,18 @@ export default function PracticeView() {
     <div className="detail-shell practice-shell">
       <div className="detail-header practice-header">
         <div className="practice-header-left">
-          <button className="back" onClick={() => navigate(-1)}>
-            戻る
-          </button>
+          <div className="practice-nav-group">
+            <IconButton
+              icon={<IconArrowLeft size={20} />}
+              tooltip="一覧に戻る"
+              onClick={() => navigate("/")}
+            />
+            <IconButton
+              icon={<IconArrowBackUp size={20} />}
+              tooltip="前の画面に戻る"
+              onClick={() => navigate(-1)}
+            />
+          </div>
           <div className="detail-title">
             <div className="detail-title-main">
               <div className="title">{code}</div>
@@ -2152,12 +2268,12 @@ export default function PracticeView() {
             <div className="subtitle">練習</div>
           </div>
           <div className="practice-header-group">
-            <div className="practice-header-label">セッション</div>
             <div className="practice-session-controls">
               <select
                 value={sessionId ?? ""}
                 onChange={(event) => handleSelectSession(event.target.value)}
                 disabled={sessionsLoading}
+                className="practice-session-select"
               >
                 {!sessionId && <option value="">セッションを選択...</option>}
                 {sessions.map((session) => (
@@ -2167,27 +2283,19 @@ export default function PracticeView() {
                   </option>
                 ))}
               </select>
-              <button className="indicator-button" onClick={handleInitiateNewSession}>
-                新規
-              </button>
-              <button
-                className="indicator-button"
-                onClick={() => setSessionManagerOpen((prev) => !prev)}
-              >
-                管理
-              </button>
-              <button
-                className="indicator-button"
-                onClick={handleEndSession}
-                disabled={!sessionId || !!endDate}
-              >
-                練習終了
-              </button>
+              <IconButton
+                icon={<IconPlus size={18} />}
+                tooltip="新規セッション"
+                onClick={handleInitiateNewSession}
+              />
+              <IconButton
+                icon={<IconPlus size={18} />}
+                tooltip="新規セッション"
+                onClick={handleInitiateNewSession}
+              />
             </div>
             <div className="practice-session-meta">
-              <span
-                className={`practice-session-badge ${sessionBadgeClass}`}
-              >
+              <span className={`practice-session-badge ${sessionBadgeClass}`}>
                 {sessionBadgeLabel}
               </span>
               <span className="practice-session-range-text">
@@ -2198,7 +2306,6 @@ export default function PracticeView() {
         </div>
         <div className="practice-header-actions">
           <div className="practice-header-group">
-            <div className="practice-header-label">表示</div>
             <div className="segmented practice-range">
               {RANGE_PRESETS.map((preset) => (
                 <button
@@ -2216,110 +2323,42 @@ export default function PracticeView() {
             <div className="practice-view-meta">{headerMetaLabel}</div>
           </div>
           <div className="practice-header-group">
-            <div className="practice-header-label">出力</div>
             <div className="practice-header-stack">
-              <button className="indicator-button" disabled={screenshotBusy} onClick={handleScreenshot}>
-                {screenshotBusy ? "処理中..." : "スクショ"}
-              </button>
-              <button className="indicator-button" onClick={handleExport}>
-                出力
-              </button>
-              <button
-                className="indicator-button"
-                onClick={async () => {
-                  const dailyMemos: Record<string, string> = {};
-                  const dailyVolumeMap = new Map(dailyVolume.map((item) => [item.time, item.value]));
-                  const weeklyVolumeCounts = new Map<number, number>();
-                  dailyCandles.forEach((candle) => {
-                    if (!dailyVolumeMap.has(candle.time)) return;
-                    const date = new Date(candle.time * 1000);
-                    const day = date.getUTCDay();
-                    const diff = (day + 6) % 7;
-                    const weekStart = Date.UTC(
-                      date.getUTCFullYear(),
-                      date.getUTCMonth(),
-                      date.getUTCDate() - diff
-                    );
-                    const key = Math.floor(weekStart / 1000);
-                    weeklyVolumeCounts.set(key, (weeklyVolumeCounts.get(key) ?? 0) + 1);
-                  });
-                  const weeklyVolumeMap = new Map<number, number | null>();
-                  weeklyVolume.forEach((item) => {
-                    const count = weeklyVolumeCounts.get(item.time) ?? 0;
-                    weeklyVolumeMap.set(item.time, count > 0 ? item.value : null);
-                  });
-                  const monthlyVolumeSums = new Map<number, number>();
-                  dailyCandles.forEach((candle) => {
-                    const volume = dailyVolumeMap.get(candle.time);
-                    if (volume == null || !Number.isFinite(volume)) return;
-                    const date = new Date(candle.time * 1000);
-                    const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
-                    const key = Math.floor(monthStart / 1000);
-                    monthlyVolumeSums.set(key, (monthlyVolumeSums.get(key) ?? 0) + volume);
-                  });
-                  const monthlyVolumeMap = new Map<number, number>();
-                  monthlyCandles.forEach((candle) => {
-                    const sum = monthlyVolumeSums.get(candle.time);
-                    monthlyVolumeMap.set(candle.time, Number.isFinite(sum) ? Math.round(sum ?? 0) : 0);
-                  });
-                  const exportData = buildAIExport({
-                    code: code ?? "",
-                    name: tickerName,
-                    visibleTimeframe: "daily",
-                    rangeMonths: rangeMonths,
-                    dailyBars: dailyCandles.map((c) => ({
-                      time: c.time,
-                      open: c.open,
-                      high: c.high,
-                      low: c.low,
-                      close: c.close,
-                      volume: dailyVolumeMap.get(c.time) ?? null
-                    })),
-                    weeklyBars: weeklyCandles.map((c) => ({
-                      time: c.time,
-                      open: c.open,
-                      high: c.high,
-                      low: c.low,
-                      close: c.close,
-                      volume: weeklyVolumeMap.get(c.time) ?? null
-                    })),
-                    monthlyBars: monthlyCandles.map((c) => ({
-                      time: c.time,
-                      open: c.open,
-                      high: c.high,
-                      low: c.low,
-                      close: c.close,
-                      volume: monthlyVolumeMap.get(c.time) ?? null
-                    })),
-                    maSettings,
-                    signals: practiceSignals,
-                    showBoxes: false,
-                    showPositions: true,
-                    boxes: [],
-                    dailyMemos,
-                    currentPositions: [
-                      {
-                        brokerKey: "practice",
-                        brokerLabel: "practice",
-                        longLots: positionSummary.longLots,
-                        shortLots: positionSummary.shortLots,
-                        avgLongPrice: positionSummary.avgLongPrice,
-                        avgShortPrice: positionSummary.avgShortPrice,
-                        realizedPnL: positionSummary.realizedPnL
-                      }
-                    ],
-                    currentPrice: cursorCandle?.close ?? null
-                  });
-                  const copied = await copyToClipboard(exportData.markdown);
-                  if (copied) {
-                    setToastMessage("AI用銘柄情報をクリップボードにコピーしました");
-                  } else {
-                    setToastMessage("クリップボードへのコピーに失敗しました");
-                  }
-                }}
-              >
-                AI出力
-              </button>
+              <IconButton
+                icon={<IconChevronLeft size={20} />}
+                tooltip="1日戻る"
+                disabled={!canStepBack}
+                onClick={() => handleStep(-1)}
+              />
+              <IconButton
+                icon={<IconChevronRight size={20} />}
+                tooltip="1日進む"
+                disabled={!canStepForward}
+                onClick={() => handleStep(1)}
+              />
+              <IconButton
+                icon={<IconRefresh size={18} />}
+                tooltip="当日リセット"
+                disabled={!canResetDay}
+                onClick={handleResetDay}
+              />
+              <div className="practice-divider" />
+              <IconButton
+                icon={<IconCamera size={18} />}
+                tooltip="スクショ"
+                disabled={screenshotBusy}
+                onClick={handleScreenshot}
+              />
+              <IconButton
+                icon={<IconFileDownload size={18} />}
+                tooltip="出力 (JSON)"
+                onClick={handleExport}
+              />
+              <IconButton
+                icon={<IconSparkles size={18} />}
+                tooltip="AI出力"
+                onClick={handleAIExport}
+              />
               <button
                 className="indicator-button practice-panel-toggle"
                 onClick={() => togglePanel(panelCollapsed ? false : true)}

@@ -34,6 +34,7 @@ type RankItem = {
 type RankTimeframe = "D" | "W" | "M";
 type RankWhich = "latest" | "prev";
 
+const RANK_VIEW_STATE_KEY = "rankingViewState";
 
 const RANK_MA_SETTINGS: MaSetting[] = [
   { key: "ma1", label: "MA1", period: 7, visible: true, color: "#ef4444", lineWidth: 1 },
@@ -98,6 +99,44 @@ export default function RankingView() {
 
   // Use the screenshot hook
   const { generateScreenshots } = useConsultScreenshot();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.sessionStorage.getItem(RANK_VIEW_STATE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as {
+        listTimeframe?: "daily" | "weekly" | "monthly";
+        dir?: "up" | "down";
+        rankWhich?: RankWhich;
+      };
+      if (parsed.listTimeframe) {
+        setListTimeframe(parsed.listTimeframe);
+      }
+      if (parsed.dir === "up" || parsed.dir === "down") {
+        setDir(parsed.dir);
+      }
+      if (parsed.rankWhich === "latest" || parsed.rankWhich === "prev") {
+        setRankWhich(parsed.rankWhich);
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, [setListTimeframe]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const payload = {
+        listTimeframe,
+        dir,
+        rankWhich
+      };
+      window.sessionStorage.setItem(RANK_VIEW_STATE_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore storage failures
+    }
+  }, [listTimeframe, dir, rankWhich]);
 
   const listStyles = useMemo(
     () =>

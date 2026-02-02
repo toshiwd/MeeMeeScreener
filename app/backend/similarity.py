@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import os
 import duckdb
-import numpy as np
+try:
+    import numpy as np
+except Exception:  # pragma: no cover - runtime fallback for missing numpy in packaged app
+    np = None  # type: ignore[assignment]
 import pickle
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Literal, Any, TYPE_CHECKING
@@ -103,6 +106,8 @@ class SimilarityService:
     ) -> tuple["pd.DataFrame", "pd.DataFrame", "pd.DataFrame"]:
         if pd is None:
             raise RuntimeError("pandas_missing")
+        if np is None:
+            raise RuntimeError("numpy_missing")
         df_monthly = df_monthly.sort_values(["code", "period"]).copy()
 
         df_monthly["prev_c"] = df_monthly.groupby("code")["c"].shift(1)
@@ -369,6 +374,8 @@ class SimilarityService:
     ) -> List[SearchResult]:
         if pd is None:
             raise RuntimeError("pandas_missing")
+        if np is None:
+            raise RuntimeError("numpy_missing")
         
         if not self.loaded:
             self.load_artifacts()

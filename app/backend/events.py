@@ -311,3 +311,120 @@ def fetch_rights_snapshot() -> list[dict]:
         seen.add(key)
         deduped.append(row)
     return deduped
+
+
+DEFAULT_STATS_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html"
+INDUSTRY_STATS_URL = os.getenv("JPX_INDUSTRY_PAGE_URL", DEFAULT_STATS_URL)
+COLUMN_ALIASES = {
+    "code": ["コード", "銘柄コード", "証券コード", "コード(4桁)", "Code"],
+    "name": ["銘柄名", "会社名", "銘柄名称", "名称", "Company Name"],
+    "sector33_code": ["33業種コード", "３３業種コード", "33業種ｺｰﾄﾞ", "33業種コード(新)", "33業種"],
+    "sector33_name": ["33業種区分", "３３業種区分", "33業種区分(新)", "33業種区分", "33業種名"],
+    "market_code": ["市場・商品区分", "市場区分", "市場", "市場・商品区分／コード", "市場・商品区分コード"],
+}
+REQUIRED_FIELDS = ["code", "name", "sector33_code", "sector33_name", "market_code"]
+
+
+def _fetch_industry_excel_url(page_url: str) -> str | None:
+    try:
+        request = urllib.request.Request(page_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(request) as response:
+            html = response.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return None
+
+    links = re.findall(r"href=[\"']([^\"']+)[\"']", html, flags=re.IGNORECASE)
+    excel_links = [link for link in links if re.search(r"\.xls[x]?$", link, flags=re.IGNORECASE)]
+    if not excel_links:
+        return None
+
+    prioritized = []
+    for link in excel_links:
+        lower = link.lower()
+        if any(token in lower for token in ["listed", "meigara", "tse", "stock", "securities", "toukyou"]):
+            prioritized.append(link)
+    candidates = prioritized or excel_links
+    return urllib.parse.urljoin(page_url, candidates[0])
+
+
+def _load_industry_dataframe(data: bytes, excel_url: str) -> pd.DataFrame | None:
+    import io
+    ext = os.path.splitext(excel_url)[1].lower()
+    engine = "openpyxl" if ext == ".xlsx" else None
+    try:
+        book = pd.read_excel(io.BytesIO(data), sheet_name=None, engine=engine)
+    except Exception:
+        return None
+
+    frame = None
+    mapping = None
+    
+    # helper to find mapping
+    def build_column_map(columns):
+        normalized = {_normalize_text(col): col for col in columns}
+        current_map = {}
+        for key, aliases in COLUMN_ALIASES.items():
+            target = None
+            for alias in aliases:
+                alias_norm = _normalize_text(alias)
+                for col_norm, col_original in normalized.items():
+                    if alias_norm and alias_norm in col_norm:
+                        target = col_original
+                        break
+                if target is not None:
+                    break
+            if target is None:
+                return None
+            current_map[target] = key
+        return current_map
+
+    for _, sheet_frame in book.items():
+        mapping = build_column_map(sheet_frame.columns)
+        if mapping is not None:
+            frame = sheet_frame
+            break
+            
+    if frame is None or mapping is None:
+        return None
+
+    frame = frame.rename(columns=mapping)
+    frame = frame[REQUIRED_FIELDS].copy()
+    frame = frame.fillna("")
+    
+    # Normalize
+    def norm_code(val):
+        t = _normalize_code(val)
+        return t if t else None
+
+    frame["code"] = frame["code"].map(norm_code)
+    frame = frame[frame["code"].notna()]
+    return frame
+
+
+def fetch_industry_snapshot() -> list[dict]:
+    url = _fetch_industry_excel_url(INDUSTRY_STATS_URL)
+    if not url:
+        raise RuntimeError("industry_excel_url_not_found")
+    
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req) as response:
+        content = response.read()
+
+    df = _load_industry_dataframe(content, url)
+    if df is None:
+        raise RuntimeError("industry_dataframe_load_failed")
+
+    rows = []
+    fetched_at = jst_now().replace(tzinfo=None)
+    
+    for _, record in df.iterrows():
+        rows.append({
+            "code": str(record["code"]),
+            "name": str(record["name"]).strip(),
+            "sector33_code": str(record["sector33_code"]).strip(),
+            "sector33_name": str(record["sector33_name"]).strip(),
+            "market_code": str(record["market_code"]).strip(),
+            "fetched_at": fetched_at
+        })
+    return rows
+

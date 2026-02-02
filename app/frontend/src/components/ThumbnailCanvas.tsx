@@ -284,7 +284,6 @@ export function drawChart(
 
   if (showAxes) {
     ctx.save();
-    ctx.save();
     ctx.font = "11px 'Noto Sans JP', 'IBM Plex Sans', sans-serif";
     ctx.fillStyle = themeColors.text;
     ctx.textAlign = "right";
@@ -309,17 +308,15 @@ export function drawChart(
 
     const lastClose = bars[bars.length - 1]?.[4];
     if (Number.isFinite(lastClose)) {
-      if (Number.isFinite(lastClose)) {
-        const y = toY(lastClose);
-        ctx.fillStyle = themeColors.bg;
-        ctx.fillRect(plotWidth, y - 8, rightPad - 2, 16);
-        ctx.fillStyle = themeColors.textHighlight;
-        ctx.textAlign = "right";
-        ctx.textBaseline = "middle";
-        ctx.fillText(formatPrice(lastClose), width - 4, y);
-      }
-      ctx.restore();
+      const y = toY(lastClose);
+      ctx.fillStyle = themeColors.bg;
+      ctx.fillRect(plotWidth, y - 8, rightPad - 2, 16);
+      ctx.fillStyle = themeColors.textHighlight;
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      ctx.fillText(formatPrice(lastClose), width - 4, y);
     }
+    ctx.restore();
   }
 }
 

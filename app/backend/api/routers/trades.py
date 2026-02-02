@@ -337,14 +337,22 @@ def get_held_positions():
             """
         ).fetchall()
 
+        def to_lots(value: float | None) -> float:
+            if value is None:
+                return 0.0
+            try:
+                return float(value) / 100.0
+            except (TypeError, ValueError):
+                return 0.0
+
         result = []
         for r in rows:
             sym = r[0]
             name_row = conn.execute("SELECT name FROM tickers WHERE code = ?", [sym]).fetchone()
             name = name_row[0] if name_row else ""
 
-            b_qty = r[1]
-            s_qty = r[2]
+            b_qty = to_lots(r[1])
+            s_qty = to_lots(r[2])
             b_str = f"{int(b_qty)}" if b_qty.is_integer() else f"{b_qty}"
             s_str = f"{int(s_qty)}" if s_qty.is_integer() else f"{s_qty}"
 

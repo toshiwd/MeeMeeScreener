@@ -20,6 +20,7 @@ type CandidateItem = {
 };
 
 type CandidateSortKey = "code" | "change" | "scoreUp" | "scoreDown";
+const CANDIDATES_VIEW_STATE_KEY = "candidatesViewState";
 const SCREENSHOT_LIMIT = 10;
 
 export default function CandidatesView() {
@@ -69,6 +70,54 @@ export default function CandidatesView() {
 
   // Use the screenshot hook
   const { generateScreenshots } = useConsultScreenshot();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.sessionStorage.getItem(CANDIDATES_VIEW_STATE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as {
+        search?: string;
+        sortKey?: CandidateSortKey;
+        filterSignalsOnly?: boolean;
+        filterDataOnly?: boolean;
+      };
+      if (typeof parsed.search === "string") {
+        setSearch(parsed.search);
+      }
+      if (
+        parsed.sortKey === "code" ||
+        parsed.sortKey === "change" ||
+        parsed.sortKey === "scoreUp" ||
+        parsed.sortKey === "scoreDown"
+      ) {
+        setSortKey(parsed.sortKey);
+      }
+      if (typeof parsed.filterSignalsOnly === "boolean") {
+        setFilterSignalsOnly(parsed.filterSignalsOnly);
+      }
+      if (typeof parsed.filterDataOnly === "boolean") {
+        setFilterDataOnly(parsed.filterDataOnly);
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const payload = {
+        search,
+        sortKey,
+        filterSignalsOnly,
+        filterDataOnly
+      };
+      window.sessionStorage.setItem(CANDIDATES_VIEW_STATE_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore storage failures
+    }
+  }, [search, sortKey, filterSignalsOnly, filterDataOnly]);
 
   const listStyles = useMemo(
     () =>

@@ -14,7 +14,6 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
-import { buildCurrentPositions, type TradeEvent } from "../utils/positions";
 
 type HeldItem = {
   symbol: string;
@@ -39,6 +38,7 @@ type HistoryItem = {
 };
 
 type PositionSortKey = "code" | "change" | "scoreUp" | "scoreDown";
+const POSITIONS_VIEW_STATE_KEY = "positionsViewState";
 const SCREENSHOT_LIMIT = 10;
 
 type RoundEvent = {
@@ -111,6 +111,54 @@ export default function PositionsView() {
   const [eventsLoading, setEventsLoading] = useState(false);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.sessionStorage.getItem(POSITIONS_VIEW_STATE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as {
+        tab?: "held" | "history";
+        sortKey?: PositionSortKey;
+        filterSignalsOnly?: boolean;
+        filterDataOnly?: boolean;
+      };
+      if (parsed.tab === "held" || parsed.tab === "history") {
+        setTab(parsed.tab);
+      }
+      if (
+        parsed.sortKey === "code" ||
+        parsed.sortKey === "change" ||
+        parsed.sortKey === "scoreUp" ||
+        parsed.sortKey === "scoreDown"
+      ) {
+        setSortKey(parsed.sortKey);
+      }
+      if (typeof parsed.filterSignalsOnly === "boolean") {
+        setFilterSignalsOnly(parsed.filterSignalsOnly);
+      }
+      if (typeof parsed.filterDataOnly === "boolean") {
+        setFilterDataOnly(parsed.filterDataOnly);
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const payload = {
+        tab,
+        sortKey,
+        filterSignalsOnly,
+        filterDataOnly
+      };
+      window.sessionStorage.setItem(POSITIONS_VIEW_STATE_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore storage failures
+    }
+  }, [tab, sortKey, filterSignalsOnly, filterDataOnly]);
+
+  useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
     loadList().catch(() => { });
@@ -126,66 +174,18 @@ export default function PositionsView() {
     setLoading(true);
     const load = async () => {
       try {
-        const tradesRes = await api.get("/trades");
-        const tradesPayload = (tradesRes.data || {}) as { events?: TradeEvent[] };
-        const tradeEvents = Array.isArray(tradesPayload.events) ? tradesPayload.events : [];
-        const tradesByCode = new Map<string, TradeEvent[]>();
-
-        tradeEvents.forEach((trade) => {
-          const code = (trade.code ?? "").toString().trim();
-          if (!code) return;
-          const list = tradesByCode.get(code);
-          if (list) {
-            list.push(trade);
-          } else {
-            tradesByCode.set(code, [trade]);
-          }
-        });
-
-        const allTradedCodes = Array.from(tradesByCode.keys()).sort((a, b) => a.localeCompare(b, "ja"));
-        const holdings: HeldItem[] = [];
-        const holdingCodes: string[] = [];
-
-        tradesByCode.forEach((items, code) => {
-          const positions = buildCurrentPositions(items);
-          const totals = positions.reduce(
-            (acc, pos) => {
-              acc.longLots += pos.longLots;
-              acc.shortLots += pos.shortLots;
-              return acc;
-            },
-            { longLots: 0, shortLots: 0 }
-          );
-          if (!(totals.longLots > 0 || totals.shortLots > 0)) return;
-          holdingCodes.push(code);
-          const buy = totals.longLots;
-          const sell = totals.shortLots;
-          const buyLabel = Number.isInteger(buy) ? `${buy}` : `${buy}`;
-          const sellLabel = Number.isInteger(sell) ? `${sell}` : `${sell}`;
-          const ticker = tickerMap.get(code);
-          holdings.push({
-            symbol: code,
-            name: ticker?.name ?? code,
-            buy_qty: buy,
-            sell_qty: sell,
-            sell_buy_text: `${sellLabel}-${buyLabel}`,
-            opened_at: null,
-            has_issue: false,
-            issue_note: null
-          });
-        });
+        const heldRes = await api.get("/positions/held");
+        const holdings = (heldRes.data?.items || []) as HeldItem[];
+        const holdingSet = new Set(holdings.map((item) => item.symbol));
 
         if (tab === "held") {
           setHeldItems(holdings);
           setHistoryItems([]);
         } else {
-          const holdingSet = new Set(holdingCodes);
-          const historyCodes = allTradedCodes.filter((code) => !holdingSet.has(code));
-          const historyCodeSet = new Set(historyCodes);
           const res = await api.get("/positions/history");
           const rawItems = (res.data?.items || []) as HistoryItem[];
           const filtered = rawItems
-            .filter((item) => historyCodeSet.has(item.symbol))
+            .filter((item) => !holdingSet.has(item.symbol))
             .map((item, index) => ({ ...item, round_no: index + 1 }));
           setHistoryItems(filtered);
           setHeldItems([]);
@@ -199,7 +199,7 @@ export default function PositionsView() {
       }
     };
     load();
-  }, [backendReady, tab, tickerMap]);
+  }, [backendReady, tab]);
 
   const signalMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();

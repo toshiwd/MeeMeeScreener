@@ -4,6 +4,7 @@ import { ResponsiveContainer, Treemap, Tooltip } from "recharts";
 import { api } from "../../api";
 
 type PeriodKey = "1d" | "1w" | "1m";
+const HEATMAP_VIEW_STATE_KEY = "heatmapViewState";
 
 type SectorItem = {
   name: string;
@@ -46,9 +47,9 @@ const normalizeHeatmapItems = (items: SectorItem[]): SectorItem[] =>
   });
 
 const PERIOD_OPTIONS: { key: PeriodKey; label: string }[] = [
-  { key: "1d", label: "1日" },
+  { key: "1m", label: "1ヶ月" },
   { key: "1w", label: "1週" },
-  { key: "1m", label: "1ヶ月" }
+  { key: "1d", label: "1日" }
 ];
 
 const getColorScale = (value: number) => {
@@ -239,6 +240,29 @@ export default function SectorHeatmap() {
   const [items, setItems] = useState<SectorItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.sessionStorage.getItem(HEATMAP_VIEW_STATE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as { period?: PeriodKey };
+      if (parsed.period === "1d" || parsed.period === "1w" || parsed.period === "1m") {
+        setPeriod(parsed.period);
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.setItem(HEATMAP_VIEW_STATE_KEY, JSON.stringify({ period }));
+    } catch {
+      // ignore storage failures
+    }
+  }, [period]);
 
   useEffect(() => {
     let canceled = false;

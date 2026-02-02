@@ -158,36 +158,44 @@ def _normalize_symbol(raw: str) -> str:
 def _map_parser_row_to_event(row: dict) -> TradeEvent:
     kind = row.get("kind")
     memo = row.get("memo", "")
-    
-    action = ACTION_UNKNOWN
-    
-    is_spot = "現物" in memo or "買付" in memo or "売付" in memo or "現渡" in memo or "現引" in memo or "入庫" in memo or "出庫" in memo
-    
-    if kind == "BUY_OPEN":
-        action = ACTION_SPOT_BUY if is_spot else ACTION_MARGIN_OPEN_LONG
-    elif kind == "SELL_CLOSE":
-        action = ACTION_SPOT_SELL if is_spot else ACTION_MARGIN_CLOSE_LONG
-    elif kind == "SELL_OPEN":
-        action = ACTION_MARGIN_OPEN_SHORT
-    elif kind == "BUY_CLOSE":
-        action = ACTION_MARGIN_CLOSE_SHORT
-    elif kind == "DELIVERY":
-        action = ACTION_DELIVERY_SHORT
-    elif kind == "TAKE_DELIVERY":
-        action = ACTION_MARGIN_SWAP_TO_SPOT
-    elif kind == "INBOUND":
-        action = ACTION_SPOT_IN
-    elif kind == "OUTBOUND":
-        action = ACTION_SPOT_OUT
-        
-    if action == ACTION_UNKNOWN:
-        if "現渡" in memo: action = ACTION_DELIVERY_SHORT
-        elif "現引" in memo: action = ACTION_MARGIN_SWAP_TO_SPOT
-        elif "入庫" in memo: action = ACTION_SPOT_IN
-        elif "出庫" in memo: action = ACTION_SPOT_OUT
 
-    unique_str = f"{row.get('broker')}|{row.get('tradeDate')}|{row.get('code')}|{row.get('qty')}|{row.get('price')}|{row.get('memo')}|{row.get('_row_index')}"
-    source_hash = hashlib.sha256(unique_str.encode("utf-8")).hexdigest()
+    action = row.get("position_action") or ACTION_UNKNOWN
+
+    if action == ACTION_UNKNOWN:
+        spot_markers = ("現物", "現渡", "現引", "入庫", "出庫")
+        is_spot = any(marker in memo for marker in spot_markers)
+
+        if kind == "BUY_OPEN":
+            action = ACTION_SPOT_BUY if is_spot else ACTION_MARGIN_OPEN_LONG
+        elif kind == "SELL_CLOSE":
+            action = ACTION_SPOT_SELL if is_spot else ACTION_MARGIN_CLOSE_LONG
+        elif kind == "SELL_OPEN":
+            action = ACTION_MARGIN_OPEN_SHORT
+        elif kind == "BUY_CLOSE":
+            action = ACTION_MARGIN_CLOSE_SHORT
+        elif kind == "DELIVERY":
+            action = ACTION_DELIVERY_SHORT
+        elif kind == "TAKE_DELIVERY":
+            action = ACTION_MARGIN_SWAP_TO_SPOT
+        elif kind == "INBOUND":
+            action = ACTION_SPOT_IN
+        elif kind == "OUTBOUND":
+            action = ACTION_SPOT_OUT
+
+        if action == ACTION_UNKNOWN:
+            if "現渡" in memo:
+                action = ACTION_DELIVERY_SHORT
+            elif "現引" in memo:
+                action = ACTION_MARGIN_SWAP_TO_SPOT
+            elif "入庫" in memo:
+                action = ACTION_SPOT_IN
+            elif "出庫" in memo:
+                action = ACTION_SPOT_OUT
+
+    source_hash = row.get("row_hash")
+    if not source_hash:
+        unique_str = f"{row.get('broker')}|{row.get('tradeDate')}|{row.get('code')}|{row.get('qty')}|{row.get('price')}|{row.get('memo')}|{row.get('_row_index')}"
+        source_hash = hashlib.sha256(unique_str.encode("utf-8")).hexdigest()
 
     return TradeEvent(
         broker=str(row.get("broker", "")).lower(),
@@ -197,11 +205,10 @@ def _map_parser_row_to_event(row: dict) -> TradeEvent:
         qty=float(row["qty"]),
         price=float(row["price"]) if row["price"] is not None else None,
         source_row_hash=source_hash,
-        transaction_type=row.get("memo"),
-        side_type=row.get("side", ""),
-        margin_type="" 
+        transaction_type=row.get("tradeType") or row.get("memo"),
+        side_type=row.get("buySell") or row.get("side", ""),
+        margin_type=row.get("creditType") or ""
     )
-
 
 
 def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
@@ -331,13 +338,13 @@ def rebuild_positions(conn) -> dict:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Spot sell exceeds holdings at {event.exec_dt}")
-                spot_qty = max(0.0, spot_qty - event.qty)
+                spot_qty -= event.qty
             elif event.action == ACTION_SPOT_OUT:
                 if event.qty > spot_qty:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Spot outbound exceeds holdings at {event.exec_dt}")
-                spot_qty = max(0.0, spot_qty - event.qty)
+                spot_qty -= event.qty
             elif event.action == ACTION_MARGIN_OPEN_LONG:
                 margin_long_qty += event.qty
             elif event.action == ACTION_MARGIN_CLOSE_LONG:
@@ -345,7 +352,7 @@ def rebuild_positions(conn) -> dict:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Margin long close exceeds holdings at {event.exec_dt}")
-                margin_long_qty = max(0.0, margin_long_qty - event.qty)
+                margin_long_qty -= event.qty
             elif event.action == ACTION_MARGIN_OPEN_SHORT:
                 margin_short_qty += event.qty
             elif event.action == ACTION_MARGIN_CLOSE_SHORT:
@@ -353,22 +360,21 @@ def rebuild_positions(conn) -> dict:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Margin short close exceeds holdings at {event.exec_dt}")
-                margin_short_qty = max(0.0, margin_short_qty - event.qty)
+                margin_short_qty -= event.qty
             elif event.action == ACTION_DELIVERY_SHORT:
                 if event.qty > spot_qty or event.qty > margin_short_qty:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Delivery exceeds holdings at {event.exec_dt}")
-                spot_qty = max(0.0, spot_qty - event.qty)
-                margin_short_qty = max(0.0, margin_short_qty - event.qty)
+                spot_qty -= event.qty
+                margin_short_qty -= event.qty
             elif event.action == ACTION_MARGIN_SWAP_TO_SPOT:
                 if event.qty > margin_long_qty:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Genbiki exceeds holdings at {event.exec_dt}")
-                move_qty = min(event.qty, margin_long_qty)
-                margin_long_qty -= move_qty
-                spot_qty += move_qty
+                margin_long_qty -= event.qty
+                spot_qty += event.qty
             elif event.action == ACTION_UNKNOWN:
                 round_issue = True
                 symbol_has_issue = True

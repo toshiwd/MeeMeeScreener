@@ -2361,6 +2361,7 @@ body {
       calc((100vh - var(--list-header-height) - 220px) / var(--list-rows, 3)),
       var(--list-chart-max));
   height: 100vh;
+  min-height: 0;
 }
 
 .list-shell {
@@ -7472,6 +7473,11 @@ body {
 .detail-summary-back,
 .detail-summary-actions {
   flex: 0 0 auto;
+}
+.detail-summary-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .detail-summary-main {
   flex: 1;

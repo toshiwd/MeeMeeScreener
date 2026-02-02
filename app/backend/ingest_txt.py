@@ -21,6 +21,12 @@ except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from
     from db import get_conn, init_schema  # type: ignore
     from core.config import config  # type: ignore
 
+try:
+    from app.backend.infra.duckdb.industry_master import ensure_industry_master
+except ImportError:
+    from infra.duckdb.industry_master import ensure_industry_master
+
+
 
 REPO_ROOT = str(config.REPO_ROOT)
 DEFAULT_PAN_CODE_PATH = os.path.join(REPO_ROOT, "tools", "code.txt")
@@ -1215,6 +1221,10 @@ def ingest(incremental: bool = False) -> None:
         )
 
         conn.execute("INSERT INTO tickers SELECT code, name FROM meta_df")
+        
+        # Ensure industry_master exists and is populated (fixes heatmap on fresh install)
+        ensure_industry_master(conn)
+
     step_end("db_replace", start, daily_rows=len(daily), monthly_rows=len(monthly), meta_rows=len(meta))
 
     _save_ingest_state(new_state)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import hashlib
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Any, Set
 
@@ -10,7 +11,7 @@ class TradeParser:
         if value is None:
             return ""
         text = str(value).replace("\ufeff", "")
-        if text.strip().lower() in ("nan", "none", "--"):
+        if text.strip().lower() in ("nan", "none", "--", "-", "－"):
             return ""
         text = text.replace("\u3000", " ")
         return text.strip()
@@ -74,7 +75,9 @@ class TradeParser:
         amount_raw: str,
         fee_raw: str = "",
         tax_raw: str = "",
-        account: str = ""
+        account: str = "",
+        market: str = "",
+        row_id: str = "" 
     ) -> str:
         parts = [
             TradeParser.normalize_text(code),
@@ -85,7 +88,9 @@ class TradeParser:
             TradeParser.normalize_text(amount_raw),
             TradeParser.normalize_text(fee_raw),
             TradeParser.normalize_text(tax_raw),
-            TradeParser.normalize_text(account)
+            TradeParser.normalize_text(account),
+            TradeParser.normalize_text(market),
+            str(row_id)
         ]
         return "|".join(parts)
 
@@ -272,7 +277,7 @@ class TradeParser:
 
             dedup_key = TradeParser.make_dedup_key(
                 code, date_value, trade_label, qty_raw, price_raw, 
-                amount_raw, fee_raw, tax_raw, account
+                amount_raw, fee_raw, tax_raw, account, market, row_id=str(row_index)
             )
             
             if dedup_key in dedup_keys:
@@ -344,23 +349,88 @@ class TradeParser:
     def parse_rakuten_rows(rows_all: List[List[str]], encoding_used: str = "") -> Dict[str, Any]:
         warnings: List[Dict] = []
         rows: List[Dict] = []
-        
+
         if not rows_all:
             return {"rows": [], "warnings": []}
 
         header = [TradeParser.normalize_text(cell) for cell in rows_all[0]]
         data_rows = rows_all[1:]
-        col_map = {name: index for index, name in enumerate(header) if name}
+        col_map = {TradeParser.normalize_label(name): index for index, name in enumerate(header) if name}
 
         def get_cell(row: List[str], *keys: str) -> str:
             for key in keys:
                 if not key:
                     continue
-                idx = col_map.get(key)
+                idx = col_map.get(TradeParser.normalize_label(key))
                 if idx is None or idx >= len(row):
                     continue
                 return TradeParser.normalize_text(row[idx])
             return ""
+
+        def normalize_number(value: Any) -> str:
+            return TradeParser.normalize_text(value).replace(",", "")
+
+        def parse_int_strict(value: Any) -> Optional[int]:
+            text = normalize_number(value)
+            if not text:
+                return None
+            try:
+                return int(text)
+            except ValueError:
+                try:
+                    parsed = float(text)
+                except ValueError:
+                    return None
+                if parsed.is_integer():
+                    return int(parsed)
+            return None
+
+        def resolve_rakuten_action(trade_type: str, side_label: str) -> Tuple[Optional[str], Optional[str]]:
+            t = TradeParser.normalize_text(trade_type)
+            s = TradeParser.normalize_text(side_label)
+            if s == "入庫":
+                return "SPOT_IN", "INBOUND"
+            if s == "出庫":
+                return "SPOT_OUT", "OUTBOUND"
+            if t == "現物":
+                if s == "買付":
+                    return "SPOT_BUY", "BUY_OPEN"
+                if s == "売付":
+                    return "SPOT_SELL", "SELL_CLOSE"
+            elif t == "信用新規":
+                if s == "買建":
+                    return "MARGIN_OPEN_LONG", "BUY_OPEN"
+                if s == "売建":
+                    return "MARGIN_OPEN_SHORT", "SELL_OPEN"
+            elif t == "信用返済":
+                if s == "売埋":
+                    return "MARGIN_CLOSE_LONG", "SELL_CLOSE"
+                if s == "買埋":
+                    return "MARGIN_CLOSE_SHORT", "BUY_CLOSE"
+            elif t == "現渡":
+                return "DELIVERY_SHORT", "DELIVERY"
+            elif t == "現引":
+                return "MARGIN_SWAP_TO_SPOT", "TAKE_DELIVERY"
+            return None, None
+
+        def resolve_side_action(event_kind: Optional[str]) -> Tuple[str, str]:
+            if event_kind == "BUY_OPEN":
+                return "buy", "open"
+            if event_kind == "BUY_CLOSE":
+                return "buy", "close"
+            if event_kind == "SELL_OPEN":
+                return "sell", "open"
+            if event_kind == "SELL_CLOSE":
+                return "sell", "close"
+            if event_kind == "DELIVERY":
+                return "buy", "close"
+            if event_kind == "TAKE_DELIVERY":
+                return "buy", "open"
+            if event_kind == "INBOUND":
+                return "buy", "open"
+            if event_kind == "OUTBOUND":
+                return "sell", "close"
+            return "", ""
 
         dedup_keys: Set[str] = set()
         duplicate_counts: Dict[str, int] = {}
@@ -369,74 +439,93 @@ class TradeParser:
         for row_index, row in enumerate(data_rows, start=1):
             if not row or not any(cell.strip() for cell in row):
                 continue
-            
-            date_raw = get_cell(row, "約定日", "取引年月日", "日付")
+
+            date_raw = get_cell(row, "約定日")
             date_value = TradeParser.parse_date(date_raw)
             if not date_value:
                 continue
-                
-            code_raw = (
-                get_cell(row, "銘柄コード")
-                or get_cell(row, "銘柄コード（4桁）")
-                or get_cell(row, "銘柄ｺｰﾄﾞ")
-                or get_cell(row, "銘柄")
-            )
+
+            code_raw = get_cell(row, "銘柄コード")
             code = TradeParser.normalize_code(code_raw)
             if not code:
                 continue
 
-            name = get_cell(row, "銘柄名") or get_cell(row, "銘柄")
-            market = get_cell(row, "市場")
-            account = get_cell(row, "口座区分") or get_cell(row, "預り区分") or get_cell(row, "口座")
+            name = get_cell(row, "銘柄名")
+            market = get_cell(row, "市場名称")
+            account = get_cell(row, "口座区分")
             settle_date = TradeParser.parse_date(get_cell(row, "受渡日"))
-            
-            type_raw = get_cell(row, "取引区分")
-            kind_raw = get_cell(row, "売買区分")
-            
-            qty_raw = get_cell(row, "数量［株］") or get_cell(row, "数量[株]") or get_cell(row, "数量")
-            qty_shares = TradeParser.to_float(qty_raw)
-            if qty_shares <= 0:
+
+            trade_type = get_cell(row, "取引区分")
+            side_label = get_cell(row, "売買区分")
+            credit_type = get_cell(row, "信用区分")
+            expiry = get_cell(row, "弁済期限")
+
+            qty_raw = get_cell(row, "数量［株］", "数量[株]")
+            qty_shares = parse_int_strict(qty_raw)
+            if qty_shares is None:
+                warnings.append({"type": "invalid_number", "message": f"invalid_qty:{code}:{row_index}:{qty_raw}", "code": code})
+                continue
+            if qty_shares == 0:
+                warnings.append({"type": "invalid_number", "message": f"zero_qty:{code}:{row_index}", "code": code})
                 continue
 
-            price_raw = get_cell(row, "単価［円］") or get_cell(row, "単価[円]") or get_cell(row, "単価") or get_cell(row, "約定単価")
+            price_raw = get_cell(row, "単価［円］", "単価[円]")
             price = TradeParser.to_optional_float(price_raw)
-            
-            amount_raw = get_cell(row, "受渡金額［円］") or get_cell(row, "受渡金額[円]") or get_cell(row, "受渡金額")
-            fee_raw = get_cell(row, "手数料［円］") or get_cell(row, "手数料[円]") or get_cell(row, "手数料")
-            tax_raw = get_cell(row, "税金等［円］") or get_cell(row, "税金等[円]") or get_cell(row, "税金")
-            
+            if price_raw and price is None:
+                warnings.append({"type": "invalid_number", "message": f"invalid_price:{code}:{row_index}:{price_raw}", "code": code})
+
+            amount_raw = get_cell(row, "受渡金額［円］", "受渡金額[円]")
             amount = TradeParser.to_optional_float(amount_raw)
+            if amount_raw and amount is None:
+                warnings.append({"type": "invalid_number", "message": f"invalid_amount:{code}:{row_index}:{amount_raw}", "code": code})
+
+            fee_raw = get_cell(row, "手数料［円］", "手数料[円]")
+            tax_raw = get_cell(row, "税金等［円］", "税金等[円]")
             fee = TradeParser.to_optional_float(fee_raw)
             tax = TradeParser.to_optional_float(tax_raw)
 
-            event_kind, side, action = TradeParser.determine_event_kind(kind_raw, type_raw)
+            open_date_raw = get_cell(row, "建約定日")
+            open_date = TradeParser.parse_date(open_date_raw)
+            open_price_raw = get_cell(row, "建単価［円］", "建単価[円]")
+            open_price = TradeParser.to_optional_float(open_price_raw)
 
+            position_action, event_kind = resolve_rakuten_action(trade_type, side_label)
             if event_kind is None:
-                sample = f"取引区分={type_raw or '(blank)'}, 売買区分={kind_raw or '(blank)'}"
+                sample = f"取引区分:{trade_type or '(blank)'} 売買区分:{side_label or '(blank)'}"
                 unknown_labels_by_code.setdefault(code, set()).add(sample)
-                continue
+                position_action = "UNKNOWN"
+                event_kind = "UNKNOWN"
 
-            dedup_key = TradeParser.make_dedup_key(
-                code, date_value, type_raw + "|" + kind_raw,
-                qty_raw, price_raw, amount_raw, fee_raw, tax_raw, account
-            )
-            
+            side, action = resolve_side_action(event_kind)
+
+            hash_parts = [
+                date_value or "",
+                settle_date or "",
+                code,
+                trade_type,
+                side_label,
+                credit_type,
+                expiry,
+                normalize_number(qty_raw),
+                normalize_number(price_raw),
+                normalize_number(amount_raw),
+                open_date or "",
+                normalize_number(open_price_raw),
+            ]
+            dedup_key = "|".join(hash_parts)
             if dedup_key in dedup_keys:
                 duplicate_counts[code] = duplicate_counts.get(code, 0) + 1
-                continue
-            dedup_keys.add(dedup_key)
-            
-            txn_type = "CORPORATE_ACTION"
-            if event_kind == "BUY_OPEN": txn_type = "OPEN_LONG"
-            elif event_kind == "SELL_CLOSE": txn_type = "CLOSE_LONG"
-            elif event_kind == "SELL_OPEN": txn_type = "OPEN_SHORT"
-            elif event_kind == "BUY_CLOSE": txn_type = "CLOSE_SHORT"
+            else:
+                dedup_keys.add(dedup_key)
+            row_hash = hashlib.sha256("|".join([*hash_parts, str(row_index)]).encode("utf-8")).hexdigest()
 
             event_order = 0
             if event_kind in ("SELL_CLOSE", "BUY_CLOSE"):
                 event_order = 1
             elif event_kind not in ("BUY_OPEN", "SELL_OPEN"):
                 event_order = 2
+
+            memo = " ".join([part for part in (trade_type, side_label) if part]).strip()
 
             rows.append({
                 "broker": "RAKUTEN",
@@ -446,28 +535,41 @@ class TradeParser:
                 "name": name,
                 "market": market,
                 "account": account,
-                "txnType": txn_type,
+                "tradeType": trade_type,
+                "buySell": side_label,
+                "creditType": credit_type,
+                "expiry": expiry,
                 "qty": qty_shares,
                 "price": price if price is not None and price > 0 else None,
                 "fee": fee,
                 "tax": tax,
                 "realizedPnlGross": None, # Rakuten CSV usually doesn't have per-trade realization in this format
                 "realizedPnlNet": None,
-                "memo": kind_raw or type_raw,
+                "memo": memo or trade_type or side_label,
                 "side": side,
                 "action": action,
                 "kind": event_kind,
+                "position_action": position_action,
+                "row_hash": row_hash,
+                "openDate": open_date,
+                "openPrice": open_price,
+                "amount": amount,
                 "_row_index": row_index,
                 "_event_order": event_order,
                 "raw": {
                     "date": date_value,
                     "code": code,
                     "name": name,
-                    "trade": kind_raw,
-                    "type": type_raw,
+                    "trade": side_label,
+                    "type": trade_type,
                     "qty": qty_raw,
                     "price": price_raw,
                     "amount": amount_raw,
+                    "settle": settle_date,
+                    "creditType": credit_type,
+                    "expiry": expiry,
+                    "openDate": open_date_raw,
+                    "openPrice": open_price_raw,
                     "encoding": encoding_used
                 }
             })

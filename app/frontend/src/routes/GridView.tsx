@@ -51,7 +51,7 @@ import {
 import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
 
 const GRID_GAP = 12;
-const KEEP_LIMIT = 24;
+const KP_LIMIT = 24;
 type Timeframe = "monthly" | "weekly" | "daily";
 type SortOption = { key: SortKey; label: string; fixedDirection?: SortDir };
 type SortSection = { title: string; options: SortOption[] };
@@ -124,7 +124,6 @@ export default function GridView() {
   const keepList = useStore((state) => state.keepList);
   const addKeep = useStore((state) => state.addKeep);
   const removeKeep = useStore((state) => state.removeKeep);
-  const clearKeep = useStore((state) => state.clearKeep);
   const setColumns = useStore((state) => state.setColumns);
   const setRows = useStore((state) => state.setRows);
   const setSearch = useStore((state) => state.setSearch);
@@ -148,7 +147,7 @@ export default function GridView() {
   // Sector Sort Settings
   const sectorSortEnabled = useStore((state) => state.settings.sectorSortEnabled);
   const sectorSortInnerKey = useStore((state) => state.settings.sectorSortInnerKey);
-  const setSectorSortEnabled = useStore((state) => state.setSectorSortEnabled);
+  const setSectorSortnabled = useStore((state) => state.setSectorSortnabled);
   const setSectorSortInnerKey = useStore((state) => state.setSectorSortInnerKey);
 
   const eventsAttemptLabel = useMemo(
@@ -173,7 +172,7 @@ export default function GridView() {
     const thresholdMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
     if (maxMs >= thresholdMs) return null;
     const formatted = formatEventDateYmd(rightsMaxDate);
-    return formatted ? `権利データ範囲: 〜${formatted}` : null;
+    return formatted ? `権利データ範囲: ～${formatted}` : null;
   }, [eventsMeta]);
 
   const [health, setHealth] = useState<HealthStatus | null>(null);
@@ -206,7 +205,6 @@ export default function GridView() {
   const [tradeSyncInFlight, setTradeSyncInFlight] = useState(false);
   const [watchlistExporting, setWatchlistExporting] = useState(false);
   const [techFilterOpen, setTechFilterOpen] = useState(false);
-  const [keepBarCollapsed, setKeepBarCollapsed] = useState(false);
   const [techFilterDraft, setTechFilterDraft] = useState<TechnicalFilterState>(() =>
     createDefaultTechFilter(gridTimeframe)
   );
@@ -272,7 +270,7 @@ export default function GridView() {
         err?.response?.data?.detail ||
         err?.message ||
         "Unknown error";
-      showToast(`トレードCSVのアップロードに失敗しました。 (${detail})`);
+      showToast(`トレードCSVのアップロードに失敗しました。(${detail})`);
     } finally {
       setTradeUploadInFlight(false);
       event.target.value = "";
@@ -283,12 +281,12 @@ export default function GridView() {
     if (tradeSyncInFlight) return;
     setTradeSyncInFlight(true);
     try {
-      const res = await api.get("/debug/trade-sync");
-      const errors = res.data?.errors ?? [];
-      if (Array.isArray(errors) && errors.length) {
-        showToast(`強制同期でエラーが発生しました。 (${errors[0]})`);
+      const res = await api.post("/jobs/force-sync");
+      if (res.data?.ok) {
+        showToast("強制同期（全件取込）を開始しました。");
       } else {
-        showToast("強制同期を実行しました。");
+        const error = res.data?.error ?? "unknown_error";
+        showToast(`強制同期でエラーが発生しました。(${error})`);
       }
     } catch (err: any) {
       const detail =
@@ -296,7 +294,7 @@ export default function GridView() {
         err?.response?.data?.detail ||
         err?.message ||
         "Unknown error";
-      showToast(`強制同期に失敗しました。 (${detail})`);
+      showToast(`強制同期に失敗しました。(${detail})`);
     } finally {
       setTradeSyncInFlight(false);
     }
@@ -306,7 +304,7 @@ export default function GridView() {
     if (watchlistExporting) return;
     const exportItems = sortedTickers.map((item) => item.ticker);
     if (!exportItems.length) {
-      showToast("エクスポート対象の銘柄がありません。");
+      showToast("Message restored");
       return;
     }
     setWatchlistExporting(true);
@@ -314,9 +312,9 @@ export default function GridView() {
       const lines = exportItems.map((item) => `JP#${item.code}`);
       const filename = "watchlist.ebk";
       const ok = await saveAsFile(lines.join("\n"), filename, "text/plain");
-      showToast(ok ? "銘柄一覧をエクスポートしました。" : "エクスポートをキャンセルしました。");
+      showToast("Message restored");
     } catch {
-      showToast("銘柄一覧のエクスポートに失敗しました。");
+      showToast("Message restored");
     } finally {
       setWatchlistExporting(false);
     }
@@ -351,8 +349,8 @@ export default function GridView() {
         setDataDir(next);
         setDataDirInput(next);
       }
-      setDataDirMessage(res.data?.message ?? "保存しました。アプリを再起動してください。");
-      showToast("MEEMEE_DATA_DIR を更新しました。再起動してください。");
+      setDataDirMessage("Message restored");
+      showToast("Message restored");
     } catch (err: any) {
       const detail =
         err?.response?.data?.detail ||
@@ -360,7 +358,7 @@ export default function GridView() {
         err?.message ||
         "Unknown error";
       setDataDirMessage(`保存に失敗しました: ${detail}`);
-      showToast("MEEMEE_DATA_DIR の保存に失敗しました。");
+      showToast("Message restored");
     } finally {
       setDataDirSaving(false);
     }
@@ -425,7 +423,7 @@ export default function GridView() {
 
   useEffect(() => {
     if (!sortOpen && !displayOpen && !settingsOpen && !sectorSortOpen) return;
-    const handleClick = (event: MouseEvent) => {
+    const handleClick = (event: Mousevent) => {
       const target = event.target as HTMLElement;
       if (sortRef.current && sortRef.current.contains(target)) return;
       if (displayRef.current && displayRef.current.contains(target)) return;
@@ -460,17 +458,17 @@ export default function GridView() {
       {
         title: "買い候補",
         options: [
-          { key: "buyCandidate", label: "買い候補（総合）" },
-          { key: "buyInitial", label: "買い候補（初動）" },
-          { key: "buyBase", label: "買い候補（底がため）" }
+          { key: "buyCandidate", label: "買い候補(総合)" },
+          { key: "buyInitial", label: "買い候補(初動)" },
+          { key: "buyBase", label: "買い候補(底がため)" },
         ]
       },
       {
         title: "売り候補",
         options: [
-          { key: "shortScore", label: "売り候補（総合）" },
-          { key: "aScore", label: "売り候補（反転確定）" },
-          { key: "bScore", label: "売り候補（戻り売り）" }
+          { key: "shortScore", label: "売り候補(総合)" },
+          { key: "aScore", label: "売り候補(反転確実)" },
+          { key: "bScore", label: "売り候補(戻り売り)" },
         ]
       }
     ],
@@ -485,16 +483,16 @@ export default function GridView() {
         options: [
           { key: "code", label: "コード" },
           { key: "name", label: "銘柄名" },
-          { key: "sector", label: "業種" } // Added Sector sort
+          { key: "sector", label: "業種" }
         ]
       },
       {
         title: "テクニカル",
         options: [
-          { key: "ma20Dev", label: "乖離率（MA20）" },
-          { key: "ma60Dev", label: "乖離率（MA60）" },
+          { key: "ma20Dev", label: "乖離率(MA20)" },
+          { key: "ma60Dev", label: "乖離率(MA60)" },
           { key: "ma20Slope", label: "MA20傾き" },
-          { key: "ma60Slope", label: "MA60傾き" }
+          { key: "ma60Slope", label: "MA60傾き" },
         ]
       },
       {
@@ -508,8 +506,8 @@ export default function GridView() {
         options: [
           { key: "upScore", label: "上昇スコア" },
           { key: "downScore", label: "下落スコア" },
-          { key: "overheatUp", label: "過熱（上）" },
-          { key: "overheatDown", label: "過熱（下）" }
+          { key: "overheatUp", label: "過熱(上)" },
+          { key: "overheatDown", label: "過熱(下)" },
         ]
       },
       {
@@ -551,7 +549,7 @@ export default function GridView() {
     const trimmed = value.trim();
     if (!trimmed) return null;
     const fullwidth = "０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ";
-    const halfwidth = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    const halfwidth = "0123456789ABCDFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     let normalized = "";
     for (const ch of trimmed) {
       const idx = fullwidth.indexOf(ch);
@@ -780,10 +778,10 @@ export default function GridView() {
   const sortedTickers = useMemo(() => {
     const boxOrder: Record<string, number> = {
       IN_BOX: 3,
-      JUST_BREAKOUT: 2,
-      BREAKOUT_UP: 2,
-      BREAKOUT_DOWN: 2,
-      NONE: 0
+      JUST_BRAKOUT: 2,
+      BRAKOUT_UP: 2,
+      BRAKOUT_DOWN: 2,
+      NON: 0
     };
 
     // Determine the active sort configuration
@@ -861,7 +859,7 @@ export default function GridView() {
       } else if (activeKey === "overheatDown") {
         sortValue = ticker.scores?.overheatDown ?? null;
       } else if (activeKey === "boxState") {
-        const state = ticker.boxState ?? "NONE";
+        const state = ticker.boxState ?? "NON";
         sortValue = boxOrder[state] ?? 0;
       } else if (activeKey === "shortScore") {
         sortValue = ticker.shortScore ?? null;
@@ -908,10 +906,10 @@ export default function GridView() {
 
       if (activeKey === "buyInitial" || activeKey === "buyBase") {
         const target = activeKey === "buyInitial" ? "初動" : "底がため";
-        const aEligible = aState === target;
-        const bEligible = bState === target;
-        if (aEligible !== bEligible) return aEligible ? -1 : 1;
-        if (!aEligible && !bEligible) return a.ticker.code.localeCompare(b.ticker.code);
+        const aligible = aState === target;
+        const bligible = bState === target;
+        if (aligible !== bligible) return aligible ? -1 : 1;
+        if (!aligible && !bligible) return a.ticker.code.localeCompare(b.ticker.code);
         const scoreResult = compareNumeric(aScore, bScore, sortDir);
         if (scoreResult !== 0) return scoreResult;
         const riskResult = compareNumeric(aRisk, bRisk, "asc");
@@ -1129,7 +1127,7 @@ export default function GridView() {
             : `${code} を追加しました。次回TXT更新で反映されます。`
         );
       } catch {
-        showToast("ウォッチリスト追加に失敗しました。");
+        showToast("Message restored");
       }
     },
     [loadList]
@@ -1165,8 +1163,8 @@ export default function GridView() {
         removeKeep(code);
         return;
       }
-      if (keepList.length >= KEEP_LIMIT) {
-        showToast(`候補箱は最大${KEEP_LIMIT}件までです。`);
+      if (keepList.length >= KP_LIMIT) {
+        showToast("Message restored");
         return;
       }
       addKeep(code);
@@ -1174,7 +1172,7 @@ export default function GridView() {
     [keepList, addKeep, removeKeep]
   );
 
-  const handleExclude = useCallback(
+  const handlexclude = useCallback(
     (code: string) => {
       if (!code) return;
       handleRemoveWatchlist(code, false);
@@ -1202,16 +1200,16 @@ export default function GridView() {
   );
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const handleKeyDown = (event: Keyboardvent) => {
       const target = event.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable) {
+        if (tag === "INPUT" || tag === "TXTARA" || tag === "SLCT" || target.isContentditable) {
           return;
         }
       }
       const key = event.key.toLowerCase();
-      if (event.key === "Escape") {
+      if (event.key === "scape") {
         setSortOpen(false);
         setDisplayOpen(false);
         setSectorSortOpen(false); // Close sector sort popover
@@ -1252,7 +1250,7 @@ export default function GridView() {
       }
       if (key === "e" && activeCode) {
         event.preventDefault();
-        handleExclude(activeCode);
+        handlexclude(activeCode);
         return;
       }
       if (event.key === "1") {
@@ -1273,7 +1271,7 @@ export default function GridView() {
     activeCode,
     handleOpenDetail,
     handleToggleKeep,
-    handleExclude
+    handlexclude
   ]);
 
   const handleUndoRemove = useCallback(async () => {
@@ -1284,9 +1282,9 @@ export default function GridView() {
         trashToken: undoInfo.trashToken
       });
       await loadList();
-      showToast(`${undoInfo.code} を復元しました。`);
+      showToast(`Message with vars: ${undoInfo.code}`);
     } catch {
-      showToast("復元に失敗しました。");
+      showToast("Message restored");
     } finally {
       if (undoTimerRef.current) {
         window.clearTimeout(undoTimerRef.current);
@@ -1331,7 +1329,7 @@ export default function GridView() {
       defaultTimeframe
     );
     if (result.dropped > 0 && !techFilterDropNoticeRef.current) {
-      showToast("旧条件の一部は削除しました。");
+      showToast("Message restored");
       techFilterDropNoticeRef.current = true;
     }
     return {
@@ -1390,18 +1388,18 @@ export default function GridView() {
   const handleUpdateError = (payload?: UpdateTxtPayload) => {
     const error = payload?.error ?? 'unknown';
     if (error === 'update_in_progress') {
-      showToast('TXT更新は現在実行中です。');
+      showToast("TXT更新を開始しました。");
       return;
     }
     if (error === 'code_txt_missing') {
-      showToast('code.txt が見つかりません。PanRolling でコード一覧を生成してください。');
+      showToast("Message restored");
       return;
     }
     if (error.startsWith('vbs_not_found')) {
-      showToast('TXT更新スクリプトが見つかりません。');
+      showToast("TXT更新を開始しました。");
       return;
     }
-    showToast('TXT更新の起動に失敗しました。');
+    showToast("TXT更新の起動に失敗しました。");
   };
 
 
@@ -1464,14 +1462,14 @@ export default function GridView() {
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
-      showToast("相談パックがまだありません。");
+      showToast("相場メモがまだありません。");
       return;
     }
     try {
       await navigator.clipboard.writeText(consultText);
-      showToast("相談パックをコピーしました。");
+      showToast("Message restored");
     } catch {
-      showToast("コピーに失敗しました。");
+      showToast("Message restored");
     }
   }, [consultText]);
 
@@ -1656,7 +1654,7 @@ export default function GridView() {
                             setDisplayOpen(false);
                           }}
                         >
-                          <span className="popover-item-label">インジケーター設定</span>
+                          <span className="popover-item-header-label">インジケーター設定</span>
                         </button>
                         <button
                           className={`popover-item ${maSettings[gridTimeframe].some(s => s.visible) ? "active" : ""}`}
@@ -1703,7 +1701,7 @@ export default function GridView() {
                   <IconButton
                     icon={<IconSettings size={18} />}
                     tooltip="設定"
-                    ariaLabel="設定"
+                    ariaLabel="設定メニューを開く"
                     onClick={() => {
                       setSettingsOpen(!settingsOpen);
                       setSortOpen(false);
@@ -1754,7 +1752,7 @@ export default function GridView() {
                         >
                           <span className="popover-item-label">
                             <IconRefresh size={16} />
-                            <span>{tradeSyncInFlight ? "同期中..." : "強制同期"}</span>
+                            <span>{tradeSyncInFlight ? "同期中..." : "強制同期(全件取込)"}</span>
                           </span>
                           <span className="popover-status">強制</span>
                         </button>
@@ -1763,7 +1761,7 @@ export default function GridView() {
                         </div>
                       </div>
                       <div className="popover-section">
-                        <div className="popover-title">MEEMEE_DATA_DIR</div>
+                        <div className="popover-title">MM_DATA_DIR</div>
                         <div className="popover-input-row">
                           <input
                             type="text"
@@ -1789,6 +1787,12 @@ export default function GridView() {
                         )}
                       </div>
                       <div className="popover-section">
+                        <div className="popover-title">TXT参照フォルダ</div>
+                        <div className="popover-hint">
+                          現在: {health?.pan_out_txt_dir ?? "未取得"}
+                        </div>
+                      </div>
+                      <div className="popover-section">
                         <div className="popover-title">スクショ</div>
                         <div className="popover-hint">
                           保存先: %USERPROFILE%\\Downloads\\MeeMeeScreener
@@ -1806,7 +1810,7 @@ export default function GridView() {
                             <IconDownload size={16} />
                             <span>{watchlistExporting ? "エクスポート中..." : "EXPORT"}</span>
                           </span>
-                          <span className="popover-status">EBK</span>
+                          <span className="popover-status">BK</span>
                         </button>
                         <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
                           <span className="popover-item-label">
@@ -1958,7 +1962,7 @@ export default function GridView() {
               <input
                 className="search-input"
                 type="search"
-                placeholder="コード / 銘柄名で検索"
+                placeholder="コーチ/ 銘柄名で検索"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -2012,7 +2016,7 @@ export default function GridView() {
                     ? "週足"
                     : "月足")}: {describeCondition(condition)}
                 <button type="button" onClick={() => handleRemoveActiveCondition(condition.id)}>
-                  ×
+                  Á
                 </button>
               </span>
             ))}
@@ -2024,63 +2028,16 @@ export default function GridView() {
       </header>
       {health && health.txt_count === 0 && (
         <div className="data-warning">
-          TXTが見つかりません。PANROLLINGで出力したTXTを
+          TXTが見つかりません。PANROLLINGで出力したTXTめ
           {health.pan_out_txt_dir ? ` ${health.pan_out_txt_dir} ` : ""}
           に配置してください。
         </div>
       )}
       {health && health.code_txt_missing && health.txt_count > 0 && (
         <div className="data-warning subtle">
-          code.txt がありません。ファイル名から銘柄コードを推定しています（code.txt推奨）。
+          code.txt がありません。ファイル名から銘柄コードを推定して表示します。code.txt 推奨です。
         </div>
       )}
-      <div className={`keep-bar ${keepBarCollapsed ? "is-collapsed" : ""}`}>
-        <div className="keep-bar-header">
-          <div className="keep-bar-title">候補箱</div>
-          <div className="keep-bar-meta">
-            {keepList.length}/{KEEP_LIMIT}
-          </div>
-          <div className="keep-bar-hint">S:候補 / E:除外 / J,K:上下 / ←→:横</div>
-          <button
-            type="button"
-            className="keep-bar-toggle"
-            onClick={() => setKeepBarCollapsed((prev) => !prev)}
-          >
-            {keepBarCollapsed ? "開く" : "たたむ"}
-          </button>
-          {keepList.length > 0 && (
-            <button type="button" className="keep-bar-clear" onClick={clearKeep}>
-              クリア
-            </button>
-          )}
-        </div>
-        {!keepBarCollapsed &&
-          (keepList.length > 0 ? (
-            <div className="keep-bar-chips">
-              {keepList.map((code) => (
-                <div className="keep-chip" key={code}>
-                  <button
-                    type="button"
-                    className="keep-chip-main"
-                    onClick={() => handleKeepNavigate(code)}
-                  >
-                    {code}
-                  </button>
-                  <button
-                    type="button"
-                    className="keep-chip-remove"
-                    onClick={() => removeKeep(code)}
-                    aria-label={`${code} を候補箱から外す`}
-                  >
-                    x
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="keep-bar-empty">Sキーまたは + で候補に追加</div>
-          ))}
-      </div>
       <div className={`grid-shell ${consultPaddingClass}`} ref={ref}>
         {showSkeleton && (
           <div className="grid-skeleton">
@@ -2150,7 +2107,7 @@ export default function GridView() {
                           onActivate={activateByCode}
                           onOpenDetail={handleOpenDetail}
                           onToggleKeep={handleToggleKeep}
-                          onExclude={handleExclude}
+                          onxclude={handlexclude}
                           theme={currentTheme}
                         />
                       );
@@ -2281,7 +2238,7 @@ export default function GridView() {
               {consultTab === "selection" ? (
                 <textarea className="consult-drawer-body" value={consultText} readOnly />
               ) : (
-                <div className="consult-placeholder">建玉相談は準備中です。</div>
+                <div className="consult-placeholder">建玉情報がありません</div>
               )}
             </div>
           </div>
@@ -2362,3 +2319,8 @@ export default function GridView() {
     </div>
   );
 }
+
+
+
+
+

@@ -108,6 +108,35 @@ const RANGE_PRESETS = [
   { label: "2Y", months: 24 }
 ];
 
+const buildMonthBoundaries = (candles: Candle[]) => {
+  if (!candles.length) return [];
+  const boundaries: number[] = [];
+  let prevKey: string | null = null;
+  for (const candle of candles) {
+    const date = new Date(candle.time * 1000);
+    const key = `${date.getUTCFullYear()}-${date.getUTCMonth()}`;
+    if (prevKey !== null && key !== prevKey) {
+      boundaries.push(candle.time);
+    }
+    prevKey = key;
+  }
+  return boundaries;
+};
+
+const buildYearBoundaries = (candles: Candle[]) => {
+  if (!candles.length) return [];
+  const boundaries: number[] = [];
+  let prevYear: number | null = null;
+  for (const candle of candles) {
+    const year = new Date(candle.time * 1000).getUTCFullYear();
+    if (prevYear !== null && year !== prevYear) {
+      boundaries.push(candle.time);
+    }
+    prevYear = year;
+  }
+  return boundaries;
+};
+
 const DAILY_ROW_RATIO = 12 / 16;
 const DEFAULT_WEEKLY_RATIO = 3 / 4;
 const MIN_WEEKLY_RATIO = 0.2;
@@ -828,6 +857,9 @@ export default function DetailView() {
 
   const weeklyCandles = weeklyData.candles;
   const weeklyVolume = weeklyData.volume;
+  const dailyMonthBoundaries = useMemo(() => buildMonthBoundaries(dailyCandles), [dailyCandles]);
+  const weeklyMonthBoundaries = useMemo(() => buildMonthBoundaries(weeklyCandles), [weeklyCandles]);
+  const monthlyYearBoundaries = useMemo(() => buildYearBoundaries(monthlyCandles), [monthlyCandles]);
   useEffect(() => {
     if (!code) return;
     if (!monthlyCandles.length) return;
@@ -2054,6 +2086,13 @@ export default function DetailView() {
     if (index < 0) return null;
     return compareListItems[index + 1] ?? null;
   }, [compareListEligible, compareListItems, compareCode, compareAsOf]);
+  const prevCode = useMemo(() => {
+    if (!code) return null;
+    const index = listCodes.indexOf(code);
+    if (index <= 0) return null;
+    return listCodes[index - 1] ?? null;
+  }, [listCodes, code]);
+
   const nextCode = useMemo(() => {
     if (!code) return null;
     const index = listCodes.indexOf(code);
@@ -2072,6 +2111,12 @@ export default function DetailView() {
                 <IconArrowLeft size={16} />
               </span>
               <span className="nav-label">一覧に戻る</span>
+            </button>
+            <button className="back nav-button" onClick={() => navigate(-1)}>
+              <span className="nav-icon">
+                <IconArrowLeft size={16} />
+              </span>
+              <span className="nav-label">前の画面に戻る</span>
             </button>
           </div>
           <div className="detail-summary-main">
@@ -2110,11 +2155,18 @@ export default function DetailView() {
             >
               {isFavorite ? <IconHeartFilled size={18} /> : <IconHeart size={18} />}
             </button>
-            <button className="back nav-button" onClick={() => navigate(-1)}>
+            <button
+              className="back nav-button"
+              onClick={() => {
+                if (!prevCode) return;
+                navigate(`/detail/${prevCode}`, { state: { from: listBackPath } });
+              }}
+              disabled={!prevCode}
+            >
               <span className="nav-icon">
-                <IconArrowBackUp size={16} />
+                <IconArrowLeft size={16} />
               </span>
-              <span className="nav-label">前の画面</span>
+              <span className="nav-label">前の銘柄</span>
             </button>
             <button
               className="back nav-button"
@@ -2459,6 +2511,7 @@ export default function DetailView() {
                       showVolume={false}
                       boxes={boxes}
                       showBoxes={showBoxes}
+                      partialTimes={monthlyYearBoundaries}
                       visibleRange={monthlyCandles.length ? compareMonthlyBaseRange : null}
                       onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "left")}
                       onVisibleRangeChange={handleMonthlyVisibleRangeChange}
@@ -2511,6 +2564,7 @@ export default function DetailView() {
                       eventMarkers={dailyEventMarkers}
                       boxes={boxes}
                       showBoxes={showBoxes}
+                      partialTimes={dailyMonthBoundaries}
                       visibleRange={dailyCandles.length ? resolvedDailyVisibleRange : null}
                       positionOverlay={{
                         dailyPositions,
@@ -2587,6 +2641,7 @@ export default function DetailView() {
                     eventMarkers={dailyEventMarkers}
                     boxes={boxes}
                     showBoxes={showBoxes}
+                    partialTimes={dailyMonthBoundaries}
                     visibleRange={resolvedDailyVisibleRange}
                     positionOverlay={{
                       dailyPositions,
@@ -2611,6 +2666,7 @@ export default function DetailView() {
                     showVolume={false}
                     boxes={boxes}
                     showBoxes={showBoxes}
+                    partialTimes={weeklyMonthBoundaries}
                     visibleRange={weeklyVisibleRange}
                     positionOverlay={{
                       dailyPositions,
@@ -2634,6 +2690,7 @@ export default function DetailView() {
                     showVolume={false}
                     boxes={boxes}
                     showBoxes={showBoxes}
+                    partialTimes={monthlyYearBoundaries}
                     visibleRange={resolvedMonthlyVisibleRange}
                     positionOverlay={{
                       dailyPositions,
@@ -2684,6 +2741,7 @@ export default function DetailView() {
                     eventMarkers={dailyEventMarkers}
                     boxes={boxes}
                     showBoxes={showBoxes}
+                    partialTimes={dailyMonthBoundaries}
                     visibleRange={resolvedDailyVisibleRange}
                     positionOverlay={{
                       dailyPositions,
@@ -2724,6 +2782,7 @@ export default function DetailView() {
                       showVolume={false}
                       boxes={boxes}
                       showBoxes={showBoxes}
+                      partialTimes={weeklyMonthBoundaries}
                       visibleRange={weeklyVisibleRange}
                       onCrosshairMove={handleWeeklyCrosshair}
                     />
@@ -2751,6 +2810,7 @@ export default function DetailView() {
                       showVolume={false}
                       boxes={boxes}
                       showBoxes={showBoxes}
+                      partialTimes={monthlyYearBoundaries}
                       visibleRange={resolvedMonthlyVisibleRange}
                       onCrosshairMove={handleMonthlyCrosshair}
                       onVisibleRangeChange={handleMonthlyVisibleRangeChange}
