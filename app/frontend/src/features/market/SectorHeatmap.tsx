@@ -8,15 +8,22 @@ const HEATMAP_VIEW_STATE_KEY = "heatmapViewState";
 
 type SectorItem = {
   name: string;
-  size: number;
-  color: number;
-  count?: number;
   sector33_code?: string;
   weight?: number;
   value?: number;
   tickerCount?: number;
+  flow?: number;
+  size?: number;
+  color?: number;
+  count?: number;
   industryName?: string;
   sector33Name?: string;
+};
+
+type HeatmapFrame = {
+  asof: number;
+  label: string;
+  items: SectorItem[];
 };
 
 const FALLBACK_SECTORS: Array<{ sector33_code: string; name: string }> = Array.from({ length: 33 }, (_, idx) => {
@@ -28,21 +35,24 @@ const buildFallbackItems = (): SectorItem[] =>
   FALLBACK_SECTORS.map((item) => ({
     sector33_code: item.sector33_code,
     name: item.name,
-    size: 0,
-    color: 0,
-    count: 0
+    weight: 0,
+    value: 0,
+    tickerCount: 0,
+    flow: 0
   }));
 
 const normalizeHeatmapItems = (items: SectorItem[]): SectorItem[] =>
   items.map((item) => {
-    const normalizedSize = Number(item.size ?? item.weight ?? 0);
-    const normalizedColor = Number(item.color ?? item.value ?? 0);
-    const normalizedCount = Number(item.count ?? item.tickerCount ?? 0);
+    const normalizedWeight = Number(item.weight ?? item.size ?? 0);
+    const normalizedValue = Number(item.value ?? item.color ?? 0);
+    const normalizedCount = Number(item.tickerCount ?? item.count ?? 0);
+    const normalizedFlow = Number(item.flow ?? 0);
     return {
       ...item,
-      size: Number.isFinite(normalizedSize) ? normalizedSize : 0,
-      color: Number.isFinite(normalizedColor) ? normalizedColor : 0,
-      count: Number.isFinite(normalizedCount) ? normalizedCount : 0
+      weight: Number.isFinite(normalizedWeight) ? normalizedWeight : 0,
+      value: Number.isFinite(normalizedValue) ? normalizedValue : 0,
+      tickerCount: Number.isFinite(normalizedCount) ? normalizedCount : 0,
+      flow: Number.isFinite(normalizedFlow) ? normalizedFlow : 0
     };
   });
 
@@ -74,10 +84,34 @@ const getColorScale = (value: number) => {
 };
 
 const resolveTileData = (payload: any) => {
-  if (!payload) return {};
-  if (payload.payload && typeof payload.payload === "object") return payload.payload;
-  if (payload.data && typeof payload.data === "object") return payload.data;
-  return payload;
+  let current = payload;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (!current || typeof current !== "object") return {};
+    if (current.tile && typeof current.tile === "object") return current.tile;
+    if (
+      "sector33_code" in current ||
+      "industryName" in current ||
+      "sector33Name" in current ||
+      ("name" in current && current.name !== undefined && current.name !== "業界")
+    ) {
+      return current;
+    }
+    // Recharts Treemap passes data in 'root' property for custom content
+    if (current.root && typeof current.root === "object") {
+      current = current.root;
+      continue;
+    }
+    if (current.payload && typeof current.payload === "object") {
+      current = current.payload;
+      continue;
+    }
+    if (current.data && typeof current.data === "object") {
+      current = current.data;
+      continue;
+    }
+    return current;
+  }
+  return current ?? {};
 };
 
 const getTextColor = (hex: string) => {
@@ -109,43 +143,93 @@ const formatValue = (value: number) => {
   return `${Math.round(value).toLocaleString("ja-JP")}円`;
 };
 
+const formatFlow = (value: number) => {
+  if (!Number.isFinite(value)) return "--";
+  const absValue = Math.abs(value);
+  const base = formatValue(absValue);
+  if (base === "--") return base;
+  if (value > 0) return `+${base}`;
+  if (value < 0) return `-${base}`;
+  return base;
+};
+
 type RenderSectorTileProps = {
   onClick?: (item: SectorItem) => void;
+  colorScale: (value: number) => string;
 };
 
 const RenderSectorTile = (props: any & RenderSectorTileProps) => {
-  const { x, y, width, height, payload, onClick } = props;
+  const { x, y, width, height, onClick, colorScale } = props;
 
-  // Debug: check what props we receive
-  if (!payload && import.meta.env.MODE === "development") {
-    console.warn("RenderSectorTile: payload is missing. Props:", props);
+  // Recharts Treemap spreads the original data item into props.
+  // We explicitly set 'tile' property in treemapData with all the data we need.
+  // Priority order:
+  // 1. props.tile (our explicit tile property set in treemapData)
+  // 2. props directly (Recharts spreads the data)
+  // 3. props.root.tile or props.root (Recharts internal structure)
+  // 4. payload (legacy support)
+
+  let data: any = {};
+
+  // 1. Check props.tile first (we explicitly set this in treemapData)
+  if (props.tile && typeof props.tile === "object" && props.tile.name && props.tile.name !== "業界") {
+    data = props.tile;
+  }
+  // 2. Check if data is directly spread into props
+  else if (props.name && props.name !== "業界" && (props.sector33_code || props.industryName)) {
+    data = {
+      name: props.name,
+      industryName: props.industryName ?? props.name,
+      sector33_code: props.sector33_code,
+      value: props.value ?? props.color ?? 0,
+      weight: props.weight ?? props.size ?? 0,
+      tickerCount: props.tickerCount ?? props.count ?? 0,
+      flow: props.flow ?? 0,
+    };
+  }
+  // 3. Check props.root (Recharts 2.x internal structure)
+  else if (props.root && typeof props.root === "object") {
+    const root = props.root;
+    if (root.tile && typeof root.tile === "object" && root.tile.name && root.tile.name !== "業界") {
+      data = root.tile;
+    } else if (root.name && root.name !== "業界") {
+      data = root;
+    }
+  }
+  // 4. Fallback to payload (legacy)
+  else if (props.payload) {
+    const resolved = resolveTileData(props.payload);
+    if (resolved && Object.keys(resolved).length > 0) {
+      data = resolved;
+    }
   }
 
-  // Fallback to props if payload is missing/empty
-  const resolved = resolveTileData(payload);
-  const data = (resolved && Object.keys(resolved).length > 0) ? resolved : props;
-
-  if (import.meta.env.MODE === "development" && (!data || !data.name)) {
-    console.log("RenderSectorTile resolved data:", data, "from payload:", payload, "props:", props);
+  // Debug log for first tile only in development
+  if (typeof import.meta !== "undefined" && (import.meta as any).env?.MODE === "development" && x === 0 && y === 0) {
+    console.log("RenderSectorTile FIRST TILE props keys:", Object.keys(props));
+    console.log("RenderSectorTile FIRST TILE props.tile:", props.tile);
+    console.log("RenderSectorTile FIRST TILE props.name:", props.name);
+    console.log("RenderSectorTile FIRST TILE resolved data:", data);
   }
 
-  const rate = Number(data?.color ?? 0);
-  const count = Number(data?.count ?? 0);
-  const rawSize = Number(data?.rawSize ?? data?.size ?? 0);
-  const hasData = Number.isFinite(count) && Number.isFinite(rawSize) && count > 0 && rawSize > 0;
-  const bgColor = hasData ? getColorScale(rate) : "#374151";
+
+  const rate = Number(data?.value ?? data?.color ?? 0);
+  const count = Number(data?.tickerCount ?? data?.count ?? 0);
+  const weight = Number(data?.weight ?? data?.size ?? 0);
+  const flow = Number(data?.flow ?? 0);
+  const hasData =
+    (Number.isFinite(weight) && weight > 0) || (Number.isFinite(count) && count > 0);
+  const bgColor = hasData ? colorScale(rate) : "#374151";
   const textColor = getTextColor(bgColor);
   const minWidth = 56;
   const minHeight = 34;
   const showText = width >= minWidth && height >= minHeight;
   const fontSize = width >= 140 && height >= 80 ? 14 : width >= 90 ? 12 : 10;
   const padding = 4;
-  const rateLabel = hasData ? formatRate(rate) : "--";
-
   const industryLabel = data?.industryName ?? data?.name ?? data?.sector33Name ?? data?.sector33_code ?? "業界";
   const detailValue = hasData ? formatRate(rate) : "--";
-  const valueLabel = hasData ? formatValue(Number(data?.size ?? data?.weight ?? rawSize)) : "--";
-  const tickerLabel = hasData ? Number(count).toLocaleString("ja-JP") : "--";
+  const flowLabel = hasData ? formatFlow(flow) : "--";
+  const valueLabel = hasData ? formatValue(weight) : "--";
 
 
   return (
@@ -192,7 +276,7 @@ const RenderSectorTile = (props: any & RenderSectorTileProps) => {
               {industryLabel}
             </div>
             <div style={{ fontSize: Math.max(10, fontSize - 2), opacity: 0.88, marginTop: 4 }}>
-              {detailValue} / {valueLabel} / {tickerLabel}
+              {detailValue} / {flowLabel} / {valueLabel}
             </div>
           </div>
         </foreignObject>
@@ -205,6 +289,10 @@ const CustomTooltip = ({ active, payload }: any) => {
   if (!active || !payload?.length) return null;
   const item = payload[0]?.payload as SectorItem | undefined;
   if (!item) return null;
+  const rate = Number(item.value ?? item.color ?? 0);
+  const weight = Number(item.weight ?? item.size ?? 0);
+  const flow = Number(item.flow ?? 0);
+  const count = Number(item.tickerCount ?? item.count ?? 0);
   return (
     <div
       style={{
@@ -220,15 +308,19 @@ const CustomTooltip = ({ active, payload }: any) => {
       <div style={{ fontWeight: 700, marginBottom: 6 }}>{item.name}</div>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         <span>騰落率</span>
-        <span>{formatRate(Number(item.color))}</span>
+        <span>{formatRate(rate)}</span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+        <span>資金移動</span>
+        <span>{formatFlow(flow)}</span>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         <span>売買代金</span>
-        <span>{formatValue(Number(item.size))}</span>
+        <span>{formatValue(weight)}</span>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
         <span>構成銘柄数</span>
-        <span>{Number(item.count ?? 0).toLocaleString("ja-JP")}</span>
+        <span>{Number(count).toLocaleString("ja-JP")}</span>
       </div>
     </div>
   );
@@ -236,8 +328,14 @@ const CustomTooltip = ({ active, payload }: any) => {
 
 export default function SectorHeatmap() {
   const navigate = useNavigate();
+  const sectorNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    FALLBACK_SECTORS.forEach((item) => map.set(item.sector33_code, item.name));
+    return map;
+  }, []);
   const [period, setPeriod] = useState<PeriodKey>("1d");
-  const [items, setItems] = useState<SectorItem[]>([]);
+  const [frames, setFrames] = useState<HeatmapFrame[]>([]);
+  const [cursorIndex, setCursorIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -266,23 +364,62 @@ export default function SectorHeatmap() {
 
   useEffect(() => {
     let canceled = false;
+    const timelineLimit = 180;
+    const applyFrames = (nextFrames: HeatmapFrame[]) => {
+      if (canceled) return;
+      setFrames(nextFrames);
+      setCursorIndex(nextFrames.length > 0 ? nextFrames.length - 1 : 0);
+    };
+    const buildFallbackFrame = (items: SectorItem[]) => {
+      const now = new Date();
+      const label = period === "1m" ? now.toISOString().slice(0, 7) : now.toISOString().slice(0, 10);
+      return {
+        asof: Math.floor(now.getTime() / 1000),
+        label,
+        items
+      };
+    };
+
     setLoading(true);
     setError(null);
+    const loadFallback = (message: string | null) => {
+      api
+        .get("/market/heatmap", { params: { period } })
+        .then((res) => {
+          if (canceled) return;
+          const data = res.data?.items;
+          const normalized =
+            Array.isArray(data) && data.length > 0 ? normalizeHeatmapItems(data) : [];
+          const next = normalized.length > 0 ? normalized : buildFallbackItems();
+          applyFrames([buildFallbackFrame(next)]);
+          setError(message);
+        })
+        .catch(() => {
+          if (canceled) return;
+          setError(message || "ヒートマップの取得に失敗しました");
+          applyFrames([buildFallbackFrame(buildFallbackItems())]);
+        });
+    };
+
     api
-      .get("/market/heatmap", { params: { period } })
+      .get("/market/heatmap/timeline", { params: { period, limit: timelineLimit } })
       .then((res) => {
         if (canceled) return;
-        const data = res.data?.items;
-        const normalized =
-          Array.isArray(data) && data.length > 0 ? normalizeHeatmapItems(data) : [];
-        const next = normalized.length > 0 ? normalized : buildFallbackItems();
-        setItems(next);
+        const data = res.data?.frames;
+        const hasFrames = Array.isArray(data) && data.length > 0;
+        const hasItems =
+          hasFrames &&
+          data.some((frame: HeatmapFrame) => Array.isArray(frame.items) && frame.items.length > 0);
+        if (hasFrames && hasItems) {
+          applyFrames(data);
+          return;
+        }
+        loadFallback(null);
       })
       .catch((err) => {
         if (canceled) return;
         const message = err?.message || "ヒートマップの取得に失敗しました";
-        setError(message);
-        setItems(buildFallbackItems());
+        loadFallback(message);
       })
       .finally(() => {
         if (canceled) return;
@@ -301,35 +438,120 @@ export default function SectorHeatmap() {
     [navigate]
   );
 
+  const clampedIndex = useMemo(() => {
+    if (!frames.length) return 0;
+    return Math.min(Math.max(cursorIndex, 0), frames.length - 1);
+  }, [cursorIndex, frames.length]);
+
+  const activeFrame = useMemo(() => {
+    if (!frames.length) return null;
+    return frames[clampedIndex] ?? null;
+  }, [frames, clampedIndex]);
+
+  const activeItems = useMemo(() => {
+    if (!activeFrame) return [];
+    return normalizeHeatmapItems(activeFrame.items ?? []);
+  }, [activeFrame]);
+
+  const valueRange = useMemo(() => {
+    const values = activeItems
+      .map((item) => Number(item.value ?? 0))
+      .filter((value) => Number.isFinite(value));
+    if (!values.length) {
+      return { min: 0, max: 0, maxAbs: 1 };
+    }
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const maxAbs = Math.max(Math.abs(min), Math.abs(max)) || 1;
+    return { min, max, maxAbs };
+  }, [activeItems]);
+
+  const colorScale = useCallback(
+    (value: number) => {
+      if (!Number.isFinite(value)) return "#6b7280";
+      const maxAbs = valueRange.maxAbs || 1;
+      const normalized = Math.max(-maxAbs, Math.min(maxAbs, value)) / maxAbs;
+      if (normalized === 0) return "#6b7280";
+      const hue = normalized > 0 ? 0 : 135;
+      const intensity = Math.abs(normalized);
+      const lightness = 75 - intensity * 40;
+      return `hsl(${hue} 75% ${lightness}%)`;
+    },
+    [valueRange.maxAbs]
+  );
+
   const treemapData = useMemo(() => {
-    return items.map((item) => ({
-      ...item,
-      industryName: item.name ?? item.sector33Name ?? item.sector33_code ?? "業界",
-      rawSize: Number(item.size ?? 0),
-      size: Number(item.size ?? 0) > 0 ? Number(item.size ?? 0) : 1,
-      color: Number(item.color ?? 0)
-    }));
-  }, [items]);
+    const sorted = [...activeItems].sort((a, b) => {
+      const aCode = a.sector33_code ?? "";
+      const bCode = b.sector33_code ?? "";
+      if (aCode === bCode) return 0;
+      if (!aCode) return 1;
+      if (!bCode) return -1;
+      return aCode.localeCompare(bCode, "ja");
+    });
+    return sorted.map((item) => {
+      const weight = Number(item.weight ?? 0);
+      const flow = Number(item.flow ?? 0);
+      const resolvedName =
+        item.name ??
+        item.industryName ??
+        item.sector33Name ??
+        (item.sector33_code ? sectorNameMap.get(item.sector33_code) : null) ??
+        "業界";
+      return {
+        ...item,
+        name: resolvedName,
+        industryName: resolvedName,
+        tile: {
+          ...item,
+          name: resolvedName,
+          industryName: resolvedName,
+          weight,
+          flow,
+          tickerCount: Number(item.tickerCount ?? 0),
+          value: Number(item.value ?? 0)
+        },
+        rawSize: 1,
+        size: 1,
+        color: Number(item.value ?? 0),
+        count: Number(item.tickerCount ?? 0),
+        weight,
+        flow
+      };
+    });
+  }, [activeItems]);
 
   const sectorSummary = useMemo(() => {
-    if (!items.length) return null;
-    const withData = items.filter((item) => Number(item.count ?? 0) > 0 && Number(item.size ?? 0) > 0);
+    if (!activeItems.length) return null;
+    const withData = activeItems.filter(
+      (item) => Number(item.tickerCount ?? 0) > 0 && Number(item.weight ?? 0) > 0
+    );
     if (!withData.length) return null;
-    const best = withData.reduce((prev, next) => (Number(next.color ?? 0) > Number(prev.color ?? 0) ? next : prev), withData[0]);
-    const worst = withData.reduce((prev, next) => (Number(next.color ?? 0) < Number(prev.color ?? 0) ? next : prev), withData[0]);
-    const totalWeight = withData.reduce((sum, item) => sum + Number(item.size ?? 0), 0);
-    const avgValue = withData.reduce((sum, item) => sum + Number(item.color ?? 0), 0) / withData.length;
+    const best = withData.reduce(
+      (prev, next) => (Number(next.value ?? 0) > Number(prev.value ?? 0) ? next : prev),
+      withData[0]
+    );
+    const worst = withData.reduce(
+      (prev, next) => (Number(next.value ?? 0) < Number(prev.value ?? 0) ? next : prev),
+      withData[0]
+    );
+    const totalWeight = withData.reduce((sum, item) => sum + Number(item.weight ?? 0), 0);
+    const totalFlow = withData.reduce((sum, item) => sum + Number(item.flow ?? 0), 0);
+    const avgValue = withData.reduce((sum, item) => sum + Number(item.value ?? 0), 0) / withData.length;
     return {
       best,
       worst,
       totalWeight,
+      totalFlow,
       avgValue
     };
-  }, [items]);
+  }, [activeItems]);
 
-  const rendered = !loading && items.length > 0;
-  const showEmpty = !loading && items.length === 0;
+  const rendered = !loading && activeItems.length > 0;
+  const showEmpty = !loading && (!frames.length || activeItems.length === 0);
   const renderState = error ? "error" : rendered ? "ready" : loading ? "loading" : "empty";
+  const timelineLabel = activeFrame?.label ?? "";
+  const frameCount = frames.length;
 
   if (import.meta.env.MODE === "development") {
     // console.log("render state", { ... });
@@ -359,6 +581,22 @@ export default function SectorHeatmap() {
         ))}
         <span style={{ fontSize: 12, color: "var(--theme-text-muted)" }}>{loading ? "読み込み中..." : ""}</span>
       </div>
+      {frameCount > 0 && (
+        <div className="heatmap-timeline">
+          <span className="heatmap-timeline-label">{timelineLabel}</span>
+          <input
+            className="heatmap-timeline-range"
+            type="range"
+            min={0}
+            max={Math.max(frameCount - 1, 0)}
+            value={clampedIndex}
+            onChange={(event) => setCursorIndex(Number(event.target.value))}
+          />
+          <span className="heatmap-timeline-meta">
+            {clampedIndex + 1}/{frameCount}
+          </span>
+        </div>
+      )}
       <div className="heatmap-stage">
         {error && (
           <div className="heatmap-empty">
@@ -390,7 +628,7 @@ export default function SectorHeatmap() {
                 dataKey="size"
                 stroke="#fff"
                 animationDuration={240}
-                content={<RenderSectorTile onClick={handleSectorClick} />}
+                content={<RenderSectorTile onClick={handleSectorClick} colorScale={colorScale} />}
               >
                 <Tooltip content={<CustomTooltip />} />
               </Treemap>
@@ -402,20 +640,24 @@ export default function SectorHeatmap() {
             <div className="sector-summary-row">
               <strong>トップ騰落セクター</strong>
               <span>{sectorSummary.best.name ?? sectorSummary.best.industryName}</span>
-              <span>{formatRate(Number(sectorSummary.best.color ?? 0))}</span>
+              <span>{formatRate(Number(sectorSummary.best.value ?? 0))}</span>
             </div>
             <div className="sector-summary-row">
               <strong>ボトム騰落セクター</strong>
               <span>{sectorSummary.worst.name ?? sectorSummary.worst.industryName}</span>
-              <span>{formatRate(Number(sectorSummary.worst.color ?? 0))}</span>
+              <span>{formatRate(Number(sectorSummary.worst.value ?? 0))}</span>
             </div>
             <div className="sector-summary-row">
               <strong>平均騰落率</strong>
               <span>{formatRate(sectorSummary.avgValue)}</span>
             </div>
             <div className="sector-summary-row">
-              <strong>合計値（size）</strong>
+              <strong>合計売買代金</strong>
               <span>{formatValue(sectorSummary.totalWeight)}</span>
+            </div>
+            <div className="sector-summary-row">
+              <strong>資金移動合計</strong>
+              <span>{formatFlow(sectorSummary.totalFlow)}</span>
             </div>
           </div>
         )}

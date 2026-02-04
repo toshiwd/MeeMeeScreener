@@ -445,7 +445,9 @@ export default function DetailView() {
   const hoverTimePendingRef = useRef<number | null>(null);
   const hoverRafRef = useRef<number | null>(null);
   const manualDailyRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const manualWeeklyRangeRef = useRef<{ from: number; to: number } | null>(null);
   const manualMonthlyRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const manualCompareDailyRangeRef = useRef<{ from: number; to: number } | null>(null);
 
   const tickers = useStore((state) => state.tickers);
   const loadList = useStore((state) => state.loadList);
@@ -558,6 +560,17 @@ export default function DetailView() {
   const [compareDailyErrors, setCompareDailyErrors] = useState<string[]>([]);
   const [compareDailyLoading, setCompareDailyLoading] = useState(false);
   const [compareDailyLimit, setCompareDailyLimit] = useState(DEFAULT_LIMITS.daily);
+  const [phaseFallback, setPhaseFallback] = useState<{
+    dt: number | null;
+    earlyScore: number | null;
+    lateScore: number | null;
+    bodyScore: number | null;
+    n: number | null;
+    reasons: string[];
+  } | null>(null);
+  const [phaseFallbackLoading, setPhaseFallbackLoading] = useState(false);
+  const lastPhaseAttemptAsOfRef = useRef<number | null>(null);
+  const phaseFallbackRequestKeyRef = useRef<string | null>(null);
   const detailChartLogRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -572,6 +585,40 @@ export default function DetailView() {
     setCompareTrades([]);
     setCompareDailyLimit(DEFAULT_LIMITS.daily);
   }, [compareCode]);
+
+  useEffect(() => {
+    if (!compareCode) return;
+    setCompareMonthlyData([]);
+    setCompareMonthlyErrors([]);
+    setCompareLoading(false);
+    setCompareDailyData([]);
+    setCompareDailyErrors([]);
+    setCompareDailyLoading(false);
+    setCompareBoxes([]);
+    setCompareTrades([]);
+    setCompareDailyLimit(DEFAULT_LIMITS.daily);
+  }, [compareCode]);
+
+  useEffect(() => {
+    if (!compareCode) return;
+    manualCompareDailyRangeRef.current = null;
+  }, [compareCode, compareAsOf]);
+
+  useEffect(() => {
+    setPhaseFallback(null);
+    setPhaseFallbackLoading(false);
+    lastPhaseAttemptAsOfRef.current = null;
+    phaseFallbackRequestKeyRef.current = null;
+    setDailyData([]);
+  }, [code]);
+
+  useEffect(() => {
+    setRangeMonths(12);
+    manualDailyRangeRef.current = null;
+    manualWeeklyRangeRef.current = null;
+    manualMonthlyRangeRef.current = null;
+    manualCompareDailyRangeRef.current = null;
+  }, [code]);
 
   const tickerName = useMemo(() => {
     if (!code) return "";
@@ -603,6 +650,42 @@ export default function DetailView() {
     const cleaned = raw.replace(/\s*\?\s*$/, "").trim();
     return cleaned === "?" ? "" : cleaned;
   }, [tickers, compareCode]);
+  const formatPhaseScore = (value: number | null | undefined) => {
+    if (phaseFallbackLoading) return "取得中…";
+    return Number.isFinite(value)
+      ? String(Math.min(10, Math.max(0, Math.round(value! * 10))))
+      : "--";
+  };
+  const formatPhaseN = (value: number | null | undefined) => {
+    if (phaseFallbackLoading) return "取得中…";
+    return typeof value === "number" ? String(value) : "--";
+  };
+  const getPhaseTone = (value: number | null | undefined) => {
+    if (!Number.isFinite(value)) return "neutral";
+    if (value! > 0) return "up";
+    if (value! < 0) return "down";
+    return "neutral";
+  };
+  const hasPhaseScores =
+    activeTicker?.bodyScore != null ||
+    activeTicker?.earlyScore != null ||
+    activeTicker?.lateScore != null ||
+    typeof activeTicker?.phaseN === "number";
+  const needsPhaseReasons = !(activeTicker?.phaseReasons?.length);
+  const phaseScores = hasPhaseScores ? activeTicker : phaseFallback;
+  const phaseReasons = activeTicker?.phaseReasons?.length
+    ? activeTicker.phaseReasons
+    : phaseFallback?.reasons ?? [];
+  const phaseDtValue = hasPhaseScores ? activeTicker?.phaseDt ?? null : phaseFallback?.dt ?? null;
+  const phaseNValue = hasPhaseScores ? activeTicker?.phaseN : phaseFallback?.n;
+  const hasPhaseData =
+    phaseScores?.bodyScore != null ||
+    phaseScores?.earlyScore != null ||
+    phaseScores?.lateScore != null ||
+    typeof phaseNValue === "number" ||
+    phaseDtValue != null ||
+    phaseReasons.length > 0;
+  const canShowPhase = hasPhaseData || phaseFallbackLoading;
 
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
   const isFavorite = useMemo(() => (code ? favoritesSet.has(code) : false), [favoritesSet, code]);
@@ -620,6 +703,79 @@ export default function DetailView() {
       loadFavorites();
     }
   }, [backendReady, favoritesLoaded, loadFavorites]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!code) return;
+    if (hasPhaseScores && !needsPhaseReasons) {
+      setPhaseFallback(null);
+      setPhaseFallbackLoading(false);
+      lastPhaseAttemptAsOfRef.current = null;
+      return;
+    }
+    const asofFromData = dailyData.reduce<number | null>((maxValue, row) => {
+      if (!Array.isArray(row) || row.length === 0) return maxValue;
+      const normalized = normalizeTime(row[0]);
+      if (normalized == null) return maxValue;
+      if (maxValue == null || normalized > maxValue) return normalized;
+      return maxValue;
+    }, null);
+    const asof = mainAsOfTime ?? asofFromData;
+    if (asof == null) {
+      if (phaseFallbackLoading) {
+        setPhaseFallbackLoading(false);
+      }
+      return;
+    }
+    if (lastPhaseAttemptAsOfRef.current === asof) return;
+    const requestKey = `${code}|${asof}`;
+    setPhaseFallbackLoading(true);
+    lastPhaseAttemptAsOfRef.current = asof;
+    phaseFallbackRequestKeyRef.current = requestKey;
+    api
+      .get("/ticker/phase", { params: { code, asof } })
+      .then((res) => {
+        if (phaseFallbackRequestKeyRef.current !== requestKey) return;
+        const item = res.data?.item ?? null;
+        if (!item) {
+          setPhaseFallback(null);
+          return;
+        }
+        const reasons = Array.isArray(item.reasonsTop3)
+          ? (item.reasonsTop3 as string[])
+          : typeof item.reasonsTop3 === "string"
+            ? item.reasonsTop3.split(",").map((part: string) => part.trim()).filter(Boolean)
+            : [];
+        setPhaseFallback({
+          dt: typeof item.dt === "number" ? item.dt : null,
+          earlyScore: Number.isFinite(item.earlyScore) ? item.earlyScore : null,
+          lateScore: Number.isFinite(item.lateScore) ? item.lateScore : null,
+          bodyScore: Number.isFinite(item.bodyScore) ? item.bodyScore : null,
+          n: typeof item.n === "number" ? item.n : null,
+          reasons
+        });
+      })
+      .catch(() => {
+        if (phaseFallbackRequestKeyRef.current !== requestKey) return;
+        setPhaseFallback(null);
+      })
+      .finally(() => {
+        if (phaseFallbackRequestKeyRef.current !== requestKey) return;
+        setPhaseFallbackLoading(false);
+      });
+    return () => {
+      if (phaseFallbackRequestKeyRef.current === requestKey) {
+        phaseFallbackRequestKeyRef.current = null;
+      }
+    };
+  }, [
+    backendReady,
+    code,
+    hasPhaseScores,
+    needsPhaseReasons,
+    mainAsOfTime,
+    dailyData
+  ]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1584,6 +1740,7 @@ export default function DetailView() {
     return buildRange(monthlyCandles, rangeMonths);
   }, [monthlyCandles, rangeMonths, mainAsOfTime]);
   const resolvedDailyVisibleRange = rangeMonths ? dailyVisibleRange : manualDailyRangeRef.current;
+  const resolvedWeeklyVisibleRange = rangeMonths ? weeklyVisibleRange : manualWeeklyRangeRef.current;
   const resolvedMonthlyVisibleRange = rangeMonths ? monthlyVisibleRange : manualMonthlyRangeRef.current;
   const compareMonthlyVisibleRange = useMemo(() => {
     if (compareMonthlyTargetRange) return compareMonthlyTargetRange;
@@ -1598,6 +1755,7 @@ export default function DetailView() {
     [compareDailyTargetRange]
   );
   const compareDailyVisibleRange = useMemo(() => {
+    if (manualCompareDailyRangeRef.current) return manualCompareDailyRangeRef.current;
     if (!compareDailyTargetRange) return null;
     if (!compareDailyCandles.length) return null;
     return compareDailyTargetRange;
@@ -1815,9 +1973,28 @@ export default function DetailView() {
     }
   };
 
+  const handleWeeklyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+    mainSync.handleWeeklyVisibleRangeChange(range);
+    if (!rangeMonths && range) {
+      manualWeeklyRangeRef.current = range;
+    }
+  };
+
   const handleMonthlyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+    mainSync.handleMonthlyVisibleRangeChange(range);
     if (!rangeMonths && range) {
       manualMonthlyRangeRef.current = range;
+    }
+  };
+
+  const handleCompareMonthlyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+    compareSync.handleMonthlyVisibleRangeChange(range);
+  };
+
+  const handleCompareDailyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+    compareSync.handleDailyVisibleRangeChange(range);
+    if (!rangeMonths && range) {
+      manualCompareDailyRangeRef.current = range;
     }
   };
 
@@ -2204,6 +2381,44 @@ export default function DetailView() {
                 </button>
               ))}
             </div>
+            {canShowPhase && (
+              <div className="detail-phase is-open">
+                <div className="detail-phase-metrics">
+                  <span
+                    className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                      phaseScores?.bodyScore ?? null
+                    )}`}
+                  >
+                    中盤 {formatPhaseScore(phaseScores?.bodyScore ?? null)}
+                  </span>
+                  <span
+                    className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                      phaseScores?.earlyScore ?? null
+                    )}`}
+                  >
+                    序盤 {formatPhaseScore(phaseScores?.earlyScore ?? null)}
+                  </span>
+                  <span
+                    className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                      phaseScores?.lateScore ?? null
+                    )}`}
+                  >
+                    終盤 {formatPhaseScore(phaseScores?.lateScore ?? null)}
+                  </span>
+                  <div className="detail-phase-reasons">
+                    {phaseReasons.length ? (
+                      phaseReasons.map((reason) => (
+                        <span key={reason} className="detail-phase-reason">
+                          {reason}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="detail-phase-empty">--</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <div className="detail-controls-group">
             <IconButton
@@ -2537,6 +2752,7 @@ export default function DetailView() {
                       showBoxes={showBoxes}
                       visibleRange={compareMonthlyCandles.length ? compareMonthlyVisibleRange : null}
                       onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "right")}
+                      onVisibleRangeChange={handleCompareMonthlyVisibleRangeChange}
                     />
                     {compareLoading && (
                       <div className="detail-chart-empty">Loading...</div>
@@ -2608,7 +2824,7 @@ export default function DetailView() {
                         hoverTime: compareSync.hoverTime
                       }}
                       onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "right")}
-                      onVisibleRangeChange={compareSync.handleDailyVisibleRangeChange}
+                      onVisibleRangeChange={handleCompareDailyVisibleRangeChange}
                     />
                     {(compareDailyLoading || compareDailyNeedsMore) && (
                       <div className="detail-chart-empty">一致期間のデータを読み込み中...</div>
@@ -2667,7 +2883,7 @@ export default function DetailView() {
                     boxes={boxes}
                     showBoxes={showBoxes}
                     partialTimes={weeklyMonthBoundaries}
-                    visibleRange={weeklyVisibleRange}
+                    visibleRange={resolvedWeeklyVisibleRange}
                     positionOverlay={{
                       dailyPositions,
                       tradeMarkers,
@@ -2679,6 +2895,7 @@ export default function DetailView() {
                       latestTradeTime
                     }}
                     onCrosshairMove={handleWeeklyCrosshair}
+                    onVisibleRangeChange={handleWeeklyVisibleRangeChange}
                   />
                 )}
                 {focusPanel === "monthly" && (
@@ -2783,8 +3000,9 @@ export default function DetailView() {
                       boxes={boxes}
                       showBoxes={showBoxes}
                       partialTimes={weeklyMonthBoundaries}
-                      visibleRange={weeklyVisibleRange}
+                      visibleRange={resolvedWeeklyVisibleRange}
                       onCrosshairMove={handleWeeklyCrosshair}
+                      onVisibleRangeChange={handleWeeklyVisibleRangeChange}
                     />
                     {weeklyEmptyMessage && (
                       <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>

@@ -49,6 +49,15 @@ def submit_force_sync():
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@router.post("/api/phase/rebuild")
+def submit_phase_rebuild():
+    try:
+        return _submit_job("phase_rebuild")
+    except Exception as exc:
+        logger.exception("Error submitting phase_rebuild: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
 @router.post("/api/txt_update/run")
 def run_txt_update_legacy():
     cleanup_stale_jobs()

@@ -67,7 +67,8 @@ const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalFilterSt
   defaultTimeframe,
   anchorMode: "latest",
   anchorDate: null,
-  conditions: []
+  conditions: [],
+  boxThisMonth: false
 });
 
 function useResizeObserver() {
@@ -536,8 +537,9 @@ export default function GridView() {
     return candidateKeys.includes(sortKey);
   }, [sortKey]);
 
+  const defaultSortLabel = "コード";
   const sortLabel = useMemo(
-    () => sortOptions.find((option) => option.key === sortKey)?.label ?? "コード",
+    () => sortOptions.find((option) => option.key === sortKey)?.label ?? defaultSortLabel,
     [sortOptions, sortKey]
   );
 
@@ -549,7 +551,7 @@ export default function GridView() {
     const trimmed = value.trim();
     if (!trimmed) return null;
     const fullwidth = "０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ";
-    const halfwidth = "0123456789ABCDFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    const halfwidth = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     let normalized = "";
     for (const ch of trimmed) {
       const idx = fullwidth.indexOf(ch);
@@ -558,6 +560,20 @@ export default function GridView() {
     normalized = normalized.replace(/\s+/g, "").toUpperCase();
     if (!/^\d{4}[A-Z]?$/.test(normalized)) return null;
     return normalized;
+  }, []);
+
+  const normalizeMonthLabel = useCallback((value: string | null | undefined) => {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d{6}$/.test(trimmed)) {
+      return `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}`;
+    }
+    const match = trimmed.match(/^(\d{4})[/-](\d{1,2})/);
+    if (match) {
+      return `${match[1]}-${String(match[2]).padStart(2, "0")}`;
+    }
+    return trimmed;
   }, []);
 
   const normalizedSearch = useMemo(
@@ -653,6 +669,28 @@ export default function GridView() {
     [barsCache, gridTimeframe]
   );
   const listAnchorLabel = listAnchorTime ? formatDateYMD(listAnchorTime) : null;
+  const boxMonthLabel = useMemo(() => {
+    const base = listAnchorTime ?? activeAnchorTime ?? Math.floor(Date.now() / 1000);
+    const date = new Date(base * 1000);
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth() + 1;
+    return `${year}-${String(month).padStart(2, "0")}`;
+  }, [listAnchorTime, activeAnchorTime]);
+  const latestBoxMonthLabel = useMemo(() => {
+    let latest: string | null = null;
+    const consider = (value: string | null | undefined) => {
+      const normalized = normalizeMonthLabel(value);
+      if (!normalized) return;
+      if (!latest || normalized > latest) {
+        latest = normalized;
+      }
+    };
+    sectorFiltered.forEach((ticker) => {
+      consider(ticker.boxEndMonth);
+      consider(ticker.breakoutMonth);
+    });
+    return latest;
+  }, [sectorFiltered, normalizeMonthLabel]);
 
   const filterAsofTimeframe = useMemo(() => {
     if (techFilterActive.conditions.length === 0) return null;
@@ -688,9 +726,23 @@ export default function GridView() {
   const buildFilterResult = useCallback(
     (state: TechnicalFilterState) => {
       const { conditions } = state;
+      const applyBoxFilter = (items: typeof sectorFiltered) => {
+        if (!state.boxThisMonth) return items;
+        const targetMonth = latestBoxMonthLabel ?? boxMonthLabel;
+        if (!targetMonth) return [];
+        return items.filter((ticker) => {
+          const end = normalizeMonthLabel(ticker.boxEndMonth);
+          const breakout = normalizeMonthLabel(ticker.breakoutMonth);
+          if (end === targetMonth || breakout === targetMonth) return true;
+          const stateLabel = ticker.boxState ?? "NONE";
+          if (stateLabel !== "NONE") return true;
+          if (ticker.boxActive === true || ticker.hasBox === true) return true;
+          return false;
+        });
+      };
       if (!conditions.length) {
         return {
-          items: sectorFiltered,
+          items: applyBoxFilter(sectorFiltered),
           asofMap: new Map<string, string>()
         };
       }
@@ -723,9 +775,16 @@ export default function GridView() {
         }
         return true;
       });
-      return { items, asofMap };
+      return { items: applyBoxFilter(items), asofMap };
     },
-    [sectorFiltered, barsCache, resolveAnchorTimeForTimeframe]
+    [
+      sectorFiltered,
+      barsCache,
+      resolveAnchorTimeForTimeframe,
+      boxMonthLabel,
+      latestBoxMonthLabel,
+      normalizeMonthLabel
+    ]
   );
 
   const canAddWatchlist = useMemo(() => {
@@ -748,6 +807,10 @@ export default function GridView() {
   const activeConditionTimeframes = useMemo(() => {
     return new Set(techFilterActive.conditions.map((condition) => condition.timeframe));
   }, [techFilterActive.conditions]);
+  const hasActiveFilters = useMemo(
+    () => techFilterActive.conditions.length > 0 || techFilterActive.boxThisMonth,
+    [techFilterActive.conditions.length, techFilterActive.boxThisMonth]
+  );
   const activeTimeframeLabel = useMemo(() => {
     if (activeConditionTimeframes.size === 0) return "未設定";
     if (activeConditionTimeframes.size === 1) {
@@ -1335,7 +1398,8 @@ export default function GridView() {
     return {
       ...state,
       defaultTimeframe,
-      conditions: result.conditions
+      conditions: result.conditions,
+      boxThisMonth: typeof state.boxThisMonth === "boolean" ? state.boxThisMonth : false
     };
   };
 
@@ -1502,6 +1566,20 @@ export default function GridView() {
       }
     }
   }, [backendReady, handleUpdateError]);
+
+  const handlePhaseRebuild = useCallback(async () => {
+    if (!backendReady) return;
+    showToast("Phase\u518d\u8a08\u7b97\u3092\u958b\u59cb\u3057\u307e\u3057\u305f\u3002");
+    try {
+      const res = await api.post("/phase/rebuild");
+      const payload = res.data as { ok?: boolean; error?: string };
+      if (payload && payload.ok === false) {
+        showToast("Phase\u518d\u8a08\u7b97\u306e\u8d77\u52d5\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002");
+      }
+    } catch {
+      showToast("Phase\u518d\u8a08\u7b97\u306e\u8d77\u52d5\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002");
+    }
+  }, [backendReady]);
 
 
   return (
@@ -1680,7 +1758,7 @@ export default function GridView() {
                   <IconButton
                     icon={<IconFilter size={18} />}
                     label="フィルタ"
-                    selected={techFilterActive.conditions.length > 0}
+                    selected={hasActiveFilters}
                     variant="iconLabel"
                     onClick={() => setTechFilterOpen(true)}
                   />
@@ -1791,6 +1869,22 @@ export default function GridView() {
                         <div className="popover-hint">
                           現在: {health?.pan_out_txt_dir ?? "未取得"}
                         </div>
+                      </div>
+                      <div className="popover-section">
+                        <div className="popover-title">Phase</div>
+                        <button
+                          type="button"
+                          className="popover-item"
+                          onClick={handlePhaseRebuild}
+                          disabled={!backendReady}
+                        >
+                          <span className="popover-item-label">
+                            <IconFileText size={16} />
+                            <span>{"Phase\u518d\u8a08\u7b97"}</span>
+                          </span>
+                          <span className="popover-status">{"\u624b\u52d5"}</span>
+                        </button>
+                        <div className="popover-hint">{"\u6700\u65b0\u65e5\u306e\u653f\u5c40\u3092\u518d\u8a08\u7b97\u3057\u307e\u3059\u3002"}</div>
                       </div>
                       <div className="popover-section">
                         <div className="popover-title">スクショ</div>
@@ -2000,14 +2094,21 @@ export default function GridView() {
 
 
 
-        {techFilterActive.conditions.length > 0 && (
+        {hasActiveFilters && (
           <div className="tech-filter-chips-row">
-            <span className="tech-filter-chip">
-              基準日: 最新 {activeAnchorLabel ? `(${activeAnchorLabel})` : ""}
-            </span>
-            <span className="tech-filter-chip">
-              条件足種: {activeTimeframeLabel}
-            </span>
+            {techFilterActive.conditions.length > 0 && (
+              <>
+                <span className="tech-filter-chip">
+                  基準日: 最新 {activeAnchorLabel ? `(${activeAnchorLabel})` : ""}
+                </span>
+                <span className="tech-filter-chip">
+                  条件足種: {activeTimeframeLabel}
+                </span>
+              </>
+            )}
+            {techFilterActive.boxThisMonth && (
+              <span className="tech-filter-chip">今月ボックス</span>
+            )}
             {techFilterActive.conditions.map((condition) => (
               <span key={condition.id} className="tech-filter-chip">
                 {(condition.timeframe === "daily"
@@ -2016,7 +2117,7 @@ export default function GridView() {
                     ? "週足"
                     : "月足")}: {describeCondition(condition)}
                 <button type="button" onClick={() => handleRemoveActiveCondition(condition.id)}>
-                  Á
+                  ×
                 </button>
               </span>
             ))}

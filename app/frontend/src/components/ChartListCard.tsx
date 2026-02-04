@@ -46,6 +46,10 @@ type ChartListCardProps = {
   signals?: SignalChip[];
   action?: ActionConfig | null;
   maxDate?: string | null;
+  phaseBody?: number | null;
+  phaseEarly?: number | null;
+  phaseLate?: number | null;
+  phaseN?: number | null;
 };
 
 const normalizeDateParts = (year: number, month: number, day: number) => {
@@ -259,7 +263,11 @@ const ChartListCard = memo(function ChartListCard({
   onOpenDetail,
   signals,
   action,
-  maxDate
+  maxDate,
+  phaseBody,
+  phaseEarly,
+  phaseLate,
+  phaseN
 }: ChartListCardProps) {
   const { ref, inView } = useInView(deferUntilInView, rootMargin);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
@@ -347,6 +355,13 @@ const ChartListCard = memo(function ChartListCard({
   const showLoading = rows.length === 0;
   const earningsLabel = formatEventBadgeDate(eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(eventRightsDate);
+  const formatScore = (value: number | null | undefined) =>
+    Number.isFinite(value)
+      ? String(Math.min(10, Math.max(0, Math.round(value! * 10))))
+      : "--";
+  const formatN = (value: number | null | undefined) =>
+    typeof value === "number" ? String(value) : "--";
+  const showPhase = false;
   const loadingLabel =
     status === "error"
       ? "読み込み失敗"
@@ -415,6 +430,16 @@ const ChartListCard = memo(function ChartListCard({
           </div>
         </div>
       ) : null}
+      {showPhase && (
+        <div className="tile-phase">
+          <div className="tile-scores">
+            <span className="score-chip">B {formatScore(phaseBody)}</span>
+            <span className="score-chip">E {formatScore(phaseEarly)}</span>
+            <span className="score-chip">L {formatScore(phaseLate)}</span>
+            <span className="score-chip">n {formatN(phaseN)}</span>
+          </div>
+        </div>
+      )}
       <div className="tile-chart">
         {deferUntilInView && !inView && <div className="rank-chart-placeholder" />}
         {(!deferUntilInView || inView) && showLoading && (

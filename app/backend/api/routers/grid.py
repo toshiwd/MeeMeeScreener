@@ -65,11 +65,13 @@ def get_screener_rows(
     earnings_map = {row[0]: row[1] for row in earnings_rows}
     rights_map = {row[0]: row[1] for row in rights_rows}
     
+    asof_map: dict[str, int | None] = {}
     results = []
     for code in codes:
         # Extract specific rows for this code
         d_rows = daily_map.get(code, [])
         m_rows = monthly_map.get(code, [])
+        asof_map[code] = d_rows[-1][1] if d_rows else None
         
         # We need to strip the code from the rows for metrics computation if it expects (date, o, h, l, c, v)
         # generic _group_rows_by_code preserves the full tuple including code at index 0.
@@ -92,7 +94,9 @@ def get_screener_rows(
         
         # Merge Meta
         # Meta row: code, name, stage, score, reason, score_status, missing_reasons, score_breakdown
-        name = meta[1] if meta else code
+        sector_info = sector_map.get(code)
+        industry_name = sector_info[0] if sector_info else None
+        name = meta[1] if meta else (industry_name or code)
         stage = meta[2] if meta else None
         score = meta[3] if meta else None
         reason = meta[4] if meta else None
@@ -101,8 +105,6 @@ def get_screener_rows(
         # Fallback/Default logic (simplified from screener_engine)
         if not stage or stage == "UNKNOWN":
              stage = computed.get("statusLabel", "UNKNOWN")
-
-        sector_info = sector_map.get(code)
 
         # Construct Result Item
         item = {
@@ -114,11 +116,22 @@ def get_screener_rows(
             "scoreStatus": score_status,
             "eventEarningsDate": earnings_map.get(code),
             "eventRightsDate": rights_map.get(code),
-            "sector33_code": sector_info[0] if sector_info else None,
-            "sector33_name": sector_info[1] if sector_info else None,
+            "sector33_code": sector_info[1] if sector_info else None,
+            "sector33_name": sector_info[2] if sector_info else None,
             **computed
         }
         results.append(item)
+
+    phase_map = screener_repo.fetch_phase_pred_map(asof_map)
+    for item in results:
+        phase_info = phase_map.get(item["code"])
+        if not phase_info:
+            continue
+        item["earlyScore"] = phase_info["early_score"]
+        item["lateScore"] = phase_info["late_score"]
+        item["bodyScore"] = phase_info["body_score"]
+        item["phaseN"] = phase_info["n"]
+        item["phaseDt"] = phase_info["dt"]
 
     _screener_cache["data"] = results
     _screener_cache["last_updated"] = now

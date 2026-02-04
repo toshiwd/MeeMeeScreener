@@ -585,6 +585,10 @@ export default function PositionsView() {
         densityKey={densityKey}
         signals={signals}
         onOpenDetail={handleOpenDetail}
+        phaseBody={ticker?.bodyScore ?? null}
+        phaseEarly={ticker?.earlyScore ?? null}
+        phaseLate={ticker?.lateScore ?? null}
+        phaseN={ticker?.phaseN ?? null}
         action={undefined}
       />
     );

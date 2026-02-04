@@ -37,7 +37,7 @@ def batch_bars(
             boxes: list[dict] = []
         else:
             rows = repo.get_monthly_bars(code, payload.limit)
-            boxes = detect_boxes(rows)
+            boxes = detect_boxes(rows, range_basis="body", max_range_pct=0.2)
 
         bars = [list(row) for row in rows]
         items[code] = {

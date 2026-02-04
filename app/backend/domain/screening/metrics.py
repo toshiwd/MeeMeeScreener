@@ -156,7 +156,7 @@ def _build_box_metrics(
 ) -> tuple[dict | None, str, str | None, str | None, str]:
     if not monthly_rows:
         return None, "NONE", None, None, "NONE"
-    boxes = detect_boxes(monthly_rows)
+    boxes = detect_boxes(monthly_rows, range_basis="body", max_range_pct=0.2)
     if not boxes:
         return None, "NONE", None, None, "NONE"
 

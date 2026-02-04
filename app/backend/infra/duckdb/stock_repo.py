@@ -44,7 +44,25 @@ class StockRepository:
             LIMIT ?
         """
         with self._get_conn() as conn:
-             rows = conn.execute(query, [code, limit]).fetchall()
+            rows = conn.execute(query, [code, limit]).fetchall()
+            if not rows:
+                rows = conn.execute(
+                    """
+                    SELECT
+                        CAST(epoch(date_trunc('month', to_timestamp(date))) AS BIGINT) AS month,
+                        arg_min(o, date) AS o,
+                        max(h) AS h,
+                        min(l) AS l,
+                        arg_max(c, date) AS c,
+                        sum(v) AS v
+                    FROM daily_bars
+                    WHERE code = ?
+                    GROUP BY 1
+                    ORDER BY 1 DESC
+                    LIMIT ?
+                    """,
+                    [code, limit],
+                ).fetchall()
         return sorted(rows, key=lambda x: x[0])
 
     def get_latest_params_for_screening(self, codes: Optional[List[str]] = None) -> List[Tuple]:
@@ -100,3 +118,18 @@ class StockRepository:
                 "badges": json.loads(r[4])
             }
         return result
+
+    def get_phase_pred(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
+        query = """
+            SELECT dt, early_score, late_score, body_score, n, reasons_top3
+            FROM phase_pred_daily
+            WHERE code = ?
+        """
+        params: List[Any] = [code]
+        if asof_dt is not None:
+            query += " AND dt <= ?"
+            params.append(asof_dt)
+        query += " ORDER BY dt DESC LIMIT 1"
+        with self._get_conn() as conn:
+            row = conn.execute(query, params).fetchone()
+        return row

@@ -68,6 +68,12 @@ export type Ticker = {
   };
   statusLabel?: string;
   reasons?: string[];
+  earlyScore?: number | null;
+  lateScore?: number | null;
+  bodyScore?: number | null;
+  phaseN?: number | null;
+  phaseReasons?: string[] | null;
+  phaseDt?: number | null;
   // Short-selling fields
   shortScore?: number | null; // legacy
   shortCandidateScore?: number | null;
@@ -1101,6 +1107,26 @@ export const useStore = create<StoreState>((set, get) => ({
           scores: item.scores,
           statusLabel: item.statusLabel,
           reasons: item.reasons,
+          earlyScore: Number.isFinite(item.earlyScore) ? item.earlyScore : item.early_score ?? null,
+          lateScore: Number.isFinite(item.lateScore) ? item.lateScore : item.late_score ?? null,
+          bodyScore: Number.isFinite(item.bodyScore) ? item.bodyScore : item.body_score ?? null,
+          phaseN:
+            typeof item.phaseN === "number"
+              ? item.phaseN
+              : typeof item.phase_n === "number"
+                ? item.phase_n
+                : typeof item.n === "number"
+                  ? item.n
+                  : null,
+          phaseReasons: parseReasons(
+            item.phaseReasons ?? item.phase_reasons ?? item.reasons_top3 ?? item.reasonsTop3
+          ),
+          phaseDt:
+            typeof item.phaseDt === "number"
+              ? item.phaseDt
+              : typeof item.phase_dt === "number"
+                ? item.phase_dt
+                : null,
           // Short-selling fields
           shortScore: typeof item.shortScore === "number" ? item.shortScore : null,
           aScore: typeof item.aScore === "number" ? item.aScore : null,

@@ -457,6 +457,10 @@ export default function CandidatesView() {
                 densityKey={densityKey}
                 signals={signalMap.get(item.code) ?? []}
                 onOpenDetail={handleOpenDetail}
+                phaseBody={ticker?.bodyScore ?? null}
+                phaseEarly={ticker?.earlyScore ?? null}
+                phaseLate={ticker?.lateScore ?? null}
+                phaseN={ticker?.phaseN ?? null}
                 action={{
                   label: "\u2713",
                   ariaLabel: "候補から外す",

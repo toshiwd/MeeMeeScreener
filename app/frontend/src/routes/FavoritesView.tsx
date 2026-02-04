@@ -472,7 +472,7 @@ export default function FavoritesView() {
         onColumnsChange={setListColumns}
         onRowsChange={setListRows}
         filterItems={filterItems}
-        helpLabel="使い方"
+        helpLabel="相談"
         onHelpClick={() => {
           setConsultVisible(true);
           setConsultExpanded(false);
@@ -504,6 +504,10 @@ export default function FavoritesView() {
                 densityKey={densityKey}
                 signals={signalMap.get(item.code) ?? []}
                 onOpenDetail={handleOpenDetail}
+                phaseBody={ticker?.bodyScore ?? null}
+                phaseEarly={ticker?.earlyScore ?? null}
+                phaseLate={ticker?.lateScore ?? null}
+                phaseN={ticker?.phaseN ?? null}
                 action={{
                   label: <IconHeartFilled size={20} />,
                   ariaLabel: "お気に入り解除",

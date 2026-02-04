@@ -24,6 +24,7 @@ export type TechnicalFilterState = {
   anchorMode: "latest" | "date";
   anchorDate: string | null;
   conditions: TechnicalCondition[];
+  boxThisMonth: boolean;
 };
 
 export type AnchorInfo = {

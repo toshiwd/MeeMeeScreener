@@ -121,6 +121,56 @@ def _init_schema_on_conn(conn: duckdb.DuckDBPyConnection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS feature_snapshot_daily (
+            dt INTEGER,
+            code TEXT,
+            close DOUBLE,
+            ma7 DOUBLE,
+            ma20 DOUBLE,
+            ma60 DOUBLE,
+            atr14 DOUBLE,
+            diff20_pct DOUBLE,
+            diff20_atr DOUBLE,
+            cnt_20_above INTEGER,
+            cnt_7_above INTEGER,
+            day_count INTEGER,
+            candle_flags TEXT,
+            PRIMARY KEY(code, dt)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS label_20d (
+            dt INTEGER,
+            code TEXT,
+            cont_label INTEGER,
+            ex_label INTEGER,
+            n_forward INTEGER,
+            label_version INTEGER,
+            computed_at TIMESTAMP,
+            PRIMARY KEY(code, dt)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS phase_pred_daily (
+            dt INTEGER,
+            code TEXT,
+            early_score DOUBLE,
+            late_score DOUBLE,
+            body_score DOUBLE,
+            n INTEGER,
+            reasons_top3 TEXT,
+            pred_version INTEGER,
+            computed_at TIMESTAMP,
+            PRIMARY KEY(code, dt)
+        );
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS monthly_bars (
             code TEXT,
             month INTEGER,

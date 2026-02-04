@@ -81,6 +81,7 @@ export default function TechnicalFilterDrawer({
   onTimeframeChange
 }: TechnicalFilterDrawerProps) {
   const timeframeLabel = formatTimeframeLabel(timeframe);
+  const boxThisMonth = value.boxThisMonth;
 
   const handleAddCondition = () => {
     if (value.conditions.length >= 10) return;
@@ -143,6 +144,23 @@ export default function TechnicalFilterDrawer({
               </div>
               <div className="tech-filter-section-meta">
                 判定: {timeframeLabel} / 基準日: {anchorLabel ?? "---"}
+              </div>
+            </div>
+            <div className="tech-filter-section">
+              <div className="tech-filter-section-title">ボックス</div>
+              <div className="tech-filter-pill-row">
+                <button
+                  type="button"
+                  className={`tech-filter-pill ${boxThisMonth ? "active" : ""}`}
+                  onClick={() =>
+                    onChange({
+                      ...value,
+                      boxThisMonth: !boxThisMonth
+                    })
+                  }
+                >
+                  今月ボックス
+                </button>
               </div>
             </div>
             <div className="tech-filter-section tech-filter-conditions">

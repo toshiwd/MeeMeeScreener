@@ -2,6 +2,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import List, Tuple, Dict, Any, Optional
 
+import pandas as pd
+
 import duckdb
 
 class ScreenerRepository:
@@ -113,7 +115,9 @@ class ScreenerRepository:
 
             return codes, meta_rows, daily_rows, monthly_rows, earnings_rows, rights_rows
 
-    def fetch_sector_map(self, codes: List[str]) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
+    def fetch_sector_map(
+        self, codes: List[str]
+    ) -> Dict[str, Tuple[Optional[str], Optional[str], Optional[str]]]:
         if not codes:
             return {}
         with self._get_conn() as conn:
@@ -122,13 +126,81 @@ class ScreenerRepository:
             placeholders = ",".join(["?"] * len(codes))
             rows = conn.execute(
                 f"""
-                SELECT code, sector33_code, sector33_name
+                SELECT code, name, sector33_code, sector33_name
                 FROM industry_master
                 WHERE code IN ({placeholders})
                 """,
                 codes,
             ).fetchall()
-            return {row[0]: (row[1], row[2]) for row in rows}
+            return {row[0]: (row[1], row[2], row[3]) for row in rows}
+
+    def fetch_phase_pred_map(self, asof_map: Dict[str, int | None]) -> Dict[str, Dict[str, Any]]:
+        with self._get_conn() as conn:
+            if not self._table_exists(conn, "phase_pred_daily"):
+                return {}
+
+            rows = []
+            with_asof = [(code, asof) for code, asof in asof_map.items() if asof is not None]
+            if with_asof:
+                df = pd.DataFrame(with_asof, columns=["code", "asof"])
+                conn.register("phase_asof_map", df)
+                rows.extend(
+                    conn.execute(
+                        """
+                        SELECT code, dt, early_score, late_score, body_score, n
+                        FROM (
+                            SELECT
+                                p.code,
+                                p.dt,
+                                p.early_score,
+                                p.late_score,
+                                p.body_score,
+                                p.n,
+                                ROW_NUMBER() OVER (PARTITION BY p.code ORDER BY p.dt DESC) AS rn
+                            FROM phase_pred_daily p
+                            JOIN phase_asof_map a ON p.code = a.code
+                            WHERE p.dt <= a.asof
+                        )
+                        WHERE rn = 1
+                        """
+                    ).fetchall()
+                )
+
+            without_asof = [code for code, asof in asof_map.items() if asof is None]
+            if without_asof:
+                placeholders = ",".join(["?"] * len(without_asof))
+                rows.extend(
+                    conn.execute(
+                        f"""
+                        SELECT code, dt, early_score, late_score, body_score, n
+                        FROM (
+                            SELECT
+                                code,
+                                dt,
+                                early_score,
+                                late_score,
+                                body_score,
+                                n,
+                                ROW_NUMBER() OVER (PARTITION BY code ORDER BY dt DESC) AS rn
+                            FROM phase_pred_daily
+                            WHERE code IN ({placeholders})
+                        )
+                        WHERE rn = 1
+                        """,
+                        without_asof,
+                    ).fetchall()
+                )
+
+            return {
+                row[0]: {
+                    "dt": row[1],
+                    "early_score": row[2],
+                    "late_score": row[3],
+                    "body_score": row[4],
+                    "n": row[5],
+                }
+                for row in rows
+            }
 
     def fetch_daily_rows_for_codes(self, codes: List[str], as_of: int | None, limit: int) -> Dict[str, List[Tuple]]:
         if not codes:

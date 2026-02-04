@@ -691,6 +691,10 @@ export default function RankingView() {
                     tileClassName={selectedSet.has(item.code) ? "is-selected" : ""}
                     deferUntilInView
                     maxDate={item.asOf}
+                    phaseBody={ticker?.bodyScore ?? null}
+                    phaseEarly={ticker?.earlyScore ?? null}
+                    phaseLate={ticker?.lateScore ?? null}
+                    phaseN={ticker?.phaseN ?? null}
                     headerLeft={
                       <>
                         <span className="rank-badge">{index + 1}</span>

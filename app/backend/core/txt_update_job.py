@@ -62,6 +62,25 @@ def _save_update_state(state: dict) -> None:
         pass
 
 
+def _run_phase_batch_latest() -> int:
+    try:
+        from app.backend.db import get_conn
+    except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from app/backend on sys.path
+        from db import get_conn  # type: ignore
+    try:
+        from app.backend.jobs.phase_batch import run_batch
+    except ModuleNotFoundError:  # pragma: no cover
+        from jobs.phase_batch import run_batch  # type: ignore
+
+    with get_conn() as conn:
+        row = conn.execute("SELECT MAX(dt) FROM feature_snapshot_daily").fetchone()
+    if not row or row[0] is None:
+        raise RuntimeError("feature_snapshot_daily is empty")
+    max_dt = int(row[0])
+    run_batch(max_dt, max_dt, dry_run=False)
+    return max_dt
+
+
 def run_vbs_export(code_path: str, out_dir: str, timeout: int = 1800) -> tuple[int, list[str]]:
     sys_root = os.environ.get("SystemRoot") or "C:\\Windows"
     cscript = os.path.join(sys_root, "SysWOW64", "cscript.exe")
@@ -201,6 +220,27 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         )
         return
 
+    job_manager._update_db(job_id, "txt_update", "running", message="Phase予測を更新中...", progress=92)
+    try:
+        phase_dt = _run_phase_batch_latest()
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=f"Phase予測を更新しました (dt={phase_dt})",
+            progress=95,
+        )
+    except Exception as exc:
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "failed",
+            error="Phase update failed",
+            message=f"Phase update failed: {exc}",
+            finished_at=datetime.now(),
+        )
+        return
+
     _save_update_state(
         {
             "last_txt_update_at": datetime.now().isoformat(),
@@ -216,7 +256,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         job_id,
         "txt_update",
         "success",
-        message=f"{summary_line}. Ingest completed.",
+        message=f"{summary_line}. Ingest + Phase completed.",
         progress=100,
         finished_at=datetime.now(),
     )

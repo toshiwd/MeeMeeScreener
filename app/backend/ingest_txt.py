@@ -132,6 +132,44 @@ def _count_streak(values: list[float], averages: list[float | None], direction: 
     return None if not has_values else count
 
 
+def _build_streak_series(
+    values: list[float],
+    averages: list[float | None],
+    direction: str
+) -> list[int | None]:
+    count = 0
+    opposite = 0
+    has_values = False
+    result: list[int | None] = []
+    for value, avg in zip(values, averages):
+        if avg is None:
+            result.append(None)
+            continue
+        has_values = True
+        if direction == "up":
+            if value > avg:
+                count += 1
+                opposite = 0
+            elif value < avg:
+                opposite += 1
+                if opposite >= 2:
+                    count = 0
+            else:
+                opposite = 0
+        else:
+            if value < avg:
+                count += 1
+                opposite = 0
+            elif value > avg:
+                opposite += 1
+                if opposite >= 2:
+                    count = 0
+            else:
+                opposite = 0
+        result.append(count)
+    return result if has_values else [None for _ in values]
+
+
 def _pct_change(current: float | None, previous: float | None) -> float | None:
     if current is None or previous is None or previous == 0:
         return None
@@ -835,6 +873,74 @@ def build_daily_ma(daily: pd.DataFrame) -> pd.DataFrame:
     return daily[["code", "date", "ma7", "ma20", "ma60"]]
 
 
+def build_feature_snapshot_daily(daily: pd.DataFrame, daily_ma: pd.DataFrame) -> pd.DataFrame:
+    if daily.empty:
+        return pd.DataFrame(
+            columns=[
+                "dt",
+                "code",
+                "close",
+                "ma7",
+                "ma20",
+                "ma60",
+                "atr14",
+                "diff20_pct",
+                "diff20_atr",
+                "cnt_20_above",
+                "cnt_7_above",
+                "day_count",
+                "candle_flags"
+            ]
+        )
+
+    merged = daily.sort_values(["code", "date"]).merge(
+        daily_ma.sort_values(["code", "date"]),
+        on=["code", "date"],
+        how="left"
+    )
+
+    snapshots: list[pd.DataFrame] = []
+    for _, group in merged.groupby("code"):
+        group = group.sort_values("date").copy()
+        closes = [float(v) for v in group["c"].tolist()]
+        ma7_series = group["ma7"].tolist()
+        ma20_series = group["ma20"].tolist()
+        cnt_7_above = _build_streak_series(closes, ma7_series, "up")
+        cnt_20_above = _build_streak_series(closes, ma20_series, "up")
+        group["cnt_7_above"] = cnt_7_above
+        group["cnt_20_above"] = cnt_20_above
+        group["atr14"] = None
+        group["diff20_pct"] = None
+        group["diff20_atr"] = None
+        group["day_count"] = None
+        group["candle_flags"] = None
+
+        valid = group["ma20"].notna() & group["c"].notna() & (group["ma20"] != 0)
+        group.loc[valid, "diff20_pct"] = (group.loc[valid, "c"] - group.loc[valid, "ma20"]) / group.loc[valid, "ma20"]
+
+        snapshots.append(
+            group[
+                [
+                    "date",
+                    "code",
+                    "c",
+                    "ma7",
+                    "ma20",
+                    "ma60",
+                    "atr14",
+                    "diff20_pct",
+                    "diff20_atr",
+                    "cnt_20_above",
+                    "cnt_7_above",
+                    "day_count",
+                    "candle_flags"
+                ]
+            ].rename(columns={"date": "dt", "c": "close"})
+        )
+
+    return pd.concat(snapshots, ignore_index=True)
+
+
 def build_stock_meta(
     daily: pd.DataFrame,
     monthly: pd.DataFrame,
@@ -920,6 +1026,7 @@ def clear_tables() -> None:
     with get_conn() as conn:
         conn.execute("DELETE FROM daily_bars")
         conn.execute("DELETE FROM daily_ma")
+        conn.execute("DELETE FROM feature_snapshot_daily")
         conn.execute("DELETE FROM monthly_bars")
         conn.execute("DELETE FROM monthly_ma")
         conn.execute("DELETE FROM stock_meta")
@@ -1119,6 +1226,10 @@ def ingest(incremental: bool = False) -> None:
     daily_ma = build_daily_ma(daily)
     step_end("build_daily_ma", start, daily_ma_rows=len(daily_ma))
 
+    start = step_start("build_feature_snapshot_daily")
+    feature_snapshot = build_feature_snapshot_daily(daily, daily_ma)
+    step_end("build_feature_snapshot_daily", start, snapshot_rows=len(feature_snapshot))
+
     start = step_start("build_stock_meta")
     meta, meta_summary = build_stock_meta(daily, monthly, name_map)
     step_end("build_stock_meta", start, meta_rows=len(meta), score_ok=meta_summary.get("score_ok"), score_insufficient=meta_summary.get("score_insufficient"))
@@ -1144,6 +1255,7 @@ def ingest(incremental: bool = False) -> None:
         if not incremental:
             conn.execute("DELETE FROM daily_bars")
             conn.execute("DELETE FROM daily_ma")
+            conn.execute("DELETE FROM feature_snapshot_daily")
             conn.execute("DELETE FROM monthly_bars")
             conn.execute("DELETE FROM monthly_ma")
             conn.execute("DELETE FROM stock_meta")
@@ -1157,6 +1269,7 @@ def ingest(incremental: bool = False) -> None:
                 # We need to run delete for all tables
                 conn.execute(f"DELETE FROM daily_bars WHERE code IN ({placeholders})", codes)
                 conn.execute(f"DELETE FROM daily_ma WHERE code IN ({placeholders})", codes)
+                conn.execute(f"DELETE FROM feature_snapshot_daily WHERE code IN ({placeholders})", codes)
                 conn.execute(f"DELETE FROM monthly_bars WHERE code IN ({placeholders})", codes)
                 conn.execute(f"DELETE FROM monthly_ma WHERE code IN ({placeholders})", codes)
                 conn.execute(f"DELETE FROM stock_meta WHERE code IN ({placeholders})", codes)
@@ -1167,6 +1280,42 @@ def ingest(incremental: bool = False) -> None:
 
         conn.register("daily_ma_df", daily_ma)
         conn.execute("INSERT INTO daily_ma SELECT code, date, ma7, ma20, ma60 FROM daily_ma_df")
+
+        conn.register("feature_snapshot_df", feature_snapshot)
+        conn.execute(
+            """
+            INSERT INTO feature_snapshot_daily (
+                dt,
+                code,
+                close,
+                ma7,
+                ma20,
+                ma60,
+                atr14,
+                diff20_pct,
+                diff20_atr,
+                cnt_20_above,
+                cnt_7_above,
+                day_count,
+                candle_flags
+            )
+            SELECT
+                dt,
+                code,
+                close,
+                ma7,
+                ma20,
+                ma60,
+                atr14,
+                diff20_pct,
+                diff20_atr,
+                cnt_20_above,
+                cnt_7_above,
+                day_count,
+                candle_flags
+            FROM feature_snapshot_df
+            """
+        )
 
         conn.register("monthly_df", monthly)
         conn.execute("INSERT INTO monthly_bars SELECT code, month, o, h, l, c, v FROM monthly_df")

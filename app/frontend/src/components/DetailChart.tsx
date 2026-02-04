@@ -122,6 +122,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   const partialTimesRef = useRef<number[]>(partialTimes ?? []);
   const eventMarkersRef = useRef<DetailChartProps["eventMarkers"]>(eventMarkers ?? []);
   const suppressCrosshairRef = useRef(false);
+  const suppressVisibleRangeUntilRef = useRef(0);
   const onCrosshairMoveRef = useRef<DetailChartProps["onCrosshairMove"]>(onCrosshairMove);
   const onVisibleRangeChangeRef = useRef<DetailChartProps["onVisibleRangeChange"]>(
     onVisibleRangeChange
@@ -165,6 +166,19 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   const CURSOR_STROKE = "rgba(148, 163, 184, 0.7)";
   const PARTIAL_STROKE = "rgba(125, 211, 252, 0.75)";
   const PARTIAL_LABEL = "";
+
+  const suppressVisibleRangeEvents = (ms = 80) => {
+    const until = Date.now() + ms;
+    if (until > suppressVisibleRangeUntilRef.current) {
+      suppressVisibleRangeUntilRef.current = until;
+    }
+  };
+
+  const isValidVisibleRange = (range: { from: number; to: number } | null | undefined) => {
+    if (!range) return false;
+    if (!Number.isFinite(range.from) || !Number.isFinite(range.to)) return false;
+    return range.from <= range.to;
+  };
 
   const normalizeRangeTime = (value: unknown) => {
     if (typeof value === "number") return value;
@@ -377,6 +391,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       chart.applyOptions({ width: next.width, height: next.height });
       resizeOverlay();
       if (next.fit && !visibleRangeRef.current) {
+        suppressVisibleRangeEvents();
         chart.timeScale().fitContent();
       }
     });
@@ -446,10 +461,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           Math.floor(wrapper.clientHeight),
           !visibleRangeRef.current
         );
-        if (visibleRangeRef.current) {
-          const range = visibleRangeRef.current;
-          window.requestAnimationFrame(() => chartRef.current?.timeScale().setVisibleRange(range));
-        }
+
       }
     }
     drawOverlay();
@@ -459,10 +471,13 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     setVisibleRange: (range) => {
       const chart = chartRef.current;
       if (!chart) return;
-      if (!range) {
+      if (!candlesRef.current.length) return;
+      if (!isValidVisibleRange(range)) {
+        suppressVisibleRangeEvents();
         chart.timeScale().fitContent();
         return;
       }
+      suppressVisibleRangeEvents();
       chart.timeScale().setVisibleRange(range);
     },
     fitContent: () => {
@@ -548,10 +563,13 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     visibleRangeRef.current = visibleRange ?? null;
     const chart = chartRef.current;
     if (!chart) return;
-    if (!visibleRange) {
+    if (!candlesRef.current.length) return;
+    if (!isValidVisibleRange(visibleRange)) {
+      suppressVisibleRangeEvents();
       chart.timeScale().fitContent();
       return;
     }
+    suppressVisibleRangeEvents();
     chart.timeScale().setVisibleRange(visibleRange);
   }, [visibleRange]);
 
@@ -701,6 +719,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       const priceScale = chart.priceScale("right") as any;
       const rangeHandler = () => {
         drawOverlay();
+        if (Date.now() < suppressVisibleRangeUntilRef.current) return;
         const handler = onVisibleRangeChangeRef.current;
         if (!handler || typeof timeScale.getVisibleRange !== "function") return;
         const range = timeScale.getVisibleRange();

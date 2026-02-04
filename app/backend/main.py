@@ -22,6 +22,7 @@ from app.backend.services.system_status import (
     _get_last_updated_timestamp,
 )
 from app.backend.core.force_sync_job import handle_force_sync  # noqa: E402
+from app.backend.core.phase_batch_job import handle_phase_rebuild  # noqa: E402
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager  # noqa: E402
 from app.backend.core.txt_update_job import (
     _load_update_state,
@@ -33,6 +34,7 @@ from app.backend.core.txt_update_job import (
 # Register job handlers (idempotent).
 job_manager.register_handler("force_sync", handle_force_sync)
 job_manager.register_handler("txt_update", handle_txt_update)
+job_manager.register_handler("phase_rebuild", handle_phase_rebuild)
 
 STATIC_DIR = os.path.abspath(os.getenv("STATIC_DIR") or os.path.join(os.path.dirname(__file__), "static"))
 _RESOLVED_PATHS_LOGGED = False

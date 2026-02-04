@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from datetime import datetime, timezone
 import logging
 import os
 from urllib.parse import quote
@@ -199,6 +200,331 @@ def _fetch_heatmap(period: str) -> list[dict[str, Any]] | None:
     except Exception as exc:
         logger.exception("heatmap fetch failed: %s", exc)
         return None
+
+
+def _format_timeline_label(period: str, asof_ts: int) -> str:
+    dt = datetime.fromtimestamp(asof_ts, tz=timezone.utc)
+    if period == "1m":
+        return dt.strftime("%Y-%m")
+    return dt.strftime("%Y-%m-%d")
+
+
+def _fetch_heatmap_timeline(period: str, limit: int) -> list[dict[str, Any]] | None:
+    db_path = str(config.DB_PATH)
+    if period not in ("1d", "1w", "1m"):
+        return None
+    safe_limit = max(1, min(int(limit or 0), 400))
+    try:
+        with duckdb.connect(db_path) as conn:
+            if not _has_industry_master(conn):
+                logger.warning("industry_master missing or empty; returning fallback heatmap timeline")
+                return None
+
+            if period == "1m":
+                has_monthly = _table_exists(conn, "monthly_bars")
+                if has_monthly:
+                    source_sql = """
+                        SELECT
+                            code,
+                            CASE
+                                WHEN month BETWEEN 100000 AND 999912 THEN strptime(CAST(month AS VARCHAR), '%Y%m')
+                                ELSE to_timestamp(month)
+                            END AS asof_dt,
+                            c AS close,
+                            v AS volume,
+                            c * v AS weight
+                        FROM monthly_bars
+                    """
+                else:
+                    source_sql = """
+                        WITH base AS (
+                            SELECT
+                                code,
+                                CASE
+                                    WHEN date BETWEEN 10000000 AND 99991231 THEN strptime(CAST(date AS VARCHAR), '%Y%m%d')
+                                    ELSE to_timestamp(date)
+                                END AS dt,
+                                c,
+                                v
+                            FROM daily_bars
+                        )
+                        SELECT
+                            code,
+                            date_trunc('month', dt) AS asof_dt,
+                            arg_max(c, dt) AS close,
+                            SUM(v) AS volume,
+                            SUM(c * v) AS weight
+                        FROM base
+                        GROUP BY code, asof_dt
+                    """
+            elif period == "1w":
+                source_sql = """
+                    WITH base AS (
+                        SELECT
+                            code,
+                            CASE
+                                WHEN date BETWEEN 10000000 AND 99991231 THEN strptime(CAST(date AS VARCHAR), '%Y%m%d')
+                                ELSE to_timestamp(date)
+                            END AS dt,
+                            c,
+                            v
+                        FROM daily_bars
+                    )
+                    SELECT
+                        code,
+                        date_trunc('week', dt) AS week_start,
+                        max(dt) AS asof_dt,
+                        arg_max(c, dt) AS close,
+                        SUM(v) AS volume,
+                        SUM(c * v) AS weight
+                    FROM base
+                    GROUP BY code, week_start
+                """
+            else:
+                source_sql = """
+                    SELECT
+                        code,
+                        CASE
+                            WHEN date BETWEEN 10000000 AND 99991231 THEN strptime(CAST(date AS VARCHAR), '%Y%m%d')
+                            ELSE to_timestamp(date)
+                        END AS asof_dt,
+                        c AS close,
+                        v AS volume,
+                        c * v AS weight
+                    FROM daily_bars
+                """
+
+            if period == "1w":
+                base_sql = f"""
+                    WITH source AS ({source_sql}),
+                    ordered AS (
+                        SELECT
+                            code,
+                            asof_dt,
+                            close,
+                            volume,
+                            weight,
+                            LAG(close) OVER (PARTITION BY code ORDER BY asof_dt) AS prev_close
+                        FROM source
+                    ),
+                    joined AS (
+                        SELECT
+                            o.asof_dt,
+                            im.sector33_code AS sector33_code,
+                            im.sector33_name AS name,
+                            o.weight,
+                            CASE
+                                WHEN o.prev_close IS NULL OR o.prev_close = 0 THEN NULL
+                                ELSE (o.close - o.prev_close) / o.prev_close * 100
+                            END AS change_pct
+                        FROM ordered o
+                        JOIN industry_master im ON im.code = o.code
+                    ),
+                    agg AS (
+                        SELECT
+                            asof_dt,
+                            sector33_code,
+                            name,
+                            SUM(weight) AS weight,
+                            AVG(change_pct) AS value,
+                            COUNT(*) AS ticker_count
+                        FROM joined
+                        GROUP BY 1,2,3
+                    ),
+                    frames AS (
+                        SELECT DISTINCT asof_dt
+                        FROM agg
+                        ORDER BY asof_dt DESC
+                        LIMIT ?
+                    ),
+                    sectors AS (
+                        SELECT sector33_code, sector33_name AS name
+                        FROM industry_master
+                        GROUP BY 1,2
+                    ),
+                    full_grid AS (
+                        SELECT
+                            f.asof_dt,
+                            epoch(f.asof_dt)::BIGINT AS asof_ts,
+                            s.sector33_code,
+                            s.name,
+                            COALESCE(a.weight, 0) AS weight,
+                            COALESCE(a.value, 0) AS value,
+                            COALESCE(a.ticker_count, 0) AS ticker_count
+                        FROM frames f
+                        CROSS JOIN sectors s
+                        LEFT JOIN agg a
+                            ON a.asof_dt = f.asof_dt
+                            AND a.sector33_code = s.sector33_code
+                    )
+                    SELECT
+                        asof_ts,
+                        sector33_code,
+                        name,
+                        weight,
+                        value,
+                        ticker_count,
+                        weight - COALESCE(LAG(weight) OVER (PARTITION BY sector33_code ORDER BY asof_ts), 0) AS flow
+                    FROM full_grid
+                    ORDER BY asof_ts ASC, sector33_code ASC
+                """
+            else:
+                base_sql = f"""
+                    WITH source AS ({source_sql}),
+                    ordered AS (
+                        SELECT
+                            code,
+                            asof_dt,
+                            close,
+                            volume,
+                            weight,
+                            LAG(close) OVER (PARTITION BY code ORDER BY asof_dt) AS prev_close
+                        FROM source
+                    ),
+                    joined AS (
+                        SELECT
+                            o.asof_dt,
+                            im.sector33_code AS sector33_code,
+                            im.sector33_name AS name,
+                            o.weight,
+                            CASE
+                                WHEN o.prev_close IS NULL OR o.prev_close = 0 THEN NULL
+                                ELSE (o.close - o.prev_close) / o.prev_close * 100
+                            END AS change_pct
+                        FROM ordered o
+                        JOIN industry_master im ON im.code = o.code
+                    ),
+                    agg AS (
+                        SELECT
+                            asof_dt,
+                            sector33_code,
+                            name,
+                            SUM(weight) AS weight,
+                            AVG(change_pct) AS value,
+                            COUNT(*) AS ticker_count
+                        FROM joined
+                        GROUP BY 1,2,3
+                    ),
+                    frames AS (
+                        SELECT DISTINCT asof_dt
+                        FROM agg
+                        ORDER BY asof_dt DESC
+                        LIMIT ?
+                    ),
+                    sectors AS (
+                        SELECT sector33_code, sector33_name AS name
+                        FROM industry_master
+                        GROUP BY 1,2
+                    ),
+                    full_grid AS (
+                        SELECT
+                            f.asof_dt,
+                            epoch(f.asof_dt)::BIGINT AS asof_ts,
+                            s.sector33_code,
+                            s.name,
+                            COALESCE(a.weight, 0) AS weight,
+                            COALESCE(a.value, 0) AS value,
+                            COALESCE(a.ticker_count, 0) AS ticker_count
+                        FROM frames f
+                        CROSS JOIN sectors s
+                        LEFT JOIN agg a
+                            ON a.asof_dt = f.asof_dt
+                            AND a.sector33_code = s.sector33_code
+                    )
+                    SELECT
+                        asof_ts,
+                        sector33_code,
+                        name,
+                        weight,
+                        value,
+                        ticker_count,
+                        weight - COALESCE(LAG(weight) OVER (PARTITION BY sector33_code ORDER BY asof_ts), 0) AS flow
+                    FROM full_grid
+                    ORDER BY asof_ts ASC, sector33_code ASC
+                """
+
+            rows = conn.execute(base_sql, [safe_limit]).fetchall()
+            if not rows:
+                return []
+
+            frames: dict[int, dict[str, Any]] = {}
+            for row in rows:
+                asof_ts = int(row[0] or 0)
+                sector_code = row[1]
+                name = row[2]
+                weight = float(row[3] or 0)
+                value = float(row[4] or 0)
+                ticker_count = int(row[5] or 0)
+                flow = float(row[6] or 0)
+
+                frame = frames.get(asof_ts)
+                if frame is None:
+                    frame = {
+                        "asof": asof_ts,
+                        "label": _format_timeline_label(period, asof_ts),
+                        "items": [],
+                    }
+                    frames[asof_ts] = frame
+                frame["items"].append(
+                    {
+                        "sector33_code": sector_code,
+                        "name": name,
+                        "weight": weight,
+                        "value": value,
+                        "tickerCount": ticker_count,
+                        "flow": flow,
+                    }
+                )
+
+            ordered_frames = [frames[key] for key in sorted(frames.keys())]
+            return ordered_frames
+    except Exception as exc:
+        logger.exception("heatmap timeline fetch failed: %s", exc)
+        return None
+
+
+@router.get("/heatmap/timeline")
+def get_market_heatmap_timeline(
+    period: str = Query("1d", pattern="^(1d|1w|1m)$"),
+    limit: int = Query(180, ge=1, le=400),
+):
+    """
+    Returns sector heatmap timeline data.
+    Response format:
+      {
+        "frames": [
+          {
+            "asof": number,          # unix seconds
+            "label": str,            # YYYY-MM-DD or YYYY-MM
+            "items": [
+              {
+                "sector33_code": str,
+                "name": str,
+                "weight": number,
+                "value": number,
+                "tickerCount": number,
+                "flow": number
+              }
+            ]
+          }
+        ],
+        "period": str,
+        "diagnostics": { ... } | null
+      }
+    """
+    payload = _fetch_heatmap_timeline(period, limit)
+    computed_from = "industry_master" if payload is not None else "fallback"
+    if payload is None:
+        payload = []
+    diagnostics = (
+        _build_heatmap_diagnostics(period)
+        if os.getenv("MEEMEE_DEV", "").lower() in ("1", "true", "yes", "on")
+        or os.getenv("MEEMEE_SELFTEST", "").lower() in ("1", "true", "yes", "on")
+        else None
+    )
+    if diagnostics is not None:
+        diagnostics["computed_from"] = computed_from
+    return {"frames": payload, "period": period, "diagnostics": diagnostics}
 
 
 @router.get("/heatmap")

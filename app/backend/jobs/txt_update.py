@@ -17,6 +17,25 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+def _run_phase_batch_latest() -> int:
+    try:
+        from app.backend.db import get_conn
+    except ModuleNotFoundError:
+        from db import get_conn  # type: ignore
+    try:
+        from app.backend.jobs.phase_batch import run_batch
+    except ModuleNotFoundError:
+        from jobs.phase_batch import run_batch  # type: ignore
+
+    with get_conn() as conn:
+        row = conn.execute("SELECT MAX(dt) FROM feature_snapshot_daily").fetchone()
+    if not row or row[0] is None:
+        raise RuntimeError("feature_snapshot_daily is empty")
+    max_dt = int(row[0])
+    run_batch(max_dt, max_dt, dry_run=False)
+    return max_dt
+
+
 def run_txt_update_workflow(
     config_repo: ConfigRepository,
     pan_client: PanRollingClient,
@@ -50,8 +69,13 @@ def run_txt_update_workflow(
     except Exception as e:
         logger.error(f"Ingest failed: {e}")
         raise
+
+    # 3. Update Phase predictions
+    logger.info("Starting Phase batch...")
+    phase_dt = _run_phase_batch_latest()
+    logger.info("Phase batch completed (dt=%s)", phase_dt)
     
-    # 3. Update State
+    # 4. Update State
     state = config_repo.load_update_state()
     now = datetime.datetime.now()
     state["last_txt_update_at"] = now.isoformat()

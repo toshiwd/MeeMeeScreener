@@ -145,10 +145,30 @@ export function useChartSync(
         scheduleHoverTime(time);
     };
 
+    const handleMonthlyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+        if (!range) return;
+        if (!syncRangesRef.current) return;
+
+        // Sync monthly range to daily and weekly
+        dailyChartRef.current?.setVisibleRange(range);
+        weeklyChartRef?.current?.setVisibleRange(range);
+    };
+
+    const handleWeeklyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+        if (!range) return;
+        if (!syncRangesRef.current) return;
+
+        // Sync weekly range to daily and monthly
+        dailyChartRef.current?.setVisibleRange(range);
+        monthlyChartRef.current?.setVisibleRange(range);
+    };
+
     return {
         hoverTime,
         setHoverTime, // exposed if needed to reset
         handleDailyVisibleRangeChange,
+        handleMonthlyVisibleRangeChange,
+        handleWeeklyVisibleRangeChange,
         handleDailyCrosshair,
         handleMonthlyCrosshair,
         handleWeeklyCrosshair
