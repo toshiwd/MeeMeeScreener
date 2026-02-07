@@ -45,11 +45,13 @@ def _normalize_rows(rows: Iterable[Sequence], *, fill_volume: bool) -> List[List
 def get_daily_bars(
     code: str,
     limit: int = 400,
+    asof: str | int | None = None,
     repo: StockRepository = Depends(get_stock_repo),
 ) -> Dict[str, List[List[float]]]:
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
-    rows = repo.get_daily_bars(code, limit)
+    asof_dt = _parse_dt(asof)
+    rows = repo.get_daily_bars(code, limit, asof_dt)
     return {"data": _normalize_rows(rows, fill_volume=True), "errors": []}
 
 
@@ -57,11 +59,13 @@ def get_daily_bars(
 def get_monthly_bars(
     code: str,
     limit: int = 120,
+    asof: str | int | None = None,
     repo: StockRepository = Depends(get_stock_repo),
 ) -> Dict[str, List[List[float]]]:
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
-    rows = repo.get_monthly_bars(code, limit)
+    asof_dt = _parse_dt(asof)
+    rows = repo.get_monthly_bars(code, limit, asof_dt)
     return {"data": _normalize_rows(rows, fill_volume=True), "errors": []}
 
 
@@ -69,11 +73,13 @@ def get_monthly_bars(
 def get_boxes(
     code: str,
     limit: int = 120,
+    asof: str | int | None = None,
     repo: StockRepository = Depends(get_stock_repo),
 ) -> List[Dict]:
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
-    rows = repo.get_monthly_bars(code, limit)
+    asof_dt = _parse_dt(asof)
+    rows = repo.get_monthly_bars(code, limit, asof_dt)
     return detect_boxes(rows, range_basis="body", max_range_pct=0.2)
 
 

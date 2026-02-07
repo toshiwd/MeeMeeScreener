@@ -326,21 +326,23 @@ export default function RankingView() {
       .then((res) => {
         const payload = res.data as { items?: RankItem[]; errors?: string[] };
         const list = Array.isArray(payload.items) ? payload.items : [];
-        try {
-          const hasAsOf = list.some((item) => Boolean(item.asOf));
-          console.log(
-            JSON.stringify({
-              tag: "rank_api_response",
-              tf: tfChar,
-              which: rankWhich,
-              dir,
-              items: list.length,
-              has_asOf: hasAsOf,
-              sample: list.slice(0, 3).map((item) => ({ code: item.code, asOf: item.asOf })),
-            })
-          );
-        } catch {
-          // ignore debug log errors
+        if (import.meta.env.MODE === "development") {
+          try {
+            const hasAsOf = list.some((item) => Boolean(item.asOf));
+            console.log(
+              JSON.stringify({
+                tag: "rank_api_response",
+                tf: tfChar,
+                which: rankWhich,
+                dir,
+                items: list.length,
+                has_asOf: hasAsOf,
+                sample: list.slice(0, 3).map((item) => ({ code: item.code, asOf: item.asOf })),
+              })
+            );
+          } catch {
+            // ignore debug log errors
+          }
         }
         setItems(list);
         setUseFallback(false);
@@ -394,7 +396,9 @@ export default function RankingView() {
         recent_dt: recentDt,
       });
     });
-    logs.forEach((entry) => console.log(JSON.stringify(entry)));
+    if (import.meta.env.MODE === "development") {
+      logs.forEach((entry) => console.log(JSON.stringify(entry)));
+    }
   }, [sortedItems, barsCache, listTimeframe]);
 
   useEffect(() => {

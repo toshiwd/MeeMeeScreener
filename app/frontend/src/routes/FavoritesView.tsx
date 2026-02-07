@@ -188,7 +188,7 @@ export default function FavoritesView() {
         });
         setItems([]);
         replaceFavorites([]);
-        setToastMessage("縺頑ｰ励↓蜈･繧翫・蜿門ｾ励↓螟ｱ謨励＠縺ｾ縺励◆縲・");
+        setToastMessage("お気に入りの取得に失敗しました。");
       })
       .finally(() => setLoading(false));
   }, [replaceFavorites, backendReady]);
@@ -323,7 +323,7 @@ export default function FavoritesView() {
     } catch {
       setItems(prevItems);
       setFavoriteLocal(code, true);
-      setToastMessage("縺頑ｰ励↓蜈･繧翫・譖ｴ譁ｰ縺ｫ螟ｱ謨励＠縺ｾ縺励◆縲・");
+      setToastMessage("お気に入りの削除に失敗しました。");
     }
   };
 
@@ -483,7 +483,7 @@ export default function FavoritesView() {
         className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
       >
-        {loading && <div className="rank-status">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</div>}
+        {loading && <div className="rank-status">読み込み中...</div>}
         {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
         <div className="rank-grid">
           {sortedItems.map((item) => {
@@ -531,12 +531,12 @@ export default function FavoritesView() {
             if (!consultVisible) return;
             setConsultExpanded((prev) => !prev);
           }}
-          aria-label={consultExpanded ? "逶ｸ隲・ヰ繝ｼ繧呈釜繧翫◆縺溘・" : "逶ｸ隲・ヰ繝ｼ繧貞ｱ暮幕縺吶ｋ"}
+          aria-label={consultExpanded ? "相談バーを折りたたむ" : "相談バーを展開する"}
         />
         {!consultExpanded && (
           <div className="consult-mini">
             <div className="consult-mini-left">
-              <div className="consult-mini-count">縺頑ｰ励↓蜈･繧・{consultTargets.length}莉ｶ</div>
+              <div className="consult-mini-count">お気に入り {consultTargets.length}件</div>
               <div className="consult-chips">
                 {selectedChips.visible.map((code) => (
                   <span key={code} className="consult-chip">
@@ -555,27 +555,27 @@ export default function FavoritesView() {
                 onClick={buildConsultation}
                 disabled={!consultTargets.length || consultBusy}
               >
-                {consultBusy ? "菴懈・荳ｭ..." : "逶ｸ隲・ｽ懈・"}
+                {consultBusy ? "作成中..." : "相談作成"}
               </button>
               <button
                 type="button"
                 onClick={handleCreateScreenshots}
                 disabled={!consultTargets.length || screenshotBusy}
               >
-                {screenshotBusy ? "菴懈・荳ｭ..." : "繧ｹ繧ｯ繧ｷ繝ｧ菴懈・"}
+                {screenshotBusy ? "作成中..." : "スクショ作成"}
               </button>
               <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
-                繧ｳ繝斐・
+                コピー
               </button>
               <button
                 type="button"
                 onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
                 disabled={!window.pywebview?.api?.open_screenshot_dir}
               >
-                繝輔か繝ｫ繝
+                フォルダ
               </button>
               <button type="button" onClick={() => setConsultVisible(false)}>
-                髢峨§繧・
+                閉じる
               </button>
             </div>
           </div>

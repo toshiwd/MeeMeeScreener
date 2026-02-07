@@ -4,6 +4,7 @@ import os
 from threading import Lock
 from typing import List, Optional, Tuple, Any, Dict
 import json
+from datetime import datetime, timezone
 
 class StockRepository:
     _instance = None
@@ -22,32 +23,66 @@ class StockRepository:
              rows = conn.execute("SELECT DISTINCT code FROM daily_bars ORDER BY code").fetchall()
         return [r[0] for r in rows]
 
-    def get_daily_bars(self, code: str, limit: int = 400) -> List[Tuple]:
+    def get_daily_bars(
+        self,
+        code: str,
+        limit: int = 400,
+        asof_dt: int | None = None
+    ) -> List[Tuple]:
         query = """
-            SELECT date, o, h, l, c, v 
-            FROM daily_bars 
-            WHERE code = ? 
-            ORDER BY date DESC 
+            SELECT date, o, h, l, c, v
+            FROM daily_bars
+            WHERE code = ?
+        """
+        params: List[Any] = [code]
+        if asof_dt is not None:
+            # daily_bars.date can be either epoch seconds or YYYYMMDD integer.
+            asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+            query += " AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END"
+            params.extend([asof_dt, asof_ymd])
+        query += """
+            ORDER BY date DESC
             LIMIT ?
         """
+        params.append(limit)
         with self._get_conn() as conn:
-            rows = conn.execute(query, [code, limit]).fetchall()
+            rows = conn.execute(query, params).fetchall()
         # Return valid sort order (ASC)
-        return sorted(rows, key=lambda x: x[0]) 
+        return sorted(rows, key=lambda x: x[0])
 
-    def get_monthly_bars(self, code: str, limit: int = 120) -> List[Tuple]:
+    def get_monthly_bars(
+        self,
+        code: str,
+        limit: int = 120,
+        asof_dt: int | None = None
+    ) -> List[Tuple]:
         query = """
             SELECT month, o, h, l, c, v
             FROM monthly_bars
             WHERE code = ?
+        """
+        params: List[Any] = [code]
+        if asof_dt is not None:
+            # monthly_bars.month can be epoch seconds, YYYYMMDD, or YYYYMM.
+            asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+            asof_ym = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m"))
+            query += """
+                AND month <= CASE
+                    WHEN month >= 1000000000 THEN ?
+                    WHEN month >= 10000000 THEN ?
+                    ELSE ?
+                END
+            """
+            params.extend([asof_dt, asof_ymd, asof_ym])
+        query += """
             ORDER BY month DESC
             LIMIT ?
         """
+        params.append(limit)
         with self._get_conn() as conn:
-            rows = conn.execute(query, [code, limit]).fetchall()
+            rows = conn.execute(query, params).fetchall()
             if not rows:
-                rows = conn.execute(
-                    """
+                fallback_query = """
                     SELECT
                         CAST(epoch(date_trunc('month', to_timestamp(date))) AS BIGINT) AS month,
                         arg_min(o, date) AS o,
@@ -57,11 +92,21 @@ class StockRepository:
                         sum(v) AS v
                     FROM daily_bars
                     WHERE code = ?
+                """
+                fallback_params: List[Any] = [code]
+                if asof_dt is not None:
+                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                    fallback_query += " AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END"
+                    fallback_params.extend([asof_dt, asof_ymd])
+                fallback_query += """
                     GROUP BY 1
                     ORDER BY 1 DESC
                     LIMIT ?
-                    """,
-                    [code, limit],
+                """
+                fallback_params.append(limit)
+                rows = conn.execute(
+                    fallback_query,
+                    fallback_params,
                 ).fetchall()
         return sorted(rows, key=lambda x: x[0])
 

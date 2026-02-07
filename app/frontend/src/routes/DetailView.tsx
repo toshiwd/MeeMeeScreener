@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -7,22 +7,27 @@ import {
   IconArrowLeft,
   IconArrowRight,
   IconBox,
-  IconBriefcase,
   IconCamera,
   IconCopy,
   IconCurrencyYen,
   IconHeart,
   IconHeartFilled,
-  IconLink,
-  IconListDetails,
+  IconMinus,
   IconTrash,
   IconSparkles,
   IconChartArrows,
-  IconPointer
 } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
-import DetailChart, { DetailChartHandle } from "../components/DetailChart";
+import DetailChart, {
+  DetailChartHandle,
+  type DrawBox,
+  type DrawTool,
+  type HorizontalLine,
+  type PriceBand,
+  type SelectedDrawingInfo,
+  type TimeZone
+} from "../components/DetailChart";
 import Toast from "../components/Toast";
 import IconButton from "../components/IconButton";
 import SimilarSearchPanel from "../components/SimilarSearchPanel";
@@ -41,6 +46,50 @@ import { useDetailInfo } from "../hooks/useDetailInfo";
 
 type Timeframe = "daily" | "weekly" | "monthly";
 type FocusPanel = Timeframe | null;
+
+type ChartDrawings = {
+  timeZones: TimeZone[];
+  priceBands: PriceBand[];
+  drawBoxes: DrawBox[];
+  horizontalLines: HorizontalLine[];
+};
+
+const DRAWING_STORAGE_PREFIX = "drawings:v1";
+
+const createEmptyDrawings = (): ChartDrawings => ({
+  timeZones: [],
+  priceBands: [],
+  drawBoxes: [],
+  horizontalLines: []
+});
+
+const normalizeDrawings = (value: any): ChartDrawings => {
+  if (!value || typeof value !== "object") return createEmptyDrawings();
+  return {
+    timeZones: Array.isArray(value.timeZones) ? value.timeZones : [],
+    priceBands: Array.isArray(value.priceBands) ? value.priceBands : [],
+    drawBoxes: Array.isArray(value.drawBoxes) ? value.drawBoxes : [],
+    horizontalLines: Array.isArray(value.horizontalLines) ? value.horizontalLines : []
+  };
+};
+
+const loadDrawingsFromStorage = (key: string): ChartDrawings => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return createEmptyDrawings();
+    return normalizeDrawings(JSON.parse(raw));
+  } catch {
+    return createEmptyDrawings();
+  }
+};
+
+const saveDrawingsToStorage = (key: string, drawings: ChartDrawings) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(drawings));
+  } catch {
+    // ignore storage errors
+  }
+};
 
 type Candle = {
   time: number;
@@ -408,6 +457,16 @@ const countInRange = (candles: Candle[], months: number | null) => {
   return candles.filter((c) => c.time >= range.from && c.time <= range.to).length;
 };
 
+const filterCandlesByAsOf = (candles: Candle[], asOf: number | null) => {
+  if (!asOf) return candles;
+  return candles.filter((candle) => candle.time <= asOf);
+};
+
+const filterVolumeByAsOf = (volume: VolumePoint[], asOf: number | null) => {
+  if (!asOf) return volume;
+  return volume.filter((point) => point.time <= asOf);
+};
+
 const findNearestCandleTime = (candles: Candle[], time: number) => {
   if (!candles.length) return null;
   let left = 0;
@@ -472,6 +531,22 @@ export default function DetailView() {
   const [monthlyData, setMonthlyData] = useState<number[][]>([]);
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [compareBoxes, setCompareBoxes] = useState<Box[]>([]);
+  const [headerMode, setHeaderMode] = useState<"chart" | "draw" | "positions">("chart");
+  const [displayOpen, setDisplayOpen] = useState(false);
+  const [signalsOpen, setSignalsOpen] = useState(false);
+  const [showGapBands, setShowGapBands] = useState(true);
+  const [showVolumeEnabled, setShowVolumeEnabled] = useState(true);
+  const [activeDrawTool, setActiveDrawTool] = useState<DrawTool | null>(null);
+  const [, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
+  const [drawingsByKey, setDrawingsByKey] = useState<Record<string, ChartDrawings>>({});
+  const COLOR_PALETTE = ["#ef4444", "#22c55e", "#0ea5e9", "#f59e0b", "#64748b"];
+  const [activeDrawColorIndex, setActiveDrawColorIndex] = useState(4);
+  const activeDrawColor = COLOR_PALETTE[activeDrawColorIndex] ?? "#64748b";
+  const [activeLineOpacity, setActiveLineOpacity] = useState(0.8);
+  const [activeLineWidth, setActiveLineWidth] = useState(2);
+  const selectDrawTool = (tool: DrawTool) => {
+    setActiveDrawTool(tool);
+  };
   const [trades, setTrades] = useState<TradeEvent[]>([]);
   const [compareTrades, setCompareTrades] = useState<TradeEvent[]>([]);
   const [tradeWarnings, setTradeWarnings] = useState<ApiWarnings>({ items: [] });
@@ -572,6 +647,190 @@ export default function DetailView() {
   const lastPhaseAttemptAsOfRef = useRef<number | null>(null);
   const phaseFallbackRequestKeyRef = useRef<string | null>(null);
   const detailChartLogRef = useRef<string | null>(null);
+  const displayRef = useRef<HTMLDivElement | null>(null);
+  const signalsRef = useRef<HTMLDivElement | null>(null);
+  const emptyDrawingsRef = useRef<ChartDrawings>(createEmptyDrawings());
+
+  const buildDrawingKey = (symbol: string | null | undefined, timeframe: Timeframe) =>
+    symbol ? `${DRAWING_STORAGE_PREFIX}:${symbol}:${timeframe}` : null;
+
+  const dailyDrawingKey = useMemo(() => buildDrawingKey(code, "daily"), [code]);
+  const weeklyDrawingKey = useMemo(() => buildDrawingKey(code, "weekly"), [code]);
+  const monthlyDrawingKey = useMemo(() => buildDrawingKey(code, "monthly"), [code]);
+  const compareDailyDrawingKey = useMemo(() => buildDrawingKey(compareCode, "daily"), [compareCode]);
+  const compareMonthlyDrawingKey = useMemo(
+    () => buildDrawingKey(compareCode, "monthly"),
+    [compareCode]
+  );
+
+  const updateDrawings = (key: string | null, updater: (prev: ChartDrawings) => ChartDrawings) => {
+    if (!key) return;
+    setDrawingsByKey((prev) => {
+      const current = prev[key] ?? emptyDrawingsRef.current;
+      const nextValue = updater(current);
+      const next = { ...prev, [key]: nextValue };
+      saveDrawingsToStorage(key, nextValue);
+      return next;
+    });
+  };
+
+  const resolveDrawings = (key: string | null) =>
+    key ? drawingsByKey[key] ?? emptyDrawingsRef.current : emptyDrawingsRef.current;
+
+  const addTimeZone = (key: string | null) => (zone: TimeZone) =>
+    updateDrawings(key, (prev) => ({ ...prev, timeZones: [...prev.timeZones, zone] }));
+  const updateTimeZone = (key: string | null) => (index: number, zone: TimeZone) =>
+    updateDrawings(key, (prev) => {
+      const next = [...prev.timeZones];
+      if (!next[index]) return prev;
+      next[index] = zone;
+      return { ...prev, timeZones: next };
+    });
+
+  const addPriceBand = (key: string | null) => (band: PriceBand) =>
+    updateDrawings(key, (prev) => ({ ...prev, priceBands: [...prev.priceBands, band] }));
+  const updatePriceBand = (key: string | null) => (index: number, band: PriceBand) =>
+    updateDrawings(key, (prev) => {
+      const next = [...prev.priceBands];
+      if (!next[index]) return prev;
+      next[index] = band;
+      return { ...prev, priceBands: next };
+    });
+
+  const addDrawBox = (key: string | null) => (box: DrawBox) =>
+    updateDrawings(key, (prev) => ({ ...prev, drawBoxes: [...prev.drawBoxes, box] }));
+  const updateDrawBox = (key: string | null) => (index: number, box: DrawBox) =>
+    updateDrawings(key, (prev) => {
+      const next = [...prev.drawBoxes];
+      if (!next[index]) return prev;
+      next[index] = box;
+      return { ...prev, drawBoxes: next };
+    });
+
+  const addHorizontalLine = (key: string | null) => (line: HorizontalLine) =>
+    updateDrawings(key, (prev) => ({
+      ...prev,
+      horizontalLines: [...prev.horizontalLines, line]
+    }));
+  const updateHorizontalLine = (key: string | null) => (index: number, line: HorizontalLine) =>
+    updateDrawings(key, (prev) => {
+      const next = [...prev.horizontalLines];
+      if (!next[index]) return prev;
+      next[index] = line;
+      return { ...prev, horizontalLines: next };
+    });
+  const deleteTimeZone = (key: string | null) => (index: number) =>
+    updateDrawings(key, (prev) => ({
+      ...prev,
+      timeZones: prev.timeZones.filter((_, i) => i !== index)
+    }));
+  const deletePriceBand = (key: string | null) => (index: number) =>
+    updateDrawings(key, (prev) => ({
+      ...prev,
+      priceBands: prev.priceBands.filter((_, i) => i !== index)
+    }));
+  const deleteDrawBox = (key: string | null) => (index: number) =>
+    updateDrawings(key, (prev) => ({
+      ...prev,
+      drawBoxes: prev.drawBoxes.filter((_, i) => i !== index)
+    }));
+  const deleteHorizontalLine = (key: string | null) => (index: number) =>
+    updateDrawings(key, (prev) => ({
+      ...prev,
+      horizontalLines: prev.horizontalLines.filter((_, i) => i !== index)
+    }));
+
+  const resetAllDrawings = () => {
+    const keys = [
+      dailyDrawingKey,
+      weeklyDrawingKey,
+      monthlyDrawingKey,
+      compareDailyDrawingKey,
+      compareMonthlyDrawingKey
+    ].filter(Boolean) as string[];
+    if (!keys.length) return;
+    setDrawingsByKey((prev) => {
+      const next = { ...prev };
+      keys.forEach((key) => {
+        const empty = createEmptyDrawings();
+        next[key] = empty;
+        saveDrawingsToStorage(key, empty);
+      });
+      return next;
+    });
+    setSelectedDrawing(null);
+  };
+
+  useEffect(() => {
+    const keys = [
+      dailyDrawingKey,
+      weeklyDrawingKey,
+      monthlyDrawingKey,
+      compareDailyDrawingKey,
+      compareMonthlyDrawingKey
+    ].filter(Boolean) as string[];
+    if (!keys.length) return;
+    setDrawingsByKey((prev) => {
+      let next = prev;
+      let changed = false;
+      keys.forEach((key) => {
+        if (next[key]) return;
+        const loaded = loadDrawingsFromStorage(key);
+        if (!changed) {
+          next = { ...prev };
+          changed = true;
+        }
+        next[key] = loaded;
+      });
+      return changed ? next : prev;
+    });
+  }, [dailyDrawingKey, weeklyDrawingKey, monthlyDrawingKey, compareDailyDrawingKey, compareMonthlyDrawingKey]);
+
+  useEffect(() => {
+    if (!displayOpen && !signalsOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (displayRef.current && displayRef.current.contains(target)) return;
+      if (signalsRef.current && signalsRef.current.contains(target)) return;
+      setDisplayOpen(false);
+      setSignalsOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [displayOpen, signalsOpen]);
+
+  useEffect(() => {
+    if (headerMode === "positions") {
+      setShowPositionLedger(true);
+      return;
+    }
+    setShowPositionLedger(false);
+    setPositionLedgerExpanded(false);
+  }, [headerMode]);
+
+  useEffect(() => {
+    if (headerMode !== "draw" && activeDrawTool !== null) {
+      setActiveDrawTool(null);
+    }
+  }, [headerMode, activeDrawTool]);
+
+  useEffect(() => {
+    if (headerMode === "draw" && activeDrawTool == null) {
+      setActiveDrawTool("timeZone");
+    }
+  }, [headerMode, activeDrawTool]);
+
+  useEffect(() => {
+    if (headerMode !== "draw") {
+      setSelectedDrawing(null);
+    }
+  }, [headerMode]);
+
+  const dailyDrawings = resolveDrawings(dailyDrawingKey);
+  const weeklyDrawings = resolveDrawings(weeklyDrawingKey);
+  const monthlyDrawings = resolveDrawings(monthlyDrawingKey);
+  const compareDailyDrawings = resolveDrawings(compareDailyDrawingKey);
+  const compareMonthlyDrawings = resolveDrawings(compareMonthlyDrawingKey);
 
   useEffect(() => {
     if (compareCode) return;
@@ -651,13 +910,13 @@ export default function DetailView() {
     return cleaned === "?" ? "" : cleaned;
   }, [tickers, compareCode]);
   const formatPhaseScore = (value: number | null | undefined) => {
-    if (phaseFallbackLoading) return "取得中…";
+    if (phaseFallbackLoading) return "読込中...";
     return Number.isFinite(value)
       ? String(Math.min(10, Math.max(0, Math.round(value! * 10))))
       : "--";
   };
   const formatPhaseN = (value: number | null | undefined) => {
-    if (phaseFallbackLoading) return "取得中…";
+    if (phaseFallbackLoading) return "読込中...";
     return typeof value === "number" ? String(value) : "--";
   };
   const getPhaseTone = (value: number | null | undefined) => {
@@ -783,8 +1042,12 @@ export default function DetailView() {
     setLoadingDaily(true);
     setDailyErrors([]);
     setDailyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
+    const params: Record<string, string | number> = { code, limit: dailyLimit };
+    if (mainAsOf) {
+      params.asof = mainAsOf;
+    }
     api
-      .get("/ticker/daily", { params: { code, limit: dailyLimit } })
+      .get("/ticker/daily", { params })
       .then((res) => {
         const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "daily");
         setDailyData(rows);
@@ -802,7 +1065,7 @@ export default function DetailView() {
         }));
       })
       .finally(() => setLoadingDaily(false));
-  }, [backendReady, code, dailyLimit]);
+  }, [backendReady, code, dailyLimit, mainAsOf]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -810,8 +1073,12 @@ export default function DetailView() {
     setLoadingMonthly(true);
     setMonthlyErrors([]);
     setMonthlyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
+    const params: Record<string, string | number> = { code, limit: monthlyLimit };
+    if (mainAsOf) {
+      params.asof = mainAsOf;
+    }
     api
-      .get("/ticker/monthly", { params: { code, limit: monthlyLimit } })
+      .get("/ticker/monthly", { params })
       .then((res) => {
         const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "monthly");
         setMonthlyData(rows);
@@ -829,15 +1096,19 @@ export default function DetailView() {
         }));
       })
       .finally(() => setLoadingMonthly(false));
-  }, [backendReady, code, monthlyLimit]);
+  }, [backendReady, code, monthlyLimit, mainAsOf]);
 
   useEffect(() => {
     if (!backendReady) return;
     if (!compareCode) return;
     setCompareLoading(true);
     setCompareMonthlyErrors([]);
+    const params: Record<string, string | number> = { code: compareCode, limit: monthlyLimit };
+    if (compareAsOf) {
+      params.asof = compareAsOf;
+    }
     api
-      .get("/ticker/monthly", { params: { code: compareCode, limit: monthlyLimit } })
+      .get("/ticker/monthly", { params })
       .then((res) => {
         const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "monthly");
         setCompareMonthlyData(rows);
@@ -849,15 +1120,22 @@ export default function DetailView() {
         setCompareMonthlyData([]);
       })
       .finally(() => setCompareLoading(false));
-  }, [backendReady, compareCode, monthlyLimit]);
+  }, [backendReady, compareCode, monthlyLimit, compareAsOf]);
 
   useEffect(() => {
     if (!backendReady) return;
     if (!compareCode) return;
     setCompareDailyLoading(true);
     setCompareDailyErrors([]);
+    const params: Record<string, string | number> = {
+      code: compareCode,
+      limit: compareDailyLimit
+    };
+    if (compareAsOf) {
+      params.asof = compareAsOf;
+    }
     api
-      .get("/ticker/daily", { params: { code: compareCode, limit: compareDailyLimit } })
+      .get("/ticker/daily", { params })
       .then((res) => {
         const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "daily");
         setCompareDailyData(rows);
@@ -869,13 +1147,17 @@ export default function DetailView() {
         setCompareDailyData([]);
       })
       .finally(() => setCompareDailyLoading(false));
-  }, [backendReady, compareCode, compareDailyLimit]);
+  }, [backendReady, compareCode, compareDailyLimit, compareAsOf]);
 
   useEffect(() => {
     if (!backendReady) return;
     if (!code) return;
+    const params: Record<string, string> = { code };
+    if (mainAsOf) {
+      params.asof = mainAsOf;
+    }
     api
-      .get("/ticker/boxes", { params: { code } })
+      .get("/ticker/boxes", { params })
       .then((res) => {
         const rows = (res.data || []) as Box[];
         setBoxes(rows);
@@ -883,7 +1165,7 @@ export default function DetailView() {
       .catch(() => {
         setBoxes([]);
       });
-  }, [backendReady, code]);
+  }, [backendReady, code, mainAsOf]);
 
   useEffect(() => {
     if (!compareCode) return;
@@ -897,8 +1179,12 @@ export default function DetailView() {
   useEffect(() => {
     if (!backendReady) return;
     if (!compareCode) return;
+    const params: Record<string, string> = { code: compareCode };
+    if (compareAsOf) {
+      params.asof = compareAsOf;
+    }
     api
-      .get("/ticker/boxes", { params: { code: compareCode } })
+      .get("/ticker/boxes", { params })
       .then((res) => {
         const rows = (res.data || []) as Box[];
         setCompareBoxes(rows);
@@ -906,7 +1192,7 @@ export default function DetailView() {
       .catch(() => {
         setCompareBoxes([]);
       });
-  }, [backendReady, compareCode]);
+  }, [backendReady, compareCode, compareAsOf]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -974,13 +1260,34 @@ export default function DetailView() {
     () => buildCandlesWithStats(compareMonthlyData),
     [compareMonthlyData]
   );
-  const dailyCandles = dailyParse.candles;
-  const monthlyCandles = monthlyParse.candles;
-  const compareDailyCandles = compareDailyParse.candles;
-  const compareMonthlyCandles = compareMonthlyParse.candles;
-  const dailyVolume = useMemo(() => buildVolume(dailyData), [dailyData]);
-  const monthlyVolume = useMemo(() => buildVolume(monthlyData), [monthlyData]);
-  const compareDailyVolume = useMemo(() => buildVolume(compareDailyData), [compareDailyData]);
+  const dailyCandles = useMemo(
+    () => filterCandlesByAsOf(dailyParse.candles, mainAsOfTime),
+    [dailyParse.candles, mainAsOfTime]
+  );
+  const monthlyCandles = useMemo(
+    () => filterCandlesByAsOf(monthlyParse.candles, mainAsOfTime),
+    [monthlyParse.candles, mainAsOfTime]
+  );
+  const compareDailyCandles = useMemo(
+    () => filterCandlesByAsOf(compareDailyParse.candles, compareAsOfTime),
+    [compareDailyParse.candles, compareAsOfTime]
+  );
+  const compareMonthlyCandles = useMemo(
+    () => filterCandlesByAsOf(compareMonthlyParse.candles, compareAsOfTime),
+    [compareMonthlyParse.candles, compareAsOfTime]
+  );
+  const dailyVolume = useMemo(
+    () => filterVolumeByAsOf(buildVolume(dailyData), mainAsOfTime),
+    [dailyData, mainAsOfTime]
+  );
+  const monthlyVolume = useMemo(
+    () => filterVolumeByAsOf(buildVolume(monthlyData), mainAsOfTime),
+    [monthlyData, mainAsOfTime]
+  );
+  const compareDailyVolume = useMemo(
+    () => filterVolumeByAsOf(buildVolume(compareDailyData), compareAsOfTime),
+    [compareDailyData, compareAsOfTime]
+  );
   const weeklyData = useMemo(() => buildWeekly(dailyCandles, dailyVolume), [dailyCandles, dailyVolume]);
 
   useEffect(() => {
@@ -1149,8 +1456,8 @@ export default function DetailView() {
               kindSet.add("新規");
               return;
             }
-            if (lower.includes("close") || raw.includes("返済")) {
-              kindSet.add("返済");
+            if (lower.includes("close") || raw.includes("決済")) {
+              kindSet.add("決済");
               return;
             }
             if (lower.includes("delivery") || raw.includes("現渡")) {
@@ -1223,8 +1530,8 @@ export default function DetailView() {
               kindSet.add("新規");
               return;
             }
-            if (lower.includes("close") || raw.includes("返済")) {
-              kindSet.add("返済");
+            if (lower.includes("close") || raw.includes("決済")) {
+              kindSet.add("決済");
               return;
             }
             if (lower.includes("delivery") || raw.includes("現渡")) {
@@ -1527,14 +1834,14 @@ export default function DetailView() {
     const ma60Line = dailyMaLines.find(line => line.period === 60);
 
     const getMaTrend = (maLine: typeof ma7Line, barIndex: number | null) => {
-      if (!maLine || barIndex == null || barIndex < 1) return "—";
+      if (!maLine || barIndex == null || barIndex < 1) return "--";
       const currentValue = maLine.data.find(d => d.time === selectedBarData.time)?.value;
       const prevBar = dailyCandles[barIndex - 1];
       const prevValue = prevBar ? maLine.data.find(d => d.time === prevBar.time)?.value : null;
-      if (currentValue == null || prevValue == null) return "—";
-      if (selectedBarData.close > currentValue && prevBar.close > prevValue) return "上昇";
-      if (selectedBarData.close < currentValue && prevBar.close < prevValue) return "下降";
-      return "転換";
+      if (currentValue == null || prevValue == null) return "--";
+      if (selectedBarData.close > currentValue && prevBar.close > prevValue) return "UP";
+      if (selectedBarData.close < currentValue && prevBar.close < prevValue) return "DOWN";
+      return "FLAT";
     };
 
     const barIndex = dailyCandles.findIndex(c => c.time === selectedTime);
@@ -1632,7 +1939,7 @@ export default function DetailView() {
       // ignore
     }
 
-    showShortToast("コピー失敗");
+    showShortToast("Copy failed");
     setCopyFallbackText(textToCopy);
   };
 
@@ -1712,12 +2019,12 @@ export default function DetailView() {
     [rangeMonths, compareAsOfTime]
   );
   const mainMonthlyTargetRange = useMemo(
-    () => (mainAsOfTime ? buildRangeFromEndTime(24, mainAsOfTime) : null),
-    [mainAsOfTime]
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
+    [rangeMonths, mainAsOfTime]
   );
   const compareMonthlyTargetRange = useMemo(
-    () => (compareAsOfTime ? buildRangeFromEndTime(24, compareAsOfTime) : null),
-    [compareAsOfTime]
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, compareAsOfTime) : null),
+    [rangeMonths, compareAsOfTime]
   );
   const dailyVisibleRange = useMemo(() => {
     if (!rangeMonths) return null;
@@ -1743,13 +2050,15 @@ export default function DetailView() {
   const resolvedWeeklyVisibleRange = rangeMonths ? weeklyVisibleRange : manualWeeklyRangeRef.current;
   const resolvedMonthlyVisibleRange = rangeMonths ? monthlyVisibleRange : manualMonthlyRangeRef.current;
   const compareMonthlyVisibleRange = useMemo(() => {
+    if (!rangeMonths) return null;
     if (compareMonthlyTargetRange) return compareMonthlyTargetRange;
-    return buildRange(compareMonthlyCandles, 24);
-  }, [compareMonthlyTargetRange, compareMonthlyCandles]);
+    return buildRange(compareMonthlyCandles, rangeMonths);
+  }, [rangeMonths, compareMonthlyTargetRange, compareMonthlyCandles]);
   const compareMonthlyBaseRange = useMemo(() => {
+    if (!rangeMonths) return null;
     if (mainMonthlyTargetRange) return mainMonthlyTargetRange;
-    return buildRange(monthlyCandles, 24);
-  }, [mainMonthlyTargetRange, monthlyCandles]);
+    return buildRange(monthlyCandles, rangeMonths);
+  }, [rangeMonths, mainMonthlyTargetRange, monthlyCandles]);
   const compareRequiredFrom = useMemo(
     () => compareDailyTargetRange?.from ?? null,
     [compareDailyTargetRange]
@@ -1787,14 +2096,14 @@ export default function DetailView() {
     if (mainMonthlyTargetRange) {
       return `対象期間: ${formatDateLabel(mainMonthlyTargetRange.from)} - ${formatDateLabel(mainMonthlyTargetRange.to)}`;
     }
-    return "24本";
-  }, [mainMonthlyTargetRange]);
+    return `表示期間: ${dailyRangeLabel}`;
+  }, [mainMonthlyTargetRange, dailyRangeLabel]);
   const rightMonthlyRangeLabel = useMemo(() => {
     if (compareMonthlyVisibleRange) {
       return `一致期間: ${formatDateLabel(compareMonthlyVisibleRange.from)} - ${formatDateLabel(compareMonthlyVisibleRange.to)}`;
     }
-    return "24本";
-  }, [compareMonthlyVisibleRange]);
+    return `表示期間: ${dailyRangeLabel}`;
+  }, [compareMonthlyVisibleRange, dailyRangeLabel]);
   const compareDailyNeedsMore = useMemo(() => {
     if (!compareDailyTargetRange || !compareDailyCandles.length) return false;
     const earliest = compareDailyCandles[0]?.time;
@@ -1880,7 +2189,7 @@ export default function DetailView() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (showPositionLedger) {
-          setShowPositionLedger(false);
+          setHeaderMode("chart");
           setPositionLedgerExpanded(false);
           return;
         }
@@ -1964,7 +2273,8 @@ export default function DetailView() {
 
   // Removed scheduleHoverTime
 
-  const showVolumeDaily = dailyVolume.length > 0;
+  const showVolumeDaily = dailyVolume.length > 0 && showVolumeEnabled;
+  const gapBandsOverride = showGapBands ? undefined : [];
 
   const handleDailyVisibleRangeChange = (range: { from: number; to: number } | null) => {
     mainSync.handleDailyVisibleRangeChange(range);
@@ -1974,20 +2284,23 @@ export default function DetailView() {
   };
 
   const handleWeeklyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+    if (rangeMonths) return;
     mainSync.handleWeeklyVisibleRangeChange(range);
-    if (!rangeMonths && range) {
+    if (range) {
       manualWeeklyRangeRef.current = range;
     }
   };
 
   const handleMonthlyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+    if (rangeMonths) return;
     mainSync.handleMonthlyVisibleRangeChange(range);
-    if (!rangeMonths && range) {
+    if (range) {
       manualMonthlyRangeRef.current = range;
     }
   };
 
   const handleCompareMonthlyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+    if (rangeMonths) return;
     compareSync.handleMonthlyVisibleRangeChange(range);
   };
 
@@ -2076,7 +2389,7 @@ export default function DetailView() {
 
   const handleToggleFavorite = async () => {
     if (!code) {
-      setToastMessage("お気に入りの更新に失敗しました。(code未設定)");
+      setToastMessage("お気に入り更新に失敗しました（code未指定）");
       return;
     }
     const next = !isFavorite;
@@ -2096,11 +2409,11 @@ export default function DetailView() {
         error?.response?.data ??
         error?.message;
       if (status) {
-        setToastMessage(`お気に入りの更新に失敗しました。(HTTP ${status})`);
+        setToastMessage(`お気に入り更新に失敗しました（HTTP ${status}）`);
       } else if (detail) {
-        setToastMessage(`お気に入りの更新に失敗しました。(${String(detail)})`);
+        setToastMessage(`お気に入り更新に失敗しました（${String(detail)}）`);
       } else {
-        setToastMessage("お気に入りの更新に失敗しました。");
+        setToastMessage("お気に入り更新に失敗しました");
       }
     }
   };
@@ -2111,7 +2424,7 @@ export default function DetailView() {
       typeof window === "undefined"
         ? false
         : window.confirm(
-          `${code} を完全に削除しますか？\ncode.txt、data/txt、DB、お気に入り、練習セッションも削除します。`
+          `${code} を削除しますか？関連する code.txt / data/txt / DB / お気に入り / 練習セッションも削除されます。`
         );
     if (!confirmed) return;
     setDeleteBusy(true);
@@ -2276,6 +2589,354 @@ export default function DetailView() {
     if (index < 0) return null;
     return listCodes[index + 1] ?? null;
   }, [listCodes, code]);
+  const showDrawSettings = headerMode === "draw" && activeDrawTool !== null;
+  const chartActionControls = (
+    <div className="detail-controls-group detail-controls-icons">
+      <IconButton
+        label="スクショ"
+        icon={<IconCamera size={18} />}
+        disabled={screenshotBusy}
+        tooltip="スクショ"
+        onClick={async () => {
+          if (screenshotBusy) return;
+          setScreenshotBusy(true);
+          setToastAction(null);
+          try {
+            const screenType = getScreenType(location.pathname);
+            const result = await captureAndCopyScreenshot({ screenType, code });
+            if (!result.success) {
+              setToastMessage(result.error ?? "スクショに失敗しました");
+              return;
+            }
+
+            const handleSaveSuccess = (saveResult: { success: boolean, savedPath?: string, savedDir?: string, error?: string }) => {
+              if (saveResult.savedPath || saveResult.savedDir) {
+                setToastMessage("スクショを保存しました");
+                setToastAction({
+                  label: "フォルダを開く",
+                  onClick: async () => {
+                    if (window.pywebview?.api?.open_path) {
+                      const target = saveResult.savedPath || saveResult.savedDir;
+                      if (target) {
+                        await window.pywebview.api.open_path(target);
+                      }
+                    }
+                  }
+                });
+              } else {
+                // Fallback for browser download or missing path
+                setToastMessage("スクショを保存しました（保存のみ）");
+                setToastAction(null);
+              }
+            };
+
+            if (result.copied) {
+              // Clipboard copy succeeded - show toast with save action
+              const blob = result.blob!;
+              const filename = result.filename!;
+              setToastMessage("スクショをクリップボードにコピーしました");
+              setToastAction({
+                label: "保存...",
+                onClick: async () => {
+                  const saveResult = await saveBlobToFile(blob, filename);
+                  if (saveResult.success) {
+                    handleSaveSuccess(saveResult);
+                  } else {
+                    setToastMessage(saveResult.error || "保存に失敗しました");
+                    setToastAction(null);
+                  }
+                },
+              });
+            } else {
+              // Clipboard failed - fallback to save
+              setToastMessage("クリップボードにコピーできなかったため保存しました");
+              setToastAction(null);
+              if (result.blob && result.filename) {
+                const saveResult = await saveBlobToFile(result.blob, result.filename);
+                if (saveResult.success) {
+                  handleSaveSuccess(saveResult);
+                } else {
+                  setToastMessage(saveResult.error || "保存に失敗しました");
+                  setToastAction(null);
+                }
+              }
+            }
+          } finally {
+            setScreenshotBusy(false);
+          }
+        }}
+      />
+      <IconButton
+        label="AI出力"
+        icon={<IconSparkles size={18} />}
+        tooltip="AI出力"
+        onClick={async () => {
+          let dailyMemos: Record<string, string> = {};
+          if (code) {
+            try {
+              const memoRes = await api.get("/memo/list", {
+                params: { symbol: code, timeframe: "D" }
+              });
+              const items = memoRes.data?.items;
+              if (Array.isArray(items)) {
+                items.forEach((item: { date?: string; memo?: string }) => {
+                  const rawDate = (item?.date ?? "").trim();
+                  if (!rawDate) return;
+                  const normalized = rawDate.replace(/\//g, "-");
+                  dailyMemos[normalized] = item.memo ?? "";
+                });
+              }
+            } catch {
+              dailyMemos = {};
+            }
+          }
+
+          const dailyVolumeMap = new Map(dailyVolume.map((item) => [item.time, item.value]));
+          const weeklyVolumeCounts = new Map<number, number>();
+          dailyCandles.forEach((candle) => {
+            if (!dailyVolumeMap.has(candle.time)) return;
+            const date = new Date(candle.time * 1000);
+            const day = date.getUTCDay();
+            const diff = (day + 6) % 7;
+            const weekStart = Date.UTC(
+              date.getUTCFullYear(),
+              date.getUTCMonth(),
+              date.getUTCDate() - diff
+            );
+            const key = Math.floor(weekStart / 1000);
+            weeklyVolumeCounts.set(key, (weeklyVolumeCounts.get(key) ?? 0) + 1);
+          });
+          const weeklyVolumeMap = new Map<number, number | null>();
+          weeklyVolume.forEach((item) => {
+            const count = weeklyVolumeCounts.get(item.time) ?? 0;
+            weeklyVolumeMap.set(item.time, count > 0 ? item.value : null);
+          });
+          const monthlyVolumeSums = new Map<number, number>();
+          dailyCandles.forEach((candle) => {
+            const volume = dailyVolumeMap.get(candle.time);
+            if (volume == null || !Number.isFinite(volume)) return;
+            const date = new Date(candle.time * 1000);
+            const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+            const key = Math.floor(monthStart / 1000);
+            monthlyVolumeSums.set(key, (monthlyVolumeSums.get(key) ?? 0) + volume);
+          });
+          const monthlyVolumeMap = new Map<number, number>();
+          monthlyCandles.forEach((candle) => {
+            const sum = monthlyVolumeSums.get(candle.time);
+            monthlyVolumeMap.set(candle.time, Number.isFinite(sum) ? Math.round(sum ?? 0) : 0);
+          });
+          const exportData = buildAIExport({
+            code: code ?? "",
+            name: tickerName,
+            visibleTimeframe: "daily",
+            rangeMonths: rangeMonths,
+            dailyBars: dailyCandles.map((c) => ({
+              time: c.time,
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+              volume: dailyVolumeMap.get(c.time) ?? null
+            })),
+            weeklyBars: weeklyCandles.map((c) => ({
+              time: c.time,
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+              volume: weeklyVolumeMap.get(c.time) ?? null
+            })),
+            monthlyBars: monthlyCandles.map((c) => ({
+              time: c.time,
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+              volume: monthlyVolumeMap.get(c.time) ?? null
+            })),
+            maSettings,
+            signals: dailySignals,
+            showBoxes,
+            showPositions: showTradesOverlay,
+            boxes,
+            dailyMemos,
+            currentPositions,
+          });
+          const copied = await copyToClipboard(exportData.markdown);
+          if (copied) {
+            setToastMessage("AI用銘柄情報をクリップボードにコピーしました");
+          } else {
+            setToastMessage("クリップボードへのコピーに失敗しました");
+          }
+        }}
+      />
+      <IconButton
+        label="類似"
+        icon={<IconChartArrows size={18} />}
+        tooltip="類似チャート検索"
+        onClick={() => setShowSimilar(true)}
+      />
+    </div>
+  );
+  const headerControls = (
+    <>
+      <div className="detail-controls-group">
+        <div className="segmented detail-range">
+          {RANGE_PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              className={rangeMonths === preset.months ? "active" : ""}
+              onClick={() => toggleRange(preset.months)}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+        {canShowPhase && (
+          <div className="detail-phase is-open">
+            <div className="detail-phase-metrics">
+              <span
+                className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                  phaseScores?.bodyScore ?? null
+                )}`}
+              >
+                中盤 {formatPhaseScore(phaseScores?.bodyScore ?? null)}
+              </span>
+              <span
+                className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                  phaseScores?.earlyScore ?? null
+                )}`}
+              >
+                序盤 {formatPhaseScore(phaseScores?.earlyScore ?? null)}
+              </span>
+              <span
+                className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                  phaseScores?.lateScore ?? null
+                )}`}
+              >
+                終盤 {formatPhaseScore(phaseScores?.lateScore ?? null)}
+              </span>
+              <div className="detail-phase-reasons">
+                {phaseReasons.length ? (
+                  phaseReasons.map((reason) => (
+                    <span key={reason} className="detail-phase-reason">
+                      {reason}
+                    </span>
+                  ))
+                ) : (
+                  <span className="detail-phase-empty">--</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="detail-controls-group">
+        <div className="popover-anchor" ref={displayRef}>
+          <IconButton
+            icon={<IconAdjustments size={18} />}
+            label="表示"
+            variant="iconLabel"
+            tooltip="表示設定"
+            ariaLabel="表示設定メニューを開く"
+            selected={displayOpen}
+            onClick={() => setDisplayOpen((prev) => !prev)}
+          />
+          {displayOpen && (
+            <div className="popover-panel">
+              <div className="popover-section">
+                <div className="popover-title">表示</div>
+                <button
+                  type="button"
+                  className={`popover-item ${showBoxes ? "active" : ""}`}
+                  onClick={() => setShowBoxes(!showBoxes)}
+                >
+                  <span className="popover-item-label">Boxes</span>
+                  {showBoxes && <span className="popover-check">ON</span>}
+                </button>
+                <button
+                  type="button"
+                  className={`popover-item ${showGapBands ? "active" : ""}`}
+                  onClick={() => setShowGapBands((prev) => !prev)}
+                >
+                  <span className="popover-item-label">窓</span>
+                  {showGapBands && <span className="popover-check">ON</span>}
+                </button>
+                <button
+                  type="button"
+                  className={`popover-item ${showVolumeEnabled ? "active" : ""}`}
+                  onClick={() => setShowVolumeEnabled((prev) => !prev)}
+                >
+                  <span className="popover-item-label">出来高</span>
+                  {showVolumeEnabled && <span className="popover-check">ON</span>}
+                </button>
+                <button
+                  type="button"
+                  className={`popover-item ${syncRanges ? "active" : ""}`}
+                  onClick={() => setSyncRanges((prev) => !prev)}
+                >
+                  <span className="popover-item-label">連動</span>
+                  {syncRanges && <span className="popover-check">ON</span>}
+                </button>
+                <button
+                  type="button"
+                  className={`popover-item ${cursorMode ? "active" : ""}`}
+                  onClick={toggleCursorMode}
+                >
+                  <span className="popover-item-label">カーソル</span>
+                  {cursorMode && <span className="popover-check">ON</span>}
+                </button>
+              </div>
+              <div className="popover-section">
+                <button type="button" className="popover-item" onClick={() => setShowIndicators(true)}>
+                  <span className="popover-item-label">MA/Indicators</span>
+                </button>
+              </div>
+              <div className="popover-section">
+                <button
+                  type="button"
+                  className="popover-item"
+                  disabled={deleteBusy || !code}
+                  onClick={() => {
+                    setDisplayOpen(false);
+                    handleDeleteTicker();
+                  }}
+                >
+                  <span className="popover-item-label">銘柄を削除</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="segmented detail-mode">
+          <button
+            className={headerMode === "chart" ? "active" : ""}
+            onClick={() => setHeaderMode("chart")}
+          >
+            チャート
+          </button>
+          <button
+            className={headerMode === "draw" ? "active" : ""}
+            onClick={() => setHeaderMode("draw")}
+          >
+            描画
+          </button>
+          <button
+            onClick={() => {
+              if (code) navigate(`/practice/${code}`);
+            }}
+          >
+            練習          </button>
+          <button
+            className={headerMode === "positions" ? "active" : ""}
+            onClick={() => setHeaderMode("positions")}
+          >
+            建玉          </button>
+        </div>
+      </div>
+      {headerMode === "chart" && chartActionControls}
+    </>
+  );
 
 
   return (
@@ -2283,7 +2944,10 @@ export default function DetailView() {
       <div className="detail-header">
         <div className="detail-summary-row">
           <div className="detail-summary-back">
-            <button className="back nav-button nav-primary" onClick={() => navigate(listBackPath)}>
+            <button
+              className="back nav-button nav-primary"
+              onClick={() => navigate(listBackPath)}
+            >
               <span className="nav-icon">
                 <IconArrowLeft size={16} />
               </span>
@@ -2293,7 +2957,7 @@ export default function DetailView() {
               <span className="nav-icon">
                 <IconArrowLeft size={16} />
               </span>
-              <span className="nav-label">前の画面に戻る</span>
+              <span className="nav-label">前画面</span>
             </button>
           </div>
           <div className="detail-summary-main">
@@ -2310,18 +2974,39 @@ export default function DetailView() {
               )}
               {dailySignals.length > 0 && (
                 <div className="detail-signals-inline summary-signals">
-                  {dailySignals.map((signal) => (
-                    <span
-                      key={signal.label}
-                      className={`signal-chip ${signal.kind === 'warning' ? 'warning' : 'achieved'}`}
+                  <div className="popover-anchor" ref={signalsRef}>
+                    <button
+                      type="button"
+                      className="signal-chip"
+                      onClick={() => setSignalsOpen((prev) => !prev)}
                     >
-                      {signal.label}
-                    </span>
-                  ))}
+                      シグナル {dailySignals.length}
+                    </button>
+                    {signalsOpen && (
+                      <div className="popover-panel">
+                        <div className="popover-section">
+                          <div className="popover-title">シグナル</div>
+                          <div className="detail-signals-inline">
+                            {dailySignals.map((signal) => (
+                              <span
+                                key={signal.label}
+                                className={`signal-chip ${signal.kind === 'warning' ? 'warning' : 'achieved'}`}
+                              >
+                                {signal.label}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
           </div>
+          {headerMode !== "draw" && (
+            <div className="detail-controls detail-summary-inline-controls">{headerControls}</div>
+          )}
           <div className="detail-summary-actions">
             <button
               type="button"
@@ -2360,314 +3045,251 @@ export default function DetailView() {
             </button>
           </div>
         </div>
-        <div className="detail-controls detail-header-toolbar">
-          <div className="detail-controls-group">
-            <button
-              className="indicator-button is-primary"
-              onClick={() => {
-                if (code) navigate(`/practice/${code}`);
-              }}
-            >
-              練習
-            </button>
-            <div className="segmented detail-range">
-              {RANGE_PRESETS.map((preset) => (
-                <button
-                  key={preset.label}
-                  className={rangeMonths === preset.months ? "active" : ""}
-                  onClick={() => toggleRange(preset.months)}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-            {canShowPhase && (
-              <div className="detail-phase is-open">
-                <div className="detail-phase-metrics">
-                  <span
-                    className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                      phaseScores?.bodyScore ?? null
-                    )}`}
+        {headerMode === "draw" && (
+          <div className="detail-controls detail-header-toolbar">
+            <div className="detail-controls-group">
+              <div className="segmented detail-range">
+                {RANGE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    className={rangeMonths === preset.months ? "active" : ""}
+                    onClick={() => toggleRange(preset.months)}
                   >
-                    中盤 {formatPhaseScore(phaseScores?.bodyScore ?? null)}
-                  </span>
-                  <span
-                    className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                      phaseScores?.earlyScore ?? null
-                    )}`}
-                  >
-                    序盤 {formatPhaseScore(phaseScores?.earlyScore ?? null)}
-                  </span>
-                  <span
-                    className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                      phaseScores?.lateScore ?? null
-                    )}`}
-                  >
-                    終盤 {formatPhaseScore(phaseScores?.lateScore ?? null)}
-                  </span>
-                  <div className="detail-phase-reasons">
-                    {phaseReasons.length ? (
-                      phaseReasons.map((reason) => (
-                        <span key={reason} className="detail-phase-reason">
-                          {reason}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="detail-phase-empty">--</span>
-                    )}
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              {canShowPhase && (
+                <div className="detail-phase is-open">
+                  <div className="detail-phase-metrics">
+                    <span
+                      className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                        phaseScores?.bodyScore ?? null
+                      )}`}
+                    >
+                      中盤 {formatPhaseScore(phaseScores?.bodyScore ?? null)}
+                    </span>
+                    <span
+                      className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                        phaseScores?.earlyScore ?? null
+                      )}`}
+                    >
+                      序盤 {formatPhaseScore(phaseScores?.earlyScore ?? null)}
+                    </span>
+                    <span
+                      className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                        phaseScores?.lateScore ?? null
+                      )}`}
+                    >
+                      終盤 {formatPhaseScore(phaseScores?.lateScore ?? null)}
+                    </span>
+                    <div className="detail-phase-reasons">
+                      {phaseReasons.length ? (
+                        phaseReasons.map((reason) => (
+                          <span key={reason} className="detail-phase-reason">
+                            {reason}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="detail-phase-empty">--</span>
+                      )}
+                    </div>
                   </div>
                 </div>
+              )}
+            </div>
+            <div className="detail-controls-group">
+              <IconButton
+                icon={<IconChartArrows size={18} />}
+                tooltip="時間ゾーン描画"
+                ariaLabel="時間ゾーン描画"
+                className="draw-tool-button"
+                selected={activeDrawTool === "timeZone"}
+                onClick={() => selectDrawTool("timeZone")}
+              />
+              <IconButton
+                icon={<IconBox size={18} />}
+                tooltip="四角描画"
+                ariaLabel="四角描画"
+                className="draw-tool-button"
+                selected={activeDrawTool === "drawBox"}
+                onClick={() => selectDrawTool("drawBox")}
+              />
+              <IconButton
+                icon={<span style={{ fontSize: 18, lineHeight: 1 }}>▭</span>}
+                tooltip="価格帯描画"
+                ariaLabel="価格帯描画"
+                className="draw-tool-button"
+                selected={activeDrawTool === "priceBand"}
+                onClick={() => selectDrawTool("priceBand")}
+              />
+              <IconButton
+                icon={<IconMinus size={18} />}
+                tooltip="水平線描画"
+                ariaLabel="水平線描画"
+                className="draw-tool-button"
+                selected={activeDrawTool === "horizontalLine"}
+                onClick={() => selectDrawTool("horizontalLine")}
+              />
+              <IconButton
+                icon={<IconTrash size={18} />}
+                tooltip="描画をリセット"
+                ariaLabel="描画をリセット"
+                onClick={resetAllDrawings}
+              />
+            </div>
+            {showDrawSettings && (
+              <div className="detail-controls-group">
+                <IconButton
+                  icon={
+                    <span
+                      style={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: 999,
+                        background: activeDrawColor,
+                        display: "inline-block",
+                        border: "1px solid rgba(0,0,0,0.2)"
+                      }}
+                    />
+                  }
+                  tooltip="描画色を変更"
+                  ariaLabel="描画色を変更"
+                  onClick={() =>
+                    setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)
+                  }
+                />
+                <input
+                  type="range"
+                  min={0.1}
+                  max={1}
+                  step={0.05}
+                  value={activeLineOpacity}
+                  title="不透明度"
+                  style={{ width: 60 }}
+                  onChange={(event) => setActiveLineOpacity(Number(event.target.value))}
+                />
+                <input
+                  type="range"
+                  min={1}
+                  max={6}
+                  step={0.5}
+                  value={activeLineWidth}
+                  title="太さ"
+                  style={{ width: 60 }}
+                  onChange={(event) => setActiveLineWidth(Number(event.target.value))}
+                />
               </div>
             )}
+            <div className="detail-controls-group">
+              <div className="popover-anchor" ref={displayRef}>
+                <IconButton
+                  icon={<IconAdjustments size={18} />}
+                  label="表示"
+                  variant="iconLabel"
+                  tooltip="表示設定"
+                  ariaLabel="表示設定メニューを開く"
+                  selected={displayOpen}
+                  onClick={() => setDisplayOpen((prev) => !prev)}
+                />
+                {displayOpen && (
+                  <div className="popover-panel">
+                    <div className="popover-section">
+                      <div className="popover-title">表示</div>
+                      <button
+                        type="button"
+                        className={`popover-item ${showBoxes ? "active" : ""}`}
+                        onClick={() => setShowBoxes(!showBoxes)}
+                      >
+                        <span className="popover-item-label">Boxes</span>
+                        {showBoxes && <span className="popover-check">ON</span>}
+                      </button>
+                      <button
+                        type="button"
+                        className={`popover-item ${showGapBands ? "active" : ""}`}
+                        onClick={() => setShowGapBands((prev) => !prev)}
+                      >
+                        <span className="popover-item-label">窓</span>
+                        {showGapBands && <span className="popover-check">ON</span>}
+                      </button>
+                      <button
+                        type="button"
+                        className={`popover-item ${showVolumeEnabled ? "active" : ""}`}
+                        onClick={() => setShowVolumeEnabled((prev) => !prev)}
+                      >
+                        <span className="popover-item-label">出来高</span>
+                        {showVolumeEnabled && <span className="popover-check">ON</span>}
+                      </button>
+                      <button
+                        type="button"
+                        className={`popover-item ${syncRanges ? "active" : ""}`}
+                        onClick={() => setSyncRanges((prev) => !prev)}
+                      >
+                        <span className="popover-item-label">連動</span>
+                        {syncRanges && <span className="popover-check">ON</span>}
+                      </button>
+                      <button
+                        type="button"
+                        className={`popover-item ${cursorMode ? "active" : ""}`}
+                        onClick={toggleCursorMode}
+                      >
+                        <span className="popover-item-label">カーソル</span>
+                        {cursorMode && <span className="popover-check">ON</span>}
+                      </button>
+                    </div>
+                    <div className="popover-section">
+                      <button
+                        type="button"
+                        className="popover-item"
+                        onClick={() => setShowIndicators(true)}
+                      >
+                        <span className="popover-item-label">MA/Indicators</span>
+                      </button>
+                    </div>
+                    <div className="popover-section">
+                      <button
+                        type="button"
+                        className="popover-item"
+                        disabled={deleteBusy || !code}
+                        onClick={() => {
+                          setDisplayOpen(false);
+                          handleDeleteTicker();
+                        }}
+                      >
+                        <span className="popover-item-label">銘柄を削除</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="segmented detail-mode">
+                <button
+                  className={headerMode === "chart" ? "active" : ""}
+                  onClick={() => setHeaderMode("chart")}
+                >
+                  チャート
+                </button>
+                <button
+                  className={headerMode === "draw" ? "active" : ""}
+                  onClick={() => setHeaderMode("draw")}
+                >
+                  描画
+                </button>
+                <button
+                  onClick={() => {
+                    if (code) navigate(`/practice/${code}`);
+                  }}
+                >
+                  練習                </button>
+                <button
+                  className={headerMode === "positions" ? "active" : ""}
+                  onClick={() => setHeaderMode("positions")}
+                >
+                  建玉                </button>
+              </div>
+            </div>
           </div>
-          <div className="detail-controls-group">
-            <IconButton
-              icon={<IconBox size={18} />}
-              label="Boxes"
-              variant="iconLabel"
-              tooltip="Boxes"
-              ariaLabel="Boxes"
-              selected={showBoxes}
-              onClick={() => setShowBoxes(!showBoxes)}
-            />
-
-            <IconButton
-              icon={<IconListDetails size={18} />}
-              label="建玉推移"
-              variant="iconLabel"
-              tooltip="建玉推移"
-              ariaLabel="建玉推移"
-              selected={showPositionLedger}
-              onClick={() =>
-                setShowPositionLedger((prev) => {
-                  const next = !prev;
-                  if (!next) {
-                    setPositionLedgerExpanded(false);
-                  }
-                  return next;
-                })
-              }
-            />
-
-            <IconButton
-              icon={<IconLink size={18} />}
-              label={`連動 ${syncRanges ? "ON" : "OFF"}`}
-              variant="iconLabel"
-              tooltip={`連動 ${syncRanges ? "ON" : "OFF"}`}
-              ariaLabel="連動"
-              selected={syncRanges}
-              onClick={() => setSyncRanges((prev) => !prev)}
-            />
-            <IconButton
-              icon={<IconPointer size={18} />}
-              label={`カーソル ${cursorMode ? "ON" : "OFF"}`}
-              variant="iconLabel"
-              tooltip="カーソルモード切替 (C)"
-              ariaLabel="カーソルモード切替"
-              selected={cursorMode}
-              onClick={toggleCursorMode}
-            />
-          </div>
-          <div className="detail-controls-group detail-controls-icons">
-            <IconButton
-              label="Indicators"
-              icon={<IconAdjustments size={18} />}
-              onClick={() => setShowIndicators(true)}
-              tooltip="Indicators"
-            />
-            <IconButton
-              label="スクショ"
-              icon={<IconCamera size={18} />}
-              disabled={screenshotBusy}
-              tooltip="スクショ"
-              onClick={async () => {
-                if (screenshotBusy) return;
-                setScreenshotBusy(true);
-                setToastAction(null);
-                try {
-                  const screenType = getScreenType(location.pathname);
-                  const result = await captureAndCopyScreenshot({ screenType, code });
-                  if (!result.success) {
-                    setToastMessage(result.error ?? "スクショに失敗しました");
-                    return;
-                  }
-
-                  const handleSaveSuccess = (saveResult: { success: boolean, savedPath?: string, savedDir?: string, error?: string }) => {
-                    if (saveResult.savedPath || saveResult.savedDir) {
-                      setToastMessage("スクショを保存しました");
-                      setToastAction({
-                        label: "フォルダを開く",
-                        onClick: async () => {
-                          if (window.pywebview?.api?.open_path) {
-                            const target = saveResult.savedPath || saveResult.savedDir;
-                            if (target) {
-                              await window.pywebview.api.open_path(target);
-                            }
-                          }
-                        }
-                      });
-                    } else {
-                      // Fallback for browser download or missing path
-                      setToastMessage("スクショを保存しました (保存先不明)");
-                      setToastAction(null);
-                    }
-                  };
-
-                  if (result.copied) {
-                    // Clipboard copy succeeded - show toast with save action
-                    const blob = result.blob!;
-                    const filename = result.filename!;
-                    setToastMessage("スクショをクリップボードにコピーしました");
-                    setToastAction({
-                      label: "保存...",
-                      onClick: async () => {
-                        const saveResult = await saveBlobToFile(blob, filename);
-                        if (saveResult.success) {
-                          handleSaveSuccess(saveResult);
-                        } else {
-                          setToastMessage(saveResult.error || "保存に失敗しました");
-                          setToastAction(null);
-                        }
-                      },
-                    });
-                  } else {
-                    // Clipboard failed - fallback to save
-                    setToastMessage("クリップボードにコピーできなかったため保存しました");
-                    setToastAction(null);
-                    if (result.blob && result.filename) {
-                      const saveResult = await saveBlobToFile(result.blob, result.filename);
-                      if (saveResult.success) {
-                        handleSaveSuccess(saveResult);
-                      } else {
-                        setToastMessage(saveResult.error || "保存に失敗しました");
-                        setToastAction(null);
-                      }
-                    }
-                  }
-                } finally {
-                  setScreenshotBusy(false);
-                }
-              }}
-            />
-            <IconButton
-              label="AI出力"
-              icon={<IconSparkles size={18} />}
-              tooltip="AI出力"
-              onClick={async () => {
-                let dailyMemos: Record<string, string> = {};
-                if (code) {
-                  try {
-                    const memoRes = await api.get("/memo/list", {
-                      params: { symbol: code, timeframe: "D" }
-                    });
-                    const items = memoRes.data?.items;
-                    if (Array.isArray(items)) {
-                      items.forEach((item: { date?: string; memo?: string }) => {
-                        const rawDate = (item?.date ?? "").trim();
-                        if (!rawDate) return;
-                        const normalized = rawDate.replace(/\//g, "-");
-                        dailyMemos[normalized] = item.memo ?? "";
-                      });
-                    }
-                  } catch {
-                    dailyMemos = {};
-                  }
-                }
-
-                const dailyVolumeMap = new Map(dailyVolume.map((item) => [item.time, item.value]));
-                const weeklyVolumeCounts = new Map<number, number>();
-                dailyCandles.forEach((candle) => {
-                  if (!dailyVolumeMap.has(candle.time)) return;
-                  const date = new Date(candle.time * 1000);
-                  const day = date.getUTCDay();
-                  const diff = (day + 6) % 7;
-                  const weekStart = Date.UTC(
-                    date.getUTCFullYear(),
-                    date.getUTCMonth(),
-                    date.getUTCDate() - diff
-                  );
-                  const key = Math.floor(weekStart / 1000);
-                  weeklyVolumeCounts.set(key, (weeklyVolumeCounts.get(key) ?? 0) + 1);
-                });
-                const weeklyVolumeMap = new Map<number, number | null>();
-                weeklyVolume.forEach((item) => {
-                  const count = weeklyVolumeCounts.get(item.time) ?? 0;
-                  weeklyVolumeMap.set(item.time, count > 0 ? item.value : null);
-                });
-                const monthlyVolumeSums = new Map<number, number>();
-                dailyCandles.forEach((candle) => {
-                  const volume = dailyVolumeMap.get(candle.time);
-                  if (volume == null || !Number.isFinite(volume)) return;
-                  const date = new Date(candle.time * 1000);
-                  const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
-                  const key = Math.floor(monthStart / 1000);
-                  monthlyVolumeSums.set(key, (monthlyVolumeSums.get(key) ?? 0) + volume);
-                });
-                const monthlyVolumeMap = new Map<number, number>();
-                monthlyCandles.forEach((candle) => {
-                  const sum = monthlyVolumeSums.get(candle.time);
-                  monthlyVolumeMap.set(candle.time, Number.isFinite(sum) ? Math.round(sum ?? 0) : 0);
-                });
-                const exportData = buildAIExport({
-                  code: code ?? "",
-                  name: tickerName,
-                  visibleTimeframe: "daily",
-                  rangeMonths: rangeMonths,
-                  dailyBars: dailyCandles.map((c) => ({
-                    time: c.time,
-                    open: c.open,
-                    high: c.high,
-                    low: c.low,
-                    close: c.close,
-                    volume: dailyVolumeMap.get(c.time) ?? null
-                  })),
-                  weeklyBars: weeklyCandles.map((c) => ({
-                    time: c.time,
-                    open: c.open,
-                    high: c.high,
-                    low: c.low,
-                    close: c.close,
-                    volume: weeklyVolumeMap.get(c.time) ?? null
-                  })),
-                  monthlyBars: monthlyCandles.map((c) => ({
-                    time: c.time,
-                    open: c.open,
-                    high: c.high,
-                    low: c.low,
-                    close: c.close,
-                    volume: monthlyVolumeMap.get(c.time) ?? null
-                  })),
-                  maSettings,
-                  signals: dailySignals,
-                  showBoxes,
-                  showPositions: showTradesOverlay,
-                  boxes,
-                  dailyMemos,
-                  currentPositions,
-                });
-                const copied = await copyToClipboard(exportData.markdown);
-                if (copied) {
-                  setToastMessage("AI用銘柄情報をクリップボードにコピーしました");
-                } else {
-                  setToastMessage("クリップボードへのコピーに失敗しました");
-                }
-              }}
-            />
-            <IconButton
-              label="類似"
-              icon={<IconChartArrows size={18} />}
-              tooltip="類似チャート検索"
-              onClick={() => setShowSimilar(true)}
-            />
-            <IconButton
-              label="削除"
-              icon={<IconTrash size={18} />}
-              tooltip="削除"
-              disabled={deleteBusy || !code}
-              onClick={handleDeleteTicker}
-            />
-          </div>
-        </div>
+        )}
       </div>
       <div className="detail-content">
         <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""} ${cursorMode ? "with-memo-panel" : ""}`}>
@@ -2676,7 +3298,7 @@ export default function DetailView() {
               <div className="detail-compare-header">
                 <div>
                   <div className="detail-compare-title">
-                    比較: {code} / {compareCode}
+                    比較 {code} / {compareCode}
                   </div>
                   {compareAsOf && (
                     <div className="detail-compare-subtitle">類似日付: {compareAsOf}</div>
@@ -2726,6 +3348,30 @@ export default function DetailView() {
                       showVolume={false}
                       boxes={boxes}
                       showBoxes={showBoxes}
+                      gapBands={gapBandsOverride}
+                      drawingEnabled={headerMode === "draw"}
+                      timeZones={monthlyDrawings.timeZones}
+                      priceBands={monthlyDrawings.priceBands}
+                      drawBoxes={monthlyDrawings.drawBoxes}
+                      horizontalLines={monthlyDrawings.horizontalLines}
+                      showPriceBands
+                      activeTool={activeDrawTool}
+                      activeDrawColor={activeDrawColor}
+                      activeLineOpacity={activeLineOpacity}
+                      activeLineWidth={activeLineWidth}
+                      onSelectShape={setSelectedDrawing}
+                      onAddTimeZone={addTimeZone(monthlyDrawingKey)}
+                      onUpdateTimeZone={updateTimeZone(monthlyDrawingKey)}
+                      onDeleteTimeZone={deleteTimeZone(monthlyDrawingKey)}
+                      onAddPriceBand={addPriceBand(monthlyDrawingKey)}
+                      onUpdatePriceBand={updatePriceBand(monthlyDrawingKey)}
+                      onDeletePriceBand={deletePriceBand(monthlyDrawingKey)}
+                      onAddDrawBox={addDrawBox(monthlyDrawingKey)}
+                      onUpdateDrawBox={updateDrawBox(monthlyDrawingKey)}
+                      onDeleteDrawBox={deleteDrawBox(monthlyDrawingKey)}
+                      onAddHorizontalLine={addHorizontalLine(monthlyDrawingKey)}
+                      onUpdateHorizontalLine={updateHorizontalLine(monthlyDrawingKey)}
+                      onDeleteHorizontalLine={deleteHorizontalLine(monthlyDrawingKey)}
                       partialTimes={monthlyYearBoundaries}
                       visibleRange={monthlyCandles.length ? compareMonthlyBaseRange : null}
                       onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "left")}
@@ -2750,6 +3396,30 @@ export default function DetailView() {
                       showVolume={false}
                       boxes={compareBoxes}
                       showBoxes={showBoxes}
+                      gapBands={gapBandsOverride}
+                      drawingEnabled={headerMode === "draw"}
+                      timeZones={compareMonthlyDrawings.timeZones}
+                      priceBands={compareMonthlyDrawings.priceBands}
+                      drawBoxes={compareMonthlyDrawings.drawBoxes}
+                      horizontalLines={compareMonthlyDrawings.horizontalLines}
+                      showPriceBands
+                      activeTool={activeDrawTool}
+                      activeDrawColor={activeDrawColor}
+                      activeLineOpacity={activeLineOpacity}
+                      activeLineWidth={activeLineWidth}
+                      onSelectShape={setSelectedDrawing}
+                      onAddTimeZone={addTimeZone(compareMonthlyDrawingKey)}
+                      onUpdateTimeZone={updateTimeZone(compareMonthlyDrawingKey)}
+                      onDeleteTimeZone={deleteTimeZone(compareMonthlyDrawingKey)}
+                      onAddPriceBand={addPriceBand(compareMonthlyDrawingKey)}
+                      onUpdatePriceBand={updatePriceBand(compareMonthlyDrawingKey)}
+                      onDeletePriceBand={deletePriceBand(compareMonthlyDrawingKey)}
+                      onAddDrawBox={addDrawBox(compareMonthlyDrawingKey)}
+                      onUpdateDrawBox={updateDrawBox(compareMonthlyDrawingKey)}
+                      onDeleteDrawBox={deleteDrawBox(compareMonthlyDrawingKey)}
+                      onAddHorizontalLine={addHorizontalLine(compareMonthlyDrawingKey)}
+                      onUpdateHorizontalLine={updateHorizontalLine(compareMonthlyDrawingKey)}
+                      onDeleteHorizontalLine={deleteHorizontalLine(compareMonthlyDrawingKey)}
                       visibleRange={compareMonthlyCandles.length ? compareMonthlyVisibleRange : null}
                       onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "right")}
                       onVisibleRangeChange={handleCompareMonthlyVisibleRangeChange}
@@ -2780,6 +3450,30 @@ export default function DetailView() {
                       eventMarkers={dailyEventMarkers}
                       boxes={boxes}
                       showBoxes={showBoxes}
+                      gapBands={gapBandsOverride}
+                      drawingEnabled={headerMode === "draw"}
+                      timeZones={dailyDrawings.timeZones}
+                      priceBands={dailyDrawings.priceBands}
+                      drawBoxes={dailyDrawings.drawBoxes}
+                      horizontalLines={dailyDrawings.horizontalLines}
+                      showPriceBands
+                      activeTool={activeDrawTool}
+                      activeDrawColor={activeDrawColor}
+                      activeLineOpacity={activeLineOpacity}
+                      activeLineWidth={activeLineWidth}
+                      onSelectShape={setSelectedDrawing}
+                      onAddTimeZone={addTimeZone(dailyDrawingKey)}
+                      onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
+                      onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
+                      onAddPriceBand={addPriceBand(dailyDrawingKey)}
+                      onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
+                      onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
+                      onAddDrawBox={addDrawBox(dailyDrawingKey)}
+                      onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
+                      onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
+                      onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
+                      onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
+                      onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
                       partialTimes={dailyMonthBoundaries}
                       visibleRange={dailyCandles.length ? resolvedDailyVisibleRange : null}
                       positionOverlay={{
@@ -2811,9 +3505,33 @@ export default function DetailView() {
                       candles={compareDailyCandles}
                       volume={compareDailyVolume}
                       maLines={compareDailyMaLines}
-                      showVolume={compareDailyVolume.length > 0}
+                      showVolume={showVolumeEnabled && compareDailyVolume.length > 0}
                       boxes={compareBoxes}
                       showBoxes={showBoxes}
+                      gapBands={gapBandsOverride}
+                      drawingEnabled={headerMode === "draw"}
+                      timeZones={compareDailyDrawings.timeZones}
+                      priceBands={compareDailyDrawings.priceBands}
+                      drawBoxes={compareDailyDrawings.drawBoxes}
+                      horizontalLines={compareDailyDrawings.horizontalLines}
+                      showPriceBands
+                      activeTool={activeDrawTool}
+                      activeDrawColor={activeDrawColor}
+                      activeLineOpacity={activeLineOpacity}
+                      activeLineWidth={activeLineWidth}
+                      onSelectShape={setSelectedDrawing}
+                      onAddTimeZone={addTimeZone(compareDailyDrawingKey)}
+                      onUpdateTimeZone={updateTimeZone(compareDailyDrawingKey)}
+                      onDeleteTimeZone={deleteTimeZone(compareDailyDrawingKey)}
+                      onAddPriceBand={addPriceBand(compareDailyDrawingKey)}
+                      onUpdatePriceBand={updatePriceBand(compareDailyDrawingKey)}
+                      onDeletePriceBand={deletePriceBand(compareDailyDrawingKey)}
+                      onAddDrawBox={addDrawBox(compareDailyDrawingKey)}
+                      onUpdateDrawBox={updateDrawBox(compareDailyDrawingKey)}
+                      onDeleteDrawBox={deleteDrawBox(compareDailyDrawingKey)}
+                      onAddHorizontalLine={addHorizontalLine(compareDailyDrawingKey)}
+                      onUpdateHorizontalLine={updateHorizontalLine(compareDailyDrawingKey)}
+                      onDeleteHorizontalLine={deleteHorizontalLine(compareDailyDrawingKey)}
                       visibleRange={compareDailyVisibleRange}
                       positionOverlay={{
                         dailyPositions: compareDailyPositions,
@@ -2857,6 +3575,30 @@ export default function DetailView() {
                     eventMarkers={dailyEventMarkers}
                     boxes={boxes}
                     showBoxes={showBoxes}
+                    gapBands={gapBandsOverride}
+                    drawingEnabled={headerMode === "draw"}
+                    timeZones={dailyDrawings.timeZones}
+                    priceBands={dailyDrawings.priceBands}
+                    drawBoxes={dailyDrawings.drawBoxes}
+                    horizontalLines={dailyDrawings.horizontalLines}
+                    showPriceBands
+                    activeTool={activeDrawTool}
+                    activeDrawColor={activeDrawColor}
+                    activeLineOpacity={activeLineOpacity}
+                    activeLineWidth={activeLineWidth}
+                    onSelectShape={setSelectedDrawing}
+                    onAddTimeZone={addTimeZone(dailyDrawingKey)}
+                    onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
+                    onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
+                    onAddPriceBand={addPriceBand(dailyDrawingKey)}
+                    onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
+                    onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
+                    onAddDrawBox={addDrawBox(dailyDrawingKey)}
+                    onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
+                    onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
+                    onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
+                    onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
+                    onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
                     partialTimes={dailyMonthBoundaries}
                     visibleRange={resolvedDailyVisibleRange}
                     positionOverlay={{
@@ -2882,6 +3624,30 @@ export default function DetailView() {
                     showVolume={false}
                     boxes={boxes}
                     showBoxes={showBoxes}
+                    gapBands={gapBandsOverride}
+                    drawingEnabled={headerMode === "draw"}
+                    timeZones={weeklyDrawings.timeZones}
+                    priceBands={weeklyDrawings.priceBands}
+                    drawBoxes={weeklyDrawings.drawBoxes}
+                    horizontalLines={weeklyDrawings.horizontalLines}
+                    showPriceBands
+                    activeTool={activeDrawTool}
+                    activeDrawColor={activeDrawColor}
+                    activeLineOpacity={activeLineOpacity}
+                    activeLineWidth={activeLineWidth}
+                    onSelectShape={setSelectedDrawing}
+                    onAddTimeZone={addTimeZone(weeklyDrawingKey)}
+                    onUpdateTimeZone={updateTimeZone(weeklyDrawingKey)}
+                    onDeleteTimeZone={deleteTimeZone(weeklyDrawingKey)}
+                    onAddPriceBand={addPriceBand(weeklyDrawingKey)}
+                    onUpdatePriceBand={updatePriceBand(weeklyDrawingKey)}
+                    onDeletePriceBand={deletePriceBand(weeklyDrawingKey)}
+                    onAddDrawBox={addDrawBox(weeklyDrawingKey)}
+                    onUpdateDrawBox={updateDrawBox(weeklyDrawingKey)}
+                    onDeleteDrawBox={deleteDrawBox(weeklyDrawingKey)}
+                    onAddHorizontalLine={addHorizontalLine(weeklyDrawingKey)}
+                    onUpdateHorizontalLine={updateHorizontalLine(weeklyDrawingKey)}
+                    onDeleteHorizontalLine={deleteHorizontalLine(weeklyDrawingKey)}
                     partialTimes={weeklyMonthBoundaries}
                     visibleRange={resolvedWeeklyVisibleRange}
                     positionOverlay={{
@@ -2907,6 +3673,30 @@ export default function DetailView() {
                     showVolume={false}
                     boxes={boxes}
                     showBoxes={showBoxes}
+                    gapBands={gapBandsOverride}
+                    drawingEnabled={headerMode === "draw"}
+                    timeZones={monthlyDrawings.timeZones}
+                    priceBands={monthlyDrawings.priceBands}
+                    drawBoxes={monthlyDrawings.drawBoxes}
+                    horizontalLines={monthlyDrawings.horizontalLines}
+                    showPriceBands
+                    activeTool={activeDrawTool}
+                    activeDrawColor={activeDrawColor}
+                    activeLineOpacity={activeLineOpacity}
+                    activeLineWidth={activeLineWidth}
+                    onSelectShape={setSelectedDrawing}
+                    onAddTimeZone={addTimeZone(monthlyDrawingKey)}
+                    onUpdateTimeZone={updateTimeZone(monthlyDrawingKey)}
+                    onDeleteTimeZone={deleteTimeZone(monthlyDrawingKey)}
+                    onAddPriceBand={addPriceBand(monthlyDrawingKey)}
+                    onUpdatePriceBand={updatePriceBand(monthlyDrawingKey)}
+                    onDeletePriceBand={deletePriceBand(monthlyDrawingKey)}
+                    onAddDrawBox={addDrawBox(monthlyDrawingKey)}
+                    onUpdateDrawBox={updateDrawBox(monthlyDrawingKey)}
+                    onDeleteDrawBox={deleteDrawBox(monthlyDrawingKey)}
+                    onAddHorizontalLine={addHorizontalLine(monthlyDrawingKey)}
+                    onUpdateHorizontalLine={updateHorizontalLine(monthlyDrawingKey)}
+                    onDeleteHorizontalLine={deleteHorizontalLine(monthlyDrawingKey)}
                     partialTimes={monthlyYearBoundaries}
                     visibleRange={resolvedMonthlyVisibleRange}
                     positionOverlay={{
@@ -2958,6 +3748,30 @@ export default function DetailView() {
                     eventMarkers={dailyEventMarkers}
                     boxes={boxes}
                     showBoxes={showBoxes}
+                    gapBands={gapBandsOverride}
+                    drawingEnabled={headerMode === "draw"}
+                    timeZones={dailyDrawings.timeZones}
+                    priceBands={dailyDrawings.priceBands}
+                    drawBoxes={dailyDrawings.drawBoxes}
+                    horizontalLines={dailyDrawings.horizontalLines}
+                    showPriceBands
+                    activeTool={activeDrawTool}
+                    activeDrawColor={activeDrawColor}
+                    activeLineOpacity={activeLineOpacity}
+                    activeLineWidth={activeLineWidth}
+                    onSelectShape={setSelectedDrawing}
+                    onAddTimeZone={addTimeZone(dailyDrawingKey)}
+                    onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
+                    onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
+                    onAddPriceBand={addPriceBand(dailyDrawingKey)}
+                    onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
+                    onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
+                    onAddDrawBox={addDrawBox(dailyDrawingKey)}
+                    onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
+                    onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
+                    onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
+                    onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
+                    onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
                     partialTimes={dailyMonthBoundaries}
                     visibleRange={resolvedDailyVisibleRange}
                     positionOverlay={{
@@ -2999,6 +3813,30 @@ export default function DetailView() {
                       showVolume={false}
                       boxes={boxes}
                       showBoxes={showBoxes}
+                      gapBands={gapBandsOverride}
+                      drawingEnabled={headerMode === "draw"}
+                      timeZones={weeklyDrawings.timeZones}
+                      priceBands={weeklyDrawings.priceBands}
+                      drawBoxes={weeklyDrawings.drawBoxes}
+                      horizontalLines={weeklyDrawings.horizontalLines}
+                      showPriceBands
+                      activeTool={activeDrawTool}
+                      activeDrawColor={activeDrawColor}
+                      activeLineOpacity={activeLineOpacity}
+                      activeLineWidth={activeLineWidth}
+                      onSelectShape={setSelectedDrawing}
+                      onAddTimeZone={addTimeZone(weeklyDrawingKey)}
+                      onUpdateTimeZone={updateTimeZone(weeklyDrawingKey)}
+                      onDeleteTimeZone={deleteTimeZone(weeklyDrawingKey)}
+                      onAddPriceBand={addPriceBand(weeklyDrawingKey)}
+                      onUpdatePriceBand={updatePriceBand(weeklyDrawingKey)}
+                      onDeletePriceBand={deletePriceBand(weeklyDrawingKey)}
+                      onAddDrawBox={addDrawBox(weeklyDrawingKey)}
+                      onUpdateDrawBox={updateDrawBox(weeklyDrawingKey)}
+                      onDeleteDrawBox={deleteDrawBox(weeklyDrawingKey)}
+                      onAddHorizontalLine={addHorizontalLine(weeklyDrawingKey)}
+                      onUpdateHorizontalLine={updateHorizontalLine(weeklyDrawingKey)}
+                      onDeleteHorizontalLine={deleteHorizontalLine(weeklyDrawingKey)}
                       partialTimes={weeklyMonthBoundaries}
                       visibleRange={resolvedWeeklyVisibleRange}
                       onCrosshairMove={handleWeeklyCrosshair}
@@ -3028,6 +3866,30 @@ export default function DetailView() {
                       showVolume={false}
                       boxes={boxes}
                       showBoxes={showBoxes}
+                      gapBands={gapBandsOverride}
+                      drawingEnabled={headerMode === "draw"}
+                      timeZones={monthlyDrawings.timeZones}
+                      priceBands={monthlyDrawings.priceBands}
+                      drawBoxes={monthlyDrawings.drawBoxes}
+                      horizontalLines={monthlyDrawings.horizontalLines}
+                      showPriceBands
+                      activeTool={activeDrawTool}
+                      activeDrawColor={activeDrawColor}
+                      activeLineOpacity={activeLineOpacity}
+                      activeLineWidth={activeLineWidth}
+                      onSelectShape={setSelectedDrawing}
+                      onAddTimeZone={addTimeZone(monthlyDrawingKey)}
+                      onUpdateTimeZone={updateTimeZone(monthlyDrawingKey)}
+                      onDeleteTimeZone={deleteTimeZone(monthlyDrawingKey)}
+                      onAddPriceBand={addPriceBand(monthlyDrawingKey)}
+                      onUpdatePriceBand={updatePriceBand(monthlyDrawingKey)}
+                      onDeletePriceBand={deletePriceBand(monthlyDrawingKey)}
+                      onAddDrawBox={addDrawBox(monthlyDrawingKey)}
+                      onUpdateDrawBox={updateDrawBox(monthlyDrawingKey)}
+                      onDeleteDrawBox={deleteDrawBox(monthlyDrawingKey)}
+                      onAddHorizontalLine={addHorizontalLine(monthlyDrawingKey)}
+                      onUpdateHorizontalLine={updateHorizontalLine(monthlyDrawingKey)}
+                      onDeleteHorizontalLine={deleteHorizontalLine(monthlyDrawingKey)}
                       partialTimes={monthlyYearBoundaries}
                       visibleRange={resolvedMonthlyVisibleRange}
                       onCrosshairMove={handleMonthlyCrosshair}
@@ -3113,7 +3975,7 @@ export default function DetailView() {
                     }
                   }}
                 >
-                  通常（株）
+                  株式（株）
                 </button>
               </div>
             </div>
@@ -3121,7 +3983,7 @@ export default function DetailView() {
               type="button"
               className="position-ledger-close"
               onClick={() => {
-                setShowPositionLedger(false);
+                setHeaderMode("chart");
                 setPositionLedgerExpanded(false);
               }}
               aria-label="建玉推移を閉じる"
@@ -3396,7 +4258,7 @@ export default function DetailView() {
                     className={`indicator-button${maEditMode === "main" ? " active" : ""}`}
                     onClick={() => setMaEditMode("main")}
                   >
-                    通常
+                    株式
                   </button>
                   <button
                     type="button"
@@ -3473,3 +4335,6 @@ export default function DetailView() {
     </div>
   );
 }
+
+
+

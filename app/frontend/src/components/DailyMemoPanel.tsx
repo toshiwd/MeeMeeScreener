@@ -105,7 +105,9 @@ export default function DailyMemoPanel({
 
         // Prevent saving if key has changed (user moved to different date)
         if (saveKey !== `${code}-${selectedDate}`) {
-            console.log("Save cancelled: key mismatch", saveKey, `${code}-${selectedDate}`);
+            if (import.meta.env.MODE === "development") {
+                console.log("Save cancelled: key mismatch", saveKey, `${code}-${selectedDate}`);
+            }
             return;
         }
 

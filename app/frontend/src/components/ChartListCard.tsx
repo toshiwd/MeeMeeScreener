@@ -1,23 +1,9 @@
-﻿import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { BarsPayload, MaSetting } from "../store";
 import type { SignalChip } from "../utils/signals";
 import { formatEventBadgeDate } from "../utils/events";
-import ChartInfoPanel from "./ChartInfoPanel";
-import DetailChart from "./DetailChart";
-
-type Candle = {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-};
-
-type VolumePoint = {
-  time: number;
-  value: number;
-};
+import ThumbnailCanvas from "./ThumbnailCanvas";
 
 type ActionConfig = {
   label: ReactNode;
@@ -105,55 +91,6 @@ const normalizeTime = (value: unknown) => {
     }
   }
   return null;
-};
-
-const buildCandles = (rows: number[][]): Candle[] => {
-  const entries: Candle[] = [];
-  for (const row of rows) {
-    if (!Array.isArray(row) || row.length < 5) continue;
-    const time = normalizeTime(row[0]);
-    if (time == null) continue;
-    const open = Number(row[1]);
-    const high = Number(row[2]);
-    const low = Number(row[3]);
-    const close = Number(row[4]);
-    if (![open, high, low, close].every((value) => Number.isFinite(value))) continue;
-    entries.push({ time, open, high, low, close });
-  }
-  entries.sort((a, b) => a.time - b.time);
-  return entries;
-};
-
-const buildVolume = (rows: number[][]): VolumePoint[] => {
-  const entries: VolumePoint[] = [];
-  for (const row of rows) {
-    if (!Array.isArray(row) || row.length < 6) continue;
-    const time = normalizeTime(row[0]);
-    if (time == null) continue;
-    const value = Number(row[5]);
-    if (!Number.isFinite(value)) continue;
-    entries.push({ time, value });
-  }
-  entries.sort((a, b) => a.time - b.time);
-  return entries;
-};
-
-const computeMA = (candles: Candle[], period: number) => {
-  if (period <= 1) {
-    return candles.map((c) => ({ time: c.time, value: c.close }));
-  }
-  const data: { time: number; value: number }[] = [];
-  let sum = 0;
-  for (let i = 0; i < candles.length; i += 1) {
-    sum += candles[i].close;
-    if (i >= period) {
-      sum -= candles[i - period].close;
-    }
-    if (i >= period - 1) {
-      data.push({ time: candles[i].time, value: sum / period });
-    }
-  }
-  return data;
 };
 
 const parseRootMarginPx = (value: string): number => {
@@ -270,89 +207,30 @@ const ChartListCard = memo(function ChartListCard({
   phaseN
 }: ChartListCardProps) {
   const { ref, inView } = useInView(deferUntilInView, rootMargin);
-  const [hoverTime, setHoverTime] = useState<number | null>(null);
-  const hoverRafRef = useRef<number | null>(null);
-  const hoverPendingRef = useRef<number | null>(null);
-  const hoverValueRef = useRef<number | null>(null);
-
-  const rows = useMemo(
-    () => (payload?.bars?.length ? payload.bars : fallbackSeries ?? []),
-    [payload, fallbackSeries]
-  );
-
   const maxTime = useMemo(() => parseMaxDate(maxDate), [maxDate]);
-
-  const candlesAll = useMemo(() => buildCandles(rows), [rows]);
-  const volumeAll = useMemo(() => buildVolume(rows), [rows]);
-
-  const candles = useMemo(() => {
-    let filtered = candlesAll;
-    if (maxTime !== null) {
-      filtered = filtered.filter((c) => c.time <= maxTime);
+  const basePayload = useMemo(() => {
+    if (payload?.bars?.length) return payload;
+    if (fallbackSeries?.length) {
+      return {
+        bars: fallbackSeries,
+        ma: { ma7: [], ma20: [], ma60: [] }
+      };
     }
-    if (!rangeBars || rangeBars <= 0) return filtered;
-    return filtered.slice(-rangeBars);
-  }, [candlesAll, rangeBars, maxTime]);
-
-  const volume = useMemo(() => {
-    let filtered = volumeAll;
-    if (maxTime !== null) {
-      filtered = filtered.filter((v) => v.time <= maxTime);
-    }
-    if (!rangeBars || rangeBars <= 0) return filtered;
-    return filtered.slice(-rangeBars);
-  }, [volumeAll, rangeBars, maxTime]);
-
-  const maLines = useMemo(
-    () =>
-      maSettings.map((setting) => ({
-        key: setting.key,
-        label: setting.label,
-        period: setting.period,
-        color: setting.color,
-        visible: setting.visible,
-        lineWidth: setting.lineWidth,
-        data: computeMA(candlesAll, setting.period)
-      })),
-    [candlesAll, maSettings]
-  );
-  const rangedMaLines = useMemo(() => {
-    if (!rangeBars || rangeBars <= 0) return maLines;
-    return maLines.map((line) => ({
-      ...line,
-      data: line.data.slice(-rangeBars)
-    }));
-  }, [maLines, rangeBars]);
-  const barsForInfo = useMemo(
-    () => candles.map((bar) => ({ time: bar.time, close: bar.close })),
-    [candles]
-  );
+    return null;
+  }, [payload, fallbackSeries]);
+  const barsPayload = useMemo(() => {
+    if (!basePayload) return null;
+    if (maxTime === null) return basePayload;
+    const filteredBars = basePayload.bars.filter((row) => {
+      const time = normalizeTime(row[0]);
+      return time != null && time <= maxTime;
+    });
+    return { ...basePayload, bars: filteredBars };
+  }, [basePayload, maxTime]);
   const chartKey = `${code}-${rangeBars ?? "all"}-${densityKey ?? "default"}`;
 
-  const scheduleHoverTime = useCallback((time: number | null) => {
-    hoverPendingRef.current = time;
-    if (hoverRafRef.current !== null) return;
-    hoverRafRef.current = window.requestAnimationFrame(() => {
-      hoverRafRef.current = null;
-      const next = hoverPendingRef.current ?? null;
-      if (hoverValueRef.current === next) return;
-      hoverValueRef.current = next;
-      setHoverTime(next);
-    });
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (hoverRafRef.current !== null) {
-        window.cancelAnimationFrame(hoverRafRef.current);
-        hoverRafRef.current = null;
-      }
-    },
-    []
-  );
-
   const handleOpen = () => onOpenDetail(code);
-  const showLoading = rows.length === 0;
+  const showLoading = !barsPayload || barsPayload.bars.length === 0;
   const earningsLabel = formatEventBadgeDate(eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(eventRightsDate);
   const formatScore = (value: number | null | undefined) =>
@@ -445,20 +323,16 @@ const ChartListCard = memo(function ChartListCard({
         {(!deferUntilInView || inView) && showLoading && (
           <div className="tile-loading">{loadingLabel}</div>
         )}
-        {(!deferUntilInView || inView) && !showLoading && (
-          <>
-            <DetailChart
-              key={chartKey}
-              candles={candles}
-              volume={volume}
-              maLines={rangedMaLines}
-              showVolume={false}
-              boxes={[]}
-              showBoxes={false}
-              onCrosshairMove={(time) => scheduleHoverTime(time)}
-            />
-            <ChartInfoPanel bars={barsForInfo} hoverTime={hoverTime} />
-          </>
+        {(!deferUntilInView || inView) && !showLoading && barsPayload && (
+          <ThumbnailCanvas
+            key={chartKey}
+            payload={barsPayload}
+            boxes={[]}
+            showBoxes={false}
+            maSettings={maSettings}
+            maxBars={rangeBars ?? undefined}
+            showAxes
+          />
         )}
       </div>
     </div>
@@ -466,3 +340,7 @@ const ChartListCard = memo(function ChartListCard({
 });
 
 export default ChartListCard;
+
+
+
+

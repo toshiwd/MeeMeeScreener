@@ -119,8 +119,10 @@ const StockTile = memo(function StockTile({
       className={`tile ${active ? "is-selected" : ""}`}
       role="button"
       tabIndex={0}
-      onClick={handleActivate}
-      onDoubleClick={handleOpenDetail}
+      onClick={() => {
+        handleActivate();
+        handleOpenDetail();
+      }}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.preventDefault();
@@ -144,7 +146,7 @@ const StockTile = memo(function StockTile({
             </span>
           )}
           {ticker.dataStatus === "missing" && (
-            <span className="badge status-missing">���捞</span>
+            <span className="badge status-missing">データ欠損</span>
           )}
         </div>
         <div className="tile-actions">
@@ -160,7 +162,7 @@ const StockTile = memo(function StockTile({
             type="button"
             className={`tile-action ${kept ? "active" : ""}`}
             onClick={handleToggleKeep}
-            aria-label={kept ? "��┠����O��" : "��┠�֒ǉ�"}
+            aria-label={kept ? "候補から外す" : "候補に追加"}
           >
             +
           </button>
@@ -168,7 +170,7 @@ const StockTile = memo(function StockTile({
             type="button"
             className="tile-action danger"
             onClick={handleExclude}
-            aria-label="���O"
+            aria-label="除外"
           >
             x
           </button>
@@ -176,7 +178,7 @@ const StockTile = memo(function StockTile({
             type="button"
             className="tile-action"
             onClick={handleOpenClick}
-            aria-label="�ڍׂ��J��"
+            aria-label="詳細を開く"
           >
             &gt;
           </button>
@@ -215,10 +217,10 @@ const StockTile = memo(function StockTile({
         ) : (
           <div className="tile-loading">
             {barsStatus === "error"
-              ? "�ǂݍ��ݎ��s"
+              ? "読み込み失敗"
               : barsStatus === "empty"
-              ? "�f�[�^�Ȃ�"
-              : "�ǂݍ��ݒ�..."}
+              ? "データなし"
+              : "読み込み中..."}
           </div>
         )}
       </div>
