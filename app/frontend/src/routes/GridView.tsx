@@ -1131,8 +1131,8 @@ export default function GridView() {
   useEffect(() => {
     if (!backendReady) return;
     if (!lastVisibleCodesRef.current.length) return;
-    ensureBarsForVisible(gridTimeframe, lastVisibleCodesRef.current, "timeframe-change");
-  }, [backendReady, gridTimeframe, maSettings, ensureBarsForVisible]);
+    ensureBarsForVisible(gridTimeframe, lastVisibleCodesRef.current, "timeframe-or-range-change");
+  }, [backendReady, gridTimeframe, listRangeBars, maSettings, ensureBarsForVisible]);
 
   useEffect(() => {
     if (!backendReady) return;

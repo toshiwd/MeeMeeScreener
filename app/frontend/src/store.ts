@@ -527,8 +527,11 @@ const getRequiredBars = (settings: MaSetting[]) => {
   return Math.min(MAX_BATCH_LIMIT, Math.max(MIN_BATCH_LIMIT, desired));
 };
 
-const getDailyLimitForWeekly = (settings: MaSetting[]) => {
-  const weeklyBars = getRequiredBars(settings);
+const getDailyLimitForWeekly = (settings: MaSetting[], weeklyBarsFloor = 0) => {
+  const weeklyBars = Math.max(
+    getRequiredBars(settings),
+    Math.max(1, Math.floor(weeklyBarsFloor))
+  );
   return Math.min(MAX_BATCH_LIMIT, Math.max(MIN_BATCH_LIMIT, weeklyBars * WEEKLY_DAILY_FACTOR));
 };
 
@@ -1189,11 +1192,18 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!trimmed.length) return;
 
     if (timeframe === "weekly") {
+      const weeklyTargetBars = Math.max(
+        getRequiredBars(get().maSettings.weekly),
+        get().settings.listRangeBars
+      );
       const dailyLimit = Math.max(
         limitOverride ?? 0,
-        getDailyLimitForWeekly(get().maSettings.weekly)
+        getDailyLimitForWeekly(get().maSettings.weekly, weeklyTargetBars)
       );
-      const weeklyRequired = getRequiredBars(get().maSettings.weekly);
+      const weeklyRequired = Math.max(
+        getRequiredBars(get().maSettings.weekly),
+        Math.ceil(dailyLimit / WEEKLY_DAILY_FACTOR)
+      );
       const reasonLabel = reason ? `${reason}:weekly` : "weekly";
       try {
         const dailyCache = get().barsCache.daily;
@@ -1394,10 +1404,13 @@ export const useStore = create<StoreState>((set, get) => ({
         : timeframe === "weekly"
           ? getRequiredBars(maSettings.weekly)
           : getRequiredBars(maSettings.monthly);
+    const requiredWithRange = Math.max(requiredBars, state.settings.listRangeBars);
     const dailyLimitForWeekly =
-      timeframe === "weekly" ? getDailyLimitForWeekly(maSettings.weekly) : null;
+      timeframe === "weekly"
+        ? getDailyLimitForWeekly(maSettings.weekly, requiredWithRange)
+        : null;
     const uniqueCodes = [...new Set(codes.filter((code) => code))];
-    const listKey = buildBatchKey(timeframe, requiredBars, uniqueCodes);
+    const listKey = buildBatchKey(timeframe, requiredWithRange, uniqueCodes);
     if (lastEnsureKeyByTimeframe[timeframe] !== listKey) {
       abortInFlightForTimeframe(timeframe);
       lastEnsureKeyByTimeframe[timeframe] = listKey;
@@ -1405,9 +1418,9 @@ export const useStore = create<StoreState>((set, get) => ({
     const missing = uniqueCodes.filter((code) => {
       const payload = cache[code];
       const fetchedLimit = getFetchedLimit(timeframe, code);
-      if (!payload) return fetchedLimit < requiredBars;
-      if (payload.bars.length >= requiredBars) return false;
-      if (fetchedLimit >= requiredBars) return false;
+      if (!payload) return fetchedLimit < requiredWithRange;
+      if (payload.bars.length >= requiredWithRange) return false;
+      if (fetchedLimit >= requiredWithRange) return false;
       return true;
     });
     if (!missing.length) return;
@@ -1418,7 +1431,7 @@ export const useStore = create<StoreState>((set, get) => ({
       await get().loadBarsBatch(
         timeframe,
         batch,
-        timeframe === "weekly" ? dailyLimitForWeekly ?? undefined : requiredBars,
+        timeframe === "weekly" ? dailyLimitForWeekly ?? undefined : requiredWithRange,
         reason
       );
     }
