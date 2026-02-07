@@ -171,6 +171,74 @@ def _init_schema_on_conn(conn: duckdb.DuckDBPyConnection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS ml_feature_daily (
+            dt INTEGER,
+            code TEXT,
+            close DOUBLE,
+            ma7 DOUBLE,
+            ma20 DOUBLE,
+            ma60 DOUBLE,
+            atr14 DOUBLE,
+            diff20_pct DOUBLE,
+            cnt_20_above INTEGER,
+            cnt_7_above INTEGER,
+            feature_version INTEGER,
+            computed_at TIMESTAMP,
+            PRIMARY KEY(code, dt)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ml_label_20d (
+            dt INTEGER,
+            code TEXT,
+            ret20 DOUBLE,
+            up20_label INTEGER,
+            train_mask_cls INTEGER,
+            n_forward INTEGER,
+            label_version INTEGER,
+            computed_at TIMESTAMP,
+            PRIMARY KEY(code, dt)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ml_pred_20d (
+            dt INTEGER,
+            code TEXT,
+            p_up DOUBLE,
+            ret_pred20 DOUBLE,
+            ev20 DOUBLE,
+            ev20_net DOUBLE,
+            model_version TEXT,
+            n_train INTEGER,
+            computed_at TIMESTAMP,
+            PRIMARY KEY(code, dt)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ml_model_registry (
+            model_version TEXT PRIMARY KEY,
+            model_key TEXT,
+            objective TEXT,
+            feature_version INTEGER,
+            label_version INTEGER,
+            train_start_dt INTEGER,
+            train_end_dt INTEGER,
+            metrics_json TEXT,
+            artifact_path TEXT,
+            n_train INTEGER,
+            created_at TIMESTAMP,
+            is_active BOOLEAN
+        );
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS monthly_bars (
             code TEXT,
             month INTEGER,

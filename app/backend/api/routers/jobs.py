@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
 from app.backend.core.config import config
+from app.backend.services import ml_service
 from app.db.session import get_conn
 
 router = APIRouter()
@@ -23,11 +24,11 @@ def _count_active_jobs(job_type: str) -> int:
         ).fetchone()[0]
 
 
-def _submit_job(job_type: str):
+def _submit_job(job_type: str, payload: dict | None = None):
     cleanup_stale_jobs()
     if _count_active_jobs(job_type) > 0:
         return JSONResponse(status_code=409, content={"error": "Job already running"})
-    job_id = job_manager.submit(job_type, {})
+    job_id = job_manager.submit(job_type, payload or {})
     return {"ok": True, "job_id": job_id}
 
 
@@ -55,6 +56,44 @@ def submit_phase_rebuild():
         return _submit_job("phase_rebuild")
     except Exception as exc:
         logger.exception("Error submitting phase_rebuild: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/jobs/ml/train")
+def submit_ml_train(
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+    dry_run: bool = False,
+):
+    try:
+        return _submit_job(
+            "ml_train",
+            {
+                "start_dt": start_dt,
+                "end_dt": end_dt,
+                "dry_run": dry_run,
+            },
+        )
+    except Exception as exc:
+        logger.exception("Error submitting ml_train: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/jobs/ml/predict")
+def submit_ml_predict(dt: int | None = None):
+    try:
+        return _submit_job("ml_predict", {"dt": dt})
+    except Exception as exc:
+        logger.exception("Error submitting ml_predict: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/api/jobs/ml/status")
+def get_ml_job_status():
+    try:
+        return ml_service.get_ml_status()
+    except Exception as exc:
+        logger.exception("Error fetching ml status: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 

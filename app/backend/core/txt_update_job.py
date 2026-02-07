@@ -252,6 +252,11 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         rankings_cache.refresh_cache()
     except Exception as exc:
         print(f"[txt_update_job] ranking cache refresh failed: {exc}")
+    try:
+        from app.backend.services import ml_service
+        ml_service.predict_latest()
+    except Exception as exc:
+        print(f"[txt_update_job] ml predict refresh failed: {exc}")
     job_manager._update_db(
         job_id,
         "txt_update",

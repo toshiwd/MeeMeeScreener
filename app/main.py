@@ -29,6 +29,17 @@ from app.backend.api.routers import (
 )
 from app.backend.api import watchlist_routes
 from app.backend.api.routers import rankings
+from app.backend.core.force_sync_job import handle_force_sync
+from app.backend.core.jobs import job_manager
+from app.backend.core.ml_job import handle_ml_predict, handle_ml_train
+from app.backend.core.phase_batch_job import handle_phase_rebuild
+from app.backend.core.txt_update_job import handle_txt_update
+
+job_manager.register_handler("force_sync", handle_force_sync)
+job_manager.register_handler("txt_update", handle_txt_update)
+job_manager.register_handler("phase_rebuild", handle_phase_rebuild)
+job_manager.register_handler("ml_train", handle_ml_train)
+job_manager.register_handler("ml_predict", handle_ml_predict)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -29,6 +29,12 @@ type RankItem = {
   liquidity20d?: number | null;
   series?: number[][];
   is_favorite?: boolean;
+  mlPUp?: number | null;
+  mlRetPred20?: number | null;
+  mlEv20?: number | null;
+  mlEv20Net?: number | null;
+  hybridScore?: number | null;
+  modelVersion?: string | null;
 };
 
 type RankTimeframe = "D" | "W" | "M";
@@ -282,6 +288,9 @@ export default function RankingView() {
     });
   }, [searchResults, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
   const sortedItems = useMemo(() => {
+    if (!useFallback) {
+      return filteredItems;
+    }
     const list = [...filteredItems];
     const getLiquidity = (item: RankItem) =>
       Number.isFinite(item.liquidity20d ?? NaN) ? (item.liquidity20d as number) : -1;
@@ -302,7 +311,7 @@ export default function RankingView() {
       return a.code.localeCompare(b.code, "ja");
     });
     return list;
-  }, [filteredItems, dir]);
+  }, [filteredItems, dir, useFallback]);
   const listCodes = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
   const densityKey = `${listColumns}x${listRows}`;
 
@@ -322,7 +331,7 @@ export default function RankingView() {
     setErrorMessage(null);
     setUseFallback(false);
     api
-      .get("/rankings", { params: { tf: tfChar, which: rankWhich, dir, limit: 50 } })
+      .get("/rankings", { params: { tf: tfChar, which: rankWhich, dir, mode: "hybrid", limit: 50 } })
       .then((res) => {
         const payload = res.data as { items?: RankItem[]; errors?: string[] };
         const list = Array.isArray(payload.items) ? payload.items : [];
@@ -335,6 +344,7 @@ export default function RankingView() {
                 tf: tfChar,
                 which: rankWhich,
                 dir,
+                mode: "hybrid",
                 items: list.length,
                 has_asOf: hasAsOf,
                 sample: list.slice(0, 3).map((item) => ({ code: item.code, asOf: item.asOf })),
@@ -588,6 +598,12 @@ export default function RankingView() {
     if (!Number.isFinite(value ?? NaN)) return "--";
     return `${((value ?? 0) * 100).toFixed(2)}%`;
   };
+  const formatDownProb = (upProb?: number | null) => {
+    if (!Number.isFinite(upProb ?? NaN)) return "--";
+    const downProb = 1 - (upProb ?? 0);
+    const clipped = Math.min(1, Math.max(0, downProb));
+    return `${(clipped * 100).toFixed(2)}%`;
+  };
   const formatAsOf = (value?: string | null) => value ?? "--";
 
   return (
@@ -650,6 +666,7 @@ export default function RankingView() {
             </button>
           ))}
         </div>
+        <span className="rank-score-badge">表示: エントリー優先</span>
       </div>
       <div
         className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
@@ -736,6 +753,17 @@ export default function RankingView() {
                       <>
                         <span className="rank-score-badge">
                           騰落率 {formatPct(item.changePct)}
+                        </span>
+                        <span className="rank-score-badge">
+                          期待値 {formatPct(item.mlEv20Net)}
+                        </span>
+                        <span className="rank-score-badge">
+                          {dir === "up"
+                            ? `上昇確率 ${formatPct(item.mlPUp)}`
+                            : `下落確率 ${formatDownProb(item.mlPUp)}`}
+                        </span>
+                        <span className="rank-score-badge">
+                          総合 {formatPct(item.hybridScore)}
                         </span>
                         <span className="rank-score-badge">日付 {formatAsOf(item.asOf)}</span>
                         <button
