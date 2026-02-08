@@ -50,28 +50,29 @@ class ScoringJob:
                 down7 = 0
                 for i in range(1, 10):
                     idx = -i
-                    if idx < -len(closes): break
+                    if idx < -len(closes):
+                        break
                     if ma7[idx] is not None and closes[idx] < ma7[idx]:
-                         down7 += 1
+                        down7 += 1
                     else:
-                         break
+                        break
                 
                 down20 = 0
                 for i in range(1, 20):
                     idx = -i
-                    if idx < -len(closes): break
+                    if idx < -len(closes):
+                        break
                     if ma20[idx] is not None and closes[idx] < ma20[idx]:
-                         down20 += 1
+                        down20 += 1
                     else:
-                         break
+                        break
 
                 avg_vol = sum(volumes[-20:]) / 20 if len(volumes) >= 20 else None
 
                 # Calculate Scores
                 score_a, reasons_a, badges_a = calc_short_a_score(
                     closes, opens, lows, ma5, ma20, atr14, volumes, avg_vol, down7
-                ) # Note: 'highs' was added to arg list in my previous domain file creation? 
-                  # Wait, I need to check the exact signature I wrote in domain/scoring/short_selling.py
+                )
 
                 score_b, reasons_b, badges_b = calc_short_b_score(
                     closes, opens, lows, ma5, ma20, ma60, ma7, slope20, slope60, atr14, 
@@ -93,9 +94,10 @@ class ScoringJob:
         
         logger.info(f"Scoring complete. Found {len(results)} candidates.")
         if results:
-            self.stock_repo.save_scores(results)
+            # Replace mode keeps stock_scores aligned with the latest scoring run.
+            self.stock_repo.save_scores(results, replace=True)
             logger.info("Saved %d scoring results to stock_scores.", len(results))
         else:
-            self.stock_repo.ensure_score_table()
-            logger.info("No scoring candidates found. Ensured stock_scores table exists.")
+            self.stock_repo.save_scores([], replace=True)
+            logger.info("No scoring candidates found. Cleared stock_scores.")
         return results

@@ -108,7 +108,8 @@ def _safe_text(value: object | None) -> str | None:
         if pd.isna(value):
             return None
     except Exception:
-        pass
+        text = str(value).strip()
+        return text if text else None
     text = str(value).strip()
     return text if text else None
 

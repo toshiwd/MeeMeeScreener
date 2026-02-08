@@ -66,7 +66,6 @@ def cleanup_stale_jobs() -> None:
             print("[JobManager] Stale jobs cleaned up.")
     except Exception as e:
         logger.error(f"Failed to cleanup stale jobs: {e}")
-        pass
 
 class JobManager:
     _instance = None
@@ -100,6 +99,14 @@ class JobManager:
     def _is_cancel_requested(self, job_id: str) -> bool:
         with self._cancel_lock:
             return job_id in self._cancel_requested_ids
+
+    def is_cancel_requested(self, job_id: str) -> bool:
+        if self._is_cancel_requested(job_id):
+            return True
+        status = self.get_status(job_id)
+        if not status:
+            return False
+        return status.get("status") in ("cancel_requested", "canceled")
 
     def _start_worker(self):
         if self._worker_thread and self._worker_thread.is_alive():

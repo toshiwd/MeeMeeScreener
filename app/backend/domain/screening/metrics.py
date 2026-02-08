@@ -330,8 +330,7 @@ def _find_sell_stop_target(
         # "Supports (Lower): swingLow20, boxBottom, priorLow"
         # Since MAs are not listed in Supports, I exclude them for Target?
         # Actually in 3-2 it says "sellTarget = max(candidate where value < close)".
-        # I'll stick to the specific list in 3-1.
-        pass
+        # We'll stick to the specific list in 3-1 for now.
 
     # priorLow (already in swingLow20 if recent, maybe historical?)
     # "detected priorLow" -> Assume covered by swingLow20 for now or monthly box low.

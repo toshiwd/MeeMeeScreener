@@ -1,10 +1,10 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import type { ISeriesApi } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, Time } from "lightweight-charts";
 import type { CurrentPosition, DailyPosition, TradeEvent, TradeMarker } from "../utils/positions";
 
 type PositionOverlayProps = {
   candleSeries: ISeriesApi<"Candlestick"> | null;
-  chart: { timeScale?: () => any } | null;
+  chart: IChartApi<Time> | null;
   dailyPositions: DailyPosition[];
   tradeMarkers: TradeMarker[];
   currentPositions?: CurrentPosition[];
@@ -237,7 +237,7 @@ export default function PositionOverlay({
   useEffect(() => {
     if (!chart) return;
     const timeScale = chart.timeScale?.();
-    const priceScale = (chart as any)?.priceScale?.("right");
+    const priceScale = chart.priceScale?.("right");
 
     const schedule = () => {
       if (rangeRafRef.current != null) return;
@@ -552,7 +552,7 @@ export default function PositionOverlay({
     byTime.forEach((list, time) => {
       const bar = barsByTime.get(time);
       if (!bar) return;
-      const baseX = timeScale.timeToCoordinate(time as any);
+      const baseX = timeScale.timeToCoordinate(time as Time);
       const yBase = candleSeries.priceToCoordinate(bar.high) ?? candleSeries.priceToCoordinate(bar.close);
       if (baseX == null || yBase == null) return;
       list.sort((a, b) => compareBrokerKey(a.brokerKey, b.brokerKey));
@@ -749,6 +749,7 @@ export default function PositionOverlay({
     </>
   );
 }
+
 
 
 

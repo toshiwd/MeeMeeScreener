@@ -1,10 +1,13 @@
 from __future__ import annotations
 import duckdb
 import os
+import logging
 from threading import Lock
 from typing import List, Optional, Tuple, Any, Dict
 import json
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 class StockRepository:
     _instance = None
@@ -111,9 +114,83 @@ class StockRepository:
         return sorted(rows, key=lambda x: x[0])
 
     def get_latest_params_for_screening(self, codes: Optional[List[str]] = None) -> List[Tuple]:
-        # This replaces the complex query in screener.py (or supports it)
-        # For now, simplistic implementation
-        pass
+        if codes is not None and len(codes) == 0:
+            return []
+
+        with self._get_conn() as conn:
+            code_filter = ""
+            params: List[Any] = []
+            if codes:
+                placeholders = ",".join(["?"] * len(codes))
+                code_filter = f"WHERE code IN ({placeholders})"
+                params.extend(codes)
+
+            try:
+                query = f"""
+                    SELECT
+                        fs.code,
+                        fs.dt,
+                        fs.close,
+                        fs.ma7,
+                        fs.ma20,
+                        fs.ma60,
+                        fs.atr14,
+                        fs.diff20_pct,
+                        fs.diff20_atr,
+                        fs.cnt_20_above,
+                        fs.cnt_7_above,
+                        fs.day_count,
+                        fs.candle_flags
+                    FROM feature_snapshot_daily fs
+                    INNER JOIN (
+                        SELECT code, MAX(dt) AS max_dt
+                        FROM feature_snapshot_daily
+                        {code_filter}
+                        GROUP BY code
+                    ) latest
+                      ON latest.code = fs.code AND latest.max_dt = fs.dt
+                    ORDER BY fs.code
+                """
+                return conn.execute(query, params).fetchall()
+            except Exception as exc:
+                # Fallback for environments where feature_snapshot_daily is not populated yet.
+                logger.warning("feature_snapshot_daily query failed, fallback to daily_bars: %s", exc)
+
+            fallback_filter = ""
+            fallback_params: List[Any] = []
+            if codes:
+                placeholders = ",".join(["?"] * len(codes))
+                fallback_filter = f"WHERE code IN ({placeholders})"
+                fallback_params.extend(codes)
+
+            fallback_query = f"""
+                SELECT
+                    b.code,
+                    b.date AS dt,
+                    b.c AS close,
+                    m.ma7,
+                    m.ma20,
+                    m.ma60,
+                    NULL AS atr14,
+                    NULL AS diff20_pct,
+                    NULL AS diff20_atr,
+                    NULL AS cnt_20_above,
+                    NULL AS cnt_7_above,
+                    NULL AS day_count,
+                    NULL AS candle_flags
+                FROM daily_bars b
+                INNER JOIN (
+                    SELECT code, MAX(date) AS max_date
+                    FROM daily_bars
+                    {fallback_filter}
+                    GROUP BY code
+                ) latest
+                  ON latest.code = b.code AND latest.max_date = b.date
+                LEFT JOIN daily_ma m
+                  ON m.code = b.code AND m.date = b.date
+                ORDER BY b.code
+            """
+            return conn.execute(fallback_query, fallback_params).fetchall()
 
     def ensure_score_table(self):
         with self._get_conn() as conn:
@@ -128,10 +205,16 @@ class StockRepository:
                 )
             """)
 
-    def save_scores(self, scores: List[Dict[str, Any]]):
+    def save_scores(self, scores: List[Dict[str, Any]], *, replace: bool = False):
         self.ensure_score_table()
         # scores: list of dicts with code, score_a, score_b, reasons, badges
         with self._get_conn() as conn:
+            if replace:
+                conn.execute("DELETE FROM stock_scores")
+
+            if not scores:
+                return
+
             # Use appender or executemany
             # DuckDB executemany is good
             data = []

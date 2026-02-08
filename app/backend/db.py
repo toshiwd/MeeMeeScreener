@@ -1,5 +1,6 @@
 import time
 import threading
+import logging
 import duckdb
 try:
     from app.core.config import config
@@ -17,6 +18,12 @@ except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from
 _OPEN_LOCK = threading.Lock()
 _SCHEMA_INIT_LOCK = threading.Lock()
 _SCHEMA_INITIALIZED = False
+logger = logging.getLogger(__name__)
+
+
+def _is_duplicate_column_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "already exists" in message or "duplicate column" in message
 
 
 def _connect_with_retry(max_wait_sec: float = 1.0) -> duckdb.DuckDBPyConnection:
@@ -47,8 +54,8 @@ class _ConnContext:
     def __exit__(self, exc_type, exc, tb) -> bool:
         try:
             self._conn.close()
-        except Exception:
-            pass
+        except Exception as close_exc:
+            logger.debug("Failed to close DB connection cleanly: %s", close_exc)
         return False
 
 
@@ -74,8 +81,8 @@ class _TryConnContext:
         if self._conn is not None:
             try:
                 self._conn.close()
-            except Exception:
-                pass
+            except Exception as close_exc:
+                logger.debug("Failed to close try_get_conn connection cleanly: %s", close_exc)
         return False
 
 
@@ -283,8 +290,10 @@ def _init_schema_on_conn(conn: duckdb.DuckDBPyConnection) -> None:
     )
     try:
         conn.execute("ALTER TABLE monthly_bars ADD COLUMN v BIGINT")
-    except Exception:
-        pass  # Already exists
+    except Exception as exc:
+        if not _is_duplicate_column_error(exc):
+            raise
+        logger.debug("monthly_bars.v already exists: %s", exc)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS monthly_ma (

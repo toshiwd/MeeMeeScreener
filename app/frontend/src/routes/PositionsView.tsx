@@ -59,6 +59,22 @@ const formatDate = (value: string | null | undefined) => {
   return `${yyyy}/${mm}/${dd}`;
 };
 
+const extractErrorMessage = (err: unknown, fallback = "不明なエラー") => {
+  if (!err || typeof err !== "object") return fallback;
+  const maybeErr = err as {
+    message?: unknown;
+    response?: {
+      data?: {
+        error?: unknown;
+      };
+    };
+  };
+  const responseError = maybeErr.response?.data?.error;
+  if (typeof responseError === "string" && responseError.trim()) return responseError;
+  if (typeof maybeErr.message === "string" && maybeErr.message.trim()) return maybeErr.message;
+  return fallback;
+};
+
 export default function PositionsView() {
   const { ready: backendReady } = useBackendReadyState();
   const navigate = useNavigate();
@@ -350,10 +366,13 @@ export default function PositionsView() {
         const res = await api.get("/positions/history");
         setHistoryItems((res.data?.items || []) as HistoryItem[]);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      const msg = err.response?.data?.error || err.message || "Unknown error";
-      const warnings = err.response?.data?.warnings || [];
+      const msg = extractErrorMessage(err);
+      const warnings =
+        err && typeof err === "object" && "response" in err
+          ? ((err as { response?: { data?: { warnings?: unknown[] } } }).response?.data?.warnings ?? [])
+          : [];
       const warnMsg = warnings.length ? "\n" + warnings.join("\n") : "";
       alert(`インポートに失敗しました: ${msg}${warnMsg}`);
     } finally {
@@ -555,7 +574,7 @@ export default function PositionsView() {
     const statusMap = barsStatus[listTimeframe];
     const payload = timeline ? timeline[code] ?? null : null;
     const status = statusMap ? statusMap[code] : undefined;
-    const signals = "buy_qty" in item ? (signalMap.get(code) ?? []) : ([] as any[]);
+    const signals = "buy_qty" in item ? (signalMap.get(code) ?? []) : [];
     const ticker = tickerMap.get(code);
 
     let displayName = item.name;
@@ -689,8 +708,8 @@ export default function PositionsView() {
               } else {
                 alert(`エラー: ${data.message}`);
               }
-            } catch (err: any) {
-              alert(`再計算に失敗しました: ${err.message}`);
+            } catch (err: unknown) {
+              alert(`再計算に失敗しました: ${extractErrorMessage(err)}`);
             }
           }}
         >

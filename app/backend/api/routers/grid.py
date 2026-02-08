@@ -3,7 +3,8 @@ from typing import List, Any, Dict
 from datetime import datetime, timedelta
 
 from app.backend.infra.duckdb.screener_repo import ScreenerRepository
-from app.backend.api.dependencies import get_screener_repo
+from app.backend.infra.duckdb.stock_repo import StockRepository
+from app.backend.api.dependencies import get_screener_repo, get_stock_repo
 from app.backend.domain.screening import metrics, ranking
 from app.utils.date_utils import jst_now
 
@@ -18,6 +19,27 @@ def _group_rows_by_code(rows: list[tuple]) -> dict[str, list[tuple]]:
         grouped.setdefault(code, []).append(row)
     return grouped
 
+
+def _apply_short_scores(items: list[dict[str, Any]], score_map: dict[str, dict[str, Any]]) -> None:
+    for item in items:
+        code = item.get("code")
+        if not isinstance(code, str):
+            continue
+        short_info = score_map.get(code) or {}
+        short_a = short_info.get("score_a")
+        short_b = short_info.get("score_b")
+        short_reasons = short_info.get("reasons") if isinstance(short_info.get("reasons"), list) else []
+        short_badges = short_info.get("badges") if isinstance(short_info.get("badges"), list) else []
+        short_total = None
+        if isinstance(short_a, (int, float)) or isinstance(short_b, (int, float)):
+            short_total = float(short_a or 0.0) + float(short_b or 0.0)
+
+        item["shortScore"] = short_total
+        item["aScore"] = float(short_a) if isinstance(short_a, (int, float)) else None
+        item["bScore"] = float(short_b) if isinstance(short_b, (int, float)) else None
+        item["shortBadges"] = short_badges
+        item["shortReasons"] = short_reasons
+
 # Simple in-memory cache for screener results (to match legacy behavior of caching)
 # In production, use Redis or similar.
 _screener_cache = {
@@ -29,7 +51,8 @@ _screener_cache = {
 def get_screener_rows(
     limit: int = 260,
     force_update: bool = False,
-    screener_repo: ScreenerRepository = Depends(get_screener_repo)
+    screener_repo: ScreenerRepository = Depends(get_screener_repo),
+    stock_repo: StockRepository = Depends(get_stock_repo),
 ):
     global _screener_cache
     
@@ -37,6 +60,8 @@ def get_screener_rows(
     now = datetime.now()
     if not force_update and _screener_cache["data"] and _screener_cache["last_updated"]:
         if (now - _screener_cache["last_updated"]).total_seconds() < 3600:
+             score_map = stock_repo.get_scores()
+             _apply_short_scores(_screener_cache["data"], score_map)
              return _screener_cache["data"]
 
     # 1. Fetch Data
@@ -64,6 +89,7 @@ def get_screener_rows(
     monthly_map = _group_rows_by_code(monthly_rows)
     earnings_map = {row[0]: row[1] for row in earnings_rows}
     rights_map = {row[0]: row[1] for row in rights_rows}
+    short_score_map = stock_repo.get_scores()
     
     asof_map: dict[str, int | None] = {}
     results = []
@@ -132,6 +158,8 @@ def get_screener_rows(
         item["bodyScore"] = phase_info["body_score"]
         item["phaseN"] = phase_info["n"]
         item["phaseDt"] = phase_info["dt"]
+
+    _apply_short_scores(results, short_score_map)
 
     _screener_cache["data"] = results
     _screener_cache["last_updated"] = now

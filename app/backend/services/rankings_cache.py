@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import math
+import logging
 from threading import Lock
 from typing import Literal
 
@@ -21,6 +22,7 @@ RankMode = Literal["rule", "ml", "hybrid", "turn"]
 _CACHE: dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]] = {}
 _LAST_UPDATED: datetime | None = None
 _LOCK = Lock()
+logger = logging.getLogger(__name__)
 
 _DAILY_LIMIT = 120
 _MONTHLY_LIMIT = 6
@@ -893,8 +895,8 @@ def get_rankings(
             ],
         }
         print(json.dumps(log_payload, ensure_ascii=False))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("rank_request debug logging failed: %s", exc)
     return {
         "tf": tf,
         "which": which,

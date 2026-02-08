@@ -86,8 +86,11 @@ def _install_excepthook() -> None:
         try:
             with open(log_path, "a", encoding="utf-8") as handle:
                 handle.write("".join(traceback.format_exception(exctype, value, tb)))
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                sys.stderr.write(f"[backend] failed to write exception log: {exc}\n")
+            except Exception:
+                ...
         sys.__excepthook__(exctype, value, tb)
 
     sys.excepthook = _hook

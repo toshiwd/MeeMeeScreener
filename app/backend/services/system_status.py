@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import logging
 from datetime import datetime
 
 from app.core.config import UPDATE_STATE_PATH
 from app.db.session import get_conn
+
+logger = logging.getLogger(__name__)
 
 
 def _list_tables(conn) -> set[str]:
@@ -62,6 +65,6 @@ def _get_last_updated_timestamp() -> str:
             with open(UPDATE_STATE_PATH, "r", encoding="utf-8") as handle:
                 state = json.load(handle)
                 return state.get("last_txt_update_at")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to read update state (%s): %s", UPDATE_STATE_PATH, exc)
     return datetime.now().isoformat()

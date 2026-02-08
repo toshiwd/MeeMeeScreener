@@ -1,4 +1,4 @@
-﻿﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
@@ -99,7 +99,6 @@ export default function RankingView() {
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
-  const rankTileLogRef = useRef<Map<string, string>>(new Map());
   const consultPaddingClass = consultVisible
     ? consultExpanded
       ? "consult-padding-expanded"
@@ -344,25 +343,6 @@ export default function RankingView() {
       .then((res) => {
         const payload = res.data as { items?: RankItem[]; errors?: string[] };
         const list = Array.isArray(payload.items) ? payload.items : [];
-        if (import.meta.env.MODE === "development") {
-          try {
-            const hasAsOf = list.some((item) => Boolean(item.asOf));
-            console.log(
-              JSON.stringify({
-                tag: "rank_api_response",
-                tf: tfChar,
-                which: rankWhich,
-                dir,
-                mode: rankMode,
-                items: list.length,
-                has_asOf: hasAsOf,
-                sample: list.slice(0, 3).map((item) => ({ code: item.code, asOf: item.asOf })),
-              })
-            );
-          } catch {
-            // ignore debug log errors
-          }
-        }
         setItems(list);
         setUseFallback(false);
         if (payload.errors?.length) {
@@ -386,39 +366,6 @@ export default function RankingView() {
       "ranking"
     );
   }, [backendReady, ensureBarsForVisible, sortedItems, listTimeframe]);
-
-  useEffect(() => {
-    if (!sortedItems.length) return;
-    const logs: Array<Record<string, unknown>> = [];
-    sortedItems.forEach((item) => {
-      const payload = barsCache[listTimeframe]?.[item.code] ?? null;
-      const series = payload?.bars ?? item.series ?? [];
-      if (!series.length) return;
-      const dtMin = series[0]?.[0] ?? null;
-      const dtMax = series[series.length - 1]?.[0] ?? null;
-      const label = formatAsOf(item.asOf);
-      const signature = `${dtMin}|${dtMax}|${series.length}|${label}|${item.asOf ?? ""}`;
-      const prevSignature = rankTileLogRef.current.get(item.code);
-      if (prevSignature === signature) return;
-      rankTileLogRef.current.set(item.code, signature);
-      const recentDt = series.slice(-3).map((bar) => bar?.[0] ?? null);
-      logs.push({
-        tag: "rank_tile_data",
-        code: item.code,
-        timeframe: listTimeframe,
-        dt_min: dtMin,
-        dt_max: dtMax,
-        len: series.length,
-        right_dt: dtMax,
-        label,
-        anchor_date: item.asOf ?? null,
-        recent_dt: recentDt,
-      });
-    });
-    if (import.meta.env.MODE === "development") {
-      logs.forEach((entry) => console.log(JSON.stringify(entry)));
-    }
-  }, [sortedItems, barsCache, listTimeframe]);
 
   useEffect(() => {
     if (!useFallback) return;
@@ -973,6 +920,7 @@ export default function RankingView() {
     </div>
   );
 }
+
 
 
 

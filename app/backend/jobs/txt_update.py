@@ -9,13 +9,12 @@ from app.backend.infra.files.config_repo import ConfigRepository
 # The user request said "logic/I/O... to infra". ingest_txt does DB I/O.
 # Ideally ingest_txt logic should be here or in infra. 
 # Let's assume we import the legacy module for now to maintain functionality.
-try:
-    from app.services import ingest_txt # Using the copy in services
-except ImportError:
-    # If not found, maybe fallback or mock for now
-    pass
-
 logger = logging.getLogger(__name__)
+try:
+    from app.backend import ingest_txt
+except Exception as exc:  # pragma: no cover - legacy path compatibility
+    ingest_txt = None  # type: ignore
+    logger.warning("ingest_txt import failed: %s", exc)
 
 def _run_phase_batch_latest() -> int:
     try:
@@ -60,6 +59,8 @@ def run_txt_update_workflow(
     # In Clean Arch, this should call a UseCase or Domain Service.
     # For now, we wrap the legacy ingest call.
     logger.info("Starting Ingest...")
+    if ingest_txt is None:
+        raise RuntimeError("ingest_txt module is unavailable")
     try:
         # We need to ensure environment variables are set for legacy ingest if it relies on them
         # Or better, pass arguments if we refactored ingest_txt properly.

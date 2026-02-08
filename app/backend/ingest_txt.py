@@ -1156,8 +1156,9 @@ def ingest(incremental: bool = False) -> None:
                         continue
             
             changed_files.append(path)
-        except OSError:
-            pass
+        except OSError as exc:
+            print(f"Warning: Skipping unreadable file {path}: {exc}")
+            continue
 
     if incremental and not force_full:
         print(f"Incremental Mode: Found {len(changed_files)} changed files, skipped {skipped_count}.")

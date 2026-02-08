@@ -58,73 +58,14 @@ def resolve_trade_csv_paths() -> list[str]:
     if trade_csv_dir:
         try:
             _scan_dir(Path(trade_csv_dir))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to scan TRADE_CSV_DIR (%s): %s", trade_csv_dir, exc)
 
     env = os.getenv("TRADE_CSV_PATH")
     if env:
         parts = [p.strip() for p in env.split(";") if p.strip()]
         paths.extend([os.path.abspath(part) for part in parts])
 
-    return list(set(paths))
-
-
-    def _scan_dir(base: Path) -> None:
-        if not base or not base.is_dir():
-            return
-        for filename in (*preferred_names, *legacy_names):
-            candidate = base / filename
-            if candidate.exists():
-                paths.append(str(candidate))
-        try:
-            for entry in base.iterdir():
-                if not entry.is_file():
-                    continue
-                if entry.suffix.lower() != ".csv":
-                    continue
-                name = entry.name.lower()
-                if "????????" not in entry.name and "trade" not in name:
-                    continue
-                if any(key in entry.name for key in ("????", "??????", "SBI")) or any(key in name for key in ("rakuten", "sbi")):
-                    paths.append(str(entry))
-        except OSError:
-            return
-
-    _scan_dir(config.DATA_DIR)
-    _scan_dir(config.DATA_DIR / "csv")
-
-    trade_csv_dir = os.getenv("TRADE_CSV_DIR")
-    if trade_csv_dir:
-        try:
-            _scan_dir(Path(trade_csv_dir))
-        except Exception:
-            pass
-
-    env = os.getenv("TRADE_CSV_PATH")
-    if env:
-        parts = [p.strip() for p in env.split(";") if p.strip()]
-        paths.extend([os.path.abspath(part) for part in parts])
-
-    return list(set(paths))
-
-
-    _scan_dir(config.DATA_DIR)
-    _scan_dir(config.DATA_DIR / "csv")
-
-    trade_csv_dir = os.getenv("TRADE_CSV_DIR")
-    if trade_csv_dir:
-        try:
-            _scan_dir(Path(trade_csv_dir))
-        except Exception:
-            pass
-
-    # Env vars (legacy support)
-    env = os.getenv("TRADE_CSV_PATH")
-    if env:
-        parts = [p.strip() for p in env.split(";") if p.strip()]
-        paths.extend([os.path.abspath(part) for part in parts])
-
-    # Dedup
     return list(set(paths))
 
 def sync_trade_csvs() -> dict:

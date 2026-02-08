@@ -1,6 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
+﻿import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { IconTrash } from "@tabler/icons-react";
-import { CrosshairMode, createChart } from "lightweight-charts";
+import { CrosshairMode, createChart, type Time } from "lightweight-charts";
 import type { Box } from "../store";
 import type { CurrentPosition, DailyPosition, TradeMarker } from "../utils/positions";
 import { getBodyRangeFromCandles, getBoxFill, getBoxStroke } from "../utils/boxes";
@@ -41,6 +41,11 @@ type EventMarker = {
   time: number;
   label?: string;
   kind?: "earnings";
+};
+
+type ChartWithCrosshairApi = ReturnType<typeof createChart> & {
+  setCrosshairPosition?: (price: number, time: Time, series: unknown) => void;
+  clearCrosshairPosition?: () => void;
 };
 
 export type TimeZone = {
@@ -444,7 +449,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       ? candlesRef.current[candlesRef.current.length - 1].time
       : null;
     if (!chart) return latestTime;
-    const timeScale = chart.timeScale() as any;
+    const timeScale = chart.timeScale();
     if (!timeScale || typeof timeScale.getVisibleRange !== "function") return latestTime;
     const range = timeScale.getVisibleRange();
     if (!range) return latestTime;
@@ -738,8 +743,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       const boxes = drawBoxesRef.current ?? [];
       for (let index = boxes.length - 1; index >= 0; index -= 1) {
         const box = boxes[index];
-        const x1 = timeScale.timeToCoordinate(box.startTime as any);
-        const x2 = timeScale.timeToCoordinate(box.endTime as any);
+        const x1 = timeScale.timeToCoordinate(box.startTime as Time);
+        const x2 = timeScale.timeToCoordinate(box.endTime as Time);
         const y1 = series.priceToCoordinate(box.topPrice);
         const y2 = series.priceToCoordinate(box.bottomPrice);
         if (x1 == null || x2 == null || y1 == null || y2 == null) continue;
@@ -863,8 +868,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       const zones = timeZonesRef.current ?? [];
       for (let index = zones.length - 1; index >= 0; index -= 1) {
         const zone = zones[index];
-        const x1 = timeScale.timeToCoordinate(zone.startTime as any);
-        const x2 = timeScale.timeToCoordinate(zone.endTime as any);
+        const x1 = timeScale.timeToCoordinate(zone.startTime as Time);
+        const x2 = timeScale.timeToCoordinate(zone.endTime as Time);
         if (x1 == null || x2 == null) continue;
         const left = Math.min(x1, x2);
         const right = Math.max(x1, x2);
@@ -949,8 +954,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           ctx.lineWidth = 1;
 
           boxesToDraw.forEach((box) => {
-            const x1 = timeScale.timeToCoordinate(box.startTime as any);
-            const x2 = timeScale.timeToCoordinate(box.endTime as any);
+            const x1 = timeScale.timeToCoordinate(box.startTime as Time);
+            const x2 = timeScale.timeToCoordinate(box.endTime as Time);
             const bodyRange = getBodyRangeFromCandles(candlesRef.current, box.startTime, box.endTime);
             const upper = bodyRange?.upper ?? box.upper;
             const lower = bodyRange?.lower ?? box.lower;
@@ -976,8 +981,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     if (timeZonesToDraw.length && typeof timeScale.timeToCoordinate === "function") {
       timeZonesToDraw.forEach((zone) => {
         if (!Number.isFinite(zone.startTime) || !Number.isFinite(zone.endTime)) return;
-        const x1 = timeScale.timeToCoordinate(zone.startTime as any);
-        const x2 = timeScale.timeToCoordinate(zone.endTime as any);
+        const x1 = timeScale.timeToCoordinate(zone.startTime as Time);
+        const x2 = timeScale.timeToCoordinate(zone.endTime as Time);
         if (x1 == null || x2 == null) return;
         const rectX = Math.min(x1, x2);
         const rectW = Math.max(1, Math.abs(x2 - x1));
@@ -1013,8 +1018,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       const colors = readChartColors();
       const visibleRange =
         typeof timeScale.getVisibleRange === "function" ? timeScale.getVisibleRange() : null;
-      const visibleFrom = visibleRange ? normalizeRangeTime((visibleRange as any).from) : null;
-      const visibleTo = visibleRange ? normalizeRangeTime((visibleRange as any).to) : null;
+      const visibleFrom = visibleRange ? normalizeRangeTime(visibleRange.from) : null;
+      const visibleTo = visibleRange ? normalizeRangeTime(visibleRange.to) : null;
       const sortedByRecent = [...gapsToDraw].sort((a, b) => b.createdAt - a.createdAt);
       const inViewport =
         visibleTo != null
@@ -1032,7 +1037,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         const y2 = series.priceToCoordinate(gap.bottomPrice);
         if (y1 == null || y2 == null) return;
         if (visibleTo != null && gap.createdAt > visibleTo) return;
-        let xStart = timeScale.timeToCoordinate(gap.createdAt as any);
+        let xStart = timeScale.timeToCoordinate(gap.createdAt as Time);
         if (xStart == null || !Number.isFinite(xStart)) {
           if (visibleFrom != null && gap.createdAt <= visibleFrom) {
             xStart = 0;
@@ -1066,8 +1071,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         ) {
           return;
         }
-        const x1 = timeScale.timeToCoordinate(box.startTime as any);
-        const x2 = timeScale.timeToCoordinate(box.endTime as any);
+        const x1 = timeScale.timeToCoordinate(box.startTime as Time);
+        const x2 = timeScale.timeToCoordinate(box.endTime as Time);
         const y1 = series.priceToCoordinate(box.topPrice);
         const y2 = series.priceToCoordinate(box.bottomPrice);
         if (x1 == null || x2 == null || y1 == null || y2 == null) return;
@@ -1111,8 +1116,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     const draftTimeZone = draftTimeZoneRef.current;
     if (draftTimeZone && typeof timeScale.timeToCoordinate === "function") {
       if (Number.isFinite(draftTimeZone.startTime) && Number.isFinite(draftTimeZone.endTime)) {
-        const x1 = timeScale.timeToCoordinate(draftTimeZone.startTime as any);
-        const x2 = timeScale.timeToCoordinate(draftTimeZone.endTime as any);
+        const x1 = timeScale.timeToCoordinate(draftTimeZone.startTime as Time);
+        const x2 = timeScale.timeToCoordinate(draftTimeZone.endTime as Time);
         if (x1 != null && x2 != null) {
           const rectX = Math.min(x1, x2);
           const rectW = Math.max(1, Math.abs(x2 - x1));
@@ -1152,8 +1157,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       typeof timeScale.timeToCoordinate === "function" &&
       typeof series?.priceToCoordinate === "function"
     ) {
-      const x1 = timeScale.timeToCoordinate(draftDrawBox.startTime as any);
-      const x2 = timeScale.timeToCoordinate(draftDrawBox.endTime as any);
+      const x1 = timeScale.timeToCoordinate(draftDrawBox.startTime as Time);
+      const x2 = timeScale.timeToCoordinate(draftDrawBox.endTime as Time);
       const y1 = series.priceToCoordinate(draftDrawBox.topPrice);
       const y2 = series.priceToCoordinate(draftDrawBox.bottomPrice);
       if (x1 != null && x2 != null && y1 != null && y2 != null) {
@@ -1187,8 +1192,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       if (selected.kind === "timeZone") {
         const zone = timeZonesRef.current[selected.index];
         if (zone) {
-          const x1 = timeScale.timeToCoordinate(zone.startTime as any);
-          const x2 = timeScale.timeToCoordinate(zone.endTime as any);
+          const x1 = timeScale.timeToCoordinate(zone.startTime as Time);
+          const x2 = timeScale.timeToCoordinate(zone.endTime as Time);
           if (x1 != null && x2 != null) {
             drawHandle(x1, 8);
             drawHandle(x2, 8);
@@ -1209,8 +1214,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       if (selected.kind === "drawBox") {
         const box = drawBoxesRef.current[selected.index];
         if (box) {
-          const x1 = timeScale.timeToCoordinate(box.startTime as any);
-          const x2 = timeScale.timeToCoordinate(box.endTime as any);
+          const x1 = timeScale.timeToCoordinate(box.startTime as Time);
+          const x2 = timeScale.timeToCoordinate(box.endTime as Time);
           const y1 = series.priceToCoordinate(box.topPrice);
           const y2 = series.priceToCoordinate(box.bottomPrice);
           if (x1 != null && x2 != null && y1 != null && y2 != null) {
@@ -1244,7 +1249,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         ctx.textBaseline = "middle";
         ctx.textAlign = "left";
         eventMarkers.forEach((marker) => {
-          const x = timeScale.timeToCoordinate(marker.time as any);
+          const x = timeScale.timeToCoordinate(marker.time as Time);
           if (x == null || !Number.isFinite(x)) return;
           ctx.globalAlpha = 0.45;
           ctx.fillStyle = colors.earnings;
@@ -1267,7 +1272,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     if (cursorValue != null) {
       const timeScale = chart.timeScale();
       const x = typeof timeScale.timeToCoordinate === "function"
-        ? timeScale.timeToCoordinate(cursorValue as any)
+        ? timeScale.timeToCoordinate(cursorValue as Time)
         : null;
       if (x != null) {
         ctx.strokeStyle = CURSOR_STROKE;
@@ -1289,7 +1294,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         ctx.lineWidth = 0.8;
         ctx.font = "11px sans-serif";
         partialTimes.forEach((time) => {
-          const x = timeScale.timeToCoordinate(time as any);
+          const x = timeScale.timeToCoordinate(time as Time);
           if (x == null) return;
           ctx.beginPath();
           ctx.moveTo(x, 0);
@@ -1458,7 +1463,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       chartRef.current?.timeScale().fitContent();
     },
     setCrosshair: (time, point) => {
-      const chart = chartRef.current as any;
+      const chart = chartRef.current as ChartWithCrosshairApi | null;
       const series = candleSeriesRef.current;
       if (!chart || !series) return;
       const clearCrosshair = chart.clearCrosshairPosition;
@@ -1502,7 +1507,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       }
     },
     clearCrosshair: () => {
-      const chart = chartRef.current as any;
+      const chart = chartRef.current as ChartWithCrosshairApi | null;
       if (!chart) return;
       lastCrosshairTimeRef.current = null;
       if (typeof chart.clearCrosshairPosition === "function") {
@@ -1826,7 +1831,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         lastCrosshairTimeRef.current = normalizedTime;
         if (point && chartRef.current && candleSeriesRef.current) {
           const priceScale = chartRef.current.priceScale?.("right");
-          const setCrosshairPosition = (chartRef.current as any).setCrosshairPosition;
+          const setCrosshairPosition = (chartRef.current as ChartWithCrosshairApi).setCrosshairPosition;
           if (priceScale && typeof priceScale.coordinateToPrice === "function") {
             const price = priceScale.coordinateToPrice(point.y);
             if (price != null && Number.isFinite(price) && typeof setCrosshairPosition === "function") {
@@ -1844,8 +1849,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       };
 
       chart.subscribeCrosshairMove(crosshairHandler);
-      const timeScale = chart.timeScale() as any;
-      const priceScale = chart.priceScale("right") as any;
+      const timeScale = chart.timeScale();
+      const priceScale = chart.priceScale("right");
       const rangeHandler = () => {
         if (!gapBandsPropRef.current) {
           const currentRange =
@@ -2333,14 +2338,14 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
                     selectedColor === color ? "is-active" : ""
                   }`}
                   style={{ backgroundColor: color }}
-                  aria-label={`色 ${color}`}
+                  aria-label={`濶ｲ ${color}`}
                   onClick={() => updateSelectedDrawColor(color)}
                 />
               ))}
             <button
               type="button"
               className="detail-chart-context-btn is-danger"
-              aria-label="選択中の描画を削除"
+              aria-label="驕ｸ謚樔ｸｭ縺ｮ謠冗判繧貞炎髯､"
               onClick={deleteSelectedShape}
             >
               <IconTrash size={15} />
@@ -2370,4 +2375,5 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 });
 
 export default DetailChart;
+
 

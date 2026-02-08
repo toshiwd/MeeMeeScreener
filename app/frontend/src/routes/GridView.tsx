@@ -19,6 +19,7 @@ import {
   IconLayoutGrid,
   IconFilter,
   IconRefresh,
+  IconPlayerStop,
   IconSettings,
   IconMoon,
   IconSun,
@@ -49,6 +50,12 @@ import {
   type TechnicalFilterState
 } from "../utils/technicalFilter";
 import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
+import {
+  extractTxtUpdateJobId,
+  formatTxtUpdateStatusLabel,
+  isTxtUpdateConflictError,
+  type TxtUpdateStartPayload
+} from "../utils/txtUpdate";
 
 const GRID_GAP = 12;
 const KP_LIMIT = 24;
@@ -62,6 +69,8 @@ const rangeOptions = [
   { label: "240本", count: 240 },
   { label: "360本", count: 360 }
 ];
+const gridRowOptions: Array<1 | 2 | 3 | 4 | 5 | 6> = [1, 2, 3, 4, 5, 6];
+const gridColumnOptions: Array<1 | 2 | 3 | 4> = [1, 2, 3, 4];
 
 const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalFilterState => ({
   defaultTimeframe,
@@ -97,6 +106,42 @@ type HealthStatus = {
   last_updated: string | null;
   code_txt_missing: boolean;
   pan_out_txt_dir?: string | null;
+};
+
+type JobStatusPayload = {
+  id?: string;
+  type?: string;
+  status?: string;
+  message?: string;
+  error?: string | null;
+};
+
+type TxtUpdateJobState = {
+  id: string;
+  status: string;
+  message: string | null;
+};
+
+const TERMINAL_JOB_STATUS = new Set(["success", "failed", "canceled"]);
+
+const extractErrorDetail = (err: unknown, fallback = "不明なエラー"): string => {
+  if (!err || typeof err !== "object") return fallback;
+  const maybeErr = err as {
+    message?: unknown;
+    response?: {
+      data?: {
+        error?: unknown;
+        detail?: unknown;
+        message?: unknown;
+      };
+    };
+  };
+  const responseData = maybeErr.response?.data;
+  if (typeof responseData?.error === "string" && responseData.error.trim()) return responseData.error;
+  if (typeof responseData?.detail === "string" && responseData.detail.trim()) return responseData.detail;
+  if (typeof responseData?.message === "string" && responseData.message.trim()) return responseData.message;
+  if (typeof maybeErr.message === "string" && maybeErr.message.trim()) return maybeErr.message;
+  return fallback;
 };
 
 export default function GridView() {
@@ -148,8 +193,6 @@ export default function GridView() {
   // Sector Sort Settings
   const sectorSortEnabled = useStore((state) => state.settings.sectorSortEnabled);
   const sectorSortInnerKey = useStore((state) => state.settings.sectorSortInnerKey);
-  const setSectorSortnabled = useStore((state) => state.setSectorSortnabled);
-  const setSectorSortInnerKey = useStore((state) => state.setSectorSortInnerKey);
 
   const eventsAttemptLabel = useMemo(
     () => formatEventDateYmd(eventsMeta?.lastAttemptAt),
@@ -204,6 +247,8 @@ export default function GridView() {
   const [currentTheme, setCurrentTheme] = useState<Theme>(() => getStoredTheme());
   const [tradeUploadInFlight, setTradeUploadInFlight] = useState(false);
   const [tradeSyncInFlight, setTradeSyncInFlight] = useState(false);
+  const [txtUpdateJob, setTxtUpdateJob] = useState<TxtUpdateJobState | null>(null);
+  const [txtUpdatePolling, setTxtUpdatePolling] = useState(false);
   const [watchlistExporting, setWatchlistExporting] = useState(false);
   const [techFilterOpen, setTechFilterOpen] = useState(false);
   const [techFilterDraft, setTechFilterDraft] = useState<TechnicalFilterState>(() =>
@@ -223,6 +268,7 @@ export default function GridView() {
   const lastVisibleCodesRef = useRef<string[]>([]);
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
   const undoTimerRef = useRef<number | null>(null);
+  const txtUpdateTerminalStatusRef = useRef<string | null>(null);
 
 
   const showToast = useCallback((text: string) => {
@@ -265,12 +311,8 @@ export default function GridView() {
         timeout: 120000
       });
       showToast("トレードCSVをアップロードしました。");
-    } catch (err: any) {
-      const detail =
-        err?.response?.data?.error ||
-        err?.response?.data?.detail ||
-        err?.message ||
-        "Unknown error";
+    } catch (err: unknown) {
+      const detail = extractErrorDetail(err);
       showToast(`トレードCSVのアップロードに失敗しました。(${detail})`);
     } finally {
       setTradeUploadInFlight(false);
@@ -286,15 +328,11 @@ export default function GridView() {
       if (res.data?.ok) {
         showToast("強制同期（全件取込）を開始しました。");
       } else {
-        const error = res.data?.error ?? "unknown_error";
+        const error = res.data?.error ?? "不明なエラー";
         showToast(`強制同期でエラーが発生しました。(${error})`);
       }
-    } catch (err: any) {
-      const detail =
-        err?.response?.data?.error ||
-        err?.response?.data?.detail ||
-        err?.message ||
-        "Unknown error";
+    } catch (err: unknown) {
+      const detail = extractErrorDetail(err);
       showToast(`強制同期に失敗しました。(${detail})`);
     } finally {
       setTradeSyncInFlight(false);
@@ -305,7 +343,7 @@ export default function GridView() {
     if (watchlistExporting) return;
     const exportItems = sortedTickers.map((item) => item.ticker);
     if (!exportItems.length) {
-      showToast("Message restored");
+      showToast("書き出す銘柄がありません。");
       return;
     }
     setWatchlistExporting(true);
@@ -313,9 +351,9 @@ export default function GridView() {
       const lines = exportItems.map((item) => `JP#${item.code}`);
       const filename = "watchlist.ebk";
       const ok = await saveAsFile(lines.join("\n"), filename, "text/plain");
-      showToast("Message restored");
+      showToast(ok ? "watchlist.ebk を保存しました。" : "watchlist.ebk の保存に失敗しました。");
     } catch {
-      showToast("Message restored");
+      showToast("watchlist.ebk の保存に失敗しました。");
     } finally {
       setWatchlistExporting(false);
     }
@@ -350,16 +388,12 @@ export default function GridView() {
         setDataDir(next);
         setDataDirInput(next);
       }
-      setDataDirMessage("Message restored");
-      showToast("Message restored");
-    } catch (err: any) {
-      const detail =
-        err?.response?.data?.detail ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Unknown error";
+      setDataDirMessage("データ保存先を更新しました。");
+      showToast("データ保存先を更新しました。");
+    } catch (err: unknown) {
+      const detail = extractErrorDetail(err);
       setDataDirMessage(`保存に失敗しました: ${detail}`);
-      showToast("Message restored");
+      showToast("データ保存先の更新に失敗しました。");
     } finally {
       setDataDirSaving(false);
     }
@@ -546,6 +580,13 @@ export default function GridView() {
   const sortDirLabel = sortDir === "desc" ? "降順" : "昇順";
   const gridTimeframeLabel =
     gridTimeframe === "daily" ? "日足" : gridTimeframe === "weekly" ? "週足" : "月足";
+  const txtUpdateCanCancel = Boolean(
+    txtUpdateJob && txtUpdateJob.id && !TERMINAL_JOB_STATUS.has(txtUpdateJob.status)
+  );
+  const txtUpdateStatusLabel = useMemo(() => {
+    if (!txtUpdateJob) return null;
+    return formatTxtUpdateStatusLabel(txtUpdateJob.status);
+  }, [txtUpdateJob]);
 
   const normalizeWatchCode = useCallback((value: string) => {
     const trimmed = value.trim();
@@ -1190,7 +1231,7 @@ export default function GridView() {
             : `${code} を追加しました。次回TXT更新で反映されます。`
         );
       } catch {
-        showToast("Message restored");
+        showToast("ウォッチリスト追加に失敗しました。");
       }
     },
     [loadList]
@@ -1227,7 +1268,7 @@ export default function GridView() {
         return;
       }
       if (keepList.length >= KP_LIMIT) {
-        showToast("Message restored");
+        showToast(`候補キープは最大 ${KP_LIMIT} 件です。`);
         return;
       }
       addKeep(code);
@@ -1345,9 +1386,9 @@ export default function GridView() {
         trashToken: undoInfo.trashToken
       });
       await loadList();
-      showToast(`Message with vars: ${undoInfo.code}`);
+      showToast(`${undoInfo.code} の除外を取り消しました。`);
     } catch {
-      showToast("Message restored");
+      showToast("除外の取り消しに失敗しました。");
     } finally {
       if (undoTimerRef.current) {
         window.clearTimeout(undoTimerRef.current);
@@ -1392,7 +1433,7 @@ export default function GridView() {
       defaultTimeframe
     );
     if (result.dropped > 0 && !techFilterDropNoticeRef.current) {
-      showToast("Message restored");
+      showToast("不正なフィルタ条件を自動で除外しました。");
       techFilterDropNoticeRef.current = true;
     }
     return {
@@ -1442,29 +1483,92 @@ export default function GridView() {
     }
   };
 
-  type UpdateTxtPayload = {
-    ok?: boolean;
-    error?: string;
-    job_id?: string;
-    searched?: string[];
-  };
-
-  const handleUpdateError = (payload?: UpdateTxtPayload) => {
+  const handleUpdateError = useCallback((payload?: TxtUpdateStartPayload) => {
     const error = payload?.error ?? 'unknown';
-    if (error === 'update_in_progress') {
-      showToast("TXT更新を開始しました。");
+    if (isTxtUpdateConflictError(error) || payload?.status === "conflict") {
+      showToast("TXT更新は既に実行中です。");
       return;
     }
     if (error === 'code_txt_missing') {
-      showToast("Message restored");
+      showToast("code.txt が見つかりません。");
       return;
     }
     if (error.startsWith('vbs_not_found')) {
-      showToast("TXT更新を開始しました。");
+      showToast("TXT更新スクリプトが見つかりません。");
       return;
     }
     showToast("TXT更新の起動に失敗しました。");
-  };
+  }, [showToast]);
+
+  const applyTxtUpdateStatus = useCallback((payload?: JobStatusPayload | null) => {
+    if (!payload || typeof payload.id !== "string" || !payload.id) return;
+    const nextStatus = typeof payload.status === "string" ? payload.status : "running";
+    const nextMessage = typeof payload.message === "string" ? payload.message : null;
+    setTxtUpdateJob({ id: payload.id, status: nextStatus, message: nextMessage });
+
+    if (!TERMINAL_JOB_STATUS.has(nextStatus)) {
+      setTxtUpdatePolling(true);
+      return;
+    }
+
+    setTxtUpdatePolling(false);
+    const terminalKey = `${payload.id}:${nextStatus}`;
+    if (txtUpdateTerminalStatusRef.current === terminalKey) return;
+    txtUpdateTerminalStatusRef.current = terminalKey;
+
+    if (nextStatus === "success") {
+      showToast("TXT更新が完了しました。");
+      return;
+    }
+    if (nextStatus === "canceled") {
+      showToast("TXT更新をキャンセルしました。");
+      return;
+    }
+    const detail = payload.error || payload.message || "詳細不明";
+    showToast(`TXT更新が失敗しました。(${detail})`);
+  }, [showToast]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    let disposed = false;
+    const loadCurrentTxtJob = async () => {
+      try {
+        const res = await api.get("/jobs/current");
+        if (disposed) return;
+        const payload = (res.data ?? null) as JobStatusPayload | null;
+        if (!payload || payload.type !== "txt_update") return;
+        applyTxtUpdateStatus(payload);
+      } catch {
+        // ignore initial current-job fetch failures
+      }
+    };
+    void loadCurrentTxtJob();
+    return () => {
+      disposed = true;
+    };
+  }, [backendReady, applyTxtUpdateStatus]);
+
+  useEffect(() => {
+    if (!txtUpdatePolling || !txtUpdateJob?.id) return;
+    let disposed = false;
+    const poll = async () => {
+      try {
+        const res = await api.get(`/jobs/${txtUpdateJob.id}`);
+        if (disposed) return;
+        applyTxtUpdateStatus((res.data ?? null) as JobStatusPayload | null);
+      } catch {
+        // keep polling; transient errors are common during backend restart
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => {
+      void poll();
+    }, 2000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [txtUpdatePolling, txtUpdateJob?.id, applyTxtUpdateStatus]);
 
 
 
@@ -1531,9 +1635,9 @@ export default function GridView() {
     }
     try {
       await navigator.clipboard.writeText(consultText);
-      showToast("Message restored");
+      showToast("相場メモをコピーしました。");
     } catch {
-      showToast("Message restored");
+      showToast("コピーに失敗しました。");
     }
   }, [consultText]);
 
@@ -1548,15 +1652,37 @@ export default function GridView() {
     if (!backendReady) return;
     showToast("TXT更新を開始しました。");
     try {
-      const res = await api.post("/txt_update/run");
-      const payload = res.data as UpdateTxtPayload;
-      if (!payload.ok) {
+      const res = await api.post("/jobs/txt-update");
+      const payload = (res.data ?? {}) as TxtUpdateStartPayload;
+      if (payload.ok === false) {
         handleUpdateError(payload);
+        if (isTxtUpdateConflictError(payload.error) || payload.status === "conflict") {
+          try {
+            const current = await api.get("/jobs/current");
+            const job = (current.data ?? null) as JobStatusPayload | null;
+            if (job?.type === "txt_update") {
+              applyTxtUpdateStatus(job);
+            }
+          } catch {
+            // ignore current-job fetch failures after conflict
+          }
+        }
+        return;
+      }
+      const jobId = extractTxtUpdateJobId(payload);
+      if (jobId) {
+        txtUpdateTerminalStatusRef.current = null;
+        setTxtUpdateJob({
+          id: jobId,
+          status: "queued",
+          message: "Waiting in queue..."
+        });
+        setTxtUpdatePolling(true);
       }
     } catch (error) {
-      let payload: UpdateTxtPayload | null = null;
+      let payload: TxtUpdateStartPayload | null = null;
       if (typeof error === "object" && error && "response" in error) {
-        const response = (error as { response?: { data?: UpdateTxtPayload } }).response;
+        const response = (error as { response?: { data?: TxtUpdateStartPayload } }).response;
         payload = response?.data ?? null;
       }
       if (payload) {
@@ -1565,7 +1691,33 @@ export default function GridView() {
         showToast("TXT更新の起動に失敗しました。");
       }
     }
-  }, [backendReady, handleUpdateError]);
+  }, [backendReady, handleUpdateError, applyTxtUpdateStatus]);
+
+  const handleCancelTxtUpdate = useCallback(async () => {
+    if (!txtUpdateJob?.id) return;
+    try {
+      const res = await api.post(`/jobs/${txtUpdateJob.id}/cancel`);
+      const payload = (res.data ?? {}) as { cancel_requested?: boolean; status?: string };
+      if (payload.cancel_requested) {
+        txtUpdateTerminalStatusRef.current = null;
+        setTxtUpdatePolling(true);
+        setTxtUpdateJob((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            status: typeof payload.status === "string" ? payload.status : "cancel_requested"
+          };
+        });
+        showToast("TXT更新のキャンセルを要求しました。");
+      } else {
+        setTxtUpdatePolling(false);
+        showToast("TXT更新は既に終了しています。");
+      }
+    } catch (err) {
+      const detail = extractErrorDetail(err);
+      showToast(`TXT更新のキャンセルに失敗しました。(${detail})`);
+    }
+  }, [txtUpdateJob?.id, showToast]);
 
   const handlePhaseRebuild = useCallback(async () => {
     if (!backendReady) return;
@@ -1679,11 +1831,11 @@ export default function GridView() {
                       <div className="popover-section">
                         <div className="popover-title">行数</div>
                         <div className="segmented">
-                          {[1, 2, 3, 4, 5, 6].map((r) => (
+                          {gridRowOptions.map((r) => (
                             <button
                               key={r}
                               className={rows === r ? "active" : ""}
-                              onClick={() => setRows(r as any)}
+                              onClick={() => setRows(r)}
                             >
                               {r}
                             </button>
@@ -1693,11 +1845,11 @@ export default function GridView() {
                       <div className="popover-section">
                         <div className="popover-title">列数</div>
                         <div className="segmented">
-                          {[1, 2, 3, 4].map((c) => (
+                          {gridColumnOptions.map((c) => (
                             <button
                               key={c}
                               className={columns === c ? "active" : ""}
-                              onClick={() => setColumns(c as any)}
+                              onClick={() => setColumns(c)}
                             >
                               {c}
                             </button>
@@ -1774,6 +1926,31 @@ export default function GridView() {
                     onClick={handleUpdateTxt}
                     disabled={!backendReady}
                   />
+                  {txtUpdateCanCancel && (
+                    <IconButton
+                      icon={<IconPlayerStop size={18} />}
+                      label="停止"
+                      variant="iconLabel"
+                      tooltip="TXT更新を停止"
+                      ariaLabel="TXT更新を停止"
+                      className="txt-update-button"
+                      onClick={handleCancelTxtUpdate}
+                      disabled={!backendReady || !txtUpdateCanCancel}
+                    />
+                  )}
+                  {txtUpdateStatusLabel && (
+                    <span
+                      style={{
+                        marginLeft: 8,
+                        fontSize: 12,
+                        color: "var(--theme-text-secondary)",
+                        whiteSpace: "nowrap"
+                      }}
+                      title={txtUpdateJob?.message ?? undefined}
+                    >
+                      {txtUpdateStatusLabel}
+                    </span>
+                  )}
                 </div>
                 <div className="popover-anchor" ref={settingsRef}>
                   <IconButton
@@ -2056,7 +2233,7 @@ export default function GridView() {
               <input
                 className="search-input"
                 type="search"
-                placeholder="コーチ/ 銘柄名で検索"
+                placeholder="コード / 銘柄名で検索"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />

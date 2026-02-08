@@ -191,7 +191,7 @@ def positions_rebuild():
         return JSONResponse(status_code=500, content={"success": False, "error": str(e), "message": "Failed to rebuild positions"})
 
 @router.post("/api/trade_csv/upload")
-async def trade_csv_upload(file: UploadFile = File(...)):
+def trade_csv_upload(file: UploadFile = File(...)):
     if not file.filename or not file.filename.lower().endswith(".csv"):
         return JSONResponse(status_code=400, content={"ok": False, "error": "csv_required"})
     
@@ -199,7 +199,7 @@ async def trade_csv_upload(file: UploadFile = File(...)):
     # We will use TradeRepository to save if we want compliance, or just use temp saving logic from legacy.
     # Legacy saved to `_canonical_trade_csv_path`.
     
-    content = await file.read()
+    content = file.file.read()
     
     # Detect Broker
     broker, detected_method = TradeRepository.detect_broker_from_bytes(content, file.filename)
@@ -244,12 +244,12 @@ async def trade_csv_upload(file: UploadFile = File(...)):
         return JSONResponse(status_code=500, content={"ok": False, "error": f"ingest_failed:{e}"})
 
 @router.post("/api/imports/trade-history")
-async def import_trade_history(
+def import_trade_history(
     file: UploadFile = File(...),
     broker: str = Form("auto"),
 ):
     try:
-        raw_data = await file.read()
+        raw_data = file.file.read()
         original_filename = file.filename or ""
         
         detected_broker, detected_by = TradeRepository.detect_broker_from_bytes(raw_data, original_filename)

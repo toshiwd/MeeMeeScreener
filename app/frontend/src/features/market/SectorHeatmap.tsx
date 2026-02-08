@@ -204,15 +204,6 @@ const RenderSectorTile = (props: any & RenderSectorTileProps) => {
     }
   }
 
-  // Debug log for first tile only in development
-  if (typeof import.meta !== "undefined" && (import.meta as any).env?.MODE === "development" && x === 0 && y === 0) {
-    console.log("RenderSectorTile FIRST TILE props keys:", Object.keys(props));
-    console.log("RenderSectorTile FIRST TILE props.tile:", props.tile);
-    console.log("RenderSectorTile FIRST TILE props.name:", props.name);
-    console.log("RenderSectorTile FIRST TILE resolved data:", data);
-  }
-
-
   const rate = Number(data?.value ?? data?.color ?? 0);
   const count = Number(data?.tickerCount ?? data?.count ?? 0);
   const weight = Number(data?.weight ?? data?.size ?? 0);
@@ -554,7 +545,6 @@ export default function SectorHeatmap() {
   const frameCount = frames.length;
 
   if (import.meta.env.MODE === "development") {
-    // console.log("render state", { ... });
   }
 
 

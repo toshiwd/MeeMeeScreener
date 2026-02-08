@@ -30,18 +30,22 @@ client = TestClient(app)
 def test_txt_update_submission_flow():
     # Submit job
     resp = client.post("/api/jobs/txt-update")
-    assert resp.status_code in (200, 409)
+    assert resp.status_code in (200, 400, 409)
     
     if resp.status_code == 200:
         data = resp.json()
         assert data["ok"] is True
+        assert data["status"] == "accepted"
         job_id = data["job_id"]
         assert job_id
 
         # Try submitting duplicate right away. Depending on how fast the handler fails
         # (e.g. missing dummy files), this can be either rejected (409) or accepted (200).
         resp_dup = client.post("/api/jobs/txt-update")
-        assert resp_dup.status_code in (200, 409)
+        assert resp_dup.status_code in (200, 400, 409)
+    elif resp.status_code == 400:
+        data = resp.json()
+        assert data.get("error") == "code_txt_missing"
 
 def test_legacy_endpoint_compatibility():
     # Legacy endpoint should also trigger job

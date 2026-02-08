@@ -1033,7 +1033,7 @@ export const useStore = create<StoreState>((set, get) => ({
         return [];
       };
       const tickers: Ticker[] = items.map((rawItem) => {
-        const item = rawItem as any;
+        const item = rawItem as Record<string, any>;
         const statusLabel = item.statusLabel ?? null;
         const stageRaw = item.stage ?? statusLabel ?? "UNKNOWN";
         const stage =
@@ -1455,10 +1455,13 @@ export const useStore = create<StoreState>((set, get) => ({
     set((state) => ({ settings: { ...state.settings, listTimeframe: value } }));
   },
   setListRangeBars: (value) => {
+    const normalized = LIST_RANGE_VALUES.includes(value as Settings["listRangeBars"])
+      ? (value as Settings["listRangeBars"])
+      : 120;
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(LIST_RANGE_KEY, String(value));
+      window.localStorage.setItem(LIST_RANGE_KEY, String(normalized));
     }
-    set((state) => ({ settings: { ...state.settings, listRangeBars: value as any } }));
+    set((state) => ({ settings: { ...state.settings, listRangeBars: normalized } }));
   },
   setListColumns: (value) => {
     if (typeof window !== "undefined") {

@@ -683,7 +683,6 @@ export default function DetailView() {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const lastAnalysisAttemptAsOfRef = useRef<number | null>(null);
   const analysisRequestKeyRef = useRef<string | null>(null);
-  const detailChartLogRef = useRef<string | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const signalsRef = useRef<HTMLDivElement | null>(null);
   const emptyDrawingsRef = useRef<ChartDrawings>(createEmptyDrawings());
@@ -1390,24 +1389,6 @@ export default function DetailView() {
   );
   const weeklyData = useMemo(() => buildWeekly(dailyCandles, dailyVolume), [dailyCandles, dailyVolume]);
 
-  useEffect(() => {
-    if (!monthlyCandles.length || !code) return;
-    const dtMin = monthlyCandles[0].time;
-    const dtMax = monthlyCandles[monthlyCandles.length - 1].time;
-    const payload = {
-      tag: "detail_monthly_chart",
-      code,
-      dt_min: dtMin,
-      dt_max: dtMax,
-      len: monthlyCandles.length,
-      right_dt: dtMax
-    };
-    const signature = JSON.stringify(payload);
-    if (detailChartLogRef.current === signature) return;
-    detailChartLogRef.current = signature;
-    console.log(signature);
-  }, [monthlyCandles, code]);
-
   const dailyEventMarkers = useMemo(() => {
     const eventMs = parseEventDateMs(activeTicker?.eventEarningsDate);
     if (eventMs == null || dailyCandles.length === 0) return [];
@@ -1423,27 +1404,6 @@ export default function DetailView() {
   const dailyMonthBoundaries = useMemo(() => buildMonthBoundaries(dailyCandles), [dailyCandles]);
   const weeklyMonthBoundaries = useMemo(() => buildMonthBoundaries(weeklyCandles), [weeklyCandles]);
   const monthlyYearBoundaries = useMemo(() => buildYearBoundaries(monthlyCandles), [monthlyCandles]);
-  useEffect(() => {
-    if (!code) return;
-    if (!monthlyCandles.length) return;
-    const dtMin = monthlyCandles[0]?.time ?? null;
-    const dtMax = monthlyCandles[monthlyCandles.length - 1]?.time ?? null;
-    const signature = `${code}|${dtMin}|${dtMax}|${monthlyCandles.length}|${mainAsOf ?? ""}|${compareAsOf ?? ""}`;
-    if (detailChartLogRef.current === signature) return;
-    detailChartLogRef.current = signature;
-    console.log(
-      JSON.stringify({
-        tag: "detail_monthly_chart",
-        code,
-        dt_min: dtMin,
-        dt_max: dtMax,
-        len: monthlyCandles.length,
-        right_dt: dtMax,
-        mainAsOf: mainAsOf ?? null,
-        compareAsOf: compareAsOf ?? null,
-      })
-    );
-  }, [code, monthlyCandles, mainAsOf, compareAsOf]);
   const dailySignalBars = useMemo(
     () => dailyCandles.map((candle) => [candle.time, candle.open, candle.high, candle.low, candle.close]),
     [dailyCandles]

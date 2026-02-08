@@ -72,12 +72,6 @@ const StockTile = memo(function StockTile({
   const earningsLabel = formatEventBadgeDate(ticker.eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(ticker.eventRightsDate);
   const isFavorite = favorites.includes(ticker.code);
-  const formatScore = (value: number | null | undefined) =>
-    Number.isFinite(value)
-      ? String(Math.min(10, Math.max(0, Math.round(value! * 10))))
-      : "--";
-  const formatN = (value: number | null | undefined) =>
-    typeof value === "number" ? String(value) : "--";
 
   useEffect(() => {
     if (!backendReady || favoritesLoaded) return;

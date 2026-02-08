@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
-
 import os
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -14,6 +15,12 @@ from app.db.session import get_conn
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+TXT_UPDATE_JOB_TYPE = "txt_update"
+ACTIVE_JOB_STATUSES = ("queued", "running", "cancel_requested")
+TXT_UPDATE_SUCCESSOR_ENDPOINT = "/api/jobs/txt-update"
+TXT_UPDATE_SUNSET_HTTP_DATE = "Tue, 30 Jun 2026 00:00:00 GMT"
+TXT_UPDATE_DEPRECATION_DOC = "/docs/TXT_UPDATE_RUNBOOK.md"
+TXT_UPDATE_DISABLE_LEGACY_ENV = "MEEMEE_DISABLE_LEGACY_TXT_UPDATE_ENDPOINTS"
 
 
 def _count_active_jobs(job_type: str) -> int:
@@ -32,18 +39,219 @@ def _submit_job(job_type: str, payload: dict | None = None):
     return {"ok": True, "job_id": job_id}
 
 
+def _txt_update_conflict_response(*, source: str, legacy_endpoint: str | None = None) -> JSONResponse:
+    payload: dict[str, object] = {
+        "ok": False,
+        "started": False,
+        "status": "conflict",
+        "error": "update_in_progress",
+        "message": "TXT update is already active",
+        "type": TXT_UPDATE_JOB_TYPE,
+        "active_statuses": list(ACTIVE_JOB_STATUSES),
+        "source": source,
+    }
+    if legacy_endpoint:
+        payload["deprecated_endpoint"] = legacy_endpoint
+    return JSONResponse(status_code=409, content=payload)
+
+
+def _txt_update_missing_code_response(*, source: str, legacy_endpoint: str | None = None) -> JSONResponse:
+    payload: dict[str, object] = {
+        "ok": False,
+        "started": False,
+        "status": "invalid_request",
+        "error": "code_txt_missing",
+        "message": "code.txt is missing",
+        "type": TXT_UPDATE_JOB_TYPE,
+        "source": source,
+    }
+    if legacy_endpoint:
+        payload["deprecated_endpoint"] = legacy_endpoint
+    return JSONResponse(status_code=400, content=payload)
+
+
+def _txt_update_missing_vbs_response(
+    *, source: str, vbs_path: str, legacy_endpoint: str | None = None
+) -> JSONResponse:
+    payload: dict[str, object] = {
+        "ok": False,
+        "started": False,
+        "status": "invalid_request",
+        "error": f"vbs_not_found:{vbs_path}",
+        "message": "TXT update script is missing",
+        "type": TXT_UPDATE_JOB_TYPE,
+        "source": source,
+    }
+    if legacy_endpoint:
+        payload["deprecated_endpoint"] = legacy_endpoint
+    return JSONResponse(status_code=500, content=payload)
+
+
+def _txt_update_submit_response(
+    *,
+    job_id: str,
+    source: str,
+    legacy_endpoint: str | None = None,
+    payload: dict | None = None,
+) -> dict[str, object]:
+    response_payload: dict[str, object] = {
+        "ok": True,
+        "started": True,
+        "status": "accepted",
+        "message": "TXT update job started",
+        "type": TXT_UPDATE_JOB_TYPE,
+        "state": "queued",
+        "job_id": job_id,
+        "jobId": job_id,
+        "source": source,
+    }
+    if payload:
+        response_payload["request"] = payload
+    if legacy_endpoint:
+        response_payload["deprecated_endpoint"] = legacy_endpoint
+    return response_payload
+
+
+def _maybe_apply_legacy_headers(
+    response_or_payload: JSONResponse | dict[str, object],
+    *,
+    legacy_endpoint: str | None,
+) -> JSONResponse | dict[str, object]:
+    if not legacy_endpoint:
+        return response_or_payload
+
+    response = (
+        response_or_payload
+        if isinstance(response_or_payload, JSONResponse)
+        else JSONResponse(status_code=200, content=response_or_payload)
+    )
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = TXT_UPDATE_SUNSET_HTTP_DATE
+    response.headers["Warning"] = (
+        f'299 - "Deprecated API endpoint: {legacy_endpoint}. '
+        f'Use {TXT_UPDATE_SUCCESSOR_ENDPOINT} instead."'
+    )
+    response.headers["Link"] = (
+        f'<{TXT_UPDATE_SUCCESSOR_ENDPOINT}>; rel="successor-version", '
+        f'<{TXT_UPDATE_DEPRECATION_DOC}>; rel="deprecation"'
+    )
+    return response
+
+
+def _is_truthy_env(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _legacy_endpoint_disabled() -> bool:
+    return _is_truthy_env(os.getenv(TXT_UPDATE_DISABLE_LEGACY_ENV))
+
+
+def _legacy_endpoint_sunset_reached(now: datetime | None = None) -> bool:
+    try:
+        sunset_dt = parsedate_to_datetime(TXT_UPDATE_SUNSET_HTTP_DATE)
+    except (TypeError, ValueError):
+        return False
+    if sunset_dt.tzinfo is None:
+        sunset_dt = sunset_dt.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current >= sunset_dt
+
+
+def _legacy_endpoint_gone_response(*, source: str, legacy_endpoint: str) -> JSONResponse:
+    payload: dict[str, object] = {
+        "ok": False,
+        "started": False,
+        "status": "gone",
+        "error": "legacy_endpoint_removed",
+        "message": "Deprecated endpoint is disabled. Use /api/jobs/txt-update.",
+        "type": TXT_UPDATE_JOB_TYPE,
+        "source": source,
+        "deprecated_endpoint": legacy_endpoint,
+        "successor_endpoint": TXT_UPDATE_SUCCESSOR_ENDPOINT,
+    }
+    response = JSONResponse(status_code=410, content=payload)
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = TXT_UPDATE_SUNSET_HTTP_DATE
+    response.headers["Warning"] = (
+        f'299 - "Deprecated API endpoint disabled: {legacy_endpoint}. '
+        f'Use {TXT_UPDATE_SUCCESSOR_ENDPOINT} instead."'
+    )
+    response.headers["Link"] = (
+        f'<{TXT_UPDATE_SUCCESSOR_ENDPOINT}>; rel="successor-version", '
+        f'<{TXT_UPDATE_DEPRECATION_DOC}>; rel="deprecation"'
+    )
+    return response
+
+
+def submit_txt_update_job(
+    payload: dict | None = None,
+    *,
+    source: str,
+    legacy_endpoint: str | None = None,
+):
+    if legacy_endpoint and (_legacy_endpoint_disabled() or _legacy_endpoint_sunset_reached()):
+        return _legacy_endpoint_gone_response(source=source, legacy_endpoint=legacy_endpoint)
+
+    code_path = os.path.abspath(str(config.PAN_CODE_TXT_PATH))
+    if not os.path.isfile(code_path):
+        return _maybe_apply_legacy_headers(
+            _txt_update_missing_code_response(source=source, legacy_endpoint=legacy_endpoint),
+            legacy_endpoint=legacy_endpoint,
+        )
+
+    vbs_path = os.path.abspath(str(config.PAN_EXPORT_VBS_PATH))
+    if not os.path.isfile(vbs_path):
+        return _maybe_apply_legacy_headers(
+            _txt_update_missing_vbs_response(
+                source=source,
+                vbs_path=vbs_path,
+                legacy_endpoint=legacy_endpoint,
+            ),
+            legacy_endpoint=legacy_endpoint,
+        )
+
+    cleanup_stale_jobs()
+    if _count_active_jobs(TXT_UPDATE_JOB_TYPE) > 0:
+        return _maybe_apply_legacy_headers(
+            _txt_update_conflict_response(source=source, legacy_endpoint=legacy_endpoint),
+            legacy_endpoint=legacy_endpoint,
+        )
+
+    job_id = job_manager.submit(TXT_UPDATE_JOB_TYPE, payload or {}, unique=True)
+    if not job_id:
+        return _maybe_apply_legacy_headers(
+            _txt_update_conflict_response(source=source, legacy_endpoint=legacy_endpoint),
+            legacy_endpoint=legacy_endpoint,
+        )
+
+    return _maybe_apply_legacy_headers(
+        _txt_update_submit_response(
+            job_id=job_id,
+            source=source,
+            legacy_endpoint=legacy_endpoint,
+            payload=payload,
+        ),
+        legacy_endpoint=legacy_endpoint,
+    )
+
+
 @router.post("/api/jobs/txt-update")
 def submit_txt_update(
     auto_ml_predict: bool = True,
     auto_ml_train: bool = False,
 ):
     try:
-        return _submit_job(
-            "txt_update",
-            {
-                "auto_ml_predict": bool(auto_ml_predict),
-                "auto_ml_train": bool(auto_ml_train),
-            },
+        request_payload = {
+            "auto_ml_predict": bool(auto_ml_predict),
+            "auto_ml_train": bool(auto_ml_train),
+        }
+        return submit_txt_update_job(
+            request_payload,
+            source="/api/jobs/txt-update",
         )
     except Exception as exc:
         logger.exception("Error submitting txt_update: %s", exc)
@@ -198,25 +406,11 @@ def get_strategy_backtest_latest():
 
 @router.post("/api/txt_update/run")
 def run_txt_update_legacy():
-    cleanup_stale_jobs()
-    if _count_active_jobs("txt_update") > 0:
-        return JSONResponse(status_code=409, content={"ok": False, "error": "update_in_progress"})
-
-    code_path = os.path.abspath(str(config.PAN_CODE_TXT_PATH))
-    if not os.path.isfile(code_path):
-        return JSONResponse(status_code=400, content={"ok": False, "error": "code_txt_missing"})
-
-    vbs_path = os.path.abspath(str(config.PAN_EXPORT_VBS_PATH))
-    if not os.path.isfile(vbs_path):
-        return JSONResponse(
-            status_code=500, content={"ok": False, "error": f"vbs_not_found:{vbs_path}"}
-        )
-
-    job_id = job_manager.submit("txt_update", {})
-    if not job_id:
-        return JSONResponse(status_code=409, content={"ok": False, "error": "update_in_progress"})
-
-    return {"ok": True, "started": True, "job_id": job_id}
+    return submit_txt_update_job(
+        {},
+        source="/api/txt_update/run",
+        legacy_endpoint="/api/txt_update/run",
+    )
 
 
 @router.get("/api/jobs/current")
@@ -226,7 +420,8 @@ def get_current_job():
         with get_conn() as conn:
             row = conn.execute(
                 "SELECT id, type, status, created_at, started_at, progress, message "
-                "FROM sys_jobs WHERE status IN ('running', 'cancel_requested') ORDER BY started_at DESC LIMIT 1"
+                "FROM sys_jobs WHERE status IN ('queued', 'running', 'cancel_requested') "
+                "ORDER BY COALESCE(started_at, created_at) DESC LIMIT 1"
             ).fetchone()
             if not row:
                 return JSONResponse(content=None)
@@ -260,4 +455,5 @@ def get_job_status(job_id: str):
 @router.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: str):
     success = job_manager.cancel(job_id)
-    return {"id": job_id, "cancel_requested": success}
+    status = job_manager.get_status(job_id)
+    return {"id": job_id, "cancel_requested": success, "status": status["status"] if status else None}
