@@ -16,7 +16,7 @@ from app.backend.services.ml_service import select_top_n_ml
 RankTimeframe = Literal["D", "W", "M"]
 RankWhich = Literal["latest", "prev"]
 RankDir = Literal["up", "down"]
-RankMode = Literal["rule", "ml", "hybrid"]
+RankMode = Literal["rule", "ml", "hybrid", "turn"]
 
 _CACHE: dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]] = {}
 _LAST_UPDATED: datetime | None = None
@@ -24,6 +24,12 @@ _LOCK = Lock()
 
 _DAILY_LIMIT = 120
 _MONTHLY_LIMIT = 6
+_ENTRY_MIN_EV_NET_UP = 0.003
+_ENTRY_MAX_EV_NET_DOWN = 0.005
+_ENTRY_MAX_DIST_MA20 = 0.12
+_ENTRY_MIN_PROB_DOWN_STRICT = 0.56
+_ENTRY_MIN_RULE_SIGNAL_DOWN = 0.002
+_ENTRY_MAX_COUNTER_MOVE_DOWN = 0.01
 
 
 def _parse_date_value(value: int | str | None) -> datetime | None:
@@ -336,9 +342,13 @@ def _load_ml_pred_map(
     conn: duckdb.DuckDBPyConnection,
     pred_dt: int,
 ) -> tuple[dict[str, dict], str | None]:
+    cols = conn.execute("PRAGMA table_info('ml_pred_20d')").fetchall()
+    names = {str(row[1]).lower() for row in cols}
+    turn_up_expr = "p_turn_up" if "p_turn_up" in names else "NULL AS p_turn_up"
+    turn_down_expr = "p_turn_down" if "p_turn_down" in names else "NULL AS p_turn_down"
     rows = conn.execute(
-        """
-        SELECT code, p_up, ret_pred20, ev20, ev20_net, model_version
+        f"""
+        SELECT code, p_up, {turn_up_expr}, {turn_down_expr}, ret_pred20, ev20, ev20_net, model_version
         FROM ml_pred_20d
         WHERE dt = ?
         """,
@@ -347,10 +357,12 @@ def _load_ml_pred_map(
     pred_map = {
         str(row[0]): {
             "p_up": float(row[1]) if row[1] is not None else None,
-            "ret_pred20": float(row[2]) if row[2] is not None else None,
-            "ev20": float(row[3]) if row[3] is not None else None,
-            "ev20_net": float(row[4]) if row[4] is not None else None,
-            "model_version": row[5],
+            "p_turn_up": float(row[2]) if row[2] is not None else None,
+            "p_turn_down": float(row[3]) if row[3] is not None else None,
+            "ret_pred20": float(row[4]) if row[4] is not None else None,
+            "ev20": float(row[5]) if row[5] is not None else None,
+            "ev20_net": float(row[6]) if row[6] is not None else None,
+            "model_version": row[7],
         }
         for row in rows
     }
@@ -362,20 +374,149 @@ def _load_ml_pred_map(
     return pred_map, model_version
 
 
-def _decorate_items_with_ml(items: list[dict], pred_map: dict[str, dict]) -> list[dict]:
+def _load_daily_snapshot_map(
+    conn: duckdb.DuckDBPyConnection,
+    anchor_dt: int,
+) -> dict[str, dict]:
+    rows = conn.execute(
+        """
+        WITH latest AS (
+            SELECT
+                b.code,
+                b.date,
+                b.c,
+                m.ma20,
+                m.ma60,
+                ROW_NUMBER() OVER (PARTITION BY b.code ORDER BY b.date DESC) AS rn
+            FROM daily_bars b
+            LEFT JOIN daily_ma m ON m.code = b.code AND m.date = b.date
+            WHERE b.date <= ?
+        )
+        SELECT
+            code,
+            MAX(CASE WHEN rn = 1 THEN date END) AS snap_dt,
+            MAX(CASE WHEN rn = 1 THEN c END) AS snap_close,
+            MAX(CASE WHEN rn = 1 THEN ma20 END) AS snap_ma20,
+            MAX(CASE WHEN rn = 1 THEN ma60 END) AS snap_ma60,
+            MAX(CASE WHEN rn = 2 THEN c END) AS prev_close,
+            MAX(CASE WHEN rn = 2 THEN ma20 END) AS prev_ma20,
+            MAX(CASE WHEN rn = 2 THEN ma60 END) AS prev_ma60
+        FROM latest
+        WHERE rn <= 2
+        GROUP BY code
+        """,
+        [anchor_dt],
+    ).fetchall()
+    snapshot_map: dict[str, dict] = {}
+    for row in rows:
+        code = str(row[0])
+        close = float(row[2]) if row[2] is not None else None
+        ma20 = float(row[3]) if row[3] is not None else None
+        ma60 = float(row[4]) if row[4] is not None else None
+        prev_close = float(row[5]) if row[5] is not None else None
+        prev_ma20 = float(row[6]) if row[6] is not None else None
+        prev_ma60 = float(row[7]) if row[7] is not None else None
+        dist_ma20 = None
+        dist_ma20_signed = None
+        dist_ma60_signed = None
+        if close is not None and ma20 is not None and ma20 > 0:
+            dist_ma20 = abs(close - ma20) / ma20
+            dist_ma20_signed = (close - ma20) / ma20
+        if close is not None and ma60 is not None and ma60 > 0:
+            dist_ma60_signed = (close - ma60) / ma60
+        trend_up = (
+            close is not None
+            and ma20 is not None
+            and ma60 is not None
+            and close > ma20 > ma60
+        )
+        trend_down = (
+            close is not None
+            and ma20 is not None
+            and ma60 is not None
+            and close < ma20 < ma60
+        )
+        ma20_slope = (
+            (ma20 - prev_ma20)
+            if ma20 is not None and prev_ma20 is not None and math.isfinite(ma20) and math.isfinite(prev_ma20)
+            else None
+        )
+        ma60_slope = (
+            (ma60 - prev_ma60)
+            if ma60 is not None and prev_ma60 is not None and math.isfinite(ma60) and math.isfinite(prev_ma60)
+            else None
+        )
+        trend_up_strict = bool(
+            trend_up
+            and isinstance(ma20_slope, (int, float))
+            and isinstance(ma60_slope, (int, float))
+            and ma20_slope > 0
+            and ma60_slope > 0
+            and isinstance(dist_ma20_signed, (int, float))
+            and dist_ma20_signed >= 0.005
+        )
+        trend_down_strict = bool(
+            trend_down
+            and isinstance(ma20_slope, (int, float))
+            and isinstance(ma60_slope, (int, float))
+            and ma20_slope < 0
+            and ma60_slope < 0
+            and isinstance(dist_ma20_signed, (int, float))
+            and dist_ma20_signed <= -0.005
+            and isinstance(dist_ma60_signed, (int, float))
+            and dist_ma60_signed <= -0.01
+        )
+        snapshot_map[code] = {
+            "snap_dt": int(row[1]) if row[1] is not None else None,
+            "snap_close": close,
+            "snap_ma20": ma20,
+            "snap_ma60": ma60,
+            "prev_close": prev_close,
+            "prev_ma20": prev_ma20,
+            "prev_ma60": prev_ma60,
+            "dist_ma20": dist_ma20,
+            "dist_ma20_signed": dist_ma20_signed,
+            "dist_ma60_signed": dist_ma60_signed,
+            "ma20_slope": ma20_slope,
+            "ma60_slope": ma60_slope,
+            "trend_up": bool(trend_up),
+            "trend_down": bool(trend_down),
+            "trend_up_strict": trend_up_strict,
+            "trend_down_strict": trend_down_strict,
+        }
+    return snapshot_map
+
+
+def _decorate_items_with_ml(
+    items: list[dict],
+    pred_map: dict[str, dict],
+    snapshot_map: dict[str, dict],
+) -> list[dict]:
     enriched: list[dict] = []
     for item in items:
         code = str(item.get("code") or "")
         pred = pred_map.get(code) or {}
+        snap = snapshot_map.get(code) or {}
         enriched.append(
             {
                 **item,
                 "mlPUp": pred.get("p_up"),
+                "mlPTurnUp": pred.get("p_turn_up"),
+                "mlPTurnDown": pred.get("p_turn_down"),
                 "mlRetPred20": pred.get("ret_pred20"),
                 "mlEv20": pred.get("ev20"),
                 "mlEv20Net": pred.get("ev20_net"),
                 "modelVersion": pred.get("model_version"),
                 "hybridScore": None,
+                "entryScore": None,
+                "trendUp": snap.get("trend_up"),
+                "trendDown": snap.get("trend_down"),
+                "trendUpStrict": snap.get("trend_up_strict"),
+                "trendDownStrict": snap.get("trend_down_strict"),
+                "distMa20": snap.get("dist_ma20"),
+                "distMa20Signed": snap.get("dist_ma20_signed"),
+                "ma20Slope": snap.get("ma20_slope"),
+                "ma60Slope": snap.get("ma60_slope"),
             }
         )
     return enriched
@@ -422,11 +563,12 @@ def _apply_ml_mode(
             if pred_dt is None:
                 return items[:limit], None, None
             pred_map, model_version = _load_ml_pred_map(conn, pred_dt)
+            snapshot_map = _load_daily_snapshot_map(conn, pred_dt)
     except Exception:
         return items[:limit], None, None
 
     cfg = load_ml_config()
-    enriched = _decorate_items_with_ml(items, pred_map)
+    enriched = _decorate_items_with_ml(items, pred_map, snapshot_map)
 
     if mode == "ml":
         selected = select_top_n_ml(
@@ -455,6 +597,8 @@ def _apply_ml_mode(
 
     sign = 1.0 if direction == "up" else -1.0
     prob_min = float(cfg.min_prob_up if direction == "up" else cfg.min_prob_down)
+    prob_gate = prob_min if direction == "up" else max(prob_min, _ENTRY_MIN_PROB_DOWN_STRICT)
+    fallback_prob_gate = prob_gate if direction == "up" else max(prob_min, 0.52)
     rule_values = {
         str(item.get("code") or ""): (
             float(item["changePct"]) * sign
@@ -481,9 +625,49 @@ def _apply_ml_mode(
         else None
         for item in enriched
     }
+    turn_values = {
+        str(item.get("code") or ""): (
+            float(item["mlPTurnUp"])
+            if direction == "up"
+            else float(item["mlPTurnDown"])
+        )
+        if (
+            isinstance(item.get("mlPTurnUp"), (int, float))
+            and isinstance(item.get("mlPTurnDown"), (int, float))
+            and math.isfinite(float(item["mlPTurnUp"]))
+            and math.isfinite(float(item["mlPTurnDown"]))
+        )
+        else None
+        for item in enriched
+    }
+    turn_opp_values = {
+        str(item.get("code") or ""): (
+            float(item["mlPTurnDown"])
+            if direction == "up"
+            else float(item["mlPTurnUp"])
+        )
+        if (
+            isinstance(item.get("mlPTurnUp"), (int, float))
+            and isinstance(item.get("mlPTurnDown"), (int, float))
+            and math.isfinite(float(item["mlPTurnUp"]))
+            and math.isfinite(float(item["mlPTurnDown"]))
+        )
+        else None
+        for item in enriched
+    }
+    turn_margin_values = {
+        code: (
+            (turn_values.get(code) - turn_opp_values.get(code))
+            if isinstance(turn_values.get(code), (int, float)) and isinstance(turn_opp_values.get(code), (int, float))
+            else None
+        )
+        for code in {str(item.get("code") or "") for item in enriched}
+    }
     rule_rank = _percent_rank_desc(rule_values)
     ev_rank = _percent_rank_desc(ev_values)
     prob_rank = _percent_rank_desc(prob_values)
+    turn_rank = _percent_rank_desc(turn_values)
+    turn_margin_rank = _percent_rank_desc(turn_margin_values)
     qualified: list[dict] = []
     fallback: list[dict] = []
     for item in enriched:
@@ -491,35 +675,160 @@ def _apply_ml_mode(
         rr = rule_rank.get(code)
         er = ev_rank.get(code)
         pr = prob_rank.get(code)
+        tr = turn_rank.get(code)
+        tmr = turn_margin_rank.get(code)
         prob = prob_values.get(code)
         if rr is None or er is None or pr is None:
             item["hybridScore"] = None
+            item["entryScore"] = None
             continue
-        item["hybridScore"] = float(
-            cfg.rule_weight * rr + cfg.ev_weight * er + cfg.prob_weight * pr
+        base_score = float(cfg.rule_weight * rr + cfg.ev_weight * er + cfg.prob_weight * pr)
+        if mode == "turn":
+            if tr is None or tmr is None:
+                item["hybridScore"] = None
+                item["entryScore"] = None
+                continue
+            item["hybridScore"] = float(0.65 * tr + 0.35 * tmr)
+        else:
+            turn_weight = float(min(0.7, max(0.0, getattr(cfg, "turn_weight", 0.0))))
+            if tr is not None and mode == "hybrid":
+                item["hybridScore"] = float((1.0 - turn_weight) * base_score + turn_weight * tr)
+            else:
+                item["hybridScore"] = base_score
+        ev_net = item.get("mlEv20Net")
+        ev_ok = (
+            isinstance(ev_net, (int, float))
+            and math.isfinite(float(ev_net))
+            and (
+                float(ev_net) >= _ENTRY_MIN_EV_NET_UP
+                if direction == "up"
+                else float(ev_net) <= _ENTRY_MAX_EV_NET_DOWN
+            )
         )
-        if prob is not None and prob >= prob_min:
+        trend_ok = bool(item.get("trendUp")) if direction == "up" else bool(item.get("trendDownStrict"))
+        dist_ma20 = item.get("distMa20")
+        dist_ok = (
+            isinstance(dist_ma20, (int, float))
+            and math.isfinite(float(dist_ma20))
+            and float(dist_ma20) <= _ENTRY_MAX_DIST_MA20
+        )
+        rule_signal = rule_values.get(code)
+        rule_ok = bool(
+            isinstance(rule_signal, (int, float))
+            and math.isfinite(float(rule_signal))
+            and (
+                float(rule_signal) >= 0.0
+                if direction == "up"
+                else float(rule_signal) >= _ENTRY_MIN_RULE_SIGNAL_DOWN
+            )
+        )
+        counter_move_ok = bool(
+            isinstance(rule_signal, (int, float))
+            and math.isfinite(float(rule_signal))
+            and (
+                True
+                if direction == "up"
+                else float(rule_signal) >= -_ENTRY_MAX_COUNTER_MOVE_DOWN
+            )
+        )
+        turn_prob = turn_values.get(code)
+        turn_opp = turn_opp_values.get(code)
+        turn_gate = float(cfg.min_turn_prob_up if direction == "up" else cfg.min_turn_prob_down)
+        turn_margin_gate = float(cfg.min_turn_margin)
+        turn_ok = bool(
+            isinstance(turn_prob, (int, float))
+            and math.isfinite(float(turn_prob))
+            and float(turn_prob) >= turn_gate
+            and (
+                not isinstance(turn_opp, (int, float))
+                or not math.isfinite(float(turn_opp))
+                or (float(turn_prob) - float(turn_opp)) >= turn_margin_gate
+            )
+        )
+        bonus = 0.0
+        if trend_ok:
+            bonus += 0.08
+        if ev_ok:
+            bonus += 0.05
+        if prob is not None and prob >= (prob_gate + 0.03):
+            bonus += 0.04
+        if dist_ok:
+            bonus += 0.03
+        if rule_ok:
+            bonus += 0.03
+        if turn_ok:
+            bonus += 0.07
+        item["entryScore"] = float((item.get("hybridScore") or 0.0) + bonus)
+        item["evAligned"] = bool(ev_ok)
+        item["trendAligned"] = bool(trend_ok)
+        item["distOk"] = bool(dist_ok)
+        item["ruleAligned"] = bool(rule_ok)
+        item["counterMoveOk"] = bool(counter_move_ok)
+        item["turnAligned"] = bool(turn_ok)
+        item["probSide"] = float(prob) if prob is not None else None
+        if mode == "turn":
+            item["entryQualified"] = bool(turn_ok and dist_ok and counter_move_ok)
+        else:
+            trend_path_ok = bool(
+                prob is not None
+                and prob >= prob_gate
+                and ev_ok
+                and trend_ok
+            )
+            item["entryQualified"] = bool(
+                (trend_path_ok or turn_ok)
+                and dist_ok
+                and (rule_ok if direction == "up" else counter_move_ok)
+            )
+        if item["entryQualified"]:
             qualified.append(item)
         else:
             fallback.append(item)
 
     qualified.sort(
         key=lambda item: (
-            item.get("hybridScore") is None,
-            -(item.get("hybridScore") or 0.0),
+            item.get("entryScore") is None,
+            -(item.get("entryScore") or 0.0),
             item.get("code", ""),
         )
     )
     if len(qualified) >= limit:
         return qualified[:limit], pred_dt, model_version
-    fallback.sort(
+    strict_fallback = [
+        item
+        for item in fallback
+        if bool(item.get("evAligned"))
+        and (bool(item.get("trendAligned")) or bool(item.get("turnAligned")))
+        and bool(item.get("distOk"))
+        and bool(item.get("counterMoveOk"))
+        and (
+            mode == "turn"
+            or (
+                isinstance(item.get("probSide"), (int, float))
+                and float(item.get("probSide") or 0.0) >= fallback_prob_gate
+            )
+        )
+    ]
+    strict_fallback.sort(
         key=lambda item: (
-            item.get("hybridScore") is None,
-            -(item.get("hybridScore") or 0.0),
+            item.get("entryScore") is None,
+            -(item.get("entryScore") or 0.0),
             item.get("code", ""),
         )
     )
-    selected = qualified + fallback[: max(0, limit - len(qualified))]
+    min_return = min(limit, 12)
+    if len(qualified) < min_return:
+        selected = qualified + strict_fallback[: max(0, min_return - len(qualified))]
+        return selected[:limit], pred_dt, model_version
+    fallback.sort(
+        key=lambda item: (
+            not bool(item.get("trendUp")) if direction == "up" else not bool(item.get("trendDown")),
+            item.get("entryScore") is None,
+            -(item.get("entryScore") or 0.0),
+            item.get("code", ""),
+        )
+    )
+    selected = qualified + strict_fallback
     return selected[:limit], pred_dt, model_version
 
 

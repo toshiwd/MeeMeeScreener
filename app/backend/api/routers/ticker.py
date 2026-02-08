@@ -109,6 +109,16 @@ def _parse_dt(value: str | int | None) -> int | None:
     return None
 
 
+def _to_float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed == parsed else None
+
+
 @router.get("/phase", response_model=None)
 def get_phase_pred(
     code: str,
@@ -129,5 +139,38 @@ def get_phase_pred(
             "bodyScore": row[3],
             "n": row[4],
             "reasonsTop3": row[5],
+        }
+    }
+
+
+@router.get("/analysis", response_model=None)
+def get_analysis_pred(
+    code: str,
+    asof: str | int | None = None,
+    repo: StockRepository = Depends(get_stock_repo),
+) -> Dict[str, Any]:
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+    asof_dt = _parse_dt(asof)
+    row = repo.get_ml_analysis_pred(code, asof_dt)
+    if not row:
+        return {"item": None}
+    p_up = _to_float_or_none(row[1])
+    p_down = (1.0 - p_up) if p_up is not None else None
+    ev20 = _to_float_or_none(row[5])
+    ev20_net_raw = _to_float_or_none(row[6])
+    ev20_net = ev20_net_raw if ev20_net_raw is not None else (ev20 - 0.002 if ev20 is not None else None)
+    model_version = row[7]
+    return {
+        "item": {
+            "dt": row[0],
+            "pUp": p_up,
+            "pDown": p_down,
+            "pTurnUp": _to_float_or_none(row[2]),
+            "pTurnDown": _to_float_or_none(row[3]),
+            "retPred20": _to_float_or_none(row[4]),
+            "ev20": ev20,
+            "ev20Net": ev20_net,
+            "modelVersion": str(model_version) if model_version is not None else None,
         }
     }

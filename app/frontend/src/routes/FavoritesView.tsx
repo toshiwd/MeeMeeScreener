@@ -521,7 +521,7 @@ export default function FavoritesView() {
         </div>
       </div>
       <div
-        className={`consult - sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
+        className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
           }`}
       >
         <button

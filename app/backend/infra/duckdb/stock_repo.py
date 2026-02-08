@@ -178,3 +178,90 @@ class StockRepository:
         with self._get_conn() as conn:
             row = conn.execute(query, params).fetchone()
         return row
+
+    def _table_exists(self, conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
+        row = conn.execute(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = ? LIMIT 1",
+            [table_name],
+        ).fetchone()
+        return row is not None
+
+    def _column_exists(self, conn: duckdb.DuckDBPyConnection, table_name: str, column_name: str) -> bool:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = ? AND column_name = ?
+            LIMIT 1
+            """,
+            [table_name, column_name],
+        ).fetchone()
+        return row is not None
+
+    def _column_type(
+        self, conn: duckdb.DuckDBPyConnection, table_name: str, column_name: str
+    ) -> str | None:
+        row = conn.execute(
+            """
+            SELECT data_type
+            FROM information_schema.columns
+            WHERE table_name = ? AND column_name = ?
+            LIMIT 1
+            """,
+            [table_name, column_name],
+        ).fetchone()
+        if not row:
+            return None
+        value = row[0]
+        return str(value) if value is not None else None
+
+    def get_ml_analysis_pred(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
+        with self._get_conn() as conn:
+            if not self._table_exists(conn, "ml_pred_20d"):
+                return None
+            if not self._column_exists(conn, "ml_pred_20d", "code"):
+                return None
+            if not self._column_exists(conn, "ml_pred_20d", "dt"):
+                return None
+
+            has_p_up = self._column_exists(conn, "ml_pred_20d", "p_up")
+            has_p_turn_up = self._column_exists(conn, "ml_pred_20d", "p_turn_up")
+            has_p_turn_down = self._column_exists(conn, "ml_pred_20d", "p_turn_down")
+            has_ret_pred20 = self._column_exists(conn, "ml_pred_20d", "ret_pred20")
+            has_ev20 = self._column_exists(conn, "ml_pred_20d", "ev20")
+            has_ev20_net = self._column_exists(conn, "ml_pred_20d", "ev20_net")
+            has_model_version = self._column_exists(conn, "ml_pred_20d", "model_version")
+            dt_type = self._column_type(conn, "ml_pred_20d", "dt")
+
+            select_parts = [
+                "dt",
+                "p_up" if has_p_up else "NULL::DOUBLE AS p_up",
+                "p_turn_up" if has_p_turn_up else "NULL::DOUBLE AS p_turn_up",
+                "p_turn_down" if has_p_turn_down else "NULL::DOUBLE AS p_turn_down",
+                "ret_pred20" if has_ret_pred20 else "NULL::DOUBLE AS ret_pred20",
+                "ev20" if has_ev20 else "NULL::DOUBLE AS ev20",
+                "ev20_net" if has_ev20_net else "NULL::DOUBLE AS ev20_net",
+                "model_version" if has_model_version else "NULL::VARCHAR AS model_version",
+            ]
+            query = f"""
+                SELECT {", ".join(select_parts)}
+                FROM ml_pred_20d
+                WHERE code = ?
+            """
+            params: List[Any] = [code]
+            if asof_dt is not None and dt_type:
+                normalized_type = dt_type.upper()
+                if any(
+                    token in normalized_type
+                    for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
+                ):
+                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                    query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                    params.extend([asof_dt, asof_ymd])
+                else:
+                    asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
+                    query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
+                    params.append(asof_date)
+            query += " ORDER BY dt DESC LIMIT 1"
+            row = conn.execute(query, params).fetchone()
+        return row

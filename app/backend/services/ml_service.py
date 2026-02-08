@@ -14,10 +14,13 @@ from app.core.config import config as core_config
 from app.db.session import get_conn
 from app.backend.services.ml_config import MLConfig, load_ml_config
 
-FEATURE_VERSION = 1
-LABEL_VERSION = 1
+FEATURE_VERSION = 2
+LABEL_VERSION = 2
 MODEL_KEY = "ml_ev20_simple_v1"
 OBJECTIVE = "ret20_regression_with_p_up_gate"
+TURN_HORIZON_DAYS = 10
+TURN_TARGET_PCT = 0.06
+TURN_STOP_PCT = 0.03
 
 BASE_FEATURE_COLUMNS: list[str] = [
     "close",
@@ -35,6 +38,16 @@ DERIVED_FEATURE_COLUMNS: list[str] = [
     "dist_ma60",
     "ma7_ma20_gap",
     "ma20_ma60_gap",
+    "close_ret1",
+    "close_ret5",
+    "close_ret10",
+    "ma7_slope1",
+    "ma20_slope1",
+    "ma60_slope1",
+    "ma20_slope_delta1",
+    "dist_ma20_delta1",
+    "cnt_7_above_norm",
+    "cnt_20_above_norm",
 ]
 
 FEATURE_COLUMNS: list[str] = [*BASE_FEATURE_COLUMNS, *DERIVED_FEATURE_COLUMNS]
@@ -44,9 +57,14 @@ FEATURE_COLUMNS: list[str] = [*BASE_FEATURE_COLUMNS, *DERIVED_FEATURE_COLUMNS]
 class TrainedModels:
     cls: Any
     reg: Any
+    turn_up: Any | None
+    turn_down: Any | None
+    feature_columns: list[str]
     medians: dict[str, float]
     n_train_cls: int
     n_train_reg: int
+    n_train_turn_up: int
+    n_train_turn_down: int
 
 
 def _import_lightgbm():
@@ -81,6 +99,15 @@ def _ensure_ml_schema(conn) -> None:
             diff20_pct DOUBLE,
             cnt_20_above INTEGER,
             cnt_7_above INTEGER,
+            close_prev1 DOUBLE,
+            close_prev5 DOUBLE,
+            close_prev10 DOUBLE,
+            ma7_prev1 DOUBLE,
+            ma20_prev1 DOUBLE,
+            ma60_prev1 DOUBLE,
+            diff20_prev1 DOUBLE,
+            cnt_20_prev1 INTEGER,
+            cnt_7_prev1 INTEGER,
             feature_version INTEGER,
             computed_at TIMESTAMP,
             PRIMARY KEY(code, dt)
@@ -95,6 +122,9 @@ def _ensure_ml_schema(conn) -> None:
             ret20 DOUBLE,
             up20_label INTEGER,
             train_mask_cls INTEGER,
+            turn_up_label INTEGER,
+            turn_down_label INTEGER,
+            train_mask_turn INTEGER,
             n_forward INTEGER,
             label_version INTEGER,
             computed_at TIMESTAMP,
@@ -108,6 +138,8 @@ def _ensure_ml_schema(conn) -> None:
             dt INTEGER,
             code TEXT,
             p_up DOUBLE,
+            p_turn_up DOUBLE,
+            p_turn_down DOUBLE,
             ret_pred20 DOUBLE,
             ev20 DOUBLE,
             ev20_net DOUBLE,
@@ -118,6 +150,21 @@ def _ensure_ml_schema(conn) -> None:
         );
         """
     )
+    # Backward-compatible schema migrations.
+    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS close_prev1 DOUBLE")
+    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS close_prev5 DOUBLE")
+    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS close_prev10 DOUBLE")
+    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS ma7_prev1 DOUBLE")
+    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS ma20_prev1 DOUBLE")
+    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS ma60_prev1 DOUBLE")
+    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS diff20_prev1 DOUBLE")
+    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS cnt_20_prev1 INTEGER")
+    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS cnt_7_prev1 INTEGER")
+    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_up_label INTEGER")
+    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_down_label INTEGER")
+    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS train_mask_turn INTEGER")
+    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS p_turn_up DOUBLE")
+    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS p_turn_down DOUBLE")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS ml_model_registry (
@@ -202,6 +249,15 @@ def refresh_ml_feature_table(
             diff20_pct,
             cnt_20_above,
             cnt_7_above,
+            close_prev1,
+            close_prev5,
+            close_prev10,
+            ma7_prev1,
+            ma20_prev1,
+            ma60_prev1,
+            diff20_prev1,
+            cnt_20_prev1,
+            cnt_7_prev1,
             feature_version,
             computed_at
         )
@@ -216,6 +272,15 @@ def refresh_ml_feature_table(
             diff20_pct,
             cnt_20_above,
             cnt_7_above,
+            LAG(close, 1) OVER (PARTITION BY code ORDER BY dt) AS close_prev1,
+            LAG(close, 5) OVER (PARTITION BY code ORDER BY dt) AS close_prev5,
+            LAG(close, 10) OVER (PARTITION BY code ORDER BY dt) AS close_prev10,
+            LAG(ma7, 1) OVER (PARTITION BY code ORDER BY dt) AS ma7_prev1,
+            LAG(ma20, 1) OVER (PARTITION BY code ORDER BY dt) AS ma20_prev1,
+            LAG(ma60, 1) OVER (PARTITION BY code ORDER BY dt) AS ma60_prev1,
+            LAG(diff20_pct, 1) OVER (PARTITION BY code ORDER BY dt) AS diff20_prev1,
+            LAG(cnt_20_above, 1) OVER (PARTITION BY code ORDER BY dt) AS cnt_20_prev1,
+            LAG(cnt_7_above, 1) OVER (PARTITION BY code ORDER BY dt) AS cnt_7_prev1,
             ?,
             CURRENT_TIMESTAMP
         FROM feature_snapshot_daily
@@ -288,11 +353,14 @@ def refresh_ml_label_table(
                 ret20,
                 up20_label,
                 train_mask_cls,
+                turn_up_label,
+                turn_down_label,
+                train_mask_turn,
                 n_forward,
                 label_version,
                 computed_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             chunk,
         )
@@ -317,6 +385,14 @@ def refresh_ml_label_table(
                 continue
             ret20 = (future / base) - 1.0
             up20_label, train_mask_cls = compute_label_fields(ret20, neutral)
+            future_turn = closes[i + 1 : i + 1 + TURN_HORIZON_DAYS]
+            if len(future_turn) < TURN_HORIZON_DAYS:
+                continue
+            max_ret_turn = (max(future_turn) / base) - 1.0
+            min_ret_turn = (min(future_turn) / base) - 1.0
+            turn_up_label = 1 if (max_ret_turn >= TURN_TARGET_PCT and min_ret_turn > -TURN_STOP_PCT) else 0
+            turn_down_label = 1 if (min_ret_turn <= -TURN_TARGET_PCT and max_ret_turn < TURN_STOP_PCT) else 0
+            train_mask_turn = 1 if (turn_up_label == 1 or turn_down_label == 1 or abs(ret20) >= neutral) else 0
             records.append(
                 (
                     dt_i,
@@ -324,6 +400,9 @@ def refresh_ml_label_table(
                     float(ret20),
                     int(up20_label),
                     int(train_mask_cls),
+                    int(turn_up_label),
+                    int(turn_down_label),
+                    int(train_mask_turn),
                     20,
                     int(label_version),
                     computed_at,
@@ -378,9 +457,21 @@ def _load_training_df(conn, start_dt: int | None = None, end_dt: int | None = No
             f.diff20_pct,
             f.cnt_20_above,
             f.cnt_7_above,
+            f.close_prev1,
+            f.close_prev5,
+            f.close_prev10,
+            f.ma7_prev1,
+            f.ma20_prev1,
+            f.ma60_prev1,
+            f.diff20_prev1,
+            f.cnt_20_prev1,
+            f.cnt_7_prev1,
             l.ret20,
             l.up20_label,
-            l.train_mask_cls
+            l.train_mask_cls,
+            l.turn_up_label,
+            l.turn_down_label,
+            l.train_mask_turn
         FROM ml_feature_daily f
         JOIN ml_label_20d l ON f.code = l.code AND f.dt = l.dt
         WHERE
@@ -399,34 +490,57 @@ def _add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     ma60 = pd.to_numeric(result.get("ma60"), errors="coerce")
     ma7 = pd.to_numeric(result.get("ma7"), errors="coerce")
     close = pd.to_numeric(result.get("close"), errors="coerce")
+    close_prev1 = pd.to_numeric(result.get("close_prev1"), errors="coerce")
+    close_prev5 = pd.to_numeric(result.get("close_prev5"), errors="coerce")
+    close_prev10 = pd.to_numeric(result.get("close_prev10"), errors="coerce")
+    ma7_prev1 = pd.to_numeric(result.get("ma7_prev1"), errors="coerce")
+    ma20_prev1 = pd.to_numeric(result.get("ma20_prev1"), errors="coerce")
+    ma60_prev1 = pd.to_numeric(result.get("ma60_prev1"), errors="coerce")
+    diff20_prev1 = pd.to_numeric(result.get("diff20_prev1"), errors="coerce")
+    cnt_7_above = pd.to_numeric(result.get("cnt_7_above"), errors="coerce")
+    cnt_20_above = pd.to_numeric(result.get("cnt_20_above"), errors="coerce")
 
     result["dist_ma20"] = (close - ma20) / ma20.replace(0, np.nan)
     result["dist_ma60"] = (close - ma60) / ma60.replace(0, np.nan)
     result["ma7_ma20_gap"] = (ma7 - ma20) / ma20.replace(0, np.nan)
     result["ma20_ma60_gap"] = (ma20 - ma60) / ma60.replace(0, np.nan)
+    result["close_ret1"] = (close - close_prev1) / close_prev1.replace(0, np.nan)
+    result["close_ret5"] = (close - close_prev5) / close_prev5.replace(0, np.nan)
+    result["close_ret10"] = (close - close_prev10) / close_prev10.replace(0, np.nan)
+    result["ma7_slope1"] = (ma7 - ma7_prev1) / ma7_prev1.replace(0, np.nan)
+    result["ma20_slope1"] = (ma20 - ma20_prev1) / ma20_prev1.replace(0, np.nan)
+    result["ma60_slope1"] = (ma60 - ma60_prev1) / ma60_prev1.replace(0, np.nan)
+    result["ma20_slope_delta1"] = result["ma20_slope1"] - pd.to_numeric(
+        result.get("ma20_slope1"), errors="coerce"
+    ).groupby(result.get("code")).shift(1)
+    result["dist_ma20_delta1"] = result["dist_ma20"] - diff20_prev1
+    result["cnt_7_above_norm"] = cnt_7_above / 7.0
+    result["cnt_20_above_norm"] = cnt_20_above / 20.0
     return result
 
 
 def _prepare_feature_matrix(
     df: pd.DataFrame,
     medians: dict[str, float] | None = None,
+    feature_columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, float]]:
     feat = _add_derived_features(df)
-    for col in FEATURE_COLUMNS:
+    columns = feature_columns or FEATURE_COLUMNS
+    for col in columns:
         if col not in feat.columns:
             feat[col] = np.nan
-    matrix = feat[FEATURE_COLUMNS].copy()
+    matrix = feat[columns].copy()
     matrix = matrix.apply(pd.to_numeric, errors="coerce")
     resolved: dict[str, float] = {}
     if medians is None:
-        for col in FEATURE_COLUMNS:
+        for col in columns:
             values = matrix[col].to_numpy(dtype=float, copy=True)
             finite = values[np.isfinite(values)]
             resolved[col] = float(np.median(finite)) if finite.size else 0.0
     else:
-        for col in FEATURE_COLUMNS:
+        for col in columns:
             resolved[col] = float(medians.get(col, 0.0))
-    for col in FEATURE_COLUMNS:
+    for col in columns:
         matrix[col] = matrix[col].fillna(resolved[col])
     return matrix, resolved
 
@@ -440,6 +554,9 @@ def _fit_models(train_df: pd.DataFrame, cfg: MLConfig) -> TrainedModels:
     train_df["ret20"] = pd.to_numeric(train_df["ret20"], errors="coerce")
     train_df["up20_label"] = pd.to_numeric(train_df["up20_label"], errors="coerce")
     train_df["train_mask_cls"] = pd.to_numeric(train_df["train_mask_cls"], errors="coerce")
+    train_df["turn_up_label"] = pd.to_numeric(train_df.get("turn_up_label"), errors="coerce").fillna(0)
+    train_df["turn_down_label"] = pd.to_numeric(train_df.get("turn_down_label"), errors="coerce").fillna(0)
+    train_df["train_mask_turn"] = pd.to_numeric(train_df.get("train_mask_turn"), errors="coerce").fillna(0)
     train_df = train_df[np.isfinite(train_df["ret20"].to_numpy(dtype=float, copy=False))]
     if train_df.empty:
         raise RuntimeError("No valid ret20 rows in training data")
@@ -448,7 +565,7 @@ def _fit_models(train_df: pd.DataFrame, cfg: MLConfig) -> TrainedModels:
     if len(cls_df) < 200:
         raise RuntimeError("Insufficient classification rows (train_mask_cls=1)")
 
-    x_cls, medians = _prepare_feature_matrix(cls_df, medians=None)
+    x_cls, medians = _prepare_feature_matrix(cls_df, medians=None, feature_columns=FEATURE_COLUMNS)
     y_cls = cls_df["up20_label"].astype(int).to_numpy()
     cls_train = lgb.Dataset(
         x_cls.to_numpy(dtype=float),
@@ -469,7 +586,7 @@ def _fit_models(train_df: pd.DataFrame, cfg: MLConfig) -> TrainedModels:
     }
     cls_model = lgb.train(cls_params, cls_train, num_boost_round=int(cfg.cls_boost_round))
 
-    x_reg, _ = _prepare_feature_matrix(train_df, medians=medians)
+    x_reg, _ = _prepare_feature_matrix(train_df, medians=medians, feature_columns=FEATURE_COLUMNS)
     y_reg = train_df["ret20"].astype(float).to_numpy()
     reg_train = lgb.Dataset(
         x_reg.to_numpy(dtype=float),
@@ -490,22 +607,74 @@ def _fit_models(train_df: pd.DataFrame, cfg: MLConfig) -> TrainedModels:
     }
     reg_model = lgb.train(reg_params, reg_train, num_boost_round=int(cfg.reg_boost_round))
 
+    def _fit_turn_binary(label_col: str) -> tuple[Any | None, int]:
+        turn_df = train_df[train_df["train_mask_turn"] == 1].copy()
+        if len(turn_df) < 400:
+            return None, int(len(turn_df))
+        y = turn_df[label_col].astype(int).to_numpy()
+        positives = int(np.sum(y == 1))
+        negatives = int(np.sum(y == 0))
+        if positives < 80 or negatives < 80:
+            return None, int(len(turn_df))
+        x_turn, _ = _prepare_feature_matrix(turn_df, medians=medians, feature_columns=FEATURE_COLUMNS)
+        turn_train = lgb.Dataset(
+            x_turn.to_numpy(dtype=float),
+            label=y,
+            feature_name=FEATURE_COLUMNS,
+            free_raw_data=False,
+        )
+        turn_params = {
+            "objective": "binary",
+            "metric": "binary_logloss",
+            "learning_rate": 0.04,
+            "num_leaves": 63,
+            "feature_fraction": 0.9,
+            "bagging_fraction": 0.9,
+            "bagging_freq": 1,
+            "min_data_in_leaf": 60,
+            "is_unbalance": True,
+            "verbosity": -1,
+        }
+        model = lgb.train(turn_params, turn_train, num_boost_round=int(cfg.cls_boost_round))
+        return model, int(len(turn_df))
+
+    turn_up_model, n_turn_up = _fit_turn_binary("turn_up_label")
+    turn_down_model, n_turn_down = _fit_turn_binary("turn_down_label")
+
     return TrainedModels(
         cls=cls_model,
         reg=reg_model,
+        turn_up=turn_up_model,
+        turn_down=turn_down_model,
+        feature_columns=list(FEATURE_COLUMNS),
         medians=medians,
         n_train_cls=len(cls_df),
         n_train_reg=len(train_df),
+        n_train_turn_up=n_turn_up,
+        n_train_turn_down=n_turn_down,
     )
 
 
 def _predict_frame(df: pd.DataFrame, models: TrainedModels, cfg: MLConfig) -> pd.DataFrame:
-    matrix, _ = _prepare_feature_matrix(df, medians=models.medians)
+    matrix, _ = _prepare_feature_matrix(
+        df,
+        medians=models.medians,
+        feature_columns=models.feature_columns,
+    )
     pred = df.copy()
-    pred["p_up"] = models.cls.predict(matrix.to_numpy(dtype=float))
-    pred["ret_pred20"] = models.reg.predict(matrix.to_numpy(dtype=float))
+    matrix_np = matrix.to_numpy(dtype=float)
+    pred["p_up"] = models.cls.predict(matrix_np)
+    pred["ret_pred20"] = models.reg.predict(matrix_np)
     pred["ev20"] = pred["ret_pred20"]
     pred["ev20_net"] = pred["ev20"].apply(lambda v: compute_ev20_net(float(v), cfg.cost_rate))
+    if models.turn_up is not None:
+        pred["p_turn_up"] = models.turn_up.predict(matrix_np)
+    else:
+        pred["p_turn_up"] = pred["p_up"]
+    if models.turn_down is not None:
+        pred["p_turn_down"] = models.turn_down.predict(matrix_np)
+    else:
+        pred["p_turn_down"] = 1.0 - pd.to_numeric(pred["p_up"], errors="coerce").fillna(0.5)
     return pred
 
 
@@ -569,6 +738,10 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
             "top30_win_rate": None,
             "top30_median_ret20_net": None,
             "top30_p05_ret20_net": None,
+            "turn_long_mean_ret10_proxy_net": None,
+            "turn_long_win_rate": None,
+            "turn_short_mean_ret10_proxy_net": None,
+            "turn_short_win_rate": None,
             "folds": [],
         }
 
@@ -582,10 +755,16 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
             "top30_win_rate": None,
             "top30_median_ret20_net": None,
             "top30_p05_ret20_net": None,
+            "turn_long_mean_ret10_proxy_net": None,
+            "turn_long_win_rate": None,
+            "turn_short_mean_ret10_proxy_net": None,
+            "turn_short_win_rate": None,
             "folds": [],
         }
 
     daily_scores: list[float] = []
+    daily_turn_long_scores: list[float] = []
+    daily_turn_short_scores: list[float] = []
     fold_rows: list[dict[str, Any]] = []
     for window in windows:
         train_dates = set(window["train_dates"])
@@ -602,6 +781,8 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
 
         pred_df = _predict_frame(test_df, models, cfg)
         fold_daily: list[float] = []
+        fold_turn_long: list[float] = []
+        fold_turn_short: list[float] = []
         for dt_value, group in pred_df.groupby("dt"):
             selected = select_top_n_ml(
                 group.to_dict(orient="records"),
@@ -623,6 +804,38 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
             daily_scores.append(day_score)
             fold_daily.append(day_score)
 
+            turn_long = (
+                group.sort_values(["p_turn_up", "code"], ascending=[False, True])
+                .head(int(cfg.top_n))
+                .to_dict(orient="records")
+            )
+            turn_long_realized = []
+            for item in turn_long:
+                ret20 = _safe_float(item.get("ret20"))
+                if ret20 is None:
+                    continue
+                turn_long_realized.append(compute_ev20_net(ret20, cfg.cost_rate))
+            if turn_long_realized:
+                turn_long_score = float(np.mean(turn_long_realized))
+                daily_turn_long_scores.append(turn_long_score)
+                fold_turn_long.append(turn_long_score)
+
+            turn_short = (
+                group.sort_values(["p_turn_down", "code"], ascending=[False, True])
+                .head(int(cfg.top_n))
+                .to_dict(orient="records")
+            )
+            turn_short_realized = []
+            for item in turn_short:
+                ret20 = _safe_float(item.get("ret20"))
+                if ret20 is None:
+                    continue
+                turn_short_realized.append(compute_ev20_net(-ret20, cfg.cost_rate))
+            if turn_short_realized:
+                turn_short_score = float(np.mean(turn_short_realized))
+                daily_turn_short_scores.append(turn_short_score)
+                fold_turn_short.append(turn_short_score)
+
         fold_rows.append(
             {
                 "train_start_dt": int(window["train_start_dt"]),
@@ -632,6 +845,8 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
                 "embargo_days": int(window["embargo_days"]),
                 "daily_count": len(fold_daily),
                 "mean_ret20_net": float(np.mean(fold_daily)) if fold_daily else None,
+                "turn_long_mean_ret10_proxy_net": float(np.mean(fold_turn_long)) if fold_turn_long else None,
+                "turn_short_mean_ret10_proxy_net": float(np.mean(fold_turn_short)) if fold_turn_short else None,
             }
         )
 
@@ -643,10 +858,16 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
             "top30_win_rate": None,
             "top30_median_ret20_net": None,
             "top30_p05_ret20_net": None,
+            "turn_long_mean_ret10_proxy_net": None,
+            "turn_long_win_rate": None,
+            "turn_short_mean_ret10_proxy_net": None,
+            "turn_short_win_rate": None,
             "folds": fold_rows,
         }
 
     arr = np.array(daily_scores, dtype=float)
+    arr_turn_long = np.array(daily_turn_long_scores, dtype=float) if daily_turn_long_scores else np.array([], dtype=float)
+    arr_turn_short = np.array(daily_turn_short_scores, dtype=float) if daily_turn_short_scores else np.array([], dtype=float)
     return {
         "fold_count": len(fold_rows),
         "daily_count": int(arr.size),
@@ -654,6 +875,10 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
         "top30_win_rate": float(np.mean(arr > 0)),
         "top30_median_ret20_net": float(np.median(arr)),
         "top30_p05_ret20_net": float(np.percentile(arr, 5)),
+        "turn_long_mean_ret10_proxy_net": float(np.mean(arr_turn_long)) if arr_turn_long.size else None,
+        "turn_long_win_rate": float(np.mean(arr_turn_long > 0)) if arr_turn_long.size else None,
+        "turn_short_mean_ret10_proxy_net": float(np.mean(arr_turn_short)) if arr_turn_short.size else None,
+        "turn_short_win_rate": float(np.mean(arr_turn_short > 0)) if arr_turn_short.size else None,
         "folds": fold_rows,
     }
 
@@ -797,6 +1022,8 @@ def train_models(
             "train_rows": int(len(df)),
             "n_train_cls": int(models.n_train_cls),
             "n_train_reg": int(models.n_train_reg),
+            "n_train_turn_up": int(models.n_train_turn_up),
+            "n_train_turn_down": int(models.n_train_turn_down),
             "model_version": model_version,
             "walk_forward": wf_metrics,
         }
@@ -816,8 +1043,12 @@ def train_models(
                 "rule_weight": cfg.rule_weight,
                 "ev_weight": cfg.ev_weight,
                 "prob_weight": cfg.prob_weight,
+                "turn_weight": cfg.turn_weight,
                 "min_prob_up": cfg.min_prob_up,
                 "min_prob_down": cfg.min_prob_down,
+                "min_turn_prob_up": cfg.min_turn_prob_up,
+                "min_turn_prob_down": cfg.min_turn_prob_down,
+                "min_turn_margin": cfg.min_turn_margin,
             },
         }
         if dry_run:
@@ -829,11 +1060,19 @@ def train_models(
         art_dir = _artifact_dir()
         cls_path = art_dir / f"{model_version}_cls.txt"
         reg_path = art_dir / f"{model_version}_reg.txt"
+        turn_up_path = art_dir / f"{model_version}_turn_up.txt"
+        turn_down_path = art_dir / f"{model_version}_turn_down.txt"
         models.cls.save_model(str(cls_path))
         models.reg.save_model(str(reg_path))
+        if models.turn_up is not None:
+            models.turn_up.save_model(str(turn_up_path))
+        if models.turn_down is not None:
+            models.turn_down.save_model(str(turn_down_path))
         artifact = {
             "cls_model_path": str(cls_path),
             "reg_model_path": str(reg_path),
+            "turn_up_model_path": str(turn_up_path) if models.turn_up is not None else None,
+            "turn_down_model_path": str(turn_down_path) if models.turn_down is not None else None,
         }
         train_start = int(df["dt"].min()) if not df.empty else None
         train_end = int(df["dt"].max()) if not df.empty else None
@@ -883,16 +1122,45 @@ def _load_models_from_registry(conn) -> tuple[TrainedModels, str, int]:
     reg_model_path = artifact.get("reg_model_path")
     if not cls_model_path or not reg_model_path:
         raise RuntimeError("Model artifact path is invalid")
+    turn_up_model_path = artifact.get("turn_up_model_path")
+    turn_down_model_path = artifact.get("turn_down_model_path")
     lgb = _import_lightgbm()
     cls_model = lgb.Booster(model_file=str(cls_model_path))
     reg_model = lgb.Booster(model_file=str(reg_model_path))
+    metric_cols = metrics_json.get("feature_columns")
+    model_feature_columns = (
+        [str(c) for c in metric_cols if isinstance(c, str) and c]
+        if isinstance(metric_cols, list)
+        else []
+    )
+    if not model_feature_columns:
+        try:
+            n_features = int(cls_model.num_feature())
+        except Exception:
+            n_features = len(FEATURE_COLUMNS)
+        model_feature_columns = list(FEATURE_COLUMNS[: max(1, min(n_features, len(FEATURE_COLUMNS)))])
+    turn_up_model = (
+        lgb.Booster(model_file=str(turn_up_model_path))
+        if turn_up_model_path and Path(str(turn_up_model_path)).exists()
+        else None
+    )
+    turn_down_model = (
+        lgb.Booster(model_file=str(turn_down_model_path))
+        if turn_down_model_path and Path(str(turn_down_model_path)).exists()
+        else None
+    )
     return (
         TrainedModels(
             cls=cls_model,
             reg=reg_model,
+            turn_up=turn_up_model,
+            turn_down=turn_down_model,
+            feature_columns=model_feature_columns,
             medians={str(k): float(v) for k, v in medians.items()},
             n_train_cls=int(metrics_json.get("n_train_cls") or 0),
             n_train_reg=int(metrics_json.get("n_train_reg") or n_train or 0),
+            n_train_turn_up=int(metrics_json.get("n_train_turn_up") or 0),
+            n_train_turn_down=int(metrics_json.get("n_train_turn_down") or 0),
         ),
         str(model_version),
         int(n_train or 0),
@@ -925,7 +1193,16 @@ def predict_for_dt(dt: int | None = None) -> dict[str, Any]:
                 atr14,
                 diff20_pct,
                 cnt_20_above,
-                cnt_7_above
+                cnt_7_above,
+                close_prev1,
+                close_prev5,
+                close_prev10,
+                ma7_prev1,
+                ma20_prev1,
+                ma60_prev1,
+                diff20_prev1,
+                cnt_20_prev1,
+                cnt_7_prev1
             FROM ml_feature_daily
             WHERE dt = ?
             ORDER BY code
@@ -942,6 +1219,8 @@ def predict_for_dt(dt: int | None = None) -> dict[str, Any]:
                 int(target_dt),
                 str(item.code),
                 float(item.p_up),
+                float(item.p_turn_up),
+                float(item.p_turn_down),
                 float(item.ret_pred20),
                 float(item.ev20),
                 float(item.ev20_net),
@@ -958,6 +1237,8 @@ def predict_for_dt(dt: int | None = None) -> dict[str, Any]:
                     dt,
                     code,
                     p_up,
+                    p_turn_up,
+                    p_turn_down,
                     ret_pred20,
                     ev20,
                     ev20_net,
@@ -965,7 +1246,7 @@ def predict_for_dt(dt: int | None = None) -> dict[str, Any]:
                     n_train,
                     computed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """,
                 rows,
             )
@@ -1010,8 +1291,12 @@ def get_ml_status() -> dict[str, Any]:
                 "rule_weight": cfg.rule_weight,
                 "ev_weight": cfg.ev_weight,
                 "prob_weight": cfg.prob_weight,
+                "turn_weight": cfg.turn_weight,
                 "min_prob_up": cfg.min_prob_up,
                 "min_prob_down": cfg.min_prob_down,
+                "min_turn_prob_up": cfg.min_turn_prob_up,
+                "min_turn_prob_down": cfg.min_turn_prob_down,
+                "min_turn_margin": cfg.min_turn_margin,
             },
         }
         if active:

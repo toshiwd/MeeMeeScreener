@@ -24,6 +24,7 @@ from app.backend.services.system_status import (
 from app.backend.core.force_sync_job import handle_force_sync  # noqa: E402
 from app.backend.core.phase_batch_job import handle_phase_rebuild  # noqa: E402
 from app.backend.core.ml_job import handle_ml_predict, handle_ml_train  # noqa: E402
+from app.backend.core.strategy_backtest_job import handle_strategy_backtest  # noqa: E402
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager  # noqa: E402
 from app.backend.core.txt_update_job import (
     _load_update_state,
@@ -38,6 +39,7 @@ job_manager.register_handler("txt_update", handle_txt_update)
 job_manager.register_handler("phase_rebuild", handle_phase_rebuild)
 job_manager.register_handler("ml_train", handle_ml_train)
 job_manager.register_handler("ml_predict", handle_ml_predict)
+job_manager.register_handler("strategy_backtest", handle_strategy_backtest)
 
 STATIC_DIR = os.path.abspath(os.getenv("STATIC_DIR") or os.path.join(os.path.dirname(__file__), "static"))
 _RESOLVED_PATHS_LOGGED = False

@@ -424,7 +424,7 @@ export default function GridView() {
 
   useEffect(() => {
     if (!sortOpen && !displayOpen && !settingsOpen && !sectorSortOpen) return;
-    const handleClick = (event: Mousevent) => {
+    const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (sortRef.current && sortRef.current.contains(target)) return;
       if (displayRef.current && displayRef.current.contains(target)) return;
@@ -1235,7 +1235,7 @@ export default function GridView() {
     [keepList, addKeep, removeKeep]
   );
 
-  const handlexclude = useCallback(
+  const handleExclude = useCallback(
     (code: string) => {
       if (!code) return;
       handleRemoveWatchlist(code, false);
@@ -1263,16 +1263,16 @@ export default function GridView() {
   );
 
   useEffect(() => {
-    const handleKeyDown = (event: Keyboardvent) => {
+    const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
-        if (tag === "INPUT" || tag === "TXTARA" || tag === "SLCT" || target.isContentditable) {
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable) {
           return;
         }
       }
       const key = event.key.toLowerCase();
-      if (event.key === "scape") {
+      if (event.key === "Escape") {
         setSortOpen(false);
         setDisplayOpen(false);
         setSectorSortOpen(false); // Close sector sort popover
@@ -1313,7 +1313,7 @@ export default function GridView() {
       }
       if (key === "e" && activeCode) {
         event.preventDefault();
-        handlexclude(activeCode);
+        handleExclude(activeCode);
         return;
       }
       if (event.key === "1") {
@@ -1334,7 +1334,7 @@ export default function GridView() {
     activeCode,
     handleOpenDetail,
     handleToggleKeep,
-    handlexclude
+    handleExclude
   ]);
 
   const handleUndoRemove = useCallback(async () => {
@@ -2208,7 +2208,7 @@ export default function GridView() {
                           onActivate={activateByCode}
                           onOpenDetail={handleOpenDetail}
                           onToggleKeep={handleToggleKeep}
-                          onxclude={handlexclude}
+                          onExclude={handleExclude}
                           theme={currentTheme}
                         />
                       );

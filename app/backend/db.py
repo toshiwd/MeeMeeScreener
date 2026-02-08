@@ -182,6 +182,15 @@ def _init_schema_on_conn(conn: duckdb.DuckDBPyConnection) -> None:
             diff20_pct DOUBLE,
             cnt_20_above INTEGER,
             cnt_7_above INTEGER,
+            close_prev1 DOUBLE,
+            close_prev5 DOUBLE,
+            close_prev10 DOUBLE,
+            ma7_prev1 DOUBLE,
+            ma20_prev1 DOUBLE,
+            ma60_prev1 DOUBLE,
+            diff20_prev1 DOUBLE,
+            cnt_20_prev1 INTEGER,
+            cnt_7_prev1 INTEGER,
             feature_version INTEGER,
             computed_at TIMESTAMP,
             PRIMARY KEY(code, dt)
@@ -196,6 +205,9 @@ def _init_schema_on_conn(conn: duckdb.DuckDBPyConnection) -> None:
             ret20 DOUBLE,
             up20_label INTEGER,
             train_mask_cls INTEGER,
+            turn_up_label INTEGER,
+            turn_down_label INTEGER,
+            train_mask_turn INTEGER,
             n_forward INTEGER,
             label_version INTEGER,
             computed_at TIMESTAMP,
@@ -209,6 +221,8 @@ def _init_schema_on_conn(conn: duckdb.DuckDBPyConnection) -> None:
             dt INTEGER,
             code TEXT,
             p_up DOUBLE,
+            p_turn_up DOUBLE,
+            p_turn_down DOUBLE,
             ret_pred20 DOUBLE,
             ev20 DOUBLE,
             ev20_net DOUBLE,
@@ -234,6 +248,22 @@ def _init_schema_on_conn(conn: duckdb.DuckDBPyConnection) -> None:
             n_train INTEGER,
             created_at TIMESTAMP,
             is_active BOOLEAN
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS strategy_backtest_runs (
+            run_id TEXT PRIMARY KEY,
+            started_at TIMESTAMP,
+            finished_at TIMESTAMP,
+            status TEXT,
+            start_dt INTEGER,
+            end_dt INTEGER,
+            max_codes INTEGER,
+            config_json TEXT,
+            metrics_json TEXT,
+            note TEXT
         );
         """
     )

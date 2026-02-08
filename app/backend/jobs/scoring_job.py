@@ -92,5 +92,10 @@ class ScoringJob:
                 continue
         
         logger.info(f"Scoring complete. Found {len(results)} candidates.")
-        # TODO: Save results to DB or Cache
+        if results:
+            self.stock_repo.save_scores(results)
+            logger.info("Saved %d scoring results to stock_scores.", len(results))
+        else:
+            self.stock_repo.ensure_score_table()
+            logger.info("No scoring candidates found. Ensured stock_scores table exists.")
         return results

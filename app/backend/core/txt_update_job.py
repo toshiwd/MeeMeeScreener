@@ -167,7 +167,22 @@ def run_ingest(incremental: bool = True) -> tuple[str, str, dict]:
         return buffer.getvalue(), str(exc), {}
 
 
+def _to_bool(value: object, default: bool) -> bool:
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return bool(default)
+
+
 def handle_txt_update(job_id: str, payload: dict) -> None:
+    auto_ml_predict = _to_bool(payload.get("auto_ml_predict"), True)
+    auto_ml_train = _to_bool(payload.get("auto_ml_train"), False)
     job_manager._update_db(job_id, "txt_update", "running", message="Initializing update...", progress=0)
     code_path = _pan_code_txt_path()
     out_dir = _pan_out_txt_dir()
@@ -241,7 +256,8 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         )
         return
 
-    _save_update_state(
+    state = _load_update_state()
+    state.update(
         {
             "last_txt_update_at": datetime.now().isoformat(),
             "last_txt_update_date": datetime.now().date().isoformat(),
@@ -252,16 +268,40 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         rankings_cache.refresh_cache()
     except Exception as exc:
         print(f"[txt_update_job] ranking cache refresh failed: {exc}")
+    ml_note_parts: list[str] = []
     try:
         from app.backend.services import ml_service
-        ml_service.predict_latest()
+        if auto_ml_train:
+            job_manager._update_db(
+                job_id, "txt_update", "running", message="Refreshing ML training...", progress=97
+            )
+            train_result = ml_service.train_models(dry_run=False)
+            state["last_ml_train_at"] = datetime.now().isoformat()
+            model_version = train_result.get("model_version")
+            if model_version:
+                state["last_ml_model_version"] = str(model_version)
+            ml_note_parts.append("ml_train=ok")
+        if auto_ml_predict:
+            job_manager._update_db(
+                job_id, "txt_update", "running", message="Refreshing ML prediction...", progress=98
+            )
+            pred_result = ml_service.predict_for_dt(dt=phase_dt)
+            state["last_ml_predict_at"] = datetime.now().isoformat()
+            state["last_ml_predict_dt"] = int(pred_result.get("dt") or phase_dt)
+            state["last_ml_predict_rows"] = int(pred_result.get("rows") or 0)
+            ml_note_parts.append(f"ml_predict=ok(rows={state['last_ml_predict_rows']})")
+        else:
+            ml_note_parts.append("ml_predict=skip")
     except Exception as exc:
         print(f"[txt_update_job] ml predict refresh failed: {exc}")
+        ml_note_parts.append(f"ml=failed({exc})")
+    _save_update_state(state)
+    ml_note = f" [{' / '.join(ml_note_parts)}]" if ml_note_parts else ""
     job_manager._update_db(
         job_id,
         "txt_update",
         "success",
-        message=f"{summary_line}. Ingest + Phase completed.",
+        message=f"{summary_line}. Ingest + Phase completed.{ml_note}",
         progress=100,
         finished_at=datetime.now(),
     )

@@ -30,6 +30,8 @@ type RankItem = {
   series?: number[][];
   is_favorite?: boolean;
   mlPUp?: number | null;
+  mlPTurnUp?: number | null;
+  mlPTurnDown?: number | null;
   mlRetPred20?: number | null;
   mlEv20?: number | null;
   mlEv20Net?: number | null;
@@ -39,6 +41,7 @@ type RankItem = {
 
 type RankTimeframe = "D" | "W" | "M";
 type RankWhich = "latest" | "prev";
+type RankMode = "hybrid" | "turn";
 
 const RANK_VIEW_STATE_KEY = "rankingViewState";
 
@@ -76,6 +79,7 @@ export default function RankingView() {
   const [dir, setDir] = useState<"up" | "down">("up");
   // const [rankTimeframe, setRankTimeframe] = useState<RankTimeframe>("D"); // REMOVED
   const [rankWhich, setRankWhich] = useState<RankWhich>("latest");
+  const [rankMode, setRankMode] = useState<RankMode>("hybrid");
   const [items, setItems] = useState<RankItem[]>([]);
   const [search, setSearch] = useState("");
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
@@ -115,6 +119,7 @@ export default function RankingView() {
         listTimeframe?: "daily" | "weekly" | "monthly";
         dir?: "up" | "down";
         rankWhich?: RankWhich;
+        rankMode?: RankMode;
       };
       if (parsed.listTimeframe) {
         setListTimeframe(parsed.listTimeframe);
@@ -124,6 +129,9 @@ export default function RankingView() {
       }
       if (parsed.rankWhich === "latest" || parsed.rankWhich === "prev") {
         setRankWhich(parsed.rankWhich);
+      }
+      if (parsed.rankMode === "hybrid" || parsed.rankMode === "turn") {
+        setRankMode(parsed.rankMode);
       }
     } catch {
       // ignore storage failures
@@ -136,13 +144,14 @@ export default function RankingView() {
       const payload = {
         listTimeframe,
         dir,
-        rankWhich
+        rankWhich,
+        rankMode
       };
       window.sessionStorage.setItem(RANK_VIEW_STATE_KEY, JSON.stringify(payload));
     } catch {
       // ignore storage failures
     }
-  }, [listTimeframe, dir, rankWhich]);
+  }, [listTimeframe, dir, rankWhich, rankMode]);
 
   const listStyles = useMemo(
     () =>
@@ -331,7 +340,7 @@ export default function RankingView() {
     setErrorMessage(null);
     setUseFallback(false);
     api
-      .get("/rankings", { params: { tf: tfChar, which: rankWhich, dir, mode: "hybrid", limit: 50 } })
+      .get("/rankings", { params: { tf: tfChar, which: rankWhich, dir, mode: rankMode, limit: 50 } })
       .then((res) => {
         const payload = res.data as { items?: RankItem[]; errors?: string[] };
         const list = Array.isArray(payload.items) ? payload.items : [];
@@ -344,7 +353,7 @@ export default function RankingView() {
                 tf: tfChar,
                 which: rankWhich,
                 dir,
-                mode: "hybrid",
+                mode: rankMode,
                 items: list.length,
                 has_asOf: hasAsOf,
                 sample: list.slice(0, 3).map((item) => ({ code: item.code, asOf: item.asOf })),
@@ -366,7 +375,7 @@ export default function RankingView() {
         setErrorMessage("ランキングの取得に失敗しました。簡易データを表示しています。");
       })
       .finally(() => setLoading(false));
-  }, [backendReady, dir, tfChar, rankWhich, fallbackItems]);
+  }, [backendReady, dir, tfChar, rankWhich, rankMode, fallbackItems]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -604,6 +613,10 @@ export default function RankingView() {
     const clipped = Math.min(1, Math.max(0, downProb));
     return `${(clipped * 100).toFixed(2)}%`;
   };
+  const formatTurnProb = (upTurn?: number | null, downTurn?: number | null) => {
+    if (dir === "up") return formatPct(upTurn);
+    return formatPct(downTurn);
+  };
   const formatAsOf = (value?: string | null) => value ?? "--";
 
   return (
@@ -666,7 +679,21 @@ export default function RankingView() {
             </button>
           ))}
         </div>
-        <span className="rank-score-badge">表示: エントリー優先</span>
+        <div className="segmented segmented-compact">
+          {(["hybrid", "turn"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={rankMode === key ? "active" : ""}
+              onClick={() => setRankMode(key)}
+            >
+              {key === "hybrid" ? "継続" : "転換"}
+            </button>
+          ))}
+        </div>
+        <span className="rank-score-badge">
+          表示: {rankMode === "turn" ? "転換優先" : "エントリー優先"}
+        </span>
       </div>
       <div
         className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
@@ -763,6 +790,11 @@ export default function RankingView() {
                             : `下落確率 ${formatDownProb(item.mlPUp)}`}
                         </span>
                         <span className="rank-score-badge">
+                          {dir === "up"
+                            ? `転換買い ${formatTurnProb(item.mlPTurnUp, item.mlPTurnDown)}`
+                            : `転換売り ${formatTurnProb(item.mlPTurnUp, item.mlPTurnDown)}`}
+                        </span>
+                        <span className="rank-score-badge">
                           総合 {formatPct(item.hybridScore)}
                         </span>
                         <span className="rank-score-badge">日付 {formatAsOf(item.asOf)}</span>
@@ -789,7 +821,7 @@ export default function RankingView() {
         )}
       </div>
       <div
-        className={`consult - sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
+        className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
           }`}
       >
         <button

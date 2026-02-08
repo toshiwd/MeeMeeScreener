@@ -23,6 +23,6 @@ def get_rankings(
         raise HTTPException(status_code=400, detail="which must be latest/prev")
     if dir not in ("up", "down"):
         raise HTTPException(status_code=400, detail="dir must be up/down")
-    if mode not in ("rule", "ml", "hybrid"):
-        raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid")
+    if mode not in ("rule", "ml", "hybrid", "turn"):
+        raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid/turn")
     return rankings_cache.get_rankings(tf, which, dir, limit, mode=mode)

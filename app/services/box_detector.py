@@ -63,7 +63,8 @@ def detect_boxes(
 
     while index <= last - min_bars:
         start = index
-        end = start + min_bars - 1
+        seed_end = start + min_bars - 1
+        end = seed_end
         upper = max(bar_upper(bar) for bar in bars[start : end + 1])
         lower = min(bar_lower(bar) for bar in bars[start : end + 1])
         base = max(abs(lower), 1e-9)
@@ -81,7 +82,7 @@ def detect_boxes(
             out_up = bar_hi > upper
             out_down = bar_lo < lower
             if out_up or out_down:
-                if cursor - start <= rescue_bars:
+                if cursor - seed_end <= rescue_bars:
                     if out_up and rescue_up < rescue_hits_per_side:
                         rescue_up += 1
                         upper = max(upper, bar_hi)

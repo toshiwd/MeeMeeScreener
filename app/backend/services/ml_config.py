@@ -25,6 +25,10 @@ class MLConfig:
     prob_weight: float = 0.3
     min_prob_up: float = 0.55
     min_prob_down: float = 0.55
+    turn_weight: float = 0.25
+    min_turn_prob_up: float = 0.58
+    min_turn_prob_down: float = 0.58
+    min_turn_margin: float = 0.06
 
     @property
     def cost_rate(self) -> float:
@@ -74,6 +78,10 @@ def load_ml_config() -> MLConfig:
         prob_weight=max(0.0, _to_float(payload.get("prob_weight"), 0.3)),
         min_prob_up=min(1.0, max(0.0, _to_float(payload.get("min_prob_up"), 0.55))),
         min_prob_down=min(1.0, max(0.0, _to_float(payload.get("min_prob_down"), 0.55))),
+        turn_weight=min(1.0, max(0.0, _to_float(payload.get("turn_weight"), 0.25))),
+        min_turn_prob_up=min(1.0, max(0.0, _to_float(payload.get("min_turn_prob_up"), 0.58))),
+        min_turn_prob_down=min(1.0, max(0.0, _to_float(payload.get("min_turn_prob_down"), 0.58))),
+        min_turn_margin=min(1.0, max(0.0, _to_float(payload.get("min_turn_margin"), 0.06))),
     )
     weight_sum = cfg.rule_weight + cfg.ev_weight + cfg.prob_weight
     if weight_sum <= 0:
@@ -93,6 +101,10 @@ def load_ml_config() -> MLConfig:
             prob_weight=0.3,
             min_prob_up=cfg.min_prob_up,
             min_prob_down=cfg.min_prob_down,
+            turn_weight=cfg.turn_weight,
+            min_turn_prob_up=cfg.min_turn_prob_up,
+            min_turn_prob_down=cfg.min_turn_prob_down,
+            min_turn_margin=cfg.min_turn_margin,
         )
     return MLConfig(
         neutral_band_pct=cfg.neutral_band_pct,
@@ -110,4 +122,8 @@ def load_ml_config() -> MLConfig:
         prob_weight=cfg.prob_weight / weight_sum,
         min_prob_up=cfg.min_prob_up,
         min_prob_down=cfg.min_prob_down,
+        turn_weight=cfg.turn_weight,
+        min_turn_prob_up=cfg.min_turn_prob_up,
+        min_turn_prob_down=cfg.min_turn_prob_down,
+        min_turn_margin=cfg.min_turn_margin,
     )

@@ -32,7 +32,7 @@ def cleanup_stale_jobs() -> None:
                     finished_at = CURRENT_TIMESTAMP,
                     error = 'stuck_job',
                     message = 'Running job exceeded timeout'
-                WHERE status = 'running'
+                WHERE status IN ('running', 'cancel_requested')
                   AND COALESCE(started_at, created_at) < ?
                 """,
                 [running_threshold]
@@ -57,7 +57,7 @@ def cleanup_stale_jobs() -> None:
                     finished_at = CURRENT_TIMESTAMP,
                     error = 'stale_job',
                     message = 'Stale job cleanup'
-                WHERE status = 'running'
+                WHERE status IN ('running', 'cancel_requested')
                   AND (COALESCE(started_at, created_at) < CURRENT_TIMESTAMP - INTERVAL '{STALE_JOB_HOURS} hours'
                        OR COALESCE(started_at, created_at) < ?)
                 """,
@@ -83,9 +83,23 @@ class JobManager:
         self._stop_event = threading.Event()
         self._worker_thread = None
         self._active_job_id = None
+        self._cancel_lock = threading.Lock()
+        self._cancel_requested_ids: set[str] = set()
         
         # Start worker
         self._start_worker()
+
+    def _mark_cancel_requested(self, job_id: str) -> None:
+        with self._cancel_lock:
+            self._cancel_requested_ids.add(job_id)
+
+    def _clear_cancel_requested(self, job_id: str) -> None:
+        with self._cancel_lock:
+            self._cancel_requested_ids.discard(job_id)
+
+    def _is_cancel_requested(self, job_id: str) -> bool:
+        with self._cancel_lock:
+            return job_id in self._cancel_requested_ids
 
     def _start_worker(self):
         if self._worker_thread and self._worker_thread.is_alive():
@@ -112,7 +126,7 @@ class JobManager:
         with get_conn() as conn:
             cleanup_stale_jobs()
             count = conn.execute(
-                "SELECT COUNT(*) FROM sys_jobs WHERE type = ? AND status IN ('queued', 'running')",
+                "SELECT COUNT(*) FROM sys_jobs WHERE type = ? AND status IN ('queued', 'running', 'cancel_requested')",
                 [job_type]
             ).fetchone()[0]
             return count > 0
@@ -159,15 +173,42 @@ class JobManager:
         return job_id
 
     def cancel(self, job_id: str) -> bool:
-        # Cancelling active job is hard without logic support.
-        # For now, we can only update DB if it's still queued?
-        # Or set a "cancellation_requested" flag?
-        # User requirement says "Cancel possible".
-        # We'll implement a simple flag check or DB check in handler?
-        # For Phase 2A, just stub or simple DB update.
-        # If it's the active job, we can't easily kill the thread.
-        # But we can set a status.
-        return False
+        try:
+            with get_conn() as conn:
+                row = conn.execute(
+                    "SELECT type, status FROM sys_jobs WHERE id = ?",
+                    [job_id],
+                ).fetchone()
+            if not row:
+                return False
+
+            job_type = row[0]
+            status = row[1]
+            if status in ("success", "failed", "canceled"):
+                return False
+
+            self._mark_cancel_requested(job_id)
+            if status == "queued":
+                self._update_db(
+                    job_id,
+                    job_type,
+                    "canceled",
+                    finished_at=datetime.now(),
+                    message="Canceled before start",
+                    error="canceled",
+                )
+                return True
+
+            self._update_db(
+                job_id,
+                job_type,
+                "cancel_requested",
+                message="Cancellation requested",
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to cancel job {job_id}: {e}")
+            return False
 
     def get_status(self, job_id: str) -> dict | None:
         try:
@@ -238,6 +279,20 @@ class JobManager:
         payload = item["payload"]
         self._active_job_id = job_id
         print(f"[JobManager] Processing job: {job_type} / {job_id}")
+
+        status = self.get_status(job_id)
+        if self._is_cancel_requested(job_id) or (status and status["status"] == "canceled"):
+            self._update_db(
+                job_id,
+                job_type,
+                "canceled",
+                finished_at=datetime.now(),
+                message="Canceled before start",
+                error="canceled",
+            )
+            self._clear_cancel_requested(job_id)
+            self._active_job_id = None
+            return
         
         handler = self._handlers.get(job_type)
         if not handler:
@@ -261,20 +316,42 @@ class JobManager:
             # Check if handler marked it failed?
             # We'll just mark success if status is still running.
             status = self.get_status(job_id)
-            if status and status["status"] == "running":
+            if self._is_cancel_requested(job_id) or (status and status["status"] == "cancel_requested"):
+                self._update_db(
+                    job_id,
+                    job_type,
+                    "canceled",
+                    finished_at=datetime.now(),
+                    message="Canceled",
+                    error="canceled",
+                )
+            elif status and status["status"] == "running":
                 self._update_db(job_id, job_type, "success", finished_at=datetime.now(), progress=100, message="Completed")
                 
         except Exception as e:
             logger.error(f"Job {job_id} failed: {e}")
             print(f"[JobManager] Job {job_id} failed with exception: {e}")
             traceback.print_exc()
-            self._update_db(job_id, job_type, "failed", finished_at=datetime.now(), error=str(e), message="Internal Error")
+            if self._is_cancel_requested(job_id):
+                self._update_db(
+                    job_id,
+                    job_type,
+                    "canceled",
+                    finished_at=datetime.now(),
+                    message="Canceled",
+                    error="canceled",
+                )
+            else:
+                self._update_db(job_id, job_type, "failed", finished_at=datetime.now(), error=str(e), message="Internal Error")
         finally:
+            self._clear_cancel_requested(job_id)
             self._active_job_id = None
 
     def _update_db(self, job_id, job_type, status, created_at=None, started_at=None, finished_at=None, progress=None, message=None, error=None):
         try:
              with get_conn() as conn:
+                if status == "running" and self._is_cancel_requested(job_id):
+                    status = "cancel_requested"
                 # Upsert logic or just update?
                 # "queued" is insert. others update.
                 # simpler: INSERT OR REPLACE? Or separate logic.

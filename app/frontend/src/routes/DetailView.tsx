@@ -215,6 +215,29 @@ const formatSignedNumber = (value: number | null | undefined, digits = 0) => {
   });
 };
 
+const formatPercentLabel = (value: number | null | undefined, digits = 1) => {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return `${(value * 100).toFixed(digits)}%`;
+};
+
+const formatSignedPercentLabel = (value: number | null | undefined, digits = 1) => {
+  if (value == null || !Number.isFinite(value)) return "--";
+  const scaled = value * 100;
+  const sign = scaled > 0 ? "+" : "";
+  return `${sign}${scaled.toFixed(digits)}%`;
+};
+
+const toFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
 const formatLotValue = (value: number) => {
   if (!Number.isFinite(value)) return "0";
   return Number.isInteger(value) ? `${value}` : value.toFixed(1);
@@ -531,7 +554,7 @@ export default function DetailView() {
   const [monthlyData, setMonthlyData] = useState<number[][]>([]);
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [compareBoxes, setCompareBoxes] = useState<Box[]>([]);
-  const [headerMode, setHeaderMode] = useState<"chart" | "draw" | "positions">("chart");
+  const [headerMode, setHeaderMode] = useState<"chart" | "draw" | "positions" | "analysis">("chart");
   const [displayOpen, setDisplayOpen] = useState(false);
   const [signalsOpen, setSignalsOpen] = useState(false);
   const [showGapBands, setShowGapBands] = useState(true);
@@ -646,6 +669,20 @@ export default function DetailView() {
   const [phaseFallbackLoading, setPhaseFallbackLoading] = useState(false);
   const lastPhaseAttemptAsOfRef = useRef<number | null>(null);
   const phaseFallbackRequestKeyRef = useRef<string | null>(null);
+  const [analysisFallback, setAnalysisFallback] = useState<{
+    dt: number | string | null;
+    pUp: number | null;
+    pDown: number | null;
+    pTurnUp: number | null;
+    pTurnDown: number | null;
+    retPred20: number | null;
+    ev20: number | null;
+    ev20Net: number | null;
+    modelVersion: string | null;
+  } | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const lastAnalysisAttemptAsOfRef = useRef<number | null>(null);
+  const analysisRequestKeyRef = useRef<string | null>(null);
   const detailChartLogRef = useRef<string | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const signalsRef = useRef<HTMLDivElement | null>(null);
@@ -868,6 +905,10 @@ export default function DetailView() {
     setPhaseFallbackLoading(false);
     lastPhaseAttemptAsOfRef.current = null;
     phaseFallbackRequestKeyRef.current = null;
+    setAnalysisFallback(null);
+    setAnalysisLoading(false);
+    lastAnalysisAttemptAsOfRef.current = null;
+    analysisRequestKeyRef.current = null;
     setDailyData([]);
   }, [code]);
 
@@ -944,7 +985,37 @@ export default function DetailView() {
     typeof phaseNValue === "number" ||
     phaseDtValue != null ||
     phaseReasons.length > 0;
-  const canShowPhase = hasPhaseData || phaseFallbackLoading;
+  const hasPhasePanelData = hasPhaseData || phaseFallbackLoading;
+  const detailAsOfTime = useMemo(() => {
+    if (mainAsOfTime != null) return mainAsOfTime;
+    return dailyData.reduce<number | null>((maxValue, row) => {
+      if (!Array.isArray(row) || row.length === 0) return maxValue;
+      const normalized = normalizeTime(row[0]);
+      if (normalized == null) return maxValue;
+      if (maxValue == null || normalized > maxValue) return normalized;
+      return maxValue;
+    }, null);
+  }, [mainAsOfTime, dailyData]);
+  const analysisPUp = analysisFallback?.pUp ?? null;
+  const analysisPDown = analysisFallback?.pDown ?? null;
+  const analysisEv20Net = analysisFallback?.ev20Net ?? null;
+  const analysisPTurnDown = analysisFallback?.pTurnDown ?? null;
+  const hasAnalysisData =
+    analysisPUp != null ||
+    analysisPDown != null ||
+    analysisEv20Net != null ||
+    analysisPTurnDown != null;
+  const canShowPhase = hasPhasePanelData;
+  const canShowAnalysis = hasAnalysisData || analysisLoading;
+  const analysisLoadingText = analysisLoading ? "読込中..." : null;
+  const analysisDtLabel = useMemo(() => {
+    if (!analysisFallback) return "";
+    const normalized = normalizeTime(analysisFallback.dt);
+    return formatDateLabel(normalized);
+  }, [analysisFallback]);
+  const showAnalysisPanel = headerMode === "analysis" && !compareCode;
+  const showMemoPanel = cursorMode && !compareCode && !showAnalysisPanel;
+  const showRightPanel = showAnalysisPanel || showMemoPanel;
 
   const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
   const isFavorite = useMemo(() => (code ? favoritesSet.has(code) : false), [favoritesSet, code]);
@@ -972,18 +1043,9 @@ export default function DetailView() {
       lastPhaseAttemptAsOfRef.current = null;
       return;
     }
-    const asofFromData = dailyData.reduce<number | null>((maxValue, row) => {
-      if (!Array.isArray(row) || row.length === 0) return maxValue;
-      const normalized = normalizeTime(row[0]);
-      if (normalized == null) return maxValue;
-      if (maxValue == null || normalized > maxValue) return normalized;
-      return maxValue;
-    }, null);
-    const asof = mainAsOfTime ?? asofFromData;
+    const asof = detailAsOfTime;
     if (asof == null) {
-      if (phaseFallbackLoading) {
-        setPhaseFallbackLoading(false);
-      }
+      setPhaseFallbackLoading(false);
       return;
     }
     if (lastPhaseAttemptAsOfRef.current === asof) return;
@@ -992,7 +1054,7 @@ export default function DetailView() {
     lastPhaseAttemptAsOfRef.current = asof;
     phaseFallbackRequestKeyRef.current = requestKey;
     api
-      .get("/ticker/phase", { params: { code, asof } })
+      .get("/ticker/phase", { params: { code, asof }, timeout: 10000 })
       .then((res) => {
         if (phaseFallbackRequestKeyRef.current !== requestKey) return;
         const item = res.data?.item ?? null;
@@ -1022,19 +1084,57 @@ export default function DetailView() {
         if (phaseFallbackRequestKeyRef.current !== requestKey) return;
         setPhaseFallbackLoading(false);
       });
-    return () => {
-      if (phaseFallbackRequestKeyRef.current === requestKey) {
-        phaseFallbackRequestKeyRef.current = null;
-      }
-    };
   }, [
     backendReady,
     code,
     hasPhaseScores,
     needsPhaseReasons,
-    mainAsOfTime,
-    dailyData
+    detailAsOfTime
   ]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!code) return;
+    const asof = detailAsOfTime;
+    if (asof == null) {
+      setAnalysisLoading(false);
+      return;
+    }
+    if (lastAnalysisAttemptAsOfRef.current === asof) return;
+    const requestKey = `${code}|${asof}`;
+    setAnalysisLoading(true);
+    lastAnalysisAttemptAsOfRef.current = asof;
+    analysisRequestKeyRef.current = requestKey;
+    api
+      .get("/ticker/analysis", { params: { code, asof }, timeout: 10000 })
+      .then((res) => {
+        if (analysisRequestKeyRef.current !== requestKey) return;
+        const item = res.data?.item ?? null;
+        if (!item) {
+          setAnalysisFallback(null);
+          return;
+        }
+        setAnalysisFallback({
+          dt: item.dt ?? null,
+          pUp: toFiniteNumber(item.pUp),
+          pDown: toFiniteNumber(item.pDown),
+          pTurnUp: toFiniteNumber(item.pTurnUp),
+          pTurnDown: toFiniteNumber(item.pTurnDown),
+          retPred20: toFiniteNumber(item.retPred20),
+          ev20: toFiniteNumber(item.ev20),
+          ev20Net: toFiniteNumber(item.ev20Net),
+          modelVersion: typeof item.modelVersion === "string" ? item.modelVersion : null
+        });
+      })
+      .catch(() => {
+        if (analysisRequestKeyRef.current !== requestKey) return;
+        setAnalysisFallback(null);
+      })
+      .finally(() => {
+        if (analysisRequestKeyRef.current !== requestKey) return;
+        setAnalysisLoading(false);
+      });
+  }, [backendReady, code, detailAsOfTime]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -2792,7 +2892,7 @@ export default function DetailView() {
             </button>
           ))}
         </div>
-        {canShowPhase && (
+        {canShowPhase && headerMode !== "analysis" && (
           <div className="detail-phase is-open">
             <div className="detail-phase-metrics">
               <span
@@ -2916,6 +3016,12 @@ export default function DetailView() {
             チャート
           </button>
           <button
+            className={headerMode === "analysis" ? "active" : ""}
+            onClick={() => setHeaderMode("analysis")}
+          >
+            分析
+          </button>
+          <button
             className={headerMode === "draw" ? "active" : ""}
             onClick={() => setHeaderMode("draw")}
           >
@@ -2934,7 +3040,7 @@ export default function DetailView() {
             建玉          </button>
         </div>
       </div>
-      {headerMode === "chart" && chartActionControls}
+      {(headerMode === "chart" || headerMode === "analysis") && chartActionControls}
     </>
   );
 
@@ -3059,7 +3165,7 @@ export default function DetailView() {
                   </button>
                 ))}
               </div>
-              {canShowPhase && (
+              {canShowPhase && headerMode !== "analysis" && (
                 <div className="detail-phase is-open">
                   <div className="detail-phase-metrics">
                     <span
@@ -3270,6 +3376,12 @@ export default function DetailView() {
                   チャート
                 </button>
                 <button
+                  className={headerMode === "analysis" ? "active" : ""}
+                  onClick={() => setHeaderMode("analysis")}
+                >
+                  分析
+                </button>
+                <button
                   className={headerMode === "draw" ? "active" : ""}
                   onClick={() => setHeaderMode("draw")}
                 >
@@ -3292,7 +3404,7 @@ export default function DetailView() {
         )}
       </div>
       <div className="detail-content">
-        <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""} ${cursorMode ? "with-memo-panel" : ""}`}>
+        <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""} ${showRightPanel ? "with-memo-panel" : ""}`}>
           {compareCode && (
             <div className="detail-compare">
               <div className="detail-compare-header">
@@ -3904,7 +4016,7 @@ export default function DetailView() {
             </>
           )}
         </div>
-        {cursorMode && !compareCode && (
+        {showMemoPanel && (
           <DailyMemoPanel
             code={code || ''}
             selectedDate={selectedDate}
@@ -3916,6 +4028,98 @@ export default function DetailView() {
             onNextDay={moveToNextDay}
             onCopyForConsult={handleCopyForConsult}
           />
+        )}
+        {showAnalysisPanel && (
+          <div className="daily-memo-panel detail-analysis-panel">
+            <div className="memo-panel-header">
+              <h3>解析結果</h3>
+            </div>
+            <div className="detail-analysis-body">
+              {analysisDtLabel && (
+                <div className="detail-analysis-meta">基準日 {analysisDtLabel}</div>
+              )}
+              {canShowPhase && (
+                <div className="detail-analysis-section">
+                  <div className="detail-analysis-section-title">局面判定</div>
+                  <div className="detail-phase is-open detail-phase-in-panel">
+                    <div className="detail-phase-metrics">
+                      <span
+                        className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                          phaseScores?.bodyScore ?? null
+                        )}`}
+                      >
+                        中盤 {formatPhaseScore(phaseScores?.bodyScore ?? null)}
+                      </span>
+                      <span
+                        className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                          phaseScores?.earlyScore ?? null
+                        )}`}
+                      >
+                        序盤 {formatPhaseScore(phaseScores?.earlyScore ?? null)}
+                      </span>
+                      <span
+                        className={`detail-phase-score detail-phase-score--${getPhaseTone(
+                          phaseScores?.lateScore ?? null
+                        )}`}
+                      >
+                        終盤 {formatPhaseScore(phaseScores?.lateScore ?? null)}
+                      </span>
+                      <div className="detail-phase-reasons">
+                        {phaseReasons.length ? (
+                          phaseReasons.map((reason) => (
+                            <span key={reason} className="detail-phase-reason">
+                              {reason}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="detail-phase-empty">--</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {canShowAnalysis ? (
+                <div className="detail-analysis-grid">
+                  <div className="detail-analysis-card">
+                    <div className="detail-analysis-label">買い確率</div>
+                    <div className="detail-analysis-value">
+                      {analysisLoadingText ?? formatPercentLabel(analysisPUp)}
+                    </div>
+                  </div>
+                  <div className="detail-analysis-card">
+                    <div className="detail-analysis-label">下落確率</div>
+                    <div className="detail-analysis-value">
+                      {analysisLoadingText ?? formatPercentLabel(analysisPDown)}
+                    </div>
+                  </div>
+                  <div className="detail-analysis-card">
+                    <div className="detail-analysis-label">期待値</div>
+                    <div
+                      className={`detail-analysis-value detail-analysis-value--${getPhaseTone(
+                        analysisEv20Net
+                      )}`}
+                    >
+                      {analysisLoadingText ?? formatSignedPercentLabel(analysisEv20Net)}
+                    </div>
+                  </div>
+                  <div className="detail-analysis-card">
+                    <div className="detail-analysis-label">転換売り確率</div>
+                    <div className="detail-analysis-value">
+                      {analysisLoadingText ?? formatPercentLabel(analysisPTurnDown)}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="detail-analysis-empty">ML分析データがありません。</div>
+              )}
+              {analysisFallback?.modelVersion && (
+                <div className="detail-analysis-meta">
+                  モデル {analysisFallback.modelVersion}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
       {!focusPanel && (
