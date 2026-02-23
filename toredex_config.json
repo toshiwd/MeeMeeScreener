@@ -1,0 +1,104 @@
+﻿{
+  "policyVersion": "toredex.v8",
+  "mode": "LIVE",
+  "operatingMode": "champion",
+  "topN": 50,
+  "runsDir": "G:/meemee_toredex_runs",
+  "initialCash": 10000000,
+  "maxPerTicker": 10000000,
+  "maxHoldings": 3,
+  "unitOptions": [2, 3, 5],
+  "rankingMode": "ml",
+  "sides": {
+    "longEnabled": true,
+    "shortEnabled": false
+  },
+  "thresholds": {
+    "entryMinUpProb": 0.65,
+    "entryMinEv": 0.03,
+    "entryMaxRevRisk": 0.55,
+    "addMinUpProb": 0.6,
+    "addMinEv": 0.03,
+    "addMaxRevRisk": 0.45,
+    "addMinPnlPct": -1.0,
+    "addMaxPnlPct": 12.0,
+    "maxNewEntriesPerDay": 1.0,
+    "newEntryMaxRank": 1.0,
+    "exitMinUpProb": 0.5,
+    "exitMinEv": -0.01,
+    "revRiskWarn": 0.55,
+    "revRiskHigh": 0.65,
+    "switchMinEvGap": 0.05,
+    "cutLossWarnPct": -5.5,
+    "cutLossHardPct": -9.0,
+    "gameOverPct": -20.0,
+    "takeProfitHintPct": 10.0,
+    "exitIfUnranked": 0.0
+  },
+  "stageRules": {
+    "goal20Pct": 20.0,
+    "goal30Pct": 30.0
+  },
+  "fieldMapping": {
+    "revRisk": "mlPTurnDownShort|mlPDownShort",
+    "regime": "trendUp/trendDown/trendUpStrict/trendDownStrict",
+    "gate": "entryQualified+setupType"
+  },
+  "costModel": {
+    "feesBps": 0.0,
+    "slippageBps": 0.0,
+    "slippageLiquidityFactorBps": 0.0,
+    "borrowShortBpsAnnual": 0.0,
+    "sensitivityBps": [5.0, 10.0, 15.0]
+  },
+  "riskGates": {
+    "champion": {
+      "maxDrawdownPct": -8.0,
+      "worstMonthPct": -8.0,
+      "maxTurnoverPctPerMonth": 300.0,
+      "maxNetExposureUnits": 2.0,
+      "enabled": true
+    },
+    "challenger": {
+      "maxDrawdownPct": -15.0,
+      "worstMonthPct": -12.0,
+      "maxTurnoverPctPerMonth": 600.0,
+      "maxNetExposureUnits": 4.0,
+      "enabled": true
+    }
+  },
+  "portfolioConstraints": {
+    "grossUnitsCap": 10,
+    "maxNetUnits": 2,
+    "maxUnitsPerTicker": 2,
+    "maxPerSector": 2,
+    "minLiquidity20d": 0.0,
+    "shortBlacklist": []
+  },
+  "optimization": {
+    "stage0Months": 2,
+    "stage1Months": 12,
+    "stage2Months": 36,
+    "iterationsPerRun": 12,
+    "stage2TopK": 3,
+    "stage1MaxCandidates": 8,
+    "parallelWorkers": 1,
+    "parallelDbPaths": [],
+    "optimizeCostModel": false,
+    "minTradesStage0": 1,
+    "minTradesStage1": 3,
+    "minTradesStage2": 8,
+    "top1EntryShareMaxStage1Pct": 95.0,
+    "top1EntryShareMaxStage2Pct": 90.0,
+    "scoreWeights": {
+      "maxDrawdown": 0.45,
+      "worstMonth": 0.30,
+      "turnover": 0.01,
+      "netExposure": 0.20,
+      "costDrag": 0.40,
+      "top1Concentration": 0.10,
+      "tradeShortfall": 1.25,
+      "riskGateFailPenalty": 1000.0
+    }
+  }
+}
