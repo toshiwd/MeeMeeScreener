@@ -63,6 +63,11 @@ if exist "release\\MeeMeeScreener" goto :fail_release_locked
 xcopy /y /s /e /q /i "build\\pyinstaller\\dist\\MeeMeeScreener\\*" "release\\MeeMeeScreener"
 if errorlevel 1 goto :fail_copy_release
 
+rem Copy latest ML seed artifacts for cross-PC ranking reproducibility
+python tools\\setup\\copy_seed_ml_models.py --dest "release\\MeeMeeScreener\\_internal\\seed\\models\\ml"
+if errorlevel 1 goto :fail_copy_seed
+
+
 rem Copy additional tools
 xcopy /y /s /e /q /i "tools\\*.vbs" "release\\MeeMeeScreener\\tools" 2>nul
 if errorlevel 1 goto :fail_copy_tools
@@ -110,6 +115,10 @@ exit /b 1
 
 :fail_copy_release
 echo ERROR: Copy to release folder failed
+exit /b 1
+
+:fail_copy_seed
+echo ERROR: Copying ML seed artifacts failed
 exit /b 1
 
 :fail_copy_tools

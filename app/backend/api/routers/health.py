@@ -36,12 +36,14 @@ def health():
     stats = _collect_db_stats()
     has_daily = (stats["daily_rows"] or 0) > 0
     has_monthly = (stats["monthly_rows"] or 0) > 0
-    is_data_ready = (
+    is_backend_ready = (
         not stats["missing_tables"]
         and stats["errors"] == []
-        and (has_daily or has_monthly)
     )
-    if not is_data_ready:
+    data_initialized = has_daily or has_monthly
+
+    # Empty DB is a valid first-run state. Keep app bootable and prompt data setup in UI.
+    if not is_backend_ready:
         return JSONResponse(
             status_code=503,
             content={
@@ -50,7 +52,7 @@ def health():
                 "ready": False,
                 "phase": "starting",
                 "message": "起動中",
-                "error_code": "DATA_NOT_INITIALIZED",
+                "error_code": "BACKEND_NOT_READY",
                 "version": APP_VERSION,
                 "env": APP_ENV,
                 "time": now,
@@ -64,16 +66,21 @@ def health():
                 else stats["errors"],
             },
         )
+
+    message = "準備完了" if data_initialized else "データ未初期化（空データで起動）"
+    status_label = "ok" if data_initialized else "degraded"
     return {
         "ok": True,
-        "status": "ok",
+        "status": status_label,
         "ready": True,
         "phase": "ready",
-        "message": "準備完了",
+        "message": message,
+        "error_code": None if data_initialized else "DATA_NOT_INITIALIZED",
         "version": APP_VERSION,
         "env": APP_ENV,
         "time": now,
         "stats": {"tickers": stats["tickers"], "daily_rows": stats["daily_rows"], "monthly_rows": stats["monthly_rows"]},
+        "data_initialized": data_initialized,
         "txt_count": status.get("txt_count"),
         "code_count": stats["tickers"],
         "pan_out_txt_dir": resolve_pan_out_txt_dir(),

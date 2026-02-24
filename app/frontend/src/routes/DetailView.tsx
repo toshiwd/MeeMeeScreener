@@ -140,6 +140,132 @@ type CompareListPayload = {
   items: CompareListItem[];
 };
 
+type AnalysisHorizonKey = 5 | 10 | 20;
+
+type AnalysisHorizonEntry = {
+  horizon: AnalysisHorizonKey;
+  pUp: number | null;
+  pDown: number | null;
+  evNet: number | null;
+  pTurnDown: number | null;
+  pTurnUp: number | null;
+  pUpProjected: boolean;
+  evProjected: boolean;
+  turnProjected: boolean;
+};
+
+type AnalysisHorizonPayload = {
+  defaultHorizon: AnalysisHorizonKey;
+  turnBaseHorizon: number | null;
+  projectionMethod: string | null;
+  items: Partial<Record<`${AnalysisHorizonKey}`, AnalysisHorizonEntry>>;
+};
+
+type AnalysisAdditiveSignals = {
+  trendUpStrict: boolean;
+  mtfStrongAligned: boolean;
+  boxBottomAligned: boolean;
+  shootingStarLike: boolean;
+  threeWhiteSoldiers: boolean;
+  bullEngulfing: boolean;
+  reclaim60: boolean;
+  v60Core: boolean;
+  v60Strong: boolean;
+  v60StrongPenalty: boolean;
+  candlestickPatternBonus: number | null;
+  bonusEstimate: number | null;
+  weeklyBreakoutUpProb: number | null;
+  monthlyBreakoutUpProb: number | null;
+  monthlyRangeProb: number | null;
+  monthlyRangePos: number | null;
+};
+
+type BuyStagePrecisionEntry = {
+  precision: number | null;
+  samples: number;
+  wins: number;
+};
+
+type BuyStrategyBacktest = {
+  precision: number | null;
+  samples: number;
+  wins: number;
+  probeShares: number | null;
+  addShares: number | null;
+  coreShares: number | null;
+  topupShares: number | null;
+  targetShares: number | null;
+  takeProfitPct: number | null;
+};
+
+type BuyStagePrecisionPayload = {
+  horizon: number | null;
+  lookbackBars: number | null;
+  probe: BuyStagePrecisionEntry;
+  add: BuyStagePrecisionEntry;
+  core: BuyStagePrecisionEntry;
+  strategy: BuyStrategyBacktest | null;
+};
+
+type SellAnalysisFallback = {
+  dt: number | string | null;
+  close: number | null;
+  dayChangePct: number | null;
+  pDown: number | null;
+  pTurnDown: number | null;
+  ev20Net: number | null;
+  rankDown20: number | null;
+  predDt: number | string | null;
+  pUp5: number | null;
+  pUp10: number | null;
+  pUp20: number | null;
+  shortScore: number | null;
+  aScore: number | null;
+  bScore: number | null;
+  ma20: number | null;
+  ma60: number | null;
+  ma20Slope: number | null;
+  ma60Slope: number | null;
+  distMa20Signed: number | null;
+  distMa60Signed: number | null;
+  trendDown: boolean | null;
+  trendDownStrict: boolean | null;
+  fwdClose5: number | null;
+  fwdClose10: number | null;
+  fwdClose20: number | null;
+  shortRet5: number | null;
+  shortRet10: number | null;
+  shortRet20: number | null;
+  shortWin5: boolean | null;
+  shortWin10: boolean | null;
+  shortWin20: boolean | null;
+};
+
+type PhaseFallback = {
+  dt: number | null;
+  earlyScore: number | null;
+  lateScore: number | null;
+  bodyScore: number | null;
+  n: number | null;
+  reasons: string[];
+};
+
+type AnalysisFallback = {
+  dt: number | string | null;
+  pUp: number | null;
+  pDown: number | null;
+  pTurnUp: number | null;
+  pTurnDown: number | null;
+  pTurnDownHorizon: number | null;
+  retPred20: number | null;
+  ev20: number | null;
+  ev20Net: number | null;
+  horizonAnalysis: AnalysisHorizonPayload | null;
+  additiveSignals: AnalysisAdditiveSignals | null;
+  buyStagePrecision: BuyStagePrecisionPayload | null;
+  modelVersion: string | null;
+};
+
 const DEFAULT_LIMITS = {
   daily: 2000,
   monthly: 240
@@ -156,6 +282,8 @@ const RANGE_PRESETS = [
   { label: "1Y", months: 12 },
   { label: "2Y", months: 24 }
 ];
+
+const ANALYSIS_HORIZONS = [5, 10, 20] as const;
 
 const buildMonthBoundaries = (candles: Candle[]) => {
   if (!candles.length) return [];
@@ -236,6 +364,135 @@ const toFiniteNumber = (value: unknown): number | null => {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+};
+
+const toBoolean = (value: unknown): boolean => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) && value !== 0;
+  if (typeof value === "string") {
+    const trimmed = value.trim().toLowerCase();
+    return trimmed === "1" || trimmed === "true" || trimmed === "yes";
+  }
+  return false;
+};
+
+const normalizeAnalysisHorizonEntry = (horizon: AnalysisHorizonKey, value: unknown): AnalysisHorizonEntry => {
+  const payload = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return {
+    horizon,
+    pUp: toFiniteNumber(payload.pUp),
+    pDown: toFiniteNumber(payload.pDown),
+    evNet: toFiniteNumber(payload.evNet),
+    pTurnDown: toFiniteNumber(payload.pTurnDown),
+    pTurnUp: toFiniteNumber(payload.pTurnUp),
+    pUpProjected: payload.pUpProjected === true,
+    evProjected: payload.evProjected === true,
+    turnProjected: payload.turnProjected === true
+  };
+};
+
+const normalizeHorizonAnalysis = (value: unknown): AnalysisHorizonPayload | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const defaultHorizonRaw = toFiniteNumber(payload.defaultHorizon);
+  const defaultHorizon: AnalysisHorizonKey =
+    defaultHorizonRaw === 5 || defaultHorizonRaw === 10 || defaultHorizonRaw === 20
+      ? defaultHorizonRaw
+      : 20;
+  const itemsRaw =
+    payload.items && typeof payload.items === "object"
+      ? (payload.items as Record<string, unknown>)
+      : {};
+  const items: Partial<Record<`${AnalysisHorizonKey}`, AnalysisHorizonEntry>> = {};
+  ANALYSIS_HORIZONS.forEach((horizon) => {
+    const key = String(horizon) as `${AnalysisHorizonKey}`;
+    items[key] = normalizeAnalysisHorizonEntry(horizon, itemsRaw[key]);
+  });
+  return {
+    defaultHorizon,
+    turnBaseHorizon: toFiniteNumber(payload.turnBaseHorizon),
+    projectionMethod: typeof payload.projectionMethod === "string" ? payload.projectionMethod : null,
+    items
+  };
+};
+
+const normalizeAdditiveSignals = (value: unknown): AnalysisAdditiveSignals | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  return {
+    trendUpStrict: toBoolean(payload.trendUpStrict),
+    mtfStrongAligned: toBoolean(payload.mtfStrongAligned),
+    boxBottomAligned: toBoolean(payload.boxBottomAligned),
+    shootingStarLike: toBoolean(payload.shootingStarLike),
+    threeWhiteSoldiers: toBoolean(payload.threeWhiteSoldiers),
+    bullEngulfing: toBoolean(payload.bullEngulfing),
+    reclaim60: toBoolean(payload.reclaim60),
+    v60Core: toBoolean(payload.v60Core),
+    v60Strong: toBoolean(payload.v60Strong),
+    v60StrongPenalty: toBoolean(payload.v60StrongPenalty),
+    candlestickPatternBonus: toFiniteNumber(payload.candlestickPatternBonus),
+    bonusEstimate: toFiniteNumber(payload.bonusEstimate),
+    weeklyBreakoutUpProb: toFiniteNumber(payload.weeklyBreakoutUpProb),
+    monthlyBreakoutUpProb: toFiniteNumber(payload.monthlyBreakoutUpProb),
+    monthlyRangeProb: toFiniteNumber(payload.monthlyRangeProb),
+    monthlyRangePos: toFiniteNumber(payload.monthlyRangePos)
+  };
+};
+
+const normalizeBuyStagePrecisionEntry = (value: unknown): BuyStagePrecisionEntry => {
+  const payload = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const samplesRaw = toFiniteNumber(payload.samples);
+  const winsRaw = toFiniteNumber(payload.wins);
+  const samples = Math.max(0, Math.trunc(samplesRaw ?? 0));
+  const wins = Math.max(0, Math.min(samples, Math.trunc(winsRaw ?? 0)));
+  const precisionRaw = toFiniteNumber(payload.precision);
+  const precision =
+    precisionRaw != null
+      ? clamp(precisionRaw, 0, 1)
+      : samples > 0
+        ? clamp(wins / samples, 0, 1)
+        : null;
+  return { precision, samples, wins };
+};
+
+const normalizeBuyStrategyBacktest = (value: unknown): BuyStrategyBacktest | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const samplesRaw = toFiniteNumber(payload.samples);
+  const winsRaw = toFiniteNumber(payload.wins);
+  const samples = Math.max(0, Math.trunc(samplesRaw ?? 0));
+  const wins = Math.max(0, Math.min(samples, Math.trunc(winsRaw ?? 0)));
+  const precisionRaw = toFiniteNumber(payload.precision);
+  const precision =
+    precisionRaw != null
+      ? clamp(precisionRaw, 0, 1)
+      : samples > 0
+        ? clamp(wins / samples, 0, 1)
+        : null;
+  return {
+    precision,
+    samples,
+    wins,
+    probeShares: toFiniteNumber(payload.probeShares),
+    addShares: toFiniteNumber(payload.addShares),
+    coreShares: toFiniteNumber(payload.coreShares),
+    topupShares: toFiniteNumber(payload.topupShares),
+    targetShares: toFiniteNumber(payload.targetShares),
+    takeProfitPct: toFiniteNumber(payload.takeProfitPct)
+  };
+};
+
+const normalizeBuyStagePrecision = (value: unknown): BuyStagePrecisionPayload | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  return {
+    horizon: toFiniteNumber(payload.horizon),
+    lookbackBars: toFiniteNumber(payload.lookbackBars),
+    probe: normalizeBuyStagePrecisionEntry(payload.probe),
+    add: normalizeBuyStagePrecisionEntry(payload.add),
+    core: normalizeBuyStagePrecisionEntry(payload.core),
+    strategy: normalizeBuyStrategyBacktest(payload.strategy)
+  };
 };
 
 const formatLotValue = (value: number) => {
@@ -658,31 +915,23 @@ export default function DetailView() {
   const [compareDailyErrors, setCompareDailyErrors] = useState<string[]>([]);
   const [compareDailyLoading, setCompareDailyLoading] = useState(false);
   const [compareDailyLimit, setCompareDailyLimit] = useState(DEFAULT_LIMITS.daily);
-  const [phaseFallback, setPhaseFallback] = useState<{
-    dt: number | null;
-    earlyScore: number | null;
-    lateScore: number | null;
-    bodyScore: number | null;
-    n: number | null;
-    reasons: string[];
-  } | null>(null);
+  const [phaseFallback, setPhaseFallback] = useState<PhaseFallback | null>(null);
   const [phaseFallbackLoading, setPhaseFallbackLoading] = useState(false);
   const lastPhaseAttemptAsOfRef = useRef<number | null>(null);
   const phaseFallbackRequestKeyRef = useRef<string | null>(null);
-  const [analysisFallback, setAnalysisFallback] = useState<{
-    dt: number | string | null;
-    pUp: number | null;
-    pDown: number | null;
-    pTurnUp: number | null;
-    pTurnDown: number | null;
-    retPred20: number | null;
-    ev20: number | null;
-    ev20Net: number | null;
-    modelVersion: string | null;
-  } | null>(null);
+  const [analysisFallback, setAnalysisFallback] = useState<AnalysisFallback | null>(null);
+  const [analysisHorizon] = useState<AnalysisHorizonKey>(20);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const lastAnalysisAttemptAsOfRef = useRef<number | null>(null);
   const analysisRequestKeyRef = useRef<string | null>(null);
+  const [sellAnalysisFallback, setSellAnalysisFallback] = useState<SellAnalysisFallback | null>(null);
+  const [sellAnalysisLoading, setSellAnalysisLoading] = useState(false);
+  const lastSellAnalysisAttemptAsOfRef = useRef<number | null>(null);
+  const sellAnalysisRequestKeyRef = useRef<string | null>(null);
+  const phaseFallbackCacheRef = useRef<Map<string, PhaseFallback | null>>(new Map());
+  const analysisFallbackCacheRef = useRef<Map<string, AnalysisFallback | null>>(new Map());
+  const sellAnalysisFallbackCacheRef = useRef<Map<string, SellAnalysisFallback | null>>(new Map());
+  const [analysisAsOfTime, setAnalysisAsOfTime] = useState<number | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const signalsRef = useRef<HTMLDivElement | null>(null);
   const emptyDrawingsRef = useRef<ChartDrawings>(createEmptyDrawings());
@@ -904,10 +1153,18 @@ export default function DetailView() {
     setPhaseFallbackLoading(false);
     lastPhaseAttemptAsOfRef.current = null;
     phaseFallbackRequestKeyRef.current = null;
+    phaseFallbackCacheRef.current.clear();
     setAnalysisFallback(null);
     setAnalysisLoading(false);
     lastAnalysisAttemptAsOfRef.current = null;
     analysisRequestKeyRef.current = null;
+    analysisFallbackCacheRef.current.clear();
+    setSellAnalysisFallback(null);
+    setSellAnalysisLoading(false);
+    lastSellAnalysisAttemptAsOfRef.current = null;
+    sellAnalysisRequestKeyRef.current = null;
+    sellAnalysisFallbackCacheRef.current.clear();
+    setAnalysisAsOfTime(null);
     setDailyData([]);
   }, [code]);
 
@@ -986,6 +1243,9 @@ export default function DetailView() {
     phaseReasons.length > 0;
   const hasPhasePanelData = hasPhaseData || phaseFallbackLoading;
   const detailAsOfTime = useMemo(() => {
+    if (cursorMode && selectedBarData?.time != null) {
+      return selectedBarData.time;
+    }
     if (mainAsOfTime != null) return mainAsOfTime;
     return dailyData.reduce<number | null>((maxValue, row) => {
       if (!Array.isArray(row) || row.length === 0) return maxValue;
@@ -994,24 +1254,367 @@ export default function DetailView() {
       if (maxValue == null || normalized > maxValue) return normalized;
       return maxValue;
     }, null);
-  }, [mainAsOfTime, dailyData]);
-  const analysisPUp = analysisFallback?.pUp ?? null;
-  const analysisPDown = analysisFallback?.pDown ?? null;
-  const analysisEv20Net = analysisFallback?.ev20Net ?? null;
-  const analysisPTurnDown = analysisFallback?.pTurnDown ?? null;
+  }, [cursorMode, selectedBarData?.time, mainAsOfTime, dailyData]);
+  useEffect(() => {
+    if (detailAsOfTime == null) {
+      setAnalysisAsOfTime(null);
+      return;
+    }
+    if (!cursorMode) {
+      setAnalysisAsOfTime(detailAsOfTime);
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      setAnalysisAsOfTime(detailAsOfTime);
+    }, 160);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [detailAsOfTime, cursorMode]);
+  const analysisHorizonData =
+    analysisFallback?.horizonAnalysis?.items?.[String(analysisHorizon) as `${AnalysisHorizonKey}`] ?? null;
+  const analysisPUp =
+    analysisHorizonData?.pUp ?? (analysisHorizon === 20 ? (analysisFallback?.pUp ?? null) : null);
+  const analysisPDown =
+    analysisHorizonData?.pDown ??
+    (analysisPUp != null ? 1 - analysisPUp : analysisHorizon === 20 ? (analysisFallback?.pDown ?? null) : null);
+  const analysisEvNet =
+    analysisHorizonData?.evNet ?? (analysisHorizon === 20 ? (analysisFallback?.ev20Net ?? null) : null);
+  const analysisPTurnUp =
+    analysisHorizonData?.pTurnUp ?? (analysisHorizon === 20 ? (analysisFallback?.pTurnUp ?? null) : null);
+  const analysisPTurnDown =
+    analysisHorizonData?.pTurnDown ?? (analysisHorizon === 20 ? (analysisFallback?.pTurnDown ?? null) : null);
+  const analysisAdditive = analysisFallback?.additiveSignals ?? null;
   const hasAnalysisData =
     analysisPUp != null ||
     analysisPDown != null ||
-    analysisEv20Net != null ||
+    analysisEvNet != null ||
+    analysisPTurnUp != null ||
     analysisPTurnDown != null;
+  const hasSellAnalysisData =
+    sellAnalysisFallback?.pDown != null ||
+    sellAnalysisFallback?.pTurnDown != null ||
+    sellAnalysisFallback?.ev20Net != null ||
+    sellAnalysisFallback?.shortScore != null ||
+    sellAnalysisFallback?.trendDown != null ||
+    sellAnalysisFallback?.trendDownStrict != null ||
+    sellAnalysisFallback?.shortRet5 != null ||
+    sellAnalysisFallback?.shortRet10 != null ||
+    sellAnalysisFallback?.shortRet20 != null;
+  const patternSummary = useMemo(() => {
+    const upProb = clamp(analysisPUp ?? 0.5, 0, 1);
+    const downProbMl = analysisPDown ?? (analysisPUp != null ? 1 - analysisPUp : 0.5);
+    const downProb = clamp(
+      ((downProbMl ?? 0.5) * 0.6) + ((sellAnalysisFallback?.pDown ?? downProbMl ?? 0.5) * 0.4),
+      0,
+      1
+    );
+    const turnUp = clamp(analysisPTurnUp ?? 0.5, 0, 1);
+    const turnDown = clamp(
+      ((analysisPTurnDown ?? 0.5) * 0.5) + ((sellAnalysisFallback?.pTurnDown ?? analysisPTurnDown ?? 0.5) * 0.5),
+      0,
+      1
+    );
+    const evBias = analysisEvNet == null ? 0 : clamp(analysisEvNet / 0.06, -1, 1);
+    const additiveBias =
+      analysisAdditive?.bonusEstimate == null
+        ? 0
+        : clamp(analysisAdditive.bonusEstimate / 0.06, -1, 1);
+    const trendDownPenalty =
+      sellAnalysisFallback?.trendDownStrict ? 0.08 : sellAnalysisFallback?.trendDown ? 0.04 : 0;
+    const trendDownBoost =
+      sellAnalysisFallback?.trendDownStrict ? 1.0 : sellAnalysisFallback?.trendDown ? 0.7 : 0.3;
+
+    const upScore = clamp(
+      0.5 * upProb +
+      0.18 * turnUp +
+      0.17 * (0.5 + evBias * 0.5) +
+      0.15 * (0.5 + additiveBias * 0.5) -
+      trendDownPenalty,
+      0,
+      1
+    );
+    const downScore = clamp(
+      0.45 * downProb +
+      0.22 * turnDown +
+      0.18 * (0.5 - evBias * 0.5) +
+      0.1 * trendDownBoost +
+      0.05 * (0.5 - additiveBias * 0.5),
+      0,
+      1
+    );
+    const rangeScore = clamp(
+      0.4 * (1 - Math.abs(upProb - downProb)) +
+      0.3 * Math.min(turnUp, turnDown) +
+      0.3 * (1 - Math.abs(evBias)),
+      0,
+      1
+    );
+
+    const scenarios = [
+      {
+        key: "up",
+        label: "上昇継続（押し目再開）",
+        tone: "up" as const,
+        score: upScore,
+        reasons: [
+          `上昇 ${formatPercentLabel(upProb)} / 下落 ${formatPercentLabel(downProb)}`,
+          `期待値 ${formatSignedPercentLabel(analysisEvNet)}`,
+          `転換 上 ${formatPercentLabel(turnUp)}`
+        ]
+      },
+      {
+        key: "down",
+        label: "下落継続（戻り売り優位）",
+        tone: "down" as const,
+        score: downScore,
+        reasons: [
+          `下落 ${formatPercentLabel(downProb)} / 上昇 ${formatPercentLabel(upProb)}`,
+          `転換 下 ${formatPercentLabel(turnDown)}`,
+          `下向きトレンド判定 ${sellAnalysisFallback?.trendDownStrict ? "強い" : sellAnalysisFallback?.trendDown ? "あり" : "弱い"
+          }`
+        ]
+      },
+      {
+        key: "range",
+        label: "往復レンジ（上下振れ）",
+        tone: "neutral" as const,
+        score: rangeScore,
+        reasons: [
+          `確率差 ${formatPercentLabel(Math.abs(upProb - downProb), 1)}`,
+          `転換 上 ${formatPercentLabel(turnUp)} / 下 ${formatPercentLabel(turnDown)}`,
+          `方向感弱め ${(1 - Math.abs(evBias)).toFixed(2)}`
+        ]
+      }
+    ].sort((a, b) => b.score - a.score);
+
+    const top = scenarios[0];
+    let environmentLabel = "方向感拮抗";
+    let environmentTone: "up" | "down" | "neutral" = "neutral";
+    if (top?.key === "up" && top.score >= 0.56) {
+      environmentLabel = "上昇優位";
+      environmentTone = "up";
+    } else if (top?.key === "down" && top.score >= 0.56) {
+      environmentLabel = "下落優位";
+      environmentTone = "down";
+    } else if (top?.key === "range" && top.score >= 0.56) {
+      environmentLabel = "レンジ優位";
+      environmentTone = "neutral";
+    }
+
+    return {
+      environmentLabel,
+      environmentTone,
+      scenarios
+    };
+  }, [
+    analysisPUp,
+    analysisPDown,
+    analysisEvNet,
+    analysisPTurnUp,
+    analysisPTurnDown,
+    analysisAdditive?.bonusEstimate,
+    sellAnalysisFallback?.pDown,
+    sellAnalysisFallback?.pTurnDown,
+    sellAnalysisFallback?.trendDown,
+    sellAnalysisFallback?.trendDownStrict
+  ]);
+  const analysisDecision = useMemo(() => {
+    const scenarioMap = new Map(patternSummary.scenarios.map((scenario) => [scenario.key, scenario]));
+    const buyScenario = scenarioMap.get("up") ?? null;
+    const sellScenario = scenarioMap.get("down") ?? null;
+    const neutralScenario = scenarioMap.get("range") ?? null;
+    const tone = patternSummary.environmentTone;
+    const sideLabel = tone === "up" ? "買い" : tone === "down" ? "売り" : "中立";
+    const selectedScenario =
+      tone === "up"
+        ? buyScenario
+        : tone === "down"
+          ? sellScenario
+          : neutralScenario ?? patternSummary.scenarios[0] ?? null;
+    return {
+      tone,
+      sideLabel,
+      patternLabel: selectedScenario?.label ?? "--",
+      confidence: selectedScenario?.score ?? null,
+      buyProb: buyScenario?.score ?? null,
+      sellProb: sellScenario?.score ?? null,
+      neutralProb: neutralScenario?.score ?? null
+    };
+  }, [patternSummary.environmentTone, patternSummary.scenarios]);
+  const analysisGuidance = useMemo(() => {
+    const buyProb = clamp(analysisDecision.buyProb ?? 0, 0, 1);
+    const sellProb = clamp(analysisDecision.sellProb ?? 0, 0, 1);
+    const neutralProb = clamp(analysisDecision.neutralProb ?? 0, 0, 1);
+    const stagePrecision = analysisFallback?.buyStagePrecision ?? null;
+    const strategyBacktest = stagePrecision?.strategy ?? null;
+    const stageHorizonRaw = stagePrecision?.horizon;
+    const stageHorizon =
+      stageHorizonRaw == null || !Number.isFinite(stageHorizonRaw) ? 20 : Math.max(1, Math.round(stageHorizonRaw));
+    const strategySamples = strategyBacktest?.samples ?? 0;
+    const coreSamples = stagePrecision?.core.samples ?? 0;
+    const stagePrecisionModeLabel =
+      strategySamples > 0
+        ? `${stageHorizon}D実測`
+        : coreSamples > 0
+          ? `${stageHorizon}D実測(本玉)`
+          : "推定";
+    const confidence = clamp(analysisDecision.confidence ?? 0, 0, 1);
+    const spread = Math.abs(buyProb - sellProb);
+    const turnUp = clamp(analysisPTurnUp ?? 0.5, 0, 1);
+    const turnDown = clamp(analysisPTurnDown ?? 0.5, 0, 1);
+    const evBias = analysisEvNet == null ? 0 : clamp(analysisEvNet / 0.06, -1, 1);
+    const confidenceRank = confidence >= 0.66 ? "高" : confidence >= 0.56 ? "中" : "低";
+
+    let action = "様子見";
+    let watchpoint = "方向が固まるまでポジションを小さく維持。";
+
+    const tonePenalty = analysisDecision.tone === "down" ? 0.08 : analysisDecision.tone === "neutral" ? 0.03 : 0;
+    const baseLongPrecision = clamp(
+      0.5 * buyProb +
+      0.2 * (1 - sellProb) +
+      0.15 * turnUp +
+      0.1 * confidence +
+      0.05 * (0.5 + evBias * 0.5) -
+      tonePenalty,
+      0,
+      1
+    );
+    const corePrecision = clamp(
+      baseLongPrecision + 0.55 * spread + 0.12 * (turnUp - turnDown) - 0.1 * neutralProb,
+      0,
+      1
+    );
+    const corePrecisionResolved = stagePrecision?.core.precision ?? corePrecision;
+    const strategyPrecisionResolved = strategyBacktest?.precision ?? corePrecisionResolved;
+    const strategyWins = Math.max(0, Math.trunc(strategyBacktest?.wins ?? 0));
+    const coreWins = Math.max(0, Math.trunc(stagePrecision?.core.wins ?? 0));
+    const strategyPrecisionLabel = (() => {
+      if (strategySamples > 0) {
+        return `${formatPercentLabel(strategyPrecisionResolved)} (n${strategySamples})`;
+      }
+      if (coreSamples > 0) {
+        return `${formatPercentLabel(corePrecisionResolved)} (本玉 n${coreSamples})`;
+      }
+      return `${formatPercentLabel(strategyPrecisionResolved)} (推定)`;
+    })();
+    const probeShares = Math.max(0, Math.round(strategyBacktest?.probeShares ?? 100));
+    const addShares = Math.max(0, Math.round(strategyBacktest?.addShares ?? 300));
+    const coreShares = Math.max(0, Math.round(strategyBacktest?.coreShares ?? 500));
+    const topupShares = Math.max(0, Math.round(strategyBacktest?.topupShares ?? 100));
+    const targetShares = Math.max(0, Math.round(strategyBacktest?.targetShares ?? probeShares + addShares + coreShares + topupShares));
+    const takeProfitPct = clamp(strategyBacktest?.takeProfitPct ?? 0.06, 0, 1);
+
+    const probeReady = buyProb > sellProb;
+    const addReady = buyProb >= 0.54 && spread >= 0.06;
+    const coreReady = buyProb >= 0.58 && spread >= 0.1 && turnUp >= turnDown;
+    const currentStageLabel = coreReady
+      ? "本玉成立"
+      : addReady
+        ? "追加成立（本玉待ち）"
+        : probeReady
+          ? "打診成立（追加待ち）"
+          : "未成立（打診待ち）";
+    const backtestSummary = strategySamples > 0
+      ? `過去検証 ${formatPercentLabel(strategyPrecisionResolved)}（勝ち ${strategyWins}/${strategySamples}）`
+      : coreSamples > 0
+        ? `過去検証(本玉) ${formatPercentLabel(corePrecisionResolved)}（勝ち ${coreWins}/${coreSamples}）`
+        : "過去検証データ不足（推定）";
+
+    let probeRule = "買い確率が売り確率を上回ったら";
+    let addRule = "押し目でも買い優位を維持したら";
+    let coreRule = "買い優位の拡大（買い-売り差 10pt 以上）で";
+    let buyTimingTitle = `3分割買いタイミング（主精度 ${strategyPrecisionLabel}）`;
+    if (analysisDecision.tone === "up") {
+      action = spread >= 0.12 ? "押し目買い優先" : "買い寄りだが慎重";
+      watchpoint = "売り確率が買い確率に接近したら撤退を優先。";
+      buyTimingTitle = `3分割買いタイミング（${stagePrecisionModeLabel} 主精度 ${strategyPrecisionLabel}）`;
+    } else if (analysisDecision.tone === "down") {
+      action = spread >= 0.12 ? "戻り売り優先" : "売り寄りだが慎重";
+      watchpoint = "買い確率が売り確率に接近したら戻しを警戒。";
+      buyTimingTitle = `買いは条件付き（主精度 ${strategyPrecisionLabel}）`;
+      probeRule = "買い確率が 50% を回復してから";
+      addRule = "売り確率を上回る状態が2日続いたら";
+      coreRule = "想定パターンが上昇側へ転じてから";
+    } else {
+      buyTimingTitle = `買いは段階的に（主精度 ${strategyPrecisionLabel}）`;
+      probeRule = "買い確率が売り確率を上回ってから";
+      addRule = "押し目で買い優位が崩れないことを確認してから";
+      coreRule = "方向が明確化（買い-売り差 10pt 以上）してから";
+    }
+    if (coreReady) {
+      buyTimingTitle = "本玉成立";
+    }
+    const buyTimingPlan = coreReady
+      ? [
+        `本玉成立: ${coreShares}株エントリー優先 / 主精度 ${strategyPrecisionLabel} / ${backtestSummary}`
+      ]
+      : [
+        `現在判定: ${currentStageLabel} / 主精度 ${strategyPrecisionLabel}（${probeShares}/${addShares}/${coreShares}株 + 追撃${topupShares}株 = ${targetShares}株 / 利確 ${formatPercentLabel(takeProfitPct)}）`,
+        `打診 ${probeShares}株: ${probeRule}打診 / ${probeReady ? "成立" : "待機"}`,
+        `追加 ${addShares}株: ${addRule}追加 / ${addReady ? "成立" : "待機"}`,
+        `本玉 ${coreShares}株: ${coreRule}本玉 / ${coreReady ? "成立" : "待機"}`,
+        backtestSummary
+      ];
+
+    const trendLine =
+      analysisDecision.tone === "down"
+        ? `下向きトレンド ${sellAnalysisFallback?.trendDownStrict ? "強い" : sellAnalysisFallback?.trendDown ? "あり" : "弱い"
+        }`
+        : null;
+    const reasonLines = [
+      `買い ${formatPercentLabel(buyProb)} / 売り ${formatPercentLabel(sellProb)}（差 ${formatPercentLabel(spread)}）`,
+      `転換 上 ${formatPercentLabel(analysisPTurnUp)} / 下 ${formatPercentLabel(analysisPTurnDown)}`,
+      analysisEvNet == null ? null : `期待値 ${formatSignedPercentLabel(analysisEvNet)}`,
+      trendLine
+    ].filter((value): value is string => typeof value === "string" && value.length > 0);
+
+    return {
+      confidenceRank,
+      action,
+      watchpoint,
+      buyTimingTitle,
+      buyTimingPlan,
+      buyWidth: Math.round(buyProb * 100),
+      sellWidth: Math.round(sellProb * 100),
+      neutralWidth: Math.round(neutralProb * 100),
+      reasonLines
+    };
+  }, [
+    analysisDecision.buyProb,
+    analysisDecision.sellProb,
+    analysisDecision.neutralProb,
+    analysisDecision.confidence,
+    analysisDecision.tone,
+    analysisFallback?.buyStagePrecision,
+    analysisPTurnUp,
+    analysisPTurnDown,
+    analysisEvNet,
+    sellAnalysisFallback?.trendDown,
+    sellAnalysisFallback?.trendDownStrict
+  ]);
   const canShowPhase = hasPhasePanelData;
-  const canShowAnalysis = hasAnalysisData || analysisLoading;
+  const showBuyAnalysis = hasAnalysisData || analysisLoading;
+  const showSellAnalysis = hasSellAnalysisData || sellAnalysisLoading;
+  const canShowAnalysis = showBuyAnalysis || showSellAnalysis;
   const analysisLoadingText = analysisLoading ? "読込中..." : null;
+  const sellAnalysisLoadingText = sellAnalysisLoading ? "読込中..." : null;
+  const analysisSummaryLoading = analysisLoadingText != null || sellAnalysisLoadingText != null;
   const analysisDtLabel = useMemo(() => {
     if (!analysisFallback) return "";
     const normalized = normalizeTime(analysisFallback.dt);
     return formatDateLabel(normalized);
   }, [analysisFallback]);
+  const sellAnalysisDtLabel = useMemo(() => {
+    if (!sellAnalysisFallback) return "";
+    const normalized = normalizeTime(sellAnalysisFallback.dt);
+    return formatDateLabel(normalized);
+  }, [sellAnalysisFallback]);
+  const sellPredDtLabel = useMemo(() => {
+    if (!sellAnalysisFallback) return "";
+    const normalized = normalizeTime(sellAnalysisFallback.predDt);
+    return formatDateLabel(normalized);
+  }, [sellAnalysisFallback]);
   const showAnalysisPanel = headerMode === "analysis" && !compareCode;
   const showMemoPanel = cursorMode && !compareCode && !showAnalysisPanel;
   const showRightPanel = showAnalysisPanel || showMemoPanel;
@@ -1042,13 +1645,19 @@ export default function DetailView() {
       lastPhaseAttemptAsOfRef.current = null;
       return;
     }
-    const asof = detailAsOfTime;
+    const asof = analysisAsOfTime;
     if (asof == null) {
       setPhaseFallbackLoading(false);
       return;
     }
-    if (lastPhaseAttemptAsOfRef.current === asof) return;
     const requestKey = `${code}|${asof}`;
+    if (phaseFallbackCacheRef.current.has(requestKey)) {
+      setPhaseFallback(phaseFallbackCacheRef.current.get(requestKey) ?? null);
+      setPhaseFallbackLoading(false);
+      lastPhaseAttemptAsOfRef.current = asof;
+      return;
+    }
+    if (lastPhaseAttemptAsOfRef.current === asof) return;
     setPhaseFallbackLoading(true);
     lastPhaseAttemptAsOfRef.current = asof;
     phaseFallbackRequestKeyRef.current = requestKey;
@@ -1058,6 +1667,7 @@ export default function DetailView() {
         if (phaseFallbackRequestKeyRef.current !== requestKey) return;
         const item = res.data?.item ?? null;
         if (!item) {
+          phaseFallbackCacheRef.current.set(requestKey, null);
           setPhaseFallback(null);
           return;
         }
@@ -1066,17 +1676,20 @@ export default function DetailView() {
           : typeof item.reasonsTop3 === "string"
             ? item.reasonsTop3.split(",").map((part: string) => part.trim()).filter(Boolean)
             : [];
-        setPhaseFallback({
+        const payload: PhaseFallback = {
           dt: typeof item.dt === "number" ? item.dt : null,
           earlyScore: Number.isFinite(item.earlyScore) ? item.earlyScore : null,
           lateScore: Number.isFinite(item.lateScore) ? item.lateScore : null,
           bodyScore: Number.isFinite(item.bodyScore) ? item.bodyScore : null,
           n: typeof item.n === "number" ? item.n : null,
           reasons
-        });
+        };
+        phaseFallbackCacheRef.current.set(requestKey, payload);
+        setPhaseFallback(payload);
       })
       .catch(() => {
         if (phaseFallbackRequestKeyRef.current !== requestKey) return;
+        phaseFallbackCacheRef.current.set(requestKey, null);
         setPhaseFallback(null);
       })
       .finally(() => {
@@ -1088,52 +1701,142 @@ export default function DetailView() {
     code,
     hasPhaseScores,
     needsPhaseReasons,
-    detailAsOfTime
+    analysisAsOfTime
   ]);
 
   useEffect(() => {
     if (!backendReady) return;
     if (!code) return;
-    const asof = detailAsOfTime;
+    const asof = analysisAsOfTime;
     if (asof == null) {
       setAnalysisLoading(false);
       return;
     }
-    if (lastAnalysisAttemptAsOfRef.current === asof) return;
     const requestKey = `${code}|${asof}`;
+    if (analysisFallbackCacheRef.current.has(requestKey)) {
+      setAnalysisFallback(analysisFallbackCacheRef.current.get(requestKey) ?? null);
+      setAnalysisLoading(false);
+      lastAnalysisAttemptAsOfRef.current = asof;
+      return;
+    }
+    if (lastAnalysisAttemptAsOfRef.current === asof) return;
     setAnalysisLoading(true);
     lastAnalysisAttemptAsOfRef.current = asof;
     analysisRequestKeyRef.current = requestKey;
     api
-      .get("/ticker/analysis", { params: { code, asof }, timeout: 10000 })
+      .get("/ticker/analysis", { params: { code, asof }, timeout: 30000 })
       .then((res) => {
         if (analysisRequestKeyRef.current !== requestKey) return;
         const item = res.data?.item ?? null;
         if (!item) {
+          analysisFallbackCacheRef.current.set(requestKey, null);
           setAnalysisFallback(null);
           return;
         }
-        setAnalysisFallback({
+        const payload: AnalysisFallback = {
           dt: item.dt ?? null,
           pUp: toFiniteNumber(item.pUp),
           pDown: toFiniteNumber(item.pDown),
           pTurnUp: toFiniteNumber(item.pTurnUp),
           pTurnDown: toFiniteNumber(item.pTurnDown),
+          pTurnDownHorizon: toFiniteNumber(item.pTurnDownHorizon),
           retPred20: toFiniteNumber(item.retPred20),
           ev20: toFiniteNumber(item.ev20),
           ev20Net: toFiniteNumber(item.ev20Net),
+          horizonAnalysis: normalizeHorizonAnalysis(item.horizonAnalysis),
+          additiveSignals: normalizeAdditiveSignals(item.additiveSignals),
+          buyStagePrecision: normalizeBuyStagePrecision(item.buyStagePrecision),
           modelVersion: typeof item.modelVersion === "string" ? item.modelVersion : null
-        });
+        };
+        analysisFallbackCacheRef.current.set(requestKey, payload);
+        setAnalysisFallback(payload);
       })
       .catch(() => {
         if (analysisRequestKeyRef.current !== requestKey) return;
+        analysisFallbackCacheRef.current.set(requestKey, null);
         setAnalysisFallback(null);
       })
       .finally(() => {
         if (analysisRequestKeyRef.current !== requestKey) return;
         setAnalysisLoading(false);
       });
-  }, [backendReady, code, detailAsOfTime]);
+  }, [backendReady, code, analysisAsOfTime]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!code) return;
+    const asof = analysisAsOfTime;
+    if (asof == null) {
+      setSellAnalysisLoading(false);
+      return;
+    }
+    const requestKey = `${code}|${asof}`;
+    if (sellAnalysisFallbackCacheRef.current.has(requestKey)) {
+      setSellAnalysisFallback(sellAnalysisFallbackCacheRef.current.get(requestKey) ?? null);
+      setSellAnalysisLoading(false);
+      lastSellAnalysisAttemptAsOfRef.current = asof;
+      return;
+    }
+    if (lastSellAnalysisAttemptAsOfRef.current === asof) return;
+    setSellAnalysisLoading(true);
+    lastSellAnalysisAttemptAsOfRef.current = asof;
+    sellAnalysisRequestKeyRef.current = requestKey;
+    api
+      .get("/ticker/analysis/sell", { params: { code, asof }, timeout: 30000 })
+      .then((res) => {
+        if (sellAnalysisRequestKeyRef.current !== requestKey) return;
+        const item = res.data?.item ?? null;
+        if (!item) {
+          sellAnalysisFallbackCacheRef.current.set(requestKey, null);
+          setSellAnalysisFallback(null);
+          return;
+        }
+        const payload: SellAnalysisFallback = {
+          dt: item.dt ?? null,
+          close: toFiniteNumber(item.close),
+          dayChangePct: toFiniteNumber(item.dayChangePct),
+          pDown: toFiniteNumber(item.pDown),
+          pTurnDown: toFiniteNumber(item.pTurnDown),
+          ev20Net: toFiniteNumber(item.ev20Net),
+          rankDown20: toFiniteNumber(item.rankDown20),
+          predDt: item.predDt ?? null,
+          pUp5: toFiniteNumber(item.pUp5),
+          pUp10: toFiniteNumber(item.pUp10),
+          pUp20: toFiniteNumber(item.pUp20),
+          shortScore: toFiniteNumber(item.shortScore),
+          aScore: toFiniteNumber(item.aScore),
+          bScore: toFiniteNumber(item.bScore),
+          ma20: toFiniteNumber(item.ma20),
+          ma60: toFiniteNumber(item.ma60),
+          ma20Slope: toFiniteNumber(item.ma20Slope),
+          ma60Slope: toFiniteNumber(item.ma60Slope),
+          distMa20Signed: toFiniteNumber(item.distMa20Signed),
+          distMa60Signed: toFiniteNumber(item.distMa60Signed),
+          trendDown: item.trendDown == null ? null : toBoolean(item.trendDown),
+          trendDownStrict: item.trendDownStrict == null ? null : toBoolean(item.trendDownStrict),
+          fwdClose5: toFiniteNumber(item.fwdClose5),
+          fwdClose10: toFiniteNumber(item.fwdClose10),
+          fwdClose20: toFiniteNumber(item.fwdClose20),
+          shortRet5: toFiniteNumber(item.shortRet5),
+          shortRet10: toFiniteNumber(item.shortRet10),
+          shortRet20: toFiniteNumber(item.shortRet20),
+          shortWin5: item.shortWin5 == null ? null : toBoolean(item.shortWin5),
+          shortWin10: item.shortWin10 == null ? null : toBoolean(item.shortWin10),
+          shortWin20: item.shortWin20 == null ? null : toBoolean(item.shortWin20)
+        };
+        sellAnalysisFallbackCacheRef.current.set(requestKey, payload);
+        setSellAnalysisFallback(payload);
+      })
+      .catch(() => {
+        if (sellAnalysisRequestKeyRef.current !== requestKey) return;
+        sellAnalysisFallbackCacheRef.current.set(requestKey, null);
+        setSellAnalysisFallback(null);
+      })
+      .finally(() => {
+        if (sellAnalysisRequestKeyRef.current !== requestKey) return;
+        setSellAnalysisLoading(false);
+      });
+  }, [backendReady, code, analysisAsOfTime]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1203,9 +1906,6 @@ export default function DetailView() {
     setCompareLoading(true);
     setCompareMonthlyErrors([]);
     const params: Record<string, string | number> = { code: compareCode, limit: monthlyLimit };
-    if (compareAsOf) {
-      params.asof = compareAsOf;
-    }
     api
       .get("/ticker/monthly", { params })
       .then((res) => {
@@ -1219,7 +1919,7 @@ export default function DetailView() {
         setCompareMonthlyData([]);
       })
       .finally(() => setCompareLoading(false));
-  }, [backendReady, compareCode, monthlyLimit, compareAsOf]);
+  }, [backendReady, compareCode, monthlyLimit]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1230,9 +1930,6 @@ export default function DetailView() {
       code: compareCode,
       limit: compareDailyLimit
     };
-    if (compareAsOf) {
-      params.asof = compareAsOf;
-    }
     api
       .get("/ticker/daily", { params })
       .then((res) => {
@@ -1246,7 +1943,7 @@ export default function DetailView() {
         setCompareDailyData([]);
       })
       .finally(() => setCompareDailyLoading(false));
-  }, [backendReady, compareCode, compareDailyLimit, compareAsOf]);
+  }, [backendReady, compareCode, compareDailyLimit]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1368,12 +2065,12 @@ export default function DetailView() {
     [monthlyParse.candles, mainAsOfTime]
   );
   const compareDailyCandles = useMemo(
-    () => filterCandlesByAsOf(compareDailyParse.candles, compareAsOfTime),
-    [compareDailyParse.candles, compareAsOfTime]
+    () => compareDailyParse.candles,
+    [compareDailyParse.candles]
   );
   const compareMonthlyCandles = useMemo(
-    () => filterCandlesByAsOf(compareMonthlyParse.candles, compareAsOfTime),
-    [compareMonthlyParse.candles, compareAsOfTime]
+    () => compareMonthlyParse.candles,
+    [compareMonthlyParse.candles]
   );
   const dailyVolume = useMemo(
     () => filterVolumeByAsOf(buildVolume(dailyData), mainAsOfTime),
@@ -1384,8 +2081,8 @@ export default function DetailView() {
     [monthlyData, mainAsOfTime]
   );
   const compareDailyVolume = useMemo(
-    () => filterVolumeByAsOf(buildVolume(compareDailyData), compareAsOfTime),
-    [compareDailyData, compareAsOfTime]
+    () => buildVolume(compareDailyData),
+    [compareDailyData]
   );
   const weeklyData = useMemo(() => buildWeekly(dailyCandles, dailyVolume), [dailyCandles, dailyVolume]);
 
@@ -2538,21 +3235,29 @@ export default function DetailView() {
   const handleWeeklyCrosshair = mainSync.handleWeeklyCrosshair;
   const handleMonthlyCrosshair = mainSync.handleMonthlyCrosshair;
 
-  const handleCompareMonthlyCrosshair = (time: number | null, source: "left" | "right") => {
+  const handleCompareMonthlyCrosshair = (
+    time: number | null,
+    source: "left" | "right",
+    point?: { x: number; y: number } | null
+  ) => {
     if (source === "left") {
       // Main chart (Left)
-      mainSync.handleMonthlyCrosshair(time);
+      mainSync.handleMonthlyCrosshair(time, point ?? null);
     } else {
       // Compare chart (Right)
-      compareSync.handleMonthlyCrosshair(time);
+      compareSync.handleMonthlyCrosshair(time, point ?? null);
     }
   };
 
-  const handleCompareDailyCrosshair = (time: number | null, source: "left" | "right") => {
+  const handleCompareDailyCrosshair = (
+    time: number | null,
+    source: "left" | "right",
+    point?: { x: number; y: number } | null
+  ) => {
     if (source === "left") {
-      mainSync.handleDailyCrosshair(time);
+      mainSync.handleDailyCrosshair(time, point ?? null);
     } else {
-      compareSync.handleDailyCrosshair(time);
+      compareSync.handleDailyCrosshair(time, point ?? null);
     }
   };
 
@@ -2977,7 +3682,15 @@ export default function DetailView() {
           </button>
           <button
             className={headerMode === "analysis" ? "active" : ""}
-            onClick={() => setHeaderMode("analysis")}
+            onClick={() => {
+              setHeaderMode("analysis");
+              if (!cursorMode) {
+                setCursorMode(true);
+                if (dailyCandles.length > 0) {
+                  updateSelectedBar(dailyCandles.length - 1);
+                }
+              }
+            }}
           >
             分析
           </button>
@@ -3446,7 +4159,9 @@ export default function DetailView() {
                       onDeleteHorizontalLine={deleteHorizontalLine(monthlyDrawingKey)}
                       partialTimes={monthlyYearBoundaries}
                       visibleRange={monthlyCandles.length ? compareMonthlyBaseRange : null}
-                      onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "left")}
+                      onCrosshairMove={(time, point) =>
+                        handleCompareMonthlyCrosshair(time, "left", point)
+                      }
                       onVisibleRangeChange={handleMonthlyVisibleRangeChange}
                     />
                     {monthlyEmptyMessage && (
@@ -3493,7 +4208,9 @@ export default function DetailView() {
                       onUpdateHorizontalLine={updateHorizontalLine(compareMonthlyDrawingKey)}
                       onDeleteHorizontalLine={deleteHorizontalLine(compareMonthlyDrawingKey)}
                       visibleRange={compareMonthlyCandles.length ? compareMonthlyVisibleRange : null}
-                      onCrosshairMove={(time) => handleCompareMonthlyCrosshair(time, "right")}
+                      onCrosshairMove={(time, point) =>
+                        handleCompareMonthlyCrosshair(time, "right", point)
+                      }
                       onVisibleRangeChange={handleCompareMonthlyVisibleRangeChange}
                     />
                     {compareLoading && (
@@ -3558,7 +4275,9 @@ export default function DetailView() {
                         currentPositions,
                         latestTradeTime
                       }}
-                      onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "left")}
+                      onCrosshairMove={(time, point) =>
+                        handleCompareDailyCrosshair(time, "left", point)
+                      }
                       onVisibleRangeChange={handleDailyVisibleRangeChange}
                     />
                     {dailyEmptyMessage && (
@@ -3613,7 +4332,9 @@ export default function DetailView() {
                         showPnL: showPnLPanel,
                         hoverTime: compareSync.hoverTime
                       }}
-                      onCrosshairMove={(time) => handleCompareDailyCrosshair(time, "right")}
+                      onCrosshairMove={(time, point) =>
+                        handleCompareDailyCrosshair(time, "right", point)
+                      }
                       onVisibleRangeChange={handleCompareDailyVisibleRangeChange}
                     />
                     {(compareDailyLoading || compareDailyNeedsMore) && (
@@ -3998,85 +4719,93 @@ export default function DetailView() {
               {analysisDtLabel && (
                 <div className="detail-analysis-meta">基準日 {analysisDtLabel}</div>
               )}
-              {canShowPhase && (
-                <div className="detail-analysis-section">
-                  <div className="detail-analysis-section-title">局面判定</div>
-                  <div className="detail-phase is-open detail-phase-in-panel">
-                    <div className="detail-phase-metrics">
-                      <span
-                        className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                          phaseScores?.bodyScore ?? null
-                        )}`}
-                      >
-                        中盤 {formatPhaseScore(phaseScores?.bodyScore ?? null)}
-                      </span>
-                      <span
-                        className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                          phaseScores?.earlyScore ?? null
-                        )}`}
-                      >
-                        序盤 {formatPhaseScore(phaseScores?.earlyScore ?? null)}
-                      </span>
-                      <span
-                        className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                          phaseScores?.lateScore ?? null
-                        )}`}
-                      >
-                        終盤 {formatPhaseScore(phaseScores?.lateScore ?? null)}
-                      </span>
-                      <div className="detail-phase-reasons">
-                        {phaseReasons.length ? (
-                          phaseReasons.map((reason) => (
-                            <span key={reason} className="detail-phase-reason">
+              {cursorMode && selectedDate && (
+                <div className="detail-analysis-meta">カーソル日 {selectedDate}</div>
+              )}
+              {canShowPhase && phaseReasons[0] && (
+                <div className="detail-analysis-meta">局面メモ {phaseReasons[0]}</div>
+              )}
+              {canShowAnalysis ? (
+                <>
+                  <div className="detail-analysis-section">
+                    <div className="detail-analysis-section-title">売買サマリー</div>
+                    <div className={`detail-analysis-regime detail-analysis-regime--${analysisDecision.tone}`}>
+                      <div className="detail-analysis-call-head">
+                        <span className={`detail-analysis-call-badge detail-analysis-call-badge--${analysisDecision.tone}`}>
+                          判定 {analysisDecision.sideLabel}
+                        </span>
+                        <span className="detail-analysis-call-confidence">
+                          確信度 {analysisSummaryLoading ? "読込中..." : analysisGuidance.confidenceRank}
+                        </span>
+                      </div>
+                      <div className="detail-analysis-call-action">{analysisGuidance.action}</div>
+                      <div className="detail-analysis-regime-title">{patternSummary.environmentLabel}</div>
+                      <div className="detail-analysis-call-pattern">
+                        想定チャートパターン {analysisDecision.patternLabel}
+                      </div>
+                      <div className="detail-analysis-regime-text">{analysisGuidance.watchpoint}</div>
+                      <div className="detail-analysis-entry-plan">
+                        <div className="detail-analysis-entry-plan-title">{analysisGuidance.buyTimingTitle}</div>
+                        {analysisGuidance.buyTimingPlan.map((step, index) => (
+                          <div key={`analysis-entry-plan-${index}`} className="detail-analysis-entry-plan-item">
+                            {step}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="detail-analysis-prob-meter-list">
+                        <div className="detail-analysis-prob-meter-row tone-up">
+                          <div className="detail-analysis-prob-meter-label">
+                            買い {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.buyProb)}
+                          </div>
+                          <div className="detail-analysis-prob-meter-track">
+                            <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.buyWidth}%` }} />
+                          </div>
+                        </div>
+                        <div className="detail-analysis-prob-meter-row tone-down">
+                          <div className="detail-analysis-prob-meter-label">
+                            売り {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.sellProb)}
+                          </div>
+                          <div className="detail-analysis-prob-meter-track">
+                            <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.sellWidth}%` }} />
+                          </div>
+                        </div>
+                        <div className="detail-analysis-prob-meter-row tone-neutral">
+                          <div className="detail-analysis-prob-meter-label">
+                            中立 {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.neutralProb)}
+                          </div>
+                          <div className="detail-analysis-prob-meter-track">
+                            <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.neutralWidth}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="detail-analysis-call-reason-list">
+                        {analysisGuidance.reasonLines.length ? (
+                          analysisGuidance.reasonLines.map((reason, index) => (
+                            <div key={`analysis-call-reason-${index}`} className="detail-analysis-call-reason">
                               {reason}
-                            </span>
+                            </div>
                           ))
                         ) : (
-                          <span className="detail-phase-empty">--</span>
+                          <div className="detail-analysis-empty">根拠データがありません。</div>
                         )}
                       </div>
                     </div>
+                    {analysisSummaryLoading && (
+                      <div className="detail-analysis-meta">一部データ読込中のため、確率は暫定表示です。</div>
+                    )}
+                    {analysisDtLabel && (
+                      <div className="detail-analysis-meta">買い基準日 {analysisDtLabel}</div>
+                    )}
+                    {sellAnalysisDtLabel && (
+                      <div className="detail-analysis-meta">売り基準日 {sellAnalysisDtLabel}</div>
+                    )}
+                    {sellPredDtLabel && (
+                      <div className="detail-analysis-meta">予測スナップショット {sellPredDtLabel}</div>
+                    )}
                   </div>
-                </div>
-              )}
-              {canShowAnalysis ? (
-                <div className="detail-analysis-grid">
-                  <div className="detail-analysis-card">
-                    <div className="detail-analysis-label">買い確率</div>
-                    <div className="detail-analysis-value">
-                      {analysisLoadingText ?? formatPercentLabel(analysisPUp)}
-                    </div>
-                  </div>
-                  <div className="detail-analysis-card">
-                    <div className="detail-analysis-label">下落確率</div>
-                    <div className="detail-analysis-value">
-                      {analysisLoadingText ?? formatPercentLabel(analysisPDown)}
-                    </div>
-                  </div>
-                  <div className="detail-analysis-card">
-                    <div className="detail-analysis-label">期待値</div>
-                    <div
-                      className={`detail-analysis-value detail-analysis-value--${getPhaseTone(
-                        analysisEv20Net
-                      )}`}
-                    >
-                      {analysisLoadingText ?? formatSignedPercentLabel(analysisEv20Net)}
-                    </div>
-                  </div>
-                  <div className="detail-analysis-card">
-                    <div className="detail-analysis-label">転換売り確率</div>
-                    <div className="detail-analysis-value">
-                      {analysisLoadingText ?? formatPercentLabel(analysisPTurnDown)}
-                    </div>
-                  </div>
-                </div>
+                </>
               ) : (
-                <div className="detail-analysis-empty">ML分析データがありません。</div>
-              )}
-              {analysisFallback?.modelVersion && (
-                <div className="detail-analysis-meta">
-                  モデル {analysisFallback.modelVersion}
-                </div>
+                <div className="detail-analysis-empty">分析データがありません。</div>
               )}
             </div>
           </div>

@@ -12,6 +12,7 @@ from app.backend.core import txt_update_job
 def _build_common_patches():
     return [
         patch("app.backend.core.txt_update_job.os.path.isfile", return_value=True),
+        patch("app.backend.infra.panrolling.pan_import.run_pan_import", return_value=True),
         patch("app.backend.core.txt_update_job.run_vbs_export", return_value=(0, ["SUMMARY: total=1 ok=1 err=0"])),
         patch("app.backend.core.txt_update_job.run_ingest", return_value=("", "", {"rows": "10"})),
         patch("app.backend.core.txt_update_job._run_phase_batch_latest", return_value=20260101),
@@ -38,11 +39,12 @@ def test_txt_update_records_failed_stage_when_scoring_fails():
         patches[2],
         patches[3],
         patches[4],
-        patches[5] as mock_update_db,
-        patches[6],
+        patches[5],
+        patches[6] as mock_update_db,
         patches[7],
-        patches[8] as mock_save_state,
-        patches[9],
+        patches[8],
+        patches[9] as mock_save_state,
+        patches[10],
     ):
         txt_update_job.handle_txt_update("job-fail", {"auto_ml_predict": False, "auto_ml_train": False})
 
@@ -85,12 +87,13 @@ def test_txt_update_success_records_cache_refresh_stage():
         patches[2],
         patches[3],
         patches[4],
-        patches[5] as mock_update_db,
-        patches[6],
+        patches[5],
+        patches[6] as mock_update_db,
         patches[7],
-        patches[8] as mock_save_state,
-        patches[9],
+        patches[8],
+        patches[9] as mock_save_state,
         patches[10],
+        patches[11],
     ):
         txt_update_job.handle_txt_update("job-ok", {"auto_ml_predict": False, "auto_ml_train": False})
 

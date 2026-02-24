@@ -1,0 +1,82 @@
+﻿{
+    "startedAt":  "2026-02-16T06:44:29.4517208+09:00",
+    "finishedAt":  "2026-02-16T06:45:11.6331202+09:00",
+    "status":  "failed",
+    "error":  "Invalid URI: The hostname could not be parsed.",
+    "baseUrl":  "http://127.0.0.1:8000",
+    "lookbackDays":  20,
+    "maxMissingDays":  20,
+    "includeSell":  true,
+    "includePhase":  false,
+    "skipBuild":  false,
+    "buildTool":  "ps1",
+    "expectedMinMlPredDt":  1770940800,
+    "mlTrainStartDt":  1735689600,
+    "mlTrainEndDt":  1770940800,
+    "artifacts":  {
+                      "pipelineLog":  "C:\\work\\meemee-screener\\tmp\\overnight_short_pipeline_20260216_064429.log",
+                      "backendOutLog":  "C:\\work\\meemee-screener\\tmp\\backend_pipeline_20260216_064429.out.log",
+                      "backendErrLog":  "C:\\work\\meemee-screener\\tmp\\backend_pipeline_20260216_064429.err.log",
+                      "analysisBackfillJobId":  "3a331e19-7697-4d73-a81d-b7799347d108"
+                  },
+    "steps":  [
+                  {
+                      "name":  "pre_stop",
+                      "attempt":  1,
+                      "status":  "success",
+                      "startedAt":  "2026-02-16T06:44:29.4756114+09:00",
+                      "finishedAt":  "2026-02-16T06:44:29.6000466+09:00",
+                      "details":  {
+                                      "stopped":  [
+
+                                                  ]
+                                  },
+                      "error":  ""
+                  },
+                  {
+                      "name":  "start_backend",
+                      "attempt":  1,
+                      "status":  "success",
+                      "startedAt":  "2026-02-16T06:44:29.6102053+09:00",
+                      "finishedAt":  "2026-02-16T06:44:33.7562535+09:00",
+                      "details":  {
+                                      "stdout":  "C:\\work\\meemee-screener\\tmp\\backend_pipeline_20260216_064429.out.log",
+                                      "started":  true,
+                                      "stderr":  "C:\\work\\meemee-screener\\tmp\\backend_pipeline_20260216_064429.err.log",
+                                      "pid":  24500
+                                  },
+                      "error":  ""
+                  },
+                  {
+                      "name":  "analysis_backfill",
+                      "attempt":  1,
+                      "status":  "success",
+                      "startedAt":  "2026-02-16T06:44:33.7602582+09:00",
+                      "finishedAt":  "2026-02-16T06:45:09.5667703+09:00",
+                      "details":  {
+                                      "jobId":  "3a331e19-7697-4d73-a81d-b7799347d108",
+                                      "status":  "success",
+                                      "message":  "Backfill completed: missing_ml=0 selected=0 predicted=0 sell=0"
+                                  },
+                      "error":  ""
+                  },
+                  {
+                      "name":  "ml_train",
+                      "attempt":  1,
+                      "status":  "failed",
+                      "startedAt":  "2026-02-16T06:45:09.5915398+09:00",
+                      "finishedAt":  "2026-02-16T06:45:09.6068909+09:00",
+                      "details":  null,
+                      "error":  "Invalid URI: The hostname could not be parsed."
+                  },
+                  {
+                      "name":  "ml_train",
+                      "attempt":  2,
+                      "status":  "failed",
+                      "startedAt":  "2026-02-16T06:45:11.6198579+09:00",
+                      "finishedAt":  "2026-02-16T06:45:11.6238516+09:00",
+                      "details":  null,
+                      "error":  "Invalid URI: The hostname could not be parsed."
+                  }
+              ]
+}

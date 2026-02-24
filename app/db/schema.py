@@ -195,6 +195,107 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS toredex_seasons (
+            season_id TEXT PRIMARY KEY,
+            mode TEXT,
+            start_date DATE,
+            end_date DATE,
+            initial_cash BIGINT,
+            policy_version TEXT,
+            config_json TEXT,
+            config_hash TEXT,
+            created_at TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS toredex_daily_snapshots (
+            season_id TEXT,
+            "asOf" DATE,
+            snapshot_path TEXT,
+            snapshot_hash TEXT,
+            payload_json TEXT,
+            PRIMARY KEY(season_id, "asOf")
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS toredex_decisions (
+            season_id TEXT,
+            "asOf" DATE,
+            decision_path TEXT,
+            decision_hash TEXT,
+            payload_json TEXT,
+            PRIMARY KEY(season_id, "asOf")
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS toredex_trades (
+            season_id TEXT,
+            "asOf" DATE,
+            trade_id TEXT PRIMARY KEY,
+            ticker TEXT,
+            side TEXT,
+            delta_units INTEGER CHECK (delta_units IN (-5,-3,-2,2,3,5)),
+            price DOUBLE,
+            reason_id TEXT,
+            fees_bps DOUBLE,
+            created_at TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS toredex_positions (
+            season_id TEXT,
+            ticker TEXT,
+            side TEXT,
+            units INTEGER CHECK (units > 0),
+            avg_price DOUBLE,
+            stage TEXT,
+            opened_at DATE,
+            holding_days INTEGER,
+            pnl_pct DOUBLE,
+            PRIMARY KEY(season_id, ticker, side)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS toredex_daily_metrics (
+            season_id TEXT,
+            "asOf" DATE,
+            cash DOUBLE,
+            equity DOUBLE,
+            daily_pnl DOUBLE,
+            cum_pnl DOUBLE,
+            cum_return_pct DOUBLE,
+            max_drawdown_pct DOUBLE,
+            holdings_count INTEGER,
+            goal20_reached BOOLEAN,
+            goal30_reached BOOLEAN,
+            game_over BOOLEAN,
+            PRIMARY KEY(season_id, "asOf")
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS toredex_logs (
+            season_id TEXT,
+            "asOf" DATE,
+            log_path TEXT,
+            kind TEXT,
+            PRIMARY KEY(season_id, "asOf", kind)
+        );
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS monthly_bars (
             code TEXT,
             month INTEGER,

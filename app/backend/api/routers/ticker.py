@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import math
+import logging
+import os
 from typing import Dict, Iterable, List, Sequence, Any
+from threading import Lock
 
 from datetime import datetime, timezone
 
@@ -8,10 +12,15 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.backend.api.dependencies import get_stock_repo
 from app.backend.infra.duckdb.stock_repo import StockRepository
+from app.backend.services import rankings_cache
 from app.services.box_detector import detect_boxes
 
 
 router = APIRouter(prefix="/api/ticker", tags=["ticker"])
+logger = logging.getLogger(__name__)
+SYNC_BACKFILL_MAX_AGE_DAYS = max(0, int(os.getenv("MEEMEE_SYNC_BACKFILL_MAX_AGE_DAYS", "7")))
+_BACKFILL_ATTEMPTS: set[tuple[str, int, bool, bool]] = set()
+_BACKFILL_ATTEMPTS_LOCK = Lock()
 
 
 def _normalize_rows(rows: Iterable[Sequence], *, fill_volume: bool) -> List[List[float]]:
@@ -119,6 +128,347 @@ def _to_float_or_none(value: Any) -> float | None:
     return parsed if parsed == parsed else None
 
 
+def _resolve_effective_trade_dt(
+    repo: StockRepository,
+    code: str,
+    asof_dt: int | None,
+) -> int | None:
+    if asof_dt is None:
+        return None
+    try:
+        rows = repo.get_daily_bars(code, limit=1, asof_dt=asof_dt)
+    except Exception:
+        rows = []
+    if not rows:
+        return asof_dt
+    raw_dt = rows[-1][0] if rows[-1] else asof_dt
+    if isinstance(raw_dt, float) and math.isfinite(raw_dt):
+        raw_dt = int(raw_dt)
+    normalized = _parse_dt(raw_dt)
+    return normalized if normalized is not None else asof_dt
+
+
+def _latest_trade_dt(repo: StockRepository, code: str) -> int | None:
+    try:
+        rows = repo.get_daily_bars(code, limit=1, asof_dt=None)
+    except Exception:
+        rows = []
+    if not rows:
+        return None
+    raw_dt = rows[-1][0] if rows[-1] else None
+    normalized = _parse_dt(raw_dt)
+    return normalized
+
+
+def _maybe_backfill_for_analysis(
+    *,
+    repo: StockRepository,
+    code: str,
+    asof_dt: int | None,
+    ensure_ml: bool,
+    ensure_sell: bool,
+) -> None:
+    effective_dt = _resolve_effective_trade_dt(repo, code, asof_dt)
+    if effective_dt is None:
+        return
+    latest_dt = _latest_trade_dt(repo, code)
+    if latest_dt is not None:
+        try:
+            latest_date = datetime.fromtimestamp(int(latest_dt), tz=timezone.utc).date()
+            target_date = datetime.fromtimestamp(int(effective_dt), tz=timezone.utc).date()
+            if (latest_date - target_date).days > SYNC_BACKFILL_MAX_AGE_DAYS:
+                return
+        except Exception:
+            return
+    attempt_key = (str(code), int(effective_dt), bool(ensure_ml), bool(ensure_sell))
+    with _BACKFILL_ATTEMPTS_LOCK:
+        if attempt_key in _BACKFILL_ATTEMPTS:
+            return
+        _BACKFILL_ATTEMPTS.add(attempt_key)
+    if ensure_ml:
+        try:
+            from app.backend.services import ml_service
+            ml_service.predict_for_dt(dt=int(effective_dt))
+        except Exception as exc:
+            logger.warning("ml backfill skipped code=%s dt=%s reason=%s", code, effective_dt, exc)
+    if ensure_sell:
+        try:
+            from app.backend.services.sell_analysis_accumulator import accumulate_sell_analysis
+            accumulate_sell_analysis(lookback_days=1, anchor_dt=int(effective_dt))
+        except Exception as exc:
+            logger.warning("sell backfill skipped code=%s dt=%s reason=%s", code, effective_dt, exc)
+
+
+def _clip_probability(value: float | None) -> float | None:
+    if value is None or not math.isfinite(value):
+        return None
+    return min(1.0, max(0.0, float(value)))
+
+
+def _scale_probability_by_horizon(
+    base_prob: float | None,
+    source_horizon: int,
+    target_horizon: int,
+) -> float | None:
+    clipped = _clip_probability(base_prob)
+    if clipped is None:
+        return None
+    if source_horizon <= 0 or target_horizon <= 0:
+        return clipped
+    eps = 1.0e-6
+    p = min(1.0 - eps, max(eps, clipped))
+    ratio = float(target_horizon) / float(source_horizon)
+    if ratio <= 0:
+        return clipped
+    scale = math.sqrt(ratio)
+    logit = math.log(p / (1.0 - p))
+    scaled = logit * scale
+    prob = 1.0 / (1.0 + math.exp(-scaled))
+    return _clip_probability(prob)
+
+
+def _scale_ev_by_horizon(
+    base_ev: float | None,
+    source_horizon: int,
+    target_horizon: int,
+) -> float | None:
+    if base_ev is None or not math.isfinite(base_ev):
+        return None
+    if source_horizon <= 0 or target_horizon <= 0:
+        return float(base_ev)
+    return float(base_ev) * (float(target_horizon) / float(source_horizon))
+
+
+def _build_horizon_analysis(
+    p_up_20d: float | None,
+    ev_net_20d: float | None,
+    p_turn_down_10d: float | None,
+    *,
+    p_up_5d: float | None = None,
+    p_up_10d: float | None = None,
+    ev_net_5d: float | None = None,
+    ev_net_10d: float | None = None,
+    p_turn_down_5d: float | None = None,
+    p_turn_down_20d: float | None = None,
+) -> Dict[str, Any]:
+    horizon_values: Dict[str, Dict[str, Any]] = {}
+    base_turn = p_turn_down_10d
+    if base_turn is None:
+        base_turn = 1.0 - p_up_20d if p_up_20d is not None else None
+    for horizon in (5, 10, 20):
+        direct_p_up = (
+            _clip_probability(p_up_5d)
+            if horizon == 5
+            else _clip_probability(p_up_10d)
+            if horizon == 10
+            else _clip_probability(p_up_20d)
+        )
+        if direct_p_up is not None:
+            p_up = direct_p_up
+            p_up_projected = False
+        elif horizon == 20:
+            p_up = _clip_probability(p_up_20d)
+            p_up_projected = False
+        else:
+            p_up = _scale_probability_by_horizon(p_up_20d, source_horizon=20, target_horizon=horizon)
+            p_up_projected = True
+        p_down = (1.0 - p_up) if p_up is not None else None
+        direct_ev = (
+            _to_float_or_none(ev_net_5d)
+            if horizon == 5
+            else _to_float_or_none(ev_net_10d)
+            if horizon == 10
+            else _to_float_or_none(ev_net_20d)
+        )
+        if direct_ev is not None:
+            ev_net = direct_ev
+            ev_projected = False
+        else:
+            ev_net = _scale_ev_by_horizon(ev_net_20d, source_horizon=20, target_horizon=horizon)
+            ev_projected = horizon != 20
+        direct_turn = (
+            _clip_probability(p_turn_down_5d)
+            if horizon == 5
+            else _clip_probability(p_turn_down_10d)
+            if horizon == 10
+            else _clip_probability(p_turn_down_20d)
+        )
+        if direct_turn is not None:
+            p_turn_down = direct_turn
+            turn_projected = False
+        elif horizon == 10:
+            p_turn_down = _clip_probability(1.0 - p_up) if p_up is not None else None
+            turn_projected = True
+        else:
+            p_turn_down = _scale_probability_by_horizon(
+                base_turn,
+                source_horizon=10,
+                target_horizon=horizon,
+            )
+            turn_projected = True
+        horizon_values[str(horizon)] = {
+            "horizon": horizon,
+            "pUp": p_up,
+            "pDown": p_down,
+            "evNet": ev_net,
+            "pTurnDown": p_turn_down,
+            "pTurnUp": (1.0 - p_turn_down) if p_turn_down is not None else None,
+            "pUpProjected": p_up_projected,
+            "evProjected": ev_projected,
+            "turnProjected": turn_projected,
+        }
+    return {
+        "defaultHorizon": 20,
+        "turnBaseHorizon": 10,
+        "projectionMethod": "logit_sqrt_time",
+        "items": horizon_values,
+    }
+
+
+def _rolling_sma(values: list[float], period: int) -> list[float | None]:
+    if period <= 0:
+        return [None for _ in values]
+    out: list[float | None] = [None for _ in values]
+    running = 0.0
+    for idx, value in enumerate(values):
+        running += float(value)
+        if idx >= period:
+            running -= float(values[idx - period])
+        if idx >= period - 1:
+            out[idx] = float(running / period)
+    return out
+
+
+def _build_additive_signal_summary(
+    daily_rows: list[tuple],
+    monthly_rows: list[tuple],
+) -> Dict[str, Any] | None:
+    if not daily_rows:
+        return None
+
+    daily_closes: list[float] = []
+    for row in daily_rows:
+        if len(row) < 5 or row[4] is None:
+            continue
+        try:
+            daily_closes.append(float(row[4]))
+        except (TypeError, ValueError):
+            continue
+    if not daily_closes:
+        return None
+
+    ma20 = _rolling_sma(daily_closes, 20)
+    ma60 = _rolling_sma(daily_closes, 60)
+    last_idx = len(daily_closes) - 1
+    close_now = daily_closes[last_idx]
+    ma20_now = ma20[last_idx] if last_idx >= 0 else None
+    ma60_now = ma60[last_idx] if last_idx >= 0 else None
+    ma20_prev = ma20[last_idx - 1] if last_idx - 1 >= 0 else None
+    ma60_prev = ma60[last_idx - 1] if last_idx - 1 >= 0 else None
+    trend_up = bool(
+        ma20_now is not None
+        and ma60_now is not None
+        and close_now > ma20_now > ma60_now
+    )
+    ma20_slope = (
+        float(ma20_now - ma20_prev)
+        if ma20_now is not None and ma20_prev is not None and math.isfinite(ma20_now) and math.isfinite(ma20_prev)
+        else None
+    )
+    ma60_slope = (
+        float(ma60_now - ma60_prev)
+        if ma60_now is not None and ma60_prev is not None and math.isfinite(ma60_now) and math.isfinite(ma60_prev)
+        else None
+    )
+    dist_ma20_signed = (
+        float((close_now - ma20_now) / ma20_now)
+        if ma20_now is not None and ma20_now != 0 and math.isfinite(ma20_now)
+        else None
+    )
+    trend_up_strict = bool(
+        trend_up
+        and isinstance(ma20_slope, (int, float))
+        and isinstance(ma60_slope, (int, float))
+        and float(ma20_slope) > 0
+        and float(ma60_slope) > 0
+        and isinstance(dist_ma20_signed, (int, float))
+        and float(dist_ma20_signed) >= 0.005
+    )
+
+    weekly = rankings_cache._build_weekly_bars(daily_rows)
+    last_daily_dt = rankings_cache._parse_date_value(daily_rows[-1][0]) if daily_rows else None
+    weekly = rankings_cache._drop_incomplete_weekly(weekly, last_daily_dt)
+    weekly_closes = [float(item["c"]) for item in weekly if isinstance(item.get("c"), (int, float))]
+    monthly_closes = [
+        float(row[4])
+        for row in monthly_rows
+        if len(row) >= 5 and isinstance(row[4], (int, float))
+    ]
+    weekly_regime = rankings_cache._calc_regime_probs(weekly_closes, lookback=20)
+    monthly_regime = rankings_cache._calc_regime_probs(monthly_closes, lookback=12)
+    weekly_breakout_up_prob = _to_float_or_none(weekly_regime.get("breakoutUpProb"))
+    monthly_breakout_up_prob = _to_float_or_none(monthly_regime.get("breakoutUpProb"))
+    monthly_range_prob = _to_float_or_none(monthly_regime.get("rangeProb"))
+    monthly_range_pos = _to_float_or_none(monthly_regime.get("rangePos"))
+
+    candle_signals = rankings_cache._calc_triplet_candle_signals(daily_rows)
+    shooting_star_like = bool((_to_float_or_none(candle_signals.get("shootingStarLike")) or 0.0) >= 0.5)
+    three_white_soldiers = bool((_to_float_or_none(candle_signals.get("threeWhiteSoldiers")) or 0.0) >= 0.5)
+    bull_engulfing = bool((_to_float_or_none(candle_signals.get("bullEngulfing")) or 0.0) >= 0.5)
+
+    v60_signals = rankings_cache._calc_60v_signals(daily_rows)
+    reclaim60 = bool((_to_float_or_none(v60_signals.get("reclaim60")) or 0.0) >= 0.5)
+    v60_core = bool((_to_float_or_none(v60_signals.get("v60Core")) or 0.0) >= 0.5)
+    v60_strong = bool((_to_float_or_none(v60_signals.get("v60Strong")) or 0.0) >= 0.5)
+
+    mtf_strong_aligned = bool(
+        trend_up_strict
+        and weekly_breakout_up_prob is not None
+        and weekly_breakout_up_prob >= 0.56
+        and monthly_breakout_up_prob is not None
+        and monthly_breakout_up_prob >= 0.60
+    )
+    box_bottom_aligned = bool(
+        monthly_range_prob is not None
+        and monthly_range_pos is not None
+        and monthly_range_prob >= 0.62
+        and monthly_range_pos <= 0.38
+    )
+
+    candlestick_pattern_bonus = (
+        (0.01 if shooting_star_like else 0.0)
+        + (0.01 if three_white_soldiers else 0.0)
+        + (0.01 if bull_engulfing else 0.0)
+    )
+    v60_strong_penalty = bool(v60_strong)
+    bonus_estimate = (
+        (0.02 if trend_up_strict else 0.0)
+        + (0.02 if mtf_strong_aligned else 0.0)
+        + (0.03 if box_bottom_aligned else 0.0)
+        + candlestick_pattern_bonus
+        - (0.01 if v60_strong_penalty else 0.0)
+    )
+
+    return {
+        "trendUpStrict": trend_up_strict,
+        "mtfStrongAligned": mtf_strong_aligned,
+        "boxBottomAligned": box_bottom_aligned,
+        "shootingStarLike": shooting_star_like,
+        "threeWhiteSoldiers": three_white_soldiers,
+        "bullEngulfing": bull_engulfing,
+        "reclaim60": reclaim60,
+        "v60Core": v60_core,
+        "v60Strong": v60_strong,
+        "v60StrongPenalty": v60_strong_penalty,
+        "candlestickPatternBonus": candlestick_pattern_bonus,
+        "bonusEstimate": bonus_estimate,
+        "weeklyBreakoutUpProb": weekly_breakout_up_prob,
+        "monthlyBreakoutUpProb": monthly_breakout_up_prob,
+        "monthlyRangeProb": monthly_range_prob,
+        "monthlyRangePos": monthly_range_pos,
+    }
+
+
 @router.get("/phase", response_model=None)
 def get_phase_pred(
     code: str,
@@ -153,24 +503,130 @@ def get_analysis_pred(
         raise HTTPException(status_code=400, detail="code is required")
     asof_dt = _parse_dt(asof)
     row = repo.get_ml_analysis_pred(code, asof_dt)
+    if not row and asof_dt is not None:
+        _maybe_backfill_for_analysis(
+            repo=repo,
+            code=code,
+            asof_dt=asof_dt,
+            ensure_ml=True,
+            ensure_sell=False,
+        )
+        row = repo.get_ml_analysis_pred(code, asof_dt)
     if not row:
         return {"item": None}
     p_up = _to_float_or_none(row[1])
-    p_down = (1.0 - p_up) if p_up is not None else None
-    ev20 = _to_float_or_none(row[5])
-    ev20_net_raw = _to_float_or_none(row[6])
+    p_down = _to_float_or_none(row[2]) if len(row) > 2 else None
+    if p_down is None and p_up is not None:
+        p_down = 1.0 - p_up
+    p_up_5 = _to_float_or_none(row[3]) if len(row) > 3 else None
+    p_up_10 = _to_float_or_none(row[4]) if len(row) > 4 else None
+    p_turn_up = _to_float_or_none(row[5]) if len(row) > 5 else None
+    p_turn_down = _to_float_or_none(row[6]) if len(row) > 6 else None
+    p_turn_down_5 = _to_float_or_none(row[7]) if len(row) > 7 else None
+    p_turn_down_10 = _to_float_or_none(row[8]) if len(row) > 8 else None
+    p_turn_down_20 = _to_float_or_none(row[9]) if len(row) > 9 else None
+    ret_pred20 = _to_float_or_none(row[12]) if len(row) > 12 else None
+    ev20 = _to_float_or_none(row[13]) if len(row) > 13 else None
+    ev20_net_raw = _to_float_or_none(row[14]) if len(row) > 14 else None
+    ev5_net = _to_float_or_none(row[15]) if len(row) > 15 else None
+    ev10_net = _to_float_or_none(row[16]) if len(row) > 16 else None
     ev20_net = ev20_net_raw if ev20_net_raw is not None else (ev20 - 0.002 if ev20 is not None else None)
-    model_version = row[7]
+    horizon_analysis = _build_horizon_analysis(
+        p_up,
+        ev20_net,
+        p_turn_down_10 if p_turn_down_10 is not None else p_turn_down,
+        p_up_5d=p_up_5,
+        p_up_10d=p_up_10,
+        ev_net_5d=ev5_net,
+        ev_net_10d=ev10_net,
+        p_turn_down_5d=p_turn_down_5,
+        p_turn_down_20d=p_turn_down_20,
+    )
+    model_version = row[17] if len(row) > 17 else None
+    additive_signals = None
+    buy_stage_precision = None
+    try:
+        daily_rows = repo.get_daily_bars(code, limit=1260, asof_dt=asof_dt)
+        monthly_rows = repo.get_monthly_bars(code, limit=60, asof_dt=asof_dt)
+        additive_signals = _build_additive_signal_summary(daily_rows, monthly_rows)
+    except Exception:
+        additive_signals = None
+    try:
+        buy_stage_precision = repo.get_buy_stage_precision(code, asof_dt, lookback_bars=360, horizon=20)
+    except Exception:
+        buy_stage_precision = None
     return {
         "item": {
             "dt": row[0],
             "pUp": p_up,
             "pDown": p_down,
-            "pTurnUp": _to_float_or_none(row[2]),
-            "pTurnDown": _to_float_or_none(row[3]),
-            "retPred20": _to_float_or_none(row[4]),
+            "pTurnUp": p_turn_up,
+            "pTurnDown": p_turn_down,
+            "pTurnDownHorizon": 10,
+            "retPred20": ret_pred20,
             "ev20": ev20,
             "ev20Net": ev20_net,
+            "horizonAnalysis": horizon_analysis,
+            "additiveSignals": additive_signals,
+            "buyStagePrecision": buy_stage_precision,
             "modelVersion": str(model_version) if model_version is not None else None,
+        }
+    }
+
+
+@router.get("/analysis/sell", response_model=None)
+def get_sell_analysis_snapshot(
+    code: str,
+    asof: str | int | None = None,
+    repo: StockRepository = Depends(get_stock_repo),
+) -> Dict[str, Any]:
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+    asof_dt = _parse_dt(asof)
+    row = repo.get_sell_analysis_snapshot(code, asof_dt)
+    if not row and asof_dt is not None:
+        _maybe_backfill_for_analysis(
+            repo=repo,
+            code=code,
+            asof_dt=asof_dt,
+            ensure_ml=True,
+            ensure_sell=True,
+        )
+        row = repo.get_sell_analysis_snapshot(code, asof_dt)
+    if not row:
+        return {"item": None}
+    return {
+        "item": {
+            "dt": row[0],
+            "close": _to_float_or_none(row[1]),
+            "dayChangePct": _to_float_or_none(row[2]),
+            "pDown": _to_float_or_none(row[3]),
+            "pTurnDown": _to_float_or_none(row[4]),
+            "ev20Net": _to_float_or_none(row[5]),
+            "rankDown20": _to_float_or_none(row[6]),
+            "predDt": row[7],
+            "pUp5": _to_float_or_none(row[8]),
+            "pUp10": _to_float_or_none(row[9]),
+            "pUp20": _to_float_or_none(row[10]),
+            "shortScore": _to_float_or_none(row[11]),
+            "aScore": _to_float_or_none(row[12]),
+            "bScore": _to_float_or_none(row[13]),
+            "ma20": _to_float_or_none(row[14]),
+            "ma60": _to_float_or_none(row[15]),
+            "ma20Slope": _to_float_or_none(row[16]),
+            "ma60Slope": _to_float_or_none(row[17]),
+            "distMa20Signed": _to_float_or_none(row[18]),
+            "distMa60Signed": _to_float_or_none(row[19]),
+            "trendDown": bool(row[20]) if row[20] is not None else None,
+            "trendDownStrict": bool(row[21]) if row[21] is not None else None,
+            "fwdClose5": _to_float_or_none(row[22]),
+            "fwdClose10": _to_float_or_none(row[23]),
+            "fwdClose20": _to_float_or_none(row[24]),
+            "shortRet5": _to_float_or_none(row[25]),
+            "shortRet10": _to_float_or_none(row[26]),
+            "shortRet20": _to_float_or_none(row[27]),
+            "shortWin5": bool(row[28]) if row[28] is not None else None,
+            "shortWin10": bool(row[29]) if row[29] is not None else None,
+            "shortWin20": bool(row[30]) if row[30] is not None else None,
         }
     }

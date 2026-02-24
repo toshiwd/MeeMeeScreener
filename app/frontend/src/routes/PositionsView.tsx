@@ -305,6 +305,13 @@ export default function PositionsView() {
   const activeItems = useMemo(() => {
     return tab === "held" ? sortedHeldItems : historyItems;
   }, [tab, sortedHeldItems, historyItems]);
+  const listCodes = useMemo(
+    () =>
+      activeItems
+        .map((item) => item.symbol)
+        .filter((code): code is string => typeof code === "string" && code.length > 0),
+    [activeItems]
+  );
 
   const consultTargets = useMemo(
     () => (tab === "held" ? sortedHeldItems.map((item) => item.symbol) : []),
@@ -382,9 +389,15 @@ export default function PositionsView() {
 
   const handleOpenDetail = useCallback(
     (code: string) => {
+      try {
+        sessionStorage.setItem("detailListBack", location.pathname);
+        sessionStorage.setItem("detailListCodes", JSON.stringify(listCodes));
+      } catch {
+        // ignore storage failures
+      }
       navigate(`/detail/${code}`, { state: { from: location.pathname } });
     },
-    [navigate, location.pathname]
+    [navigate, location.pathname, listCodes]
   );
 
 

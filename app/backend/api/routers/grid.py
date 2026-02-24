@@ -40,6 +40,25 @@ def _apply_short_scores(items: list[dict[str, Any]], score_map: dict[str, dict[s
         item["shortBadges"] = short_badges
         item["shortReasons"] = short_reasons
 
+
+def _apply_ml_metrics(items: list[dict[str, Any]], ml_map: dict[str, dict[str, Any]]) -> None:
+    for item in items:
+        code = item.get("code")
+        if not isinstance(code, str):
+            continue
+        ml = ml_map.get(code) or {}
+        item["mlPUp"] = ml.get("p_up")
+        item["mlPUp5"] = ml.get("p_up_5")
+        item["mlPUp10"] = ml.get("p_up_10")
+        item["mlPUpShort"] = ml.get("p_up_short")
+        item["mlPDown"] = ml.get("p_down")
+        item["mlPDownShort"] = ml.get("p_down_short")
+        item["mlEv20Net"] = ml.get("ev20_net")
+        item["mlEv5Net"] = ml.get("ev5_net")
+        item["mlEv10Net"] = ml.get("ev10_net")
+        item["mlEvShortNet"] = ml.get("ev_short_net")
+        item["mlModelVersion"] = ml.get("model_version")
+
 # Simple in-memory cache for screener results (to match legacy behavior of caching)
 # In production, use Redis or similar.
 _screener_cache = {
@@ -61,7 +80,14 @@ def get_screener_rows(
     if not force_update and _screener_cache["data"] and _screener_cache["last_updated"]:
         if (now - _screener_cache["last_updated"]).total_seconds() < 3600:
              score_map = stock_repo.get_scores()
+             cache_codes = [
+                 str(item.get("code"))
+                 for item in _screener_cache["data"]
+                 if isinstance(item.get("code"), str)
+             ]
+             ml_map = stock_repo.get_latest_ml_pred_map(cache_codes)
              _apply_short_scores(_screener_cache["data"], score_map)
+             _apply_ml_metrics(_screener_cache["data"], ml_map)
              return _screener_cache["data"]
 
     # 1. Fetch Data
@@ -90,6 +116,7 @@ def get_screener_rows(
     earnings_map = {row[0]: row[1] for row in earnings_rows}
     rights_map = {row[0]: row[1] for row in rights_rows}
     short_score_map = stock_repo.get_scores()
+    ml_map = stock_repo.get_latest_ml_pred_map(codes)
     
     asof_map: dict[str, int | None] = {}
     results = []
@@ -160,6 +187,7 @@ def get_screener_rows(
         item["phaseDt"] = phase_info["dt"]
 
     _apply_short_scores(results, short_score_map)
+    _apply_ml_metrics(results, ml_map)
 
     _screener_cache["data"] = results
     _screener_cache["last_updated"] = now

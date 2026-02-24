@@ -278,6 +278,17 @@ def _to_bool(value: object, default: bool) -> bool:
     return bool(default)
 
 
+def _to_int(value: object, default: int, *, minimum: int = 1) -> int:
+    try:
+        if value is None:
+            parsed = int(default)
+        else:
+            parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return max(int(minimum), int(parsed))
+
+
 def _is_job_canceled(job_id: str) -> bool:
     return job_manager.is_cancel_requested(job_id)
 
@@ -310,7 +321,18 @@ def _exit_if_canceled(job_id: str, state: dict, *, stage: str, message: str) -> 
 
 def handle_txt_update(job_id: str, payload: dict) -> None:
     auto_ml_predict = _to_bool(payload.get("auto_ml_predict"), True)
-    auto_ml_train = _to_bool(payload.get("auto_ml_train"), False)
+    auto_ml_train = _to_bool(payload.get("auto_ml_train"), True)
+    auto_fill_missing_history = _to_bool(payload.get("auto_fill_missing_history"), True)
+    backfill_lookback_days = _to_int(
+        payload.get("backfill_lookback_days"),
+        int(os.getenv("MEEMEE_NIGHTLY_BACKFILL_LOOKBACK_DAYS", "130")),
+        minimum=20,
+    )
+    backfill_max_missing_days = _to_int(
+        payload.get("backfill_max_missing_days"),
+        int(os.getenv("MEEMEE_NIGHTLY_BACKFILL_MAX_MISSING_DAYS", "260")),
+        minimum=1,
+    )
     state = _load_update_state()
     state["last_pipeline_status"] = "running"
     state["last_pipeline_started_at"] = datetime.now().isoformat()
@@ -336,8 +358,79 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         return
 
     os.makedirs(out_dir, exist_ok=True)
+
+    # ── Step 0: Import latest data into Pan database (pandtmgr F5) ──
+    if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled before Pan import"):
+        return
+
+    _set_pipeline_stage(state, "pan_import", message="Launching Pan and importing latest data...")
+    job_manager._update_db(
+        job_id,
+        "txt_update",
+        "running",
+        message="PANを起動してデータ取り込み中...",
+        progress=0,
+    )
+
+    try:
+        from app.backend.infra.panrolling.pan_import import run_pan_import
+    except Exception as exc:
+        error_msg = f"Pan import module load failed: {exc}"
+        logger.exception(error_msg)
+        _record_pipeline_failure(state, stage="pan_import", error=error_msg, message="Pan import failed")
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "failed",
+            error="Pan import failed",
+            message=error_msg,
+            finished_at=datetime.now(),
+        )
+        return
+
+    pan_import_ok = False
+    pan_import_error: str | None = None
+    for attempt in (1, 2):
+        if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled during Pan import"):
+            return
+        try:
+            pan_import_ok = run_pan_import(str(config.PAN_DTMGR_PATH))
+            if pan_import_ok:
+                break
+            pan_import_error = "Pan import returned False"
+        except Exception as exc:
+            pan_import_error = str(exc)
+            logger.warning("Pan import error (attempt %s/2): %s", attempt, exc)
+
+        if attempt == 1:
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "running",
+                message="PAN取り込みを再試行中...",
+                progress=3,
+            )
+            time.sleep(1.0)
+
+    if not pan_import_ok:
+        error_msg = f"PAN起動または取り込みに失敗しました: {pan_import_error or 'unknown error'}"
+        _record_pipeline_failure(state, stage="pan_import", error=error_msg, message="Pan import failed")
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "failed",
+            error="Pan import failed",
+            message=error_msg,
+            finished_at=datetime.now(),
+        )
+        return
+
+    if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled after Pan import"):
+        return
+
+    # ── Step 1: VBS Export (Pan → TXT) ──
     _set_pipeline_stage(state, "export", message="Running Pan Rolling export...")
-    job_manager._update_db(job_id, "txt_update", "running", message="Running Pan Rolling export...", progress=0)
+    job_manager._update_db(job_id, "txt_update", "running", message="Running Pan Rolling export...", progress=10)
 
     vbs_code, output_lines = run_vbs_export(
         code_path,
@@ -470,6 +563,23 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             state["last_ml_predict_dt"] = int(pred_result.get("dt") or phase_dt)
             state["last_ml_predict_rows"] = int(pred_result.get("rows") or 0)
             ml_note_parts.append(f"ml_predict=ok(rows={state['last_ml_predict_rows']})")
+
+            if _exit_if_canceled(job_id, state, stage="ml_live_guard", message="Canceled before ML live guard"):
+                return
+            _set_pipeline_stage(state, "ml_live_guard", message="Evaluating live guard...")
+            job_manager._update_db(
+                job_id, "txt_update", "running", message="Evaluating ML live guard...", progress=99
+            )
+            guard_result = ml_service.enforce_live_guard()
+            state["last_ml_live_guard_at"] = datetime.now().isoformat()
+            state["last_ml_live_guard_action"] = str(guard_result.get("action") or "unknown")
+            state["last_ml_live_guard_reason"] = str(guard_result.get("reason") or "")
+            rolled_back_to = guard_result.get("rolled_back_to")
+            if rolled_back_to:
+                state["last_ml_model_version"] = str(rolled_back_to)
+                ml_note_parts.append(f"ml_live_guard=rollback({rolled_back_to})")
+            else:
+                ml_note_parts.append(f"ml_live_guard={state['last_ml_live_guard_action']}")
         else:
             ml_note_parts.append("ml_predict=skip")
     except Exception as exc:
@@ -511,6 +621,95 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             finished_at=datetime.now(),
         )
         return
+
+    try:
+        if _exit_if_canceled(
+            job_id,
+            state,
+            stage="sell_analysis_accum",
+            message="Canceled before sell analysis accumulation",
+        ):
+            return
+        _set_pipeline_stage(state, "sell_analysis_accum", message="Accumulating sell analysis data...")
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message="Accumulating sell analysis data...",
+            progress=99,
+        )
+        from app.backend.services.sell_analysis_accumulator import accumulate_sell_analysis
+
+        sell_result = accumulate_sell_analysis(lookback_days=3)
+        sell_rows = int(sell_result.get("rows_last_dt") or 0)
+        sell_dt = sell_result.get("last_dt")
+        state["last_sell_analysis_at"] = datetime.now().isoformat()
+        state["last_sell_analysis_rows"] = sell_rows
+        state["last_sell_analysis_dt"] = int(sell_dt) if sell_dt is not None else None
+        state.pop("last_sell_analysis_error", None)
+        ml_note_parts.append(
+            f"sell_analysis=ok(dt={state.get('last_sell_analysis_dt')},rows={sell_rows})"
+        )
+    except Exception as exc:
+        logger.exception("Sell analysis accumulation failed: %s", exc)
+        state["last_sell_analysis_error"] = str(exc)
+        ml_note_parts.append(f"sell_analysis=failed({exc})")
+
+    if auto_fill_missing_history:
+        try:
+            if _exit_if_canceled(
+                job_id,
+                state,
+                stage="analysis_backfill",
+                message="Canceled before analysis backfill",
+            ):
+                return
+            _set_pipeline_stage(
+                state,
+                "analysis_backfill",
+                message=(
+                    "Backfilling missing analysis history "
+                    f"(lookback={backfill_lookback_days}, max_missing={backfill_max_missing_days})..."
+                ),
+            )
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "running",
+                message=(
+                    "Backfilling missing analysis history "
+                    f"(lookback={backfill_lookback_days}, max_missing={backfill_max_missing_days})..."
+                ),
+                progress=99,
+            )
+            from app.backend.services.analysis_backfill_service import backfill_missing_analysis_history
+
+            backfill_result = backfill_missing_analysis_history(
+                lookback_days=backfill_lookback_days,
+                max_missing_days=backfill_max_missing_days,
+                include_sell=True,
+                include_phase=False,
+            )
+            state["last_analysis_backfill_at"] = datetime.now().isoformat()
+            state["last_analysis_backfill_result"] = {
+                "anchor_dt": backfill_result.get("anchor_dt"),
+                "missing_ml_total": backfill_result.get("missing_ml_total"),
+                "missing_ml_selected": backfill_result.get("missing_ml_selected"),
+                "predicted": len(backfill_result.get("predicted_dates") or []),
+                "sell_refreshed": len(backfill_result.get("sell_refreshed_dates") or []),
+                "errors": len(backfill_result.get("errors") or []),
+            }
+            state.pop("last_analysis_backfill_error", None)
+            ml_note_parts.append(
+                "analysis_backfill="
+                f"ok(pred={state['last_analysis_backfill_result']['predicted']},"
+                f"sell={state['last_analysis_backfill_result']['sell_refreshed']},"
+                f"errors={state['last_analysis_backfill_result']['errors']})"
+            )
+        except Exception as exc:
+            logger.exception("Analysis backfill failed: %s", exc)
+            state["last_analysis_backfill_error"] = str(exc)
+            ml_note_parts.append(f"analysis_backfill=failed({exc})")
 
     try:
         if _exit_if_canceled(job_id, state, stage="cache_refresh", message="Canceled before cache refresh"):

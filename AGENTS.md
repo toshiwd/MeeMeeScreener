@@ -31,3 +31,8 @@
 - backend/front の領域ルールは各ディレクトリの AGENTS.md を優先する:
   - app/backend/AGENTS.md
   - app/frontend/AGENTS.md
+
+## 6) ExecPlans 運用
+- 複雑な機能追加または大規模リファクタでは、設計から実装まで ExecPlan を必須とする。
+- ExecPlan は `.agent/PLANS.md` の要件に従って作成・更新する。
+- Rule (EN): When writing complex features or significant refactors, use an ExecPlan (as described in `.agent/PLANS.md`) from design to implementation.

@@ -242,6 +242,47 @@ def _init_schema_on_conn(conn: duckdb.DuckDBPyConnection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS sell_analysis_daily (
+            dt INTEGER,
+            code TEXT,
+            close DOUBLE,
+            day_change_pct DOUBLE,
+            p_down DOUBLE,
+            p_turn_down DOUBLE,
+            ev20_net DOUBLE,
+            rank_down_20 DOUBLE,
+            pred_dt INTEGER,
+            p_up_5 DOUBLE,
+            p_up_10 DOUBLE,
+            p_up_20 DOUBLE,
+            short_score DOUBLE,
+            a_score DOUBLE,
+            b_score DOUBLE,
+            ma20 DOUBLE,
+            ma60 DOUBLE,
+            ma20_slope DOUBLE,
+            ma60_slope DOUBLE,
+            dist_ma20_signed DOUBLE,
+            dist_ma60_signed DOUBLE,
+            trend_down BOOLEAN,
+            trend_down_strict BOOLEAN,
+            fwd_close_5 DOUBLE,
+            fwd_close_10 DOUBLE,
+            fwd_close_20 DOUBLE,
+            short_ret_5 DOUBLE,
+            short_ret_10 DOUBLE,
+            short_ret_20 DOUBLE,
+            short_win_5 BOOLEAN,
+            short_win_10 BOOLEAN,
+            short_win_20 BOOLEAN,
+            created_at TIMESTAMP,
+            updated_at TIMESTAMP,
+            PRIMARY KEY(code, dt)
+        );
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS ml_model_registry (
             model_version TEXT PRIMARY KEY,
             model_key TEXT,

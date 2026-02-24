@@ -8,8 +8,15 @@ export const setApiErrorReporter = (reporter: (info: ApiErrorInfo) => void) => {
   apiErrorReporter = reporter;
 };
 
+// Add type definition for the injected config
+declare global {
+  interface Window {
+    MEEMEE_API_BASE?: string;
+  }
+}
+
 export const api = axios.create({
-  baseURL: "/api",
+  baseURL: window.MEEMEE_API_BASE || "/api",
   timeout: 15000
 });
 

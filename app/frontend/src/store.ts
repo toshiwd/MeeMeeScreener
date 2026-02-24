@@ -66,6 +66,17 @@ export type Ticker = {
     overheatUp?: number | null;
     overheatDown?: number | null;
   };
+  mlPUp?: number | null;
+  mlPUp5?: number | null;
+  mlPUp10?: number | null;
+  mlPUpShort?: number | null;
+  mlPDown?: number | null;
+  mlPDownShort?: number | null;
+  mlEv20Net?: number | null;
+  mlEv5Net?: number | null;
+  mlEv10Net?: number | null;
+  mlEvShortNet?: number | null;
+  mlModelVersion?: string | null;
   statusLabel?: string;
   reasons?: string[];
   earlyScore?: number | null;
@@ -285,6 +296,9 @@ export type BasicSortKey =
   | "downScore"
   | "overheatUp"
   | "overheatDown"
+  | "mlEv20Net"
+  | "mlPUpShort"
+  | "mlPDownShort"
   | "boxState";
 
 // Performance period for unified performance sorting
@@ -315,6 +329,9 @@ export type SortKey =
   | "downScore"
   | "overheatUp"
   | "overheatDown"
+  | "mlEv20Net"
+  | "mlPUpShort"
+  | "mlPDownShort"
   | "boxState"
   | "shortScore"
   | "aScore"
@@ -797,6 +814,9 @@ const getInitialSortKey = (): SortKey => {
     "downScore",
     "overheatUp",
     "overheatDown",
+    "mlEv20Net",
+    "mlPUpShort",
+    "mlPDownShort",
     "boxState",
     "shortScore",
     "aScore",
@@ -861,6 +881,9 @@ const getInitialSectorSortInnerKey = (): BasicSortKey => {
     "downScore",
     "overheatUp",
     "overheatDown",
+    "mlEv20Net",
+    "mlPUpShort",
+    "mlPDownShort",
     "boxState"
   ];
   if (saved && options.includes(saved as BasicSortKey)) {
@@ -1108,6 +1131,62 @@ export const useStore = create<StoreState>((set, get) => ({
                 : null,
           buyStateDetails: item.buyStateDetails ?? null,
           scores: item.scores,
+          mlPUp: Number.isFinite(item.mlPUp) ? item.mlPUp : Number.isFinite(item.ml_p_up) ? item.ml_p_up : null,
+          mlPUp5:
+            Number.isFinite(item.mlPUp5)
+              ? item.mlPUp5
+              : Number.isFinite(item.ml_p_up_5)
+                ? item.ml_p_up_5
+                : null,
+          mlPUp10:
+            Number.isFinite(item.mlPUp10)
+              ? item.mlPUp10
+              : Number.isFinite(item.ml_p_up_10)
+                ? item.ml_p_up_10
+                : null,
+          mlPUpShort:
+            Number.isFinite(item.mlPUpShort)
+              ? item.mlPUpShort
+              : Number.isFinite(item.ml_p_up_short)
+                ? item.ml_p_up_short
+                : null,
+          mlPDown: Number.isFinite(item.mlPDown) ? item.mlPDown : Number.isFinite(item.ml_p_down) ? item.ml_p_down : null,
+          mlPDownShort:
+            Number.isFinite(item.mlPDownShort)
+              ? item.mlPDownShort
+              : Number.isFinite(item.ml_p_down_short)
+                ? item.ml_p_down_short
+                : null,
+          mlEv20Net:
+            Number.isFinite(item.mlEv20Net)
+              ? item.mlEv20Net
+              : Number.isFinite(item.ml_ev20_net)
+                ? item.ml_ev20_net
+                : null,
+          mlEv5Net:
+            Number.isFinite(item.mlEv5Net)
+              ? item.mlEv5Net
+              : Number.isFinite(item.ml_ev5_net)
+                ? item.ml_ev5_net
+                : null,
+          mlEv10Net:
+            Number.isFinite(item.mlEv10Net)
+              ? item.mlEv10Net
+              : Number.isFinite(item.ml_ev10_net)
+                ? item.ml_ev10_net
+                : null,
+          mlEvShortNet:
+            Number.isFinite(item.mlEvShortNet)
+              ? item.mlEvShortNet
+              : Number.isFinite(item.ml_ev_short_net)
+                ? item.ml_ev_short_net
+                : null,
+          mlModelVersion:
+            typeof item.mlModelVersion === "string"
+              ? item.mlModelVersion
+              : typeof item.ml_model_version === "string"
+                ? item.ml_model_version
+                : null,
           statusLabel: item.statusLabel,
           reasons: item.reasons,
           earlyScore: Number.isFinite(item.earlyScore) ? item.earlyScore : item.early_score ?? null,

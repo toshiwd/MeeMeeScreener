@@ -229,6 +229,13 @@ print(json.dumps(missing))
     Copy-Item -Path $bootstrapPs1 -Destination (Join-Path $onedir "portable_bootstrap.ps1") -Force
     Copy-Item -Path $bootstrapCmd -Destination (Join-Path $onedir "portable_bootstrap.cmd") -Force
 
+    Write-Host "Copying latest ML seed artifacts (if available)..."
+    $seedDst = Join-Path $onedir "_internal\seed\models\ml"
+    python (Join-Path $repoRoot "tools\setup\copy_seed_ml_models.py") --dest $seedDst
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to copy ML seed artifacts."
+    }
+
     # Also place export_pan.vbs at the app root for compatibility with environments
     # where the app resolves the VBS path relative to the executable directory.
     $exportVbsSrc = Join-Path $repoRoot "tools\export_pan.vbs"
@@ -322,11 +329,6 @@ print(json.dumps(missing))
     Write-Host ""
     Write-Host "Portable package created: $zipPath"
     Write-Host "Users can extract this ZIP and run MeeMeeScreener.exe directly."
-    Write-Host ""
-    Write-Host "To enable portable mode (data stored in same folder):"
-    Write-Host "  1. Extract the ZIP"
-    Write-Host "  2. Create a file named 'portable.flag' in the same folder as MeeMeeScreener.exe"
-    Write-Host "  3. Run MeeMeeScreener.exe"
 } finally {
     if ($LogPath) {
         Stop-Transcript | Out-Null

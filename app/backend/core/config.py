@@ -146,5 +146,13 @@ class AppConfig:
         legacy = self.REPO_ROOT / "tools" / "PanRollingExport.vbs"
         return legacy
 
+    @property
+    def PAN_DTMGR_PATH(self) -> Path:
+        env = os.getenv("PAN_DTMGR_PATH")
+        if env:
+            return Path(env)
+        return Path(r"C:\Program Files (x86)\Pan\pandtmgr.exe")
+
+
 # Singleton Instance
 config = AppConfig()

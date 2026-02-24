@@ -61,3 +61,26 @@ def handle_ml_predict(job_id: str, payload: dict) -> None:
         message=f"ML predict completed (dt={result.get('dt')}, rows={result.get('rows')})",
         finished_at=datetime.now(),
     )
+
+
+def handle_ml_live_guard(job_id: str, payload: dict) -> None:
+    job_manager._update_db(
+        job_id,
+        "ml_live_guard",
+        "running",
+        progress=20,
+        message="Evaluating ML live guard...",
+    )
+    result = ml_service.enforce_live_guard()
+    action = str(result.get("action") or "unknown")
+    reason = str(result.get("reason") or "")
+    rolled_back_to = result.get("rolled_back_to")
+    suffix = f", rollback={rolled_back_to}" if rolled_back_to else ""
+    job_manager._update_db(
+        job_id,
+        "ml_live_guard",
+        "success",
+        progress=100,
+        message=f"ML live guard completed (action={action}, reason={reason}{suffix})",
+        finished_at=datetime.now(),
+    )

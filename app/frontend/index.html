@@ -5,15 +5,347 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MeeMee Screener</title>
+  <style>
+    html,
+    body,
+    #root {
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      background: #05070f;
+      color: #e2e8f0;
+      font-family: "Segoe UI", "Meiryo", sans-serif;
+    }
+
+    /* ── Initial loading screen (matches StartupOverlay) ── */
+    .boot-screen {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 40%, rgba(15, 23, 50, 0.97), rgba(4, 6, 14, 0.99));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      overflow: hidden;
+      transition: opacity 0.4s ease;
+    }
+
+    .boot-screen.boot-hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Floating particles */
+    .boot-particle {
+      position: absolute;
+      border-radius: 50%;
+      opacity: 0.12;
+      filter: blur(60px);
+      animation: boot-float 12s ease-in-out infinite;
+    }
+
+    .boot-p1 {
+      width: 340px;
+      height: 340px;
+      background: #38bdf8;
+      top: 10%;
+      left: 15%;
+      animation-delay: 0s;
+    }
+
+    .boot-p2 {
+      width: 280px;
+      height: 280px;
+      background: #818cf8;
+      bottom: 10%;
+      right: 15%;
+      animation-delay: -4s;
+    }
+
+    .boot-p3 {
+      width: 220px;
+      height: 220px;
+      background: #2dd4bf;
+      top: 50%;
+      left: 55%;
+      animation-delay: -8s;
+    }
+
+    @keyframes boot-float {
+
+      0%,
+      100% {
+        transform: translate(0, 0) scale(1);
+      }
+
+      33% {
+        transform: translate(30px, -20px) scale(1.08);
+      }
+
+      66% {
+        transform: translate(-20px, 20px) scale(0.95);
+      }
+    }
+
+    /* Card */
+    .boot-card {
+      position: relative;
+      width: min(420px, 88vw);
+      background: rgba(12, 18, 36, 0.85);
+      border-radius: 24px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      padding: 40px 32px 32px;
+      box-shadow:
+        0 0 0 1px rgba(56, 189, 248, 0.04),
+        0 32px 80px rgba(0, 0, 0, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    /* Logo ring */
+    .boot-brand {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .boot-logo-ring {
+      position: relative;
+      width: 80px;
+      height: 80px;
+    }
+
+    .boot-logo-orbit {
+      position: absolute;
+      inset: -6px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      border-top-color: #38bdf8;
+      border-right-color: rgba(56, 189, 248, 0.3);
+      animation: boot-orbit 2s linear infinite;
+      filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.4));
+    }
+
+    @keyframes boot-orbit {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .boot-logo-core {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(129, 140, 248, 0.15));
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: boot-pulse 3s ease-in-out infinite;
+    }
+
+    @keyframes boot-pulse {
+
+      0%,
+      100% {
+        box-shadow: 0 0 20px rgba(56, 189, 248, 0.1), inset 0 0 20px rgba(56, 189, 248, 0.05);
+      }
+
+      50% {
+        box-shadow: 0 0 40px rgba(56, 189, 248, 0.25), inset 0 0 30px rgba(56, 189, 248, 0.1);
+      }
+    }
+
+    .boot-logo-text {
+      font-size: 28px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #38bdf8, #818cf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -1px;
+    }
+
+    .boot-brand-name {
+      font-size: 20px;
+      font-weight: 700;
+      color: #e2e8f0;
+      letter-spacing: 0.5px;
+    }
+
+    .boot-brand-accent {
+      font-weight: 400;
+      color: #94a3b8;
+    }
+
+    /* Status / progress */
+    .boot-status {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .boot-status-text {
+      font-size: 14px;
+      color: #94a3b8;
+      letter-spacing: 0.3px;
+    }
+
+    .boot-progress-track {
+      width: 100%;
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .boot-progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #38bdf8, #818cf8);
+      animation: boot-progress 3s ease-in-out infinite;
+    }
+
+    @keyframes boot-progress {
+      0% {
+        width: 0%;
+      }
+
+      50% {
+        width: 65%;
+      }
+
+      100% {
+        width: 90%;
+      }
+    }
+
+    /* Loading dots */
+    .boot-dots {
+      display: flex;
+      gap: 6px;
+      margin-top: 20px;
+    }
+
+    .boot-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #38bdf8;
+      opacity: 0.4;
+      animation: boot-bounce 1.4s ease-in-out infinite;
+    }
+
+    .boot-dot:nth-child(2) {
+      animation-delay: 0.16s;
+    }
+
+    .boot-dot:nth-child(3) {
+      animation-delay: 0.32s;
+    }
+
+    @keyframes boot-bounce {
+
+      0%,
+      80%,
+      100% {
+        transform: scale(1);
+        opacity: 0.4;
+      }
+
+      40% {
+        transform: scale(1.6);
+        opacity: 1;
+      }
+    }
+
+    /* Reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+
+      .boot-particle,
+      .boot-logo-orbit,
+      .boot-logo-core,
+      .boot-progress-fill,
+      .boot-dot {
+        animation: none;
+      }
+
+      .boot-progress-fill {
+        width: 45%;
+      }
+
+      .boot-dot {
+        opacity: 0.7;
+      }
+    }
+  </style>
 </head>
 
 <body>
+  <!-- Boot screen (replaced by React's StartupOverlay once mounted) -->
+  <div class="boot-screen" id="boot-screen">
+    <div class="boot-particle boot-p1"></div>
+    <div class="boot-particle boot-p2"></div>
+    <div class="boot-particle boot-p3"></div>
+    <div class="boot-card">
+      <div class="boot-brand">
+        <div class="boot-logo-ring">
+          <div class="boot-logo-orbit"></div>
+          <div class="boot-logo-core">
+            <span class="boot-logo-text">M</span>
+          </div>
+        </div>
+        <div class="boot-brand-name">MeeMee<span class="boot-brand-accent"> Screener</span></div>
+      </div>
+      <div class="boot-status">
+        <div class="boot-status-text">Loading…</div>
+        <div class="boot-progress-track">
+          <div class="boot-progress-fill"></div>
+        </div>
+      </div>
+      <div class="boot-dots">
+        <span class="boot-dot"></span>
+        <span class="boot-dot"></span>
+        <span class="boot-dot"></span>
+      </div>
+    </div>
+  </div>
+
   <div id="root"></div>
   <script>
     (function () {
       var root = document.getElementById("root");
+      var boot = document.getElementById("boot-screen");
+
+      // Hide boot screen once React renders into #root
+      function hideBoot() {
+        if (boot) { boot.classList.add("boot-hidden"); }
+      }
+
+      if (root) {
+        var obs = new MutationObserver(function () {
+          if (root.childElementCount > 0) {
+            hideBoot();
+            obs.disconnect();
+          }
+        });
+        obs.observe(root, { childList: true });
+      }
+
       function renderBootError(title, detail) {
         if (!root || root.childElementCount > 0) return;
+        hideBoot();
         var container = document.createElement("div");
         container.style.cssText =
           "min-height:100vh;background:#0b1020;color:#e2e8f0;font-family:Segoe UI, Meiryo, sans-serif;" +

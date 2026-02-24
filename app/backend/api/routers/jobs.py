@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Body
 from fastapi.responses import JSONResponse
 
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
@@ -144,6 +144,14 @@ def _is_truthy_env(value: str | None) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _coerce_bool(value: object, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _legacy_endpoint_disabled() -> bool:
     return _is_truthy_env(os.getenv(TXT_UPDATE_DISABLE_LEGACY_ENV))
 
@@ -242,12 +250,18 @@ def submit_txt_update_job(
 @router.post("/api/jobs/txt-update")
 def submit_txt_update(
     auto_ml_predict: bool = True,
-    auto_ml_train: bool = False,
+    auto_ml_train: bool = True,
+    auto_fill_missing_history: bool = True,
+    backfill_lookback_days: int = 130,
+    backfill_max_missing_days: int = 260,
 ):
     try:
         request_payload = {
             "auto_ml_predict": bool(auto_ml_predict),
             "auto_ml_train": bool(auto_ml_train),
+            "auto_fill_missing_history": bool(auto_fill_missing_history),
+            "backfill_lookback_days": int(backfill_lookback_days),
+            "backfill_max_missing_days": int(backfill_max_missing_days),
         }
         return submit_txt_update_job(
             request_payload,
@@ -305,12 +319,54 @@ def submit_ml_predict(dt: int | None = None):
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@router.post("/api/jobs/analysis/backfill-missing")
+def submit_analysis_backfill(
+    lookback_days: int = 130,
+    max_missing_days: int | None = None,
+    include_sell: bool = True,
+    include_phase: bool = False,
+    anchor_dt: int | None = None,
+):
+    try:
+        return _submit_job(
+            "analysis_backfill",
+            {
+                "lookback_days": int(lookback_days),
+                "max_missing_days": int(max_missing_days) if max_missing_days is not None else None,
+                "include_sell": bool(include_sell),
+                "include_phase": bool(include_phase),
+                "anchor_dt": int(anchor_dt) if anchor_dt is not None else None,
+            },
+        )
+    except Exception as exc:
+        logger.exception("Error submitting analysis_backfill: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/jobs/ml/live-guard")
+def submit_ml_live_guard():
+    try:
+        return _submit_job("ml_live_guard")
+    except Exception as exc:
+        logger.exception("Error submitting ml_live_guard: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
 @router.get("/api/jobs/ml/status")
 def get_ml_job_status():
     try:
         return ml_service.get_ml_status()
     except Exception as exc:
         logger.exception("Error fetching ml status: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/api/jobs/ml/live-guard/latest")
+def get_ml_live_guard_latest():
+    try:
+        return ml_service.get_latest_live_guard_status()
+    except Exception as exc:
+        logger.exception("Error fetching ml live guard status: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
@@ -404,6 +460,108 @@ def get_strategy_backtest_latest():
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@router.post("/api/jobs/toredex/live")
+def submit_toredex_live(
+    season_id: str | None = None,
+    asOf: str | None = None,
+    dry_run: bool | None = None,
+    payload: dict | None = Body(default=None),
+):
+    try:
+        body = payload if isinstance(payload, dict) else {}
+        season_text = str(
+            season_id
+            or body.get("season_id")
+            or body.get("seasonId")
+            or ""
+        ).strip()
+        if not season_text:
+            return JSONResponse(status_code=400, content={"error": "season_id is required"})
+        resolved_as_of = asOf if asOf is not None else body.get("asOf") or body.get("as_of")
+        resolved_dry_run = (
+            bool(dry_run)
+            if dry_run is not None
+            else _coerce_bool(body.get("dry_run", body.get("dryRun")), default=False)
+        )
+        return _submit_job(
+            "toredex_live",
+            {
+                "season_id": season_text,
+                "asOf": resolved_as_of,
+                "dry_run": resolved_dry_run,
+            },
+        )
+    except Exception as exc:
+        logger.exception("Error submitting toredex_live: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/jobs/strategy/walkforward")
+def submit_strategy_walkforward(
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+    max_codes: int | None = 500,
+    dry_run: bool = False,
+    train_months: int = 24,
+    test_months: int = 3,
+    step_months: int = 1,
+    min_windows: int = 1,
+    min_long_score: float | None = None,
+    min_short_score: float | None = None,
+    min_ml_p_up_long: float | None = None,
+    max_new_entries_per_day: int | None = None,
+    max_new_entries_per_month: int | None = None,
+    allowed_sides: str | None = None,
+    allowed_long_setups: str | None = None,
+    allowed_short_setups: str | None = None,
+    use_regime_filter: bool | None = None,
+    regime_breadth_lookback_days: int | None = None,
+    regime_long_min_breadth_above60: float | None = None,
+    regime_short_max_breadth_above60: float | None = None,
+):
+    try:
+        config_payload = {
+            "min_long_score": min_long_score,
+            "min_short_score": min_short_score,
+            "min_ml_p_up_long": min_ml_p_up_long,
+            "max_new_entries_per_day": max_new_entries_per_day,
+            "max_new_entries_per_month": max_new_entries_per_month,
+            "allowed_sides": allowed_sides,
+            "allowed_long_setups": allowed_long_setups,
+            "allowed_short_setups": allowed_short_setups,
+            "use_regime_filter": use_regime_filter,
+            "regime_breadth_lookback_days": regime_breadth_lookback_days,
+            "regime_long_min_breadth_above60": regime_long_min_breadth_above60,
+            "regime_short_max_breadth_above60": regime_short_max_breadth_above60,
+        }
+        return _submit_job(
+            "strategy_walkforward",
+            {
+                "start_dt": start_dt,
+                "end_dt": end_dt,
+                "max_codes": max_codes,
+                "dry_run": dry_run,
+                "train_months": train_months,
+                "test_months": test_months,
+                "step_months": step_months,
+                "min_windows": min_windows,
+                "config": {k: v for k, v in config_payload.items() if v is not None},
+            },
+        )
+    except Exception as exc:
+        logger.exception("Error submitting strategy_walkforward: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/api/jobs/strategy/walkforward/latest")
+def get_strategy_walkforward_latest():
+    try:
+        return strategy_backtest_service.get_latest_strategy_walkforward()
+    except Exception as exc:
+        logger.exception("Error fetching strategy walkforward status: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
 @router.post("/api/txt_update/run")
 def run_txt_update_legacy():
     return submit_txt_update_job(
@@ -415,7 +573,6 @@ def run_txt_update_legacy():
 
 @router.get("/api/jobs/current")
 def get_current_job():
-    cleanup_stale_jobs()
     try:
         with get_conn() as conn:
             row = conn.execute(

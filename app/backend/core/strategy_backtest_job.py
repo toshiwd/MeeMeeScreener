@@ -148,3 +148,50 @@ def handle_strategy_backtest(job_id: str, payload: dict) -> None:
         message=message,
         finished_at=datetime.now(),
     )
+
+
+def handle_strategy_walkforward(job_id: str, payload: dict) -> None:
+    start_dt = _to_int(payload.get("start_dt"))
+    end_dt = _to_int(payload.get("end_dt"))
+    max_codes = _to_int(payload.get("max_codes"))
+    dry_run = bool(payload.get("dry_run", False))
+    train_months = _to_int(payload.get("train_months")) or 24
+    test_months = _to_int(payload.get("test_months")) or 3
+    step_months = _to_int(payload.get("step_months")) or 1
+    min_windows = _to_int(payload.get("min_windows")) or 1
+    config = _build_config(payload)
+
+    job_manager._update_db(
+        job_id,
+        "strategy_walkforward",
+        "running",
+        progress=10,
+        message="Running walkforward validation...",
+    )
+    result = strategy_backtest_service.run_strategy_walkforward(
+        start_dt=start_dt,
+        end_dt=end_dt,
+        max_codes=max_codes,
+        dry_run=dry_run,
+        config=config,
+        train_months=train_months,
+        test_months=test_months,
+        step_months=step_months,
+        min_windows=min_windows,
+    )
+    summary = result.get("summary") or {}
+    windows = summary.get("executed_windows")
+    win_rate = summary.get("oos_weighted_win_rate")
+    trades = summary.get("oos_trade_events")
+    message = (
+        "Walkforward completed "
+        f"(dry_run={dry_run}, windows={windows}, oos_win_rate={win_rate}, oos_trades={trades})"
+    )
+    job_manager._update_db(
+        job_id,
+        "strategy_walkforward",
+        "success",
+        progress=100,
+        message=message,
+        finished_at=datetime.now(),
+    )

@@ -137,7 +137,7 @@ const resolveMaLabel = (entry: {
   key: string;
   label?: string;
   period?: number;
-}) => entry.label ?? (entry.period ? `MA${entry.period}` : entry.key.toUpperCase());
+}) => entry.period ? `${entry.period}MA` : entry.label ?? entry.key.toUpperCase();
 
 const resolveBrokerMeta = (value: string | undefined) => {
   const raw = (value ?? "").toString().trim();

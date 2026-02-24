@@ -122,6 +122,179 @@ type TxtUpdateJobState = {
   message: string | null;
 };
 
+type ToastAction = {
+  label: string;
+  onClick: () => void;
+};
+
+type JobHistoryItem = {
+  id?: string;
+  type?: string;
+  status?: string;
+  message?: string | null;
+};
+
+type WalkforwardSummary = {
+  windows_total?: number;
+  executed_windows?: number;
+  failed_windows?: number;
+  oos_trade_events?: number;
+  oos_weighted_win_rate?: number | null;
+  oos_total_realized_unit_pnl?: number;
+  oos_worst_max_drawdown_unit?: number | null;
+  oos_mean_profit_factor?: number | null;
+  oos_positive_window_ratio?: number | null;
+};
+
+type WalkforwardWindow = {
+  index?: number;
+  label?: string;
+  status?: string;
+  test?: {
+    metrics?: {
+      trade_events?: number;
+      win_rate?: number | null;
+      total_realized_unit_pnl?: number;
+      max_drawdown_unit?: number | null;
+      profit_factor?: number | null;
+    };
+  };
+};
+
+type WalkforwardReport = {
+  summary?: WalkforwardSummary;
+  windows?: WalkforwardWindow[];
+};
+
+type WalkforwardLatest = {
+  run_id?: string;
+  finished_at?: string;
+  status?: string;
+  config?: Record<string, unknown>;
+  report?: WalkforwardReport;
+};
+
+type WalkforwardParams = {
+  trainMonths: number;
+  testMonths: number;
+  stepMonths: number;
+  minWindows: number;
+  maxCodes: number;
+  allowedSides: "both" | "long" | "short";
+  minLongScore: number;
+  minShortScore: number;
+  maxNewEntriesPerDay: number;
+  maxNewEntriesPerMonth: string;
+  minMlPUpLong: string;
+  useRegimeFilter: boolean;
+  regimeBreadthLookbackDays: number;
+  regimeLongMinBreadthAbove60: string;
+  regimeShortMaxBreadthAbove60: string;
+  allowedLongSetups: string;
+  allowedShortSetups: string;
+};
+
+type WalkforwardPreset = {
+  name: string;
+  params: WalkforwardParams;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const WALKFORWARD_PRESETS_STORAGE_KEY = "walkforwardPresetsV1";
+const WALKFORWARD_PRESETS_LIMIT = 20;
+
+const createDefaultWalkforwardParams = (): WalkforwardParams => ({
+  trainMonths: 24,
+  testMonths: 3,
+  stepMonths: 1,
+  minWindows: 1,
+  maxCodes: 500,
+  allowedSides: "both",
+  minLongScore: 1.0,
+  minShortScore: 1.0,
+  maxNewEntriesPerDay: 3,
+  maxNewEntriesPerMonth: "",
+  minMlPUpLong: "",
+  useRegimeFilter: false,
+  regimeBreadthLookbackDays: 20,
+  regimeLongMinBreadthAbove60: "0.52",
+  regimeShortMaxBreadthAbove60: "0.48",
+  allowedLongSetups: "",
+  allowedShortSetups: ""
+});
+
+const toWalkforwardParams = (value: unknown): WalkforwardParams => {
+  const defaults = createDefaultWalkforwardParams();
+  if (!value || typeof value !== "object") return defaults;
+  const raw = value as Partial<WalkforwardParams>;
+  const allowedSides = raw.allowedSides;
+  return {
+    trainMonths:
+      typeof raw.trainMonths === "number" && Number.isFinite(raw.trainMonths)
+        ? Math.max(1, Math.floor(raw.trainMonths))
+        : defaults.trainMonths,
+    testMonths:
+      typeof raw.testMonths === "number" && Number.isFinite(raw.testMonths)
+        ? Math.max(1, Math.floor(raw.testMonths))
+        : defaults.testMonths,
+    stepMonths:
+      typeof raw.stepMonths === "number" && Number.isFinite(raw.stepMonths)
+        ? Math.max(1, Math.floor(raw.stepMonths))
+        : defaults.stepMonths,
+    minWindows:
+      typeof raw.minWindows === "number" && Number.isFinite(raw.minWindows)
+        ? Math.max(1, Math.floor(raw.minWindows))
+        : defaults.minWindows,
+    maxCodes:
+      typeof raw.maxCodes === "number" && Number.isFinite(raw.maxCodes)
+        ? Math.max(20, Math.floor(raw.maxCodes))
+        : defaults.maxCodes,
+    allowedSides:
+      allowedSides === "both" || allowedSides === "long" || allowedSides === "short"
+        ? allowedSides
+        : defaults.allowedSides,
+    minLongScore:
+      typeof raw.minLongScore === "number" && Number.isFinite(raw.minLongScore)
+        ? raw.minLongScore
+        : defaults.minLongScore,
+    minShortScore:
+      typeof raw.minShortScore === "number" && Number.isFinite(raw.minShortScore)
+        ? raw.minShortScore
+        : defaults.minShortScore,
+    maxNewEntriesPerDay:
+      typeof raw.maxNewEntriesPerDay === "number" && Number.isFinite(raw.maxNewEntriesPerDay)
+        ? Math.max(1, Math.floor(raw.maxNewEntriesPerDay))
+        : defaults.maxNewEntriesPerDay,
+    maxNewEntriesPerMonth:
+      typeof raw.maxNewEntriesPerMonth === "string"
+        ? raw.maxNewEntriesPerMonth
+        : defaults.maxNewEntriesPerMonth,
+    minMlPUpLong:
+      typeof raw.minMlPUpLong === "string" ? raw.minMlPUpLong : defaults.minMlPUpLong,
+    useRegimeFilter:
+      typeof raw.useRegimeFilter === "boolean" ? raw.useRegimeFilter : defaults.useRegimeFilter,
+    regimeBreadthLookbackDays:
+      typeof raw.regimeBreadthLookbackDays === "number" && Number.isFinite(raw.regimeBreadthLookbackDays)
+        ? Math.max(1, Math.floor(raw.regimeBreadthLookbackDays))
+        : defaults.regimeBreadthLookbackDays,
+    regimeLongMinBreadthAbove60:
+      typeof raw.regimeLongMinBreadthAbove60 === "string"
+        ? raw.regimeLongMinBreadthAbove60
+        : defaults.regimeLongMinBreadthAbove60,
+    regimeShortMaxBreadthAbove60:
+      typeof raw.regimeShortMaxBreadthAbove60 === "string"
+        ? raw.regimeShortMaxBreadthAbove60
+        : defaults.regimeShortMaxBreadthAbove60,
+    allowedLongSetups:
+      typeof raw.allowedLongSetups === "string" ? raw.allowedLongSetups : defaults.allowedLongSetups,
+    allowedShortSetups:
+      typeof raw.allowedShortSetups === "string"
+        ? raw.allowedShortSetups
+        : defaults.allowedShortSetups,
+  };
+};
+
 const TERMINAL_JOB_STATUS = new Set(["success", "failed", "canceled"]);
 
 const extractErrorDetail = (err: unknown, fallback = "不明なエラー"): string => {
@@ -226,6 +399,7 @@ export default function GridView() {
   const [displayOpen, setDisplayOpen] = useState(false);
   const [isSorting, setIsSorting] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; key: number } | null>(null);
+  const [toastAction, setToastAction] = useState<ToastAction | null>(null);
   const toastKeyRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [consultVisible, setConsultVisible] = useState(false);
@@ -239,6 +413,7 @@ export default function GridView() {
     null
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPanelMode, setSettingsPanelMode] = useState<"general" | "walkforward">("general");
   const [dataDir, setDataDir] = useState("");
   const [dataDirInput, setDataDirInput] = useState("");
   const [dataDirLoading, setDataDirLoading] = useState(false);
@@ -249,6 +424,15 @@ export default function GridView() {
   const [tradeSyncInFlight, setTradeSyncInFlight] = useState(false);
   const [txtUpdateJob, setTxtUpdateJob] = useState<TxtUpdateJobState | null>(null);
   const [txtUpdatePolling, setTxtUpdatePolling] = useState(false);
+  const [walkforwardSubmitting, setWalkforwardSubmitting] = useState(false);
+  const [walkforwardLoading, setWalkforwardLoading] = useState(false);
+  const [walkforwardLatest, setWalkforwardLatest] = useState<WalkforwardLatest | null>(null);
+  const [walkforwardParams, setWalkforwardParams] = useState<WalkforwardParams>(
+    createDefaultWalkforwardParams
+  );
+  const [walkforwardPresetName, setWalkforwardPresetName] = useState("");
+  const [walkforwardPresets, setWalkforwardPresets] = useState<WalkforwardPreset[]>([]);
+  const [walkforwardPresetImporting, setWalkforwardPresetImporting] = useState(false);
   const [watchlistExporting, setWatchlistExporting] = useState(false);
   const [techFilterOpen, setTechFilterOpen] = useState(false);
   const [techFilterDraft, setTechFilterDraft] = useState<TechnicalFilterState>(() =>
@@ -265,14 +449,19 @@ export default function GridView() {
   const techFilterDropNoticeRef = useRef(false);
   const gridRef = useRef<FixedSizeGrid | null>(null);
   const tradeCsvInputRef = useRef<HTMLInputElement | null>(null);
+  const walkforwardPresetImportInputRef = useRef<HTMLInputElement | null>(null);
   const lastVisibleCodesRef = useRef<string[]>([]);
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
   const undoTimerRef = useRef<number | null>(null);
   const txtUpdateTerminalStatusRef = useRef<string | null>(null);
+  const seenTerminalJobsRef = useRef<Set<string>>(new Set());
+  const terminalJobsInitializedRef = useRef(false);
+  const walkforwardPresetsLoadedRef = useRef(false);
 
 
-  const showToast = useCallback((text: string) => {
+  const showToast = useCallback((text: string, action?: ToastAction | null) => {
     toastKeyRef.current += 1;
+    setToastAction(action ?? null);
     setToastMessage({ text, key: toastKeyRef.current });
   }, []);
 
@@ -294,6 +483,73 @@ export default function GridView() {
     const count = listRangeBars ?? 120;
     return Math.max(12, Math.min(260, Math.floor(count)));
   }, [listRangeBars]);
+
+  const formatRate = useCallback((value: number | null | undefined) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return "--";
+    return `${(value * 100).toFixed(1)}%`;
+  }, []);
+
+  const formatSigned = useCallback((value: number | null | undefined) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return "--";
+    const sign = value > 0 ? "+" : "";
+    return `${sign}${value.toFixed(3)}`;
+  }, []);
+
+  const parseOptionalNumber = useCallback((value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const num = Number(trimmed);
+    if (!Number.isFinite(num)) return undefined;
+    return num;
+  }, []);
+
+  const normalizeWalkforwardPresetName = useCallback((value: string) => {
+    return value.trim().replace(/\s+/g, " ").slice(0, 40);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(WALKFORWARD_PRESETS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const items: WalkforwardPreset[] = [];
+      for (const entry of parsed) {
+        if (!entry || typeof entry !== "object") continue;
+        const nameRaw = (entry as { name?: unknown }).name;
+        const name = typeof nameRaw === "string" ? normalizeWalkforwardPresetName(nameRaw) : "";
+        if (!name) continue;
+        const paramsRaw = (entry as { params?: unknown }).params;
+        const createdAtRaw = (entry as { createdAt?: unknown }).createdAt;
+        const updatedAtRaw = (entry as { updatedAt?: unknown }).updatedAt;
+        const nowIso = new Date().toISOString();
+        items.push({
+          name,
+          params: toWalkforwardParams(paramsRaw),
+          createdAt: typeof createdAtRaw === "string" && createdAtRaw ? createdAtRaw : nowIso,
+          updatedAt: typeof updatedAtRaw === "string" && updatedAtRaw ? updatedAtRaw : nowIso,
+        });
+      }
+      items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+      setWalkforwardPresets(items.slice(0, WALKFORWARD_PRESETS_LIMIT));
+    } catch {
+      // Ignore corrupted local storage.
+    } finally {
+      walkforwardPresetsLoadedRef.current = true;
+    }
+  }, [normalizeWalkforwardPresetName]);
+
+  useEffect(() => {
+    if (!walkforwardPresetsLoadedRef.current) return;
+    try {
+      window.localStorage.setItem(
+        WALKFORWARD_PRESETS_STORAGE_KEY,
+        JSON.stringify(walkforwardPresets)
+      );
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [walkforwardPresets]);
 
   const handleTradeCsvPick = () => {
     tradeCsvInputRef.current?.click();
@@ -505,6 +761,14 @@ export default function GridView() {
           { key: "aScore", label: "売り候補(反転確実)" },
           { key: "bScore", label: "売り候補(戻り売り)" },
         ]
+      },
+      {
+        title: "ML",
+        options: [
+          { key: "mlEv20Net", label: "期待値(20D)" },
+          { key: "mlPUpShort", label: "上昇確率(短期)" },
+          { key: "mlPDownShort", label: "下落確率(短期)" }
+        ]
       }
     ],
     []
@@ -543,6 +807,14 @@ export default function GridView() {
           { key: "downScore", label: "下落スコア" },
           { key: "overheatUp", label: "過熱(上)" },
           { key: "overheatDown", label: "過熱(下)" },
+        ]
+      },
+      {
+        title: "ML",
+        options: [
+          { key: "mlEv20Net", label: "期待値(20D)" },
+          { key: "mlPUpShort", label: "上昇確率(短期)" },
+          { key: "mlPDownShort", label: "下落確率(短期)" }
         ]
       },
       {
@@ -962,6 +1234,12 @@ export default function GridView() {
         sortValue = ticker.scores?.overheatUp ?? null;
       } else if (activeKey === "overheatDown") {
         sortValue = ticker.scores?.overheatDown ?? null;
+      } else if (activeKey === "mlEv20Net") {
+        sortValue = ticker.mlEv20Net ?? null;
+      } else if (activeKey === "mlPUpShort") {
+        sortValue = ticker.mlPUpShort ?? ticker.mlPUp ?? null;
+      } else if (activeKey === "mlPDownShort") {
+        sortValue = ticker.mlPDownShort ?? ticker.mlPDown ?? null;
       } else if (activeKey === "boxState") {
         const state = ticker.boxState ?? "NON";
         sortValue = boxOrder[state] ?? 0;
@@ -1316,6 +1594,7 @@ export default function GridView() {
       if (event.key === "Escape") {
         setSortOpen(false);
         setDisplayOpen(false);
+        setSettingsOpen(false);
         setSectorSortOpen(false); // Close sector sort popover
         if (consultVisible) {
           setConsultVisible(false);
@@ -1517,15 +1796,24 @@ export default function GridView() {
     txtUpdateTerminalStatusRef.current = terminalKey;
 
     if (nextStatus === "success") {
+      resetBarsCache();
+      void loadList();
       showToast("TXT更新が完了しました。");
       return;
     }
+
     if (nextStatus === "canceled") {
       showToast("TXT更新をキャンセルしました。");
       return;
     }
     const detail = payload.error || payload.message || "詳細不明";
-    showToast(`TXT更新が失敗しました。(${detail})`);
+    showToast(`TXT更新が失敗しました。(${detail})`, {
+      label: "設定",
+      onClick: () => {
+        setSettingsPanelMode("general");
+        setSettingsOpen(true);
+      }
+    });
   }, [showToast]);
 
   useEffect(() => {
@@ -1732,6 +2020,410 @@ export default function GridView() {
       showToast("Phase\u518d\u8a08\u7b97\u306e\u8d77\u52d5\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002");
     }
   }, [backendReady]);
+
+  const fetchLatestWalkforward = useCallback(async (silent = false) => {
+    if (!backendReady) return;
+    setWalkforwardLoading(true);
+    try {
+      const res = await api.get("/jobs/strategy/walkforward/latest");
+      const payload = (res.data ?? {}) as {
+        has_run?: boolean;
+        latest?: WalkforwardLatest | null;
+      };
+      if (payload.has_run && payload.latest) {
+        setWalkforwardLatest(payload.latest);
+      } else {
+        setWalkforwardLatest(null);
+      }
+    } catch (err) {
+      if (!silent) {
+        const detail = extractErrorDetail(err);
+        showToast(`ウォークフォワード結果の取得に失敗しました。(${detail})`);
+      }
+    } finally {
+      setWalkforwardLoading(false);
+    }
+  }, [backendReady, showToast]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    void fetchLatestWalkforward(true);
+  }, [backendReady, fetchLatestWalkforward]);
+
+  const handleRunWalkforward = useCallback(async () => {
+    if (!backendReady || walkforwardSubmitting) return;
+    setWalkforwardSubmitting(true);
+    try {
+      const maxNewEntriesPerMonth = parseOptionalNumber(walkforwardParams.maxNewEntriesPerMonth);
+      const minMlPUpLong = parseOptionalNumber(walkforwardParams.minMlPUpLong);
+      const regimeLongMin = parseOptionalNumber(walkforwardParams.regimeLongMinBreadthAbove60);
+      const regimeShortMax = parseOptionalNumber(walkforwardParams.regimeShortMaxBreadthAbove60);
+      const params: Record<string, string | number | boolean> = {
+        train_months: walkforwardParams.trainMonths,
+        test_months: walkforwardParams.testMonths,
+        step_months: walkforwardParams.stepMonths,
+        min_windows: walkforwardParams.minWindows,
+        max_codes: walkforwardParams.maxCodes,
+        allowed_sides: walkforwardParams.allowedSides,
+        min_long_score: walkforwardParams.minLongScore,
+        min_short_score: walkforwardParams.minShortScore,
+        max_new_entries_per_day: walkforwardParams.maxNewEntriesPerDay,
+        use_regime_filter: walkforwardParams.useRegimeFilter,
+        regime_breadth_lookback_days: walkforwardParams.regimeBreadthLookbackDays
+      };
+      if (typeof maxNewEntriesPerMonth === "number") {
+        params.max_new_entries_per_month = maxNewEntriesPerMonth;
+      }
+      if (typeof minMlPUpLong === "number") {
+        params.min_ml_p_up_long = minMlPUpLong;
+      }
+      if (typeof regimeLongMin === "number") {
+        params.regime_long_min_breadth_above60 = regimeLongMin;
+      }
+      if (typeof regimeShortMax === "number") {
+        params.regime_short_max_breadth_above60 = regimeShortMax;
+      }
+      const allowedLongSetups = walkforwardParams.allowedLongSetups.trim();
+      const allowedShortSetups = walkforwardParams.allowedShortSetups.trim();
+      if (allowedLongSetups) {
+        params.allowed_long_setups = allowedLongSetups;
+      }
+      if (allowedShortSetups) {
+        params.allowed_short_setups = allowedShortSetups;
+      }
+      const res = await api.post("/jobs/strategy/walkforward", null, {
+        params
+      });
+      const payload = (res.data ?? {}) as { ok?: boolean; error?: string; job_id?: string };
+      if (payload.ok === false) {
+        showToast(`ウォークフォワード検証の起動に失敗しました。(${payload.error ?? "不明"})`);
+        return;
+      }
+      showToast("ウォークフォワード検証ジョブを開始しました。");
+    } catch (err) {
+      const detail = extractErrorDetail(err);
+      showToast(`ウォークフォワード検証の起動に失敗しました。(${detail})`);
+    } finally {
+      setWalkforwardSubmitting(false);
+    }
+  }, [backendReady, parseOptionalNumber, walkforwardSubmitting, walkforwardParams, showToast]);
+
+  const walkforwardSummary = walkforwardLatest?.report?.summary ?? null;
+  const walkforwardTopWindows = useMemo(() => {
+    const windows = Array.isArray(walkforwardLatest?.report?.windows)
+      ? walkforwardLatest?.report?.windows
+      : [];
+    const successRows = windows.filter((row) => row?.status === "success");
+    return successRows.slice(0, 5);
+  }, [walkforwardLatest]);
+  const normalizedWalkforwardPresetName = useMemo(
+    () => normalizeWalkforwardPresetName(walkforwardPresetName),
+    [normalizeWalkforwardPresetName, walkforwardPresetName]
+  );
+  const matchedWalkforwardPreset = useMemo(() => {
+    if (!normalizedWalkforwardPresetName) return null;
+    const key = normalizedWalkforwardPresetName.toLowerCase();
+    return (
+      walkforwardPresets.find((preset) => preset.name.toLowerCase() === key) ?? null
+    );
+  }, [normalizedWalkforwardPresetName, walkforwardPresets]);
+
+  const handleSaveWalkforwardPreset = useCallback(() => {
+    const name = normalizeWalkforwardPresetName(walkforwardPresetName);
+    if (!name) {
+      showToast("プリセット名を入力してください。");
+      return;
+    }
+    const nowIso = new Date().toISOString();
+    setWalkforwardPresets((prev) => {
+      const key = name.toLowerCase();
+      const index = prev.findIndex((item) => item.name.toLowerCase() === key);
+      const payload: WalkforwardPreset = {
+        name,
+        params: { ...walkforwardParams },
+        createdAt: index >= 0 ? prev[index].createdAt : nowIso,
+        updatedAt: nowIso,
+      };
+      const next = [...prev];
+      if (index >= 0) {
+        next[index] = payload;
+      } else {
+        next.push(payload);
+      }
+      next.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+      return next.slice(0, WALKFORWARD_PRESETS_LIMIT);
+    });
+    setWalkforwardPresetName(name);
+    showToast(`プリセットを保存しました。(${name})`);
+  }, [normalizeWalkforwardPresetName, showToast, walkforwardParams, walkforwardPresetName]);
+
+  const handleLoadWalkforwardPreset = useCallback(() => {
+    if (!matchedWalkforwardPreset) {
+      showToast("読み込むプリセットが見つかりません。");
+      return;
+    }
+    setWalkforwardParams({ ...matchedWalkforwardPreset.params });
+    setWalkforwardPresetName(matchedWalkforwardPreset.name);
+    showToast(`プリセットを読み込みました。(${matchedWalkforwardPreset.name})`);
+  }, [matchedWalkforwardPreset, showToast]);
+
+  const handleDeleteWalkforwardPreset = useCallback(() => {
+    if (!matchedWalkforwardPreset) {
+      showToast("削除対象のプリセットが見つかりません。");
+      return;
+    }
+    const target = matchedWalkforwardPreset.name;
+    setWalkforwardPresets((prev) =>
+      prev.filter((item) => item.name.toLowerCase() !== target.toLowerCase())
+    );
+    setWalkforwardPresetName("");
+    showToast(`プリセットを削除しました。(${target})`);
+  }, [matchedWalkforwardPreset, showToast]);
+
+  const normalizeImportedWalkforwardPresets = useCallback(
+    (payload: unknown) => {
+      const rawList = Array.isArray(payload)
+        ? payload
+        : payload && typeof payload === "object" && Array.isArray((payload as { presets?: unknown }).presets)
+          ? ((payload as { presets: unknown[] }).presets)
+          : [];
+      const nowIso = new Date().toISOString();
+      const deduped = new Map<string, WalkforwardPreset>();
+      for (const entry of rawList) {
+        if (!entry || typeof entry !== "object") continue;
+        const rawName = (entry as { name?: unknown }).name;
+        const name = typeof rawName === "string" ? normalizeWalkforwardPresetName(rawName) : "";
+        if (!name) continue;
+        const params = toWalkforwardParams((entry as { params?: unknown }).params);
+        const createdAtRaw = (entry as { createdAt?: unknown }).createdAt;
+        const updatedAtRaw = (entry as { updatedAt?: unknown }).updatedAt;
+        const item: WalkforwardPreset = {
+          name,
+          params,
+          createdAt: typeof createdAtRaw === "string" && createdAtRaw ? createdAtRaw : nowIso,
+          updatedAt: typeof updatedAtRaw === "string" && updatedAtRaw ? updatedAtRaw : nowIso,
+        };
+        deduped.set(name.toLowerCase(), item);
+      }
+      return Array.from(deduped.values());
+    },
+    [normalizeWalkforwardPresetName]
+  );
+
+  const handleExportWalkforwardPresets = useCallback(async () => {
+    if (!walkforwardPresets.length) {
+      showToast("エクスポート対象のプリセットがありません。");
+      return;
+    }
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+      now.getDate()
+    ).padStart(2, "0")}_${String(now.getHours()).padStart(2, "0")}${String(
+      now.getMinutes()
+    ).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+    const payload = {
+      version: 1,
+      exportedAt: now.toISOString(),
+      presets: walkforwardPresets,
+    };
+    try {
+      const ok = await saveAsFile(
+        JSON.stringify(payload, null, 2),
+        `walkforward-presets-${stamp}.json`,
+        "application/json"
+      );
+      showToast(ok ? "ウォークフォワードプリセットを書き出しました。" : "書き出しに失敗しました。");
+    } catch {
+      showToast("書き出しに失敗しました。");
+    }
+  }, [showToast, walkforwardPresets]);
+
+  const handlePickWalkforwardPresetImport = useCallback(() => {
+    if (walkforwardPresetImporting) return;
+    walkforwardPresetImportInputRef.current?.click();
+  }, [walkforwardPresetImporting]);
+
+  const handleImportWalkforwardPresetFile = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file || walkforwardPresetImporting) return;
+      setWalkforwardPresetImporting(true);
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const imported = normalizeImportedWalkforwardPresets(parsed);
+        if (!imported.length) {
+          showToast("インポート可能なプリセットが見つかりませんでした。");
+          return;
+        }
+        const currentKeys = new Set(walkforwardPresets.map((item) => item.name.toLowerCase()));
+        const overwriteCount = imported.filter((item) => currentKeys.has(item.name.toLowerCase())).length;
+        const nowIso = new Date().toISOString();
+        setWalkforwardPresets((prev) => {
+          const byKey = new Map<string, WalkforwardPreset>();
+          for (const item of prev) {
+            byKey.set(item.name.toLowerCase(), item);
+          }
+          for (const incoming of imported) {
+            const key = incoming.name.toLowerCase();
+            const existing = byKey.get(key);
+            byKey.set(key, {
+              ...incoming,
+              createdAt: existing?.createdAt ?? incoming.createdAt,
+              updatedAt: nowIso,
+            });
+          }
+          const merged = Array.from(byKey.values());
+          merged.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+          return merged.slice(0, WALKFORWARD_PRESETS_LIMIT);
+        });
+        if (imported.length === 1) {
+          setWalkforwardPresetName(imported[0].name);
+        }
+        showToast(
+          overwriteCount > 0
+            ? `${imported.length}件インポートしました（上書き ${overwriteCount}件）。`
+            : `${imported.length}件インポートしました。`
+        );
+      } catch {
+        showToast("インポートに失敗しました。JSON形式を確認してください。");
+      } finally {
+        setWalkforwardPresetImporting(false);
+        event.target.value = "";
+      }
+    },
+    [
+      normalizeImportedWalkforwardPresets,
+      showToast,
+      walkforwardPresetImporting,
+      walkforwardPresets
+    ]
+  );
+
+  const formatJobTypeLabel = useCallback((jobType: string | null | undefined) => {
+    switch (jobType) {
+      case "txt_update":
+        return "TXT更新";
+      case "force_sync":
+        return "強制同期";
+      case "phase_rebuild":
+        return "Phase再計算";
+      case "ml_train":
+        return "ML学習";
+      case "ml_predict":
+        return "ML予測";
+      case "strategy_backtest":
+        return "戦略バックテスト";
+      case "strategy_walkforward":
+        return "ウォークフォワード検証";
+      default:
+        return jobType || "ジョブ";
+    }
+  }, []);
+
+  const notifyTerminalJob = useCallback(async (item: JobHistoryItem) => {
+    const id = typeof item.id === "string" ? item.id : "";
+    const type = typeof item.type === "string" ? item.type : "";
+    const status = typeof item.status === "string" ? item.status : "";
+    if (!id || !type || !status) return;
+    if (type === "txt_update") return;
+
+    let detail: string | null = typeof item.message === "string" ? item.message : null;
+    if (status === "failed") {
+      try {
+        const detailRes = await api.get(`/jobs/${id}`);
+        const payload = (detailRes.data ?? null) as JobStatusPayload | null;
+        if (payload) {
+          const fromError = typeof payload.error === "string" && payload.error.trim() ? payload.error : null;
+          const fromMessage =
+            typeof payload.message === "string" && payload.message.trim() ? payload.message : null;
+          detail = fromError ?? fromMessage ?? detail;
+        }
+      } catch {
+        // Keep history-level detail when detail fetch fails.
+      }
+    }
+
+    const label = formatJobTypeLabel(type);
+    if (status === "success") {
+      if (type === "strategy_walkforward") {
+        void fetchLatestWalkforward(true);
+      }
+      if (type === "force_sync") {
+        resetBarsCache();
+        void loadList();
+      }
+      showToast(`${label}が完了しました。`);
+      return;
+    }
+    if (status === "canceled") {
+      showToast(`${label}をキャンセルしました。`);
+      return;
+    }
+
+    let action: ToastAction | null = null;
+    if (type === "phase_rebuild") {
+      action = {
+        label: "再実行",
+        onClick: () => {
+          void handlePhaseRebuild();
+        }
+      };
+    } else if (type === "strategy_walkforward") {
+      action = {
+        label: "再実行",
+        onClick: () => {
+          setSettingsPanelMode("walkforward");
+          setSettingsOpen(true);
+          void handleRunWalkforward();
+        }
+      };
+    }
+    showToast(`${label}が失敗しました。(${detail ?? "詳細不明"})`, action);
+  }, [formatJobTypeLabel, handlePhaseRebuild, handleRunWalkforward, showToast]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    let disposed = false;
+    const pollTerminalJobs = async () => {
+      try {
+        const res = await api.get("/jobs/history", { params: { limit: 20 } });
+        if (disposed) return;
+        const list = Array.isArray(res.data) ? (res.data as JobHistoryItem[]) : [];
+        const terminalItems = list.filter((item) =>
+          TERMINAL_JOB_STATUS.has(String(item?.status ?? ""))
+        );
+        if (!terminalJobsInitializedRef.current) {
+          for (const item of terminalItems) {
+            if (typeof item.id === "string" && item.id) {
+              seenTerminalJobsRef.current.add(item.id);
+            }
+          }
+          terminalJobsInitializedRef.current = true;
+          return;
+        }
+
+        for (const item of [...terminalItems].reverse()) {
+          const id = typeof item.id === "string" ? item.id : "";
+          if (!id) continue;
+          if (seenTerminalJobsRef.current.has(id)) continue;
+          seenTerminalJobsRef.current.add(id);
+          void notifyTerminalJob(item);
+        }
+      } catch {
+        // Keep silent; polling failures are transient.
+      }
+    };
+
+    void pollTerminalJobs();
+    const timer = window.setInterval(() => {
+      void pollTerminalJobs();
+    }, 4000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [backendReady, notifyTerminalJob]);
 
 
   return (
@@ -1954,172 +2646,604 @@ export default function GridView() {
                 </div>
                 <div className="popover-anchor" ref={settingsRef}>
                   <IconButton
+                    icon={<IconFileText size={18} />}
+                    label="検証"
+                    variant="iconLabel"
+                    tooltip="ウォークフォワード検証"
+                    ariaLabel="ウォークフォワード検証パネルを開く"
+                    selected={settingsOpen && settingsPanelMode === "walkforward"}
+                    onClick={() => {
+                      const alreadyOpen = settingsOpen && settingsPanelMode === "walkforward";
+                      setSettingsPanelMode("walkforward");
+                      setSettingsOpen(!alreadyOpen);
+                      setSortOpen(false);
+                      setDisplayOpen(false);
+                      setSectorSortOpen(false);
+                    }}
+                  />
+                  <IconButton
                     icon={<IconSettings size={18} />}
                     tooltip="設定"
                     ariaLabel="設定メニューを開く"
+                    selected={settingsOpen && settingsPanelMode === "general"}
                     onClick={() => {
-                      setSettingsOpen(!settingsOpen);
+                      const alreadyOpen = settingsOpen && settingsPanelMode === "general";
+                      setSettingsPanelMode("general");
+                      setSettingsOpen(!alreadyOpen);
                       setSortOpen(false);
                       setDisplayOpen(false);
                       setSectorSortOpen(false);
                     }}
                   />
                   {settingsOpen && (
-                    <div className="popover-panel popover-right-aligned" style={{ right: 0 }}>
-                      <div className="popover-section">
-                        <div className="popover-title">外観設定</div>
-                        <div className="segmented">
-                          <button
-                            className={currentTheme === "dark" ? "active" : ""}
-                            onClick={() => currentTheme !== "dark" && handleThemeToggle()}
+                    <div
+                      className="popover-panel popover-right-aligned"
+                      style={{ right: 0, maxHeight: "calc(100vh - 96px)", overflowY: "auto" }}
+                    >
+                      {settingsPanelMode === "general" && (
+                        <>
+                          <div className="popover-section">
+                            <div className="popover-title">外観設定</div>
+                            <div className="segmented">
+                              <button
+                                className={currentTheme === "dark" ? "active" : ""}
+                                onClick={() => currentTheme !== "dark" && handleThemeToggle()}
+                              >
+                                <IconMoon size={16} />
+                                <span>ダーク</span>
+                              </button>
+                              <button
+                                className={currentTheme === "light" ? "active" : ""}
+                                onClick={() => currentTheme !== "light" && handleThemeToggle()}
+                              >
+                                <IconSun size={16} />
+                                <span>ライト</span>
+                              </button>
+                            </div>
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">取引CSV</div>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleTradeCsvPick}
+                              disabled={tradeUploadInFlight}
+                            >
+                              <span className="popover-item-label">
+                                <IconUpload size={16} />
+                                <span>{tradeUploadInFlight ? "取り込み中..." : "CSV取り込み"}</span>
+                              </span>
+                              <span className="popover-status">手動</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleForceTradeSync}
+                              disabled={tradeSyncInFlight}
+                            >
+                              <span className="popover-item-label">
+                                <IconRefresh size={16} />
+                                <span>{tradeSyncInFlight ? "同期中..." : "強制同期(全件取込)"}</span>
+                              </span>
+                              <span className="popover-status">強制</span>
+                            </button>
+                            <div className="popover-hint">
+                              保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
+                            </div>
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">MM_DATA_DIR</div>
+                            <div className="popover-input-row">
+                              <input
+                                type="text"
+                                className="popover-input"
+                                placeholder="%LOCALAPPDATA%\\MeeMeeScreener\\data"
+                                value={dataDirInput}
+                                onChange={(event) => setDataDirInput(event.target.value)}
+                              />
+                              <button
+                                type="button"
+                                className="popover-item"
+                                disabled={dataDirSaving}
+                                onClick={handleDataDirSave}
+                              >
+                                {dataDirSaving ? "保存中..." : "保存"}
+                              </button>
+                            </div>
+                            <div className="popover-hint">
+                              現在: {dataDir || (dataDirLoading ? "読み込み中..." : "未設定")}
+                            </div>
+                            {dataDirMessage && (
+                              <div className="popover-hint">{dataDirMessage}</div>
+                            )}
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">TXT参照フォルダ</div>
+                            <div className="popover-hint">
+                              現在: {health?.pan_out_txt_dir ?? "未取得"}
+                            </div>
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">Phase</div>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handlePhaseRebuild}
+                              disabled={!backendReady}
+                            >
+                              <span className="popover-item-label">
+                                <IconFileText size={16} />
+                                <span>{"Phase\u518d\u8a08\u7b97"}</span>
+                              </span>
+                              <span className="popover-status">{"\u624b\u52d5"}</span>
+                            </button>
+                            <div className="popover-hint">{"\u6700\u65b0\u65e5\u306e\u653f\u5c40\u3092\u518d\u8a08\u7b97\u3057\u307e\u3059\u3002"}</div>
+                          </div>
+                        </>
+                      )}
+                      {settingsPanelMode === "walkforward" && (
+                        <div className="popover-section">
+                          <div className="popover-title">ウォークフォワード検証</div>
+                          <div className="popover-title" style={{ marginTop: 6 }}>プリセット</div>
+                          <div className="popover-input-row" style={{ marginTop: 6 }}>
+                            <input
+                              type="text"
+                              className="popover-input"
+                              placeholder="例: 地合いあり_2026Q1"
+                              value={walkforwardPresetName}
+                              onChange={(event) => setWalkforwardPresetName(event.target.value)}
+                            />
+                          </div>
+                          <div className="popover-input-row" style={{ marginTop: 6 }}>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleSaveWalkforwardPreset}
+                            >
+                              保存
+                            </button>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleLoadWalkforwardPreset}
+                              disabled={!matchedWalkforwardPreset}
+                            >
+                              読込
+                            </button>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleDeleteWalkforwardPreset}
+                              disabled={!matchedWalkforwardPreset}
+                            >
+                              削除
+                            </button>
+                          </div>
+                          <div className="popover-input-row" style={{ marginTop: 6 }}>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleExportWalkforwardPresets}
+                            >
+                              書き出し
+                            </button>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handlePickWalkforwardPresetImport}
+                              disabled={walkforwardPresetImporting}
+                            >
+                              {walkforwardPresetImporting ? "読込中..." : "読み込み"}
+                            </button>
+                          </div>
+                          {walkforwardPresets.length > 0 && (
+                            <div className="popover-hint" style={{ marginTop: 6 }}>
+                              最近のプリセット:
+                              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+                                {walkforwardPresets.slice(0, 8).map((preset) => (
+                                  <button
+                                    key={preset.name}
+                                    type="button"
+                                    className={`popover-item ${normalizedWalkforwardPresetName.toLowerCase() ===
+                                        preset.name.toLowerCase()
+                                        ? "active"
+                                        : ""
+                                      }`}
+                                    style={{ width: "auto", padding: "4px 8px" }}
+                                    onClick={() => setWalkforwardPresetName(preset.name)}
+                                  >
+                                    <span className="popover-item-label">{preset.name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          <div className="popover-title" style={{ marginTop: 10 }}>検証期間設定</div>
+                          <div className="popover-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>学習期間(月)</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.trainMonths}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    trainMonths: Math.max(1, Number(event.target.value) || 1)
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>検証期間(月)</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.testMonths}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    testMonths: Math.max(1, Number(event.target.value) || 1)
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>ずらし幅(月)</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.stepMonths}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    stepMonths: Math.max(1, Number(event.target.value) || 1)
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>最小検証窓数</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.minWindows}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    minWindows: Math.max(1, Number(event.target.value) || 1)
+                                  }))
+                                }
+                              />
+                            </label>
+                          </div>
+                          <div className="popover-input-row" style={{ marginTop: 8 }}>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4, flex: 1 }}>
+                              <span>対象銘柄数上限</span>
+                              <input
+                                type="number"
+                                min={20}
+                                className="popover-input"
+                                value={walkforwardParams.maxCodes}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    maxCodes: Math.max(20, Number(event.target.value) || 20)
+                                  }))
+                                }
+                              />
+                            </label>
+                          </div>
+                          <div className="popover-title" style={{ marginTop: 10 }}>戦略条件</div>
+                          <div className="segmented" style={{ marginTop: 6 }}>
+                            {(["both", "long", "short"] as const).map((side) => (
+                              <button
+                                key={side}
+                                type="button"
+                                className={walkforwardParams.allowedSides === side ? "active" : ""}
+                                onClick={() => {
+                                  setWalkforwardParams((prev) => ({ ...prev, allowedSides: side }));
+                                }}
+                              >
+                                {side === "both" ? "両建て" : side === "long" ? "買いのみ" : "売りのみ"}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="popover-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>買いスコア下限</span>
+                              <input
+                                type="number"
+                                step={0.1}
+                                className="popover-input"
+                                value={walkforwardParams.minLongScore}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    minLongScore: Number(event.target.value) || 0
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>売りスコア下限</span>
+                              <input
+                                type="number"
+                                step={0.1}
+                                className="popover-input"
+                                value={walkforwardParams.minShortScore}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    minShortScore: Number(event.target.value) || 0
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>1日新規上限</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.maxNewEntriesPerDay}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    maxNewEntriesPerDay: Math.max(1, Number(event.target.value) || 1)
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>1か月新規上限(任意)</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.maxNewEntriesPerMonth}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    maxNewEntriesPerMonth: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>ML買い確率下限(任意)</span>
+                              <input
+                                type="number"
+                                step={0.01}
+                                min={0}
+                                max={1}
+                                className="popover-input"
+                                value={walkforwardParams.minMlPUpLong}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    minMlPUpLong: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                          </div>
+                          <label
+                            className="popover-hint"
+                            style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}
                           >
-                            <IconMoon size={16} />
-                            <span>ダーク</span>
-                          </button>
-                          <button
-                            className={currentTheme === "light" ? "active" : ""}
-                            onClick={() => currentTheme !== "light" && handleThemeToggle()}
-                          >
-                            <IconSun size={16} />
-                            <span>ライト</span>
-                          </button>
+                            <input
+                              type="checkbox"
+                              checked={walkforwardParams.useRegimeFilter}
+                              onChange={(event) =>
+                                setWalkforwardParams((prev) => ({
+                                  ...prev,
+                                  useRegimeFilter: event.target.checked
+                                }))
+                              }
+                            />
+                            <span>レジームフィルタを使う</span>
+                          </label>
+                          {walkforwardParams.useRegimeFilter && (
+                            <div className="popover-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+                              <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                                <span>地合い参照日数</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  className="popover-input"
+                                  value={walkforwardParams.regimeBreadthLookbackDays}
+                                  onChange={(event) =>
+                                    setWalkforwardParams((prev) => ({
+                                      ...prev,
+                                      regimeBreadthLookbackDays: Math.max(1, Number(event.target.value) || 1)
+                                    }))
+                                  }
+                                />
+                              </label>
+                              <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                                <span>買い許可しきい値(任意)</span>
+                                <input
+                                  type="number"
+                                  step={0.01}
+                                  min={0}
+                                  max={1}
+                                  className="popover-input"
+                                  value={walkforwardParams.regimeLongMinBreadthAbove60}
+                                  onChange={(event) =>
+                                    setWalkforwardParams((prev) => ({
+                                      ...prev,
+                                      regimeLongMinBreadthAbove60: event.target.value
+                                    }))
+                                  }
+                                />
+                              </label>
+                              <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                                <span>売り許可しきい値(任意)</span>
+                                <input
+                                  type="number"
+                                  step={0.01}
+                                  min={0}
+                                  max={1}
+                                  className="popover-input"
+                                  value={walkforwardParams.regimeShortMaxBreadthAbove60}
+                                  onChange={(event) =>
+                                    setWalkforwardParams((prev) => ({
+                                      ...prev,
+                                      regimeShortMaxBreadthAbove60: event.target.value
+                                    }))
+                                  }
+                                />
+                              </label>
+                            </div>
+                          )}
+                          <label className="popover-hint" style={{ display: "grid", gap: 4, marginTop: 8 }}>
+                            <span>買いセットアップ制限(任意, カンマ区切り)</span>
+                            <input
+                              type="text"
+                              className="popover-input"
+                              placeholder="例: long_pullback_p3,long_breakout_p2"
+                              value={walkforwardParams.allowedLongSetups}
+                              onChange={(event) =>
+                                setWalkforwardParams((prev) => ({
+                                  ...prev,
+                                  allowedLongSetups: event.target.value
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="popover-hint" style={{ display: "grid", gap: 4, marginTop: 8 }}>
+                            <span>売りセットアップ制限(任意, カンマ区切り)</span>
+                            <input
+                              type="text"
+                              className="popover-input"
+                              placeholder="例: short_downtrend_p4,short_crash_top_p3"
+                              value={walkforwardParams.allowedShortSetups}
+                              onChange={(event) =>
+                                setWalkforwardParams((prev) => ({
+                                  ...prev,
+                                  allowedShortSetups: event.target.value
+                                }))
+                              }
+                            />
+                          </label>
+                          <div className="popover-input-row" style={{ marginTop: 8 }}>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleRunWalkforward}
+                              disabled={!backendReady || walkforwardSubmitting}
+                            >
+                              {walkforwardSubmitting ? "起動中..." : "検証を実行"}
+                            </button>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={() => {
+                                void fetchLatestWalkforward(false);
+                              }}
+                              disabled={walkforwardLoading}
+                            >
+                              {walkforwardLoading ? "読込中..." : "最新結果"}
+                            </button>
+                          </div>
+                          {walkforwardLatest && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              最終実行: {walkforwardLatest.run_id ?? "--"}
+                              {walkforwardLatest.finished_at ? ` / ${String(walkforwardLatest.finished_at).replace("T", " ").slice(0, 19)}` : ""}
+                            </div>
+                          )}
+                          {walkforwardSummary && (
+                            <div className="popover-hint" style={{ marginTop: 8, display: "grid", gap: 2 }}>
+                              <div>実行窓: {walkforwardSummary.executed_windows ?? 0}/{walkforwardSummary.windows_total ?? 0}</div>
+                              <div>検証期間 勝率: {formatRate(walkforwardSummary.oos_weighted_win_rate)}</div>
+                              <div>検証期間 取引数: {walkforwardSummary.oos_trade_events ?? 0}</div>
+                              <div>検証期間 実現損益: {formatSigned(walkforwardSummary.oos_total_realized_unit_pnl)}</div>
+                              <div>最大ドローダウン: {formatSigned(walkforwardSummary.oos_worst_max_drawdown_unit)}</div>
+                              <div>PF平均: {formatSigned(walkforwardSummary.oos_mean_profit_factor)}</div>
+                              <div>勝ち窓比率: {formatRate(walkforwardSummary.oos_positive_window_ratio)}</div>
+                            </div>
+                          )}
+                          {walkforwardTopWindows.length > 0 && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              直近窓:
+                              {walkforwardTopWindows.map((row) => {
+                                const metrics = row.test?.metrics;
+                                return (
+                                  <div key={`${row.index}:${row.label}`} style={{ marginTop: 2 }}>
+                                    {row.label ?? `窓 ${row.index ?? "?"}`} / 取引 {metrics?.trade_events ?? 0} / 勝率 {formatRate(metrics?.win_rate)} / 損益 {formatSigned(metrics?.total_realized_unit_pnl)}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                      <div className="popover-section">
-                        <div className="popover-title">取引CSV</div>
-                        <button
-                          type="button"
-                          className="popover-item"
-                          onClick={handleTradeCsvPick}
-                          disabled={tradeUploadInFlight}
-                        >
-                          <span className="popover-item-label">
-                            <IconUpload size={16} />
-                            <span>{tradeUploadInFlight ? "取り込み中..." : "CSV取り込み"}</span>
-                          </span>
-                          <span className="popover-status">手動</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="popover-item"
-                          onClick={handleForceTradeSync}
-                          disabled={tradeSyncInFlight}
-                        >
-                          <span className="popover-item-label">
-                            <IconRefresh size={16} />
-                            <span>{tradeSyncInFlight ? "同期中..." : "強制同期(全件取込)"}</span>
-                          </span>
-                          <span className="popover-status">強制</span>
-                        </button>
-                        <div className="popover-hint">
-                          保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
-                        </div>
-                      </div>
-                      <div className="popover-section">
-                        <div className="popover-title">MM_DATA_DIR</div>
-                        <div className="popover-input-row">
-                          <input
-                            type="text"
-                            className="popover-input"
-                            placeholder="%LOCALAPPDATA%\\MeeMeeScreener\\data"
-                            value={dataDirInput}
-                            onChange={(event) => setDataDirInput(event.target.value)}
-                          />
-                          <button
-                            type="button"
-                            className="popover-item"
-                            disabled={dataDirSaving}
-                            onClick={handleDataDirSave}
-                          >
-                            {dataDirSaving ? "保存中..." : "保存"}
-                          </button>
-                        </div>
-                        <div className="popover-hint">
-                          現在: {dataDir || (dataDirLoading ? "読み込み中..." : "未設定")}
-                        </div>
-                        {dataDirMessage && (
-                          <div className="popover-hint">{dataDirMessage}</div>
-                        )}
-                      </div>
-                      <div className="popover-section">
-                        <div className="popover-title">TXT参照フォルダ</div>
-                        <div className="popover-hint">
-                          現在: {health?.pan_out_txt_dir ?? "未取得"}
-                        </div>
-                      </div>
-                      <div className="popover-section">
-                        <div className="popover-title">Phase</div>
-                        <button
-                          type="button"
-                          className="popover-item"
-                          onClick={handlePhaseRebuild}
-                          disabled={!backendReady}
-                        >
-                          <span className="popover-item-label">
-                            <IconFileText size={16} />
-                            <span>{"Phase\u518d\u8a08\u7b97"}</span>
-                          </span>
-                          <span className="popover-status">{"\u624b\u52d5"}</span>
-                        </button>
-                        <div className="popover-hint">{"\u6700\u65b0\u65e5\u306e\u653f\u5c40\u3092\u518d\u8a08\u7b97\u3057\u307e\u3059\u3002"}</div>
-                      </div>
-                      <div className="popover-section">
-                        <div className="popover-title">スクショ</div>
-                        <div className="popover-hint">
-                          保存先: %USERPROFILE%\\Downloads\\MeeMeeScreener
-                        </div>
-                      </div>
-                      <div className="popover-section">
-                        <div className="popover-title">銘柄一覧</div>
-                        <button
-                          type="button"
-                          className="popover-item"
-                          onClick={handleExportWatchlist}
-                          disabled={watchlistExporting}
-                        >
-                          <span className="popover-item-label">
-                            <IconDownload size={16} />
-                            <span>{watchlistExporting ? "エクスポート中..." : "EXPORT"}</span>
-                          </span>
-                          <span className="popover-status">BK</span>
-                        </button>
-                        <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
-                          <span className="popover-item-label">
-                            <IconFileText size={16} />
-                            <span>code.txt</span>
-                          </span>
-                          <span className="popover-status">編集</span>
-                        </button>
-                      </div>
-                      <div className="popover-section">
-                        <div className="popover-title">イベント</div>
-                        <button
-                          type="button"
-                          className="popover-item"
-                          disabled={eventsMeta?.isRefreshing}
-                          onClick={() => {
-                            void refreshEvents();
-                            setSettingsOpen(false);
-                          }}
-                        >
-                          <span className="popover-item-label">
-                            <IconRefresh size={16} />
-                            <span>
-                              {eventsMeta?.isRefreshing ? "更新中..." : "イベント更新"}
-                            </span>
-                          </span>
-                          <span className="popover-status">手動</span>
-                        </button>
-                        <div className="popover-hint">
-                          状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
-                        </div>
-                        <div className="popover-hint">
-                          最終試行: {eventsAttemptLabel ?? "--"}
-                        </div>
-                        {eventsMeta?.lastError && (
-                          <div className="popover-hint">エラー: {eventsMeta.lastError}</div>
-                        )}
-                      </div>
+                      )}
+                      {settingsPanelMode === "general" && (
+                        <>
+                          <div className="popover-section">
+                            <div className="popover-title">スクショ</div>
+                            <div className="popover-hint">
+                              保存先: %USERPROFILE%\\Downloads\\MeeMeeScreener
+                            </div>
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">銘柄一覧</div>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleExportWatchlist}
+                              disabled={watchlistExporting}
+                            >
+                              <span className="popover-item-label">
+                                <IconDownload size={16} />
+                                <span>{watchlistExporting ? "書き出し中..." : "書き出し"}</span>
+                              </span>
+                              <span className="popover-status">BK</span>
+                            </button>
+                            <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
+                              <span className="popover-item-label">
+                                <IconFileText size={16} />
+                                <span>code.txt</span>
+                              </span>
+                              <span className="popover-status">編集</span>
+                            </button>
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">イベント</div>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              disabled={eventsMeta?.isRefreshing}
+                              onClick={() => {
+                                void refreshEvents();
+                                setSettingsOpen(false);
+                              }}
+                            >
+                              <span className="popover-item-label">
+                                <IconRefresh size={16} />
+                                <span>
+                                  {eventsMeta?.isRefreshing ? "更新中..." : "イベント更新"}
+                                </span>
+                              </span>
+                              <span className="popover-status">手動</span>
+                            </button>
+                            <div className="popover-hint">
+                              状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+                            </div>
+                            <div className="popover-hint">
+                              最終試行: {eventsAttemptLabel ?? "--"}
+                            </div>
+                            {eventsMeta?.lastError && (
+                              <div className="popover-hint">エラー: {eventsMeta.lastError}</div>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
                   <input
@@ -2127,6 +3251,13 @@ export default function GridView() {
                     type="file"
                     accept=".csv"
                     onChange={handleTradeCsvChange}
+                    style={{ display: "none" }}
+                  />
+                  <input
+                    ref={walkforwardPresetImportInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={handleImportWalkforwardPresetFile}
                     style={{ display: "none" }}
                   />
                 </div>
@@ -2593,7 +3724,15 @@ export default function GridView() {
           setTechFilterDraft((prev) => ({ ...prev, defaultTimeframe: next }));
         }}
       />
-      <Toast message={toastMessage?.text ?? null} onClose={() => setToastMessage(null)} />
+      <Toast
+        message={toastMessage?.text ?? null}
+        onClose={() => {
+          setToastMessage(null);
+          setToastAction(null);
+        }}
+        action={toastAction}
+        duration={toastAction ? 8000 : 4000}
+      />
     </div>
   );
 }

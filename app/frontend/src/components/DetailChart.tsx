@@ -541,6 +541,13 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       drawOverlay();
       return;
     }
+    if (selected.kind === "timeZone") {
+      const zone = timeZonesRef.current[selected.index];
+      if (!zone) return;
+      updateTimeZoneAt(selected.index, { ...zone, color });
+      drawOverlay();
+      return;
+    }
     if (selected.kind === "horizontalLine") {
       const line = horizontalLinesRef.current[selected.index];
       if (!line) return;
@@ -636,7 +643,12 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     price: number | null
   ) => {
     if (tool === "timeZone") {
-      const zone = buildTimeZoneShape(drawStartRef.current.time ?? null, time, "buy");
+      const zone = buildTimeZoneShape(
+        drawStartRef.current.time ?? null,
+        time,
+        "buy",
+        activeDrawColorRef.current ?? undefined
+      );
       if (zone) onAddTimeZoneRef.current?.(zone);
       return;
     }
@@ -986,8 +998,64 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         if (x1 == null || x2 == null) return;
         const rectX = Math.min(x1, x2);
         const rectW = Math.max(1, Math.abs(x2 - x1));
-        ctx.fillStyle = zone.side === "sell" ? SELL_ZONE_COLOR : BUY_ZONE_COLOR;
+        const baseColor = zone.side === "sell" ? SELL_ZONE_COLOR : BUY_ZONE_COLOR;
+        ctx.fillStyle = zone.color ? applyAlpha(zone.color, 0.2) : baseColor;
         ctx.fillRect(rectX, 0, rectW, height);
+
+        // Draw Candle Count
+        const start = Math.min(zone.startTime, zone.endTime);
+        const end = Math.max(zone.startTime, zone.endTime);
+        const candleData = candlesRef.current;
+        let count = 0;
+
+        // Find indices using binary search or simple bounds check if sorted
+        if (candleData.length > 0) {
+          // Providing a rough count based on time range might be inaccurate due to gaps.
+          // Better to find exact visible candles within range.
+          // Since candles are sorted by time:
+          let startIndex = -1;
+          let endIndex = -1;
+
+          // Simple binary search for start
+          let l = 0, r = candleData.length - 1;
+          while (l <= r) {
+            const m = (l + r) >>> 1;
+            if (candleData[m].time >= start) {
+              startIndex = m;
+              r = m - 1;
+            } else {
+              l = m + 1;
+            }
+          }
+
+          // Simple binary search for end
+          l = 0; r = candleData.length - 1;
+          while (l <= r) {
+            const m = (l + r) >>> 1;
+            if (candleData[m].time <= end) {
+              endIndex = m;
+              l = m + 1;
+            } else {
+              r = m - 1;
+            }
+          }
+
+          if (startIndex !== -1 && endIndex !== -1 && startIndex <= endIndex) {
+            count = endIndex - startIndex + 1;
+          }
+        }
+
+        if (count > 0) {
+          ctx.save();
+          ctx.font = "bold 12px sans-serif";
+          ctx.fillStyle = resolvedTheme === "light" ? "#334155" : "#cbd5f5";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          ctx.shadowColor = resolvedTheme === "light" ? "white" : "black";
+          ctx.shadowBlur = 4;
+          ctx.fillText(`${count}本`, rectX + rectW / 2, 8);
+          ctx.restore();
+        }
       });
     }
 
@@ -1475,35 +1543,21 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         }
         return;
       }
-      const nearest = findNearestCandle(time);
-      if (!nearest) {
-        lastCrosshairTimeRef.current = null;
-        if (typeof clearCrosshair === "function") {
-          suppressCrosshairRef.current = true;
-          clearCrosshair.call(chart);
-        }
-        return;
-      }
       const setCrosshairPosition = chart.setCrosshairPosition;
       if (typeof setCrosshairPosition === "function") {
-        let price = nearest.close;
-        if (point && Number.isFinite(point.y)) {
-          const priceScale = chart.priceScale?.("right");
-          const height = wrapperRef.current?.clientHeight ?? null;
-          let y = point.y;
-          if (height != null) {
-            y = Math.max(0, Math.min(height, y));
-          }
-          if (priceScale && typeof priceScale.coordinateToPrice === "function") {
-            const mapped = priceScale.coordinateToPrice(y);
-            if (mapped != null && Number.isFinite(mapped)) {
-              price = mapped;
-            }
-          }
+        if (!point || !Number.isFinite(point.y)) return;
+        const priceScale = chart.priceScale?.("right");
+        const height = wrapperRef.current?.clientHeight ?? null;
+        let y = point.y;
+        if (height != null) {
+          y = Math.max(0, Math.min(height, y));
         }
-        lastCrosshairTimeRef.current = nearest.time;
+        if (!priceScale || typeof priceScale.coordinateToPrice !== "function") return;
+        const mapped = priceScale.coordinateToPrice(y);
+        if (mapped == null || !Number.isFinite(mapped)) return;
+        lastCrosshairTimeRef.current = time;
         suppressCrosshairRef.current = true;
-        setCrosshairPosition.call(chart, price, nearest.time, series);
+        setCrosshairPosition.call(chart, mapped, time, series);
       }
     },
     clearCrosshair: () => {
@@ -1829,22 +1883,6 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           return;
         }
         lastCrosshairTimeRef.current = normalizedTime;
-        if (point && chartRef.current && candleSeriesRef.current) {
-          const priceScale = chartRef.current.priceScale?.("right");
-          const setCrosshairPosition = (chartRef.current as ChartWithCrosshairApi).setCrosshairPosition;
-          if (priceScale && typeof priceScale.coordinateToPrice === "function") {
-            const price = priceScale.coordinateToPrice(point.y);
-            if (price != null && Number.isFinite(price) && typeof setCrosshairPosition === "function") {
-              suppressCrosshairRef.current = true;
-              setCrosshairPosition.call(
-                chartRef.current,
-                price,
-                normalizedTime,
-                candleSeriesRef.current
-              );
-            }
-          }
-        }
         onCrosshairMoveRef.current(normalizedTime, point);
       };
 
@@ -1952,7 +1990,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     selectedContextShape?.kind === "drawBox"
       ? drawBoxesRef.current[selectedContextShape.index]?.color ?? "#64748b"
       : selectedContextShape?.kind === "horizontalLine"
-        ? horizontalLinesRef.current[selectedContextShape.index]?.color ?? "#334155"
+      ? horizontalLinesRef.current[selectedContextShape.index]?.color ?? "#334155"
+      : selectedContextShape?.kind === "timeZone"
+        ? timeZonesRef.current[selectedContextShape.index]?.color ?? BUY_ZONE_COLOR
         : null;
 
   return (
@@ -1997,23 +2037,36 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           currentSelected.kind === hit?.kind &&
           currentSelected.index === hit?.index;
         if (hit) {
-          e.preventDefault();
-          e.stopPropagation();
-          if (isSameAsSelected) {
-            selectedShapeRef.current = null;
-            dragStateRef.current = null;
-            emitSelection(null);
+          // Restrict interaction in Chart Mode (null tool) to Right-Click or selected shape
+          const isChartMode = !effectiveTool;
+          const isSelected = selectedShapeRef.current?.kind === hit.kind && selectedShapeRef.current.index === hit.index;
+
+          if (isChartMode && !isRightClick && !isSelected) {
+            // In Chart Mode, if we Left-Click something that isn't already selected,
+            // we ignore the hit so the user can interact with the chart (pan/scroll).
+          } else {
+            e.preventDefault();
+            e.stopPropagation();
+            if (isSameAsSelected) {
+              if (isRightClick) {
+                // Right click on same selection -> allow context menu (fallthrough to re-emit selection)
+              } else {
+                selectedShapeRef.current = null;
+                dragStateRef.current = null;
+                emitSelection(null);
+                drawOverlay();
+                return;
+              }
+            }
+            selectedShapeRef.current = { kind: hit.kind, index: hit.index };
+            dragStateRef.current = isRightClick ? null : hit;
+            emitSelection(
+              selectedShapeRef.current,
+              isRightClick ? { contextPoint: { x, y } } : { preserveContextBar: false }
+            );
             drawOverlay();
             return;
           }
-          selectedShapeRef.current = { kind: hit.kind, index: hit.index };
-          dragStateRef.current = isRightClick ? null : hit;
-          emitSelection(
-            selectedShapeRef.current,
-            isRightClick ? { contextPoint: { x, y } } : { preserveContextBar: false }
-          );
-          drawOverlay();
-          return;
         }
 
         if (isRightClick) {
@@ -2329,14 +2382,14 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         >
           <div className="detail-chart-context-bar">
             {(selectedContextShape.kind === "drawBox" ||
-              selectedContextShape.kind === "horizontalLine") &&
+              selectedContextShape.kind === "horizontalLine" ||
+              selectedContextShape.kind === "timeZone") &&
               CONTEXT_COLOR_PALETTE.map((color) => (
                 <button
                   key={color}
                   type="button"
-                  className={`detail-chart-context-swatch ${
-                    selectedColor === color ? "is-active" : ""
-                  }`}
+                  className={`detail-chart-context-swatch ${selectedColor === color ? "is-active" : ""
+                    }`}
                   style={{ backgroundColor: color }}
                   aria-label={`濶ｲ ${color}`}
                   onClick={() => updateSelectedDrawColor(color)}
@@ -2375,5 +2428,4 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 });
 
 export default DetailChart;
-
 

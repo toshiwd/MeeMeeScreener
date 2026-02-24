@@ -16,9 +16,10 @@ from app.db.session import get_conn
 @dataclass(frozen=True)
 class StrategyBacktestConfig:
     max_positions: int = 3
-    initial_units: int = 2
+    # Long entry default is now a 3-step split (initial/add1/add2 = 1/1/1).
+    initial_units: int = 1
     add1_units: int = 1
-    add2_units: int = 2
+    add2_units: int = 1
     hedge_units: int = 1
     min_hedge_ratio: float = 0.2
     cost_bps: float = 20.0
@@ -1373,5 +1374,421 @@ def get_latest_strategy_backtest() -> dict[str, Any]:
             "config": config_json,
             "metrics": metrics_json,
             "note": row[9],
+        },
+    }
+
+
+def _ensure_walkforward_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS strategy_walkforward_runs (
+            run_id TEXT PRIMARY KEY,
+            started_at TIMESTAMP,
+            finished_at TIMESTAMP,
+            status TEXT,
+            start_dt INTEGER,
+            end_dt INTEGER,
+            max_codes INTEGER,
+            train_months INTEGER,
+            test_months INTEGER,
+            step_months INTEGER,
+            config_json TEXT,
+            report_json TEXT,
+            note TEXT
+        );
+        """
+    )
+
+
+def _save_walkforward_run(
+    conn,
+    *,
+    run_id: str,
+    started_at: datetime,
+    finished_at: datetime,
+    status: str,
+    start_dt: int | None,
+    end_dt: int | None,
+    max_codes: int | None,
+    train_months: int,
+    test_months: int,
+    step_months: int,
+    config: StrategyBacktestConfig,
+    report: dict[str, Any],
+    note: str | None,
+) -> None:
+    _ensure_walkforward_schema(conn)
+    conn.execute(
+        """
+        INSERT INTO strategy_walkforward_runs (
+            run_id,
+            started_at,
+            finished_at,
+            status,
+            start_dt,
+            end_dt,
+            max_codes,
+            train_months,
+            test_months,
+            step_months,
+            config_json,
+            report_json,
+            note
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            run_id,
+            started_at,
+            finished_at,
+            status,
+            start_dt,
+            end_dt,
+            max_codes,
+            int(train_months),
+            int(test_months),
+            int(step_months),
+            json.dumps(asdict(config), ensure_ascii=False),
+            json.dumps(report, ensure_ascii=False),
+            note,
+        ],
+    )
+
+
+def _month_key_from_dt(dt_value: int) -> str | None:
+    d = _dt_to_date(dt_value)
+    if d is None:
+        return None
+    return d.strftime("%Y-%m")
+
+
+def _build_month_segments(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    if frame.empty or "dt" not in frame.columns:
+        return []
+    raw_dts = frame["dt"].dropna().tolist()
+    dts = sorted({int(v) for v in raw_dts})
+    segments: list[dict[str, Any]] = []
+    for dt in dts:
+        key = _month_key_from_dt(int(dt))
+        if key is None:
+            continue
+        if segments and segments[-1]["month"] == key:
+            segments[-1]["end_dt"] = int(dt)
+            segments[-1]["days"] = int(segments[-1]["days"]) + 1
+        else:
+            segments.append(
+                {
+                    "month": key,
+                    "start_dt": int(dt),
+                    "end_dt": int(dt),
+                    "days": 1,
+                }
+            )
+    return segments
+
+
+def _compact_metrics(payload: dict[str, Any]) -> dict[str, Any]:
+    metrics = payload.get("metrics") or {}
+    return {
+        "days": int(metrics.get("days") or 0),
+        "trade_events": int(metrics.get("trade_events") or 0),
+        "win_rate": _safe_float(metrics.get("win_rate")),
+        "avg_ret_net": _safe_float(metrics.get("avg_ret_net")),
+        "profit_factor": _safe_float(metrics.get("profit_factor")),
+        "max_drawdown_unit": _safe_float(metrics.get("max_drawdown_unit")),
+        "total_realized_unit_pnl": _safe_float(metrics.get("total_realized_unit_pnl")),
+        "final_equity_unit": _safe_float(metrics.get("final_equity_unit")),
+    }
+
+
+def _summarize_walkforward_windows(windows: list[dict[str, Any]]) -> dict[str, Any]:
+    success_windows = [w for w in windows if str(w.get("status")) == "success"]
+    executed = len(success_windows)
+    failed = len([w for w in windows if str(w.get("status")) != "success"])
+
+    total_trades = 0
+    weighted_win_numer = 0.0
+    total_realized = 0.0
+    worst_dd: float | None = None
+    pf_values: list[float] = []
+    positive_windows = 0
+
+    for row in success_windows:
+        test_metrics = (row.get("test") or {}).get("metrics") or {}
+        trade_events = int(test_metrics.get("trade_events") or 0)
+        win_rate = _safe_float(test_metrics.get("win_rate"))
+        total_realized_val = _safe_float(test_metrics.get("total_realized_unit_pnl")) or 0.0
+        max_dd = _safe_float(test_metrics.get("max_drawdown_unit"))
+        pf = _safe_float(test_metrics.get("profit_factor"))
+
+        total_trades += trade_events
+        if win_rate is not None and trade_events > 0:
+            weighted_win_numer += float(win_rate) * float(trade_events)
+        total_realized += float(total_realized_val)
+        if total_realized_val > 0:
+            positive_windows += 1
+        if max_dd is not None:
+            worst_dd = float(max_dd) if worst_dd is None else min(float(worst_dd), float(max_dd))
+        if pf is not None:
+            pf_values.append(float(pf))
+
+    weighted_win_rate = (weighted_win_numer / float(total_trades)) if total_trades > 0 else None
+    mean_pf = (sum(pf_values) / float(len(pf_values))) if pf_values else None
+    positive_ratio = (float(positive_windows) / float(executed)) if executed > 0 else None
+    return {
+        "windows_total": int(len(windows)),
+        "executed_windows": int(executed),
+        "failed_windows": int(failed),
+        "oos_trade_events": int(total_trades),
+        "oos_weighted_win_rate": float(weighted_win_rate) if weighted_win_rate is not None else None,
+        "oos_total_realized_unit_pnl": float(total_realized),
+        "oos_worst_max_drawdown_unit": float(worst_dd) if worst_dd is not None else None,
+        "oos_mean_profit_factor": float(mean_pf) if mean_pf is not None else None,
+        "oos_positive_window_ratio": float(positive_ratio) if positive_ratio is not None else None,
+    }
+
+
+def run_strategy_walkforward(
+    *,
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+    max_codes: int | None = 500,
+    dry_run: bool = False,
+    config: StrategyBacktestConfig | None = None,
+    train_months: int = 24,
+    test_months: int = 3,
+    step_months: int = 1,
+    min_windows: int = 1,
+) -> dict[str, Any]:
+    cfg = config or StrategyBacktestConfig()
+    train_months = max(1, int(train_months))
+    test_months = max(1, int(test_months))
+    step_months = max(1, int(step_months))
+    min_windows = max(1, int(min_windows))
+
+    run_id = datetime.now(tz=timezone.utc).strftime("swf_%Y%m%d%H%M%S_%f")
+    started_at = datetime.now(tz=timezone.utc)
+
+    with get_conn() as conn:
+        _ensure_backtest_schema(conn)
+        market = _load_market_frame(conn, start_dt=start_dt, end_dt=end_dt, max_codes=max_codes)
+    if market.empty:
+        raise RuntimeError("No daily_bars rows for walkforward range")
+
+    features = _prepare_feature_frame(market)
+    features["bar_index"] = features.groupby("code", sort=False).cumcount() + 1
+    features = features[
+        (features["signal_ready"])
+        & (features["bar_index"] >= int(max(1, cfg.min_history_bars)))
+    ].copy()
+    if features.empty:
+        raise RuntimeError("No rows with enough history for walkforward computation")
+
+    segments = _build_month_segments(features)
+    if len(segments) < (train_months + test_months):
+        raise RuntimeError(
+            f"Insufficient month segments for walkforward (segments={len(segments)}, "
+            f"required={train_months + test_months})"
+        )
+
+    windows: list[dict[str, Any]] = []
+    for pivot in range(train_months, len(segments) - test_months + 1, step_months):
+        train_slice = segments[pivot - train_months : pivot]
+        test_slice = segments[pivot : pivot + test_months]
+        if not train_slice or not test_slice:
+            continue
+        windows.append(
+            {
+                "index": len(windows) + 1,
+                "train_month_start": train_slice[0]["month"],
+                "train_month_end": train_slice[-1]["month"],
+                "test_month_start": test_slice[0]["month"],
+                "test_month_end": test_slice[-1]["month"],
+                "train_start_dt": int(train_slice[0]["start_dt"]),
+                "train_end_dt": int(train_slice[-1]["end_dt"]),
+                "test_start_dt": int(test_slice[0]["start_dt"]),
+                "test_end_dt": int(test_slice[-1]["end_dt"]),
+            }
+        )
+
+    if len(windows) < min_windows:
+        raise RuntimeError(
+            f"Walkforward windows below minimum (windows={len(windows)}, min_windows={min_windows})"
+        )
+
+    with get_conn() as conn:
+        event_rows, event_notes = _load_event_rows(conn)
+
+    windows_payload: list[dict[str, Any]] = []
+    for window in windows:
+        train_start = int(window["train_start_dt"])
+        train_end = int(window["train_end_dt"])
+        test_start = int(window["test_start_dt"])
+        test_end = int(window["test_end_dt"])
+
+        train_frame = features[(features["dt"] >= train_start) & (features["dt"] <= train_end)].copy()
+        test_frame = features[(features["dt"] >= test_start) & (features["dt"] <= test_end)].copy()
+
+        payload: dict[str, Any] = {
+            "index": int(window["index"]),
+            "label": (
+                f"{window['test_month_start']}..{window['test_month_end']} "
+                f"(train {window['train_month_start']}..{window['train_month_end']})"
+            ),
+            "train": {
+                "range": {"start_dt": train_start, "end_dt": train_end},
+                "dataset": {
+                    "rows": int(len(train_frame)),
+                    "codes": int(train_frame["code"].nunique()) if not train_frame.empty else 0,
+                    "days": int(train_frame["dt"].nunique()) if not train_frame.empty else 0,
+                },
+            },
+            "test": {
+                "range": {"start_dt": test_start, "end_dt": test_end},
+                "dataset": {
+                    "rows": int(len(test_frame)),
+                    "codes": int(test_frame["code"].nunique()) if not test_frame.empty else 0,
+                    "days": int(test_frame["dt"].nunique()) if not test_frame.empty else 0,
+                },
+            },
+        }
+        if train_frame.empty or test_frame.empty:
+            payload["status"] = "skipped"
+            payload["error"] = "insufficient_window_rows"
+            windows_payload.append(payload)
+            continue
+
+        try:
+            train_event_block = _build_event_block_set(
+                train_frame,
+                event_rows,
+                lookback_days=cfg.event_lookback_days,
+                lookahead_days=cfg.event_lookahead_days,
+            )
+            test_event_block = _build_event_block_set(
+                test_frame,
+                event_rows,
+                lookback_days=cfg.event_lookback_days,
+                lookahead_days=cfg.event_lookahead_days,
+            )
+            train_result = _simulate(train_frame, cfg, train_event_block)
+            test_result = _simulate(test_frame, cfg, test_event_block)
+            payload["status"] = "success"
+            payload["train"]["metrics"] = _compact_metrics(train_result)
+            payload["test"]["metrics"] = _compact_metrics(test_result)
+            payload["event_filter"] = {
+                "train_blocked_points": int(len(train_event_block)),
+                "test_blocked_points": int(len(test_event_block)),
+            }
+        except Exception as exc:
+            payload["status"] = "failed"
+            payload["error"] = str(exc)
+        windows_payload.append(payload)
+
+    summary = _summarize_walkforward_windows(windows_payload)
+    finished_at = datetime.now(tz=timezone.utc)
+    report = {
+        "run_id": run_id,
+        "status": "success",
+        "started_at": started_at.isoformat(),
+        "finished_at": finished_at.isoformat(),
+        "range": {
+            "start_dt": int(features["dt"].min()),
+            "end_dt": int(features["dt"].max()),
+        },
+        "dataset": {
+            "rows": int(len(features)),
+            "codes": int(features["code"].nunique()),
+            "days": int(features["dt"].nunique()),
+            "max_codes": int(max_codes) if max_codes is not None else None,
+        },
+        "windowing": {
+            "train_months": int(train_months),
+            "test_months": int(test_months),
+            "step_months": int(step_months),
+            "min_windows": int(min_windows),
+        },
+        "event_filter": {
+            "event_rows": int(len(event_rows)),
+            "notes": event_notes,
+        },
+        "config": asdict(cfg),
+        "summary": summary,
+        "windows": windows_payload,
+    }
+    report["dry_run"] = bool(dry_run)
+
+    if not dry_run:
+        with get_conn() as conn:
+            _save_walkforward_run(
+                conn,
+                run_id=run_id,
+                started_at=started_at,
+                finished_at=finished_at,
+                status="success",
+                start_dt=start_dt,
+                end_dt=end_dt,
+                max_codes=max_codes,
+                train_months=train_months,
+                test_months=test_months,
+                step_months=step_months,
+                config=cfg,
+                report=report,
+                note=None,
+            )
+    return report
+
+
+def get_latest_strategy_walkforward() -> dict[str, Any]:
+    with get_conn() as conn:
+        _ensure_walkforward_schema(conn)
+        row = conn.execute(
+            """
+            SELECT
+                run_id,
+                started_at,
+                finished_at,
+                status,
+                start_dt,
+                end_dt,
+                max_codes,
+                train_months,
+                test_months,
+                step_months,
+                config_json,
+                report_json,
+                note
+            FROM strategy_walkforward_runs
+            ORDER BY finished_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    if not row:
+        return {"has_run": False, "latest": None}
+
+    try:
+        config_json = json.loads(row[10]) if row[10] else {}
+    except Exception:
+        config_json = {}
+    try:
+        report_json = json.loads(row[11]) if row[11] else {}
+    except Exception:
+        report_json = {}
+    return {
+        "has_run": True,
+        "latest": {
+            "run_id": row[0],
+            "started_at": row[1],
+            "finished_at": row[2],
+            "status": row[3],
+            "start_dt": row[4],
+            "end_dt": row[5],
+            "max_codes": row[6],
+            "train_months": row[7],
+            "test_months": row[8],
+            "step_months": row[9],
+            "config": config_json,
+            "report": report_json,
+            "note": row[12],
         },
     }

@@ -23,8 +23,13 @@ from app.backend.services.system_status import (
 )
 from app.backend.core.force_sync_job import handle_force_sync  # noqa: E402
 from app.backend.core.phase_batch_job import handle_phase_rebuild  # noqa: E402
-from app.backend.core.ml_job import handle_ml_predict, handle_ml_train  # noqa: E402
-from app.backend.core.strategy_backtest_job import handle_strategy_backtest  # noqa: E402
+from app.backend.core.ml_job import handle_ml_live_guard, handle_ml_predict, handle_ml_train  # noqa: E402
+from app.backend.core.analysis_backfill_job import handle_analysis_backfill  # noqa: E402
+from app.backend.core.strategy_backtest_job import (  # noqa: E402
+    handle_strategy_backtest,
+    handle_strategy_walkforward,
+)
+from app.backend.core.toredex_live_job import handle_toredex_live  # noqa: E402
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager  # noqa: E402
 from app.backend.core.txt_update_job import (
     _load_update_state,
@@ -39,7 +44,11 @@ job_manager.register_handler("txt_update", handle_txt_update)
 job_manager.register_handler("phase_rebuild", handle_phase_rebuild)
 job_manager.register_handler("ml_train", handle_ml_train)
 job_manager.register_handler("ml_predict", handle_ml_predict)
+job_manager.register_handler("ml_live_guard", handle_ml_live_guard)
+job_manager.register_handler("analysis_backfill", handle_analysis_backfill)
 job_manager.register_handler("strategy_backtest", handle_strategy_backtest)
+job_manager.register_handler("strategy_walkforward", handle_strategy_walkforward)
+job_manager.register_handler("toredex_live", handle_toredex_live)
 
 STATIC_DIR = os.path.abspath(os.getenv("STATIC_DIR") or os.path.join(os.path.dirname(__file__), "static"))
 _RESOLVED_PATHS_LOGGED = False

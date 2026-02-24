@@ -70,6 +70,12 @@ type AIExportResult = {
     json: object;
 };
 
+type MAPayload = {
+    daily: Record<string, number | null>;
+    weekly: Record<string, number | null>;
+    monthly: Record<string, number | null>;
+};
+
 const N_A = "N/A";
 const VOLUME_UNIT = "shares";
 
@@ -439,6 +445,180 @@ const buildPositionsByBroker = (positions: PositionSnapshot[] | undefined) => {
     };
 };
 
+const toFiniteNumber = (value: unknown): number | null => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+};
+
+const computeMAAt = (bars: BarData[], period: number, endExclusive: number): number | null => {
+    if (period <= 0 || endExclusive < period) return null;
+    let sum = 0;
+    for (let i = endExclusive - period; i < endExclusive; i += 1) {
+        sum += bars[i].close;
+    }
+    return sum / period;
+};
+
+const computeMASlopePct = (bars: BarData[], period: number, lookbackBars: number): number | null => {
+    const end = bars.length;
+    const current = computeMAAt(bars, period, end);
+    const prev = computeMAAt(bars, period, end - lookbackBars);
+    if (current == null || prev == null || !Number.isFinite(prev) || Math.abs(prev) < 1e-9) return null;
+    return (current - prev) / Math.abs(prev);
+};
+
+const lastFiniteVolume = (bars: BarData[]): number | null => {
+    for (let i = bars.length - 1; i >= 0; i -= 1) {
+        const volume = toFiniteNumber(bars[i].volume);
+        if (volume != null) return volume;
+    }
+    return null;
+};
+
+const buildPatternSnapshot = (
+    input: AIExportInput,
+    maPayload: MAPayload,
+    currentPrice: number | null,
+    lastDaily: BarData | null
+) => {
+    const bars = input.dailyBars;
+    const lastClose = toFiniteNumber(currentPrice ?? lastDaily?.close ?? null);
+    const ma7 = toFiniteNumber(maPayload.daily["7"]);
+    const ma20 = toFiniteNumber(maPayload.daily["20"]);
+    const ma60 = toFiniteNumber(maPayload.daily["60"]);
+    const ma20Slope5d = computeMASlopePct(bars, 20, 5);
+    const ma60Slope5d = computeMASlopePct(bars, 60, 5);
+
+    let maAlignment = "unknown";
+    if (ma7 != null && ma20 != null && ma60 != null) {
+        if (ma7 >= ma20 && ma20 >= ma60) maAlignment = "ma7>=ma20>=ma60";
+        else if (ma7 <= ma20 && ma20 <= ma60) maAlignment = "ma7<=ma20<=ma60";
+        else maAlignment = "mixed";
+    }
+
+    let trendRegime = "sideways";
+    if (maAlignment === "ma7>=ma20>=ma60") trendRegime = "uptrend";
+    else if (maAlignment === "ma7<=ma20<=ma60") trendRegime = "downtrend";
+
+    const extensionFromMA20Pct =
+        lastClose != null && ma20 != null && Math.abs(ma20) > 1e-9
+            ? (lastClose - ma20) / Math.abs(ma20)
+            : null;
+    const extensionFromMA60Pct =
+        lastClose != null && ma60 != null && Math.abs(ma60) > 1e-9
+            ? (lastClose - ma60) / Math.abs(ma60)
+            : null;
+
+    const recent60 = bars.slice(-60);
+    const recentHighCandidates = recent60
+        .map((bar) => toFiniteNumber(bar.high))
+        .filter((v): v is number => v != null);
+    const recentHigh60 = recentHighCandidates.length > 0 ? Math.max(...recentHighCandidates) : null;
+    const pullbackFromHighPct =
+        lastClose != null && recentHigh60 != null && recentHigh60 > 0
+            ? (lastClose - recentHigh60) / recentHigh60
+            : null;
+
+    const vol20 = bars
+        .slice(-20)
+        .map((bar) => toFiniteNumber(bar.volume))
+        .filter((v): v is number => v != null);
+    const avgVolume20 = vol20.length > 0 ? vol20.reduce((sum, v) => sum + v, 0) / vol20.length : null;
+    const latestVolume = lastFiniteVolume(bars);
+    const volumeRatio20 =
+        latestVolume != null && avgVolume20 != null && avgVolume20 > 0
+            ? latestVolume / avgVolume20
+            : null;
+
+    const lastBox = input.boxes.length > 0 ? input.boxes[input.boxes.length - 1] : null;
+    const boxPosition = (() => {
+        if (!lastBox || lastClose == null) return "none";
+        if (lastClose > lastBox.upper) return "above";
+        if (lastClose < lastBox.lower) return "below";
+        return "inside";
+    })();
+    const barsSinceBoxEnd = (() => {
+        if (!lastBox) return null;
+        const idx = bars.findIndex((bar) => bar.time >= lastBox.endTime);
+        if (idx < 0) return null;
+        return Math.max(0, bars.length - 1 - idx);
+    })();
+
+    const tags: string[] = [];
+    if (trendRegime === "uptrend") tags.push("trend_up");
+    if (trendRegime === "downtrend") tags.push("trend_down");
+    if (
+        trendRegime === "uptrend" &&
+        pullbackFromHighPct != null &&
+        pullbackFromHighPct <= -0.02 &&
+        pullbackFromHighPct >= -0.12
+    ) {
+        tags.push("pullback_in_uptrend");
+    }
+    if (boxPosition === "above" && volumeRatio20 != null && volumeRatio20 >= 1.2) {
+        tags.push("breakout_with_volume");
+    }
+    if (ma20Slope5d != null && ma60Slope5d != null && ma20Slope5d > 0 && ma60Slope5d > 0) {
+        tags.push("ma_slopes_positive");
+    }
+    if (extensionFromMA20Pct != null && extensionFromMA20Pct >= 0.12) {
+        tags.push("overextended_risk");
+    }
+    if (tags.length === 0) {
+        tags.push("no_clear_edge");
+    }
+
+    const entryHypothesis =
+        tags.includes("pullback_in_uptrend")
+            ? "Uptrend pullback: enter when price reclaims short MA with stable volume."
+            : tags.includes("breakout_with_volume")
+                ? "Breakout continuation: enter on hold above range high with volume support."
+                : "No immediate edge: wait for either pullback support or a clean breakout/retest.";
+    const invalidationRule =
+        ma20 != null
+            ? `Daily close below MA20 (${formatNumber(ma20, 2)}) without quick reclaim.`
+            : "Breakout fails and price returns inside prior range.";
+    const takeProfitRule =
+        recentHigh60 != null
+            ? `Scale near prior swing high (${formatNumber(recentHigh60, 2)}) and trail the remainder.`
+            : "Scale out at +1R and trail under recent swing lows.";
+
+    return {
+        as_of_date: lastDaily ? formatDate(lastDaily.time) : null,
+        trend: {
+            regime: trendRegime,
+            ma_alignment: maAlignment,
+            ma20_slope_5d_pct: ma20Slope5d,
+            ma60_slope_5d_pct: ma60Slope5d,
+            price_vs_ma20_pct: extensionFromMA20Pct,
+            price_vs_ma60_pct: extensionFromMA60Pct,
+        },
+        range_breakout: {
+            has_box: Boolean(lastBox),
+            box_low: lastBox ? lastBox.lower : null,
+            box_high: lastBox ? lastBox.upper : null,
+            breakout_direction: lastBox?.breakout ?? "none",
+            price_position: boxPosition,
+            bars_since_box_end: barsSinceBoxEnd,
+        },
+        volume: {
+            latest: latestVolume,
+            avg20: avgVolume20,
+            ratio20: volumeRatio20,
+        },
+        pullback: {
+            recent_high_60d: recentHigh60,
+            pullback_from_high_pct: pullbackFromHighPct,
+        },
+        pattern_tags: tags,
+        reasoning_template: {
+            entry_hypothesis: entryHypothesis,
+            invalidation: invalidationRule,
+            take_profit_or_scale_out: takeProfitRule,
+        },
+    };
+};
+
 export const buildAIExport = (input: AIExportInput): AIExportResult => {
     const now = new Date();
     const exportedAt = formatIsoWithOffset(now);
@@ -454,22 +634,22 @@ export const buildAIExport = (input: AIExportInput): AIExportResult => {
     const dailyAnalysis = buildCandleSignals(input.dailyBars, dailyBase);
     const weeklyAnalysis = buildCandleSignals(input.weeklyBars, weeklyBase);
     const monthlyAnalysis = buildCandleSignals(input.monthlyBars, monthlyBase);
-    const maPayload = {
+    const maPayload: MAPayload = {
         daily: Object.fromEntries(
             input.maSettings.daily
                 .filter((m) => m.visible)
                 .map((m) => [m.period, computeMA(input.dailyBars, m.period)])
-        ),
+        ) as Record<string, number | null>,
         weekly: Object.fromEntries(
             input.maSettings.weekly
                 .filter((m) => m.visible)
                 .map((m) => [m.period, computeMA(input.weeklyBars, m.period)])
-        ),
+        ) as Record<string, number | null>,
         monthly: Object.fromEntries(
             input.maSettings.monthly
                 .filter((m) => m.visible)
                 .map((m) => [m.period, computeMA(input.monthlyBars, m.period)])
-        ),
+        ) as Record<string, number | null>,
     };
     const boxesPayload = input.boxes.slice(-5).map((box) => ({
         start: formatDate(box.startTime),
@@ -479,6 +659,8 @@ export const buildAIExport = (input: AIExportInput): AIExportResult => {
         direction: box.breakout,
     }));
     const positionsByBroker = buildPositionsByBroker(input.currentPositions);
+    const patternSnapshot = buildPatternSnapshot(input, maPayload, currentPrice, lastDaily);
+    const patternSnapshotJson = JSON.stringify(patternSnapshot, null, 2);
 
     // Build signals text
     const signalsText =
@@ -593,6 +775,11 @@ ${(() => {
   return tail.map(([date, memo]) => `- ${date}: ${memo || ""}`).join("\n");
 })()}
 
+## Pattern Snapshot (AI Friendly)
+\`\`\`json
+${patternSnapshotJson}
+\`\`\`
+
 ## OHLCV データ
 
 ### 日足 (直近120本)
@@ -632,6 +819,7 @@ ${buildOHLCVCsv(input.monthlyBars, 36)}
         positions: input.currentPositions ?? [],
         positions_by_broker: positionsByBroker,
         volumeUnit: VOLUME_UNIT,
+        pattern_snapshot: patternSnapshot,
         positions_total: (() => {
             const totals = (input.currentPositions ?? []).reduce(
                 (acc, pos) => {

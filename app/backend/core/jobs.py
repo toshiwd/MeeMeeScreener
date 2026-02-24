@@ -6,7 +6,7 @@ import json
 import time
 import traceback
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Callable, Any
 
 try:
@@ -18,25 +18,11 @@ except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from
 
 logger = logging.getLogger(__name__)
 STALE_JOB_HOURS = 2
-RUNNING_STALE_MINUTES = 5
 PROCESS_BOOT_AT = datetime.now()
 
 def cleanup_stale_jobs() -> None:
     try:
         with get_conn() as conn:
-            running_threshold = datetime.now() - timedelta(minutes=RUNNING_STALE_MINUTES)
-            conn.execute(
-                """
-                UPDATE sys_jobs
-                SET status = 'failed',
-                    finished_at = CURRENT_TIMESTAMP,
-                    error = 'stuck_job',
-                    message = 'Running job exceeded timeout'
-                WHERE status IN ('running', 'cancel_requested')
-                  AND COALESCE(started_at, created_at) < ?
-                """,
-                [running_threshold]
-            )
             conn.execute(
                 f"""
                 UPDATE sys_jobs
@@ -51,15 +37,14 @@ def cleanup_stale_jobs() -> None:
                 [PROCESS_BOOT_AT]
             )
             conn.execute(
-                f"""
+                """
                 UPDATE sys_jobs
                 SET status = 'failed',
                     finished_at = CURRENT_TIMESTAMP,
-                    error = 'stale_job',
-                    message = 'Stale job cleanup'
+                    error = 'stale_job_from_previous_process',
+                    message = 'Stale running job from previous process'
                 WHERE status IN ('running', 'cancel_requested')
-                  AND (COALESCE(started_at, created_at) < CURRENT_TIMESTAMP - INTERVAL '{STALE_JOB_HOURS} hours'
-                       OR COALESCE(started_at, created_at) < ?)
+                  AND COALESCE(started_at, created_at) < ?
                 """,
                 [PROCESS_BOOT_AT]
             )

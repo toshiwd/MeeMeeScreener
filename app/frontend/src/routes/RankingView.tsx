@@ -30,20 +30,57 @@ type RankItem = {
   series?: number[][];
   is_favorite?: boolean;
   mlPUp?: number | null;
+  mlPDown?: number | null;
+  mlPAbsBig?: number | null;
+  mlPUpBig?: number | null;
+  mlPDownBig?: number | null;
+  mlScoreUp1M?: number | null;
+  mlScoreDown1M?: number | null;
+  mlP20Side1MRaw?: number | null;
+  mlP20Side1M?: number | null;
+  accumulationScore?: number | null;
+  breakoutReadiness?: number | null;
+  target20Gate?: number | null;
+  target20Qualified?: boolean | null;
+  setupType?: string | null;
+  mlPUpShort?: number | null;
   mlPTurnUp?: number | null;
   mlPTurnDown?: number | null;
   mlRetPred20?: number | null;
   mlEv20?: number | null;
   mlEv20Net?: number | null;
+  mlRankUp?: number | null;
+  mlRankDown?: number | null;
+  candleTripletUp?: number | null;
+  candleTripletDown?: number | null;
+  monthlyBreakoutUpProb?: number | null;
+  monthlyBreakoutDownProb?: number | null;
+  monthlyRangeProb?: number | null;
   hybridScore?: number | null;
+  entryScore?: number | null;
+  entryQualified?: boolean | null;
+  evAligned?: boolean | null;
+  trendAligned?: boolean | null;
+  turnAligned?: boolean | null;
+  distOk?: boolean | null;
+  counterMoveOk?: boolean | null;
+  probSide?: number | null;
+  prob5d?: number | null;
+  prob10d?: number | null;
+  prob20d?: number | null;
+  prob5dAligned?: boolean | null;
+  probCurveAligned?: boolean | null;
+  horizonAligned?: boolean | null;
   modelVersion?: string | null;
 };
 
 type RankTimeframe = "D" | "W" | "M";
 type RankWhich = "latest" | "prev";
 type RankMode = "hybrid" | "turn";
+type RankMetricsView = "compact" | "full";
 
 const RANK_VIEW_STATE_KEY = "rankingViewState";
+const RANK_VIEW_STATE_VERSION = 2;
 
 const RANK_MA_SETTINGS: MaSetting[] = [
   { key: "ma1", label: "MA1", period: 7, visible: true, color: "#ef4444", lineWidth: 1 },
@@ -84,6 +121,8 @@ export default function RankingView() {
   const [search, setSearch] = useState("");
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
   const [filterDataOnly, setFilterDataOnly] = useState(false);
+  const [filterQualifiedOnly, setFilterQualifiedOnly] = useState(true);
+  const [metricsView, setMetricsView] = useState<RankMetricsView>("compact");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -115,10 +154,13 @@ export default function RankingView() {
       const stored = window.sessionStorage.getItem(RANK_VIEW_STATE_KEY);
       if (!stored) return;
       const parsed = JSON.parse(stored) as {
+        stateVersion?: number;
         listTimeframe?: "daily" | "weekly" | "monthly";
         dir?: "up" | "down";
         rankWhich?: RankWhich;
         rankMode?: RankMode;
+        filterQualifiedOnly?: boolean;
+        metricsView?: RankMetricsView;
       };
       if (parsed.listTimeframe) {
         setListTimeframe(parsed.listTimeframe);
@@ -132,6 +174,13 @@ export default function RankingView() {
       if (parsed.rankMode === "hybrid" || parsed.rankMode === "turn") {
         setRankMode(parsed.rankMode);
       }
+      const stateVersion = Number(parsed.stateVersion ?? 1);
+      if (stateVersion >= RANK_VIEW_STATE_VERSION && typeof parsed.filterQualifiedOnly === "boolean") {
+        setFilterQualifiedOnly(parsed.filterQualifiedOnly);
+      }
+      if (parsed.metricsView === "compact" || parsed.metricsView === "full") {
+        setMetricsView(parsed.metricsView);
+      }
     } catch {
       // ignore storage failures
     }
@@ -141,16 +190,19 @@ export default function RankingView() {
     if (typeof window === "undefined") return;
     try {
       const payload = {
+        stateVersion: RANK_VIEW_STATE_VERSION,
         listTimeframe,
         dir,
         rankWhich,
-        rankMode
+        rankMode,
+        filterQualifiedOnly,
+        metricsView
       };
       window.sessionStorage.setItem(RANK_VIEW_STATE_KEY, JSON.stringify(payload));
     } catch {
       // ignore storage failures
     }
-  }, [listTimeframe, dir, rankWhich, rankMode]);
+  }, [listTimeframe, dir, rankWhich, rankMode, filterQualifiedOnly, metricsView]);
 
   const listStyles = useMemo(
     () =>
@@ -221,9 +273,15 @@ export default function RankingView() {
         label: "\u30c7\u30fc\u30bf\u53d6\u5f97\u6e08\u307f",
         checked: filterDataOnly,
         onToggle: () => setFilterDataOnly((prev) => !prev)
+      },
+      {
+        key: "qualified",
+        label: "エントリー適格のみ",
+        checked: filterQualifiedOnly,
+        onToggle: () => setFilterQualifiedOnly((prev) => !prev)
       }
     ],
-    [filterSignalsOnly, filterDataOnly]
+    [filterSignalsOnly, filterDataOnly, filterQualifiedOnly]
   );
 
   const fallbackItems = useMemo(() => {
@@ -284,7 +342,7 @@ export default function RankingView() {
     return map;
   }, [searchResults, barsCache, listTimeframe]);
 
-  const filteredItems = useMemo(() => {
+  const baseFilteredItems = useMemo(() => {
     if (!filterSignalsOnly && !filterDataOnly) return searchResults;
     return searchResults.filter((item) => {
       const payload = barsCache[listTimeframe]?.[item.code] ?? null;
@@ -295,6 +353,30 @@ export default function RankingView() {
       return true;
     });
   }, [searchResults, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
+
+  const qualifiedFilteredItems = useMemo(() => {
+    const hasQualificationSignal = baseFilteredItems.some(
+      (item) => typeof item.entryQualified === "boolean"
+    );
+    if (!filterQualifiedOnly || useFallback || !hasQualificationSignal) {
+      return baseFilteredItems;
+    }
+    return baseFilteredItems.filter((item) => item.entryQualified === true);
+  }, [baseFilteredItems, filterQualifiedOnly, useFallback]);
+
+  const qualificationFilterRelaxed = useMemo(() => {
+    if (!filterQualifiedOnly || useFallback) return false;
+    const hasQualificationSignal = baseFilteredItems.some(
+      (item) => typeof item.entryQualified === "boolean"
+    );
+    if (!hasQualificationSignal) return false;
+    return baseFilteredItems.length > 0 && qualifiedFilteredItems.length === 0;
+  }, [baseFilteredItems, qualifiedFilteredItems, filterQualifiedOnly, useFallback]);
+
+  const filteredItems = useMemo(() => {
+    if (qualificationFilterRelaxed) return baseFilteredItems;
+    return qualifiedFilteredItems;
+  }, [qualificationFilterRelaxed, baseFilteredItems, qualifiedFilteredItems]);
   const sortedItems = useMemo(() => {
     if (!useFallback) {
       return filteredItems;
@@ -452,6 +534,21 @@ export default function RankingView() {
         const rankItem = items.find((item) => item.code === code);
         const payload = barsCache[consultTimeframe]?.[code];
         const boxes = boxesCache[consultTimeframe][code] ?? [];
+        const monthlyP20 = Number.isFinite(rankItem?.mlP20Side1M ?? NaN)
+          ? ((rankItem?.mlP20Side1M ?? 0) * 100)
+          : null;
+        const monthlyPBig = Number.isFinite(rankItem?.mlPAbsBig ?? NaN)
+          ? ((rankItem?.mlPAbsBig ?? 0) * 100)
+          : null;
+        const monthlyPSide = dir === "up"
+          ? (Number.isFinite(rankItem?.mlPUpBig ?? NaN) ? ((rankItem?.mlPUpBig ?? 0) * 100) : null)
+          : (Number.isFinite(rankItem?.mlPDownBig ?? NaN) ? ((rankItem?.mlPDownBig ?? 0) * 100) : null);
+        const reasonChunks = [
+          `setup=${formatSetupType(rankItem?.setupType)}`,
+          `1M±20=${formatPct(rankItem?.mlP20Side1M)}`,
+          `${dir === "up" ? "1M上昇" : "1M下落"}=${formatPct(dir === "up" ? rankItem?.mlPUpBig : rankItem?.mlPDownBig)}`,
+          `1M変動=${formatPct(rankItem?.mlPAbsBig)}`
+        ];
         return {
           code,
           name: rankItem?.name ?? null,
@@ -461,10 +558,14 @@ export default function RankingView() {
           boxes,
           boxState: null,
           hasBox: null,
-          buyState: null,
-          buyStateScore: null,
-          buyStateReason: null,
-          buyStateDetails: null
+          buyState: formatSetupType(rankItem?.setupType),
+          buyStateScore: Number.isFinite(rankItem?.entryScore ?? NaN) ? rankItem?.entryScore ?? null : null,
+          buyStateReason: reasonChunks.join(" / "),
+          buyStateDetails: {
+            monthly: monthlyP20,
+            weekly: monthlyPSide,
+            daily: monthlyPBig
+          }
         };
       });
       const result = buildConsultationPack(
@@ -488,6 +589,7 @@ export default function RankingView() {
     selectedCodes,
     ensureBarsForVisible,
     consultTimeframe,
+    dir,
     items,
     barsCache,
     boxesCache,
@@ -545,7 +647,7 @@ export default function RankingView() {
   const showSkeleton = backendReady && loading && items.length === 0;
   const emptyLabel =
     !loading && backendReady && sortedItems.length === 0 && !errorMessage
-      ? search.trim() || filterSignalsOnly || filterDataOnly
+      ? search.trim() || filterSignalsOnly || filterDataOnly || filterQualifiedOnly
         ? "該当する銘柄がありません。"
         : "ランキングがありません。"
       : null;
@@ -554,17 +656,33 @@ export default function RankingView() {
     if (!Number.isFinite(value ?? NaN)) return "--";
     return `${((value ?? 0) * 100).toFixed(2)}%`;
   };
-  const formatDownProb = (upProb?: number | null) => {
-    if (!Number.isFinite(upProb ?? NaN)) return "--";
-    const downProb = 1 - (upProb ?? 0);
-    const clipped = Math.min(1, Math.max(0, downProb));
+  const formatDownProb = (downProb?: number | null, upProb?: number | null) => {
+    const raw =
+      Number.isFinite(downProb ?? NaN) ? downProb : Number.isFinite(upProb ?? NaN) ? 1 - (upProb ?? 0) : null;
+    if (!Number.isFinite(raw ?? NaN)) return "--";
+    const clipped = Math.min(1, Math.max(0, raw ?? 0));
     return `${(clipped * 100).toFixed(2)}%`;
+  };
+  const formatRankScore = (value?: number | null) => {
+    if (!Number.isFinite(value ?? NaN)) return "--";
+    return (value ?? 0).toFixed(3);
   };
   const formatTurnProb = (upTurn?: number | null, downTurn?: number | null) => {
     if (dir === "up") return formatPct(upTurn);
     return formatPct(downTurn);
   };
   const formatAsOf = (value?: string | null) => value ?? "--";
+  const formatQualification = (value?: boolean | null) =>
+    value === true ? "適格 OK" : value === false ? "適格 要確認" : "適格 --";
+  const formatSetupType = (value?: string | null) => {
+    if (!value) return "--";
+    if (value === "target20_breakout" || value === "breakout20") return "20%狙い";
+    if (value === "breakout_trend" || value === "breakout") return "ブレイク";
+    if (value === "accumulation_break" || value === "accumulation") return "貯め→抜け";
+    if (value === "watchlist" || value === "watch") return "監視";
+    return value;
+  };
+  const showExtendedMetrics = metricsView === "full";
 
   return (
     <div className="app-shell list-view">
@@ -638,9 +756,26 @@ export default function RankingView() {
             </button>
           ))}
         </div>
+        <div className="segmented segmented-compact">
+          {(["compact", "full"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={metricsView === key ? "active" : ""}
+              onClick={() => setMetricsView(key)}
+            >
+              {key === "compact" ? "要点" : "詳細"}
+            </button>
+          ))}
+        </div>
         <span className="rank-score-badge">
           表示: {rankMode === "turn" ? "転換優先" : "エントリー優先"}
         </span>
+        {qualificationFilterRelaxed && (
+          <div className="rank-top-summary is-warn">
+            適格銘柄が0件のため、条件未達を含む候補を表示しています。
+          </div>
+        )}
       </div>
       <div
         className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
@@ -665,6 +800,28 @@ export default function RankingView() {
               {sortedItems.map((item, index) => {
                 const payload = barsCache[listTimeframe]?.[item.code] ?? null;
                 const status = barsStatus[listTimeframe][item.code];
+                const isMonthlyList = listTimeframe === "monthly";
+                const displayUpProb = Number.isFinite(item.mlPUpShort ?? NaN)
+                  ? item.mlPUpShort
+                  : item.mlPUp;
+                const displayDownProb = Number.isFinite(item.mlPDown ?? NaN)
+                  ? item.mlPDown
+                  : Number.isFinite(displayUpProb ?? NaN)
+                    ? 1 - (displayUpProb ?? 0)
+                    : null;
+                const displayMonthlyUpProb = Number.isFinite(item.mlPUpBig ?? NaN)
+                  ? item.mlPUpBig
+                  : item.mlPUp;
+                const displayMonthlyDownProb = Number.isFinite(item.mlPDownBig ?? NaN)
+                  ? item.mlPDownBig
+                  : displayDownProb;
+                const displayTripletProb = dir === "up" ? item.candleTripletUp : item.candleTripletDown;
+                const displayMonthlyBreakoutProb =
+                  dir === "up" ? item.monthlyBreakoutUpProb : item.monthlyBreakoutDownProb;
+                const displayMonthlySide20Prob = Number.isFinite(item.mlP20Side1M ?? NaN)
+                  ? item.mlP20Side1M
+                  : item.mlP20Side1MRaw;
+                const setupTypeLabel = formatSetupType(item.setupType);
                 const series =
                   payload && payload.bars?.length ? payload.bars : item.series ?? [];
                 const ticker = tickerMap.get(item.code);
@@ -733,18 +890,90 @@ export default function RankingView() {
                         </span>
                         <span className="rank-score-badge">
                           {dir === "up"
-                            ? `上昇確率 ${formatPct(item.mlPUp)}`
-                            : `下落確率 ${formatDownProb(item.mlPUp)}`}
+                            ? `${isMonthlyList ? "1M上昇確率" : "上昇確率"} ${formatPct(isMonthlyList ? displayMonthlyUpProb : displayUpProb)}`
+                            : `${isMonthlyList ? "1M下落確率" : "下落確率"} ${formatDownProb(
+                              isMonthlyList ? displayMonthlyDownProb : displayDownProb,
+                              isMonthlyList ? displayMonthlyUpProb : displayUpProb
+                            )}`}
                         </span>
-                        <span className="rank-score-badge">
-                          {dir === "up"
-                            ? `転換買い ${formatTurnProb(item.mlPTurnUp, item.mlPTurnDown)}`
-                            : `転換売り ${formatTurnProb(item.mlPTurnUp, item.mlPTurnDown)}`}
+                        {isMonthlyList && Number.isFinite(displayMonthlySide20Prob ?? NaN) && (
+                          <span className="rank-score-badge">
+                            1M±20%確率 {formatPct(displayMonthlySide20Prob)}
+                          </span>
+                        )}
+                        {isMonthlyList && (
+                          <span className="rank-score-badge">
+                            {setupTypeLabel}
+                            {item.target20Qualified ? " / 20%狙いOK" : ""}
+                          </span>
+                        )}
+                        <span
+                          className={`rank-score-badge rank-qualification ${item.entryQualified === true
+                            ? "is-ok"
+                            : item.entryQualified === false
+                              ? "is-warn"
+                              : ""
+                            }`}
+                        >
+                          {formatQualification(item.entryQualified)}
                         </span>
+                        {showExtendedMetrics && (
+                          <>
+                            <span className="rank-score-badge">RankUp {formatRankScore(item.mlRankUp)}</span>
+                            <span className="rank-score-badge">RankDown {formatRankScore(item.mlRankDown)}</span>
+                            <span className="rank-score-badge">
+                              {dir === "up"
+                                ? `転換買い ${formatTurnProb(item.mlPTurnUp, item.mlPTurnDown)}`
+                                : `転換売り ${formatTurnProb(item.mlPTurnUp, item.mlPTurnDown)}`}
+                            </span>
+                            {Number.isFinite(item.prob5d ?? NaN) && (
+                              <span className="rank-score-badge">5D確率 {formatPct(item.prob5d)}</span>
+                            )}
+                            {Number.isFinite(item.prob10d ?? NaN) && (
+                              <span className="rank-score-badge">10D確率 {formatPct(item.prob10d)}</span>
+                            )}
+                            {Number.isFinite(item.prob20d ?? NaN) && (
+                              <span className="rank-score-badge">20D確率 {formatPct(item.prob20d)}</span>
+                            )}
+                            <span className="rank-score-badge">
+                              確率カーブ {item.probCurveAligned === false ? "NG" : item.probCurveAligned === true ? "OK" : "--"}
+                            </span>
+                            <span className="rank-score-badge">
+                              {dir === "up"
+                                ? `3本買い ${formatPct(displayTripletProb)}`
+                                : `3本売り ${formatPct(displayTripletProb)}`}
+                            </span>
+                            <span className="rank-score-badge">
+                              {dir === "up"
+                                ? `月抜け ${formatPct(displayMonthlyBreakoutProb)}`
+                                : `月下抜け ${formatPct(displayMonthlyBreakoutProb)}`}
+                            </span>
+                            <span className="rank-score-badge">
+                              月レンジ {formatPct(item.monthlyRangeProb)}
+                            </span>
+                            {isMonthlyList && Number.isFinite(item.target20Gate ?? NaN) && (
+                              <span className="rank-score-badge">
+                                20%ゲート {formatPct(item.target20Gate)}
+                              </span>
+                            )}
+                            {isMonthlyList && Number.isFinite(item.breakoutReadiness ?? NaN) && (
+                              <span className="rank-score-badge">
+                                抜け準備 {formatPct(item.breakoutReadiness)}
+                              </span>
+                            )}
+                            {isMonthlyList && Number.isFinite(item.accumulationScore ?? NaN) && (
+                              <span className="rank-score-badge">
+                                貯め度 {formatPct(item.accumulationScore)}
+                              </span>
+                            )}
+                          </>
+                        )}
                         <span className="rank-score-badge">
                           総合 {formatPct(item.hybridScore)}
                         </span>
-                        <span className="rank-score-badge">日付 {formatAsOf(item.asOf)}</span>
+                        {showExtendedMetrics && (
+                          <span className="rank-score-badge">日付 {formatAsOf(item.asOf)}</span>
+                        )}
                         <button
                           type="button"
                           className={`favorite-toggle ${item.is_favorite ? "active" : ""}`}

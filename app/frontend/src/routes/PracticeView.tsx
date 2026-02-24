@@ -1461,21 +1461,26 @@ export default function PracticeView() {
     });
   };
 
-  const syncCrosshair = (source: Timeframe, time: number | null) => {
+  const syncCrosshair = (
+    source: Timeframe,
+    time: number | null,
+    point?: { x: number; y: number } | null
+  ) => {
     const lock = crosshairSyncRef.current;
     if (lock && lock.source !== source) {
       return;
     }
     crosshairSyncRef.current = { source, time };
     scheduleHoverTime(time);
+    const resolvedPoint = point ?? null;
     if (source !== "daily") {
-      dailyChartRef.current?.setCrosshair(time, null);
+      dailyChartRef.current?.setCrosshair(time, resolvedPoint);
     }
     if (source !== "weekly") {
-      weeklyChartRef.current?.setCrosshair(time, null);
+      weeklyChartRef.current?.setCrosshair(time, resolvedPoint);
     }
     if (source !== "monthly") {
-      monthlyChartRef.current?.setCrosshair(time, null);
+      monthlyChartRef.current?.setCrosshair(time, resolvedPoint);
     }
     if (crosshairSyncRafRef.current !== null) {
       window.cancelAnimationFrame(crosshairSyncRafRef.current);
@@ -1500,16 +1505,16 @@ export default function PracticeView() {
     return null;
   };
 
-  const handleDailyCrosshair = (time: number | null, _point?: { x: number; y: number } | null) => {
-    syncCrosshair("daily", time);
+  const handleDailyCrosshair = (time: number | null, point?: { x: number; y: number } | null) => {
+    syncCrosshair("daily", time, point);
   };
 
-  const handleWeeklyCrosshair = (time: number | null, _point?: { x: number; y: number } | null) => {
-    syncCrosshair("weekly", time);
+  const handleWeeklyCrosshair = (time: number | null, point?: { x: number; y: number } | null) => {
+    syncCrosshair("weekly", time, point);
   };
 
-  const handleMonthlyCrosshair = (time: number | null, _point?: { x: number; y: number } | null) => {
-    syncCrosshair("monthly", time);
+  const handleMonthlyCrosshair = (time: number | null, point?: { x: number; y: number } | null) => {
+    syncCrosshair("monthly", time, point);
   };
 
   const pushTrade = (trade: PracticeTrade | PracticeTrade[]) => {

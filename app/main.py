@@ -1,11 +1,21 @@
 import sys
 import os
+import threading
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 _LOGGED_RESOLVED_PATHS = False
+
+
+def _refresh_rankings_cache_async() -> None:
+    try:
+        from app.backend.services import rankings_cache
+        rankings_cache.refresh_cache()
+        print("[main] Rankings cache refreshed.")
+    except Exception as exc:
+        print(f"[main] Rankings cache refresh failed: {exc}")
 
 # Add project root to sys.path
 sys.path.insert(0, os.getcwd())
@@ -32,8 +42,10 @@ from app.backend.api.routers import rankings
 from app.backend.core.force_sync_job import handle_force_sync
 from app.backend.core.jobs import job_manager
 from app.backend.core.ml_job import handle_ml_predict, handle_ml_train
+from app.backend.core.analysis_backfill_job import handle_analysis_backfill
 from app.backend.core.phase_batch_job import handle_phase_rebuild
-from app.backend.core.strategy_backtest_job import handle_strategy_backtest
+from app.backend.core.strategy_backtest_job import handle_strategy_backtest, handle_strategy_walkforward
+from app.backend.core.toredex_live_job import handle_toredex_live
 from app.backend.core.txt_update_job import handle_txt_update
 
 job_manager.register_handler("force_sync", handle_force_sync)
@@ -41,7 +53,10 @@ job_manager.register_handler("txt_update", handle_txt_update)
 job_manager.register_handler("phase_rebuild", handle_phase_rebuild)
 job_manager.register_handler("ml_train", handle_ml_train)
 job_manager.register_handler("ml_predict", handle_ml_predict)
+job_manager.register_handler("analysis_backfill", handle_analysis_backfill)
 job_manager.register_handler("strategy_backtest", handle_strategy_backtest)
+job_manager.register_handler("strategy_walkforward", handle_strategy_walkforward)
+job_manager.register_handler("toredex_live", handle_toredex_live)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -75,12 +90,12 @@ async def lifespan(app: FastAPI):
     
     init_resources(data_dir)
     print("[Main] Resources Initialized.")
-    try:
-        from app.backend.services import rankings_cache
-        rankings_cache.refresh_cache()
-        print("[main] Rankings cache refreshed.")
-    except Exception as exc:
-        print(f"[main] Rankings cache refresh failed: {exc}")
+    # Warm cache in background so /health is not blocked by heavy or locked DB work.
+    threading.Thread(
+        target=_refresh_rankings_cache_async,
+        name="rankings-cache-warmup",
+        daemon=True,
+    ).start()
     yield
     # Shutdown
     print("[Main] Shutting down.")
@@ -92,6 +107,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
+        allow_origin_regex="null|file://.*",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
