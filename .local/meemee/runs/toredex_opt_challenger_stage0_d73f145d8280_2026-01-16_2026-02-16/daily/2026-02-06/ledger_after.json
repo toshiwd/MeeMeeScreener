@@ -1,0 +1,87 @@
+{
+  "asOf": "2026-02-06",
+  "metrics": {
+    "asOf": "2026-02-06",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 7932243.499126,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -82756.500874,
+        "net_cum_return_pct": -0.827565
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -97756.500874,
+        "net_cum_return_pct": -0.977565
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -112756.500874,
+        "net_cum_return_pct": -1.127565
+      }
+    ],
+    "cum_pnl": -67756.500874,
+    "cum_return_pct": -0.677565,
+    "daily_pnl": 5853.10188,
+    "equity": 9932243.499126,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": -67756.500874,
+    "gross_cum_return_pct": -0.677565,
+    "gross_daily_pnl": 5853.10188,
+    "gross_units": 2,
+    "holdings_count": 1,
+    "long_units": 2,
+    "max_drawdown_pct": -1.078729,
+    "net_cum_pnl": -67756.500874,
+    "net_cum_return_pct": -0.677565,
+    "net_daily_pnl": 5853.10188,
+    "net_exposure_pct": 20.0,
+    "net_units": 2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -1.078729,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 160.682278,
+        "worstMonthPct": 0.4055388033026963
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "toredex_opt_challenger_stage0_d73f145d8280_2026-01-16_2026-02-16",
+    "short_units": 0,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 30000000.0,
+    "turnover_notional_daily": 6000000.0,
+    "turnover_pct_daily": 60.444933
+  },
+  "positions": [
+    {
+      "avgPrice": 1150.0,
+      "holdingDays": 1,
+      "openedAt": "2026-02-06",
+      "pnlPct": 0.0,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "4443",
+      "units": 2
+    }
+  ],
+  "seasonId": "toredex_opt_challenger_stage0_d73f145d8280_2026-01-16_2026-02-16"
+}

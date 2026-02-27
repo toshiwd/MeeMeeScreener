@@ -1,0 +1,139 @@
+{
+  "baseline_file": "tmp\\validate_1df1660c_10y_challenger_summary_20260222.json",
+  "guardC_file": "tmp\\validate_1df1660c_10y_challenger_guardC_cutloss_summary_20260223.json",
+  "baseline_aggregate": {
+    "years": 10,
+    "risk_gate_fail_count": 10,
+    "risk_gate_pass_count": 0,
+    "stopped_early_count": 10,
+    "positive_return_years": 9,
+    "negative_return_years": 1,
+    "avg_cum_return_pct": 3.5509603999999997,
+    "median_cum_return_pct": 2.9879265,
+    "min_cum_return_pct": -3.91896,
+    "max_cum_return_pct": 13.204983
+  },
+  "guardC_aggregate": {
+    "years": 10,
+    "risk_gate_fail_count": 0,
+    "risk_gate_pass_count": 10,
+    "stopped_early_count": 0,
+    "positive_return_years": 9,
+    "negative_return_years": 1,
+    "avg_cum_return_pct": 14.376642799999999,
+    "median_cum_return_pct": 12.7497995,
+    "min_cum_return_pct": -5.476072,
+    "max_cum_return_pct": 34.88436
+  },
+  "aggregate_delta": {
+    "risk_gate_fail_count": -10,
+    "risk_gate_pass_count": 10,
+    "stopped_early_count": -10,
+    "avg_cum_return_pct": 10.825682,
+    "median_cum_return_pct": 9.761873,
+    "min_cum_return_pct": -1.557112,
+    "max_cum_return_pct": 21.679377
+  },
+  "yearly_delta": [
+    {
+      "year": 2016,
+      "old_stop_reason": "R_RISK_GATE_FAIL",
+      "new_stop_reason": null,
+      "old_risk_gate_reason": "TURNOVER(600.6080> 600.0000)",
+      "new_risk_gate_reason": "",
+      "old_cum_return_pct": 0.844297,
+      "new_cum_return_pct": 4.450941,
+      "delta_cum_return_pct": 3.606644
+    },
+    {
+      "year": 2017,
+      "old_stop_reason": "R_RISK_GATE_FAIL",
+      "new_stop_reason": null,
+      "old_risk_gate_reason": "TURNOVER(623.2892> 600.0000)",
+      "new_risk_gate_reason": "",
+      "old_cum_return_pct": 0.385821,
+      "new_cum_return_pct": 34.88436,
+      "delta_cum_return_pct": 34.498539
+    },
+    {
+      "year": 2018,
+      "old_stop_reason": "R_RISK_GATE_FAIL",
+      "new_stop_reason": null,
+      "old_risk_gate_reason": "TURNOVER(627.8654> 600.0000)",
+      "new_risk_gate_reason": "",
+      "old_cum_return_pct": 3.125766,
+      "new_cum_return_pct": -5.476072,
+      "delta_cum_return_pct": -8.601838
+    },
+    {
+      "year": 2019,
+      "old_stop_reason": "R_RISK_GATE_FAIL",
+      "new_stop_reason": null,
+      "old_risk_gate_reason": "TURNOVER(625.6141> 600.0000)",
+      "new_risk_gate_reason": "",
+      "old_cum_return_pct": 2.850087,
+      "new_cum_return_pct": 11.991477,
+      "delta_cum_return_pct": 9.14139
+    },
+    {
+      "year": 2020,
+      "old_stop_reason": "R_RISK_GATE_FAIL",
+      "new_stop_reason": null,
+      "old_risk_gate_reason": "TURNOVER(613.4962> 600.0000)",
+      "new_risk_gate_reason": "",
+      "old_cum_return_pct": -3.91896,
+      "new_cum_return_pct": 15.084138,
+      "delta_cum_return_pct": 19.003098
+    },
+    {
+      "year": 2021,
+      "old_stop_reason": "R_RISK_GATE_FAIL",
+      "new_stop_reason": null,
+      "old_risk_gate_reason": "TURNOVER(629.8490> 600.0000)",
+      "new_risk_gate_reason": "",
+      "old_cum_return_pct": 6.816844,
+      "new_cum_return_pct": 31.511862,
+      "delta_cum_return_pct": 24.695018
+    },
+    {
+      "year": 2022,
+      "old_stop_reason": "R_RISK_GATE_FAIL",
+      "new_stop_reason": null,
+      "old_risk_gate_reason": "TURNOVER(640.8552> 600.0000)",
+      "new_risk_gate_reason": "",
+      "old_cum_return_pct": 4.181462,
+      "new_cum_return_pct": 9.864822,
+      "delta_cum_return_pct": 5.68336
+    },
+    {
+      "year": 2023,
+      "old_stop_reason": "R_RISK_GATE_FAIL",
+      "new_stop_reason": null,
+      "old_risk_gate_reason": "TURNOVER(627.3311> 600.0000)",
+      "new_risk_gate_reason": "",
+      "old_cum_return_pct": 7.93032,
+      "new_cum_return_pct": 4.791174,
+      "delta_cum_return_pct": -3.139146
+    },
+    {
+      "year": 2024,
+      "old_stop_reason": "R_RISK_GATE_FAIL",
+      "new_stop_reason": null,
+      "old_risk_gate_reason": "TURNOVER(631.8535> 600.0000)",
+      "new_risk_gate_reason": "",
+      "old_cum_return_pct": 13.204983,
+      "new_cum_return_pct": 13.508122,
+      "delta_cum_return_pct": 0.303139
+    },
+    {
+      "year": 2025,
+      "old_stop_reason": "R_RISK_GATE_FAIL",
+      "new_stop_reason": null,
+      "old_risk_gate_reason": "TURNOVER(601.6992> 600.0000)",
+      "new_risk_gate_reason": "",
+      "old_cum_return_pct": 0.088984,
+      "new_cum_return_pct": 23.155604,
+      "delta_cum_return_pct": 23.06662
+    }
+  ]
+}

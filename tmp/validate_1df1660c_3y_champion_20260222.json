@@ -1,0 +1,137 @@
+﻿{
+  "days": [
+    {
+      "asOf": "2023-02-17",
+      "reason": null,
+      "status": "success",
+      "trade_count": 2
+    }
+  ],
+  "end_date": "2026-02-16",
+  "final_metrics": {
+    "asOf": "2023-02-17",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 6000000.0,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -2000.0,
+        "net_cum_return_pct": -0.02
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -4000.0,
+        "net_cum_return_pct": -0.04
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -6000.0,
+        "net_cum_return_pct": -0.06
+      }
+    ],
+    "cum_pnl": 0.0,
+    "cum_return_pct": 0.0,
+    "daily_pnl": 0.0,
+    "equity": 10000000.0,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 0.0,
+    "gross_cum_return_pct": 0.0,
+    "gross_daily_pnl": 0.0,
+    "gross_units": 4,
+    "holdings_count": 2,
+    "long_units": 4,
+    "max_drawdown_pct": 0.0,
+    "net_cum_pnl": 0.0,
+    "net_cum_return_pct": 0.0,
+    "net_daily_pnl": 0.0,
+    "net_exposure_pct": 40.0,
+    "net_units": 4,
+    "risk_gate_pass": false,
+    "risk_gate_reason": "NET_UNITS(4.0000> 2.0000)",
+    "short_units": 0,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 4000000.0,
+    "turnover_notional_daily": 4000000.0,
+    "turnover_pct_daily": 40.0
+  },
+  "mode": "BACKTEST",
+  "ok": true,
+  "performance_breakdown": {
+    "costs": {
+      "borrow_cum": 0.0,
+      "borrow_daily": 0.0,
+      "fees_cum": 0.0,
+      "fees_daily": 0.0,
+      "slippage_cum": 0.0,
+      "slippage_daily": 0.0
+    },
+    "exposure": {
+      "gross_units": 4,
+      "long_units": 4,
+      "net_exposure_pct": 40.0,
+      "net_units": 4,
+      "short_units": 0
+    },
+    "gross": {
+      "cum_pnl": 0.0,
+      "cum_return_pct": 0.0,
+      "daily_pnl": 0.0
+    },
+    "net": {
+      "cum_pnl": 0.0,
+      "cum_return_pct": 0.0,
+      "daily_pnl": 0.0
+    },
+    "sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -2000.0,
+        "net_cum_return_pct": -0.02
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -4000.0,
+        "net_cum_return_pct": -0.04
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -6000.0,
+        "net_cum_return_pct": -0.06
+      }
+    ],
+    "turnover": {
+      "cum_notional": 4000000.0,
+      "daily_notional": 4000000.0,
+      "daily_pct": 40.0
+    }
+  },
+  "processed_days": 1,
+  "reason_counts": {
+    "E_NEW_TOP1_GATE_OK": 1,
+    "E_NEW_TOPK_GATE_OK": 1
+  },
+  "risk_gate": {
+    "details": null,
+    "pass": false,
+    "reason": "NET_UNITS(4.0000> 2.0000)"
+  },
+  "rollup": {
+    "max_abs_net_units": 4.0,
+    "max_turnover_pct_per_month": 40.0,
+    "worst_month_pct": null
+  },
+  "season_id": "toredex_validate_1df1660c_3y_champion_20260222",
+  "start_date": "2023-02-17",
+  "status": "success",
+  "status_counts": {
+    "success": 1
+  },
+  "stop_reason": "R_RISK_GATE_FAIL",
+  "stopped_early": true
+}

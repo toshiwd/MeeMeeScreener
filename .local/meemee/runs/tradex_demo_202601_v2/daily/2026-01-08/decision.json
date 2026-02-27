@@ -1,0 +1,31 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -2,
+      "reasonId": "T_TP_PARTIAL_3_TO_2",
+      "side": "LONG",
+      "ticker": "4530"
+    },
+    {
+      "deltaUnits": 5,
+      "reasonId": "A_ADD_ADD_TO_MAIN_OK",
+      "side": "LONG",
+      "ticker": "4530"
+    }
+  ],
+  "asOf": "2026-01-08",
+  "checks": {
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v1",
+  "seasonId": "tradex_demo_202601_v2",
+  "stage": {
+    "goal20Reached": false,
+    "goal30Reached": false,
+    "stage2Active": false
+  }
+}

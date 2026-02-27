@@ -1,0 +1,50 @@
+{
+  "fieldMapping": {
+    "gate": "entryQualified+setupType",
+    "regime": "trendUp/trendDown/trendUpStrict/trendDownStrict",
+    "revRisk": "mlPTurnDownShort|mlPDownShort"
+  },
+  "initialCash": 10000000,
+  "maxHoldings": 3,
+  "maxPerTicker": 10000000,
+  "mode": "LIVE",
+  "policyVersion": "toredex.v6",
+  "rankingMode": "ml",
+  "runsDir": null,
+  "sides": {
+    "longEnabled": true,
+    "shortEnabled": false
+  },
+  "stageRules": {
+    "goal20Pct": 20.0,
+    "goal30Pct": 30.0
+  },
+  "thresholds": {
+    "addMaxPnlPct": 12.0,
+    "addMaxRevRisk": 0.45,
+    "addMinEv": 0.02,
+    "addMinPnlPct": -1.0,
+    "addMinUpProb": 0.6,
+    "cutLossHardPct": -10.0,
+    "cutLossWarnPct": -6.0,
+    "entryMaxRevRisk": 0.55,
+    "entryMinEv": 0.02,
+    "entryMinUpProb": 0.6,
+    "exitIfUnranked": 1.0,
+    "exitMinEv": -0.01,
+    "exitMinUpProb": 0.5,
+    "gameOverPct": -20.0,
+    "maxNewEntriesPerDay": 1.0,
+    "newEntryMaxRank": 1.0,
+    "revRiskHigh": 0.65,
+    "revRiskWarn": 0.55,
+    "switchMinEvGap": 0.03,
+    "takeProfitHintPct": 10.0
+  },
+  "topN": 50,
+  "unitOptions": [
+    2,
+    3,
+    5
+  ]
+}

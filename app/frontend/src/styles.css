@@ -3435,6 +3435,58 @@ body {
   color: #bbf7d0;
 }
 
+.signal-chip.pattern {
+  border-color: rgba(59, 130, 246, 0.6);
+  background: rgba(37, 99, 235, 0.16);
+  color: #bfdbfe;
+}
+
+.signal-chip.entry-tier {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.signal-chip.short-tier {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.signal-chip.entry-tier.tier-a {
+  border-color: rgba(34, 197, 94, 0.7);
+  background: rgba(34, 197, 94, 0.2);
+  color: #dcfce7;
+}
+
+.signal-chip.entry-tier.tier-b {
+  border-color: rgba(59, 130, 246, 0.7);
+  background: rgba(59, 130, 246, 0.2);
+  color: #dbeafe;
+}
+
+.signal-chip.entry-tier.tier-c {
+  border-color: rgba(148, 163, 184, 0.7);
+  background: rgba(71, 85, 105, 0.35);
+  color: #e2e8f0;
+}
+
+.signal-chip.short-tier.tier-a {
+  border-color: rgba(239, 68, 68, 0.75);
+  background: rgba(239, 68, 68, 0.2);
+  color: #fee2e2;
+}
+
+.signal-chip.short-tier.tier-b {
+  border-color: rgba(249, 115, 22, 0.75);
+  background: rgba(249, 115, 22, 0.2);
+  color: #ffedd5;
+}
+
+.signal-chip.short-tier.tier-c {
+  border-color: rgba(148, 163, 184, 0.7);
+  background: rgba(71, 85, 105, 0.35);
+  color: #e2e8f0;
+}
+
 .tile-scores {
   display: flex;
   gap: 6px;
@@ -5468,6 +5520,48 @@ body {
   background: #dcfce7;
   color: #166534;
   border-color: #22c55e;
+}
+
+:root[data-theme="light"] .signal-chip.pattern {
+  background: #dbeafe;
+  color: #1e3a8a;
+  border-color: #3b82f6;
+}
+
+:root[data-theme="light"] .signal-chip.entry-tier.tier-a {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #22c55e;
+}
+
+:root[data-theme="light"] .signal-chip.entry-tier.tier-b {
+  background: #dbeafe;
+  color: #1e3a8a;
+  border-color: #3b82f6;
+}
+
+:root[data-theme="light"] .signal-chip.entry-tier.tier-c {
+  background: #e2e8f0;
+  color: #334155;
+  border-color: #94a3b8;
+}
+
+:root[data-theme="light"] .signal-chip.short-tier.tier-a {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #ef4444;
+}
+
+:root[data-theme="light"] .signal-chip.short-tier.tier-b {
+  background: #ffedd5;
+  color: #9a3412;
+  border-color: #f97316;
+}
+
+:root[data-theme="light"] .signal-chip.short-tier.tier-c {
+  background: #e2e8f0;
+  color: #334155;
+  border-color: #94a3b8;
 }
 
 :root[data-theme="light"] .score-chip {

@@ -1,0 +1,46 @@
+{
+  "tp_long": 0.1,
+  "tp_short": 0.1,
+  "cost": {
+    "enabled": true,
+    "rate_per_side": 0.001
+  },
+  "stop_loss": {
+    "enabled": false,
+    "rate": 0.0
+  },
+  "split": {
+    "train_years": 5,
+    "valid_months": 12,
+    "test_months": 12
+  },
+  "model": {
+    "candidate_pool": 150,
+    "top_k": 20,
+    "ridge_alpha": 1.0,
+    "risk_penalty": 0.35
+  },
+  "feature_version": "monthly_feature_v1",
+  "label_version": "tp_next_month_v1",
+  "model_version": "top20_ranker_v1",
+  "loop_variants": [
+    {
+      "name": "baseline",
+      "candidate_pool": 150,
+      "ridge_alpha": 1.0,
+      "risk_penalty": 0.35
+    },
+    {
+      "name": "risk_tight",
+      "candidate_pool": 120,
+      "ridge_alpha": 1.4,
+      "risk_penalty": 0.5
+    },
+    {
+      "name": "recall_wide",
+      "candidate_pool": 200,
+      "ridge_alpha": 0.8,
+      "risk_penalty": 0.25
+    }
+  ]
+}

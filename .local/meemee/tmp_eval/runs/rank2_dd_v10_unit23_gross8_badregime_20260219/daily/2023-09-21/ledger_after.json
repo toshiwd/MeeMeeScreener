@@ -1,0 +1,97 @@
+{
+  "asOf": "2023-09-21",
+  "metrics": {
+    "asOf": "2023-09-21",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 5731284.313941,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -231455.452967,
+        "net_cum_return_pct": -2.314555
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -231455.452967,
+        "net_cum_return_pct": -2.314555
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -403455.452967,
+        "net_cum_return_pct": -4.034555
+      }
+    ],
+    "cum_pnl": -231455.452967,
+    "cum_return_pct": -2.314555,
+    "daily_pnl": -820.072218,
+    "equity": 9768544.547033,
+    "fees_cost_cum": 344000.0,
+    "fees_cost_daily": 4000.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 196527.453183,
+    "gross_cum_return_pct": 1.965275,
+    "gross_daily_pnl": 3798.19963,
+    "gross_units": 4,
+    "holdings_count": 2,
+    "long_units": 4,
+    "max_drawdown_pct": -2.471881,
+    "net_cum_pnl": -231455.452967,
+    "net_cum_return_pct": -2.314555,
+    "net_daily_pnl": -820.072218,
+    "net_exposure_pct": 50.0,
+    "net_units": 4,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -2.471881,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 1377.808051,
+        "worstMonthPct": -2.1300353304484987
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 2000.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "rank2_dd_v10_unit23_gross8_badregime_20260219",
+    "short_units": 0,
+    "slippage_cost_cum": 83982.90615,
+    "slippage_cost_daily": 618.271848,
+    "turnover_notional_cum": 344000000.0,
+    "turnover_notional_daily": 4000000.0,
+    "turnover_pct_daily": 40.944321
+  },
+  "positions": [
+    {
+      "avgPrice": 1659.09094238281,
+      "holdingDays": 2,
+      "openedAt": "2023-09-20",
+      "pnlPct": 1.8630116546111675,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "7638",
+      "units": 2
+    },
+    {
+      "avgPrice": 721.100036621094,
+      "holdingDays": 1,
+      "openedAt": "2023-09-21",
+      "pnlPct": 0.0,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "9501",
+      "units": 2
+    }
+  ],
+  "seasonId": "rank2_dd_v10_unit23_gross8_badregime_20260219"
+}

@@ -1,0 +1,37 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -5,
+      "reasonId": "X_EXIT_GATE_NG",
+      "side": "LONG",
+      "ticker": "8136"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_TOP1_GATE_OK",
+      "side": "LONG",
+      "ticker": "2585"
+    },
+    {
+      "deltaUnits": 3,
+      "reasonId": "A_ADD_PROBE_TO_ADD_OK",
+      "side": "LONG",
+      "ticker": "3989"
+    }
+  ],
+  "asOf": "2023-03-31",
+  "checks": {
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v8",
+  "seasonId": "tradex_bt3y_v8_baseline_20260217",
+  "stage": {
+    "goal20Reached": false,
+    "goal30Reached": false,
+    "stage2Active": false
+  }
+}

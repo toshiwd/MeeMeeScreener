@@ -1,0 +1,26 @@
+# TOREDEX Narrative 2025-01-09
+
+- season_id: stage2_candidate8d1_relaxed_cost10_20260218
+- mode: BACKTEST
+- policy_version: toredex.v8
+
+## Buy Top 3
+1. 7936 ev=0.043645699614890884 upProb=0.6374762706548474 revRisk=0.37321555324452377 gate=True:ENTRY_OK
+2. 7974 ev=0.024261484892732787 upProb=0.6519850860547954 revRisk=0.33605412963147907 gate=True:ENTRY_OK
+3. 8016 ev=0.039723661485319514 upProb=0.7200974309633611 revRisk=0.3783327250810081 gate=True:ENTRY_OK
+
+## Sell Top 3
+1. 2695 ev=-0.04350828729281768 upProb=0.819023240148198 revRisk=0.819023240148198 gate=True:ENTRY_OK
+2. 7730 ev=-0.14627659574468085 upProb=0.6156392791258692 revRisk=0.6156392791258692 gate=True:ENTRY_OK
+3. 9962 ev=-0.03612244897959184 upProb=0.6983999382746943 revRisk=0.6983999382746943 gate=True:ENTRY_OK
+
+## Actions
+1. 9104 LONG delta=-2 reason=X_EXIT_GATE_NG
+2. 7936 LONG delta=2 reason=E_NEW_TOP1_GATE_OK
+
+## Metrics
+- equity: 14850132.957916
+- cum_return_pct: 48.50133
+- max_drawdown_pct: -4.551124
+- holdings_count: 1
+- game_over: False

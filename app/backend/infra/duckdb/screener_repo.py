@@ -5,6 +5,7 @@ from typing import List, Tuple, Dict, Any, Optional
 import pandas as pd
 
 import duckdb
+from app.backend.core.text_encoding import repair_cp932_mojibake
 
 class ScreenerRepository:
     def __init__(self, db_path: str):
@@ -39,9 +40,22 @@ class ScreenerRepository:
             codes = [row[0] for row in codes_rows]
 
             # 2. Get Meta
-            meta_rows = conn.execute(
+            meta_rows_raw = conn.execute(
                 "SELECT code, name, stage, score, reason, score_status, missing_reasons_json, score_breakdown_json FROM stock_meta"
             ).fetchall()
+            meta_rows = [
+                (
+                    row[0],
+                    repair_cp932_mojibake(str(row[1] or row[0])),
+                    row[2],
+                    row[3],
+                    row[4],
+                    row[5],
+                    row[6],
+                    row[7],
+                )
+                for row in meta_rows_raw
+            ]
 
             # 3. Get Daily Bars (Windowed)
             daily_rows = conn.execute(
@@ -132,7 +146,14 @@ class ScreenerRepository:
                 """,
                 codes,
             ).fetchall()
-            return {row[0]: (row[1], row[2], row[3]) for row in rows}
+            return {
+                row[0]: (
+                    repair_cp932_mojibake(str(row[1] or row[0])),
+                    row[2],
+                    repair_cp932_mojibake(str(row[3] or "")) if row[3] is not None else None,
+                )
+                for row in rows
+            }
 
     def fetch_phase_pred_map(self, asof_map: Dict[str, int | None]) -> Dict[str, Dict[str, Any]]:
         with self._get_conn() as conn:
@@ -284,16 +305,16 @@ class ScreenerRepository:
     def fetch_meta_map(self, codes: List[str]) -> Dict[str, str]:
         if not codes:
             return {}
-        with self.get_conn() as conn:
+        with self._get_conn() as conn:
             placeholders = ",".join(["?"] * len(codes))
             rows = conn.execute(
                 f"SELECT code, name FROM stock_meta WHERE code IN ({placeholders})",
                 codes
             ).fetchall()
-            return {row[0]: row[1] for row in rows}
+            return {row[0]: repair_cp932_mojibake(str(row[1] or row[0])) for row in rows}
 
     def fetch_all_codes(self) -> List[str]:
-        with self.get_conn() as conn:
+        with self._get_conn() as conn:
             rows = conn.execute(
                 "SELECT DISTINCT code FROM daily_bars ORDER BY code"
             ).fetchall()

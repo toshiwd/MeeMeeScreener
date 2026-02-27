@@ -161,6 +161,8 @@ type AnalysisHorizonPayload = {
   items: Partial<Record<`${AnalysisHorizonKey}`, AnalysisHorizonEntry>>;
 };
 
+type RankRiskMode = "defensive" | "balanced" | "aggressive";
+
 type AnalysisAdditiveSignals = {
   trendUpStrict: boolean;
   mtfStrongAligned: boolean;
@@ -178,6 +180,29 @@ type AnalysisAdditiveSignals = {
   monthlyBreakoutUpProb: number | null;
   monthlyRangeProb: number | null;
   monthlyRangePos: number | null;
+};
+
+type AnalysisEntryPolicySide = {
+  setupType: string | null;
+  recommendedHoldDays: number | null;
+  recommendedHoldMinDays: number | null;
+  recommendedHoldMaxDays: number | null;
+  recommendedHoldReason: string | null;
+  invalidationTrigger: string | null;
+  invalidationConservativeAction: string | null;
+  invalidationAggressiveAction: string | null;
+  invalidationRecommendedAction: string | null;
+  invalidationDotenRecommended: boolean;
+  invalidationOppositeHoldDays: number | null;
+  invalidationExpectedDeltaMean: number | null;
+  invalidationPolicyNote: string | null;
+  playbookScoreBonus: number | null;
+};
+
+type AnalysisEntryPolicy = {
+  riskMode: RankRiskMode;
+  up: AnalysisEntryPolicySide | null;
+  down: AnalysisEntryPolicySide | null;
 };
 
 type BuyStagePrecisionEntry = {
@@ -262,6 +287,8 @@ type AnalysisFallback = {
   ev20Net: number | null;
   horizonAnalysis: AnalysisHorizonPayload | null;
   additiveSignals: AnalysisAdditiveSignals | null;
+  entryPolicy: AnalysisEntryPolicy | null;
+  riskMode: RankRiskMode | null;
   buyStagePrecision: BuyStagePrecisionPayload | null;
   modelVersion: string | null;
 };
@@ -284,6 +311,12 @@ const RANGE_PRESETS = [
 ];
 
 const ANALYSIS_HORIZONS = [5, 10, 20] as const;
+const RANK_VIEW_STATE_KEY = "rankingViewState";
+const RISK_MODE_LABEL: Record<RankRiskMode, string> = {
+  defensive: "守り",
+  balanced: "中立",
+  aggressive: "攻め"
+};
 
 const buildMonthBoundaries = (candles: Candle[]) => {
   if (!candles.length) return [];
@@ -374,6 +407,76 @@ const toBoolean = (value: unknown): boolean => {
     return trimmed === "1" || trimmed === "true" || trimmed === "yes";
   }
   return false;
+};
+
+const normalizeRiskMode = (value: unknown): RankRiskMode => {
+  if (value === "defensive" || value === "aggressive" || value === "balanced") {
+    return value;
+  }
+  return "balanced";
+};
+
+const resolveRiskModeFromSession = (): RankRiskMode => {
+  if (typeof window === "undefined") return "balanced";
+  try {
+    const raw = window.sessionStorage.getItem(RANK_VIEW_STATE_KEY);
+    if (!raw) return "balanced";
+    const parsed = JSON.parse(raw) as { riskMode?: unknown };
+    return normalizeRiskMode(parsed?.riskMode);
+  } catch {
+    return "balanced";
+  }
+};
+
+const formatInvalidationTrigger = (value: string | null | undefined): string => {
+  if (!value) return "--";
+  if (value === "box_break") return "Box下限割れ";
+  if (value === "box_reclaim") return "Box回復";
+  if (value === "stop3") return "3日否定";
+  if (value === "stop5") return "5日否定";
+  return value;
+};
+
+const formatInvalidationAction = (value: string | null | undefined): string => {
+  if (!value) return "--";
+  if (value === "exit") return "撤退";
+  if (value === "hold") return "継続";
+  if (value === "doten_opt") return "ドテン検討";
+  return value;
+};
+
+const normalizeEntryPolicySide = (value: unknown): AnalysisEntryPolicySide | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  return {
+    setupType: typeof payload.setupType === "string" ? payload.setupType : null,
+    recommendedHoldDays: toFiniteNumber(payload.recommendedHoldDays),
+    recommendedHoldMinDays: toFiniteNumber(payload.recommendedHoldMinDays),
+    recommendedHoldMaxDays: toFiniteNumber(payload.recommendedHoldMaxDays),
+    recommendedHoldReason: typeof payload.recommendedHoldReason === "string" ? payload.recommendedHoldReason : null,
+    invalidationTrigger: typeof payload.invalidationTrigger === "string" ? payload.invalidationTrigger : null,
+    invalidationConservativeAction:
+      typeof payload.invalidationConservativeAction === "string" ? payload.invalidationConservativeAction : null,
+    invalidationAggressiveAction:
+      typeof payload.invalidationAggressiveAction === "string" ? payload.invalidationAggressiveAction : null,
+    invalidationRecommendedAction:
+      typeof payload.invalidationRecommendedAction === "string" ? payload.invalidationRecommendedAction : null,
+    invalidationDotenRecommended: toBoolean(payload.invalidationDotenRecommended),
+    invalidationOppositeHoldDays: toFiniteNumber(payload.invalidationOppositeHoldDays),
+    invalidationExpectedDeltaMean: toFiniteNumber(payload.invalidationExpectedDeltaMean),
+    invalidationPolicyNote: typeof payload.invalidationPolicyNote === "string" ? payload.invalidationPolicyNote : null,
+    playbookScoreBonus: toFiniteNumber(payload.playbookScoreBonus)
+  };
+};
+
+const normalizeEntryPolicy = (value: unknown): AnalysisEntryPolicy | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  return {
+    riskMode: normalizeRiskMode(payload.riskMode),
+    up: normalizeEntryPolicySide(payload.up),
+    down: normalizeEntryPolicySide(payload.down)
+  };
 };
 
 const normalizeAnalysisHorizonEntry = (horizon: AnalysisHorizonKey, value: unknown): AnalysisHorizonEntry => {
@@ -921,6 +1024,7 @@ export default function DetailView() {
   const phaseFallbackRequestKeyRef = useRef<string | null>(null);
   const [analysisFallback, setAnalysisFallback] = useState<AnalysisFallback | null>(null);
   const [analysisHorizon] = useState<AnalysisHorizonKey>(20);
+  const [analysisRiskMode, setAnalysisRiskMode] = useState<RankRiskMode>(() => resolveRiskModeFromSession());
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const lastAnalysisAttemptAsOfRef = useRef<number | null>(null);
   const analysisRequestKeyRef = useRef<string | null>(null);
@@ -1092,6 +1196,19 @@ export default function DetailView() {
     setShowPositionLedger(false);
     setPositionLedgerExpanded(false);
   }, [headerMode]);
+
+  useEffect(() => {
+    const syncRiskMode = () => {
+      setAnalysisRiskMode(resolveRiskModeFromSession());
+    };
+    syncRiskMode();
+    window.addEventListener("focus", syncRiskMode);
+    return () => window.removeEventListener("focus", syncRiskMode);
+  }, []);
+
+  useEffect(() => {
+    lastAnalysisAttemptAsOfRef.current = null;
+  }, [analysisRiskMode]);
 
   useEffect(() => {
     if (headerMode !== "draw" && activeDrawTool !== null) {
@@ -1302,6 +1419,11 @@ export default function DetailView() {
     sellAnalysisFallback?.shortRet10 != null ||
     sellAnalysisFallback?.shortRet20 != null;
   const patternSummary = useMemo(() => {
+    const entryPolicy = analysisFallback?.entryPolicy ?? null;
+    const playbookUpBonus = toFiniteNumber(entryPolicy?.up?.playbookScoreBonus) ?? 0;
+    const playbookDownBonus = toFiniteNumber(entryPolicy?.down?.playbookScoreBonus) ?? 0;
+    const playbookUpBias = clamp(playbookUpBonus / 0.08, -0.4, 0.4);
+    const playbookDownBias = clamp(playbookDownBonus / 0.08, -0.4, 0.4);
     const upProb = clamp(analysisPUp ?? 0.5, 0, 1);
     const downProbMl = analysisPDown ?? (analysisPUp != null ? 1 - analysisPUp : 0.5);
     const downProb = clamp(
@@ -1324,12 +1446,31 @@ export default function DetailView() {
       sellAnalysisFallback?.trendDownStrict ? 0.08 : sellAnalysisFallback?.trendDown ? 0.04 : 0;
     const trendDownBoost =
       sellAnalysisFallback?.trendDownStrict ? 1.0 : sellAnalysisFallback?.trendDown ? 0.7 : 0.3;
+    const trendDownFlag = sellAnalysisFallback?.trendDown === true;
+    const trendDownStrictFlag = sellAnalysisFallback?.trendDownStrict === true;
+    const shortScoreNorm = clamp(
+      ((sellAnalysisFallback?.shortScore ?? 70) - 70) / 90,
+      0,
+      1
+    );
+    const bullishStructure = Boolean(
+      !trendDownFlag &&
+      (sellAnalysisFallback?.distMa20Signed ?? 0) > 0 &&
+      (sellAnalysisFallback?.ma20Slope ?? 0) >= 0 &&
+      (sellAnalysisFallback?.ma60Slope ?? 0) >= 0
+    );
+    const strongUpContext = Boolean(
+      analysisAdditive?.trendUpStrict &&
+      (analysisAdditive?.monthlyBreakoutUpProb ?? 0) >= 0.8
+    );
 
     const upScore = clamp(
       0.5 * upProb +
       0.18 * turnUp +
       0.17 * (0.5 + evBias * 0.5) +
       0.15 * (0.5 + additiveBias * 0.5) -
+      0.06 * playbookDownBias +
+      0.08 * playbookUpBias -
       trendDownPenalty,
       0,
       1
@@ -1339,7 +1480,19 @@ export default function DetailView() {
       0.22 * turnDown +
       0.18 * (0.5 - evBias * 0.5) +
       0.1 * trendDownBoost +
+      0.08 * playbookDownBias -
+      0.06 * playbookUpBias +
       0.05 * (0.5 - additiveBias * 0.5),
+      0,
+      1
+    );
+    const sellSignalQuality = clamp(
+      0.38 * downProb +
+      0.22 * turnDown +
+      0.14 * clamp((-analysisEvNet + 0.005) / 0.04, 0, 1) +
+      0.16 * (trendDownStrictFlag ? 1.0 : trendDownFlag ? 0.72 : 0.2) +
+      0.1 * shortScoreNorm -
+      0.12 * (bullishStructure ? 1 : 0),
       0,
       1
     );
@@ -1350,6 +1503,23 @@ export default function DetailView() {
       0,
       1
     );
+    const forceUpReclaim = Boolean(
+      strongUpContext &&
+      analysisAdditive?.mtfStrongAligned &&
+      upScore >= downScore &&
+      turnUp >= turnDown - 0.10
+    );
+    const forceDownConfirm = Boolean(
+      (trendDownStrictFlag && downProb >= 0.58 && turnDown >= 0.56 && (analysisEvNet ?? 0) <= 0) ||
+      (downProb >= 0.68 && turnDown >= 0.64 && (analysisEvNet ?? 0) <= -0.01)
+    );
+    const downConfirm = Boolean(
+      trendDownFlag ||
+      trendDownStrictFlag ||
+      downProb - upProb >= 0.10 ||
+      downProb >= 0.62
+    );
+    const downThreshold = strongUpContext ? 0.66 : 0.56;
 
     const scenarios = [
       {
@@ -1371,6 +1541,7 @@ export default function DetailView() {
         reasons: [
           `下落 ${formatPercentLabel(downProb)} / 上昇 ${formatPercentLabel(upProb)}`,
           `転換 下 ${formatPercentLabel(turnDown)}`,
+          `売り品質 ${formatPercentLabel(sellSignalQuality)}`,
           `下向きトレンド判定 ${sellAnalysisFallback?.trendDownStrict ? "強い" : sellAnalysisFallback?.trendDown ? "あり" : "弱い"
           }`
         ]
@@ -1391,10 +1562,21 @@ export default function DetailView() {
     const top = scenarios[0];
     let environmentLabel = "方向感拮抗";
     let environmentTone: "up" | "down" | "neutral" = "neutral";
-    if (top?.key === "up" && top.score >= 0.56) {
+    if (forceUpReclaim && upScore >= 0.56) {
       environmentLabel = "上昇優位";
       environmentTone = "up";
-    } else if (top?.key === "down" && top.score >= 0.56) {
+    } else if (forceDownConfirm) {
+      environmentLabel = "下落優位";
+      environmentTone = "down";
+    } else if (top?.key === "up" && top.score >= 0.56) {
+      environmentLabel = "上昇優位";
+      environmentTone = "up";
+    } else if (
+      top?.key === "down" &&
+      top.score >= downThreshold &&
+      downConfirm &&
+      sellSignalQuality >= 0.52
+    ) {
       environmentLabel = "下落優位";
       environmentTone = "down";
     } else if (top?.key === "range" && top.score >= 0.56) {
@@ -1413,7 +1595,16 @@ export default function DetailView() {
     analysisEvNet,
     analysisPTurnUp,
     analysisPTurnDown,
+    analysisFallback?.entryPolicy?.up?.playbookScoreBonus,
+    analysisFallback?.entryPolicy?.down?.playbookScoreBonus,
     analysisAdditive?.bonusEstimate,
+    analysisAdditive?.trendUpStrict,
+    analysisAdditive?.mtfStrongAligned,
+    analysisAdditive?.monthlyBreakoutUpProb,
+    sellAnalysisFallback?.shortScore,
+    sellAnalysisFallback?.distMa20Signed,
+    sellAnalysisFallback?.ma20Slope,
+    sellAnalysisFallback?.ma60Slope,
     sellAnalysisFallback?.pDown,
     sellAnalysisFallback?.pTurnDown,
     sellAnalysisFallback?.trendDown,
@@ -1446,6 +1637,18 @@ export default function DetailView() {
     const buyProb = clamp(analysisDecision.buyProb ?? 0, 0, 1);
     const sellProb = clamp(analysisDecision.sellProb ?? 0, 0, 1);
     const neutralProb = clamp(analysisDecision.neutralProb ?? 0, 0, 1);
+    const entryPolicy = analysisFallback?.entryPolicy ?? null;
+    const upPolicy = entryPolicy?.up ?? null;
+    const downPolicy = entryPolicy?.down ?? null;
+    const activePolicy =
+      analysisDecision.tone === "up"
+        ? upPolicy
+        : analysisDecision.tone === "down"
+          ? downPolicy
+          : buyProb >= sellProb
+            ? upPolicy
+            : downPolicy;
+    const policyRiskMode = entryPolicy?.riskMode ?? analysisFallback?.riskMode ?? null;
     const stagePrecision = analysisFallback?.buyStagePrecision ?? null;
     const strategyBacktest = stagePrecision?.strategy ?? null;
     const stageHorizonRaw = stagePrecision?.horizon;
@@ -1545,6 +1748,9 @@ export default function DetailView() {
     if (coreReady) {
       buyTimingTitle = "本玉成立";
     }
+    if (activePolicy?.invalidationPolicyNote) {
+      watchpoint = `${watchpoint} ${activePolicy.invalidationPolicyNote}`;
+    }
     const buyTimingPlan = coreReady
       ? [
         `本玉成立: ${coreShares}株エントリー優先 / 主精度 ${strategyPrecisionLabel} / ${backtestSummary}`
@@ -1566,6 +1772,16 @@ export default function DetailView() {
       `買い ${formatPercentLabel(buyProb)} / 売り ${formatPercentLabel(sellProb)}（差 ${formatPercentLabel(spread)}）`,
       `転換 上 ${formatPercentLabel(analysisPTurnUp)} / 下 ${formatPercentLabel(analysisPTurnDown)}`,
       analysisEvNet == null ? null : `期待値 ${formatSignedPercentLabel(analysisEvNet)}`,
+      policyRiskMode ? `運用モード ${RISK_MODE_LABEL[policyRiskMode]}` : null,
+      activePolicy?.recommendedHoldDays != null
+        ? `保有目安 ${Math.round(activePolicy.recommendedHoldDays)}日`
+        : null,
+      activePolicy?.invalidationTrigger
+        ? `否定 ${formatInvalidationTrigger(activePolicy.invalidationTrigger)} / 推奨 ${formatInvalidationAction(activePolicy.invalidationRecommendedAction)}`
+        : null,
+      activePolicy?.playbookScoreBonus != null
+        ? `Playbook補正 ${formatSignedPercentLabel(activePolicy.playbookScoreBonus)}`
+        : null,
       trendLine
     ].filter((value): value is string => typeof value === "string" && value.length > 0);
 
@@ -1586,6 +1802,8 @@ export default function DetailView() {
     analysisDecision.neutralProb,
     analysisDecision.confidence,
     analysisDecision.tone,
+    analysisFallback?.entryPolicy,
+    analysisFallback?.riskMode,
     analysisFallback?.buyStagePrecision,
     analysisPTurnUp,
     analysisPTurnDown,
@@ -1712,7 +1930,7 @@ export default function DetailView() {
       setAnalysisLoading(false);
       return;
     }
-    const requestKey = `${code}|${asof}`;
+    const requestKey = `${code}|${asof}|${analysisRiskMode}`;
     if (analysisFallbackCacheRef.current.has(requestKey)) {
       setAnalysisFallback(analysisFallbackCacheRef.current.get(requestKey) ?? null);
       setAnalysisLoading(false);
@@ -1724,7 +1942,7 @@ export default function DetailView() {
     lastAnalysisAttemptAsOfRef.current = asof;
     analysisRequestKeyRef.current = requestKey;
     api
-      .get("/ticker/analysis", { params: { code, asof }, timeout: 30000 })
+      .get("/ticker/analysis", { params: { code, asof, risk_mode: analysisRiskMode }, timeout: 30000 })
       .then((res) => {
         if (analysisRequestKeyRef.current !== requestKey) return;
         const item = res.data?.item ?? null;
@@ -1745,6 +1963,8 @@ export default function DetailView() {
           ev20Net: toFiniteNumber(item.ev20Net),
           horizonAnalysis: normalizeHorizonAnalysis(item.horizonAnalysis),
           additiveSignals: normalizeAdditiveSignals(item.additiveSignals),
+          entryPolicy: normalizeEntryPolicy(item.entryPolicy),
+          riskMode: item.riskMode == null ? null : normalizeRiskMode(item.riskMode),
           buyStagePrecision: normalizeBuyStagePrecision(item.buyStagePrecision),
           modelVersion: typeof item.modelVersion === "string" ? item.modelVersion : null
         };
@@ -1760,7 +1980,7 @@ export default function DetailView() {
         if (analysisRequestKeyRef.current !== requestKey) return;
         setAnalysisLoading(false);
       });
-  }, [backendReady, code, analysisAsOfTime]);
+  }, [backendReady, code, analysisAsOfTime, analysisRiskMode]);
 
   useEffect(() => {
     if (!backendReady) return;

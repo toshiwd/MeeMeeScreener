@@ -704,10 +704,40 @@ def compute_screener_metrics(
     buy_timing_score = 40 if daily_cross_ma20 else 0
     
     buy_candidate_score = (buy_env_score * 0.4) + (buy_timing_score * 0.4) + (buy_risk_score * 0.2)
-    if liquidity_20d and liquidity_20d < 50_000_000: buy_candidate_score *= 0.7
-    
+    if liquidity_20d and liquidity_20d < 50_000_000:
+        buy_candidate_score *= 0.7
+
+    # Guardrail: treat a long up-streak as overextended and exclude from buy candidates.
+    buy_overextended = bool(up20 is not None and up20 >= 16)
+
+    buy_pattern_name = "様子見"
+    buy_pattern_code = "WAIT"
+    if buy_overextended:
+        buy_pattern_name = "上昇伸び切り"
+        buy_pattern_code = "OVEREXTENDED"
+    elif daily_cross_ma20 and box_active:
+        buy_pattern_name = "ボックス上放れ初動"
+        buy_pattern_code = "BOX_BREAK_INITIAL"
+    elif daily_cross_ma20 and bottom_zone:
+        buy_pattern_name = "底打ち反転初動"
+        buy_pattern_code = "BOTTOM_REVERSAL_INITIAL"
+    elif daily_cross_ma20:
+        buy_pattern_name = "MA20再上抜け初動"
+        buy_pattern_code = "MA20_RECLAIM_INITIAL"
+    elif box_active:
+        buy_pattern_name = "ボックス持ち合い"
+        buy_pattern_code = "BOX_CONSOLIDATION"
+    elif bottom_zone:
+        buy_pattern_name = "底固め待機"
+        buy_pattern_code = "BOTTOM_BASE_WAIT"
+
     buy_state = "初動" if daily_cross_ma20 else "その他"
     buy_eligible = (buy_state == "初動")
+    if buy_overextended:
+        buy_candidate_score *= 0.35
+        buy_state = "その他"
+        buy_eligible = False
+        reasons.append("buy_overextended_up20_ge16")
 
     # ----------------------------------------------------
     # SELL Scores (New Detailed Logic)
@@ -743,15 +773,21 @@ def compute_screener_metrics(
         "slope20": slope20,
         "counts": {
             "up7": up7, "down7": down7,
-            "down20": down20, "down60": down60
+            "up20": up20,
+            "down20": down20,
+            "up60": up60,
+            "down60": down60
         },
         "boxMonthly": box_monthly,
         "boxActive": box_active,
         
         # Buy
         "buyState": buy_state,
+        "buyPatternName": buy_pattern_name,
+        "buyPatternCode": buy_pattern_code,
         "buyCandidateScore": float(buy_candidate_score),
         "buyEligible": buy_eligible,
+        "buyOverextended": buy_overextended,
         "buyRiskAtr": buy_risk_atr,
         "buyUpsideAtr": buy_upside_atr,
         "buyEnvScore": buy_env_score,

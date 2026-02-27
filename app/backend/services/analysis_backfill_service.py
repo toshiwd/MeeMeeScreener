@@ -77,13 +77,13 @@ def backfill_missing_analysis_history(
     lookback_days = max(1, int(lookback_days))
     max_missing_days = None if max_missing_days is None else max(1, int(max_missing_days))
 
-    _notify(progress_cb, 2, "不足期間をスキャン中...")
+    _notify(progress_cb, 2, "Checking backfill targets...")
     with get_conn() as conn:
         ml_service._ensure_ml_schema(conn)
         feature_count_row = conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()
         feature_count = int(feature_count_row[0]) if feature_count_row and feature_count_row[0] is not None else 0
         if feature_count <= 0:
-            _notify(progress_cb, 4, "ML特徴量テーブルを再生成中...")
+            _notify(progress_cb, 4, "Refreshing ml_feature_daily...")
             ml_service.refresh_ml_feature_table(conn, feature_version=ml_service.FEATURE_VERSION)
 
         resolved_anchor_dt = _resolve_anchor_dt(conn, anchor_dt)
@@ -128,24 +128,42 @@ def backfill_missing_analysis_history(
     predicted_dates: list[int] = []
     predicted_rows_total = 0
 
-    for idx, dt in enumerate(missing_ml_dates, start=1):
-        # 10-70%: ML prediction by missing date.
-        progress = 10 + int(60 * idx / max(1, len(missing_ml_dates)))
-        _notify(progress_cb, progress, f"ML不足日を補完中 ({idx}/{len(missing_ml_dates)}) dt={dt}")
+    if missing_ml_dates:
+        def _on_bulk_progress(done: int, total: int, last_dt: int) -> None:
+            progress = 10 + int(60 * done / max(1, total))
+            _notify(progress_cb, progress, f"ML backfill ({done}/{total}) dt={int(last_dt)}")
+
         try:
-            result = ml_service.predict_for_dt(dt=int(dt))
-            predicted_dates.append(int(dt))
-            predicted_rows_total += int(result.get("rows") or 0)
-        except Exception as exc:
-            logger.exception("ML backfill failed dt=%s: %s", dt, exc)
-            errors.append(f"ml_pred_20d dt={dt}: {exc}")
+            bulk_result = ml_service.predict_for_dates_bulk(
+                dates=[int(value) for value in missing_ml_dates],
+                chunk_size_days=40,
+                include_monthly=False,
+                progress_cb=_on_bulk_progress,
+            )
+            predicted_dates = [int(value) for value in (bulk_result.get("predicted_dates") or [])]
+            predicted_rows_total = int(bulk_result.get("rows_total") or 0)
+            for skipped_dt in [int(value) for value in (bulk_result.get("skipped_dates") or [])]:
+                errors.append(f"ml_pred_20d dt={skipped_dt}: skipped (no matching feature date)")
+        except Exception as bulk_exc:
+            logger.exception("ML bulk backfill failed; fallback to per-date mode: %s", bulk_exc)
+            errors.append(f"ml_pred_20d bulk: {bulk_exc}")
+            for idx, dt in enumerate(missing_ml_dates, start=1):
+                progress = 10 + int(60 * idx / max(1, len(missing_ml_dates)))
+                _notify(progress_cb, progress, f"ML fallback ({idx}/{len(missing_ml_dates)}) dt={dt}")
+                try:
+                    result = ml_service.predict_for_dt(dt=int(dt))
+                    predicted_dates.append(int(dt))
+                    predicted_rows_total += int(result.get("rows") or 0)
+                except Exception as exc:
+                    logger.exception("ML backfill failed dt=%s: %s", dt, exc)
+                    errors.append(f"ml_pred_20d dt={dt}: {exc}")
 
     sell_refreshed_dates: list[int] = []
     if include_sell:
         # Recompute sell rows for newly predicted dates even if row already exists.
         sell_targets = sorted({int(value) for value in [*missing_sell_dates, *predicted_dates]})
         if sell_targets:
-            _notify(progress_cb, 80, f"売り分析スナップショットを補完中 ({len(sell_targets)}日)")
+            _notify(progress_cb, 80, f"Refreshing sell analysis for {len(sell_targets)} dates...")
             try:
                 sell_result = accumulate_sell_analysis_for_dates(target_dates=sell_targets)
                 sell_refreshed_dates = [int(v) for v in sell_result.get("target_dates", [])]
@@ -157,7 +175,7 @@ def backfill_missing_analysis_history(
     if include_phase and missing_phase_dates:
         start_dt = int(missing_phase_dates[0])
         end_dt = int(missing_phase_dates[-1])
-        _notify(progress_cb, 90, f"局面予測を補完中 (range={start_dt}..{end_dt})")
+        _notify(progress_cb, 90, f"Refreshing phase prediction range={start_dt}..{end_dt}")
         try:
             run_batch(start_dt, end_dt, dry_run=False)
             phase_refreshed_range = {"start_dt": start_dt, "end_dt": end_dt}
@@ -165,7 +183,7 @@ def backfill_missing_analysis_history(
             logger.exception("Phase backfill failed range=%s..%s: %s", start_dt, end_dt, exc)
             errors.append(f"phase_pred_daily range={start_dt}..{end_dt}: {exc}")
 
-    _notify(progress_cb, 100, "不足期間バックフィル完了")
+    _notify(progress_cb, 100, "Backfill completed.")
     return {
         "ok": len(errors) == 0,
         "anchor_dt": int(resolved_anchor_dt) if resolved_anchor_dt is not None else None,

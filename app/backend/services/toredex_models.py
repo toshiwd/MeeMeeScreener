@@ -14,6 +14,9 @@ class SnapshotRankingItem(TypedDict, total=False):
     regime: str
     gate: dict
     close: float | None
+    liquidity20d: float | None
+    sector: str
+    shortable: bool
     entryScore: float | None
     sourceAsOf: str | None
 

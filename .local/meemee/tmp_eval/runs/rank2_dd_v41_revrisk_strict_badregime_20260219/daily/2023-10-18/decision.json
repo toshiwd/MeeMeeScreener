@@ -1,0 +1,32 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -2,
+      "reasonId": "X_EXIT_GATE_NG",
+      "side": "LONG",
+      "ticker": "4369"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_TOPK_GATE_OK",
+      "side": "LONG",
+      "ticker": "6814"
+    }
+  ],
+  "asOf": "2023-10-18",
+  "checks": {
+    "exposureOk": true,
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v8",
+  "seasonId": "rank2_dd_v41_revrisk_strict_badregime_20260219",
+  "stage": {
+    "goal20Reached": false,
+    "goal30Reached": false,
+    "stage2Active": false
+  }
+}

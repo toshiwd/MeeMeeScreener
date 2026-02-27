@@ -289,6 +289,114 @@ def _to_int(value: object, default: int, *, minimum: int = 1) -> int:
     return max(int(minimum), int(parsed))
 
 
+def _to_float(value: object, default: float, *, minimum: float = 0.0) -> float:
+    try:
+        parsed = float(default if value is None else value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        parsed = float(default)
+    return max(float(minimum), float(parsed))
+
+
+def _to_optional_int(value: object) -> int | None:
+    try:
+        if value is None:
+            return None
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _latest_txt_export_at(out_dir: str) -> datetime | None:
+    latest_ts: float | None = None
+    try:
+        with os.scandir(out_dir) as entries:
+            for entry in entries:
+                if not entry.is_file():
+                    continue
+                if not entry.name.lower().endswith(".txt"):
+                    continue
+                try:
+                    mtime = float(entry.stat().st_mtime)
+                except OSError:
+                    continue
+                if latest_ts is None or mtime > latest_ts:
+                    latest_ts = mtime
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+    if latest_ts is None:
+        return None
+    return datetime.fromtimestamp(latest_ts)
+
+
+def _is_existing_txt_data_fresh(out_dir: str, *, max_age_hours: float) -> tuple[bool, str]:
+    latest = _latest_txt_export_at(out_dir)
+    if latest is None:
+        return False, "no_txt_files"
+    age_hours = max(0.0, (time.time() - latest.timestamp()) / 3600.0)
+    status = f"latest_txt_age_hours={age_hours:.2f}"
+    return age_hours <= float(max_age_hours), status
+
+
+def _is_transient_db_lock_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    if not text:
+        return False
+    return (
+        "cannot open file" in text
+        or "already open" in text
+        or "used by" in text
+        or "アクセスできません" in str(exc)
+    )
+
+
+def _run_phase_with_retry(*, max_attempts: int, sleep_seconds: float) -> int:
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return _run_phase_batch_latest()
+        except Exception as exc:
+            if attempt >= max_attempts or not _is_transient_db_lock_error(exc):
+                raise
+            logger.warning(
+                "Phase update retry due to transient DB lock (attempt %s/%s): %s",
+                attempt,
+                max_attempts,
+                exc,
+            )
+            time.sleep(max(0.1, float(sleep_seconds)))
+
+
+def _run_ingest_with_retry(
+    *,
+    incremental: bool,
+    max_attempts: int,
+    sleep_seconds: float,
+) -> tuple[str, str, dict, int]:
+    attempt = 0
+    last_output = ""
+    last_error = ""
+    last_stats: dict = {}
+    while attempt < max_attempts:
+        attempt += 1
+        out, err, stats = run_ingest(incremental=incremental)
+        last_output, last_error, last_stats = out, err, stats
+        if not err:
+            return out, "", stats, attempt
+        if attempt >= max_attempts or not _is_transient_db_lock_error(RuntimeError(err)):
+            break
+        logger.warning(
+            "Ingest retry due to transient DB lock (attempt %s/%s): %s",
+            attempt,
+            max_attempts,
+            err,
+        )
+        time.sleep(max(0.1, float(sleep_seconds)))
+    return last_output, last_error, last_stats, attempt
+
+
 def _is_job_canceled(job_id: str) -> bool:
     return job_manager.is_cancel_requested(job_id)
 
@@ -322,7 +430,65 @@ def _exit_if_canceled(job_id: str, state: dict, *, stage: str, message: str) -> 
 def handle_txt_update(job_id: str, payload: dict) -> None:
     auto_ml_predict = _to_bool(payload.get("auto_ml_predict"), True)
     auto_ml_train = _to_bool(payload.get("auto_ml_train"), True)
-    auto_fill_missing_history = _to_bool(payload.get("auto_fill_missing_history"), True)
+    force_ml_train = _to_bool(payload.get("force_ml_train"), False)
+    skip_ml_train_if_no_change = _to_bool(
+        payload.get("skip_ml_train_if_no_change"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_SKIP_ML_TRAIN_IF_NO_CHANGE"), True),
+    )
+    auto_fill_missing_history = _to_bool(payload.get("auto_fill_missing_history"), False)
+    pan_retry = _to_int(
+        payload.get("pan_retry"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_PAN_RETRY"), 3, minimum=1),
+        minimum=1,
+    )
+    pan_retry_sleep = _to_float(
+        payload.get("pan_retry_sleep"),
+        _to_float(os.getenv("MEEMEE_TXT_UPDATE_PAN_RETRY_SLEEP"), 2.0, minimum=0.1),
+        minimum=0.1,
+    )
+    strict_pan_import = _to_bool(
+        payload.get("strict_pan_import"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_STRICT_PAN_IMPORT"), False),
+    )
+    vbs_retry = _to_int(
+        payload.get("vbs_retry"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_VBS_RETRY"), 3, minimum=1),
+        minimum=1,
+    )
+    vbs_timeout_backoff = _to_int(
+        payload.get("vbs_timeout_backoff"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_VBS_TIMEOUT_BACKOFF"), 300, minimum=0),
+        minimum=0,
+    )
+    strict_vbs_export = _to_bool(
+        payload.get("strict_vbs_export"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_STRICT_VBS_EXPORT"), False),
+    )
+    vbs_timeout = _to_int(
+        payload.get("vbs_timeout"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_VBS_TIMEOUT"), 1800, minimum=30),
+        minimum=30,
+    )
+    phase_retry = _to_int(
+        payload.get("phase_retry"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_PHASE_RETRY"), 3, minimum=1),
+        minimum=1,
+    )
+    phase_retry_sleep = _to_float(
+        payload.get("phase_retry_sleep"),
+        _to_float(os.getenv("MEEMEE_TXT_UPDATE_PHASE_RETRY_SLEEP"), 1.5, minimum=0.1),
+        minimum=0.1,
+    )
+    ingest_retry = _to_int(
+        payload.get("ingest_retry"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_INGEST_RETRY"), 3, minimum=1),
+        minimum=1,
+    )
+    ingest_retry_sleep = _to_float(
+        payload.get("ingest_retry_sleep"),
+        _to_float(os.getenv("MEEMEE_TXT_UPDATE_INGEST_RETRY_SLEEP"), 1.5, minimum=0.1),
+        minimum=0.1,
+    )
     backfill_lookback_days = _to_int(
         payload.get("backfill_lookback_days"),
         int(os.getenv("MEEMEE_NIGHTLY_BACKFILL_LOOKBACK_DAYS", "130")),
@@ -332,6 +498,11 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         payload.get("backfill_max_missing_days"),
         int(os.getenv("MEEMEE_NIGHTLY_BACKFILL_MAX_MISSING_DAYS", "260")),
         minimum=1,
+    )
+    max_stale_export_hours = _to_float(
+        payload.get("max_stale_export_hours"),
+        _to_float(os.getenv("MEEMEE_TXT_UPDATE_MAX_STALE_EXPORT_HOURS"), 36.0, minimum=1.0),
+        minimum=1.0,
     )
     state = _load_update_state()
     state["last_pipeline_status"] = "running"
@@ -359,7 +530,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
 
     os.makedirs(out_dir, exist_ok=True)
 
-    # ── Step 0: Import latest data into Pan database (pandtmgr F5) ──
+    # Step 0: Import latest data into Pan database (pandtmgr F5)
     if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled before Pan import"):
         return
 
@@ -368,7 +539,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         job_id,
         "txt_update",
         "running",
-        message="PANを起動してデータ取り込み中...",
+        message="Launching Pan import...",
         progress=0,
     )
 
@@ -390,7 +561,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
 
     pan_import_ok = False
     pan_import_error: str | None = None
-    for attempt in (1, 2):
+    for attempt in range(1, pan_retry + 1):
         if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled during Pan import"):
             return
         try:
@@ -400,43 +571,97 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             pan_import_error = "Pan import returned False"
         except Exception as exc:
             pan_import_error = str(exc)
-            logger.warning("Pan import error (attempt %s/2): %s", attempt, exc)
+            logger.warning("Pan import error (attempt %s/%s): %s", attempt, pan_retry, exc)
 
-        if attempt == 1:
+        if attempt < pan_retry:
             job_manager._update_db(
                 job_id,
                 "txt_update",
                 "running",
-                message="PAN取り込みを再試行中...",
+                message=f"Retrying Pan import ({attempt}/{pan_retry})...",
                 progress=3,
             )
-            time.sleep(1.0)
+            time.sleep(float(pan_retry_sleep))
 
     if not pan_import_ok:
-        error_msg = f"PAN起動または取り込みに失敗しました: {pan_import_error or 'unknown error'}"
-        _record_pipeline_failure(state, stage="pan_import", error=error_msg, message="Pan import failed")
+        error_msg = f"Pan import failed: {pan_import_error or 'unknown error'}"
+        is_fresh, freshness_status = _is_existing_txt_data_fresh(
+            out_dir,
+            max_age_hours=max_stale_export_hours,
+        )
+        if not is_fresh:
+            stale_msg = (
+                f"{error_msg} (stale_txt_data: {freshness_status}, "
+                f"max_stale_export_hours={max_stale_export_hours:.1f})"
+            )
+            _record_pipeline_failure(state, stage="pan_import", error=stale_msg, message="Pan import failed")
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "failed",
+                error="Pan import failed",
+                message=stale_msg,
+                finished_at=datetime.now(),
+            )
+            return
+        if strict_pan_import:
+            _record_pipeline_failure(state, stage="pan_import", error=error_msg, message="Pan import failed")
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "failed",
+                error="Pan import failed",
+                message=error_msg,
+                finished_at=datetime.now(),
+            )
+            return
+        warning_msg = f"{error_msg} ({freshness_status})"
+        logger.warning("Pan import failed but continuing update in non-strict mode: %s", warning_msg)
+        state["last_pan_import_warning"] = warning_msg
+        _set_pipeline_stage(
+            state,
+            "pan_import",
+            status="warning",
+            message="Pan import failed. Continuing with export of existing data.",
+        )
         job_manager._update_db(
             job_id,
             "txt_update",
-            "failed",
-            error="Pan import failed",
-            message=error_msg,
-            finished_at=datetime.now(),
+            "running",
+            message="PAN import failed. Continuing with existing TXT data.",
+            progress=5,
         )
-        return
 
     if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled after Pan import"):
         return
 
-    # ── Step 1: VBS Export (Pan → TXT) ──
+    # Step 1: VBS export (Pan -> TXT)
     _set_pipeline_stage(state, "export", message="Running Pan Rolling export...")
     job_manager._update_db(job_id, "txt_update", "running", message="Running Pan Rolling export...", progress=10)
 
-    vbs_code, output_lines = run_vbs_export(
-        code_path,
-        out_dir,
-        should_cancel=lambda: _is_job_canceled(job_id),
-    )
+    output_lines: list[str] = []
+    vbs_code = -1
+    for attempt in range(1, vbs_retry + 1):
+        attempt_timeout = int(vbs_timeout + (attempt - 1) * vbs_timeout_backoff)
+        vbs_code, output_lines = run_vbs_export(
+            code_path,
+            out_dir,
+            timeout=attempt_timeout,
+            should_cancel=lambda: _is_job_canceled(job_id),
+        )
+        if vbs_code in (0, -2):
+            break
+        if attempt < vbs_retry:
+            retry_message = f"Pan Rolling export retry {attempt}/{vbs_retry}..."
+            logger.warning("VBS export failed (attempt %s/%s): code=%s", attempt, vbs_retry, vbs_code)
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "running",
+                message=retry_message,
+                progress=12,
+            )
+            time.sleep(1.0)
     summary_line = next((line for line in output_lines if "SUMMARY:" in line), "Export completed")
 
     if vbs_code == -2:
@@ -458,16 +683,59 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 stage="export",
             )
             return
-        _record_pipeline_failure(state, stage="export", error=f"VBS failed with code {vbs_code}", message=msg)
+        if strict_vbs_export:
+            _record_pipeline_failure(state, stage="export", error=f"VBS failed with code {vbs_code}", message=msg)
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "failed",
+                message=f"{summary_line}: {msg}",
+                error=f"VBS failed with code {vbs_code}",
+                finished_at=datetime.now(),
+            )
+            return
+        is_fresh, freshness_status = _is_existing_txt_data_fresh(
+            out_dir,
+            max_age_hours=max_stale_export_hours,
+        )
+        if not is_fresh:
+            stale_msg = (
+                f"VBS export failed with code {vbs_code}: {msg} "
+                f"(stale_txt_data: {freshness_status}, "
+                f"max_stale_export_hours={max_stale_export_hours:.1f})"
+            )
+            _record_pipeline_failure(
+                state,
+                stage="export",
+                error=f"VBS failed with code {vbs_code}",
+                message=stale_msg,
+            )
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "failed",
+                message=stale_msg,
+                error=f"VBS failed with code {vbs_code}",
+                finished_at=datetime.now(),
+            )
+            return
+        warning_msg = f"VBS export failed with code {vbs_code}: {msg} ({freshness_status})"
+        logger.warning("VBS export failed but continuing update in non-strict mode: %s", warning_msg)
+        state["last_vbs_export_warning"] = warning_msg
+        _set_pipeline_stage(
+            state,
+            "export",
+            status="warning",
+            message="VBS export failed. Continuing with existing TXT data.",
+        )
+        summary_line = "EXPORT_WARNING: using existing TXT data"
         job_manager._update_db(
             job_id,
             "txt_update",
-            "failed",
-            message=f"{summary_line}: {msg}",
-            error=f"VBS failed with code {vbs_code}",
-            finished_at=datetime.now(),
+            "running",
+            message="VBS export failed. Continuing with existing TXT data.",
+            progress=68,
         )
-        return
 
     if _exit_if_canceled(job_id, state, stage="export", message="Canceled after Pan Rolling export"):
         return
@@ -485,7 +753,11 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
 
     _set_pipeline_stage(state, "ingest", message="Ingesting incremental TXT data...")
     job_manager._update_db(job_id, "txt_update", "running", message="Ingesting (Incremental)...", progress=85)
-    _ingest_out, ingest_err, ingest_stats = run_ingest(incremental=True)
+    _ingest_out, ingest_err, ingest_stats, ingest_attempts = _run_ingest_with_retry(
+        incremental=True,
+        max_attempts=ingest_retry,
+        sleep_seconds=ingest_retry_sleep,
+    )
     if _exit_if_canceled(job_id, state, stage="ingest", message="Canceled during ingest"):
         return
     if ingest_err:
@@ -501,21 +773,23 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         return
     state["last_ingest_at"] = datetime.now().isoformat()
     state["last_ingest_stats"] = ingest_stats
+    state["last_ingest_attempts"] = int(ingest_attempts)
+    changed_files = _to_int(ingest_stats.get("changed"), 0, minimum=0)
 
     if _exit_if_canceled(job_id, state, stage="phase", message="Canceled before phase update"):
         return
 
     _set_pipeline_stage(state, "phase", message="Rebuilding latest phase snapshot...")
-    job_manager._update_db(job_id, "txt_update", "running", message="Phase予測を更新中...", progress=92)
+    job_manager._update_db(job_id, "txt_update", "running", message="Refreshing phase snapshot...", progress=92)
     try:
-        phase_dt = _run_phase_batch_latest()
+        phase_dt = _run_phase_with_retry(max_attempts=phase_retry, sleep_seconds=phase_retry_sleep)
         state["last_phase_dt"] = int(phase_dt)
         state["last_phase_at"] = datetime.now().isoformat()
         job_manager._update_db(
             job_id,
             "txt_update",
             "running",
-            message=f"Phase予測を更新しました (dt={phase_dt})",
+            message=f"Phase snapshot refreshed (dt={phase_dt})",
             progress=95,
         )
     except Exception as exc:
@@ -540,16 +814,65 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         if auto_ml_train:
             if _exit_if_canceled(job_id, state, stage="ml_train", message="Canceled before ML training"):
                 return
-            _set_pipeline_stage(state, "ml_train", message="Refreshing ML training...")
-            job_manager._update_db(
-                job_id, "txt_update", "running", message="Refreshing ML training...", progress=97
+            latest_pred_dt = _to_optional_int(state.get("last_ml_predict_dt"))
+            skip_train = (
+                (not force_ml_train)
+                and bool(skip_ml_train_if_no_change)
+                and int(changed_files) == 0
+                and latest_pred_dt is not None
+                and int(latest_pred_dt) == int(phase_dt)
+                and bool(state.get("last_ml_train_at"))
             )
-            train_result = ml_service.train_models(dry_run=False)
-            state["last_ml_train_at"] = datetime.now().isoformat()
-            model_version = train_result.get("model_version")
-            if model_version:
-                state["last_ml_model_version"] = str(model_version)
-            ml_note_parts.append("ml_train=ok")
+            if skip_train:
+                skip_message = f"Skipping ML training (no data change, dt={int(phase_dt)})"
+                _set_pipeline_stage(state, "ml_train", message=skip_message)
+                job_manager._update_db(
+                    job_id,
+                    "txt_update",
+                    "running",
+                    message=skip_message,
+                    progress=97,
+                )
+                ml_note_parts.append("ml_train=skip(no_change)")
+            else:
+                _set_pipeline_stage(state, "ml_train", message="Refreshing ML training...")
+                job_manager._update_db(
+                    job_id, "txt_update", "running", message="Refreshing ML training...", progress=97
+                )
+                ml_report = {"progress": -1, "at": 0.0}
+
+                def _on_ml_train_progress(progress: int, message: str) -> None:
+                    progress_clamped = max(0, min(100, int(progress)))
+                    now_ts = time.monotonic()
+                    prev_progress = int(ml_report["progress"])
+                    prev_ts = float(ml_report["at"])
+                    if (
+                        progress_clamped < 100
+                        and prev_progress >= 0
+                        and (progress_clamped - prev_progress) < 2
+                        and (now_ts - prev_ts) < 1.5
+                    ):
+                        return
+                    ml_report["progress"] = progress_clamped
+                    ml_report["at"] = now_ts
+                    total_progress = 93 + int(round(progress_clamped * 5 / 100))
+                    total_progress = max(93, min(98, total_progress))
+                    detail = f"Refreshing ML training... {message} ({progress_clamped}%)"
+                    _set_pipeline_stage(state, "ml_train", message=detail)
+                    job_manager._update_db(
+                        job_id,
+                        "txt_update",
+                        "running",
+                        message=detail,
+                        progress=total_progress,
+                    )
+
+                train_result = ml_service.train_models(dry_run=False, progress_cb=_on_ml_train_progress)
+                state["last_ml_train_at"] = datetime.now().isoformat()
+                model_version = train_result.get("model_version")
+                if model_version:
+                    state["last_ml_model_version"] = str(model_version)
+                ml_note_parts.append("ml_train=ok")
 
         if auto_ml_predict:
             if _exit_if_canceled(job_id, state, stage="ml_predict", message="Canceled before ML prediction"):
@@ -600,9 +923,11 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             message="Refreshing short scores...",
             progress=99,
         )
-        from app.backend.api.dependencies import get_stock_repo
+        from app.backend.api.dependencies import get_stock_repo, init_resources
         from app.backend.jobs.scoring_job import ScoringJob
 
+        # Ensure repository bindings point to the current runtime data dir.
+        init_resources(str(config.DATA_DIR))
         score_repo = get_stock_repo()
         scoring_results = ScoringJob(score_repo).run()
         scoring_rows = len(scoring_results) if isinstance(scoring_results, list) else 0
@@ -773,3 +1098,4 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
 def run_vbs_update(job_id: str, code_path: str, out_dir: str, *, timeout: int = 1800) -> tuple[int, list[str]]:
     """Legacy wrapper so callers can keep passing job_id first."""
     return run_vbs_export(code_path, out_dir, timeout=timeout)
+

@@ -6,11 +6,25 @@ from datetime import datetime, timedelta
 
 from app.backend.db import get_conn
 from app.backend.events import fetch_earnings_snapshot, fetch_rights_snapshot, fetch_industry_snapshot, jst_now
-from app.backend.infra.duckdb.industry_master import ensure_industry_master
 from app.services.screener_engine import _invalidate_screener_cache
 
 _events_refresh_lock = threading.Lock()
 _events_refresh_timeout = timedelta(minutes=30)
+
+
+def _ensure_industry_master_table(conn) -> None:
+    # events refresh rewrites industry_master from JPX source, so we only need table existence.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS industry_master (
+            code VARCHAR PRIMARY KEY,
+            name VARCHAR,
+            sector33_code VARCHAR,
+            sector33_name VARCHAR,
+            market_code VARCHAR
+        )
+        """
+    )
 
 
 def _ensure_events_meta_row(conn) -> None:
@@ -121,6 +135,45 @@ def _update_events_job(job_id: str, status: str, finished_at: datetime, error: s
         )
 
 
+def _table_primary_keys(conn, table_name: str) -> list[str]:
+    try:
+        rows = conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+    except Exception:
+        return []
+    keys: list[tuple[int, str]] = []
+    for row in rows:
+        # PRAGMA table_info: cid, name, type, notnull, dflt_value, pk
+        order = int(row[5] or 0)
+        if order > 0:
+            keys.append((order, str(row[1])))
+    keys.sort(key=lambda item: item[0])
+    return [name for _, name in keys]
+
+
+def _dedupe_for_primary_key(conn, table_name: str, rows: list[dict]) -> list[dict]:
+    if not rows:
+        return rows
+    pk_cols = _table_primary_keys(conn, table_name)
+    if not pk_cols:
+        return rows
+    deduped: dict[tuple[object, ...], dict] = {}
+    for row in rows:
+        key: list[object] = []
+        valid = True
+        for col in pk_cols:
+            value = row.get(col)
+            if isinstance(value, str):
+                value = value.strip()
+            if value in (None, ""):
+                valid = False
+                break
+            key.append(value)
+        if not valid:
+            continue
+        deduped[tuple(key)] = row
+    return list(deduped.values())
+
+
 def _run_events_refresh(job_id: str, reason: str | None) -> None:
     earnings_rows: list[dict] = []
     rights_rows: list[dict] = []
@@ -165,6 +218,7 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
             # Update Earnings
             if earnings_rows:
                 conn.execute("DELETE FROM earnings_planned WHERE source = 'JPX'")
+                earnings_rows = _dedupe_for_primary_key(conn, "earnings_planned", earnings_rows)
                 conn.executemany(
                     """
                     INSERT INTO earnings_planned (
@@ -196,6 +250,7 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
             # Update Rights
             if rights_rows:
                 conn.execute("DELETE FROM ex_rights WHERE source = 'JPX'")
+                rights_rows = _dedupe_for_primary_key(conn, "ex_rights", rights_rows)
                 conn.executemany(
                     """
                     INSERT INTO ex_rights (
@@ -228,17 +283,24 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
 
             # Update Industry Master
             if industry_rows:
-                # Ensure table exists first (safe to call repeatedly)
-                ensure_industry_master(conn)
+                _ensure_industry_master_table(conn)
                 
                 # Replace industry_master
                 conn.execute("DELETE FROM industry_master")
                 deduped = {}
                 for row in industry_rows:
-                    code = row.get("code")
+                    raw_code = row.get("code")
+                    if raw_code is None:
+                        continue
+                    code = str(raw_code).strip()
                     if not code:
                         continue
-                    deduped[code] = row
+                    deduped[code] = {**row, "code": code}
+                industry_insert_rows = _dedupe_for_primary_key(
+                    conn,
+                    "industry_master",
+                    list(deduped.values()),
+                )
                 conn.executemany(
                     """
                     INSERT INTO industry_master (code, name, sector33_code, sector33_name, market_code)
@@ -252,7 +314,7 @@ def _run_events_refresh(job_id: str, reason: str | None) -> None:
                             row.get("sector33_name"),
                             row.get("market_code")
                         )
-                        for row in deduped.values()
+                        for row in industry_insert_rows
                     ]
                 )
                 # We don't save industry_last_success_at in events_meta yet as schema change is risky/not strictly needed

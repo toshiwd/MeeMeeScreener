@@ -1,0 +1,26 @@
+# TOREDEX Narrative 2024-07-22
+
+- season_id: tradex_bt3y_v8_fast_baseline_20260217
+- mode: BACKTEST
+- policy_version: toredex.v8
+
+## Buy Top 3
+1. 3048 ev=0.03327495621716287 upProb=0.948544776119403 revRisk=0.2718076285240465 gate=True:ENTRY_OK
+2. 4443 ev=0.014537444933920705 upProb=0.9500469483568075 revRisk=0.115623369848722 gate=True:ENTRY_OK
+3. 7906 ev=0.01920374707259953 upProb=0.9247595438770451 revRisk=0.0 gate=True:ENTRY_OK
+
+## Sell Top 3
+1. 3778 ev=-0.05562913907284768 upProb=0.9736855036855037 revRisk=0.9736855036855037 gate=True:ENTRY_OK
+2. 6526 ev=-0.056477438136826784 upProb=0.890589864303517 revRisk=0.890589864303517 gate=True:ENTRY_OK
+3. 3132 ev=-0.042333969484706906 upProb=0.7708593711197379 revRisk=0.7708593711197379 gate=True:ENTRY_OK
+
+## Actions
+1. 3692 LONG delta=-2 reason=R_CUT_LOSS_WARN
+2. 3048 LONG delta=2 reason=E_NEW_TOP1_GATE_OK
+
+## Metrics
+- equity: 17187454.94068
+- cum_return_pct: 71.874549
+- max_drawdown_pct: -6.512792
+- holdings_count: 1
+- game_over: False

@@ -1,0 +1,30 @@
+# TOREDEX Narrative 2025-10-21
+
+- season_id: tradex_demo_202510_v4
+- mode: BACKTEST
+- policy_version: toredex.v3
+
+## Buy Top 3
+1. 4499 ev=0.12915699922660479 upProb=0.01897810218978102 revRisk=0.33102189781021896 gate=True:ENTRY_OK_FALLBACK
+2. 6330 ev=0.11560975609756098 upProb=0.30229750778816195 revRisk=0.04770249221183802 gate=True:ENTRY_OK_FALLBACK
+3. 3905 ev=0.10554803788903924 upProb=0.07076953278366706 revRisk=0.27923046721633293 gate=True:ENTRY_OK_FALLBACK
+
+## Sell Top 3
+1. 3692 ev=-0.09487375669472073 upProb=0.970996015936255 revRisk=0.0 gate=True:ENTRY_OK_FALLBACK
+2. 6814 ev=-0.06050605060506051 upProb=1.0 revRisk=0.0 gate=True:ENTRY_OK_FALLBACK
+3. 3687 ev=-0.0585956416464891 upProb=0.4070125331405158 revRisk=0.5307652446372619 gate=True:ENTRY_OK_FALLBACK
+
+## Actions
+1. 3692 LONG delta=-2 reason=R_CUT_LOSS_WARN
+2. 6814 LONG delta=-2 reason=R_CUT_LOSS_WARN
+3. 9984 LONG delta=-2 reason=X_EXIT_GATE_NG
+4. 6723 LONG delta=2 reason=E_NEW_TOP1_GATE_OK
+5. 8697 LONG delta=2 reason=E_NEW_TOPK_GATE_OK
+6. 6762 LONG delta=2 reason=E_NEW_TOPK_GATE_OK
+
+## Metrics
+- equity: 9620352.63413
+- cum_return_pct: -3.796474
+- max_drawdown_pct: -3.796474
+- holdings_count: 3
+- game_over: False

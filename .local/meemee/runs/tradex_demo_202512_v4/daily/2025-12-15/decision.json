@@ -1,0 +1,49 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -2,
+      "reasonId": "T_TP_PARTIAL_3_TO_2",
+      "side": "LONG",
+      "ticker": "4384"
+    },
+    {
+      "deltaUnits": -2,
+      "reasonId": "X_EXIT_GATE_NG",
+      "side": "LONG",
+      "ticker": "5713"
+    },
+    {
+      "deltaUnits": -2,
+      "reasonId": "X_EXIT_GATE_NG",
+      "side": "LONG",
+      "ticker": "9962"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_TOPK_GATE_OK",
+      "side": "LONG",
+      "ticker": "8338"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_TOPK_GATE_OK",
+      "side": "LONG",
+      "ticker": "8346"
+    }
+  ],
+  "asOf": "2025-12-15",
+  "checks": {
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v3",
+  "seasonId": "tradex_demo_202512_v4",
+  "stage": {
+    "goal20Reached": false,
+    "goal30Reached": false,
+    "stage2Active": false
+  }
+}

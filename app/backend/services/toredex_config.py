@@ -47,6 +47,8 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "gameOverPct": -20.0,
         "takeProfitHintPct": 10.0,
         "exitIfUnranked": 0.0,
+        "exitGateNgMinHoldingDays": 10.0,
+        "exitGateNgMinPnlPct": 0.0,
     },
     "stageRules": {
         "goal20Pct": 20.0,
@@ -110,6 +112,8 @@ _DEFAULT_CONFIG: dict[str, Any] = {
             "netExposure": 0.20,
             "costDrag": 0.40,
             "top1Concentration": 0.10,
+            "gateNgExitShare": 0.10,
+            "cutLossExitShare": 0.15,
             "tradeShortfall": 1.25,
             "riskGateFailPenalty": 1000.0,
         },

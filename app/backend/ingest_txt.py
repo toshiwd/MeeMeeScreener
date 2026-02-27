@@ -26,6 +26,11 @@ try:
 except ImportError:
     from infra.duckdb.industry_master import ensure_industry_master
 
+try:
+    from app.backend.core.text_encoding import japanese_char_count, repair_cp932_mojibake
+except ImportError:
+    from core.text_encoding import japanese_char_count, repair_cp932_mojibake
+
 
 
 REPO_ROOT = str(config.REPO_ROOT)
@@ -80,9 +85,17 @@ def name_from_filename(path: str, code: str) -> str | None:
     code_part, name_part = base.split("_", 1)
     if code_part != code:
         return None
-    name = name_part.strip()
+    name = repair_cp932_mojibake(name_part.strip())
     return name if name else None
 
+
+
+def _prefer_display_name(current: str | None, candidate: str | None) -> str | None:
+    if not candidate:
+        return current
+    if not current:
+        return candidate
+    return candidate if japanese_char_count(candidate) > japanese_char_count(current) else current
 
 
 def _build_ma_series(values: list[float], period: int) -> list[float | None]:
@@ -815,17 +828,23 @@ def read_daily_files(
             if existing is None:
                 latest_by_code[code] = (mtime, group)
                 display_name = name_from_filename(path, code)
-                if display_name:
-                    name_map[code] = display_name
+                preferred_name = _prefer_display_name(name_map.get(code), display_name)
+                if preferred_name:
+                    name_map[code] = preferred_name
                 continue
             if existing[0] >= mtime:
                 counts["older_file"] += len(group)
+                display_name = name_from_filename(path, code)
+                preferred_name = _prefer_display_name(name_map.get(code), display_name)
+                if preferred_name:
+                    name_map[code] = preferred_name
                 continue
             counts["older_file"] += len(existing[1])
             latest_by_code[code] = (mtime, group)
             display_name = name_from_filename(path, code)
-            if display_name:
-                name_map[code] = display_name
+            preferred_name = _prefer_display_name(name_map.get(code), display_name)
+            if preferred_name:
+                name_map[code] = preferred_name
 
     frames = [entry[1] for entry in latest_by_code.values()]
     if not frames:

@@ -1,0 +1,32 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -2,
+      "reasonId": "X_EXIT_GATE_NG",
+      "side": "LONG",
+      "ticker": "5541"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_TOP1_GATE_OK",
+      "side": "LONG",
+      "ticker": "4784"
+    }
+  ],
+  "asOf": "2024-12-25",
+  "checks": {
+    "exposureOk": true,
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v8",
+  "seasonId": "stage2_candidate8d1_a60_addUp058_20260218",
+  "stage": {
+    "goal20Reached": true,
+    "goal30Reached": true,
+    "stage2Active": true
+  }
+}

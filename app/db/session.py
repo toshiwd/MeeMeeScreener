@@ -15,21 +15,39 @@ from app.core.config import config
 from app.db.schema import ensure_schema, init_extra_schemas, init_schema
 
 _OPEN_LOCK: Any = None
+_SCHEMA_STATE_LOCK: Any = None
+_SCHEMA_READY_FOR_DB: str | None = None
 
 
 def _connect_with_retry(max_wait_sec: float = 1.0) -> duckdb.DuckDBPyConnection:
     import threading
 
-    global _OPEN_LOCK
+    global _OPEN_LOCK, _SCHEMA_STATE_LOCK, _SCHEMA_READY_FOR_DB
     if _OPEN_LOCK is None:
         _OPEN_LOCK = threading.Lock()
+    if _SCHEMA_STATE_LOCK is None:
+        _SCHEMA_STATE_LOCK = threading.Lock()
 
     deadline = time.time() + max_wait_sec
+    db_path = str(config.DB_PATH)
     while True:
         try:
             with _OPEN_LOCK:
-                conn = duckdb.connect(str(config.DB_PATH))
-            ensure_schema(conn)
+                conn = duckdb.connect(db_path)
+            needs_schema = False
+            with _SCHEMA_STATE_LOCK:
+                needs_schema = _SCHEMA_READY_FOR_DB != db_path
+            if needs_schema:
+                try:
+                    ensure_schema(conn)
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    raise
+                with _SCHEMA_STATE_LOCK:
+                    _SCHEMA_READY_FOR_DB = db_path
             return conn
         except Exception as exc:
             msg = str(exc).lower()

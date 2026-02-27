@@ -39,7 +39,6 @@ import { applyTheme, getStoredTheme, setStoredTheme, toggleTheme, type Theme } f
 import { saveAsFile } from "../utils/aiExport";
 import {
   computeMAAt,
-  describeCondition,
   evaluateBuilderCondition,
   formatDateYMD,
   getLatestAnchorTime,
@@ -71,6 +70,7 @@ const rangeOptions = [
 ];
 const gridRowOptions: Array<1 | 2 | 3 | 4 | 5 | 6> = [1, 2, 3, 4, 5, 6];
 const gridColumnOptions: Array<1 | 2 | 3 | 4> = [1, 2, 3, 4];
+const APP_VERSION_LABEL = `MeeMee v${__APP_VERSION__}`;
 
 const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalFilterState => ({
   defaultTimeframe,
@@ -441,6 +441,8 @@ export default function GridView() {
   const [techFilterActive, setTechFilterActive] = useState<TechnicalFilterState>(() =>
     createDefaultTechFilter(gridTimeframe)
   );
+  const [shortTierAbOnly, setShortTierAbOnly] = useState(false);
+  const [shortTierAbOnlyDraft, setShortTierAbOnlyDraft] = useState(false);
   const [sectorSortOpen, setSectorSortOpen] = useState(false); // Popover state for Sector Sort
   const sortRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
@@ -454,6 +456,7 @@ export default function GridView() {
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
   const undoTimerRef = useRef<number | null>(null);
   const txtUpdateTerminalStatusRef = useRef<string | null>(null);
+  const txtUpdateDailyFollowupRef = useRef(false);
   const seenTerminalJobsRef = useRef<Set<string>>(new Set());
   const terminalJobsInitializedRef = useRef(false);
   const walkforwardPresetsLoadedRef = useRef(false);
@@ -749,6 +752,7 @@ export default function GridView() {
       {
         title: "買い候補",
         options: [
+          { key: "entryPriority", label: "仕込み優先度(A/B/C)" },
           { key: "buyCandidate", label: "買い候補(総合)" },
           { key: "buyInitial", label: "買い候補(初動)" },
           { key: "buyBase", label: "買い候補(底がため)" },
@@ -757,6 +761,7 @@ export default function GridView() {
       {
         title: "売り候補",
         options: [
+          { key: "shortPriority", label: "売り精度優先(A/B/C)" },
           { key: "shortScore", label: "売り候補(総合)" },
           { key: "aScore", label: "売り候補(反転確実)" },
           { key: "bScore", label: "売り候補(戻り売り)" },
@@ -839,7 +844,16 @@ export default function GridView() {
   // Determine if current view is a candidate view
   const isCandidateView = useMemo(() => {
     // Check if sortKey is a candidate sort key
-    const candidateKeys = ["buyCandidate", "buyInitial", "buyBase", "shortScore", "aScore", "bScore"];
+    const candidateKeys = [
+      "entryPriority",
+      "buyCandidate",
+      "buyInitial",
+      "buyBase",
+      "shortPriority",
+      "shortScore",
+      "aScore",
+      "bScore"
+    ];
     return candidateKeys.includes(sortKey);
   }, [sortKey]);
 
@@ -1124,6 +1138,7 @@ export default function GridView() {
     () => techFilterActive.conditions.length > 0 || techFilterActive.boxThisMonth,
     [techFilterActive.conditions.length, techFilterActive.boxThisMonth]
   );
+  const hasActiveFilterChips = hasActiveFilters || shortTierAbOnly;
   const activeTimeframeLabel = useMemo(() => {
     if (activeConditionTimeframes.size === 0) return "未設定";
     if (activeConditionTimeframes.size === 1) {
@@ -1167,7 +1182,7 @@ export default function GridView() {
     // The Sector Grouping itself is always Sector Code ASC. 
     // (Or should we allow reversing sectors? Standard is usually ASC).
 
-    const isBuyCandidate =
+    const isBuyStateSort =
       activeKey === "buyCandidate" || activeKey === "buyInitial" || activeKey === "buyBase";
 
     const resolveDeviation = (bars: number[][] | undefined, anchor: AnchorInfo | undefined, period: number) => {
@@ -1249,6 +1264,10 @@ export default function GridView() {
         sortValue = ticker.aScore ?? null;
       } else if (activeKey === "bScore") {
         sortValue = ticker.bScore ?? null;
+      } else if (activeKey === "shortPriority") {
+        sortValue = ticker.shortPriorityScore ?? null;
+      } else if (activeKey === "entryPriority") {
+        sortValue = ticker.entryPriorityScore ?? null;
       } else if (activeKey === "performance") {
         // Use selected performance period
         switch (performancePeriod) {
@@ -1259,7 +1278,7 @@ export default function GridView() {
           case "1Y": sortValue = ticker.chg1Y ?? null; break;
           default: sortValue = ticker.chg1M ?? null;
         }
-      } else if (isBuyCandidate) {
+      } else if (isBuyStateSort) {
         sortValue = null;
       }
       return { ...item, sortValue };
@@ -1326,7 +1345,7 @@ export default function GridView() {
       }
 
       // 2. Inner Sort (using activeKey)
-      if (isBuyCandidate) {
+      if (isBuyStateSort) {
         return compareBuyState(a, b);
       }
       const av = a.sortValue;
@@ -1353,8 +1372,16 @@ export default function GridView() {
       if (result === 0) return a.ticker.code.localeCompare(b.ticker.code);
       return sortDir === "desc" ? -result : result;
     };
-    items.sort(compare);
-    return items;
+
+    let filteredItems = items;
+    if (shortTierAbOnly) {
+      filteredItems = filteredItems.filter((item) => {
+        const tier = item.ticker.shortPriorityTier;
+        return tier === "A" || tier === "B";
+      });
+    }
+    filteredItems.sort(compare);
+    return filteredItems;
   }, [
     scoredTickers,
     sortKey,
@@ -1365,7 +1392,8 @@ export default function GridView() {
     listAnchorInfoByCode,
     performancePeriod,
     sectorSortEnabled,
-    sectorSortInnerKey
+    sectorSortInnerKey,
+    shortTierAbOnly
   ]);
   const sortedCodes = useMemo(
     () => sortedTickers.map((item) => item.ticker.code),
@@ -1725,6 +1753,7 @@ export default function GridView() {
 
   const handleOpenTechFilter = () => {
     setTechFilterDraft(sanitizeTechFilterState(techFilterActive, gridTimeframe));
+    setShortTierAbOnlyDraft(shortTierAbOnly);
     setTechFilterOpen(true);
   };
 
@@ -1732,27 +1761,19 @@ export default function GridView() {
     const normalized = sanitizeTechFilterState(techFilterDraft, gridTimeframe);
     setTechFilterActive(normalized);
     setTechFilterDraft(normalized);
+    setShortTierAbOnly(shortTierAbOnlyDraft);
     setTechFilterOpen(false);
   };
 
   const handleCancelTechFilter = () => {
     setTechFilterDraft(techFilterActive);
+    setShortTierAbOnlyDraft(shortTierAbOnly);
     setTechFilterOpen(false);
   };
 
   const handleResetTechFilterDraft = () => {
     setTechFilterDraft(createDefaultTechFilter(techFilterDraft.defaultTimeframe));
-  };
-
-  const handleRemoveActiveCondition = (id: string) => {
-    const next = {
-      ...techFilterActive,
-      conditions: techFilterActive.conditions.filter((item) => item.id !== id)
-    };
-    setTechFilterActive(next);
-    if (!techFilterOpen) {
-      setTechFilterDraft(next);
-    }
+    setShortTierAbOnlyDraft(false);
   };
 
   const handleClearActiveFilters = () => {
@@ -1762,10 +1783,16 @@ export default function GridView() {
     }
   };
 
+  const handleClearAllActiveFilters = () => {
+    handleClearActiveFilters();
+    setShortTierAbOnly(false);
+    setShortTierAbOnlyDraft(false);
+  };
+
   const handleUpdateError = useCallback((payload?: TxtUpdateStartPayload) => {
     const error = payload?.error ?? 'unknown';
     if (isTxtUpdateConflictError(error) || payload?.status === "conflict") {
-      showToast("TXT更新は既に実行中です。");
+      showToast("日次更新は既に実行中です。");
       return;
     }
     if (error === 'code_txt_missing') {
@@ -1773,10 +1800,10 @@ export default function GridView() {
       return;
     }
     if (error.startsWith('vbs_not_found')) {
-      showToast("TXT更新スクリプトが見つかりません。");
+      showToast("日次更新スクリプトが見つかりません。");
       return;
     }
-    showToast("TXT更新の起動に失敗しました。");
+    showToast("日次更新の起動に失敗しました。");
   }, [showToast]);
 
   const applyTxtUpdateStatus = useCallback((payload?: JobStatusPayload | null) => {
@@ -1796,25 +1823,38 @@ export default function GridView() {
     txtUpdateTerminalStatusRef.current = terminalKey;
 
     if (nextStatus === "success") {
+      const runDailyFollowup = txtUpdateDailyFollowupRef.current;
+      txtUpdateDailyFollowupRef.current = false;
       resetBarsCache();
       void loadList();
-      showToast("TXT更新が完了しました。");
+      if (!runDailyFollowup) {
+        showToast("TXT更新が完了しました。");
+        return;
+      }
+      if (eventsMeta?.isRefreshing) {
+        showToast("日次更新が完了しました。イベント更新は既に実行中です。");
+        return;
+      }
+      void refreshEvents();
+      showToast("日次更新が完了しました。続けてイベント更新を開始しました。");
       return;
     }
 
     if (nextStatus === "canceled") {
-      showToast("TXT更新をキャンセルしました。");
+      txtUpdateDailyFollowupRef.current = false;
+      showToast("日次更新をキャンセルしました。");
       return;
     }
+    txtUpdateDailyFollowupRef.current = false;
     const detail = payload.error || payload.message || "詳細不明";
-    showToast(`TXT更新が失敗しました。(${detail})`, {
+    showToast(`日次更新が失敗しました。(${detail})`, {
       label: "設定",
       onClick: () => {
         setSettingsPanelMode("general");
         setSettingsOpen(true);
       }
     });
-  }, [showToast]);
+  }, [eventsMeta?.isRefreshing, loadList, refreshEvents, showToast, resetBarsCache]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1938,11 +1978,14 @@ export default function GridView() {
 
   const handleUpdateTxt = useCallback(async () => {
     if (!backendReady) return;
-    showToast("TXT更新を開始しました。");
+    showToast("日次更新を開始しました。");
     try {
-      const res = await api.post("/jobs/txt-update");
+      const res = await api.post("/jobs/txt-update", null, {
+        params: { auto_fill_missing_history: true }
+      });
       const payload = (res.data ?? {}) as TxtUpdateStartPayload;
       if (payload.ok === false) {
+        txtUpdateDailyFollowupRef.current = false;
         handleUpdateError(payload);
         if (isTxtUpdateConflictError(payload.error) || payload.status === "conflict") {
           try {
@@ -1959,6 +2002,7 @@ export default function GridView() {
       }
       const jobId = extractTxtUpdateJobId(payload);
       if (jobId) {
+        txtUpdateDailyFollowupRef.current = true;
         txtUpdateTerminalStatusRef.current = null;
         setTxtUpdateJob({
           id: jobId,
@@ -1966,8 +2010,11 @@ export default function GridView() {
           message: "Waiting in queue..."
         });
         setTxtUpdatePolling(true);
+      } else {
+        txtUpdateDailyFollowupRef.current = false;
       }
     } catch (error) {
+      txtUpdateDailyFollowupRef.current = false;
       let payload: TxtUpdateStartPayload | null = null;
       if (typeof error === "object" && error && "response" in error) {
         const response = (error as { response?: { data?: TxtUpdateStartPayload } }).response;
@@ -1976,7 +2023,7 @@ export default function GridView() {
       if (payload) {
         handleUpdateError(payload);
       } else {
-        showToast("TXT更新の起動に失敗しました。");
+        showToast("日次更新の起動に失敗しました。");
       }
     }
   }, [backendReady, handleUpdateError, applyTxtUpdateStatus]);
@@ -1996,14 +2043,14 @@ export default function GridView() {
             status: typeof payload.status === "string" ? payload.status : "cancel_requested"
           };
         });
-        showToast("TXT更新のキャンセルを要求しました。");
+        showToast("日次更新のキャンセルを要求しました。");
       } else {
         setTxtUpdatePolling(false);
-        showToast("TXT更新は既に終了しています。");
+        showToast("日次更新は既に終了しています。");
       }
     } catch (err) {
       const detail = extractErrorDetail(err);
-      showToast(`TXT更新のキャンセルに失敗しました。(${detail})`);
+      showToast(`日次更新のキャンセルに失敗しました。(${detail})`);
     }
   }, [txtUpdateJob?.id, showToast]);
 
@@ -2303,7 +2350,7 @@ export default function GridView() {
   const formatJobTypeLabel = useCallback((jobType: string | null | undefined) => {
     switch (jobType) {
       case "txt_update":
-        return "TXT更新";
+        return "日次更新";
       case "force_sync":
         return "強制同期";
       case "phase_rebuild":
@@ -2602,18 +2649,18 @@ export default function GridView() {
                   <IconButton
                     icon={<IconFilter size={18} />}
                     label="フィルタ"
-                    selected={hasActiveFilters}
+                    selected={hasActiveFilterChips}
                     variant="iconLabel"
-                    onClick={() => setTechFilterOpen(true)}
+                    onClick={handleOpenTechFilter}
                   />
                 </div>
                 <div className="txt-update-group">
                   <IconButton
                     icon={<IconRefresh size={18} />}
-                    label="TXT更新"
+                    label="日次更新"
                     variant="iconLabel"
-                    tooltip="TXT更新"
-                    ariaLabel="TXT更新"
+                    tooltip="日次更新（TXT/Phase/解析補完）"
+                    ariaLabel="日次更新"
                     className="txt-update-button"
                     onClick={handleUpdateTxt}
                     disabled={!backendReady}
@@ -2623,8 +2670,8 @@ export default function GridView() {
                       icon={<IconPlayerStop size={18} />}
                       label="停止"
                       variant="iconLabel"
-                      tooltip="TXT更新を停止"
-                      ariaLabel="TXT更新を停止"
+                      tooltip="日次更新を停止"
+                      ariaLabel="日次更新を停止"
                       className="txt-update-button"
                       onClick={handleCancelTxtUpdate}
                       disabled={!backendReady || !txtUpdateCanCancel}
@@ -2777,7 +2824,7 @@ export default function GridView() {
                               </span>
                               <span className="popover-status">{"\u624b\u52d5"}</span>
                             </button>
-                            <div className="popover-hint">{"\u6700\u65b0\u65e5\u306e\u653f\u5c40\u3092\u518d\u8a08\u7b97\u3057\u307e\u3059\u3002"}</div>
+                            <div className="popover-hint">{"\u901a\u5e38\u306f\u300c\u65e5\u6b21\u66f4\u65b0\u300d\u3067\u81ea\u52d5\u5b9f\u884c\u3055\u308c\u307e\u3059\u3002"}</div>
                           </div>
                         </>
                       )}
@@ -3244,6 +3291,17 @@ export default function GridView() {
                           </div>
                         </>
                       )}
+                      <div
+                        className="popover-hint"
+                        style={{
+                          borderTop: "1px solid var(--theme-border-subtle)",
+                          marginTop: 4,
+                          paddingTop: 8,
+                          textAlign: "right"
+                        }}
+                      >
+                        {APP_VERSION_LABEL}
+                      </div>
                     </div>
                   )}
                   <input
@@ -3402,34 +3460,37 @@ export default function GridView() {
 
 
 
-        {hasActiveFilters && (
+        {hasActiveFilterChips && (
           <div className="tech-filter-chips-row">
             {techFilterActive.conditions.length > 0 && (
-              <>
-                <span className="tech-filter-chip">
-                  基準日: 最新 {activeAnchorLabel ? `(${activeAnchorLabel})` : ""}
-                </span>
-                <span className="tech-filter-chip">
-                  条件足種: {activeTimeframeLabel}
-                </span>
-              </>
+              <span className="tech-filter-chip">
+                テクニカル {techFilterActive.conditions.length}条件 ({activeTimeframeLabel})
+                <button type="button" onClick={handleOpenTechFilter}>
+                  編集
+                </button>
+              </span>
             )}
             {techFilterActive.boxThisMonth && (
               <span className="tech-filter-chip">今月ボックス</span>
             )}
-            {techFilterActive.conditions.map((condition) => (
-              <span key={condition.id} className="tech-filter-chip">
-                {(condition.timeframe === "daily"
-                  ? "日足"
-                  : condition.timeframe === "weekly"
-                    ? "週足"
-                    : "月足")}: {describeCondition(condition)}
-                <button type="button" onClick={() => handleRemoveActiveCondition(condition.id)}>
+            {shortTierAbOnly && (
+              <span className="tech-filter-chip">
+                売りTier A/Bのみ
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShortTierAbOnly(false);
+                    setShortTierAbOnlyDraft(false);
+                  }}
+                >
                   ×
                 </button>
               </span>
-            ))}
-            <button type="button" className="tech-filter-chip-reset" onClick={handleClearActiveFilters}>
+            )}
+            {activeAnchorLabel && techFilterActive.conditions.length > 0 && (
+              <span className="tech-filter-chip">基準日: {activeAnchorLabel}</span>
+            )}
+            <button type="button" className="tech-filter-chip-reset" onClick={handleClearAllActiveFilters}>
               すべて解除
             </button>
           </div>
@@ -3716,7 +3777,9 @@ export default function GridView() {
         anchorLabel={draftAnchorLabel}
         matchCount={draftFilterResult.items.length}
         value={techFilterDraft}
+        shortTierAbOnly={shortTierAbOnlyDraft}
         onChange={setTechFilterDraft}
+        onShortTierAbOnlyChange={setShortTierAbOnlyDraft}
         onApply={handleApplyTechFilter}
         onCancel={handleCancelTechFilter}
         onReset={handleResetTechFilterDraft}

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 import json
 import math
 import logging
+import os
 from threading import Lock
 from typing import Any, Literal
 
 import duckdb
 
 from app.core.config import config as core_config
+from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.domain.screening.metrics import _calc_liquidity_20d
 from app.backend.services.ml_config import load_ml_config
 from app.backend.services.ml_service import select_top_n_ml
@@ -18,11 +21,20 @@ RankTimeframe = Literal["D", "W", "M"]
 RankWhich = Literal["latest", "prev"]
 RankDir = Literal["up", "down"]
 RankMode = Literal["rule", "ml", "hybrid", "turn"]
+RankRiskMode = Literal["defensive", "balanced", "aggressive"]
 
 _CACHE: dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]] = {}
 _LAST_UPDATED: datetime | None = None
+_LAST_DB_MTIME: float | None = None
 _LOCK = Lock()
 logger = logging.getLogger(__name__)
+_DAILY_PROB_CALIB_CACHE: dict[tuple[int, RankDir], dict[str, Any]] = {}
+_ASOF_BASE_CACHE_LOCK = Lock()
+_ASOF_BASE_CACHE: OrderedDict[int, dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]] = OrderedDict()
+_ASOF_BASE_CACHE_MAX = 4
+_TRACE_CACHE_LOCK = Lock()
+_TRACE_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
+_TRACE_CACHE_MAX = 16
 
 _DAILY_LIMIT = 1260
 _MONTHLY_LIMIT = 60
@@ -40,7 +52,22 @@ _ENTRY_BONUS_CANDLE_PATTERN = 0.01
 _ENTRY_BONUS_BOX_BOTTOM = 0.03
 _ENTRY_BONUS_MTF_SYNERGY = 0.02
 _ENTRY_BONUS_STRICT_STACK = 0.02
+_ENTRY_BONUS_MA_STREAK_BALANCED = 0.015
+_ENTRY_BONUS_BREAKOUT_STACK_STREAK = 0.02
+_ENTRY_BONUS_PATTERN_A1_MATURED_BREAKOUT = 0.025
+_ENTRY_BONUS_PATTERN_A2_BOX_TREND = 0.012
+_ENTRY_BONUS_PATTERN_A3_CAPITULATION_REBOUND = 0.01
 _ENTRY_PENALTY_60V_STRONG = 0.01
+_ENTRY_PENALTY_WEAK_EARLY_STREAK = 0.03
+_ENTRY_PENALTY_BOX_BOTTOM_WEAK = 0.02
+_ENTRY_PENALTY_PATTERN_S1_WEAK_BREAKDOWN = 0.03
+_ENTRY_PENALTY_PATTERN_S2_WEAK_BOX = 0.02
+_ENTRY_PENALTY_PATTERN_S3_LATE_BREAKOUT = 0.02
+_ENTRY_BONUS_PATTERN_D1_SHORT_BREAKDOWN = 0.02
+_ENTRY_BONUS_PATTERN_D2_SHORT_MIXED_FAR = 0.015
+_ENTRY_BONUS_PATTERN_D3_SHORT_NA_BELOW = 0.01
+_ENTRY_PENALTY_PATTERN_DTRAP_STACKDOWN_FAR = 0.025
+_ENTRY_PENALTY_PATTERN_DTRAP_OVERHEAT_MOMENTUM = 0.03
 _MONTHLY_ABS_GATE_DEFAULT = 0.30
 _MONTHLY_SIDE_GATE_DEFAULT = 0.30
 _MONTHLY_ABS_GATE_MIN = 0.15
@@ -52,6 +79,48 @@ _MONTHLY_REGIME_BONUS = 0.04
 _MONTHLY_RANGE_PENALTY = 0.03
 _MONTHLY_TARGET20_GATE_MIN_UP = 0.11
 _MONTHLY_TARGET20_GATE_MIN_DOWN = 0.08
+_DAILY_PROB_CALIB_LOOKBACK_DAYS = 540
+_DAILY_PROB_CALIB_MIN_SAMPLES = 300
+_DAILY_PROB_CALIB_MIN_BIN_SAMPLES = 24
+_DAILY_PROB_CALIB_MAX_BINS = 10
+_DAILY_SCORE_RULE_WEIGHT = 0.45
+_DAILY_SCORE_EV_WEIGHT = 0.20
+_DAILY_SCORE_PROB_WEIGHT = 0.35
+_DAILY_RISK_WEIGHT = 0.08
+_DAILY_REV_RISK_PENALTY_WEIGHT = 0.08
+_DAILY_TAIL_RISK_PENALTY_WEIGHT = 0.04
+_DAILY_ENTRY_SCORE_GATE_STRICT = 0.85
+_DAILY_FALLBACK_HYBRID_SCORE_GATE_UP = 0.79
+_DAILY_FALLBACK_HYBRID_SCORE_GATE_DOWN = 0.80
+_DAILY_FALLBACK_TURN_SCORE_GATE_UP = 0.76
+_DAILY_RULE_GATE_MIN_PROB = 0.53
+_DAILY_RULE_GATE_MIN_BREAKOUT = 0.52
+_DAILY_RULE_GATE_MIN_ENTRY_SCORE = 0.48
+_MONTHLY_PRED_REPAIR_COOLDOWN_SEC = 300
+_MONTHLY_PRED_REPAIR_LAST_ATTEMPT: datetime | None = None
+_ENTRY_POLICY_VERSION = "2026-02-27"
+_ENTRY_POLICY_DELTA_LONG_BOX_EXIT = -0.0012
+_ENTRY_POLICY_DELTA_SHORT_BOX_DOTEN_OPT = 0.0003
+_ENTRY_BONUS_PLAYBOOK_LONG_STRONG = 0.01
+_ENTRY_BONUS_PLAYBOOK_LONG_REBOUND = 0.004
+_ENTRY_BONUS_PLAYBOOK_SHORT_STRONG = 0.012
+_ENTRY_PENALTY_PLAYBOOK_TRAP = 0.015
+_ENTRY_SHORT_MIN_PROB_DEFENSIVE = 0.60
+_ENTRY_SHORT_MIN_PROB_BALANCED = 0.55
+_ENTRY_SHORT_MIN_PROB_AGGRESSIVE = 0.57
+_ENTRY_SHORT_MIN_TURN_DEFENSIVE = 0.62
+_ENTRY_SHORT_MIN_TURN_BALANCED = 0.59
+_ENTRY_SHORT_MIN_TURN_AGGRESSIVE = 0.60
+_ENTRY_SHORT_OVERHEAT_DIST = 0.03
+_ENTRY_SHORT_OVERHEAT_STRONG_PROB = 0.65
+_ENTRY_SHORT_OVERHEAT_STRONG_TURN = 0.63
+_ENTRY_SHORT_PRESSURE_SCORE_DEFENSIVE = 0.86
+_ENTRY_SHORT_PRESSURE_SCORE_BALANCED = 0.80
+_ENTRY_SHORT_PRESSURE_SCORE_AGGRESSIVE = 0.80
+_ENTRY_SHORT_PRESSURE_PROB_EXTRA = 0.02
+_ENTRY_SHORT_PRESSURE_MAX_EV_DEFENSIVE = -0.004
+_ENTRY_SHORT_PRESSURE_MAX_EV_BALANCED = -0.0005
+_ENTRY_SHORT_PRESSURE_MAX_EV_AGGRESSIVE = -0.001
 
 
 def _parse_date_value(value: int | str | None) -> datetime | None:
@@ -100,6 +169,18 @@ def _iso_date_to_int(value: str | None) -> int | None:
         return None
 
 
+def _ymd_int_to_iso(value: int | None) -> str | None:
+    if value is None:
+        return None
+    text = str(int(value)).zfill(8)
+    if len(text) != 8 or not text.isdigit():
+        return None
+    try:
+        return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+    except Exception:
+        return None
+
+
 def _coerce_as_of_int(value: str | int | None) -> int | None:
     if value is None:
         return None
@@ -120,6 +201,24 @@ def _coerce_as_of_int(value: str | int | None) -> int | None:
     return _iso_date_to_int(text)
 
 
+def _get_asof_base_cache(as_of_int: int) -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]:
+    with _ASOF_BASE_CACHE_LOCK:
+        cached = _ASOF_BASE_CACHE.get(as_of_int)
+        if cached is not None:
+            _ASOF_BASE_CACHE.move_to_end(as_of_int)
+            return cached
+
+    with duckdb.connect(str(core_config.DB_PATH)) as conn:
+        built = _build_cache_asof(conn, as_of_int)
+
+    with _ASOF_BASE_CACHE_LOCK:
+        _ASOF_BASE_CACHE[as_of_int] = built
+        _ASOF_BASE_CACHE.move_to_end(as_of_int)
+        while len(_ASOF_BASE_CACHE) > _ASOF_BASE_CACHE_MAX:
+            _ASOF_BASE_CACHE.popitem(last=False)
+    return built
+
+
 def _as_of_int_to_utc_epoch(value: int) -> int:
     year = value // 10_000
     month = (value // 100) % 100
@@ -134,6 +233,324 @@ def _as_of_month_int_to_utc_epoch(value: int) -> int:
     day = value % 100
     dt = datetime(year, month, day, tzinfo=timezone.utc)
     return int(dt.timestamp())
+
+
+def _db_mtime() -> float | None:
+    try:
+        return os.path.getmtime(str(core_config.DB_PATH))
+    except OSError:
+        return None
+
+
+def _cache_needs_refresh(db_mtime: float | None) -> bool:
+    if not _CACHE or _LAST_UPDATED is None:
+        return True
+    if db_mtime is None:
+        return False
+    if _LAST_DB_MTIME is None:
+        return False
+    return db_mtime > (_LAST_DB_MTIME + 1e-6)
+
+
+def _ensure_cache_fresh() -> None:
+    db_mtime = _db_mtime()
+    with _LOCK:
+        needs_refresh = _cache_needs_refresh(db_mtime)
+    if needs_refresh:
+        refresh_cache()
+
+
+def _shift_yyyymmdd(value: int, *, days: int) -> int:
+    raw = value
+    if raw >= 1_000_000_000:
+        try:
+            return int((datetime.fromtimestamp(raw, tz=timezone.utc) + timedelta(days=days)).strftime("%Y%m%d"))
+        except Exception:
+            return int(raw)
+    try:
+        base = datetime.strptime(str(raw), "%Y%m%d")
+    except ValueError:
+        return int(raw)
+    return int((base + timedelta(days=days)).strftime("%Y%m%d"))
+
+
+def _to_yyyymmdd_int(value: int) -> int:
+    raw = int(value)
+    if 19_000_101 <= raw <= 21_001_231:
+        return raw
+    if raw >= 1_000_000_000:
+        div = 1000 if raw >= 1_000_000_000_000 else 1
+        try:
+            return int(datetime.fromtimestamp(raw / div, tz=timezone.utc).strftime("%Y%m%d"))
+        except Exception:
+            return raw
+    return raw
+
+
+def _default_daily_prob_lookup() -> dict[str, Any]:
+    return {
+        "baseline_rate": 0.5,
+        "bins": [],
+        "samples": 0,
+        "source": "default",
+    }
+
+
+def _load_daily_prob_lookup(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    pred_dt: int,
+    direction: RankDir,
+) -> dict[str, Any]:
+    cache_key = (int(pred_dt), direction)
+    cached = _DAILY_PROB_CALIB_CACHE.get(cache_key)
+    if isinstance(cached, dict):
+        return cached
+
+    pred_dt_ymd = _to_yyyymmdd_int(int(pred_dt))
+    min_dt = _shift_yyyymmdd(int(pred_dt_ymd), days=-_DAILY_PROB_CALIB_LOOKBACK_DAYS)
+    rows = conn.execute(
+        """
+        WITH bars AS (
+            SELECT
+                code,
+                CASE
+                    WHEN date BETWEEN 19000101 AND 20991231 THEN date
+                    WHEN date >= 1000000000000 THEN CAST(strftime(to_timestamp(date / 1000), '%Y%m%d') AS INTEGER)
+                    WHEN date >= 1000000000 THEN CAST(strftime(to_timestamp(date), '%Y%m%d') AS INTEGER)
+                    ELSE NULL
+                END AS dt_key,
+                c AS close
+            FROM daily_bars
+            WHERE c IS NOT NULL
+        ),
+        bars_next AS (
+            SELECT
+                code,
+                dt_key,
+                close,
+                LEAD(close) OVER (PARTITION BY code ORDER BY dt_key) AS next_close
+            FROM bars
+            WHERE dt_key IS NOT NULL
+        ),
+        preds AS (
+            SELECT
+                code,
+                dt,
+                CASE
+                    WHEN dt BETWEEN 19000101 AND 20991231 THEN dt
+                    WHEN dt >= 1000000000000 THEN CAST(strftime(to_timestamp(dt / 1000), '%Y%m%d') AS INTEGER)
+                    WHEN dt >= 1000000000 THEN CAST(strftime(to_timestamp(dt), '%Y%m%d') AS INTEGER)
+                    ELSE NULL
+                END AS dt_key,
+                COALESCE(p_up_5, p_up_10, p_up) AS p_up_short,
+                COALESCE(p_down, 1.0 - COALESCE(p_up_5, p_up_10, p_up), 1.0 - p_up) AS p_down_short
+            FROM ml_pred_20d
+            WHERE (
+                CASE
+                    WHEN dt BETWEEN 19000101 AND 20991231 THEN dt
+                    WHEN dt >= 1000000000000 THEN CAST(strftime(to_timestamp(dt / 1000), '%Y%m%d') AS INTEGER)
+                    WHEN dt >= 1000000000 THEN CAST(strftime(to_timestamp(dt), '%Y%m%d') AS INTEGER)
+                    ELSE NULL
+                END
+            ) BETWEEN ? AND ?
+        )
+        SELECT
+            CASE WHEN ? = 'up' THEN preds.p_up_short ELSE preds.p_down_short END AS prob,
+            CASE
+                WHEN bars_next.close IS NULL OR bars_next.next_close IS NULL OR bars_next.close <= 0 THEN NULL
+                WHEN ? = 'up' THEN CASE WHEN (bars_next.next_close / bars_next.close - 1.0) > 0 THEN 1 ELSE 0 END
+                ELSE CASE WHEN (bars_next.next_close / bars_next.close - 1.0) < 0 THEN 1 ELSE 0 END
+            END AS label
+        FROM preds
+        INNER JOIN bars_next
+            ON bars_next.code = preds.code
+           AND bars_next.dt_key = preds.dt_key
+        WHERE bars_next.next_close IS NOT NULL
+        """,
+        [int(min_dt), int(pred_dt_ymd), direction, direction],
+    ).fetchall()
+
+    samples: list[tuple[float, int]] = []
+    for row in rows:
+        if not row or len(row) < 2:
+            continue
+        prob = _first_finite(row[0])
+        label = row[1]
+        if prob is None:
+            continue
+        if not isinstance(label, (int, float)):
+            continue
+        p = float(max(0.0, min(1.0, prob)))
+        y = 1 if float(label) >= 0.5 else 0
+        samples.append((p, y))
+
+    if len(samples) < _DAILY_PROB_CALIB_MIN_SAMPLES:
+        baseline = float(sum(y for _p, y in samples) / max(1, len(samples))) if samples else 0.5
+        lookup = {
+            "baseline_rate": baseline,
+            "bins": [],
+            "samples": len(samples),
+            "source": "insufficient_samples",
+        }
+        _DAILY_PROB_CALIB_CACHE[cache_key] = lookup
+        return lookup
+
+    samples.sort(key=lambda item: item[0])
+    n = len(samples)
+    num_bins = max(2, min(_DAILY_PROB_CALIB_MAX_BINS, n // _DAILY_PROB_CALIB_MIN_BIN_SAMPLES))
+    if num_bins <= 1:
+        num_bins = 2
+    bins: list[dict[str, float]] = []
+    start = 0
+    for idx in range(num_bins):
+        end = int(round((idx + 1) * n / num_bins))
+        if idx == num_bins - 1:
+            end = n
+        if end <= start:
+            continue
+        bucket = samples[start:end]
+        low = bucket[0][0]
+        high = bucket[-1][0]
+        rate = float(sum(y for _p, y in bucket) / len(bucket))
+        bins.append(
+            {
+                "min_prob": float(low),
+                "max_prob": float(high),
+                "event_rate": float(max(0.0, min(1.0, rate))),
+                "samples": float(len(bucket)),
+            }
+        )
+        start = end
+
+    bins = sorted(bins, key=lambda row: (float(row.get("min_prob") or 0.0), float(row.get("max_prob") or 0.0)))
+    running = 0.0
+    for row in bins:
+        running = max(running, float(row.get("event_rate") or 0.0))
+        row["event_rate"] = float(max(0.0, min(1.0, running)))
+
+    baseline = float(sum(y for _p, y in samples) / n)
+    lookup = {
+        "baseline_rate": float(max(0.0, min(1.0, baseline))),
+        "bins": bins,
+        "samples": int(n),
+        "source": "daily_bin_calibration",
+    }
+    _DAILY_PROB_CALIB_CACHE[cache_key] = lookup
+    return lookup
+
+
+def _calibrate_daily_probability(prob_side: float | None, lookup: dict[str, Any]) -> float | None:
+    if prob_side is None or not math.isfinite(float(prob_side)):
+        return None
+    p = float(max(0.0, min(1.0, prob_side)))
+    baseline = _first_finite((lookup or {}).get("baseline_rate")) or 0.5
+    bins = (lookup or {}).get("bins")
+    if not isinstance(bins, list) or not bins:
+        return float(max(0.0, min(1.0, 0.75 * p + 0.25 * baseline)))
+    fallback = float(max(0.0, min(1.0, 0.70 * p + 0.30 * baseline)))
+    for idx, row in enumerate(bins):
+        if not isinstance(row, dict):
+            continue
+        low = _first_finite(row.get("min_prob"))
+        high = _first_finite(row.get("max_prob"))
+        rate = _first_finite(row.get("event_rate"))
+        if low is None or high is None or rate is None:
+            continue
+        in_bin = (p >= low and p < high) if idx < len(bins) - 1 else (p >= low and p <= high)
+        if in_bin:
+            return float(max(0.0, min(1.0, 0.75 * rate + 0.25 * p)))
+    return fallback
+
+
+def _estimate_daily_downside_risk(
+    *,
+    direction: RankDir,
+    turn_risk: float | None,
+    tail_prob: float | None,
+) -> float:
+    rev = float(max(0.0, min(1.0, turn_risk))) if turn_risk is not None and math.isfinite(float(turn_risk)) else 0.5
+    tail = float(max(0.0, min(1.0, tail_prob))) if tail_prob is not None and math.isfinite(float(tail_prob)) else rev
+    return float(max(0.0, min(1.0, 0.60 * rev + 0.40 * tail)))
+
+
+def _decorate_rule_items_with_entry_gate(
+    items: list[dict],
+    *,
+    direction: RankDir,
+    risk_mode: RankRiskMode = "balanced",
+) -> list[dict]:
+    decorated: list[dict] = []
+    for base in items:
+        item = dict(base)
+        change = _first_finite(item.get("changePct"))
+        weekly_breakout = _first_finite(
+            item.get("weeklyBreakoutUpProb") if direction == "up" else item.get("weeklyBreakoutDownProb")
+        )
+        monthly_breakout = _first_finite(
+            item.get("monthlyBreakoutUpProb") if direction == "up" else item.get("monthlyBreakoutDownProb")
+        )
+        monthly_range = _first_finite(item.get("monthlyRangeProb"))
+        candle = _first_finite(item.get("candleTripletUp") if direction == "up" else item.get("candleTripletDown"))
+        liquidity = _first_finite(item.get("liquidity20d"))
+        prob_proxy = _first_finite(
+            weekly_breakout,
+            monthly_breakout,
+            candle,
+            abs(change) if change is not None else None,
+        )
+        if prob_proxy is None:
+            prob_proxy = 0.0
+        rule_signal = 0.0
+        if change is not None:
+            rule_signal = float(change if direction == "up" else -change)
+        entry_score = float(
+            0.34 * max(0.0, min(1.0, prob_proxy))
+            + 0.24 * max(0.0, min(1.0, (rule_signal + 0.06) / 0.14))
+            + 0.22 * max(0.0, min(1.0, (weekly_breakout or 0.0)))
+            + 0.20 * max(0.0, min(1.0, (monthly_breakout or 0.0)))
+        )
+        if monthly_range is not None and monthly_range >= 0.72 and (monthly_breakout is None or monthly_breakout < 0.55):
+            entry_score -= 0.05
+        entry_score = float(max(0.0, min(1.0, entry_score)))
+        gate_ok = bool(
+            liquidity is not None
+            and prob_proxy >= _DAILY_RULE_GATE_MIN_PROB
+            and (weekly_breakout is not None and weekly_breakout >= _DAILY_RULE_GATE_MIN_BREAKOUT)
+            and entry_score >= _DAILY_RULE_GATE_MIN_ENTRY_SCORE
+        )
+        if gate_ok and (monthly_breakout is not None and monthly_breakout >= 0.60):
+            setup_type = "breakout"
+        elif gate_ok:
+            setup_type = "watch"
+        else:
+            setup_type = "reject"
+        item["hybridScore"] = item.get("hybridScore")
+        item["entryScore"] = float(entry_score)
+        item["playbookScoreBonus"] = 0.0
+        item["probSideRaw"] = float(prob_proxy)
+        item["probSideCalib"] = float(prob_proxy)
+        item["probSide"] = float(prob_proxy)
+        item["entryQualified"] = bool(gate_ok)
+        item["setupType"] = setup_type
+        _apply_entry_playbook_fields(
+            item,
+            direction=direction,
+            setup_type=setup_type,
+            shape_patterns={},
+            risk_mode=risk_mode,
+        )
+        decorated.append(item)
+
+    decorated.sort(
+        key=lambda item: (
+            item.get("entryScore") is None,
+            -(item.get("entryScore") or 0.0),
+            -(item.get("probSide") or 0.0),
+            item.get("code", ""),
+        )
+    )
+    return decorated
 
 
 def _table_exists(conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
@@ -244,6 +661,49 @@ def _rolling_sma(values: list[float], period: int) -> list[float | None]:
     return out
 
 
+def _count_up_streak_with_pending(values: list[float], ma_values: list[float | None]) -> int:
+    up_count = 0
+    down_count = 0
+    pending: str | None = None
+    for value, ma in zip(values, ma_values):
+        if ma is None or not math.isfinite(ma):
+            up_count = 0
+            down_count = 0
+            pending = None
+            continue
+        if value >= ma:
+            if up_count > 0:
+                up_count += 1
+                pending = None
+            elif down_count > 0:
+                if pending == "up":
+                    up_count = 2
+                    down_count = 0
+                    pending = None
+                else:
+                    pending = "up"
+            else:
+                up_count = 1
+                down_count = 0
+                pending = None
+        else:
+            if down_count > 0:
+                down_count += 1
+                pending = None
+            elif up_count > 0:
+                if pending == "down":
+                    down_count = 2
+                    up_count = 0
+                    pending = None
+                else:
+                    pending = "down"
+            else:
+                down_count = 1
+                up_count = 0
+                pending = None
+    return int(max(0, up_count))
+
+
 def _calc_60v_signals(daily_rows: list[tuple]) -> dict[str, float]:
     closes: list[float] = []
     for row in daily_rows:
@@ -258,18 +718,23 @@ def _calc_60v_signals(daily_rows: list[tuple]) -> dict[str, float]:
         "reclaim60": 0.0,
         "v60Core": 0.0,
         "v60Strong": 0.0,
+        "cnt60Up": 0.0,
+        "cnt100Up": 0.0,
     }
     if len(closes) < 62:
         return default
 
     ma20 = _rolling_sma(closes, 20)
     ma60 = _rolling_sma(closes, 60)
+    ma100 = _rolling_sma(closes, 100)
     last_idx = len(closes) - 1
     close_now = closes[last_idx]
     ma20_now = ma20[last_idx]
     ma60_now = ma60[last_idx]
     if ma20_now is None or ma60_now is None:
         return default
+    cnt60_up = _count_up_streak_with_pending(closes, ma60)
+    cnt100_up = _count_up_streak_with_pending(closes, ma100)
 
     ma20_prev = ma20[last_idx - 1] if last_idx - 1 >= 0 else None
     ma60_prev = ma60[last_idx - 1] if last_idx - 1 >= 0 else None
@@ -312,6 +777,8 @@ def _calc_60v_signals(daily_rows: list[tuple]) -> dict[str, float]:
         "reclaim60": 1.0 if reclaim60 else 0.0,
         "v60Core": 1.0 if v60_core else 0.0,
         "v60Strong": 1.0 if v60_strong else 0.0,
+        "cnt60Up": float(cnt60_up),
+        "cnt100Up": float(cnt100_up),
     }
 
 
@@ -489,6 +956,447 @@ def _calc_regime_probs(closes: list[float], *, lookback: int) -> dict[str, float
     }
 
 
+def _detect_monthly_body_box(monthly_rows: list[tuple]) -> dict[str, float | bool | int] | None:
+    min_months = 3
+    max_months = 14
+    max_range_pct = 0.20
+    wild_wick_pct = 0.10
+    if len(monthly_rows) < min_months:
+        return None
+    bars: list[dict[str, float]] = []
+    for row in monthly_rows:
+        if len(row) < 5:
+            continue
+        month = _finite_float(row[0])
+        o = _finite_float(row[1])
+        h = _finite_float(row[2])
+        l = _finite_float(row[3])
+        c = _finite_float(row[4])
+        if month is None or o is None or h is None or l is None or c is None:
+            continue
+        body_high = max(o, c)
+        body_low = min(o, c)
+        bars.append(
+            {
+                "time": float(month),
+                "open": float(o),
+                "high": float(h),
+                "low": float(l),
+                "close": float(c),
+                "body_high": float(body_high),
+                "body_low": float(body_low),
+            }
+        )
+    if len(bars) < min_months:
+        return None
+    length_max = min(max_months, len(bars))
+    for length in range(length_max, min_months - 1, -1):
+        window = bars[-length:]
+        upper = max(item["body_high"] for item in window)
+        lower = min(item["body_low"] for item in window)
+        base = max(abs(lower), 1e-9)
+        range_pct = (upper - lower) / base
+        if range_pct > max_range_pct:
+            continue
+        wild = False
+        for item in window:
+            if item["high"] > upper * (1.0 + wild_wick_pct) or item["low"] < lower * (1.0 - wild_wick_pct):
+                wild = True
+                break
+        return {
+            "start": int(window[0]["time"]),
+            "end": int(window[-1]["time"]),
+            "upper": float(upper),
+            "lower": float(lower),
+            "months": int(length),
+            "rangePct": float(range_pct),
+            "wild": bool(wild),
+            "lastClose": float(window[-1]["close"]),
+        }
+    return None
+
+
+def _calc_monthly_box_state(
+    *,
+    entry_close: float | None,
+    box: dict[str, float | bool | int] | None,
+) -> tuple[str, float | None]:
+    if entry_close is None or box is None:
+        return "no_box", None
+    lower = _first_finite(box.get("lower"))
+    upper = _first_finite(box.get("upper"))
+    if lower is None or upper is None or upper <= lower:
+        return "no_box", None
+    pos = (entry_close - lower) / (upper - lower)
+    if pos < 0.0:
+        return "below_box", float(pos)
+    if pos <= 0.25:
+        return "box_lower", float(pos)
+    if pos <= 0.75:
+        return "box_mid", float(pos)
+    if pos <= 1.0:
+        return "box_upper", float(pos)
+    return "breakout_up", float(pos)
+
+
+def _calc_shape_pattern_flags(
+    *,
+    direction: RankDir,
+    trend_up_strict: bool,
+    trend_down_strict: bool,
+    monthly_box_state: str | None,
+    monthly_box_months: float | None,
+    dist_ma20_signed: float | None,
+    cnt60_up: float | None,
+    cnt100_up: float | None,
+) -> dict[str, bool]:
+    box_state = str(monthly_box_state or "")
+    months = _first_finite(monthly_box_months)
+    cnt60 = _first_finite(cnt60_up)
+    cnt100 = _first_finite(cnt100_up)
+    dist = _first_finite(dist_ma20_signed)
+    is_matured_box = bool(months is not None and months >= 5.0)
+    a1_matured_breakout = False
+    a2_box_trend = False
+    a3_capitulation_rebound = False
+    s1_weak_breakdown = False
+    s2_weak_box = False
+    s3_late_breakout = False
+    d1_short_breakdown = False
+    d2_short_mixed_far = False
+    d3_short_na_below = False
+    dtrap_stackdown_far = False
+    dtrap_overheat_momentum = False
+    if direction == "up":
+        a1_matured_breakout = bool(
+            is_matured_box
+            and box_state == "breakout_up"
+            and cnt60 is not None
+            and 10.0 <= cnt60 < 60.0
+            and cnt100 is not None
+            and (cnt100 < 50.0 or (100.0 <= cnt100 < 200.0))
+        )
+        a2_box_trend = bool(
+            is_matured_box
+            and box_state in {"box_mid", "box_upper"}
+            and trend_up_strict
+            and cnt60 is not None
+            and cnt60 >= 30.0
+            and dist is not None
+            and -0.03 <= dist <= 0.12
+        )
+        a3_capitulation_rebound = bool(
+            trend_down_strict
+            and box_state in {"below_box", "box_lower"}
+            and cnt60 is not None
+            and cnt60 < 10.0
+            and dist is not None
+            and dist <= -0.05
+        )
+        s1_weak_breakdown = bool(
+            (not trend_up_strict)
+            and box_state == "below_box"
+            and cnt60 is not None
+            and cnt100 is not None
+            and cnt60 < 10.0
+            and cnt100 < 20.0
+            and dist is not None
+            and dist < 0.0
+        )
+        s2_weak_box = bool(
+            (not trend_up_strict)
+            and box_state in {"box_lower", "below_box"}
+            and cnt60 is not None
+            and cnt100 is not None
+            and cnt60 < 10.0
+            and cnt100 < 20.0
+        )
+        s3_late_breakout = bool(
+            is_matured_box
+            and box_state == "breakout_up"
+            and cnt100 is not None
+            and cnt100 >= 200.0
+        )
+    else:
+        d1_short_breakdown = bool(
+            (not trend_down_strict)
+            and box_state == "below_box"
+            and dist is not None
+            and dist <= -0.05
+            and cnt60 is not None
+            and cnt100 is not None
+            and cnt60 < 10.0
+            and cnt100 < 20.0
+        )
+        d2_short_mixed_far = bool(
+            (not trend_up_strict)
+            and (not trend_down_strict)
+            and box_state == "below_box"
+            and dist is not None
+            and dist <= -0.05
+        )
+        d3_short_na_below = bool(
+            (not trend_up_strict)
+            and (not trend_down_strict)
+            and box_state in {"below_box", "box_mid", "box_upper", "no_box"}
+            and dist is not None
+            and -0.05 < dist < 0.0
+            and cnt60 is not None
+            and cnt60 < 10.0
+            and cnt100 is not None
+            and cnt100 < 20.0
+        )
+        dtrap_stackdown_far = bool(
+            trend_down_strict
+            and dist is not None
+            and dist <= -0.05
+        )
+        dtrap_overheat_momentum = bool(
+            trend_up_strict
+            and dist is not None
+            and dist >= 0.12
+        )
+    return {
+        "a1MaturedBreakout": a1_matured_breakout,
+        "a2BoxTrend": a2_box_trend,
+        "a3CapitulationRebound": a3_capitulation_rebound,
+        "s1WeakBreakdown": s1_weak_breakdown,
+        "s2WeakBox": s2_weak_box,
+        "s3LateBreakout": s3_late_breakout,
+        "d1ShortBreakdown": d1_short_breakdown,
+        "d2ShortMixedFar": d2_short_mixed_far,
+        "d3ShortNaBelow": d3_short_na_below,
+        "dTrapStackDownFar": dtrap_stackdown_far,
+        "dTrapOverheatMomentum": dtrap_overheat_momentum,
+    }
+
+
+def _recommend_holding_days(
+    *,
+    direction: RankDir,
+    shape_patterns: dict[str, bool],
+) -> tuple[int, str]:
+    if direction == "down":
+        if bool(shape_patterns.get("dTrapStackDownFar")):
+            return 3, "売られ過ぎ反発リスクが高く短期決済"
+        if bool(shape_patterns.get("dTrapOverheatMomentum")):
+            return 5, "順行トレンド逆張りは短期決済"
+        if bool(shape_patterns.get("d1ShortBreakdown")):
+            return 10, "弱形下抜けは10日付近で期待値が高い"
+        if bool(shape_patterns.get("d2ShortMixedFar")):
+            return 10, "混在崩れは10日付近で優位"
+        if bool(shape_patterns.get("d3ShortNaBelow")):
+            return 10, "初期弱含みは短中期で利確優位"
+        return 10, "ショート標準ホールド"
+    if bool(shape_patterns.get("a3CapitulationRebound")):
+        return 20, "反発狙いは20日前後で利確"
+    if bool(shape_patterns.get("a1MaturedBreakout")):
+        return 25, "成熟Box抜けは25日前後のトレンド追随"
+    if bool(shape_patterns.get("a2BoxTrend")):
+        return 25, "Box上半トレンドは25日前後で保有"
+    return 25, "ロング標準ホールド"
+
+
+def _recommend_holding_range(
+    *,
+    direction: RankDir,
+    setup_type: str | None,
+    shape_patterns: dict[str, bool],
+    hold_days: int,
+) -> tuple[int, int]:
+    setup = str(setup_type or "")
+    if direction == "down":
+        if bool(shape_patterns.get("dTrapStackDownFar")):
+            return 3, 5
+        if bool(shape_patterns.get("dTrapOverheatMomentum")):
+            return 3, 7
+        return 7, 12
+    if setup in {"rebound", "turn"} or bool(shape_patterns.get("a3CapitulationRebound")):
+        return 15, 20
+    if setup in {"continuation"}:
+        return 20, 25
+    return 20, max(25, int(hold_days))
+
+
+def _recommend_invalidation_policy(
+    *,
+    direction: RankDir,
+    setup_type: str | None,
+    shape_patterns: dict[str, bool],
+) -> dict[str, Any]:
+    setup = str(setup_type or "")
+    if direction == "down":
+        if bool(shape_patterns.get("dTrapStackDownFar")) or bool(shape_patterns.get("dTrapOverheatMomentum")):
+            return {
+                "invalidationTrigger": "stop3",
+                "invalidationConservativeAction": "exit",
+                "invalidationAggressiveAction": "exit",
+                "invalidationDotenRecommended": False,
+                "invalidationOppositeHoldDays": None,
+                "invalidationExpectedDeltaMean": -0.0030,
+                "invalidationPolicyNote": "否定時は反発が速く、ドテンより撤退を優先",
+            }
+        if (
+            setup == "breakdown"
+            or bool(shape_patterns.get("d1ShortBreakdown"))
+            or bool(shape_patterns.get("d2ShortMixedFar"))
+            or bool(shape_patterns.get("d3ShortNaBelow"))
+        ):
+            return {
+                "invalidationTrigger": "box_reclaim",
+                "invalidationConservativeAction": "exit",
+                "invalidationAggressiveAction": "doten_opt",
+                "invalidationDotenRecommended": True,
+                "invalidationOppositeHoldDays": 25,
+                "invalidationExpectedDeltaMean": _ENTRY_POLICY_DELTA_SHORT_BOX_DOTEN_OPT,
+                "invalidationPolicyNote": "Box回復で下落否定。守りは撤退、攻めはロングへドテン",
+            }
+        return {
+            "invalidationTrigger": "stop5",
+            "invalidationConservativeAction": "exit",
+            "invalidationAggressiveAction": "exit",
+            "invalidationDotenRecommended": False,
+            "invalidationOppositeHoldDays": None,
+            "invalidationExpectedDeltaMean": -0.0016,
+            "invalidationPolicyNote": "明確な否定時のみ撤退し、ショート継続は避ける",
+        }
+
+    if setup in {"rebound", "turn"} or bool(shape_patterns.get("a3CapitulationRebound")):
+        return {
+            "invalidationTrigger": "stop5",
+            "invalidationConservativeAction": "exit",
+            "invalidationAggressiveAction": "hold",
+            "invalidationDotenRecommended": False,
+            "invalidationOppositeHoldDays": None,
+            "invalidationExpectedDeltaMean": -0.0055,
+            "invalidationPolicyNote": "反発狙い否定時は撤退。ドテン期待値は低い",
+        }
+
+    return {
+        "invalidationTrigger": "box_break",
+        "invalidationConservativeAction": "exit",
+        "invalidationAggressiveAction": "hold",
+        "invalidationDotenRecommended": False,
+        "invalidationOppositeHoldDays": None,
+        "invalidationExpectedDeltaMean": _ENTRY_POLICY_DELTA_LONG_BOX_EXIT,
+        "invalidationPolicyNote": "長期上昇取りは継続優位。否定時は守りの撤退のみ",
+    }
+
+
+def _calc_playbook_entry_bonus(
+    *,
+    direction: RankDir,
+    shape_patterns: dict[str, bool],
+) -> float:
+    if direction == "down":
+        if bool(shape_patterns.get("dTrapStackDownFar")) or bool(shape_patterns.get("dTrapOverheatMomentum")):
+            return -_ENTRY_PENALTY_PLAYBOOK_TRAP
+        if (
+            bool(shape_patterns.get("d1ShortBreakdown"))
+            or bool(shape_patterns.get("d2ShortMixedFar"))
+            or bool(shape_patterns.get("d3ShortNaBelow"))
+        ):
+            return _ENTRY_BONUS_PLAYBOOK_SHORT_STRONG
+        return 0.0
+
+    if (
+        bool(shape_patterns.get("s1WeakBreakdown"))
+        or bool(shape_patterns.get("s2WeakBox"))
+        or bool(shape_patterns.get("s3LateBreakout"))
+    ):
+        return -_ENTRY_PENALTY_PLAYBOOK_TRAP
+    if bool(shape_patterns.get("a1MaturedBreakout")) or bool(shape_patterns.get("a2BoxTrend")):
+        return _ENTRY_BONUS_PLAYBOOK_LONG_STRONG
+    if bool(shape_patterns.get("a3CapitulationRebound")):
+        return _ENTRY_BONUS_PLAYBOOK_LONG_REBOUND
+    return 0.0
+
+
+def _resolve_invalidation_recommended_action(
+    *,
+    policy: dict[str, Any],
+    risk_mode: RankRiskMode,
+) -> str:
+    conservative = str(policy.get("invalidationConservativeAction") or "exit")
+    aggressive = str(policy.get("invalidationAggressiveAction") or conservative)
+    doten_recommended = bool(policy.get("invalidationDotenRecommended"))
+    expected_delta = _first_finite(policy.get("invalidationExpectedDeltaMean"))
+    if risk_mode == "defensive":
+        return conservative
+    if risk_mode == "aggressive":
+        return aggressive
+    if doten_recommended and expected_delta is not None and expected_delta > 0:
+        return aggressive
+    return conservative
+
+
+def _resolve_short_precision_gates(*, risk_mode: RankRiskMode) -> tuple[float, float]:
+    if risk_mode == "defensive":
+        return _ENTRY_SHORT_MIN_PROB_DEFENSIVE, _ENTRY_SHORT_MIN_TURN_DEFENSIVE
+    if risk_mode == "aggressive":
+        return _ENTRY_SHORT_MIN_PROB_AGGRESSIVE, _ENTRY_SHORT_MIN_TURN_AGGRESSIVE
+    return _ENTRY_SHORT_MIN_PROB_BALANCED, _ENTRY_SHORT_MIN_TURN_BALANCED
+
+
+def _resolve_short_pressure_score_gate(*, risk_mode: RankRiskMode) -> float:
+    if risk_mode == "defensive":
+        return _ENTRY_SHORT_PRESSURE_SCORE_DEFENSIVE
+    if risk_mode == "aggressive":
+        return _ENTRY_SHORT_PRESSURE_SCORE_AGGRESSIVE
+    return _ENTRY_SHORT_PRESSURE_SCORE_BALANCED
+
+
+def _resolve_short_pressure_max_ev(*, risk_mode: RankRiskMode) -> float:
+    if risk_mode == "defensive":
+        return _ENTRY_SHORT_PRESSURE_MAX_EV_DEFENSIVE
+    if risk_mode == "aggressive":
+        return _ENTRY_SHORT_PRESSURE_MAX_EV_AGGRESSIVE
+    return _ENTRY_SHORT_PRESSURE_MAX_EV_BALANCED
+
+
+def _apply_entry_playbook_fields(
+    item: dict,
+    *,
+    direction: RankDir,
+    setup_type: str | None,
+    shape_patterns: dict[str, bool] | None,
+    risk_mode: RankRiskMode = "balanced",
+) -> None:
+    patterns = shape_patterns if isinstance(shape_patterns, dict) else {}
+    hold_days, hold_reason = _recommend_holding_days(direction=direction, shape_patterns=patterns)
+    hold_min, hold_max = _recommend_holding_range(
+        direction=direction,
+        setup_type=setup_type,
+        shape_patterns=patterns,
+        hold_days=hold_days,
+    )
+    policy = _recommend_invalidation_policy(
+        direction=direction,
+        setup_type=setup_type,
+        shape_patterns=patterns,
+    )
+
+    item["recommendedHoldDays"] = int(hold_days)
+    item["recommendedHoldMinDays"] = int(hold_min)
+    item["recommendedHoldMaxDays"] = int(hold_max)
+    item["recommendedHoldReason"] = str(hold_reason)
+    item["invalidationPolicyVersion"] = _ENTRY_POLICY_VERSION
+    item["invalidationTrigger"] = policy.get("invalidationTrigger")
+    item["invalidationConservativeAction"] = policy.get("invalidationConservativeAction")
+    item["invalidationAggressiveAction"] = policy.get("invalidationAggressiveAction")
+    item["invalidationDotenRecommended"] = bool(policy.get("invalidationDotenRecommended"))
+    opposite_hold = _first_finite(policy.get("invalidationOppositeHoldDays"))
+    item["invalidationOppositeHoldDays"] = int(opposite_hold) if opposite_hold is not None else None
+    delta_mean = _first_finite(policy.get("invalidationExpectedDeltaMean"))
+    item["invalidationExpectedDeltaMean"] = float(delta_mean) if delta_mean is not None else None
+    item["invalidationPolicyNote"] = str(policy.get("invalidationPolicyNote") or "")
+    item["riskMode"] = str(risk_mode)
+    item["invalidationRecommendedAction"] = _resolve_invalidation_recommended_action(
+        policy=policy,
+        risk_mode=risk_mode,
+    )
+
+
 def _sort_items(items: list[dict], direction: RankDir) -> list[dict]:
     def _liquidity(value: float | None) -> float:
         return float(value) if value is not None else -1.0
@@ -650,7 +1558,7 @@ def _fetch_monthly_rows_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) ->
 
 def _fetch_names(conn: duckdb.DuckDBPyConnection) -> dict[str, str]:
     rows = conn.execute("SELECT code, name FROM tickers").fetchall()
-    return {row[0]: row[1] for row in rows}
+    return {row[0]: repair_cp932_mojibake(str(row[1] or row[0])) for row in rows}
 
 
 def _build_cache() -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]:
@@ -716,6 +1624,16 @@ def _build_cache() -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]
         v60_signals = _calc_60v_signals(daily)
         weekly_regime = _calc_regime_probs(weekly_closes, lookback=20)
         monthly_regime = _calc_regime_probs(monthly_closes, lookback=12)
+        monthly_box = _detect_monthly_body_box(monthly)
+        entry_close_for_box = (
+            float(daily_closes[-1])
+            if daily_closes
+            else (float(monthly_closes[-1]) if monthly_closes else None)
+        )
+        monthly_box_state, monthly_box_pos = _calc_monthly_box_state(
+            entry_close=entry_close_for_box,
+            box=monthly_box,
+        )
 
         common_fields = {
             "candleBodyRatio": candle_signals.get("candleBodyRatio"),
@@ -734,9 +1652,16 @@ def _build_cache() -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]
             "monthlyRangeProb": monthly_regime.get("rangeProb"),
             "monthlyRangeWidth": monthly_regime.get("rangeWidth"),
             "monthlyRangePos": monthly_regime.get("rangePos"),
+            "monthlyBoxState": monthly_box_state,
+            "monthlyBoxPos": monthly_box_pos,
+            "monthlyBoxMonths": _first_finite(monthly_box.get("months")) if monthly_box else None,
+            "monthlyBoxRangePct": _first_finite(monthly_box.get("rangePct")) if monthly_box else None,
+            "monthlyBoxWild": bool(monthly_box.get("wild")) if monthly_box else None,
             "reclaim60": v60_signals.get("reclaim60"),
             "v60Core": v60_signals.get("v60Core"),
             "v60Strong": v60_signals.get("v60Strong"),
+            "cnt60Up": v60_signals.get("cnt60Up"),
+            "cnt100Up": v60_signals.get("cnt100Up"),
         }
 
         for which in ("latest", "prev"):
@@ -876,6 +1801,16 @@ def _build_cache_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> dict[t
         v60_signals = _calc_60v_signals(daily)
         weekly_regime = _calc_regime_probs(weekly_closes, lookback=20)
         monthly_regime = _calc_regime_probs(monthly_closes, lookback=12)
+        monthly_box = _detect_monthly_body_box(monthly)
+        entry_close_for_box = (
+            float(daily_closes[-1])
+            if daily_closes
+            else (float(monthly_closes[-1]) if monthly_closes else None)
+        )
+        monthly_box_state, monthly_box_pos = _calc_monthly_box_state(
+            entry_close=entry_close_for_box,
+            box=monthly_box,
+        )
 
         common_fields = {
             "candleBodyRatio": candle_signals.get("candleBodyRatio"),
@@ -894,9 +1829,16 @@ def _build_cache_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> dict[t
             "monthlyRangeProb": monthly_regime.get("rangeProb"),
             "monthlyRangeWidth": monthly_regime.get("rangeWidth"),
             "monthlyRangePos": monthly_regime.get("rangePos"),
+            "monthlyBoxState": monthly_box_state,
+            "monthlyBoxPos": monthly_box_pos,
+            "monthlyBoxMonths": _first_finite(monthly_box.get("months")) if monthly_box else None,
+            "monthlyBoxRangePct": _first_finite(monthly_box.get("rangePct")) if monthly_box else None,
+            "monthlyBoxWild": bool(monthly_box.get("wild")) if monthly_box else None,
             "reclaim60": v60_signals.get("reclaim60"),
             "v60Core": v60_signals.get("v60Core"),
             "v60Strong": v60_signals.get("v60Strong"),
+            "cnt60Up": v60_signals.get("cnt60Up"),
+            "cnt100Up": v60_signals.get("cnt100Up"),
         }
 
         for which in ("latest", "prev"):
@@ -967,7 +1909,21 @@ def _resolve_prediction_dt(conn: duckdb.DuckDBPyConnection, items: list[dict]) -
         {v for v in (_iso_date_to_int(item.get("asOf")) for item in items) if v is not None}
     )
     if as_of_values:
-        row = conn.execute("SELECT MAX(dt) FROM ml_pred_20d WHERE dt <= ?", [as_of_values[-1]]).fetchone()
+        row = conn.execute(
+            """
+            SELECT MAX(dt)
+            FROM ml_pred_20d
+            WHERE (
+                CASE
+                    WHEN dt BETWEEN 19000101 AND 20991231 THEN dt
+                    WHEN dt >= 1000000000000 THEN CAST(strftime(to_timestamp(dt / 1000), '%Y%m%d') AS INTEGER)
+                    WHEN dt >= 1000000000 THEN CAST(strftime(to_timestamp(dt), '%Y%m%d') AS INTEGER)
+                    ELSE NULL
+                END
+            ) <= ?
+            """,
+            [as_of_values[-1]],
+        ).fetchone()
         if row and row[0] is not None:
             return int(row[0])
     row = conn.execute("SELECT MAX(dt) FROM ml_pred_20d").fetchone()
@@ -1065,7 +2021,19 @@ def _resolve_monthly_prediction_dt(conn: duckdb.DuckDBPyConnection, items: list[
     )
     if as_of_month_values:
         row = conn.execute(
-            "SELECT MAX(dt) FROM ml_monthly_pred WHERE dt <= ?",
+            """
+            SELECT MAX(dt)
+            FROM ml_monthly_pred
+            WHERE (
+                CASE
+                    WHEN dt BETWEEN 190001 AND 209912 THEN dt
+                    WHEN dt BETWEEN 19000101 AND 20991231 THEN CAST(dt / 100 AS INTEGER)
+                    WHEN dt >= 1000000000000 THEN CAST(strftime(to_timestamp(dt / 1000), '%Y%m') AS INTEGER)
+                    WHEN dt >= 1000000000 THEN CAST(strftime(to_timestamp(dt), '%Y%m') AS INTEGER)
+                    ELSE NULL
+                END
+            ) <= ?
+            """,
             [as_of_month_values[-1]],
         ).fetchone()
         if row and row[0] is not None:
@@ -1271,6 +2239,40 @@ def _estimate_monthly_side20_probability(
     return float(max(0.0, min(1.0, fallback)))
 
 
+def _candidate_monthly_target_dt(items: list[dict]) -> int | None:
+    as_of_values = sorted(
+        {v for v in (_iso_date_to_int(item.get("asOf")) for item in items) if v is not None}
+    )
+    if not as_of_values:
+        return None
+    return _to_month_start_int(as_of_values[-1])
+
+
+def _try_repair_monthly_prediction(*, pred_dt: int | None, items: list[dict]) -> None:
+    global _MONTHLY_PRED_REPAIR_LAST_ATTEMPT
+    now = datetime.now(timezone.utc)
+    if _MONTHLY_PRED_REPAIR_LAST_ATTEMPT is not None:
+        elapsed = (now - _MONTHLY_PRED_REPAIR_LAST_ATTEMPT).total_seconds()
+        if elapsed < float(_MONTHLY_PRED_REPAIR_COOLDOWN_SEC):
+            return
+    _MONTHLY_PRED_REPAIR_LAST_ATTEMPT = now
+    target_dt = pred_dt if pred_dt is not None else _candidate_monthly_target_dt(items)
+    if target_dt is None:
+        return
+    try:
+        from app.backend.services import ml_service
+
+        result = ml_service.predict_monthly_for_dt(dt=int(target_dt))
+        logger.info(
+            "monthly prediction repaired: target_dt=%s rows=%s model=%s",
+            target_dt,
+            result.get("rows"),
+            result.get("model_version"),
+        )
+    except Exception as exc:
+        logger.warning("monthly prediction repair failed (target_dt=%s): %s", target_dt, exc)
+
+
 def _calc_monthly_accumulation_score(item: dict, *, direction: RankDir) -> float:
     range_prob = _first_finite(item.get("monthlyRangeProb"))
     range_width = _first_finite(item.get("monthlyRangeWidth"))
@@ -1427,21 +2429,36 @@ def _apply_monthly_ml_mode(
     *,
     direction: RankDir,
     limit: int,
+    risk_mode: RankRiskMode = "balanced",
 ) -> tuple[list[dict], int | None, str | None]:
     gate_recommendation = {
         "up": {"abs_gate": float(_MONTHLY_ABS_GATE_DEFAULT), "side_gate": float(_MONTHLY_SIDE_GATE_DEFAULT)},
         "down": {"abs_gate": float(_MONTHLY_ABS_GATE_DEFAULT), "side_gate": float(_MONTHLY_SIDE_GATE_DEFAULT)},
     }
     ret20_lookup = _default_monthly_ret20_lookup()
+    pred_dt: int | None = None
+    pred_map: dict[str, dict] = {}
+    model_version: str | None = None
     try:
         with duckdb.connect(str(core_config.DB_PATH)) as conn:
             pred_dt = _resolve_monthly_prediction_dt(conn, items)
-            if pred_dt is None:
-                return items[:limit], None, None
-            pred_map, model_version = _load_monthly_pred_map(conn, pred_dt)
-            gate_recommendation, ret20_lookup = _load_monthly_gate_recommendation(conn, model_version)
+            if pred_dt is not None:
+                pred_map, model_version = _load_monthly_pred_map(conn, pred_dt)
+                gate_recommendation, ret20_lookup = _load_monthly_gate_recommendation(conn, model_version)
     except Exception:
         return items[:limit], None, None
+
+    if pred_dt is None or not pred_map:
+        _try_repair_monthly_prediction(pred_dt=pred_dt, items=items)
+        try:
+            with duckdb.connect(str(core_config.DB_PATH)) as conn:
+                pred_dt = _resolve_monthly_prediction_dt(conn, items)
+                if pred_dt is None:
+                    return items[:limit], None, None
+                pred_map, model_version = _load_monthly_pred_map(conn, pred_dt)
+                gate_recommendation, ret20_lookup = _load_monthly_gate_recommendation(conn, model_version)
+        except Exception:
+            return items[:limit], None, None
     if not pred_map:
         return items[:limit], pred_dt, model_version
 
@@ -1482,10 +2499,27 @@ def _apply_monthly_ml_mode(
         accumulation_score = _calc_monthly_accumulation_score(item, direction=direction)
         breakout_readiness = _calc_monthly_breakout_readiness_score(item, direction=direction)
         monthly_range_pos = _first_finite(item.get("monthlyRangePos"))
+        monthly_box_state = str(item.get("monthlyBoxState") or "")
+        monthly_box_months = _first_finite(item.get("monthlyBoxMonths"))
+        cnt60_up = _first_finite(item.get("cnt60Up"))
+        cnt100_up = _first_finite(item.get("cnt100Up"))
+        dist_ma20_signed = _first_finite(item.get("distMa20Signed"))
+        trend_up_strict = bool(item.get("trendUpStrict"))
+        trend_down_strict = bool(item.get("trendDownStrict"))
         shooting_star_like = _first_finite(item.get("shootingStarLike"))
         three_white_soldiers = _first_finite(item.get("threeWhiteSoldiers"))
         bull_engulfing = _first_finite(item.get("bullEngulfing"))
         v60_strong = _first_finite(item.get("v60Strong"))
+        shape_patterns = _calc_shape_pattern_flags(
+            direction=direction,
+            trend_up_strict=trend_up_strict,
+            trend_down_strict=trend_down_strict,
+            monthly_box_state=monthly_box_state,
+            monthly_box_months=monthly_box_months,
+            dist_ma20_signed=dist_ma20_signed,
+            cnt60_up=cnt60_up,
+            cnt100_up=cnt100_up,
+        )
         range_trap_penalty = 0.0
         if (
             monthly_range_prob is not None
@@ -1528,6 +2562,22 @@ def _apply_monthly_ml_mode(
                 or (direction == "down" and monthly_range_pos >= 0.62)
             )
         )
+        ma_streak_balanced = bool(
+            direction == "up"
+            and cnt60_up is not None
+            and cnt100_up is not None
+            and cnt60_up >= 30
+            and cnt100_up >= 20
+        )
+        weak_early_pattern = bool(
+            direction == "up"
+            and cnt60_up is not None
+            and cnt100_up is not None
+            and cnt60_up < 10
+            and cnt100_up < 20
+            and monthly_range_pos is not None
+            and monthly_range_pos <= 0.45
+        )
         if direction == "up":
             if shooting_star_like is not None and shooting_star_like >= 0.5:
                 pattern_bonus += _ENTRY_BONUS_CANDLE_PATTERN
@@ -1537,8 +2587,37 @@ def _apply_monthly_ml_mode(
                 pattern_bonus += _ENTRY_BONUS_CANDLE_PATTERN
             if v60_strong is not None and v60_strong >= 0.5:
                 pattern_bonus -= _ENTRY_PENALTY_60V_STRONG
+            if ma_streak_balanced:
+                pattern_bonus += 0.01
+            if weak_early_pattern:
+                pattern_bonus -= _ENTRY_PENALTY_WEAK_EARLY_STREAK
+            if shape_patterns.get("a1MaturedBreakout"):
+                pattern_bonus += _ENTRY_BONUS_PATTERN_A1_MATURED_BREAKOUT
+            if shape_patterns.get("a2BoxTrend"):
+                pattern_bonus += _ENTRY_BONUS_PATTERN_A2_BOX_TREND
+            if shape_patterns.get("a3CapitulationRebound"):
+                pattern_bonus += (_ENTRY_BONUS_PATTERN_A3_CAPITULATION_REBOUND * 0.6)
+            if shape_patterns.get("s1WeakBreakdown"):
+                pattern_bonus -= _ENTRY_PENALTY_PATTERN_S1_WEAK_BREAKDOWN
+            if shape_patterns.get("s2WeakBox"):
+                pattern_bonus -= _ENTRY_PENALTY_PATTERN_S2_WEAK_BOX
+            if shape_patterns.get("s3LateBreakout"):
+                pattern_bonus -= _ENTRY_PENALTY_PATTERN_S3_LATE_BREAKOUT
+        else:
+            if shape_patterns.get("d1ShortBreakdown"):
+                pattern_bonus += _ENTRY_BONUS_PATTERN_D1_SHORT_BREAKDOWN
+            if shape_patterns.get("d2ShortMixedFar"):
+                pattern_bonus += _ENTRY_BONUS_PATTERN_D2_SHORT_MIXED_FAR
+            if shape_patterns.get("d3ShortNaBelow"):
+                pattern_bonus += _ENTRY_BONUS_PATTERN_D3_SHORT_NA_BELOW
+            if shape_patterns.get("dTrapStackDownFar"):
+                pattern_bonus -= _ENTRY_PENALTY_PATTERN_DTRAP_STACKDOWN_FAR
+            if shape_patterns.get("dTrapOverheatMomentum"):
+                pattern_bonus -= _ENTRY_PENALTY_PATTERN_DTRAP_OVERHEAT_MOMENTUM
         if box_bottom_ok:
             pattern_bonus += 0.02
+            if weak_early_pattern:
+                pattern_bonus -= _ENTRY_PENALTY_BOX_BOTTOM_WEAK
 
         item["hybridScore"] = float(score_side) if score_side is not None else None
         item["probSide"] = float(prob_side) if prob_side is not None else None
@@ -1547,6 +2626,21 @@ def _apply_monthly_ml_mode(
         item["accumulationScore"] = float(accumulation_score)
         item["breakoutReadiness"] = float(breakout_readiness)
         item["boxBottomAligned"] = bool(box_bottom_ok)
+        item["maStreak60Up"] = float(cnt60_up) if cnt60_up is not None else None
+        item["maStreak100Up"] = float(cnt100_up) if cnt100_up is not None else None
+        item["maStreakAligned"] = bool(ma_streak_balanced)
+        item["weakEarlyPattern"] = bool(weak_early_pattern)
+        item["patternA1MaturedBreakout"] = bool(shape_patterns.get("a1MaturedBreakout"))
+        item["patternA2BoxTrend"] = bool(shape_patterns.get("a2BoxTrend"))
+        item["patternA3CapitulationRebound"] = bool(shape_patterns.get("a3CapitulationRebound"))
+        item["patternS1WeakBreakdown"] = bool(shape_patterns.get("s1WeakBreakdown"))
+        item["patternS2WeakBox"] = bool(shape_patterns.get("s2WeakBox"))
+        item["patternS3LateBreakout"] = bool(shape_patterns.get("s3LateBreakout"))
+        item["patternD1ShortBreakdown"] = bool(shape_patterns.get("d1ShortBreakdown"))
+        item["patternD2ShortMixedFar"] = bool(shape_patterns.get("d2ShortMixedFar"))
+        item["patternD3ShortNaBelow"] = bool(shape_patterns.get("d3ShortNaBelow"))
+        item["patternDTrapStackDownFar"] = bool(shape_patterns.get("dTrapStackDownFar"))
+        item["patternDTrapOverheatMomentum"] = bool(shape_patterns.get("dTrapOverheatMomentum"))
         item["candlestickPatternBonus"] = float(pattern_bonus)
         item["v60StrongPenalty"] = bool(direction == "up" and v60_strong is not None and v60_strong >= 0.5)
         item["target20Gate"] = float(target20_gate)
@@ -1557,6 +2651,10 @@ def _apply_monthly_ml_mode(
         )
         item["entryGateAbs"] = float(abs_gate)
         item["entryGateSide"] = float(side_gate)
+        playbook_bonus = _calc_playbook_entry_bonus(
+            direction=direction,
+            shape_patterns=shape_patterns,
+        )
         item["entryScore"] = (
             float(
                 0.48 * (score_side if score_side is not None else 0.0)
@@ -1565,15 +2663,33 @@ def _apply_monthly_ml_mode(
                 + 0.06 * accumulation_score
                 + regime_bonus
                 + pattern_bonus
+                + playbook_bonus
             )
             if score_side is not None
             else None
         )
+        item["playbookScoreBonus"] = float(playbook_bonus)
         item["monthlyRegimeAligned"] = bool(monthly_breakout_prob is not None and monthly_breakout_prob >= 0.60)
         trend_breakout_ok = bool(
             breakout_readiness >= 0.70
             and prob_side is not None
             and prob_side >= max(float(side_gate), 0.25)
+        )
+        matured_breakout_ok = bool(
+            direction == "up"
+            and shape_patterns.get("a1MaturedBreakout")
+            and prob_side is not None
+            and prob_side >= max(0.22, float(side_gate) * 0.90)
+        )
+        short_breakdown_ok = bool(
+            direction == "down"
+            and (
+                shape_patterns.get("d1ShortBreakdown")
+                or shape_patterns.get("d2ShortMixedFar")
+                or shape_patterns.get("d3ShortNaBelow")
+            )
+            and prob_side is not None
+            and prob_side >= max(0.20, float(side_gate) * 0.88)
         )
         accumulation_ok = bool(
             accumulation_score >= 0.70
@@ -1582,12 +2698,30 @@ def _apply_monthly_ml_mode(
             and prob_side >= max(0.20, float(side_gate) * 0.85)
         )
         target20_ok = bool(p_side20_adj is not None and p_side20_adj >= target20_gate)
-        if target20_ok and trend_breakout_ok:
+        weak_shape_block = bool(
+            (
+                direction == "up"
+                and (
+                    shape_patterns.get("s1WeakBreakdown")
+                    or shape_patterns.get("s2WeakBox")
+                )
+            )
+            or (
+                direction == "down"
+                and (
+                    shape_patterns.get("dTrapStackDownFar")
+                    or shape_patterns.get("dTrapOverheatMomentum")
+                )
+            )
+        )
+        if target20_ok and (trend_breakout_ok or matured_breakout_ok):
             setup_type = "breakout20"
+        elif short_breakdown_ok:
+            setup_type = "breakdown"
+        elif matured_breakout_ok or trend_breakout_ok:
+            setup_type = "breakout"
         elif accumulation_ok:
             setup_type = "accumulation"
-        elif trend_breakout_ok:
-            setup_type = "breakout"
         else:
             setup_type = "watch"
         item["setupType"] = setup_type
@@ -1597,7 +2731,19 @@ def _apply_monthly_ml_mode(
             and prob_side is not None
             and prob_side >= float(side_gate)
             and _first_finite(item.get("liquidity20d")) is not None
-            and (target20_ok or trend_breakout_ok or accumulation_ok)
+            and (target20_ok or trend_breakout_ok or matured_breakout_ok or short_breakdown_ok or accumulation_ok)
+            and (not weak_shape_block)
+            and (
+                direction != "up"
+                or not bool(shape_patterns.get("s3LateBreakout"))
+            )
+        )
+        _apply_entry_playbook_fields(
+            item,
+            direction=direction,
+            setup_type=setup_type,
+            shape_patterns=shape_patterns,
+            risk_mode=risk_mode,
         )
         if item["entryQualified"]:
             qualified.append(item)
@@ -1626,15 +2772,25 @@ def _apply_monthly_ml_mode(
         if code in seen:
             continue
         seen.add(code)
-        candidate = by_code.get(code) or {
-            **base,
-            "mlPAbsBig": None,
-            "mlPUpBig": None,
-            "mlPDownBig": None,
-            "mlScoreUp1M": None,
-            "mlScoreDown1M": None,
-            "entryQualified": False,
-        }
+        candidate = by_code.get(code)
+        if candidate is None:
+            candidate = {
+                **base,
+                "mlPAbsBig": None,
+                "mlPUpBig": None,
+                "mlPDownBig": None,
+                "mlScoreUp1M": None,
+                "mlScoreDown1M": None,
+                "entryQualified": False,
+                "setupType": "watch",
+            }
+            _apply_entry_playbook_fields(
+                candidate,
+                direction=direction,
+                setup_type=str(candidate.get("setupType") or "watch"),
+                shape_patterns={},
+                risk_mode=risk_mode,
+            )
         selected.append(candidate)
         if len(selected) >= limit:
             break
@@ -1645,6 +2801,7 @@ def _load_daily_snapshot_map(
     conn: duckdb.DuckDBPyConnection,
     anchor_dt: int,
 ) -> dict[str, dict]:
+    anchor_ymd = _to_yyyymmdd_int(anchor_dt)
     rows = conn.execute(
         """
         WITH latest AS (
@@ -1657,7 +2814,7 @@ def _load_daily_snapshot_map(
                 ROW_NUMBER() OVER (PARTITION BY b.code ORDER BY b.date DESC) AS rn
             FROM daily_bars b
             LEFT JOIN daily_ma m ON m.code = b.code AND m.date = b.date
-            WHERE b.date <= ?
+            WHERE b.date <= CASE WHEN b.date >= 1000000000 THEN ? ELSE ? END
         )
         SELECT
             code,
@@ -1672,7 +2829,7 @@ def _load_daily_snapshot_map(
         WHERE rn <= 2
         GROUP BY code
         """,
-        [anchor_dt],
+        [int(anchor_dt), int(anchor_ymd)],
     ).fetchall()
     snapshot_map: dict[str, dict] = {}
     for row in rows:
@@ -1849,7 +3006,9 @@ def _apply_ml_mode(
     direction: RankDir,
     mode: RankMode,
     limit: int,
+    risk_mode: RankRiskMode = "balanced",
 ) -> tuple[list[dict], int | None, str | None]:
+    daily_prob_lookup = _default_daily_prob_lookup()
     try:
         with duckdb.connect(str(core_config.DB_PATH)) as conn:
             pred_dt = _resolve_prediction_dt(conn, items)
@@ -1857,6 +3016,7 @@ def _apply_ml_mode(
                 return items[:limit], None, None
             pred_map, model_version = _load_ml_pred_map(conn, pred_dt)
             snapshot_map = _load_daily_snapshot_map(conn, pred_dt)
+            daily_prob_lookup = _load_daily_prob_lookup(conn, pred_dt=pred_dt, direction=direction)
     except Exception:
         return items[:limit], None, None
 
@@ -1945,6 +3105,10 @@ def _apply_ml_mode(
         )
         for item in enriched
     }
+    calibrated_prob_values = {
+        code: _calibrate_daily_probability(prob, daily_prob_lookup)
+        for code, prob in prob_values.items()
+    }
     rank_values = {
         str(item.get("code") or ""): (
             _rank_up(item)
@@ -1979,21 +3143,64 @@ def _apply_ml_mode(
     }
     rule_rank = _percent_rank_desc(rule_values)
     ev_rank = _percent_rank_desc(ev_values)
-    prob_rank = _percent_rank_desc(prob_values)
+    prob_rank = _percent_rank_desc(calibrated_prob_values)
     rank_rank = _percent_rank_desc(rank_values)
     turn_rank = _percent_rank_desc(turn_values)
     turn_margin_rank = _percent_rank_desc(turn_margin_values)
     qualified: list[dict] = []
     fallback: list[dict] = []
+    base_order = {str(item.get("code") or ""): idx for idx, item in enumerate(enriched)}
+
+    def _base_entry_sort_key(item: dict) -> tuple[Any, ...]:
+        code = str(item.get("code") or "")
+        entry_score = _first_finite(item.get("entryScore"))
+        prob_side = _first_finite(item.get("probSide"))
+        hybrid_score = _first_finite(item.get("hybridScore"))
+        ev_side_raw = _first_finite(item.get("mlEv20Net"))
+        ev_side = (
+            ev_side_raw
+            if ev_side_raw is None
+            else (ev_side_raw if direction == "up" else -ev_side_raw)
+        )
+        return (
+            entry_score is None,
+            -(entry_score or 0.0),
+            prob_side is None,
+            -(prob_side or 0.0),
+            hybrid_score is None,
+            -(hybrid_score or 0.0),
+            ev_side is None,
+            -(ev_side or 0.0),
+            base_order.get(code, 10**9),
+            code,
+        )
+
+    def _merge_unique(groups: list[list[dict]]) -> list[dict]:
+        merged: list[dict] = []
+        seen: set[str] = set()
+        for group in groups:
+            for item in group:
+                code = str(item.get("code") or "")
+                if not code or code in seen:
+                    continue
+                merged.append(item)
+                seen.add(code)
+        return merged
+
     for item in enriched:
         code = str(item.get("code") or "")
+        item["entryQualifiedByFallback"] = False
+        item["entryQualifiedFallbackStage"] = None
         rr = rule_rank.get(code)
         er = ev_rank.get(code)
         pr = prob_rank.get(code)
         rkr = rank_rank.get(code)
         tr = turn_rank.get(code)
         tmr = turn_margin_rank.get(code)
-        prob = prob_values.get(code)
+        prob_raw = prob_values.get(code)
+        prob = calibrated_prob_values.get(code)
+        if prob is None:
+            prob = prob_raw
         p_up_5d = _first_finite(item.get("mlPUp5"), item.get("mlPUpShort"), item.get("mlPUp"))
         p_up_10d = _first_finite(item.get("mlPUp10"), item.get("mlPUp"))
         p_up_20d = _first_finite(item.get("mlPUp"))
@@ -2014,6 +3221,14 @@ def _apply_ml_mode(
         prob_5d = p_up_5d if direction == "up" else p_down_5d
         prob_10d = p_up_10d if direction == "up" else p_down_10d
         prob_20d = p_up_20d if direction == "up" else p_down_20d
+        turn_risk = _turn_down_short(item) if direction == "up" else _turn_up_short(item)
+        tail_risk = p_down_5d if direction == "up" else p_up_5d
+        downside_risk = _estimate_daily_downside_risk(
+            direction=direction,
+            turn_risk=turn_risk,
+            tail_prob=tail_risk,
+        )
+        risk_safety = float(max(0.0, min(1.0, 1.0 - downside_risk)))
         if direction == "up":
             prob_5d_gate = _ENTRY_MIN_PROB_UP_5D
             prob_5d_ok = bool(
@@ -2030,7 +3245,12 @@ def _apply_ml_mode(
             item["hybridScore"] = None
             item["entryScore"] = None
             continue
-        base_score_raw = float(cfg.rule_weight * rr + cfg.ev_weight * er + cfg.prob_weight * pr)
+        weighted_core = float(
+            _DAILY_SCORE_RULE_WEIGHT * rr
+            + _DAILY_SCORE_EV_WEIGHT * er
+            + _DAILY_SCORE_PROB_WEIGHT * pr
+        )
+        base_score_raw = float((1.0 - _DAILY_RISK_WEIGHT) * weighted_core + _DAILY_RISK_WEIGHT * risk_safety)
         rank_weight = float(min(0.8, max(0.0, getattr(cfg, "rank_weight", 0.0))))
         base_score = (
             float((1.0 - rank_weight) * base_score_raw + rank_weight * rkr)
@@ -2113,11 +3333,92 @@ def _apply_ml_mode(
         )
         monthly_range_prob = _first_finite(item.get("monthlyRangeProb"))
         monthly_range_pos = _first_finite(item.get("monthlyRangePos"))
+        monthly_box_state = str(item.get("monthlyBoxState") or "")
+        monthly_box_months = _first_finite(item.get("monthlyBoxMonths"))
+        cnt60_up = _first_finite(item.get("cnt60Up"))
+        cnt100_up = _first_finite(item.get("cnt100Up"))
+        dist_ma20_signed = _first_finite(item.get("distMa20Signed"))
+        ma20_slope = _first_finite(item.get("ma20Slope"))
+        ma60_slope = _first_finite(item.get("ma60Slope"))
         shooting_star_like = _first_finite(item.get("shootingStarLike"))
         three_white_soldiers = _first_finite(item.get("threeWhiteSoldiers"))
         bull_engulfing = _first_finite(item.get("bullEngulfing"))
         v60_strong = _first_finite(item.get("v60Strong"))
+        short_prob_gate, short_turn_gate = _resolve_short_precision_gates(risk_mode=risk_mode)
+        short_prob_ok = bool(
+            direction != "down"
+            or (
+                isinstance(prob, (int, float))
+                and math.isfinite(float(prob))
+                and float(prob) >= float(short_prob_gate)
+            )
+        )
+        short_turn_ok = bool(
+            direction != "down"
+            or (
+                isinstance(turn_prob, (int, float))
+                and math.isfinite(float(turn_prob))
+                and float(turn_prob) >= float(short_turn_gate)
+            )
+        )
         trend_strict_ok = bool(item.get("trendUpStrict")) if direction == "up" else bool(item.get("trendDownStrict"))
+        trend_down_strict = bool(item.get("trendDownStrict"))
+        shape_patterns = _calc_shape_pattern_flags(
+            direction=direction,
+            trend_up_strict=bool(item.get("trendUpStrict")),
+            trend_down_strict=trend_down_strict,
+            monthly_box_state=monthly_box_state,
+            monthly_box_months=monthly_box_months,
+            dist_ma20_signed=dist_ma20_signed,
+            cnt60_up=cnt60_up,
+            cnt100_up=cnt100_up,
+        )
+        short_pattern_strong = bool(
+            direction == "down"
+            and (
+                shape_patterns.get("d1ShortBreakdown")
+                or shape_patterns.get("d2ShortMixedFar")
+                or shape_patterns.get("d3ShortNaBelow")
+            )
+        )
+        short_overheat_block = bool(
+            direction == "down"
+            and bool(item.get("trendUpStrict"))
+            and dist_ma20_signed is not None
+            and dist_ma20_signed >= _ENTRY_SHORT_OVERHEAT_DIST
+            and ma20_slope is not None
+            and ma20_slope > 0.0
+            and ma60_slope is not None
+            and ma60_slope > 0.0
+        )
+        short_overheat_override = bool(
+            short_overheat_block
+            and short_pattern_strong
+            and isinstance(prob, (int, float))
+            and math.isfinite(float(prob))
+            and float(prob) >= _ENTRY_SHORT_OVERHEAT_STRONG_PROB
+            and isinstance(turn_prob, (int, float))
+            and math.isfinite(float(turn_prob))
+            and float(turn_prob) >= _ENTRY_SHORT_OVERHEAT_STRONG_TURN
+        )
+        short_precision_gate = bool(
+            direction != "down"
+            or (
+                short_prob_ok
+                and short_turn_ok
+                and ((not short_overheat_block) or short_overheat_override)
+            )
+        )
+        short_precision_gate_reason = "ok"
+        if direction == "down":
+            reason_parts: list[str] = []
+            if not short_prob_ok:
+                reason_parts.append("p_down")
+            if not short_turn_ok:
+                reason_parts.append("p_turn_down")
+            if short_overheat_block and not short_overheat_override:
+                reason_parts.append("overheat_uptrend")
+            short_precision_gate_reason = "ok" if not reason_parts else ",".join(reason_parts)
         mtf_strong_alignment = bool(
             trend_strict_ok
             and weekly_breakout_prob is not None
@@ -2133,6 +3434,32 @@ def _apply_ml_mode(
                 (direction == "up" and monthly_range_pos <= 0.38)
                 or (direction == "down" and monthly_range_pos >= 0.62)
             )
+        )
+        ma_streak_balanced = bool(
+            direction == "up"
+            and cnt60_up is not None
+            and cnt100_up is not None
+            and cnt60_up >= 30
+            and cnt100_up >= 20
+        )
+        breakout_stack_streak = bool(
+            direction == "up"
+            and trend_strict_ok
+            and monthly_breakout_prob is not None
+            and monthly_breakout_prob >= 0.58
+            and cnt60_up is not None
+            and cnt60_up >= 30
+            and cnt60_up < 100
+        )
+        weak_early_pattern = bool(
+            direction == "up"
+            and cnt60_up is not None
+            and cnt100_up is not None
+            and cnt60_up < 10
+            and cnt100_up < 20
+            and (not trend_ok)
+            and dist_ma20_signed is not None
+            and dist_ma20_signed < 0.0
         )
         candle_shape_bonus = 0.0
         if direction == "up":
@@ -2167,9 +3494,41 @@ def _apply_ml_mode(
             bonus += 0.05
         if mtf_strong_alignment:
             bonus += _ENTRY_BONUS_MTF_SYNERGY
+        if ma_streak_balanced and trend_ok and dist_ok:
+            bonus += _ENTRY_BONUS_MA_STREAK_BALANCED
+        if breakout_stack_streak:
+            bonus += _ENTRY_BONUS_BREAKOUT_STACK_STREAK
         if box_bottom_ok:
             bonus += _ENTRY_BONUS_BOX_BOTTOM
+            if weak_early_pattern:
+                bonus -= _ENTRY_PENALTY_BOX_BOTTOM_WEAK
         bonus += candle_shape_bonus
+        if weak_early_pattern:
+            bonus -= _ENTRY_PENALTY_WEAK_EARLY_STREAK
+        if direction == "up":
+            if shape_patterns.get("a1MaturedBreakout"):
+                bonus += _ENTRY_BONUS_PATTERN_A1_MATURED_BREAKOUT
+            if shape_patterns.get("a2BoxTrend"):
+                bonus += _ENTRY_BONUS_PATTERN_A2_BOX_TREND
+            if shape_patterns.get("a3CapitulationRebound"):
+                bonus += _ENTRY_BONUS_PATTERN_A3_CAPITULATION_REBOUND
+            if shape_patterns.get("s1WeakBreakdown"):
+                bonus -= _ENTRY_PENALTY_PATTERN_S1_WEAK_BREAKDOWN
+            if shape_patterns.get("s2WeakBox"):
+                bonus -= _ENTRY_PENALTY_PATTERN_S2_WEAK_BOX
+            if shape_patterns.get("s3LateBreakout"):
+                bonus -= _ENTRY_PENALTY_PATTERN_S3_LATE_BREAKOUT
+        else:
+            if shape_patterns.get("d1ShortBreakdown"):
+                bonus += _ENTRY_BONUS_PATTERN_D1_SHORT_BREAKDOWN
+            if shape_patterns.get("d2ShortMixedFar"):
+                bonus += _ENTRY_BONUS_PATTERN_D2_SHORT_MIXED_FAR
+            if shape_patterns.get("d3ShortNaBelow"):
+                bonus += _ENTRY_BONUS_PATTERN_D3_SHORT_NA_BELOW
+            if shape_patterns.get("dTrapStackDownFar"):
+                bonus -= _ENTRY_PENALTY_PATTERN_DTRAP_STACKDOWN_FAR
+            if shape_patterns.get("dTrapOverheatMomentum"):
+                bonus -= _ENTRY_PENALTY_PATTERN_DTRAP_OVERHEAT_MOMENTUM
         if direction == "up" and v60_strong is not None and v60_strong >= 0.5:
             bonus -= _ENTRY_PENALTY_60V_STRONG
         if (
@@ -2178,7 +3537,42 @@ def _apply_ml_mode(
             and (monthly_breakout_prob is None or monthly_breakout_prob < 0.55)
         ):
             bonus -= 0.02
-        item["entryScore"] = float((item.get("hybridScore") or 0.0) + bonus)
+        rev_risk_penalty = float(
+            max(
+                0.0,
+                _DAILY_REV_RISK_PENALTY_WEIGHT
+                * ((float(turn_risk) - 0.45) / 0.55 if isinstance(turn_risk, (int, float)) else 0.0),
+            )
+        )
+        tail_risk_penalty = float(
+            max(
+                0.0,
+                _DAILY_TAIL_RISK_PENALTY_WEIGHT
+                * ((float(tail_risk) - 0.50) / 0.50 if isinstance(tail_risk, (int, float)) else 0.0),
+            )
+        )
+        risk_penalty = float(max(0.0, rev_risk_penalty + tail_risk_penalty))
+        rule_signal_norm = 0.5
+        if isinstance(rule_signal, (int, float)) and math.isfinite(float(rule_signal)):
+            if direction == "up":
+                rule_signal_norm = float(max(0.0, min(1.0, (float(rule_signal) + 0.04) / 0.12)))
+            else:
+                rule_signal_norm = float(max(0.0, min(1.0, ((-float(rule_signal)) + 0.04) / 0.12)))
+        hybrid_value = float(item.get("hybridScore") or 0.0)
+        prob_value = float(prob) if isinstance(prob, (int, float)) and math.isfinite(float(prob)) else 0.0
+        item["entryScore"] = float(
+            0.55 * hybrid_value
+            + 0.25 * rule_signal_norm
+            + 0.20 * prob_value
+            + bonus
+            - risk_penalty
+        )
+        playbook_bonus = _calc_playbook_entry_bonus(
+            direction=direction,
+            shape_patterns=shape_patterns,
+        )
+        item["playbookScoreBonus"] = float(playbook_bonus)
+        item["entryScore"] = float(max(0.0, min(1.0, float(item["entryScore"]) + playbook_bonus)))
         item["evAligned"] = bool(ev_ok)
         item["trendAligned"] = bool(trend_ok)
         item["distOk"] = bool(dist_ok)
@@ -2189,6 +3583,22 @@ def _apply_ml_mode(
         item["trendStrictAligned"] = bool(trend_strict_ok)
         item["mtfStrongAligned"] = bool(mtf_strong_alignment)
         item["boxBottomAligned"] = bool(box_bottom_ok)
+        item["maStreak60Up"] = float(cnt60_up) if cnt60_up is not None else None
+        item["maStreak100Up"] = float(cnt100_up) if cnt100_up is not None else None
+        item["maStreakAligned"] = bool(ma_streak_balanced)
+        item["breakoutStackStreakAligned"] = bool(breakout_stack_streak)
+        item["weakEarlyPattern"] = bool(weak_early_pattern)
+        item["patternA1MaturedBreakout"] = bool(shape_patterns.get("a1MaturedBreakout"))
+        item["patternA2BoxTrend"] = bool(shape_patterns.get("a2BoxTrend"))
+        item["patternA3CapitulationRebound"] = bool(shape_patterns.get("a3CapitulationRebound"))
+        item["patternS1WeakBreakdown"] = bool(shape_patterns.get("s1WeakBreakdown"))
+        item["patternS2WeakBox"] = bool(shape_patterns.get("s2WeakBox"))
+        item["patternS3LateBreakout"] = bool(shape_patterns.get("s3LateBreakout"))
+        item["patternD1ShortBreakdown"] = bool(shape_patterns.get("d1ShortBreakdown"))
+        item["patternD2ShortMixedFar"] = bool(shape_patterns.get("d2ShortMixedFar"))
+        item["patternD3ShortNaBelow"] = bool(shape_patterns.get("d3ShortNaBelow"))
+        item["patternDTrapStackDownFar"] = bool(shape_patterns.get("dTrapStackDownFar"))
+        item["patternDTrapOverheatMomentum"] = bool(shape_patterns.get("dTrapOverheatMomentum"))
         item["candlestickPatternBonus"] = float(candle_shape_bonus)
         item["v60StrongPenalty"] = bool(direction == "up" and v60_strong is not None and v60_strong >= 0.5)
         item["weeklyRegimeAligned"] = bool(
@@ -2197,15 +3607,111 @@ def _apply_ml_mode(
         item["monthlyRegimeAligned"] = bool(
             monthly_breakout_prob is not None and monthly_breakout_prob >= 0.60
         )
-        item["probSide"] = float(prob) if prob is not None else None
+        item["probSideRaw"] = float(prob_raw) if prob_raw is not None else None
+        item["probSideCalib"] = float(prob) if prob is not None else None
+        item["probSide"] = float(prob) if prob is not None else (float(prob_raw) if prob_raw is not None else None)
+        item["revRisk"] = float(turn_risk) if isinstance(turn_risk, (int, float)) and math.isfinite(float(turn_risk)) else None
+        item["tailRisk"] = float(tail_risk) if isinstance(tail_risk, (int, float)) and math.isfinite(float(tail_risk)) else None
+        item["downsideRisk"] = float(downside_risk)
+        item["riskPenalty"] = float(risk_penalty)
         item["prob5d"] = float(prob_5d) if isinstance(prob_5d, (int, float)) and math.isfinite(float(prob_5d)) else None
         item["prob10d"] = float(prob_10d) if isinstance(prob_10d, (int, float)) and math.isfinite(float(prob_10d)) else None
         item["prob20d"] = float(prob_20d) if isinstance(prob_20d, (int, float)) and math.isfinite(float(prob_20d)) else None
         item["prob5dAligned"] = bool(prob_5d_ok)
         item["probCurveAligned"] = bool(prob_curve_ok)
         item["horizonAligned"] = bool(horizon_ok)
+        item["shortPrecisionProbGate"] = float(short_prob_gate) if direction == "down" else None
+        item["shortPrecisionTurnGate"] = float(short_turn_gate) if direction == "down" else None
+        item["shortPrecisionProbAligned"] = bool(short_prob_ok) if direction == "down" else None
+        item["shortPrecisionTurnAligned"] = bool(short_turn_ok) if direction == "down" else None
+        item["shortOverheatBlocked"] = (
+            bool(short_overheat_block and not short_overheat_override)
+            if direction == "down"
+            else None
+        )
+        item["shortOverheatOverride"] = bool(short_overheat_override) if direction == "down" else None
+        item["shortPrecisionGate"] = bool(short_precision_gate) if direction == "down" else None
+        item["shortPrecisionGateReason"] = short_precision_gate_reason if direction == "down" else None
+        score_gate_ok = bool(
+            isinstance(item.get("entryScore"), (int, float))
+            and math.isfinite(float(item.get("entryScore")))
+            and float(item.get("entryScore")) >= _DAILY_ENTRY_SCORE_GATE_STRICT
+        )
+        strict_prob_ok = bool(prob is not None and prob >= (prob_gate + 0.02))
+        if direction == "down":
+            strict_prob_ok = bool(strict_prob_ok and short_prob_ok)
+        short_pressure_score_gate = _resolve_short_pressure_score_gate(risk_mode=risk_mode)
+        short_pressure_max_ev = _resolve_short_pressure_max_ev(risk_mode=risk_mode)
+        weak_shape_block = bool(
+            (
+                direction == "up"
+                and (
+                    shape_patterns.get("s1WeakBreakdown")
+                    or shape_patterns.get("s2WeakBox")
+                )
+            )
+            or (
+                direction == "down"
+                and (
+                    shape_patterns.get("dTrapStackDownFar")
+                    or shape_patterns.get("dTrapOverheatMomentum")
+                )
+            )
+        )
+        late_breakout_caution = bool(direction == "up" and shape_patterns.get("s3LateBreakout"))
+        short_pattern_setup = bool(
+            direction == "down"
+            and (
+                shape_patterns.get("d1ShortBreakdown")
+                or shape_patterns.get("d2ShortMixedFar")
+                or shape_patterns.get("d3ShortNaBelow")
+            )
+            and turn_ok
+            and strict_prob_ok
+        )
+        short_pressure_setup = bool(
+            direction == "down"
+            and short_precision_gate
+            and turn_ok
+            and short_prob_ok
+            and counter_move_ok
+            and horizon_ok
+            and (not weak_shape_block)
+            and isinstance(item.get("entryScore"), (int, float))
+            and math.isfinite(float(item.get("entryScore")))
+            and float(item.get("entryScore")) >= short_pressure_score_gate
+            and isinstance(ev_net, (int, float))
+            and math.isfinite(float(ev_net))
+            and float(ev_net) <= short_pressure_max_ev
+            and (
+                rule_ok
+                or (
+                    ev_ok
+                    and prob is not None
+                    and prob >= (prob_gate + _ENTRY_SHORT_PRESSURE_PROB_EXTRA)
+                )
+            )
+        )
+        rebound_setup = bool(
+            direction == "up"
+            and shape_patterns.get("a3CapitulationRebound")
+            and turn_ok
+            and horizon_ok
+            and downside_risk <= 0.60
+        )
         if mode == "turn":
-            item["entryQualified"] = bool(turn_ok and dist_ok and counter_move_ok and horizon_ok)
+            setup_type = "rebound" if rebound_setup else "turn"
+            item["entryQualified"] = bool(
+                turn_ok
+                and dist_ok
+                and counter_move_ok
+                and horizon_ok
+                and downside_risk <= 0.60
+                and (score_gate_ok or (direction == "down" and short_pressure_setup))
+                and (not weak_shape_block)
+                and (short_precision_gate if direction == "down" else True)
+                and (direction == "up" or short_pattern_setup or short_pressure_setup)
+            )
         else:
             trend_path_ok = bool(
                 prob is not None
@@ -2213,25 +3719,84 @@ def _apply_ml_mode(
                 and ev_ok
                 and trend_ok
             )
-            item["entryQualified"] = bool(
-                (trend_path_ok or turn_ok)
+            breakout_setup = bool(
+                trend_path_ok
+                and turn_ok
+                and strict_prob_ok
+                and (
+                    (weekly_breakout_prob is not None and weekly_breakout_prob >= 0.54)
+                    or (monthly_breakout_prob is not None and monthly_breakout_prob >= 0.58)
+                )
+            )
+            matured_breakout_setup = bool(
+                direction == "up"
+                and shape_patterns.get("a1MaturedBreakout")
+                and turn_ok
+                and strict_prob_ok
+                and (
+                    monthly_breakout_prob is None
+                    or monthly_breakout_prob >= 0.54
+                )
+            )
+            accumulation_setup = bool(
+                turn_ok
                 and dist_ok
+                and box_bottom_ok
+                and not weak_early_pattern
+                and not weak_shape_block
+                and strict_prob_ok
+            )
+            continuation_setup = bool(
+                trend_path_ok
+                and dist_ok
+                and horizon_ok
+                and strict_prob_ok
+            )
+            setup_type = (
+                "breakout"
+                if (breakout_setup or matured_breakout_setup)
+                else (
+                    "rebound"
+                    if rebound_setup
+                    else (
+                        "breakdown"
+                        if short_pattern_setup
+                        else ("pressure" if short_pressure_setup else ("accumulation" if accumulation_setup else ("continuation" if continuation_setup else "watch")))
+                    )
+                )
+            )
+            item["entryQualified"] = bool(
+                (
+                    breakout_setup
+                    or matured_breakout_setup
+                    or rebound_setup
+                    or short_pattern_setup
+                    or short_pressure_setup
+                    or accumulation_setup
+                    or continuation_setup
+                )
                 and (rule_ok if direction == "up" else counter_move_ok)
                 and horizon_ok
+                and downside_risk <= 0.65
+                and (score_gate_ok or (direction == "down" and short_pressure_setup))
+                and (not weak_shape_block)
+                and (not late_breakout_caution)
+                and (short_precision_gate if direction == "down" else True)
             )
+        item["setupType"] = setup_type
+        _apply_entry_playbook_fields(
+            item,
+            direction=direction,
+            setup_type=setup_type,
+            shape_patterns=shape_patterns,
+            risk_mode=risk_mode,
+        )
         if item["entryQualified"]:
             qualified.append(item)
         else:
             fallback.append(item)
 
-    qualified.sort(
-        key=lambda item: (
-            item.get("entryScore") is None,
-            -(item.get("entryScore") or 0.0),
-            -(item.get("probSide") or 0.0),
-            item.get("code", ""),
-        )
-    )
+    qualified.sort(key=_base_entry_sort_key)
     if len(qualified) >= limit:
         return qualified[:limit], pred_dt, model_version
     strict_fallback = [
@@ -2242,6 +3807,7 @@ def _apply_ml_mode(
         and bool(item.get("distOk"))
         and bool(item.get("counterMoveOk"))
         and bool(item.get("horizonAligned"))
+        and (direction != "down" or bool(item.get("shortPrecisionGate")))
         and (
             mode == "turn"
             or (
@@ -2250,36 +3816,97 @@ def _apply_ml_mode(
             )
         )
     ]
-    strict_fallback.sort(
-        key=lambda item: (
-            item.get("entryScore") is None,
-            -(item.get("entryScore") or 0.0),
-            -(item.get("probSide") or 0.0),
-            item.get("code", ""),
-        )
-    )
-    min_return = min(limit, 12)
+    strict_fallback.sort(key=_base_entry_sort_key)
+
+    promoted_fallback: list[dict] = []
+    if direction == "up" and mode == "hybrid" and not qualified:
+        stage1_candidates = [
+            item
+            for item in strict_fallback
+            if isinstance(item.get("entryScore"), (int, float))
+            and math.isfinite(float(item.get("entryScore")))
+            and float(item.get("entryScore")) >= _DAILY_FALLBACK_HYBRID_SCORE_GATE_UP
+        ]
+        stage1_candidates.sort(key=_base_entry_sort_key)
+        if stage1_candidates:
+            promoted_fallback = stage1_candidates
+            for item in promoted_fallback:
+                item["entryQualifiedByFallback"] = True
+                item["entryQualifiedFallbackStage"] = "hybrid_relaxed_score"
+        else:
+            stage2_candidates = [
+                item
+                for item in fallback
+                if bool(item.get("turnAligned"))
+                and bool(item.get("distOk"))
+                and bool(item.get("counterMoveOk"))
+                and bool(item.get("horizonAligned"))
+                and isinstance(item.get("downsideRisk"), (int, float))
+                and math.isfinite(float(item.get("downsideRisk")))
+                and float(item.get("downsideRisk")) <= 0.60
+                and isinstance(item.get("entryScore"), (int, float))
+                and math.isfinite(float(item.get("entryScore")))
+                and float(item.get("entryScore")) >= _DAILY_FALLBACK_TURN_SCORE_GATE_UP
+            ]
+            stage2_candidates.sort(key=_base_entry_sort_key)
+            promoted_fallback = stage2_candidates
+            for item in promoted_fallback:
+                item["entryQualifiedByFallback"] = True
+                item["entryQualifiedFallbackStage"] = "turn_strict_recovery"
+    elif direction == "down" and mode == "hybrid" and not qualified:
+        stage_short_candidates = [
+            item
+            for item in strict_fallback
+            if (
+                bool(item.get("patternD1ShortBreakdown"))
+                or bool(item.get("patternD2ShortMixedFar"))
+                or bool(item.get("patternD3ShortNaBelow"))
+            )
+            and (not bool(item.get("patternDTrapStackDownFar")))
+            and (not bool(item.get("patternDTrapOverheatMomentum")))
+            and isinstance(item.get("entryScore"), (int, float))
+            and math.isfinite(float(item.get("entryScore")))
+            and float(item.get("entryScore")) >= _DAILY_FALLBACK_HYBRID_SCORE_GATE_DOWN
+        ]
+        stage_short_candidates.sort(key=_base_entry_sort_key)
+        promoted_fallback = stage_short_candidates
+        for item in promoted_fallback:
+            item["entryQualifiedByFallback"] = True
+            item["entryQualifiedFallbackStage"] = "short_pattern_recovery"
+
+    min_return = min(limit, 12 if direction == "up" else 8)
     if len(qualified) < min_return:
-        selected = qualified + strict_fallback[: max(0, min_return - len(qualified))]
+        selected = _merge_unique([qualified, promoted_fallback, strict_fallback])
+        if direction == "up":
+            selected = selected[: max(min_return, len(qualified))]
+            if len(selected) < min_return:
+                selected = _merge_unique([selected, fallback])[:min_return]
         return selected[:limit], pred_dt, model_version
     fallback.sort(
         key=lambda item: (
             not bool(item.get("trendUp")) if direction == "up" else not bool(item.get("trendDown")),
-            item.get("entryScore") is None,
-            -(item.get("entryScore") or 0.0),
-            -(item.get("probSide") or 0.0),
-            item.get("code", ""),
+            *_base_entry_sort_key(item),
         )
     )
-    selected = qualified + strict_fallback
+    selected = _merge_unique([qualified, promoted_fallback, strict_fallback])
+    if direction == "up" and len(selected) < limit:
+        selected = _merge_unique([selected, fallback])
     return selected[:limit], pred_dt, model_version
 
 
 def refresh_cache() -> None:
-    global _CACHE, _LAST_UPDATED
+    global _CACHE, _LAST_UPDATED, _LAST_DB_MTIME
+    cache = _build_cache()
+    refreshed_at = datetime.now(timezone.utc)
+    db_mtime = _db_mtime()
     with _LOCK:
-        _CACHE = _build_cache()
-        _LAST_UPDATED = datetime.now(timezone.utc)
+        _CACHE = cache
+        _LAST_UPDATED = refreshed_at
+        _LAST_DB_MTIME = db_mtime
+    with _ASOF_BASE_CACHE_LOCK:
+        _ASOF_BASE_CACHE.clear()
+    with _TRACE_CACHE_LOCK:
+        _TRACE_CACHE.clear()
 
 
 def get_rankings(
@@ -2289,7 +3916,9 @@ def get_rankings(
     limit: int,
     *,
     mode: RankMode = "hybrid",
+    risk_mode: RankRiskMode = "balanced",
 ) -> dict:
+    _ensure_cache_fresh()
     with _LOCK:
         items = _CACHE.get((tf, which, direction))
         last_updated = _LAST_UPDATED
@@ -2303,12 +3932,17 @@ def get_rankings(
     pred_dt = None
     model_version = None
     if mode == "rule":
-        out_items = items[:limit]
+        out_items = _decorate_rule_items_with_entry_gate(
+            items[:limit],
+            direction=direction,
+            risk_mode=risk_mode,
+        )
     elif tf == "M" and mode == "hybrid":
         out_items, pred_dt, model_version = _apply_monthly_ml_mode(
             items,
             direction=direction,
             limit=limit,
+            risk_mode=risk_mode,
         )
     else:
         out_items, pred_dt, model_version = _apply_ml_mode(
@@ -2316,6 +3950,7 @@ def get_rankings(
             direction=direction,
             mode=mode,
             limit=limit,
+            risk_mode=risk_mode,
         )
     out_items = [_sanitize_rank_item_for_json(item) for item in out_items]
 
@@ -2327,6 +3962,7 @@ def get_rankings(
             "which": which,
             "direction": direction,
             "mode": mode,
+            "risk_mode": risk_mode,
             "limit": limit,
             "pred_dt": pred_dt,
             "model_version": model_version,
@@ -2355,6 +3991,7 @@ def get_rankings(
         "which": which,
         "dir": direction,
         "mode": mode,
+        "risk_mode": risk_mode,
         "pred_dt": pred_dt,
         "model_version": model_version,
         "last_updated": last_updated.isoformat() if last_updated else None,
@@ -2370,26 +4007,31 @@ def get_rankings_asof(
     *,
     as_of: str | int,
     mode: RankMode = "hybrid",
+    risk_mode: RankRiskMode = "balanced",
 ) -> dict:
     as_of_int = _coerce_as_of_int(as_of)
     if as_of_int is None:
         raise ValueError("as_of must be YYYY-MM-DD or YYYYMMDD")
 
-    with duckdb.connect(str(core_config.DB_PATH)) as conn:
-        cache = _build_cache_asof(conn, as_of_int)
-
+    _ensure_cache_fresh()
+    cache = _get_asof_base_cache(as_of_int)
     items = cache.get((tf, which, direction), [])
     limit = max(1, min(int(limit or 50), 200))
 
     pred_dt = None
     model_version = None
     if mode == "rule" or not items:
-        out_items = items[:limit]
+        out_items = _decorate_rule_items_with_entry_gate(
+            items[:limit],
+            direction=direction,
+            risk_mode=risk_mode,
+        )
     elif tf == "M" and mode == "hybrid":
         out_items, pred_dt, model_version = _apply_monthly_ml_mode(
             items,
             direction=direction,
             limit=limit,
+            risk_mode=risk_mode,
         )
     else:
         out_items, pred_dt, model_version = _apply_ml_mode(
@@ -2397,6 +4039,7 @@ def get_rankings_asof(
             direction=direction,
             mode=mode,
             limit=limit,
+            risk_mode=risk_mode,
         )
 
     if pred_dt is not None:
@@ -2409,7 +4052,11 @@ def get_rankings_asof(
         if pred_key > as_of_int:
             pred_dt = None
             model_version = None
-            out_items = items[:limit]
+            out_items = _decorate_rule_items_with_entry_gate(
+                items[:limit],
+                direction=direction,
+                risk_mode=risk_mode,
+            )
 
     filtered: list[dict] = []
     for item in out_items:
@@ -2423,9 +4070,144 @@ def get_rankings_asof(
         "which": which,
         "dir": direction,
         "mode": mode,
+        "risk_mode": risk_mode,
         "requested_as_of": f"{as_of_int:08d}",
         "pred_dt": pred_dt,
         "model_version": model_version,
         "last_updated": datetime.now(timezone.utc).isoformat(),
         "items": filtered[:limit],
     }
+
+
+def _fetch_recent_asof_dates(
+    *,
+    as_of_int: int | None,
+    lookback_days: int,
+) -> list[int]:
+    where_parts = ["ymd IS NOT NULL"]
+    params: list[Any] = []
+    if as_of_int is not None:
+        where_parts.append("ymd <= ?")
+        params.append(int(as_of_int))
+    where_clause = "WHERE " + " AND ".join(where_parts)
+    query = f"""
+        WITH daily_dates AS (
+            SELECT DISTINCT
+              CASE
+                WHEN dt BETWEEN 19000101 AND 20991231 THEN dt
+                WHEN dt >= 1000000000000 THEN CAST(strftime(to_timestamp(dt/1000), '%Y%m%d') AS INTEGER)
+                WHEN dt >= 1000000000 THEN CAST(strftime(to_timestamp(dt), '%Y%m%d') AS INTEGER)
+                ELSE NULL
+              END AS ymd
+            FROM ml_pred_20d
+        )
+        SELECT ymd
+        FROM daily_dates
+        {where_clause}
+        ORDER BY ymd DESC
+        LIMIT ?
+    """
+    params.append(int(max(1, lookback_days)))
+    with duckdb.connect(str(core_config.DB_PATH)) as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [int(row[0]) for row in rows if row and row[0] is not None]
+
+
+def get_last_qualified_trace(
+    tf: RankTimeframe,
+    which: RankWhich,
+    direction: RankDir,
+    limit: int,
+    *,
+    mode: RankMode = "hybrid",
+    risk_mode: RankRiskMode = "balanced",
+    lookback_days: int = 260,
+    recent_hits: int = 10,
+    as_of: str | int | None = None,
+) -> dict[str, Any]:
+    as_of_int = _coerce_as_of_int(as_of) if as_of is not None else None
+    lookback_days = max(20, min(int(lookback_days or 260), 1200))
+    recent_hits = max(1, min(int(recent_hits or 10), 50))
+    limit = max(1, min(int(limit or 50), 200))
+    cache_key = (tf, which, direction, mode, risk_mode, limit, lookback_days, recent_hits, as_of_int)
+    db_mtime = _db_mtime()
+
+    with _TRACE_CACHE_LOCK:
+        cached = _TRACE_CACHE.get(cache_key)
+        if cached is not None and cached.get("_db_mtime") == db_mtime:
+            _TRACE_CACHE.move_to_end(cache_key)
+            cloned = dict(cached)
+            cloned.pop("_db_mtime", None)
+            return cloned
+
+    _ensure_cache_fresh()
+    try:
+        dates_desc = _fetch_recent_asof_dates(as_of_int=as_of_int, lookback_days=lookback_days)
+    except Exception as exc:
+        logger.warning("last-qualified trace date fetch failed: %s", exc)
+        dates_desc = []
+
+    zero_streak_days = 0
+    last_non_zero: dict[str, Any] | None = None
+    hits: list[dict[str, Any]] = []
+
+    for ymd in dates_desc:
+        try:
+            out = get_rankings_asof(
+                tf,
+                which,
+                direction,
+                limit,
+                as_of=ymd,
+                mode=mode,
+                risk_mode=risk_mode,
+            )
+        except Exception as exc:
+            logger.warning("last-qualified trace skipped as_of=%s due to error: %s", ymd, exc)
+            continue
+        items = out.get("items", [])
+        qualified = [item for item in items if item.get("entryQualified") is True]
+        if not qualified:
+            if last_non_zero is None:
+                zero_streak_days += 1
+            continue
+        hit = {
+            "date": int(ymd),
+            "date_iso": _ymd_int_to_iso(int(ymd)),
+            "qualified_count": len(qualified),
+            "codes": [str(item.get("code") or "") for item in qualified if item.get("code") is not None],
+        }
+        if last_non_zero is None:
+            last_non_zero = hit
+        hits.append(hit)
+        if len(hits) >= recent_hits and last_non_zero is not None:
+            break
+
+    result: dict[str, Any] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "tf": tf,
+        "which": which,
+        "dir": direction,
+        "mode": mode,
+        "risk_mode": risk_mode,
+        "limit": limit,
+        "lookback_days": lookback_days,
+        "inspected_days": len(dates_desc),
+        "as_of": _ymd_int_to_iso(as_of_int) if as_of_int is not None else None,
+        "as_of_int": int(as_of_int) if as_of_int is not None else None,
+        "zero_streak_days": int(zero_streak_days),
+        "last_non_zero_date": int(last_non_zero["date"]) if last_non_zero else None,
+        "last_non_zero_date_iso": last_non_zero["date_iso"] if last_non_zero else None,
+        "last_non_zero_count": int(last_non_zero["qualified_count"]) if last_non_zero else 0,
+        "last_non_zero_codes": list(last_non_zero["codes"]) if last_non_zero else [],
+        "recent_hits": hits[:recent_hits],
+    }
+
+    to_cache = dict(result)
+    to_cache["_db_mtime"] = db_mtime
+    with _TRACE_CACHE_LOCK:
+        _TRACE_CACHE[cache_key] = to_cache
+        _TRACE_CACHE.move_to_end(cache_key)
+        while len(_TRACE_CACHE) > _TRACE_CACHE_MAX:
+            _TRACE_CACHE.popitem(last=False)
+    return result

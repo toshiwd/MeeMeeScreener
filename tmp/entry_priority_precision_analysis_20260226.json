@@ -1,0 +1,918 @@
+{
+  "generated_at": "2026-02-26T05:52:41.924572+00:00",
+  "db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\stocks.duckdb",
+  "top_n": 10,
+  "market_proxy_code": "1306",
+  "months": [
+    "2024-09",
+    "2024-10",
+    "2024-11",
+    "2024-12",
+    "2025-01",
+    "2025-02",
+    "2025-03",
+    "2025-04",
+    "2025-05",
+    "2025-06",
+    "2025-07",
+    "2025-08",
+    "2025-09",
+    "2025-10",
+    "2025-11",
+    "2025-12",
+    "2026-01",
+    "2026-02"
+  ],
+  "overall": {
+    "baseline": {
+      "n": 147,
+      "win_rate": 0.5986394557823129,
+      "avg_ret": 0.02362595480594314,
+      "median_ret": 0.014705896815156994
+    },
+    "entry_priority": {
+      "n": 147,
+      "win_rate": 0.5918367346938775,
+      "avg_ret": 0.023392811052349846,
+      "median_ret": 0.016167192429022093
+    }
+  },
+  "monthly_performance": [
+    {
+      "month": "2024-09",
+      "asof_dt": 1727654400,
+      "regime": "RANGE",
+      "universe": 678,
+      "baseline": {
+        "n": 10,
+        "win_rate": 0.8,
+        "avg_ret": 0.06510028343848506,
+        "median_ret": 0.06886683188412035
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 0.8,
+        "avg_ret": 0.06510028343848506,
+        "median_ret": 0.06886683188412035
+      }
+    },
+    {
+      "month": "2024-10",
+      "asof_dt": 1730332800,
+      "regime": "UP",
+      "universe": 679,
+      "baseline": {
+        "n": 10,
+        "win_rate": 0.2,
+        "avg_ret": -0.057839380405256755,
+        "median_ret": -0.046461353792894455
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 0.2,
+        "avg_ret": -0.057839380405256755,
+        "median_ret": -0.046461353792894455
+      }
+    },
+    {
+      "month": "2024-11",
+      "asof_dt": 1732838400,
+      "regime": "RANGE",
+      "universe": 679,
+      "baseline": {
+        "n": 10,
+        "win_rate": 0.9,
+        "avg_ret": 0.11094584092673121,
+        "median_ret": 0.06604408279080132
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 0.9,
+        "avg_ret": 0.11094584092673121,
+        "median_ret": 0.06604408279080132
+      }
+    },
+    {
+      "month": "2024-12",
+      "asof_dt": 1735516800,
+      "regime": "UP",
+      "universe": 679,
+      "baseline": {
+        "n": 10,
+        "win_rate": 0.6,
+        "avg_ret": -0.011953318126636237,
+        "median_ret": 0.004144199541861737
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 0.6,
+        "avg_ret": -0.012352884506362516,
+        "median_ret": 0.004144199541861737
+      }
+    },
+    {
+      "month": "2025-01",
+      "asof_dt": 1738281600,
+      "regime": "UP",
+      "universe": 679,
+      "baseline": {
+        "n": 10,
+        "win_rate": 0.1,
+        "avg_ret": -0.06949493527758652,
+        "median_ret": -0.08235891336302997
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 0.1,
+        "avg_ret": -0.06949493527758652,
+        "median_ret": -0.08235891336302997
+      }
+    },
+    {
+      "month": "2025-02",
+      "asof_dt": 1740700800,
+      "regime": "RANGE",
+      "universe": 679,
+      "baseline": {
+        "n": 10,
+        "win_rate": 0.3,
+        "avg_ret": -0.04359585350637877,
+        "median_ret": -0.06473737222637743
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 0.2,
+        "avg_ret": -0.04638973128316275,
+        "median_ret": -0.06473737222637743
+      }
+    },
+    {
+      "month": "2025-03",
+      "asof_dt": 1743379200,
+      "regime": "RANGE",
+      "universe": 679,
+      "baseline": {
+        "n": 10,
+        "win_rate": 0.6,
+        "avg_ret": -0.0070411963952421,
+        "median_ret": 0.011200085531410275
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 0.6,
+        "avg_ret": -0.00941572245397868,
+        "median_ret": 0.011200085531410275
+      }
+    },
+    {
+      "month": "2025-04",
+      "asof_dt": 1745971200,
+      "regime": "RANGE",
+      "universe": 682,
+      "baseline": {
+        "n": 10,
+        "win_rate": 1.0,
+        "avg_ret": 0.10261338032640441,
+        "median_ret": 0.08593154576318152
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 1.0,
+        "avg_ret": 0.09772944650271986,
+        "median_ret": 0.0911461033670582
+      }
+    },
+    {
+      "month": "2025-05",
+      "asof_dt": 1748563200,
+      "regime": "UP",
+      "universe": 682,
+      "baseline": {
+        "n": 3,
+        "win_rate": 0.6666666666666666,
+        "avg_ret": 0.06646782689448678,
+        "median_ret": 0.13513087354146958
+      },
+      "entry_priority": {
+        "n": 3,
+        "win_rate": 0.6666666666666666,
+        "avg_ret": 0.06646782689448678,
+        "median_ret": 0.13513087354146958
+      }
+    },
+    {
+      "month": "2025-06",
+      "asof_dt": 1751241600,
+      "regime": "UP",
+      "universe": 683,
+      "baseline": {
+        "n": 6,
+        "win_rate": 0.5,
+        "avg_ret": 0.005831716098313344,
+        "median_ret": 0.001136668792284079
+      },
+      "entry_priority": {
+        "n": 6,
+        "win_rate": 0.5,
+        "avg_ret": 0.005831716098313344,
+        "median_ret": 0.001136668792284079
+      }
+    },
+    {
+      "month": "2025-07",
+      "asof_dt": 1753920000,
+      "regime": "UP",
+      "universe": 683,
+      "baseline": {
+        "n": 10,
+        "win_rate": 0.7,
+        "avg_ret": -0.00873136003138394,
+        "median_ret": 0.021291375564454373
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 0.7,
+        "avg_ret": -0.00873136003138394,
+        "median_ret": 0.021291375564454373
+      }
+    },
+    {
+      "month": "2025-08",
+      "asof_dt": 1756425600,
+      "regime": "UP",
+      "universe": 683,
+      "baseline": {
+        "n": 10,
+        "win_rate": 0.5,
+        "avg_ret": 0.06141475333387179,
+        "median_ret": 0.002849288513440129
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 0.6,
+        "avg_ret": 0.08909659595817102,
+        "median_ret": 0.0580608089705521
+      }
+    },
+    {
+      "month": "2025-09",
+      "asof_dt": 1759190400,
+      "regime": "UP",
+      "universe": 683,
+      "baseline": {
+        "n": 10,
+        "win_rate": 1.0,
+        "avg_ret": 0.15104654688583707,
+        "median_ret": 0.15531352266435539
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 1.0,
+        "avg_ret": 0.13662753409172446,
+        "median_ret": 0.14813512902708148
+      }
+    },
+    {
+      "month": "2025-10",
+      "asof_dt": 1761868800,
+      "regime": "UP",
+      "universe": 683,
+      "baseline": {
+        "n": 8,
+        "win_rate": 0.375,
+        "avg_ret": -0.04023709717308835,
+        "median_ret": -0.021717550734441038
+      },
+      "entry_priority": {
+        "n": 8,
+        "win_rate": 0.375,
+        "avg_ret": -0.04023709717308835,
+        "median_ret": -0.021717550734441038
+      }
+    },
+    {
+      "month": "2025-11",
+      "asof_dt": 1764288000,
+      "regime": "UP",
+      "universe": 683,
+      "baseline": {
+        "n": 10,
+        "win_rate": 0.6,
+        "avg_ret": -0.02073791161578371,
+        "median_ret": 0.00374032119304768
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 0.5,
+        "avg_ret": -0.02697605058486032,
+        "median_ret": -0.0010783979972568414
+      }
+    },
+    {
+      "month": "2025-12",
+      "asof_dt": 1767052800,
+      "regime": "UP",
+      "universe": 683,
+      "baseline": {
+        "n": 10,
+        "win_rate": 0.7,
+        "avg_ret": 0.08432498610543927,
+        "median_ret": 0.07700960783160671
+      },
+      "entry_priority": {
+        "n": 10,
+        "win_rate": 0.7,
+        "avg_ret": 0.08432498610543927,
+        "median_ret": 0.07700960783160671
+      }
+    },
+    {
+      "month": "2026-01",
+      "asof_dt": 1769731200,
+      "regime": "RANGE",
+      "universe": 683,
+      "baseline": {
+        "n": 0,
+        "win_rate": null,
+        "avg_ret": null,
+        "median_ret": null
+      },
+      "entry_priority": {
+        "n": 0,
+        "win_rate": null,
+        "avg_ret": null,
+        "median_ret": null
+      }
+    },
+    {
+      "month": "2026-02",
+      "asof_dt": 1771977600,
+      "regime": "UP",
+      "universe": 683,
+      "baseline": {
+        "n": 0,
+        "win_rate": null,
+        "avg_ret": null,
+        "median_ret": null
+      },
+      "entry_priority": {
+        "n": 0,
+        "win_rate": null,
+        "avg_ret": null,
+        "median_ret": null
+      }
+    }
+  ],
+  "misclassification": {
+    "sample": {
+      "losers": 60,
+      "winners": 87
+    },
+    "feature_mean": {
+      "entryPriorityScore": {
+        "losers": 34.663905,
+        "winners": 35.458914942528736,
+        "delta_win_minus_lose": 0.7950099425287362
+      },
+      "buyCandidateScore": {
+        "losers": 23.845284749979676,
+        "winners": 23.153968083243736,
+        "delta_win_minus_lose": -0.6913166667359398
+      },
+      "mlPUpShort": {
+        "losers": 0.5100519689874266,
+        "winners": 0.5481975039972401,
+        "delta_win_minus_lose": 0.03814553500981355
+      },
+      "mlEvShortNet": {
+        "losers": -0.011626948700564105,
+        "winners": -0.008863437117796557,
+        "delta_win_minus_lose": 0.0027635115827675475
+      },
+      "buyRiskAtr": {
+        "losers": 0.8082620690926458,
+        "winners": 0.749520478275666,
+        "delta_win_minus_lose": -0.058741590816979716
+      },
+      "liquidity20d": {
+        "losers": 588410038.0095971,
+        "winners": 542185486.2663769,
+        "delta_win_minus_lose": -46224551.74322021
+      },
+      "up20": {
+        "losers": 2.8833333333333333,
+        "winners": 3.32183908045977,
+        "delta_win_minus_lose": 0.43850574712643686
+      },
+      "down20": {
+        "losers": 5.933333333333334,
+        "winners": 4.459770114942529,
+        "delta_win_minus_lose": -1.4735632183908045
+      }
+    },
+    "buy_pattern_top": {
+      "losers": [
+        [
+          "BOX_CONSOLIDATION",
+          34
+        ],
+        [
+          "WAIT",
+          19
+        ],
+        [
+          "MA20_RECLAIM_INITIAL",
+          3
+        ],
+        [
+          "BOTTOM_BASE_WAIT",
+          3
+        ],
+        [
+          "BOTTOM_REVERSAL_INITIAL",
+          1
+        ]
+      ],
+      "winners": [
+        [
+          "BOX_CONSOLIDATION",
+          46
+        ],
+        [
+          "WAIT",
+          29
+        ],
+        [
+          "BOTTOM_BASE_WAIT",
+          9
+        ],
+        [
+          "MA20_RECLAIM_INITIAL",
+          2
+        ],
+        [
+          "BOX_BREAK_INITIAL",
+          1
+        ]
+      ]
+    }
+  },
+  "regime_analysis": {
+    "UP": {
+      "baseline": {
+        "n": 97,
+        "win_rate": 0.5360824742268041,
+        "avg_ret": 0.012296812459522095,
+        "median_ret": 0.003373819163292824
+      },
+      "entry_priority": {
+        "n": 97,
+        "win_rate": 0.5360824742268041,
+        "avg_ret": 0.01297981498337609,
+        "median_ret": 0.003373819163292824
+      }
+    },
+    "RANGE": {
+      "baseline": {
+        "n": 50,
+        "win_rate": 0.72,
+        "avg_ret": 0.045604490957999955,
+        "median_ret": 0.053734319751561954
+      },
+      "entry_priority": {
+        "n": 50,
+        "win_rate": 0.7,
+        "avg_ret": 0.043594023426158944,
+        "median_ret": 0.053734319751561954
+      }
+    }
+  },
+  "threshold_optimization": {
+    "train_months": [
+      "2024-09",
+      "2024-10",
+      "2024-11",
+      "2024-12",
+      "2025-01",
+      "2025-02",
+      "2025-03",
+      "2025-04",
+      "2025-05",
+      "2025-06"
+    ],
+    "test_months": [
+      "2025-07",
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "best_threshold": 60,
+    "train_best": {
+      "n": 0,
+      "win_rate": null,
+      "avg_ret": null,
+      "median_ret": null,
+      "monthly_n": {
+        "2024-09": 0,
+        "2024-10": 0,
+        "2024-11": 0,
+        "2024-12": 0,
+        "2025-01": 0,
+        "2025-02": 0,
+        "2025-03": 0,
+        "2025-04": 0,
+        "2025-05": 0,
+        "2025-06": 0
+      }
+    },
+    "test_best": {
+      "n": 0,
+      "win_rate": null,
+      "avg_ret": null,
+      "median_ret": null,
+      "monthly_n": {
+        "2025-07": 0,
+        "2025-08": 0,
+        "2025-09": 0,
+        "2025-10": 0,
+        "2025-11": 0,
+        "2025-12": 0
+      }
+    },
+    "test_default60": {
+      "n": 0,
+      "win_rate": null,
+      "avg_ret": null,
+      "median_ret": null,
+      "monthly_n": {
+        "2025-07": 0,
+        "2025-08": 0,
+        "2025-09": 0,
+        "2025-10": 0,
+        "2025-11": 0,
+        "2025-12": 0
+      }
+    },
+    "test_no_filter": {
+      "n": 58,
+      "win_rate": 0.6551724137931034,
+      "avg_ret": 0.04175034962079652,
+      "median_ret": 0.033728719503735904,
+      "monthly_n": {
+        "2025-07": 10,
+        "2025-08": 10,
+        "2025-09": 10,
+        "2025-10": 8,
+        "2025-11": 10,
+        "2025-12": 10
+      }
+    }
+  },
+  "regime_threshold_suggestion": {},
+  "walkforward": {
+    "train_window_months": 6,
+    "windows": 10,
+    "per_window": [
+      {
+        "test_month": "2025-03",
+        "chosen_threshold": 60,
+        "test_best": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-03": 0
+          }
+        },
+        "test_default60": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-03": 0
+          }
+        },
+        "test_no_filter": {
+          "n": 10,
+          "win_rate": 0.6,
+          "avg_ret": -0.00941572245397868,
+          "median_ret": 0.011200085531410275,
+          "monthly_n": {
+            "2025-03": 10
+          }
+        },
+        "regime": "RANGE"
+      },
+      {
+        "test_month": "2025-04",
+        "chosen_threshold": 60,
+        "test_best": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-04": 0
+          }
+        },
+        "test_default60": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-04": 0
+          }
+        },
+        "test_no_filter": {
+          "n": 10,
+          "win_rate": 1.0,
+          "avg_ret": 0.09772944650271986,
+          "median_ret": 0.0911461033670582,
+          "monthly_n": {
+            "2025-04": 10
+          }
+        },
+        "regime": "RANGE"
+      },
+      {
+        "test_month": "2025-05",
+        "chosen_threshold": 60,
+        "test_best": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-05": 0
+          }
+        },
+        "test_default60": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-05": 0
+          }
+        },
+        "test_no_filter": {
+          "n": 3,
+          "win_rate": 0.6666666666666666,
+          "avg_ret": 0.06646782689448678,
+          "median_ret": 0.13513087354146958,
+          "monthly_n": {
+            "2025-05": 3
+          }
+        },
+        "regime": "UP"
+      },
+      {
+        "test_month": "2025-06",
+        "chosen_threshold": 60,
+        "test_best": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-06": 0
+          }
+        },
+        "test_default60": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-06": 0
+          }
+        },
+        "test_no_filter": {
+          "n": 6,
+          "win_rate": 0.5,
+          "avg_ret": 0.005831716098313344,
+          "median_ret": 0.001136668792284079,
+          "monthly_n": {
+            "2025-06": 6
+          }
+        },
+        "regime": "UP"
+      },
+      {
+        "test_month": "2025-07",
+        "chosen_threshold": 60,
+        "test_best": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-07": 0
+          }
+        },
+        "test_default60": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-07": 0
+          }
+        },
+        "test_no_filter": {
+          "n": 10,
+          "win_rate": 0.7,
+          "avg_ret": -0.00873136003138394,
+          "median_ret": 0.021291375564454373,
+          "monthly_n": {
+            "2025-07": 10
+          }
+        },
+        "regime": "UP"
+      },
+      {
+        "test_month": "2025-08",
+        "chosen_threshold": 60,
+        "test_best": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-08": 0
+          }
+        },
+        "test_default60": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-08": 0
+          }
+        },
+        "test_no_filter": {
+          "n": 10,
+          "win_rate": 0.6,
+          "avg_ret": 0.08909659595817102,
+          "median_ret": 0.0580608089705521,
+          "monthly_n": {
+            "2025-08": 10
+          }
+        },
+        "regime": "UP"
+      },
+      {
+        "test_month": "2025-09",
+        "chosen_threshold": 60,
+        "test_best": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-09": 0
+          }
+        },
+        "test_default60": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-09": 0
+          }
+        },
+        "test_no_filter": {
+          "n": 10,
+          "win_rate": 1.0,
+          "avg_ret": 0.13662753409172446,
+          "median_ret": 0.14813512902708148,
+          "monthly_n": {
+            "2025-09": 10
+          }
+        },
+        "regime": "UP"
+      },
+      {
+        "test_month": "2025-10",
+        "chosen_threshold": 60,
+        "test_best": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-10": 0
+          }
+        },
+        "test_default60": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-10": 0
+          }
+        },
+        "test_no_filter": {
+          "n": 8,
+          "win_rate": 0.375,
+          "avg_ret": -0.04023709717308835,
+          "median_ret": -0.021717550734441038,
+          "monthly_n": {
+            "2025-10": 8
+          }
+        },
+        "regime": "UP"
+      },
+      {
+        "test_month": "2025-11",
+        "chosen_threshold": 60,
+        "test_best": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-11": 0
+          }
+        },
+        "test_default60": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-11": 0
+          }
+        },
+        "test_no_filter": {
+          "n": 10,
+          "win_rate": 0.5,
+          "avg_ret": -0.02697605058486032,
+          "median_ret": -0.0010783979972568414,
+          "monthly_n": {
+            "2025-11": 10
+          }
+        },
+        "regime": "UP"
+      },
+      {
+        "test_month": "2025-12",
+        "chosen_threshold": 60,
+        "test_best": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-12": 0
+          }
+        },
+        "test_default60": {
+          "n": 0,
+          "win_rate": null,
+          "avg_ret": null,
+          "median_ret": null,
+          "monthly_n": {
+            "2025-12": 0
+          }
+        },
+        "test_no_filter": {
+          "n": 10,
+          "win_rate": 0.7,
+          "avg_ret": 0.08432498610543927,
+          "median_ret": 0.07700960783160671,
+          "monthly_n": {
+            "2025-12": 10
+          }
+        },
+        "regime": "UP"
+      }
+    ],
+    "oos_best_threshold": {
+      "n": 0,
+      "win_rate": null,
+      "avg_ret": null,
+      "median_ret": null
+    },
+    "oos_default60": {
+      "n": 0,
+      "win_rate": null,
+      "avg_ret": null,
+      "median_ret": null
+    },
+    "oos_no_filter": {
+      "n": 87,
+      "win_rate": 0.6781609195402298,
+      "avg_ret": 0.0406787505260569,
+      "median_ret": 0.033884297520661244
+    }
+  }
+}

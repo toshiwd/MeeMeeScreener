@@ -43,6 +43,14 @@ export type Ticker = {
   hasBox?: boolean;
   // Buy Fields
   buyState?: string | null;
+  buyPatternName?: string | null;
+  buyPatternCode?: string | null;
+  entryPriorityScore?: number | null;
+  entryPriorityTier?: "A" | "B" | "C" | null;
+  entryPriorityLabel?: string | null;
+  entryPriorityReasons?: string[] | null;
+  buyHardExcluded?: boolean | null;
+  buyHardExcludeReasons?: string[] | null;
   buyStateRank?: number | null;
   buyStateScore?: number | null;
   buyCandidateScore?: number | null;
@@ -51,6 +59,7 @@ export type Ticker = {
   buyRiskScore?: number | null;
   buyStateReason?: string | null;
   buyEligible?: boolean;
+  buyOverextended?: boolean | null;
   buySignalRecencyDays?: number | null;
   buyRiskAtr?: number | null;
   buyUpsideAtr?: number | null;
@@ -72,6 +81,11 @@ export type Ticker = {
   mlPUpShort?: number | null;
   mlPDown?: number | null;
   mlPDownShort?: number | null;
+  mlPTurnDown?: number | null;
+  mlPTurnDown5?: number | null;
+  mlPTurnDown10?: number | null;
+  mlPTurnDown20?: number | null;
+  mlPTurnDownShort?: number | null;
   mlEv20Net?: number | null;
   mlEv5Net?: number | null;
   mlEv10Net?: number | null;
@@ -92,6 +106,12 @@ export type Ticker = {
   bScore?: number | null; // legacy
   aCandidateScore?: number | null;
   bCandidateScore?: number | null;
+  shortPriorityScore?: number | null;
+  shortPriorityTier?: "A" | "B" | "C" | null;
+  shortPriorityLabel?: string | null;
+  shortPriorityReasons?: string[] | null;
+  shortHardExcluded?: boolean | null;
+  shortHardExcludeReasons?: string[] | null;
   shortEligible?: boolean;
   shortEnvScore?: number | null;
   shortRiskScore?: number | null;
@@ -275,9 +295,11 @@ type StoreState = {
 
 // Candidate sort presets (for buy/sell candidate screens only)
 export type CandidateSortKey =
+  | "entryPriority"     // 仕込み優先度
   | "buyCandidate"      // 買い候補（総合）
   | "buyInitial"        // 買い候補（初動）
   | "buyBase"           // 買い候補（底がため）
+  | "shortPriority"     // 売り精度優先
   | "shortScore"        // 売り候補（総合）
   | "aScore"            // 売り候補（反転確定）
   | "bScore";           // 売り候補（戻り売り）
@@ -309,6 +331,7 @@ export type SortKey =
   | "code"
   | "name"
   | "sector"
+  | "entryPriority"
   | "buyCandidate"
   | "buyInitial"
   | "buyBase"
@@ -333,6 +356,7 @@ export type SortKey =
   | "mlPUpShort"
   | "mlPDownShort"
   | "boxState"
+  | "shortPriority"
   | "shortScore"
   | "aScore"
   | "bScore"
@@ -357,6 +381,10 @@ const LEGACY_LIST_RANGE_KEY = "listRangeMonths";
 const LIST_COLS_KEY = "listCols";
 const LIST_ROWS_KEY = "listRows";
 const LIST_RANGE_VALUES = [60, 120, 240, 360] as const;
+const WATCHLIST_AUTO_REPAIR_TS_KEY = "watchlistAutoRepairTs";
+const WATCHLIST_AUTO_REPAIR_COOLDOWN_MS = 15 * 60 * 1000;
+const WATCHLIST_AUTO_REPAIR_MIN_MISSING = 30;
+const WATCHLIST_AUTO_REPAIR_MIN_RATIO = 0.2;
 const LEGACY_RANGE_MONTHS_TO_BARS: Record<number, Settings["listRangeBars"]> = {
   3: 60,
   6: 120,
@@ -789,11 +817,12 @@ const getInitialListRangeBars = (): Settings["listRangeBars"] => {
 };
 
 const getInitialSortKey = (): SortKey => {
-  if (typeof window === "undefined") return "chg1D";
+  if (typeof window === "undefined") return "entryPriority";
   const saved = window.localStorage.getItem("sortKey");
   const options: SortKey[] = [
     "code",
     "name",
+    "entryPriority",
     "buyCandidate",
     "buyInitial",
     "buyBase",
@@ -818,11 +847,12 @@ const getInitialSortKey = (): SortKey => {
     "mlPUpShort",
     "mlPDownShort",
     "boxState",
+    "shortPriority",
     "shortScore",
     "aScore",
     "bScore"
   ];
-  return options.includes(saved as SortKey) ? (saved as SortKey) : "buyCandidate";
+  return options.includes(saved as SortKey) ? (saved as SortKey) : "entryPriority";
 };
 
 const getInitialSortDir = (): SortDir => {
@@ -938,7 +968,7 @@ export const useStore = create<StoreState>((set, get) => ({
     showIndicators: false,
     sortKey: getInitialSortKey(),
     sortDir: getInitialSortDir(),
-    candidateSortKey: "buyCandidate",
+    candidateSortKey: "entryPriority",
     basicSortKey: "code",
     basicSortDir: "asc",
     performancePeriod: "1M",
@@ -1110,6 +1140,28 @@ export const useStore = create<StoreState>((set, get) => ({
                   ? item.box_active
                   : (item.boxState ?? item.box_state ?? "NONE") !== "NONE",
           buyState: item.buyState ?? item.buy_state ?? null,
+          entryPriorityScore:
+            typeof item.entryPriorityScore === "number"
+              ? item.entryPriorityScore
+              : typeof item.entry_priority_score === "number"
+                ? item.entry_priority_score
+                : null,
+          entryPriorityTier: item.entryPriorityTier ?? item.entry_priority_tier ?? null,
+          entryPriorityLabel: item.entryPriorityLabel ?? item.entry_priority_label ?? null,
+          entryPriorityReasons: parseReasons(
+            item.entryPriorityReasons ?? item.entry_priority_reasons
+          ),
+          buyHardExcluded:
+            typeof item.buyHardExcluded === "boolean"
+              ? item.buyHardExcluded
+              : typeof item.buy_hard_excluded === "boolean"
+                ? item.buy_hard_excluded
+                : null,
+          buyHardExcludeReasons: parseReasons(
+            item.buyHardExcludeReasons ?? item.buy_hard_exclude_reasons
+          ),
+          buyPatternName: item.buyPatternName ?? item.buy_pattern_name ?? null,
+          buyPatternCode: item.buyPatternCode ?? item.buy_pattern_code ?? null,
           buyStateRank:
             typeof item.buyStateRank === "number"
               ? item.buyStateRank
@@ -1123,6 +1175,12 @@ export const useStore = create<StoreState>((set, get) => ({
                 ? item.buy_state_score
                 : null,
           buyStateReason: item.buyStateReason ?? item.buy_state_reason ?? null,
+          buyOverextended:
+            typeof item.buyOverextended === "boolean"
+              ? item.buyOverextended
+              : typeof item.buy_overextended === "boolean"
+                ? item.buy_overextended
+                : null,
           buyRiskDistance:
             typeof item.buyRiskDistance === "number"
               ? item.buyRiskDistance
@@ -1156,6 +1214,36 @@ export const useStore = create<StoreState>((set, get) => ({
               ? item.mlPDownShort
               : Number.isFinite(item.ml_p_down_short)
                 ? item.ml_p_down_short
+                : null,
+          mlPTurnDown:
+            Number.isFinite(item.mlPTurnDown)
+              ? item.mlPTurnDown
+              : Number.isFinite(item.ml_p_turn_down)
+                ? item.ml_p_turn_down
+                : null,
+          mlPTurnDown5:
+            Number.isFinite(item.mlPTurnDown5)
+              ? item.mlPTurnDown5
+              : Number.isFinite(item.ml_p_turn_down_5)
+                ? item.ml_p_turn_down_5
+                : null,
+          mlPTurnDown10:
+            Number.isFinite(item.mlPTurnDown10)
+              ? item.mlPTurnDown10
+              : Number.isFinite(item.ml_p_turn_down_10)
+                ? item.ml_p_turn_down_10
+                : null,
+          mlPTurnDown20:
+            Number.isFinite(item.mlPTurnDown20)
+              ? item.mlPTurnDown20
+              : Number.isFinite(item.ml_p_turn_down_20)
+                ? item.ml_p_turn_down_20
+                : null,
+          mlPTurnDownShort:
+            Number.isFinite(item.mlPTurnDownShort)
+              ? item.mlPTurnDownShort
+              : Number.isFinite(item.ml_p_turn_down_short)
+                ? item.ml_p_turn_down_short
                 : null,
           mlEv20Net:
             Number.isFinite(item.mlEv20Net)
@@ -1210,13 +1298,108 @@ export const useStore = create<StoreState>((set, get) => ({
                 ? item.phase_dt
                 : null,
           // Short-selling fields
-          shortScore: typeof item.shortScore === "number" ? item.shortScore : null,
-          aScore: typeof item.aScore === "number" ? item.aScore : null,
-          bScore: typeof item.bScore === "number" ? item.bScore : null,
+          shortScore:
+            typeof item.shortScore === "number"
+              ? item.shortScore
+              : typeof item.short_score === "number"
+                ? item.short_score
+                : null,
+          shortCandidateScore:
+            typeof item.shortCandidateScore === "number"
+              ? item.shortCandidateScore
+              : typeof item.short_candidate_score === "number"
+                ? item.short_candidate_score
+                : null,
+          aScore:
+            typeof item.aScore === "number"
+              ? item.aScore
+              : typeof item.a_score === "number"
+                ? item.a_score
+                : null,
+          bScore:
+            typeof item.bScore === "number"
+              ? item.bScore
+              : typeof item.b_score === "number"
+                ? item.b_score
+                : null,
+          aCandidateScore:
+            typeof item.aCandidateScore === "number"
+              ? item.aCandidateScore
+              : typeof item.a_candidate_score === "number"
+                ? item.a_candidate_score
+                : null,
+          bCandidateScore:
+            typeof item.bCandidateScore === "number"
+              ? item.bCandidateScore
+              : typeof item.b_candidate_score === "number"
+                ? item.b_candidate_score
+                : null,
+          shortPriorityScore:
+            typeof item.shortPriorityScore === "number"
+              ? item.shortPriorityScore
+              : typeof item.short_priority_score === "number"
+                ? item.short_priority_score
+                : null,
+          shortPriorityTier: item.shortPriorityTier ?? item.short_priority_tier ?? null,
+          shortPriorityLabel: item.shortPriorityLabel ?? item.short_priority_label ?? null,
+          shortPriorityReasons: parseReasons(
+            item.shortPriorityReasons ?? item.short_priority_reasons
+          ),
+          shortHardExcluded:
+            typeof item.shortHardExcluded === "boolean"
+              ? item.shortHardExcluded
+              : typeof item.short_hard_excluded === "boolean"
+                ? item.short_hard_excluded
+                : null,
+          shortHardExcludeReasons: parseReasons(
+            item.shortHardExcludeReasons ?? item.short_hard_exclude_reasons
+          ),
+          shortEligible:
+            typeof item.shortEligible === "boolean"
+              ? item.shortEligible
+              : typeof item.short_eligible === "boolean"
+                ? item.short_eligible
+                : null,
+          shortEnvScore:
+            typeof item.shortEnvScore === "number"
+              ? item.shortEnvScore
+              : typeof item.short_env_score === "number"
+                ? item.short_env_score
+                : null,
+          shortRiskScore:
+            typeof item.shortRiskScore === "number"
+              ? item.shortRiskScore
+              : typeof item.short_risk_score === "number"
+                ? item.short_risk_score
+                : null,
           shortType: item.shortType ?? null,
           shortBadges: Array.isArray(item.shortBadges) ? item.shortBadges : [],
           shortReasons: Array.isArray(item.shortReasons) ? item.shortReasons : [],
-          shortProhibition: item.shortProhibition ?? null,
+          shortProhibitReason: item.shortProhibitReason ?? item.short_prohibit_reason ?? null,
+          sellStop:
+            typeof item.sellStop === "number"
+              ? item.sellStop
+              : typeof item.sell_stop === "number"
+                ? item.sell_stop
+                : null,
+          sellTarget:
+            typeof item.sellTarget === "number"
+              ? item.sellTarget
+              : typeof item.sell_target === "number"
+                ? item.sell_target
+                : null,
+          sellRiskAtr:
+            typeof item.sellRiskAtr === "number"
+              ? item.sellRiskAtr
+              : typeof item.sell_risk_atr === "number"
+                ? item.sell_risk_atr
+                : null,
+          sellDownsideAtr:
+            typeof item.sellDownsideAtr === "number"
+              ? item.sellDownsideAtr
+              : typeof item.sell_downside_atr === "number"
+                ? item.sell_downside_atr
+                : null,
           eventEarningsDate: item.eventEarningsDate ?? item.event_earnings_date ?? null,
           eventRightsDate: item.eventRightsDate ?? item.event_rights_date ?? null
         };
@@ -1226,7 +1409,24 @@ export const useStore = create<StoreState>((set, get) => ({
         const watchlistCodes = (resWatch.data?.codes || []) as string[];
         if (watchlistCodes.length) {
           const existing = new Set(tickers.map((item) => item.code));
-          watchlistCodes.forEach((code) => {
+          const missingWatchlistCodes = watchlistCodes.filter((code) => !existing.has(code));
+          const missingRatio = missingWatchlistCodes.length / Math.max(1, watchlistCodes.length);
+          const shouldAutoRepair =
+            missingWatchlistCodes.length >= WATCHLIST_AUTO_REPAIR_MIN_MISSING &&
+            missingRatio >= WATCHLIST_AUTO_REPAIR_MIN_RATIO;
+
+          if (shouldAutoRepair && typeof window !== "undefined") {
+            const now = Date.now();
+            const lastAutoRepairTs = Number(window.localStorage.getItem(WATCHLIST_AUTO_REPAIR_TS_KEY) || "0");
+            if (!Number.isFinite(lastAutoRepairTs) || now - lastAutoRepairTs >= WATCHLIST_AUTO_REPAIR_COOLDOWN_MS) {
+              window.localStorage.setItem(WATCHLIST_AUTO_REPAIR_TS_KEY, String(now));
+              // Auto-repair missing watchlist coverage in the background.
+              void api.post("/jobs/force-sync").catch(() => undefined);
+            }
+          }
+
+          const watchlistOnlyCodes = shouldAutoRepair ? [] : missingWatchlistCodes;
+          watchlistOnlyCodes.forEach((code) => {
             if (existing.has(code)) return;
             tickers.push({
               code,

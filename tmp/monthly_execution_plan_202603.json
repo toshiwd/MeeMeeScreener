@@ -1,0 +1,404 @@
+{
+  "generated_at_utc": "2026-02-25T23:57:05.065249+00:00",
+  "source_selection_file": "tmp\\monthly_selection_20260201.json",
+  "month_target": "2026-03",
+  "phase_plan": [
+    {
+      "phase": 1,
+      "date": "2026-03-02",
+      "weight": 0.4,
+      "slots": 4
+    },
+    {
+      "phase": 2,
+      "date": "2026-03-09",
+      "weight": 0.35,
+      "slots": 3
+    },
+    {
+      "phase": 3,
+      "date": "2026-03-16",
+      "weight": 0.25,
+      "slots": 3
+    }
+  ],
+  "event_rule": {
+    "block_if_event_within_days": {
+      "before": 3,
+      "after": 2
+    },
+    "blocked_status": "defer"
+  },
+  "counts": {
+    "total": 10,
+    "ready": 10,
+    "defer": 0,
+    "low_liquidity": 2
+  },
+  "execution_list": [
+    {
+      "phase": 1,
+      "phase_date": "2026-03-02",
+      "phase_weight": 0.4,
+      "code": "7003",
+      "name": "三井E&S(三井造船)",
+      "sector": "機械",
+      "priority_rank": 1,
+      "profile": "strict",
+      "composite": 1.3335126277861193,
+      "monthly": {
+        "p_up_big": 0.8021478404076147,
+        "p_abs_big": 0.844294910751342,
+        "score_up": 0.8147919615107329
+      },
+      "daily": {
+        "p_up": 0.4827162982794297,
+        "ev20_net": 0.02994050147133226,
+        "rank_up_20": 0.3229041989912722
+      },
+      "liquidity": {
+        "turnover20": 56396002.85,
+        "bucket": "high"
+      },
+      "events": {
+        "all": [
+          {
+            "type": "earnings_planned",
+            "date": "2026-02-10"
+          }
+        ],
+        "blocking_window": []
+      },
+      "risk_flags": [],
+      "entry_status": "ready"
+    },
+    {
+      "phase": 1,
+      "phase_date": "2026-03-02",
+      "phase_weight": 0.4,
+      "code": "5711",
+      "name": "三菱マテリアル",
+      "sector": "非鉄金属",
+      "priority_rank": 2,
+      "profile": "coverage",
+      "composite": 1.2195073143464539,
+      "monthly": {
+        "p_up_big": 0.7312088521402439,
+        "p_abs_big": 0.7600580978932493,
+        "score_up": 0.7398636258661454
+      },
+      "daily": {
+        "p_up": 0.4682867817946829,
+        "ev20_net": 0.029561681709643226,
+        "rank_up_20": 0.819350565378914
+      },
+      "liquidity": {
+        "turnover20": 11079192.0,
+        "bucket": "low"
+      },
+      "events": {
+        "all": [
+          {
+            "type": "earnings_planned",
+            "date": "2026-02-12"
+          }
+        ],
+        "blocking_window": []
+      },
+      "risk_flags": [
+        "low_liquidity"
+      ],
+      "entry_status": "ready"
+    },
+    {
+      "phase": 1,
+      "phase_date": "2026-03-02",
+      "phase_weight": 0.4,
+      "code": "1942",
+      "name": "関電工",
+      "sector": "建設業",
+      "priority_rank": 3,
+      "profile": "coverage",
+      "composite": 1.1941527309433282,
+      "monthly": {
+        "p_up_big": 0.673593428453149,
+        "p_abs_big": 0.8153503815482517,
+        "score_up": 0.7161205143816798
+      },
+      "daily": {
+        "p_up": 0.46390034619038445,
+        "ev20_net": 0.007579405462095241,
+        "rank_up_20": -0.03681166491512785
+      },
+      "liquidity": {
+        "turnover20": 15420084.8,
+        "bucket": "low"
+      },
+      "events": {
+        "all": [
+          {
+            "type": "earnings_planned",
+            "date": "2026-01-29"
+          }
+        ],
+        "blocking_window": []
+      },
+      "risk_flags": [],
+      "entry_status": "ready"
+    },
+    {
+      "phase": 1,
+      "phase_date": "2026-03-02",
+      "phase_weight": 0.4,
+      "code": "3436",
+      "name": "SUMCO",
+      "sector": "金属製品",
+      "priority_rank": 4,
+      "profile": "strict",
+      "composite": 1.137845080038047,
+      "monthly": {
+        "p_up_big": 0.6261547902502822,
+        "p_abs_big": 0.7090185794322621,
+        "score_up": 0.6510139270048761
+      },
+      "daily": {
+        "p_up": 0.4967872461389098,
+        "ev20_net": 0.0175736296799189,
+        "rank_up_20": 0.134104010176558
+      },
+      "liquidity": {
+        "turnover20": 13479426.725,
+        "bucket": "low"
+      },
+      "events": {
+        "all": [
+          {
+            "type": "earnings_planned",
+            "date": "2026-02-10"
+          }
+        ],
+        "blocking_window": []
+      },
+      "risk_flags": [],
+      "entry_status": "ready"
+    },
+    {
+      "phase": 2,
+      "phase_date": "2026-03-09",
+      "phase_weight": 0.35,
+      "code": "7453",
+      "name": "良品計画",
+      "sector": "小売業",
+      "priority_rank": 5,
+      "profile": "balanced",
+      "composite": 1.1042927410146828,
+      "monthly": {
+        "p_up_big": 0.5333744557946101,
+        "p_abs_big": 0.8270953185444325,
+        "score_up": 0.6214907146195567
+      },
+      "daily": {
+        "p_up": 0.4869528029846816,
+        "ev20_net": 0.002618333413429104,
+        "rank_up_20": -0.7631307446203854
+      },
+      "liquidity": {
+        "turnover20": 15956887.35,
+        "bucket": "low"
+      },
+      "events": {
+        "all": [
+          {
+            "type": "ex_rights",
+            "date": "2026-02-26"
+          }
+        ],
+        "blocking_window": []
+      },
+      "risk_flags": [],
+      "entry_status": "ready"
+    },
+    {
+      "phase": 2,
+      "phase_date": "2026-03-09",
+      "phase_weight": 0.35,
+      "code": "6762",
+      "name": "TDK",
+      "sector": "電気機器",
+      "priority_rank": 6,
+      "profile": "coverage",
+      "composite": 1.0872085374774074,
+      "monthly": {
+        "p_up_big": 0.5199699489527259,
+        "p_abs_big": 0.7377264353983752,
+        "score_up": 0.5852968948864207
+      },
+      "daily": {
+        "p_up": 0.48999017528062366,
+        "ev20_net": 0.011960038220425061,
+        "rank_up_20": -0.7852888108633502
+      },
+      "liquidity": {
+        "turnover20": 31956683.975,
+        "bucket": "mid"
+      },
+      "events": {
+        "all": [
+          {
+            "type": "earnings_planned",
+            "date": "2026-02-02"
+          }
+        ],
+        "blocking_window": []
+      },
+      "risk_flags": [],
+      "entry_status": "ready"
+    },
+    {
+      "phase": 2,
+      "phase_date": "2026-03-09",
+      "phase_weight": 0.35,
+      "code": "6361",
+      "name": "荏原",
+      "sector": "機械",
+      "priority_rank": 7,
+      "profile": "balanced",
+      "composite": 1.0783333540306708,
+      "monthly": {
+        "p_up_big": 0.5903196159767671,
+        "p_abs_big": 0.6082437766589045,
+        "score_up": 0.5956968641814083
+      },
+      "daily": {
+        "p_up": 0.4747294395688214,
+        "ev20_net": 0.012090495934371262,
+        "rank_up_20": 0.0988996074330052
+      },
+      "liquidity": {
+        "turnover20": 15647650.15,
+        "bucket": "low"
+      },
+      "events": {
+        "all": [
+          {
+            "type": "earnings_planned",
+            "date": "2026-02-13"
+          }
+        ],
+        "blocking_window": []
+      },
+      "risk_flags": [],
+      "entry_status": "ready"
+    },
+    {
+      "phase": 3,
+      "phase_date": "2026-03-16",
+      "phase_weight": 0.25,
+      "code": "2768",
+      "name": "双日HD(ニチメン日商岩井)",
+      "sector": "卸売業",
+      "priority_rank": 8,
+      "profile": "coverage",
+      "composite": 1.0742218908012455,
+      "monthly": {
+        "p_up_big": 0.5379781534273459,
+        "p_abs_big": 0.7192569760924821,
+        "score_up": 0.5923618002268868
+      },
+      "daily": {
+        "p_up": 0.4601415773360395,
+        "ev20_net": 0.012238058926022727,
+        "rank_up_20": -0.1775310469625418
+      },
+      "liquidity": {
+        "turnover20": 17816710.05,
+        "bucket": "low"
+      },
+      "events": {
+        "all": [
+          {
+            "type": "earnings_planned",
+            "date": "2026-02-03"
+          }
+        ],
+        "blocking_window": []
+      },
+      "risk_flags": [],
+      "entry_status": "ready"
+    },
+    {
+      "phase": 3,
+      "phase_date": "2026-03-16",
+      "phase_weight": 0.25,
+      "code": "6504",
+      "name": "富士電機",
+      "sector": "電気機器",
+      "priority_rank": 9,
+      "profile": "coverage",
+      "composite": 1.028917058155392,
+      "monthly": {
+        "p_up_big": 0.5388507315586404,
+        "p_abs_big": 0.5643118464672836,
+        "score_up": 0.5464890660312334
+      },
+      "daily": {
+        "p_up": 0.4877845696996505,
+        "ev20_net": 0.015460863457469502,
+        "rank_up_20": 0.8786708304193602
+      },
+      "liquidity": {
+        "turnover20": 12630221.0,
+        "bucket": "low"
+      },
+      "events": {
+        "all": [
+          {
+            "type": "earnings_planned",
+            "date": "2026-01-29"
+          }
+        ],
+        "blocking_window": []
+      },
+      "risk_flags": [],
+      "entry_status": "ready"
+    },
+    {
+      "phase": 3,
+      "phase_date": "2026-03-16",
+      "phase_weight": 0.25,
+      "code": "7014",
+      "name": "名村造船所",
+      "sector": "輸送用機器",
+      "priority_rank": 10,
+      "profile": "fill",
+      "composite": 0.6352028229292701,
+      "monthly": {
+        "p_up_big": 0.5229580103866284,
+        "p_abs_big": 0.8971073855287673,
+        "score_up": 0.6352028229292701
+      },
+      "daily": {
+        "p_up": 0.45171464174619164,
+        "ev20_net": 0.0011238506440461662,
+        "rank_up_20": 0.3433988335286101
+      },
+      "liquidity": {
+        "turnover20": 10933288.5,
+        "bucket": "low"
+      },
+      "events": {
+        "all": [
+          {
+            "type": "earnings_planned",
+            "date": "2026-02-12"
+          }
+        ],
+        "blocking_window": []
+      },
+      "risk_flags": [
+        "low_liquidity"
+      ],
+      "entry_status": "ready"
+    }
+  ]
+}

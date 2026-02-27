@@ -12,18 +12,51 @@ import time
 
 logger = logging.getLogger(__name__)
 
+
+def _env_int(name: str, default: int, *, minimum: int) -> int:
+    raw = os.getenv(name)
+    try:
+        value = int(raw) if raw is not None else int(default)
+    except (TypeError, ValueError):
+        value = int(default)
+    return max(int(minimum), value)
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 DEFAULT_PANDTMGR_PATH = r"C:\Program Files (x86)\Pan\pandtmgr.exe"
 WINDOW_TITLE_RE = r"Pan.*"  # window title is locale/encoding dependent; keep match broad
-IMPORT_TIMEOUT = 120  # seconds to wait for the import to complete
-WINDOW_CONNECT_TIMEOUT = 15  # seconds to wait for the app to launch
-PYWINAUTO_BACKENDS = ("uia", "win32")
+IMPORT_TIMEOUT = _env_int("MEEMEE_PAN_IMPORT_TIMEOUT", 240, minimum=60)
+WINDOW_CONNECT_TIMEOUT = _env_int("MEEMEE_PAN_WINDOW_CONNECT_TIMEOUT", 15, minimum=5)
+SETTLE_WAIT_SECONDS = _env_int("MEEMEE_PAN_IMPORT_SETTLE_SECONDS", 5, minimum=2)
+# If an import-like dialog is still open near timeout, nudge it once with Enter.
+DIALOG_NUDGE_BEFORE_TIMEOUT = _env_int("MEEMEE_PAN_DIALOG_NUDGE_BEFORE_TIMEOUT", 90, minimum=20)
+UNKNOWN_DIALOG_START_POLLS = _env_int("MEEMEE_PAN_UNKNOWN_DIALOG_START_POLLS", 3, minimum=1)
+# Prefer win32 first: Pan is a legacy desktop app and UIA can miss dialog details.
+PYWINAUTO_BACKENDS = ("win32", "uia")
 COMPLETION_BUTTON_TITLES = ("OK", "閉じる", "Close")
 COMPLETION_BUTTON_KEYWORDS = ("ok", "close", "閉じる")
 COMPLETION_DIALOG_MARKERS = ("結果表示", "結果表示(s)", "ｷｬﾝｾﾙ", "キャンセル", "ﾍﾙﾌﾟ", "ヘルプ")
 COMPLETION_TEXT_KEYWORDS = ("更新を終了", "完了", "終了しました", "100%")
+IMPORT_DIALOG_KEYWORDS = (
+    "データ更新",
+    "ﾃﾞｰﾀ更新",
+    "更新",
+    "取り込み",
+    "import",
+)
+RUNNING_BUTTON_KEYWORDS = (
+    "cancel",
+    "キャンセル",
+    "ｷｬﾝｾﾙ",
+    "中止",
+)
+RUNNING_TEXT_KEYWORDS = (
+    "更新中",
+    "処理中",
+    "取り込み中",
+)
 
 
 def run_pan_import(
@@ -46,6 +79,7 @@ def run_pan_import(
 
     try:
         from pywinauto import Application, timings  # type: ignore
+        from pywinauto.keyboard import send_keys  # type: ignore
     except ImportError:
         logger.error("pywinauto is not installed – cannot automate Pan import")
         return False
@@ -76,7 +110,18 @@ def run_pan_import(
                 main_win.set_focus()
             except Exception as exc:
                 logger.debug("Failed to focus pandtmgr window (non-fatal): %s", exc)
-            main_win.type_keys("{F5}")
+            sent = False
+            for key in ("{VK_F5}", "{F5}"):
+                try:
+                    main_win.type_keys(key, set_foreground=True, with_vk_packet=False)
+                    sent = True
+                    logger.debug("Sent %s via main window", key)
+                    break
+                except Exception as exc:
+                    logger.debug("Failed to send %s via main window: %s", key, exc)
+            if not sent:
+                send_keys("{F5}")
+                logger.debug("Sent {F5} via global keyboard fallback")
 
             # Wait for the import progress dialog to appear and then close
             # pandtmgr shows a progress dialog during import; when import is
@@ -116,6 +161,9 @@ def _wait_for_import_completion(
     """
     start = time.time()
     import_started = False
+    settled_since: float | None = None
+    unknown_non_main_polls = 0
+    dialog_nudged = False
 
     while time.time() - start < timeout:
         time.sleep(1.0)
@@ -125,7 +173,8 @@ def _wait_for_import_completion(
             # main window (not as a separate top-level dialog).
             if _dismiss_embedded_completion_dialog(main_win):
                 logger.info("Dismissed embedded completion dialog")
-                return True
+                import_started = True
+                settled_since = time.time()
 
             # Look for any dialog / popup on top of the main window
             dialogs = app.windows()
@@ -135,21 +184,55 @@ def _wait_for_import_completion(
             ]
 
             if non_main:
-                import_started = True
-                # Check if any dialog has a completion button and close it.
+                settled_since = None
+                # A visible non-main dialog can be startup noise.
+                # Mark "started" only when it looks import-related.
+                dismissed = False
+                related_found = False
                 for dlg in non_main:
+                    if _is_import_related_dialog(dlg):
+                        related_found = True
+                        import_started = True
                     if _dismiss_completion_dialog(dlg):
-                        logger.info("Dismissing completion dialog")
-                        time.sleep(0.5)
-                        return True
+                        dismissed = True
+                if related_found:
+                    unknown_non_main_polls = 0
+                else:
+                    unknown_non_main_polls += 1
+                    # Some 32/64-bit combinations return mojibake window titles.
+                    # Treat persistent non-main dialogs as import started.
+                    if unknown_non_main_polls >= UNKNOWN_DIALOG_START_POLLS:
+                        import_started = True
+
+                elapsed = time.time() - start
+                if (
+                    import_started
+                    and (not dialog_nudged)
+                    and elapsed >= max(20, float(timeout) - float(DIALOG_NUDGE_BEFORE_TIMEOUT))
+                ):
+                    if _nudge_dialog(non_main[0]):
+                        logger.info("Nudged import dialog with Enter near timeout")
+                    dialog_nudged = True
+                if dismissed:
+                    logger.info("Dismissing completion dialog")
+                    import_started = True
+                    settled_since = time.time()
                 # Still importing – continue polling
+                continue
+
+            unknown_non_main_polls = 0
+            if _has_running_indicator(main_win):
+                import_started = True
+                settled_since = None
                 continue
 
             # No non-main dialogs visible
             if import_started:
-                # Import was running and all dialogs closed → done
-                logger.info("Import dialog closed – import complete")
-                return True
+                if settled_since is None:
+                    settled_since = time.time()
+                if time.time() - settled_since >= SETTLE_WAIT_SECONDS:
+                    logger.info("Import settled for %ss - import complete", SETTLE_WAIT_SECONDS)
+                    return True
 
         except Exception as exc:
             logger.debug("Polling error (non-fatal): %s", exc)
@@ -170,15 +253,12 @@ def _dismiss_completion_dialog(dialog: "object") -> bool:
         except Exception:
             continue
 
-    try:
-        buttons = dialog.descendants(control_type="Button")
-    except Exception:
-        buttons = []
-
-    for btn in buttons:
+    for btn in _iter_controls_by_class(dialog, "button"):
         try:
-            text = str(btn.window_text() or "").strip().replace("&", "").lower()
+            text = _normalize_text(btn.window_text())
             if any(keyword in text for keyword in COMPLETION_BUTTON_KEYWORDS):
+                if hasattr(btn, "is_enabled") and (not btn.is_enabled()):
+                    continue
                 if _click_control(btn):
                     return True
         except Exception:
@@ -186,21 +266,71 @@ def _dismiss_completion_dialog(dialog: "object") -> bool:
 
     if _has_completion_text(dialog):
         return _press_enter(dialog)
-    return _press_enter(dialog) if buttons else False
+    return False
+
+
+def _is_import_related_dialog(dialog: "object") -> bool:
+    """Heuristic check to avoid treating unrelated popups as import progress."""
+    texts = _collect_dialog_texts(dialog)
+    for text in texts:
+        norm = text.replace("&", "").replace(" ", "").lower()
+        if any(keyword in norm for keyword in IMPORT_DIALOG_KEYWORDS):
+            return True
+        if any(keyword in norm for keyword in RUNNING_BUTTON_KEYWORDS):
+            return True
+        if any(keyword in norm for keyword in RUNNING_TEXT_KEYWORDS):
+            return True
+        if any(keyword in norm for keyword in COMPLETION_TEXT_KEYWORDS):
+            return True
+        if "%" in norm:
+            return True
+    return False
+
+
+def _collect_dialog_texts(dialog: "object") -> list[str]:
+    texts: list[str] = []
+    try:
+        title = str(dialog.window_text() or "").strip()
+        if title:
+            texts.append(title)
+    except Exception:
+        pass
+
+    for ctrl in _iter_controls(dialog):
+        try:
+            text = str(ctrl.window_text() or "").strip()
+            if text:
+                texts.append(text)
+        except Exception:
+            continue
+
+    return texts
+
+
+def _nudge_dialog(dialog: "object") -> bool:
+    try:
+        try:
+            dialog.set_focus()
+        except Exception:
+            pass
+        dialog.type_keys("{ENTER}")
+        return True
+    except Exception:
+        return False
 
 
 def _dismiss_embedded_completion_dialog(main_win: "object") -> bool:
     """Close completion controls embedded under the main window."""
     buttons: list[tuple[object, str, str]] = []
-    try:
-        for btn in main_win.descendants(control_type="Button"):
+    for btn in _iter_controls_by_class(main_win, "button"):
+        try:
             text = str(btn.window_text() or "").strip()
-            norm = text.replace("&", "").replace(" ", "").lower()
+            norm = _normalize_text(text)
             if not norm:
                 continue
             buttons.append((btn, text, norm))
-    except Exception:
-        return False
+        except Exception:
+            continue
 
     if not buttons:
         return False
@@ -256,18 +386,78 @@ def _press_enter(window: "object") -> bool:
 
 
 def _has_completion_text(window: "object") -> bool:
-    try:
-        text_controls = window.descendants(control_type="Text")
-    except Exception:
-        text_controls = []
-    for ctrl in text_controls:
+    for text in _collect_dialog_texts(window):
+        norm = _normalize_text(text)
+        if any(keyword in norm for keyword in COMPLETION_TEXT_KEYWORDS):
+            return True
+        if "100%" in norm:
+            return True
+    return False
+
+
+def _has_running_indicator(window: "object") -> bool:
+    for btn in _iter_controls_by_class(window, "button"):
         try:
-            text = str(ctrl.window_text() or "").strip()
-            if any(keyword in text for keyword in COMPLETION_TEXT_KEYWORDS):
+            text = _normalize_text(btn.window_text())
+            if any(keyword in text for keyword in RUNNING_BUTTON_KEYWORDS):
                 return True
         except Exception:
             continue
+
+    for text in _collect_dialog_texts(window):
+        norm = _normalize_text(text)
+        if not norm:
+            continue
+        # Keep waiting while progress is not yet complete.
+        if "%" in norm and "100%" not in norm:
+            return True
+        if any(keyword in norm for keyword in RUNNING_TEXT_KEYWORDS):
+            return True
     return False
+
+
+def _normalize_text(value: object) -> str:
+    return str(value or "").strip().replace("&", "").replace(" ", "").lower()
+
+
+def _iter_controls(window: "object") -> list[object]:
+    controls: list[object] = []
+    seen: set[int] = set()
+
+    def _append(items: list[object]) -> None:
+        for ctrl in items:
+            try:
+                handle = int(getattr(ctrl, "handle", 0) or 0)
+            except Exception:
+                handle = 0
+            if handle and handle in seen:
+                continue
+            if handle:
+                seen.add(handle)
+            controls.append(ctrl)
+
+    try:
+        _append(list(window.children()))
+    except Exception:
+        pass
+    try:
+        _append(list(window.descendants()))
+    except Exception:
+        pass
+    return controls
+
+
+def _iter_controls_by_class(window: "object", class_keyword: str) -> list[object]:
+    out: list[object] = []
+    needle = class_keyword.lower()
+    for ctrl in _iter_controls(window):
+        try:
+            klass = str(ctrl.friendly_class_name() or "").lower()
+        except Exception:
+            klass = ""
+        if needle in klass:
+            out.append(ctrl)
+    return out
 
 
 def _close_app_safely(app: "Application | None") -> None:

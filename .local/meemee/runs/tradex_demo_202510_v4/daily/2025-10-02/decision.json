@@ -1,0 +1,55 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -2,
+      "reasonId": "X_EXIT_GATE_NG",
+      "side": "LONG",
+      "ticker": "7701"
+    },
+    {
+      "deltaUnits": -2,
+      "reasonId": "X_EXIT_GATE_NG",
+      "side": "LONG",
+      "ticker": "9507"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_TOP1_GATE_OK",
+      "side": "LONG",
+      "ticker": "6407"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_TOPK_GATE_OK",
+      "side": "LONG",
+      "ticker": "6525"
+    },
+    {
+      "deltaUnits": -2,
+      "reasonId": "S_SWITCH_EV_GAP",
+      "side": "LONG",
+      "ticker": "5076"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_SWITCH_IN",
+      "side": "LONG",
+      "ticker": "5991"
+    }
+  ],
+  "asOf": "2025-10-02",
+  "checks": {
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v3",
+  "seasonId": "tradex_demo_202510_v4",
+  "stage": {
+    "goal20Reached": false,
+    "goal30Reached": false,
+    "stage2Active": false
+  }
+}

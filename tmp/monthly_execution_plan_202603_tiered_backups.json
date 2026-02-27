@@ -1,0 +1,482 @@
+{
+  "generated_at_utc": "2026-02-26T00:02:45.553600+00:00",
+  "source_selection_file": "tmp\\monthly_selection_20260201.json",
+  "source_execution_file": "tmp\\monthly_execution_plan_202603.json",
+  "month_target": "2026-03",
+  "latest_month_pred_dt": 20260201,
+  "latest_daily_dt": 1771977600,
+  "event_block_window_days": {
+    "before": 3,
+    "after": 2
+  },
+  "thresholds": {
+    "strict": {
+      "m_pup_min": 0.5,
+      "m_pabs_min": 0.55,
+      "d_pup_min": 0.46,
+      "d_ev20_net_min": -0.005,
+      "turnover20_min": 5000000
+    },
+    "relaxed": {
+      "m_pup_min": 0.45,
+      "m_pabs_min": 0.5,
+      "d_pup_min": 0.44,
+      "d_ev20_net_min": -0.01,
+      "turnover20_min": 3000000
+    }
+  },
+  "stats": {
+    "candidate_pool_size_strict": 10,
+    "candidate_pool_size_relaxed": 19,
+    "primary_total": 10,
+    "phases": 3,
+    "backup_slots_per_phase": 4,
+    "event_rows_near_phases": 230
+  },
+  "phase_execution_with_tiered_backups": [
+    {
+      "phase": 1,
+      "date": "2026-03-02",
+      "primaries": [
+        {
+          "priority_rank": 1,
+          "code": "7003",
+          "name": "三井E&S(三井造船)",
+          "sector": "機械",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 2,
+          "code": "5711",
+          "name": "三菱マテリアル",
+          "sector": "非鉄金属",
+          "entry_status": "ready",
+          "risk_flags": [
+            "low_liquidity"
+          ]
+        },
+        {
+          "priority_rank": 3,
+          "code": "1942",
+          "name": "関電工",
+          "sector": "建設業",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 4,
+          "code": "3436",
+          "name": "SUMCO",
+          "sector": "金属製品",
+          "entry_status": "ready",
+          "risk_flags": []
+        }
+      ],
+      "backups": [
+        {
+          "backup_rank": 1,
+          "code": "5802",
+          "name": "住友電気工業",
+          "sector": "非鉄金属",
+          "backup_tier": "relaxed",
+          "composite": 1.0947549315825646,
+          "monthly": {
+            "p_up_big": 0.6137086088164353,
+            "p_abs_big": 0.6296367648077283,
+            "score_up": 0.6184870556138231
+          },
+          "daily": {
+            "p_up": 0.4568742050800943,
+            "ev20_net": 0.019393670888647387,
+            "rank_up_20": 0.9561858822206897
+          },
+          "liquidity": {
+            "turnover20": 83121726.25
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": [
+            "weak_daily_prob"
+          ]
+        },
+        {
+          "backup_rank": 2,
+          "code": "1801",
+          "name": "大成建設",
+          "sector": "建設業",
+          "backup_tier": "relaxed",
+          "composite": 1.0499142528949374,
+          "monthly": {
+            "p_up_big": 0.506633272136831,
+            "p_abs_big": 0.5077184807008263,
+            "score_up": 0.5069588347060295
+          },
+          "daily": {
+            "p_up": 0.4973465467914732,
+            "ev20_net": 0.045608871397434816,
+            "rank_up_20": 0.7633495897897404
+          },
+          "liquidity": {
+            "turnover20": 19379293.75
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": []
+        },
+        {
+          "backup_rank": 3,
+          "code": "4186",
+          "name": "東京応化工業",
+          "sector": "化学",
+          "backup_tier": "relaxed",
+          "composite": 1.030756374390456,
+          "monthly": {
+            "p_up_big": 0.5136103400254562,
+            "p_abs_big": 0.5323123614700589,
+            "score_up": 0.519220946458837
+          },
+          "daily": {
+            "p_up": 0.47934575743207836,
+            "ev20_net": 0.03218967049954064,
+            "rank_up_20": 0.6059382672061148
+          },
+          "liquidity": {
+            "turnover20": 11700346.4
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": [
+            "low_liquidity"
+          ]
+        },
+        {
+          "backup_rank": 4,
+          "code": "9503",
+          "name": "関西電力",
+          "sector": "電気・ガス業",
+          "backup_tier": "relaxed",
+          "composite": 1.0103210422632312,
+          "monthly": {
+            "p_up_big": 0.5055750084729574,
+            "p_abs_big": 0.5289825730056426,
+            "score_up": 0.512597277832763
+          },
+          "daily": {
+            "p_up": 0.49331724565270857,
+            "ev20_net": 0.004406518777759476,
+            "rank_up_20": -1.1115596338046063
+          },
+          "liquidity": {
+            "turnover20": 9581649.025
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": [
+            "low_liquidity",
+            "low_ev_buffer",
+            "negative_rank_trend"
+          ]
+        }
+      ],
+      "backup_tier_counts": {
+        "strict": 0,
+        "relaxed": 4
+      }
+    },
+    {
+      "phase": 2,
+      "date": "2026-03-09",
+      "primaries": [
+        {
+          "priority_rank": 5,
+          "code": "7453",
+          "name": "良品計画",
+          "sector": "小売業",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 6,
+          "code": "6762",
+          "name": "TDK",
+          "sector": "電気機器",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 7,
+          "code": "6361",
+          "name": "荏原",
+          "sector": "機械",
+          "entry_status": "ready",
+          "risk_flags": []
+        }
+      ],
+      "backups": [
+        {
+          "backup_rank": 1,
+          "code": "5802",
+          "name": "住友電気工業",
+          "sector": "非鉄金属",
+          "backup_tier": "relaxed",
+          "composite": 1.0947549315825646,
+          "monthly": {
+            "p_up_big": 0.6137086088164353,
+            "p_abs_big": 0.6296367648077283,
+            "score_up": 0.6184870556138231
+          },
+          "daily": {
+            "p_up": 0.4568742050800943,
+            "ev20_net": 0.019393670888647387,
+            "rank_up_20": 0.9561858822206897
+          },
+          "liquidity": {
+            "turnover20": 83121726.25
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": [
+            "weak_daily_prob"
+          ]
+        },
+        {
+          "backup_rank": 2,
+          "code": "1801",
+          "name": "大成建設",
+          "sector": "建設業",
+          "backup_tier": "relaxed",
+          "composite": 1.0499142528949374,
+          "monthly": {
+            "p_up_big": 0.506633272136831,
+            "p_abs_big": 0.5077184807008263,
+            "score_up": 0.5069588347060295
+          },
+          "daily": {
+            "p_up": 0.4973465467914732,
+            "ev20_net": 0.045608871397434816,
+            "rank_up_20": 0.7633495897897404
+          },
+          "liquidity": {
+            "turnover20": 19379293.75
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": []
+        },
+        {
+          "backup_rank": 3,
+          "code": "4186",
+          "name": "東京応化工業",
+          "sector": "化学",
+          "backup_tier": "relaxed",
+          "composite": 1.030756374390456,
+          "monthly": {
+            "p_up_big": 0.5136103400254562,
+            "p_abs_big": 0.5323123614700589,
+            "score_up": 0.519220946458837
+          },
+          "daily": {
+            "p_up": 0.47934575743207836,
+            "ev20_net": 0.03218967049954064,
+            "rank_up_20": 0.6059382672061148
+          },
+          "liquidity": {
+            "turnover20": 11700346.4
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": [
+            "low_liquidity"
+          ]
+        },
+        {
+          "backup_rank": 4,
+          "code": "9503",
+          "name": "関西電力",
+          "sector": "電気・ガス業",
+          "backup_tier": "relaxed",
+          "composite": 1.0103210422632312,
+          "monthly": {
+            "p_up_big": 0.5055750084729574,
+            "p_abs_big": 0.5289825730056426,
+            "score_up": 0.512597277832763
+          },
+          "daily": {
+            "p_up": 0.49331724565270857,
+            "ev20_net": 0.004406518777759476,
+            "rank_up_20": -1.1115596338046063
+          },
+          "liquidity": {
+            "turnover20": 9581649.025
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": [
+            "low_liquidity",
+            "low_ev_buffer",
+            "negative_rank_trend"
+          ]
+        }
+      ],
+      "backup_tier_counts": {
+        "strict": 0,
+        "relaxed": 4
+      }
+    },
+    {
+      "phase": 3,
+      "date": "2026-03-16",
+      "primaries": [
+        {
+          "priority_rank": 8,
+          "code": "2768",
+          "name": "双日HD(ニチメン日商岩井)",
+          "sector": "卸売業",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 9,
+          "code": "6504",
+          "name": "富士電機",
+          "sector": "電気機器",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 10,
+          "code": "7014",
+          "name": "名村造船所",
+          "sector": "輸送用機器",
+          "entry_status": "ready",
+          "risk_flags": [
+            "low_liquidity"
+          ]
+        }
+      ],
+      "backups": [
+        {
+          "backup_rank": 1,
+          "code": "5802",
+          "name": "住友電気工業",
+          "sector": "非鉄金属",
+          "backup_tier": "relaxed",
+          "composite": 1.0947549315825646,
+          "monthly": {
+            "p_up_big": 0.6137086088164353,
+            "p_abs_big": 0.6296367648077283,
+            "score_up": 0.6184870556138231
+          },
+          "daily": {
+            "p_up": 0.4568742050800943,
+            "ev20_net": 0.019393670888647387,
+            "rank_up_20": 0.9561858822206897
+          },
+          "liquidity": {
+            "turnover20": 83121726.25
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": [
+            "weak_daily_prob"
+          ]
+        },
+        {
+          "backup_rank": 2,
+          "code": "1801",
+          "name": "大成建設",
+          "sector": "建設業",
+          "backup_tier": "relaxed",
+          "composite": 1.0499142528949374,
+          "monthly": {
+            "p_up_big": 0.506633272136831,
+            "p_abs_big": 0.5077184807008263,
+            "score_up": 0.5069588347060295
+          },
+          "daily": {
+            "p_up": 0.4973465467914732,
+            "ev20_net": 0.045608871397434816,
+            "rank_up_20": 0.7633495897897404
+          },
+          "liquidity": {
+            "turnover20": 19379293.75
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": []
+        },
+        {
+          "backup_rank": 3,
+          "code": "4186",
+          "name": "東京応化工業",
+          "sector": "化学",
+          "backup_tier": "relaxed",
+          "composite": 1.030756374390456,
+          "monthly": {
+            "p_up_big": 0.5136103400254562,
+            "p_abs_big": 0.5323123614700589,
+            "score_up": 0.519220946458837
+          },
+          "daily": {
+            "p_up": 0.47934575743207836,
+            "ev20_net": 0.03218967049954064,
+            "rank_up_20": 0.6059382672061148
+          },
+          "liquidity": {
+            "turnover20": 11700346.4
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": [
+            "low_liquidity"
+          ]
+        },
+        {
+          "backup_rank": 4,
+          "code": "9503",
+          "name": "関西電力",
+          "sector": "電気・ガス業",
+          "backup_tier": "relaxed",
+          "composite": 1.0103210422632312,
+          "monthly": {
+            "p_up_big": 0.5055750084729574,
+            "p_abs_big": 0.5289825730056426,
+            "score_up": 0.512597277832763
+          },
+          "daily": {
+            "p_up": 0.49331724565270857,
+            "ev20_net": 0.004406518777759476,
+            "rank_up_20": -1.1115596338046063
+          },
+          "liquidity": {
+            "turnover20": 9581649.025
+          },
+          "events": {
+            "blocking_window": []
+          },
+          "risk_flags": [
+            "low_liquidity",
+            "low_ev_buffer",
+            "negative_rank_trend"
+          ]
+        }
+      ],
+      "backup_tier_counts": {
+        "strict": 0,
+        "relaxed": 4
+      }
+    }
+  ]
+}

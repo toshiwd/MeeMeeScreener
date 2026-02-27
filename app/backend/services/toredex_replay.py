@@ -26,11 +26,13 @@ def replay_decision(*, season_id: str, as_of: str) -> dict[str, Any]:
 
     snapshot = repo.get_snapshot_payload(season_id, as_of_date)
     decision_row = repo.get_decision_row(season_id, as_of_date)
+    decision_payload = repo.get_decision_payload(season_id, as_of_date)
     if not snapshot or not decision_row:
         raise RuntimeError("missing snapshot/decision payload for replay")
 
     prev_metric = repo.get_latest_metrics(season_id, before_or_equal=as_of_date - timedelta(days=1))
-    rebuilt = build_decision(snapshot=snapshot, config=cfg, prev_metrics=prev_metric, mode="LIVE")
+    mode = str((decision_payload or {}).get("mode") or "LIVE").upper()
+    rebuilt = build_decision(snapshot=snapshot, config=cfg, prev_metrics=prev_metric, mode=mode)
     rebuilt_hash = hash_payload(rebuilt, exclude_fields={"createdAt", "runtime", "path", "realPath", "host"})
     saved_hash = str(decision_row.get("decision_hash") or "")
 

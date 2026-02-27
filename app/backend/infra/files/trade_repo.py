@@ -37,34 +37,96 @@ class TradeRepository:
         """
         if not os.path.exists(path):
             return [], ""
-            
-        # Try cp932 first (most common for Japanese CSVs)
-        encodings = ["cp932", "utf-8-sig", "utf-8"]
-        
-        for encoding in encodings:
+
+        try:
+            with open(path, "rb") as f:
+                content = f.read()
+        except Exception:
+            return [], ""
+
+        best_rows: List[List[str]] = []
+        best_enc = ""
+        best_score = -1
+        fallback_rows: List[List[str]] = []
+        fallback_enc = ""
+        seen_text: set[str] = set()
+
+        for encoding in ("cp932", "utf-8-sig", "utf-8"):
             try:
-                with open(path, "r", encoding=encoding, newline="") as f:
-                    reader = csv.reader(f)
-                    rows = list(reader)
-                    return rows, encoding
-            except (UnicodeDecodeError, Exception):
+                decoded = content.decode(encoding)
+            except Exception:
                 continue
-                
+
+            if not decoded or decoded in seen_text:
+                continue
+            seen_text.add(decoded)
+
+            rows = list(csv.reader(decoded.splitlines()))
+            if not rows:
+                continue
+            if not fallback_rows:
+                fallback_rows, fallback_enc = rows, encoding
+            if TradeParser.looks_like_sbi(rows):
+                return rows, encoding
+
+            try:
+                sbi_rows = len((TradeParser.parse_sbi_rows(rows, encoding) or {}).get("rows") or [])
+            except Exception:
+                sbi_rows = 0
+            try:
+                rakuten_rows = len((TradeParser.parse_rakuten_rows(rows, encoding) or {}).get("rows") or [])
+            except Exception:
+                rakuten_rows = 0
+            score = max(sbi_rows, rakuten_rows)
+            if score > best_score:
+                best_rows, best_enc, best_score = rows, encoding, score
+
+        if best_rows:
+            return best_rows, best_enc
+        if fallback_rows:
+            return fallback_rows, fallback_enc
         return [], ""
 
     @staticmethod
     def detect_broker_from_bytes(content: bytes, filename: str = "") -> tuple[str, str]:
         # Prefer content-based detection; filename is fallback only.
+        best_broker: str | None = None
+        best_score = -1
+        seen_text: set[str] = set()
+
         for enc in ("cp932", "utf-8-sig", "utf-8"):
             try:
                 decoded = content.decode(enc)
-                rows = list(csv.reader(decoded.splitlines()))
-                if rows:
-                    if TradeParser.looks_like_sbi(rows):
-                        return "sbi", f"content:{enc}"
-                    return "rakuten", f"content:{enc}"
             except Exception:
                 continue
+
+            if not decoded or decoded in seen_text:
+                continue
+            seen_text.add(decoded)
+
+            rows = list(csv.reader(decoded.splitlines()))
+            if not rows:
+                continue
+            if TradeParser.looks_like_sbi(rows):
+                return "sbi", f"content:{enc}"
+
+            try:
+                sbi_rows = len((TradeParser.parse_sbi_rows(rows, enc) or {}).get("rows") or [])
+            except Exception:
+                sbi_rows = 0
+            try:
+                rakuten_rows = len((TradeParser.parse_rakuten_rows(rows, enc) or {}).get("rows") or [])
+            except Exception:
+                rakuten_rows = 0
+            if sbi_rows > 0 or rakuten_rows > 0:
+                broker = "sbi" if sbi_rows >= rakuten_rows else "rakuten"
+                score = max(sbi_rows, rakuten_rows)
+                if score > best_score:
+                    best_broker = broker
+                    best_score = score
+
+        if best_broker is not None:
+            return best_broker, "content:best-parse"
 
         fname = filename.lower()
         if "sbi" in fname or "ＳＢＩ" in filename or "SBI" in filename:

@@ -17,6 +17,7 @@ from app.db.session import get_conn
 from app.utils.date_utils import _format_event_timestamp, jst_now
 from app.utils.text_utils import _normalize_code
 from app.backend.infra.files.trade_repo import TradeRepository
+from app.backend.core.text_encoding import repair_cp932_mojibake
 
 # Re-export or re-implement helpers if needed, or import from services
 # The legacy router imported _calc_* from position_calc.
@@ -349,7 +350,7 @@ def get_held_positions():
         for r in rows:
             sym = r[0]
             name_row = conn.execute("SELECT name FROM tickers WHERE code = ?", [sym]).fetchone()
-            name = name_row[0] if name_row else ""
+            name = repair_cp932_mojibake(str(name_row[0] or sym)) if name_row else ""
 
             b_qty = to_lots(r[1])
             s_qty = to_lots(r[2])
@@ -390,7 +391,7 @@ def get_position_history(symbol: str | None = None):
         for r in rows:
             sym = r[1]
             name_row = conn.execute("SELECT name FROM tickers WHERE code = ?", [sym]).fetchone()
-            name = name_row[0] if name_row else ""
+            name = repair_cp932_mojibake(str(name_row[0] or sym)) if name_row else ""
 
             result.append(
                 {

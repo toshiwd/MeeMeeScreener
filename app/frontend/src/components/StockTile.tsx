@@ -72,6 +72,30 @@ const StockTile = memo(function StockTile({
   const earningsLabel = formatEventBadgeDate(ticker.eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(ticker.eventRightsDate);
   const isFavorite = favorites.includes(ticker.code);
+  const entryPriorityScore = Number.isFinite(ticker.entryPriorityScore ?? NaN)
+    ? Math.round(ticker.entryPriorityScore as number)
+    : null;
+  const entryPriorityTier = ticker.entryPriorityTier ?? null;
+  const entryPriorityLabel = (ticker.entryPriorityLabel ?? "").trim();
+  const entryPriorityReasons = Array.isArray(ticker.entryPriorityReasons)
+    ? ticker.entryPriorityReasons.filter((reason) => typeof reason === "string" && reason.trim()).slice(0, 3)
+    : [];
+  const showEntryPriorityChip = Boolean(entryPriorityTier && entryPriorityScore != null);
+  const entryPriorityTitle = [entryPriorityLabel, ...entryPriorityReasons].filter(Boolean).join(" / ");
+  const shortPriorityScore = Number.isFinite(ticker.shortPriorityScore ?? NaN)
+    ? Math.round(ticker.shortPriorityScore as number)
+    : null;
+  const shortPriorityTier = ticker.shortPriorityTier ?? null;
+  const shortPriorityLabel = (ticker.shortPriorityLabel ?? "").trim();
+  const shortPriorityReasons = Array.isArray(ticker.shortPriorityReasons)
+    ? ticker.shortPriorityReasons.filter((reason) => typeof reason === "string" && reason.trim()).slice(0, 3)
+    : [];
+  const showShortPriorityChip = Boolean(shortPriorityTier && shortPriorityScore != null);
+  const shortPriorityTitle = [shortPriorityLabel, ...shortPriorityReasons].filter(Boolean).join(" / ");
+  const patternName = (ticker.buyPatternName ?? "").trim();
+  const patternCode = (ticker.buyPatternCode ?? "").trim();
+  const showPatternChip = patternName.length > 0 && patternCode !== "WAIT";
+  const patternTone = ticker.buyOverextended ? "warning" : ticker.buyEligible ? "achieved" : "";
 
   useEffect(() => {
     if (!backendReady || favoritesLoaded) return;
@@ -178,9 +202,30 @@ const StockTile = memo(function StockTile({
           </button>
         </div>
       </div>
-      {signals?.length ? (
+      {showEntryPriorityChip || showShortPriorityChip || showPatternChip || signals?.length ? (
         <div className="tile-signal-row">
           <div className="signal-chips">
+            {showEntryPriorityChip && (
+              <span
+                className={`signal-chip entry-tier tier-${String(entryPriorityTier).toLowerCase()}`}
+                title={entryPriorityTitle || undefined}
+              >
+                仕込{entryPriorityTier}:{entryPriorityScore}
+              </span>
+            )}
+            {showShortPriorityChip && (
+              <span
+                className={`signal-chip short-tier tier-${String(shortPriorityTier).toLowerCase()}`}
+                title={shortPriorityTitle || undefined}
+              >
+                売り{shortPriorityTier}:{shortPriorityScore}
+              </span>
+            )}
+            {showPatternChip && (
+              <span className={`signal-chip pattern ${patternTone}`.trim()}>
+                買い:{patternName}
+              </span>
+            )}
             {signals.slice(0, 4).map((signal) => (
               <span
                 key={signal.label}

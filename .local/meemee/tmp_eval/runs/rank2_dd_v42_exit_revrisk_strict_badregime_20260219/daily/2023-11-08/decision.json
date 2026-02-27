@@ -1,0 +1,44 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -2,
+      "reasonId": "X_EXIT_EV_DROP",
+      "side": "LONG",
+      "ticker": "6920"
+    },
+    {
+      "deltaUnits": -2,
+      "reasonId": "X_EXIT_GATE_NG",
+      "side": "LONG",
+      "ticker": "8358"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_TOP1_GATE_OK",
+      "side": "LONG",
+      "ticker": "1514"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_TOPK_GATE_OK",
+      "side": "LONG",
+      "ticker": "4732"
+    }
+  ],
+  "asOf": "2023-11-08",
+  "checks": {
+    "exposureOk": true,
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v8",
+  "seasonId": "rank2_dd_v42_exit_revrisk_strict_badregime_20260219",
+  "stage": {
+    "goal20Reached": false,
+    "goal30Reached": false,
+    "stage2Active": false
+  }
+}

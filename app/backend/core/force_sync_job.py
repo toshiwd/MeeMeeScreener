@@ -116,6 +116,44 @@ def _run_ingest(incremental: bool = True) -> tuple[str, str, dict]:
         return buffer.getvalue(), str(exc), {}
 
 
+def _is_transient_db_lock_error(text: str) -> bool:
+    lowered = (text or "").lower()
+    return (
+        "cannot open file" in lowered
+        or "already open" in lowered
+        or "used by" in lowered
+        or "file is already open" in lowered
+    )
+
+
+def _run_ingest_with_retry(
+    *,
+    incremental: bool,
+    max_attempts: int,
+    sleep_seconds: float,
+) -> tuple[str, str, dict, int]:
+    attempt = 0
+    last_output = ""
+    last_error = ""
+    last_stats: dict = {}
+    while attempt < max_attempts:
+        attempt += 1
+        out, err, stats = _run_ingest(incremental=incremental)
+        last_output, last_error, last_stats = out, err, stats
+        if not err:
+            return out, "", stats, attempt
+        if attempt >= max_attempts or not _is_transient_db_lock_error(err):
+            break
+        logger.warning(
+            "force_sync ingest retry due to transient DB lock (attempt %s/%s): %s",
+            attempt,
+            max_attempts,
+            err,
+        )
+        time.sleep(max(0.1, float(sleep_seconds)))
+    return last_output, last_error, last_stats, attempt
+
+
 def handle_force_sync(job_id: str, payload: dict):
     """
     Job Handler for 'force_sync'.
@@ -128,6 +166,20 @@ def handle_force_sync(job_id: str, payload: dict):
     job_manager._update_db(job_id, "force_sync", "running", message="Normalizing code.txt...", progress=5)
 
     try:
+        try:
+            ingest_retry = max(
+                1,
+                int(payload.get("ingest_retry", os.getenv("MEEMEE_FORCE_SYNC_INGEST_RETRY", 3))),
+            )
+        except (TypeError, ValueError):
+            ingest_retry = 3
+        try:
+            ingest_retry_sleep = max(
+                0.1,
+                float(payload.get("ingest_retry_sleep", os.getenv("MEEMEE_FORCE_SYNC_INGEST_RETRY_SLEEP", 1.5))),
+            )
+        except (TypeError, ValueError):
+            ingest_retry_sleep = 1.5
         if os.path.exists(PAN_CODE_TXT_PATH):
             changed = normalize_code_txt(PAN_CODE_TXT_PATH)
             msg = "code.txt normalized (updated)" if changed else "code.txt validated (no changes)"
@@ -152,7 +204,11 @@ def handle_force_sync(job_id: str, payload: dict):
 
         # Run Ingest (Full)
         job_manager._update_db(job_id, "force_sync", "running", message="Ingesting (Full Mode)...", progress=60)
-        ingest_out, ingest_err, stats = _run_ingest(incremental=False)
+        ingest_out, ingest_err, stats, ingest_attempts = _run_ingest_with_retry(
+            incremental=False,
+            max_attempts=ingest_retry,
+            sleep_seconds=ingest_retry_sleep,
+        )
 
         if ingest_err:
             job_manager._update_db(
@@ -160,7 +216,7 @@ def handle_force_sync(job_id: str, payload: dict):
                 "force_sync",
                 "failed",
                 error="Ingest Failed",
-                message=f"Ingest Error: {ingest_err}",
+                message=f"Ingest Error: {ingest_err} (attempts={ingest_attempts})",
             )
             return
 

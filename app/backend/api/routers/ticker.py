@@ -8,7 +8,7 @@ from threading import Lock
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.backend.api.dependencies import get_stock_repo
 from app.backend.infra.duckdb.stock_repo import StockRepository
@@ -19,6 +19,7 @@ from app.services.box_detector import detect_boxes
 router = APIRouter(prefix="/api/ticker", tags=["ticker"])
 logger = logging.getLogger(__name__)
 SYNC_BACKFILL_MAX_AGE_DAYS = max(0, int(os.getenv("MEEMEE_SYNC_BACKFILL_MAX_AGE_DAYS", "7")))
+_VALID_RISK_MODES = {"defensive", "balanced", "aggressive"}
 _BACKFILL_ATTEMPTS: set[tuple[str, int, bool, bool]] = set()
 _BACKFILL_ATTEMPTS_LOCK = Lock()
 
@@ -126,6 +127,209 @@ def _to_float_or_none(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed == parsed else None
+
+
+def _normalize_risk_mode(value: str | None) -> str:
+    resolved = str(value or "balanced").strip().lower()
+    if resolved not in _VALID_RISK_MODES:
+        raise HTTPException(status_code=400, detail="risk_mode must be defensive/balanced/aggressive")
+    return resolved
+
+
+def _infer_playbook_setup_type(
+    *,
+    direction: str,
+    shape_patterns: dict[str, bool],
+    trend_up_strict: bool,
+    trend_down_strict: bool,
+    monthly_box_state: str | None,
+) -> str:
+    box_state = str(monthly_box_state or "")
+    if direction == "up":
+        if bool(shape_patterns.get("a3CapitulationRebound")):
+            return "rebound"
+        if bool(shape_patterns.get("a1MaturedBreakout")):
+            return "breakout"
+        if bool(shape_patterns.get("a2BoxTrend")):
+            return "accumulation"
+        if trend_up_strict and box_state in {"box_mid", "box_upper", "breakout_up"}:
+            return "continuation"
+        return "watch"
+
+    if (
+        bool(shape_patterns.get("d1ShortBreakdown"))
+        or bool(shape_patterns.get("d2ShortMixedFar"))
+        or bool(shape_patterns.get("d3ShortNaBelow"))
+    ):
+        return "breakdown"
+    if trend_down_strict and box_state in {"below_box", "box_lower"}:
+        return "continuation"
+    return "watch"
+
+
+def _build_playbook_policy_side(
+    *,
+    direction: str,
+    risk_mode: str,
+    trend_up_strict: bool,
+    trend_down_strict: bool,
+    monthly_box_state: str | None,
+    monthly_box_months: float | None,
+    dist_ma20_signed: float | None,
+    cnt60_up: float | None,
+    cnt100_up: float | None,
+) -> Dict[str, Any]:
+    shape_patterns = rankings_cache._calc_shape_pattern_flags(
+        direction=direction,  # type: ignore[arg-type]
+        trend_up_strict=trend_up_strict,
+        trend_down_strict=trend_down_strict,
+        monthly_box_state=monthly_box_state,
+        monthly_box_months=monthly_box_months,
+        dist_ma20_signed=dist_ma20_signed,
+        cnt60_up=cnt60_up,
+        cnt100_up=cnt100_up,
+    )
+    setup_type = _infer_playbook_setup_type(
+        direction=direction,
+        shape_patterns=shape_patterns,
+        trend_up_strict=trend_up_strict,
+        trend_down_strict=trend_down_strict,
+        monthly_box_state=monthly_box_state,
+    )
+    side: Dict[str, Any] = {}
+    rankings_cache._apply_entry_playbook_fields(
+        side,
+        direction=direction,  # type: ignore[arg-type]
+        setup_type=setup_type,
+        shape_patterns=shape_patterns,
+        risk_mode=risk_mode,  # type: ignore[arg-type]
+    )
+    side["setupType"] = setup_type
+    side["shapePatterns"] = shape_patterns
+    side["playbookScoreBonus"] = float(
+        rankings_cache._calc_playbook_entry_bonus(
+            direction=direction,  # type: ignore[arg-type]
+            shape_patterns=shape_patterns,
+        )
+    )
+    return side
+
+
+def _build_entry_policy_summary(
+    *,
+    daily_rows: list[tuple],
+    monthly_rows: list[tuple],
+    risk_mode: str,
+) -> Dict[str, Any] | None:
+    if not daily_rows:
+        return None
+
+    daily_closes: list[float] = []
+    for row in daily_rows:
+        if len(row) < 5 or row[4] is None:
+            continue
+        close_val = _to_float_or_none(row[4])
+        if close_val is None:
+            continue
+        daily_closes.append(float(close_val))
+    if not daily_closes:
+        return None
+
+    ma20 = _rolling_sma(daily_closes, 20)
+    ma60 = _rolling_sma(daily_closes, 60)
+    last_idx = len(daily_closes) - 1
+    close_now = daily_closes[last_idx]
+    ma20_now = ma20[last_idx] if last_idx >= 0 else None
+    ma60_now = ma60[last_idx] if last_idx >= 0 else None
+    ma20_prev = ma20[last_idx - 1] if last_idx - 1 >= 0 else None
+    ma60_prev = ma60[last_idx - 1] if last_idx - 1 >= 0 else None
+
+    trend_up = bool(
+        ma20_now is not None
+        and ma60_now is not None
+        and close_now > ma20_now > ma60_now
+    )
+    trend_down = bool(
+        ma20_now is not None
+        and ma60_now is not None
+        and close_now < ma20_now < ma60_now
+    )
+    ma20_slope = (
+        float(ma20_now - ma20_prev)
+        if ma20_now is not None and ma20_prev is not None and math.isfinite(ma20_now) and math.isfinite(ma20_prev)
+        else None
+    )
+    ma60_slope = (
+        float(ma60_now - ma60_prev)
+        if ma60_now is not None and ma60_prev is not None and math.isfinite(ma60_now) and math.isfinite(ma60_prev)
+        else None
+    )
+    dist_ma20_signed = (
+        float((close_now - ma20_now) / ma20_now)
+        if ma20_now is not None and ma20_now != 0 and math.isfinite(ma20_now)
+        else None
+    )
+    trend_up_strict = bool(
+        trend_up
+        and isinstance(ma20_slope, (int, float))
+        and isinstance(ma60_slope, (int, float))
+        and float(ma20_slope) > 0
+        and float(ma60_slope) > 0
+        and isinstance(dist_ma20_signed, (int, float))
+        and float(dist_ma20_signed) >= 0.005
+    )
+    trend_down_strict = bool(
+        trend_down
+        and isinstance(ma20_slope, (int, float))
+        and isinstance(ma60_slope, (int, float))
+        and float(ma20_slope) < 0
+        and float(ma60_slope) < 0
+        and isinstance(dist_ma20_signed, (int, float))
+        and float(dist_ma20_signed) <= -0.005
+    )
+
+    v60_signals = rankings_cache._calc_60v_signals(daily_rows)
+    cnt60_up = _to_float_or_none(v60_signals.get("cnt60Up"))
+    cnt100_up = _to_float_or_none(v60_signals.get("cnt100Up"))
+
+    monthly_box = rankings_cache._detect_monthly_body_box(monthly_rows)
+    monthly_box_state, _ = rankings_cache._calc_monthly_box_state(
+        entry_close=close_now,
+        box=monthly_box,
+    )
+    monthly_box_months = (
+        _to_float_or_none(monthly_box.get("months"))
+        if isinstance(monthly_box, dict)
+        else None
+    )
+
+    up_side = _build_playbook_policy_side(
+        direction="up",
+        risk_mode=risk_mode,
+        trend_up_strict=trend_up_strict,
+        trend_down_strict=trend_down_strict,
+        monthly_box_state=monthly_box_state,
+        monthly_box_months=monthly_box_months,
+        dist_ma20_signed=dist_ma20_signed,
+        cnt60_up=cnt60_up,
+        cnt100_up=cnt100_up,
+    )
+    down_side = _build_playbook_policy_side(
+        direction="down",
+        risk_mode=risk_mode,
+        trend_up_strict=trend_up_strict,
+        trend_down_strict=trend_down_strict,
+        monthly_box_state=monthly_box_state,
+        monthly_box_months=monthly_box_months,
+        dist_ma20_signed=dist_ma20_signed,
+        cnt60_up=cnt60_up,
+        cnt100_up=cnt100_up,
+    )
+    return {
+        "riskMode": risk_mode,
+        "up": up_side,
+        "down": down_side,
+    }
 
 
 def _resolve_effective_trade_dt(
@@ -497,10 +701,12 @@ def get_phase_pred(
 def get_analysis_pred(
     code: str,
     asof: str | int | None = None,
+    risk_mode: str = Query("balanced"),
     repo: StockRepository = Depends(get_stock_repo),
 ) -> Dict[str, Any]:
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
+    resolved_risk_mode = _normalize_risk_mode(risk_mode)
     asof_dt = _parse_dt(asof)
     row = repo.get_ml_analysis_pred(code, asof_dt)
     if not row and asof_dt is not None:
@@ -545,12 +751,19 @@ def get_analysis_pred(
     model_version = row[17] if len(row) > 17 else None
     additive_signals = None
     buy_stage_precision = None
+    entry_policy = None
     try:
         daily_rows = repo.get_daily_bars(code, limit=1260, asof_dt=asof_dt)
         monthly_rows = repo.get_monthly_bars(code, limit=60, asof_dt=asof_dt)
         additive_signals = _build_additive_signal_summary(daily_rows, monthly_rows)
+        entry_policy = _build_entry_policy_summary(
+            daily_rows=daily_rows,
+            monthly_rows=monthly_rows,
+            risk_mode=resolved_risk_mode,
+        )
     except Exception:
         additive_signals = None
+        entry_policy = None
     try:
         buy_stage_precision = repo.get_buy_stage_precision(code, asof_dt, lookback_bars=360, horizon=20)
     except Exception:
@@ -568,6 +781,8 @@ def get_analysis_pred(
             "ev20Net": ev20_net,
             "horizonAnalysis": horizon_analysis,
             "additiveSignals": additive_signals,
+            "entryPolicy": entry_policy,
+            "riskMode": resolved_risk_mode,
             "buyStagePrecision": buy_stage_precision,
             "modelVersion": str(model_version) if model_version is not None else None,
         }

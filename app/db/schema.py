@@ -244,10 +244,28 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
             price DOUBLE,
             reason_id TEXT,
             fees_bps DOUBLE,
+            slippage_bps DOUBLE,
+            borrow_bps_annual DOUBLE,
+            notional DOUBLE,
+            fees_cost DOUBLE,
+            slippage_cost DOUBLE,
+            borrow_cost DOUBLE,
             created_at TIMESTAMP
         );
         """
     )
+    for sql in (
+        "ALTER TABLE toredex_trades ADD COLUMN slippage_bps DOUBLE",
+        "ALTER TABLE toredex_trades ADD COLUMN borrow_bps_annual DOUBLE",
+        "ALTER TABLE toredex_trades ADD COLUMN notional DOUBLE",
+        "ALTER TABLE toredex_trades ADD COLUMN fees_cost DOUBLE",
+        "ALTER TABLE toredex_trades ADD COLUMN slippage_cost DOUBLE",
+        "ALTER TABLE toredex_trades ADD COLUMN borrow_cost DOUBLE",
+    ):
+        try:
+            conn.execute(sql)
+        except Exception:
+            pass
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS toredex_positions (
@@ -279,10 +297,96 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
             goal20_reached BOOLEAN,
             goal30_reached BOOLEAN,
             game_over BOOLEAN,
+            gross_daily_pnl DOUBLE,
+            gross_cum_pnl DOUBLE,
+            gross_cum_return_pct DOUBLE,
+            net_daily_pnl DOUBLE,
+            net_cum_pnl DOUBLE,
+            net_cum_return_pct DOUBLE,
+            fees_cost_daily DOUBLE,
+            slippage_cost_daily DOUBLE,
+            borrow_cost_daily DOUBLE,
+            fees_cost_cum DOUBLE,
+            slippage_cost_cum DOUBLE,
+            borrow_cost_cum DOUBLE,
+            turnover_notional_daily DOUBLE,
+            turnover_notional_cum DOUBLE,
+            turnover_pct_daily DOUBLE,
+            long_units INTEGER,
+            short_units INTEGER,
+            gross_units INTEGER,
+            net_units INTEGER,
+            net_exposure_pct DOUBLE,
+            risk_gate_pass BOOLEAN,
+            risk_gate_reason TEXT,
+            cost_sensitivity_json TEXT,
             PRIMARY KEY(season_id, "asOf")
         );
         """
     )
+    for sql in (
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN gross_daily_pnl DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN gross_cum_pnl DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN gross_cum_return_pct DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN net_daily_pnl DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN net_cum_pnl DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN net_cum_return_pct DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN fees_cost_daily DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN slippage_cost_daily DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN borrow_cost_daily DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN fees_cost_cum DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN slippage_cost_cum DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN borrow_cost_cum DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN turnover_notional_daily DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN turnover_notional_cum DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN turnover_pct_daily DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN long_units INTEGER",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN short_units INTEGER",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN gross_units INTEGER",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN net_units INTEGER",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN net_exposure_pct DOUBLE",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN risk_gate_pass BOOLEAN",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN risk_gate_reason TEXT",
+        "ALTER TABLE toredex_daily_metrics ADD COLUMN cost_sensitivity_json TEXT",
+    ):
+        try:
+            conn.execute(sql)
+        except Exception:
+            pass
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS toredex_optimization_runs (
+            run_id TEXT PRIMARY KEY,
+            config_hash TEXT,
+            git_commit TEXT,
+            operating_mode TEXT,
+            season_id TEXT,
+            stage TEXT,
+            stage_order INTEGER,
+            start_date DATE,
+            end_date DATE,
+            status TEXT,
+            score_net_return_pct DOUBLE,
+            max_drawdown_pct DOUBLE,
+            worst_month_pct DOUBLE,
+            turnover_pct_avg DOUBLE,
+            net_exposure_units_max DOUBLE,
+            metrics_json TEXT,
+            artifact_path TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    try:
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_toredex_opt_runs_dedup
+            ON toredex_optimization_runs(config_hash, stage, start_date, end_date, operating_mode)
+            """
+        )
+    except Exception:
+        pass
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS toredex_logs (

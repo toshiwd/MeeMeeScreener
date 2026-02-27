@@ -1,0 +1,953 @@
+{
+  "asOf": "2025-07-09",
+  "configHash": "fc44969ad52930130366edc21fc41edd85e67d822f68266721efcb7513d772ff",
+  "meta": {
+    "noFutureLeakOk": true,
+    "predDtBuy": 1752019200,
+    "predDtSell": 1752019200,
+    "requestedAsOf": "2025-07-09"
+  },
+  "mode": "LIVE",
+  "policyVersion": "toredex.v8",
+  "positions": [
+    {
+      "avgPrice": 179.0,
+      "holdingDays": 2,
+      "openedAt": "2025-07-07",
+      "pnlPct": 1.1173184357541899,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "2120",
+      "units": 2
+    },
+    {
+      "avgPrice": 397.5,
+      "holdingDays": 4,
+      "openedAt": "2025-07-03",
+      "pnlPct": -0.12578616352201258,
+      "side": "LONG",
+      "stage": "MAIN",
+      "ticker": "2317",
+      "units": 10
+    },
+    {
+      "avgPrice": 406.0,
+      "holdingDays": 5,
+      "openedAt": "2025-07-02",
+      "pnlPct": 3.201970443349754,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "2492",
+      "units": 2
+    }
+  ],
+  "rankings": {
+    "buy": [
+      {
+        "close": 491.0,
+        "entryScore": null,
+        "ev": 0.031027027357294013,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.5985683938465634,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "5202",
+        "upProb": 0.565627048085224
+      },
+      {
+        "close": 419.0,
+        "entryScore": null,
+        "ev": 0.026931172243444906,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP_WEAK",
+        "revRisk": 0.5760217794062681,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "2492",
+        "upProb": 0.5665889066513822
+      },
+      {
+        "close": 324.0,
+        "entryScore": null,
+        "ev": 0.04382141271539456,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.5497369473831026,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "5017",
+        "upProb": 0.5602085232606052
+      },
+      {
+        "close": 413.0,
+        "entryScore": null,
+        "ev": 0.026104901000640987,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.49535968370766903,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8550",
+        "upProb": 0.5552255580333801
+      },
+      {
+        "close": 1142.0,
+        "entryScore": null,
+        "ev": 0.02198370658103467,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.5468858155071982,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6997",
+        "upProb": 0.5531138000718837
+      },
+      {
+        "close": 355.0,
+        "entryScore": null,
+        "ev": 0.023306014662032977,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.4373271920645437,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "2471",
+        "upProb": 0.5536031645644002
+      },
+      {
+        "close": 428.0,
+        "entryScore": null,
+        "ev": 0.021258061189671752,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.34733392455660483,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "4293",
+        "upProb": 0.5533621590090978
+      },
+      {
+        "close": 710.0,
+        "entryScore": null,
+        "ev": 0.025318608511832236,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.4482399685373898,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8715",
+        "upProb": 0.578501825813076
+      },
+      {
+        "close": 574.0,
+        "entryScore": null,
+        "ev": 0.01977742040097688,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.5644493948533055,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "3660",
+        "upProb": 0.5580397708524324
+      },
+      {
+        "close": 641.0,
+        "entryScore": null,
+        "ev": 0.022386108490818575,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.5769089844823104,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6240",
+        "upProb": 0.5516143716032583
+      },
+      {
+        "close": 853.0,
+        "entryScore": null,
+        "ev": 0.027400657077153966,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.5153763684098723,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "4565",
+        "upProb": 0.5584442451709489
+      },
+      {
+        "close": 430.0,
+        "entryScore": null,
+        "ev": 0.024291268582625446,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.43410650701549996,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8515",
+        "upProb": 0.5546384911089082
+      },
+      {
+        "close": 586.0,
+        "entryScore": null,
+        "ev": 0.019380102406857606,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.3883245150056829,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8600",
+        "upProb": 0.5554287756258148
+      },
+      {
+        "close": 973.75,
+        "entryScore": null,
+        "ev": 0.023671866809258292,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP_WEAK",
+        "revRisk": 0.5057958949173323,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "4373",
+        "upProb": 0.5547667311649458
+      },
+      {
+        "close": 735.0,
+        "entryScore": null,
+        "ev": 0.01959724793808576,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.44316384046448126,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8698",
+        "upProb": 0.5522576325894835
+      },
+      {
+        "close": 598.0,
+        "entryScore": null,
+        "ev": 0.02412995718545418,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.46976957853643825,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8524",
+        "upProb": 0.552107138517823
+      },
+      {
+        "close": 1668.0,
+        "entryScore": null,
+        "ev": 0.018568208677854248,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.5067229644644424,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "3182",
+        "upProb": 0.5539278669599371
+      },
+      {
+        "close": 170.0,
+        "entryScore": null,
+        "ev": 0.034656003790370704,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.5303927982930174,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "4814",
+        "upProb": 0.556237992828673
+      },
+      {
+        "close": 1706.0,
+        "entryScore": null,
+        "ev": 0.01489327636939968,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.5077297670488046,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "1885",
+        "upProb": 0.550955632044322
+      },
+      {
+        "close": 1079.0,
+        "entryScore": null,
+        "ev": 0.016499559362418474,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.4470235425211006,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8544",
+        "upProb": 0.5517822837155618
+      },
+      {
+        "close": 357.5,
+        "entryScore": null,
+        "ev": 0.016037719824731664,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.4322195795731731,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "4005",
+        "upProb": 0.5500136753581136
+      },
+      {
+        "close": 1008.0,
+        "entryScore": null,
+        "ev": 0.021030842962051745,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.4604832485027948,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6644",
+        "upProb": 0.562365733735493
+      },
+      {
+        "close": 472.0,
+        "entryScore": null,
+        "ev": 0.01809796400498559,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.10468767288551924,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "3242",
+        "upProb": 0.5656109811454765
+      },
+      {
+        "close": 676.0,
+        "entryScore": null,
+        "ev": 0.018967311949105337,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.47393974942843076,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8848",
+        "upProb": 0.5657307896037373
+      },
+      {
+        "close": 1558.5,
+        "entryScore": null,
+        "ev": 0.0290021445599149,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.4784798716634271,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8088",
+        "upProb": 0.5668684128885285
+      },
+      {
+        "close": 531.900024414063,
+        "entryScore": null,
+        "ev": 0.019629539597506414,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.32377039842042943,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "4689",
+        "upProb": 0.5543615470514417
+      },
+      {
+        "close": 940.799987792969,
+        "entryScore": null,
+        "ev": 0.01945089178033469,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.4060599392500191,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "1893",
+        "upProb": 0.5606496108831218
+      },
+      {
+        "close": 722.0,
+        "entryScore": null,
+        "ev": 0.017477429959532276,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.4472466404178054,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8368",
+        "upProb": 0.5570875430765456
+      },
+      {
+        "close": 267.899993896484,
+        "entryScore": null,
+        "ev": 0.015048550436246514,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.2915853520953025,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8410",
+        "upProb": 0.5528972839538778
+      },
+      {
+        "close": 1693.0,
+        "entryScore": null,
+        "ev": 0.01993514870429363,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_HEURISTIC_OK"
+        },
+        "regime": "UP",
+        "revRisk": 0.2195591912758147,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "3565",
+        "upProb": 0.5581574243747841
+      }
+    ],
+    "sell": [
+      {
+        "close": 27175.0,
+        "entryScore": null,
+        "ev": 0.009276001392169022,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.6168245627760169,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8035",
+        "upProb": 0.5073438773973281
+      },
+      {
+        "close": 10105.0,
+        "entryScore": null,
+        "ev": -0.0032260987113390894,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "DOWN",
+        "revRisk": 0.4948431486499155,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "1357",
+        "upProb": 0.4944361648219766
+      },
+      {
+        "close": 6500.0,
+        "entryScore": null,
+        "ev": -0.005279055215775803,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.661458753686508,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "3110",
+        "upProb": 0.48720725800181874
+      },
+      {
+        "close": 18815.0,
+        "entryScore": null,
+        "ev": 0.004710802744643574,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.6796864227690581,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6920",
+        "upProb": 0.49910443360599044
+      },
+      {
+        "close": 159.0,
+        "entryScore": null,
+        "ev": 0.1058245790510314,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.6993460242250591,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "5721",
+        "upProb": 0.4727812938371912
+      },
+      {
+        "close": 1329.0,
+        "entryScore": null,
+        "ev": -0.03368936739854644,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.7206838239859492,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6232",
+        "upProb": 0.4523391421014147
+      },
+      {
+        "close": 5180.0,
+        "entryScore": null,
+        "ev": 0.009648369275231614,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.6869886590086418,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6871",
+        "upProb": 0.48477746421685647
+      },
+      {
+        "close": 1666.0,
+        "entryScore": null,
+        "ev": -0.0037192552483016612,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "DOWN",
+        "revRisk": 0.723771977219604,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "4784",
+        "upProb": 0.4547006338976241
+      },
+      {
+        "close": 41290.0,
+        "entryScore": null,
+        "ev": 0.01355203336102993,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.6410318996129473,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6146",
+        "upProb": 0.49108432352994646
+      },
+      {
+        "close": 3390.0,
+        "entryScore": null,
+        "ev": 0.026214639471475815,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.7340461241745504,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "3905",
+        "upProb": 0.4770540887050595
+      },
+      {
+        "close": 10980.0,
+        "entryScore": null,
+        "ev": 0.01410623415062127,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.643166348162894,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6857",
+        "upProb": 0.48475264007347035
+      },
+      {
+        "close": 1746.0,
+        "entryScore": null,
+        "ev": -0.004654905182309463,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.7383010023170541,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "9235",
+        "upProb": 0.46514650970786486
+      },
+      {
+        "close": 2004.0,
+        "entryScore": null,
+        "ev": 0.006092448149456359,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.7399570417919925,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "5597",
+        "upProb": 0.44499330932533976
+      },
+      {
+        "close": 5530.0,
+        "entryScore": null,
+        "ev": -0.01023517660932666,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.7072388604741245,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "3692",
+        "upProb": 0.4841201469934133
+      },
+      {
+        "close": 2626.0,
+        "entryScore": null,
+        "ev": -0.006151720715911056,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "DOWN",
+        "revRisk": 0.6783736028668149,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6324",
+        "upProb": 0.46127454236370785
+      },
+      {
+        "close": 3465.0,
+        "entryScore": null,
+        "ev": -0.0024132860706314297,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.6729330488448856,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "4369",
+        "upProb": 0.4665365125763197
+      },
+      {
+        "close": 12160.0,
+        "entryScore": null,
+        "ev": 0.004549176714397443,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.6104504539862879,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "7735",
+        "upProb": 0.5162933241364633
+      },
+      {
+        "close": 1835.0,
+        "entryScore": null,
+        "ev": 0.019863326823636063,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.702835981504677,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6315",
+        "upProb": 0.49237326618197474
+      },
+      {
+        "close": 262.0,
+        "entryScore": null,
+        "ev": 0.03200193532467414,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "DOWN",
+        "revRisk": 0.6756641095355429,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8783",
+        "upProb": 0.5010328490478736
+      },
+      {
+        "close": 3105.0,
+        "entryScore": null,
+        "ev": 0.017808795231381937,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.6568181655836021,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "2160",
+        "upProb": 0.4663647369645935
+      },
+      {
+        "close": 1160.0,
+        "entryScore": null,
+        "ev": 0.012277785467001884,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP_WEAK",
+        "revRisk": 0.7264925288377265,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "5246",
+        "upProb": 0.4539234325565949
+      },
+      {
+        "close": 6730.0,
+        "entryScore": null,
+        "ev": 0.017409398787557186,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.6431912396453332,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6269",
+        "upProb": 0.47746265301926627
+      },
+      {
+        "close": 546.700012207031,
+        "entryScore": null,
+        "ev": 0.03417006799893141,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.6718862638852361,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "9501",
+        "upProb": 0.54001555992734
+      },
+      {
+        "close": 570.0,
+        "entryScore": null,
+        "ev": 0.19833473403683954,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.7161640901714652,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "4316",
+        "upProb": 0.5124064952062125
+      },
+      {
+        "close": 3257.0,
+        "entryScore": null,
+        "ev": 0.04392076978343419,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.6831367248716299,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6525",
+        "upProb": 0.5004576603644002
+      },
+      {
+        "close": 2554.0,
+        "entryScore": null,
+        "ev": 0.0020190442189675275,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.7054710671282074,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "4499",
+        "upProb": 0.46249949547096925
+      },
+      {
+        "close": 3285.0,
+        "entryScore": null,
+        "ev": 0.009246356518373348,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP",
+        "revRisk": 0.6153613073119525,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6027",
+        "upProb": 0.5116493906666301
+      },
+      {
+        "close": 6723.0,
+        "entryScore": null,
+        "ev": 0.012239995807022985,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.6203347070910384,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "8136",
+        "upProb": 0.5149608402702563
+      },
+      {
+        "close": 1944.0,
+        "entryScore": null,
+        "ev": -0.0003764557147324446,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "UP_WEAK",
+        "revRisk": 0.6630956295778901,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6723",
+        "upProb": 0.4600363723066998
+      },
+      {
+        "close": 5188.0,
+        "entryScore": null,
+        "ev": -0.005209950047400062,
+        "gate": {
+          "ok": false,
+          "reason": "ENTRY_HEURISTIC_NG"
+        },
+        "regime": "RANGE",
+        "revRisk": 0.47945758595188737,
+        "sourceAsOf": "2025-07-09",
+        "ticker": "6465",
+        "upProb": 0.4603661623849544
+      }
+    ]
+  },
+  "seasonId": "tradex_bt3y_v8_fast_baseline_20260217",
+  "universe": [
+    "1357",
+    "1885",
+    "1893",
+    "2160",
+    "2471",
+    "2492",
+    "3110",
+    "3182",
+    "3242",
+    "3565",
+    "3660",
+    "3692",
+    "3905",
+    "4005",
+    "4293",
+    "4316",
+    "4369",
+    "4373",
+    "4499",
+    "4565",
+    "4689",
+    "4784",
+    "4814",
+    "5017",
+    "5202",
+    "5246",
+    "5597",
+    "5721",
+    "6027",
+    "6146",
+    "6232",
+    "6240",
+    "6269",
+    "6315",
+    "6324",
+    "6465",
+    "6525",
+    "6644",
+    "6723",
+    "6857",
+    "6871",
+    "6920",
+    "6997",
+    "7735",
+    "8035",
+    "8088",
+    "8136",
+    "8368",
+    "8410",
+    "8515",
+    "8524",
+    "8544",
+    "8550",
+    "8600",
+    "8698",
+    "8715",
+    "8783",
+    "8848",
+    "9235",
+    "9501"
+  ]
+}

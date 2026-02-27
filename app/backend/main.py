@@ -30,6 +30,7 @@ from app.backend.core.strategy_backtest_job import (  # noqa: E402
     handle_strategy_walkforward,
 )
 from app.backend.core.toredex_live_job import handle_toredex_live  # noqa: E402
+from app.backend.core.toredex_self_improve_job import handle_toredex_self_improve  # noqa: E402
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager  # noqa: E402
 from app.backend.core.txt_update_job import (
     _load_update_state,
@@ -49,6 +50,7 @@ job_manager.register_handler("analysis_backfill", handle_analysis_backfill)
 job_manager.register_handler("strategy_backtest", handle_strategy_backtest)
 job_manager.register_handler("strategy_walkforward", handle_strategy_walkforward)
 job_manager.register_handler("toredex_live", handle_toredex_live)
+job_manager.register_handler("toredex_self_improve", handle_toredex_self_improve)
 
 STATIC_DIR = os.path.abspath(os.getenv("STATIC_DIR") or os.path.join(os.path.dirname(__file__), "static"))
 _RESOLVED_PATHS_LOGGED = False

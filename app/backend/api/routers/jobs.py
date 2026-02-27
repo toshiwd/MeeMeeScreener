@@ -251,7 +251,7 @@ def submit_txt_update_job(
 def submit_txt_update(
     auto_ml_predict: bool = True,
     auto_ml_train: bool = True,
-    auto_fill_missing_history: bool = True,
+    auto_fill_missing_history: bool = False,
     backfill_lookback_days: int = 130,
     backfill_max_missing_days: int = 260,
 ):
@@ -465,6 +465,7 @@ def submit_toredex_live(
     season_id: str | None = None,
     asOf: str | None = None,
     dry_run: bool | None = None,
+    operating_mode: str | None = None,
     payload: dict | None = Body(default=None),
 ):
     try:
@@ -483,16 +484,100 @@ def submit_toredex_live(
             if dry_run is not None
             else _coerce_bool(body.get("dry_run", body.get("dryRun")), default=False)
         )
+        resolved_mode = str(
+            operating_mode
+            or body.get("operating_mode")
+            or body.get("operatingMode")
+            or ""
+        ).strip().lower()
+        if resolved_mode and resolved_mode not in {"champion", "challenger"}:
+            return JSONResponse(status_code=400, content={"error": "operating_mode must be champion or challenger"})
+        config_override = body.get("config_override")
+        if config_override is not None and not isinstance(config_override, dict):
+            return JSONResponse(status_code=400, content={"error": "config_override must be an object"})
         return _submit_job(
             "toredex_live",
             {
                 "season_id": season_text,
                 "asOf": resolved_as_of,
                 "dry_run": resolved_dry_run,
+                "operating_mode": resolved_mode or None,
+                "config_override": config_override if isinstance(config_override, dict) else None,
             },
         )
     except Exception as exc:
         logger.exception("Error submitting toredex_live: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/jobs/toredex/self-improve")
+def submit_toredex_self_improve(
+    mode: str | None = None,
+    iterations: int | None = None,
+    stage2_topk: int | None = None,
+    seed: int | None = None,
+    stage0_months: int | None = None,
+    stage1_months: int | None = None,
+    stage2_months: int | None = None,
+    parallel_workers: int | None = None,
+    max_cycles: int | None = None,
+    target_net_return_pct: float | None = None,
+    target_score_objective: float | None = None,
+    require_stage2_pass: bool | None = None,
+    loop: bool | None = None,
+    payload: dict | None = Body(default=None),
+):
+    try:
+        body = payload if isinstance(payload, dict) else {}
+        resolved_mode = str(mode or body.get("mode") or "challenger").strip().lower()
+        if resolved_mode not in {"champion", "challenger"}:
+            return JSONResponse(status_code=400, content={"error": "mode must be champion or challenger"})
+        resolved_iterations = iterations if iterations is not None else body.get("iterations")
+        resolved_topk = stage2_topk if stage2_topk is not None else body.get("stage2_topk")
+        resolved_seed = seed if seed is not None else body.get("seed")
+        resolved_stage0 = stage0_months if stage0_months is not None else body.get("stage0_months")
+        resolved_stage1 = stage1_months if stage1_months is not None else body.get("stage1_months")
+        resolved_stage2 = stage2_months if stage2_months is not None else body.get("stage2_months")
+        resolved_parallel_workers = (
+            parallel_workers if parallel_workers is not None else body.get("parallel_workers")
+        )
+        resolved_parallel_paths = body.get("parallel_db_paths")
+        if resolved_parallel_paths is None:
+            resolved_parallel_paths = body.get("parallel_db_path")
+        resolved_max_cycles = max_cycles if max_cycles is not None else body.get("max_cycles")
+        resolved_target_net = (
+            target_net_return_pct if target_net_return_pct is not None else body.get("target_net_return_pct")
+        )
+        resolved_target_score = (
+            target_score_objective
+            if target_score_objective is not None
+            else body.get("target_score_objective")
+        )
+        resolved_require_pass = (
+            require_stage2_pass if require_stage2_pass is not None else body.get("require_stage2_pass")
+        )
+        resolved_loop = loop if loop is not None else body.get("loop")
+        return _submit_job(
+            "toredex_self_improve",
+            {
+                "mode": resolved_mode,
+                "iterations": resolved_iterations,
+                "stage2_topk": resolved_topk,
+                "seed": resolved_seed,
+                "stage0_months": resolved_stage0,
+                "stage1_months": resolved_stage1,
+                "stage2_months": resolved_stage2,
+                "parallel_workers": resolved_parallel_workers,
+                "parallel_db_paths": resolved_parallel_paths,
+                "max_cycles": resolved_max_cycles,
+                "target_net_return_pct": resolved_target_net,
+                "target_score_objective": resolved_target_score,
+                "require_stage2_pass": resolved_require_pass,
+                "loop": resolved_loop,
+            },
+        )
+    except Exception as exc:
+        logger.exception("Error submitting toredex_self_improve: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 

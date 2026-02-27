@@ -1,0 +1,97 @@
+{
+  "asOf": "2024-05-28",
+  "metrics": {
+    "asOf": "2024-05-28",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 13504964.066457,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": 7590880.325293,
+        "net_cum_return_pct": 75.908803
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": 7590880.325293,
+        "net_cum_return_pct": 75.908803
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": 6752880.325293,
+        "net_cum_return_pct": 67.528803
+      }
+    ],
+    "cum_pnl": 7590880.325293,
+    "cum_return_pct": 75.908803,
+    "daily_pnl": 126812.742481,
+    "equity": 17590880.325293,
+    "fees_cost_cum": 1676000.0,
+    "fees_cost_daily": 4000.0,
+    "game_over": false,
+    "goal20_reached": true,
+    "goal30_reached": true,
+    "gross_cum_pnl": 9666050.742069,
+    "gross_cum_return_pct": 96.660507,
+    "gross_daily_pnl": 131425.240872,
+    "gross_units": 4,
+    "holdings_count": 2,
+    "long_units": 4,
+    "max_drawdown_pct": -9.009205,
+    "net_cum_pnl": 7590880.325293,
+    "net_cum_return_pct": 75.908803,
+    "net_daily_pnl": 126812.742481,
+    "net_exposure_pct": 40.0,
+    "net_units": 4,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -9.009205,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 1375.697473,
+        "worstMonthPct": -7.167610763904753
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 2000.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "stage2_rank2_topkgate_u005e000_20260220",
+    "short_units": 0,
+    "slippage_cost_cum": 399170.416776,
+    "slippage_cost_daily": 612.498391,
+    "turnover_notional_cum": 1676000000.0,
+    "turnover_notional_daily": 4000000.0,
+    "turnover_pct_daily": 22.904172
+  },
+  "positions": [
+    {
+      "avgPrice": 1839.0,
+      "holdingDays": 2,
+      "openedAt": "2024-05-27",
+      "pnlPct": 4.295812941816204,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "9508",
+      "units": 2
+    },
+    {
+      "avgPrice": 1715.0,
+      "holdingDays": 1,
+      "openedAt": "2024-05-28",
+      "pnlPct": 0.0,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "9509",
+      "units": 2
+    }
+  ],
+  "seasonId": "stage2_rank2_topkgate_u005e000_20260220"
+}

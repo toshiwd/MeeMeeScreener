@@ -769,6 +769,18 @@ class StockRepository:
             p_up_5_expr = "p_up_5" if "p_up_5" in names else "NULL::DOUBLE AS p_up_5"
             p_up_10_expr = "p_up_10" if "p_up_10" in names else "NULL::DOUBLE AS p_up_10"
             p_down_expr = "p_down" if "p_down" in names else "NULL::DOUBLE AS p_down"
+            p_turn_down_expr = (
+                "p_turn_down" if "p_turn_down" in names else "NULL::DOUBLE AS p_turn_down"
+            )
+            p_turn_down_5_expr = (
+                "p_turn_down_5" if "p_turn_down_5" in names else "NULL::DOUBLE AS p_turn_down_5"
+            )
+            p_turn_down_10_expr = (
+                "p_turn_down_10" if "p_turn_down_10" in names else "NULL::DOUBLE AS p_turn_down_10"
+            )
+            p_turn_down_20_expr = (
+                "p_turn_down_20" if "p_turn_down_20" in names else "NULL::DOUBLE AS p_turn_down_20"
+            )
             ev20_net_expr = "ev20_net" if "ev20_net" in names else "NULL::DOUBLE AS ev20_net"
             ev5_net_expr = "ev5_net" if "ev5_net" in names else "NULL::DOUBLE AS ev5_net"
             ev10_net_expr = "ev10_net" if "ev10_net" in names else "NULL::DOUBLE AS ev10_net"
@@ -797,6 +809,10 @@ class StockRepository:
                     {p_up_5_expr},
                     {p_up_10_expr},
                     {p_down_expr},
+                    {p_turn_down_expr},
+                    {p_turn_down_5_expr},
+                    {p_turn_down_10_expr},
+                    {p_turn_down_20_expr},
                     {ev20_net_expr},
                     {ev5_net_expr},
                     {ev10_net_expr},
@@ -814,14 +830,25 @@ class StockRepository:
             p_up_5 = _to_float_or_none(row[2])
             p_up_10 = _to_float_or_none(row[3])
             p_down = _to_float_or_none(row[4])
-            ev20_net = _to_float_or_none(row[5])
-            ev5_net = _to_float_or_none(row[6])
-            ev10_net = _to_float_or_none(row[7])
+            p_turn_down = _to_float_or_none(row[5])
+            p_turn_down_5 = _to_float_or_none(row[6])
+            p_turn_down_10 = _to_float_or_none(row[7])
+            p_turn_down_20 = _to_float_or_none(row[8])
+            ev20_net = _to_float_or_none(row[9])
+            ev5_net = _to_float_or_none(row[10])
+            ev10_net = _to_float_or_none(row[11])
 
             p_up_short = _first_finite(p_up_5, p_up_10, p_up)
             p_down_short = _first_finite(
                 p_down,
                 (1.0 - p_up_short) if p_up_short is not None else None,
+            )
+            p_turn_down_short = _first_finite(
+                p_turn_down_5,
+                p_turn_down_10,
+                p_turn_down_20,
+                p_turn_down,
+                p_down_short,
             )
             ev_short_net = _first_finite(ev5_net, ev10_net, ev20_net)
 
@@ -832,10 +859,15 @@ class StockRepository:
                 "p_up_short": p_up_short,
                 "p_down": p_down,
                 "p_down_short": p_down_short,
+                "p_turn_down": p_turn_down,
+                "p_turn_down_5": p_turn_down_5,
+                "p_turn_down_10": p_turn_down_10,
+                "p_turn_down_20": p_turn_down_20,
+                "p_turn_down_short": p_turn_down_short,
                 "ev20_net": ev20_net,
                 "ev5_net": ev5_net,
                 "ev10_net": ev10_net,
                 "ev_short_net": ev_short_net,
-                "model_version": row[8],
+                "model_version": row[12],
             }
         return out

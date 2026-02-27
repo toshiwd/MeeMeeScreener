@@ -13,6 +13,15 @@ import pandas as pd
 from app.db.session import get_conn
 
 
+LIQ_COST_TURNOVER_LOW = 50_000_000.0
+LIQ_COST_TURNOVER_MID = 200_000_000.0
+LIQ_SLIPPAGE_BPS_LOW = 14.0
+LIQ_SLIPPAGE_BPS_MID = 7.0
+LIQ_SLIPPAGE_BPS_HIGH = 2.0
+LIQ_SLIPPAGE_BPS_UNKNOWN = 18.0
+SHORT_BORROW_BPS_20D = 6.0
+
+
 @dataclass(frozen=True)
 class StrategyBacktestConfig:
     max_positions: int = 3
@@ -81,6 +90,23 @@ def _safe_float(value: object) -> float | None:
     if not math.isfinite(f):
         return None
     return f
+
+
+def _liquidity_slippage_bps(turnover20: float | None) -> float:
+    turnover = _safe_float(turnover20)
+    if turnover is None:
+        return float(LIQ_SLIPPAGE_BPS_UNKNOWN)
+    if turnover < float(LIQ_COST_TURNOVER_LOW):
+        return float(LIQ_SLIPPAGE_BPS_LOW)
+    if turnover < float(LIQ_COST_TURNOVER_MID):
+        return float(LIQ_SLIPPAGE_BPS_MID)
+    return float(LIQ_SLIPPAGE_BPS_HIGH)
+
+
+def _trade_cost_rate(*, base_cost_rate: float, turnover20: float | None, side: str) -> float:
+    slippage_rate = _liquidity_slippage_bps(turnover20) / 10_000.0
+    borrow_rate = (SHORT_BORROW_BPS_20D / 10_000.0) if str(side) == "short" else 0.0
+    return float(base_cost_rate) + float(slippage_rate) + float(borrow_rate)
 
 
 def _safe_int(value: object) -> int | None:
@@ -158,10 +184,16 @@ def _close_units(
     dt: int,
     dt_date: date | None,
     reason: str,
-    cost_rate: float,
+    base_cost_rate: float,
+    turnover20: float | None,
 ) -> tuple[dict[str, Any], float]:
     quantity = max(1, min(int(qty), int(position.units)))
     gross = _position_return(position.side, float(position.entry_price), float(exit_price))
+    cost_rate = _trade_cost_rate(
+        base_cost_rate=base_cost_rate,
+        turnover20=turnover20,
+        side=position.side,
+    )
     net = float(gross) - float(cost_rate)
     position.units = int(position.units) - int(quantity)
     event = {
@@ -341,6 +373,8 @@ def _prepare_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     frame["ma100"] = g["c"].transform(lambda s: s.rolling(100, min_periods=100).mean())
     frame["ma200"] = g["c"].transform(lambda s: s.rolling(200, min_periods=200).mean())
     frame["vol_ma20"] = g["v"].transform(lambda s: s.rolling(20, min_periods=20).mean())
+    frame["turnover"] = pd.to_numeric(frame["c"], errors="coerce") * pd.to_numeric(frame["v"], errors="coerce")
+    frame["turnover20"] = g["turnover"].transform(lambda s: s.rolling(20, min_periods=20).mean())
 
     frame["prev_open"] = g["o"].shift(1)
     frame["prev_close"] = g["c"].shift(1)
@@ -626,6 +660,7 @@ def _simulate(
 
     cum_realized = 0.0
     latest_price: dict[str, float] = {}
+    latest_turnover20: dict[str, float | None] = {}
     latest_dt: int | None = None
     latest_dt_date: date | None = None
 
@@ -649,6 +684,7 @@ def _simulate(
         latest_dt_date = records[0].get("dt_date") if records else None
         for r in records:
             latest_price[str(r["code"])] = float(r["c"])
+            latest_turnover20[str(r["code"])] = _safe_float(r.get("turnover20"))
 
         day_realized = 0.0
         month_key = latest_dt_date.strftime("%Y-%m") if isinstance(latest_dt_date, date) else None
@@ -712,7 +748,8 @@ def _simulate(
                     dt=dt,
                     dt_date=dt_date,
                     reason=exit_reason,
-                    cost_rate=cfg.cost_rate,
+                    base_cost_rate=cfg.cost_rate,
+                    turnover20=_safe_float(row.get("turnover20")),
                 )
                 trade_events.append(ev)
                 day_realized += float(pnl)
@@ -729,7 +766,8 @@ def _simulate(
                     dt=dt,
                     dt_date=dt_date,
                     reason="take_profit_half",
-                    cost_rate=cfg.cost_rate,
+                    base_cost_rate=cfg.cost_rate,
+                    turnover20=_safe_float(row.get("turnover20")),
                 )
                 trade_events.append(ev)
                 day_realized += float(pnl)
@@ -747,7 +785,8 @@ def _simulate(
                         dt=dt,
                         dt_date=dt_date,
                         reason="take_profit_short_7ma_touch",
-                        cost_rate=cfg.cost_rate,
+                        base_cost_rate=cfg.cost_rate,
+                        turnover20=_safe_float(row.get("turnover20")),
                     )
                     trade_events.append(ev)
                     day_realized += float(pnl)
@@ -761,7 +800,8 @@ def _simulate(
                         dt=dt,
                         dt_date=dt_date,
                         reason="take_profit_long_7ma_break",
-                        cost_rate=cfg.cost_rate,
+                        base_cost_rate=cfg.cost_rate,
+                        turnover20=_safe_float(row.get("turnover20")),
                     )
                     trade_events.append(ev)
                     day_realized += float(pnl)
@@ -986,7 +1026,8 @@ def _simulate(
                                 dt=dt,
                                 dt_date=worst_row.get("dt_date"),
                                 reason="rotation",
-                                cost_rate=cfg.cost_rate,
+                                base_cost_rate=cfg.cost_rate,
+                                turnover20=_safe_float(worst_row.get("turnover20")),
                             )
                             trade_events.append(ev)
                             day_realized += float(pnl)
@@ -1061,7 +1102,8 @@ def _simulate(
                 dt=int(latest_dt),
                 dt_date=latest_dt_date,
                 reason="forced_close_last_day",
-                cost_rate=cfg.cost_rate,
+                base_cost_rate=cfg.cost_rate,
+                turnover20=latest_turnover20.get(code),
             )
             trade_events.append(ev)
             cum_realized += float(pnl)

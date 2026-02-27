@@ -1,0 +1,31 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -5,
+      "reasonId": "X_EXIT_GATE_NG",
+      "side": "LONG",
+      "ticker": "6958"
+    },
+    {
+      "deltaUnits": -5,
+      "reasonId": "X_EXIT_GATE_NG",
+      "side": "LONG",
+      "ticker": "6958"
+    }
+  ],
+  "asOf": "2026-01-26",
+  "checks": {
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v6",
+  "seasonId": "tradex_demo_202601_v10_ml_execfix",
+  "stage": {
+    "goal20Reached": false,
+    "goal30Reached": false,
+    "stage2Active": false
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "asOf": "2025-05-01",
+  "metrics": {
+    "asOf": "2025-05-01",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 9220794.323265,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": 1227044.323265,
+        "net_cum_return_pct": 12.270443
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": 1227044.323265,
+        "net_cum_return_pct": 12.270443
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": 1212044.323265,
+        "net_cum_return_pct": 12.120443
+      }
+    ],
+    "cum_pnl": 1227044.323265,
+    "cum_return_pct": 12.270443,
+    "daily_pnl": 12500.0,
+    "equity": 11227044.323265,
+    "fees_cost_cum": 30000.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 1264914.4069,
+    "gross_cum_return_pct": 12.649144,
+    "gross_daily_pnl": 12500.0,
+    "gross_units": 2,
+    "holdings_count": 1,
+    "long_units": 2,
+    "max_drawdown_pct": -2.543593,
+    "net_cum_pnl": 1227044.323265,
+    "net_cum_return_pct": 12.270443,
+    "net_daily_pnl": 12500.0,
+    "net_exposure_pct": 20.0,
+    "net_units": 2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -2.543593,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 283.72786599999995,
+        "worstMonthPct": 0.1114623977549245
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 2000.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "stage1_a60_risk_revrisk_20260218",
+    "short_units": 0,
+    "slippage_cost_cum": 7870.083635,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 30000000.0,
+    "turnover_notional_daily": 0.0,
+    "turnover_pct_daily": 0.0
+  },
+  "positions": [
+    {
+      "avgPrice": 320.0,
+      "holdingDays": 3,
+      "openedAt": "2025-04-28",
+      "pnlPct": 0.3125,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "4259",
+      "units": 2
+    }
+  ],
+  "seasonId": "stage1_a60_risk_revrisk_20260218"
+}

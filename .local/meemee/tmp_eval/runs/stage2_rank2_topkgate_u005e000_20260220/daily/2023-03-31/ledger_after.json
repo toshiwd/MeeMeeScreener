@@ -1,0 +1,97 @@
+{
+  "asOf": "2023-03-31",
+  "metrics": {
+    "asOf": "2023-03-31",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 6250177.075763,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": 391086.166672,
+        "net_cum_return_pct": 3.910862
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": 391086.166672,
+        "net_cum_return_pct": 3.910862
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": 365086.166672,
+        "net_cum_return_pct": 3.650862
+      }
+    ],
+    "cum_pnl": 391086.166672,
+    "cum_return_pct": 3.910862,
+    "daily_pnl": 135709.090908,
+    "equity": 10391086.166672,
+    "fees_cost_cum": 52000.0,
+    "fees_cost_daily": 4000.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 458154.961868,
+    "gross_cum_return_pct": 4.58155,
+    "gross_daily_pnl": 140909.090908,
+    "gross_units": 4,
+    "holdings_count": 2,
+    "long_units": 4,
+    "max_drawdown_pct": -3.031682,
+    "net_cum_pnl": 391086.166672,
+    "net_cum_return_pct": 3.910862,
+    "net_daily_pnl": 135709.090908,
+    "net_exposure_pct": 40.0,
+    "net_units": 4,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -3.031682,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 507.8822379999999,
+        "worstMonthPct": null
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 2000.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "stage2_rank2_topkgate_u005e000_20260220",
+    "short_units": 0,
+    "slippage_cost_cum": 15068.795196,
+    "slippage_cost_daily": 1200.0,
+    "turnover_notional_cum": 52000000.0,
+    "turnover_notional_daily": 4000000.0,
+    "turnover_pct_daily": 39.003929
+  },
+  "positions": [
+    {
+      "avgPrice": 802.5,
+      "holdingDays": 1,
+      "openedAt": "2023-03-31",
+      "pnlPct": 0.0,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "2585",
+      "units": 2
+    },
+    {
+      "avgPrice": 440.0,
+      "holdingDays": 2,
+      "openedAt": "2023-03-30",
+      "pnlPct": 7.045454545454545,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "3989",
+      "units": 2
+    }
+  ],
+  "seasonId": "stage2_rank2_topkgate_u005e000_20260220"
+}

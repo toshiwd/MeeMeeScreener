@@ -1,0 +1,281 @@
+{
+  "seasons": [
+    "tradex_demo_202510_v2",
+    "tradex_demo_202511_v2",
+    "tradex_demo_202512_v2",
+    "tradex_demo_202601_v2"
+  ],
+  "monthly_kpi": [
+    {
+      "season_id": "tradex_demo_202510_v2",
+      "cum_return_pct": 0.0,
+      "max_drawdown_pct": -0.561086,
+      "equity": 10000000.0,
+      "goal20_reached": false,
+      "goal30_reached": false,
+      "game_over": false
+    },
+    {
+      "season_id": "tradex_demo_202511_v2",
+      "cum_return_pct": -0.451017,
+      "max_drawdown_pct": -22.189635,
+      "equity": 9954898.336414,
+      "goal20_reached": false,
+      "goal30_reached": false,
+      "game_over": false
+    },
+    {
+      "season_id": "tradex_demo_202512_v2",
+      "cum_return_pct": 0.0,
+      "max_drawdown_pct": -3.429801,
+      "equity": 10000000.0,
+      "goal20_reached": false,
+      "goal30_reached": false,
+      "game_over": false
+    },
+    {
+      "season_id": "tradex_demo_202601_v2",
+      "cum_return_pct": -8.229236,
+      "max_drawdown_pct": -9.101755,
+      "equity": 9177076.418643,
+      "goal20_reached": false,
+      "goal30_reached": false,
+      "game_over": false
+    }
+  ],
+  "reason_aggregate": [
+    {
+      "reason_id": "E_NEW_TOPK_GATE_OK",
+      "origin_total_pnl": -244547.990135,
+      "close_realized_pnl": 0.0,
+      "open_events": 8,
+      "close_events": 0,
+      "open_units": 16,
+      "close_units": 0
+    },
+    {
+      "reason_id": "A_ADD_STAGE2_STRICT_OK",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "K_MARKET_CLOSED",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "K_NO_SNAPSHOT",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "K_POLICY_INCONSISTENT",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "R_CUT_LOSS_HARD",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": -2040208.308127,
+      "open_events": 0,
+      "close_events": 3,
+      "open_units": 0,
+      "close_units": 13
+    },
+    {
+      "reason_id": "R_CUT_LOSS_WARN",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": -181580.666231,
+      "open_events": 0,
+      "close_events": 1,
+      "open_units": 0,
+      "close_units": 2
+    },
+    {
+      "reason_id": "R_GAME_OVER",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "R_MAX_HOLDINGS_BLOCK",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "S_SWITCH_CAPACITY",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "S_SWITCH_EV_GAP",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 1639863.503098,
+      "open_events": 0,
+      "close_events": 17,
+      "open_units": 0,
+      "close_units": 64
+    },
+    {
+      "reason_id": "S_SWITCH_RISK_AVOID",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "T_TP_PARTIAL_3_TO_2",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 1221802.034093,
+      "open_events": 0,
+      "close_events": 2,
+      "open_units": 0,
+      "close_units": 4
+    },
+    {
+      "reason_id": "T_TP_PARTIAL_5_TO_3",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 2536672.629696,
+      "open_events": 0,
+      "close_events": 2,
+      "open_units": 0,
+      "close_units": 6
+    },
+    {
+      "reason_id": "T_TP_REV_RISK_RISING",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 2,
+      "open_units": 0,
+      "close_units": 5
+    },
+    {
+      "reason_id": "T_TP_TARGET_REACHED",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "X_EXIT_EV_DROP",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "X_EXIT_GATE_NG",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "X_EXIT_REV_RISK_HIGH",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "X_EXIT_TIME_LIMIT",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "X_EXIT_UPPROB_DROP",
+      "origin_total_pnl": 0.0,
+      "close_realized_pnl": 0.0,
+      "open_events": 0,
+      "close_events": 0,
+      "open_units": 0,
+      "close_units": 0
+    },
+    {
+      "reason_id": "E_NEW_TOP1_GATE_OK",
+      "origin_total_pnl": 479849.016702,
+      "close_realized_pnl": 0.0,
+      "open_events": 7,
+      "close_events": 0,
+      "open_units": 14,
+      "close_units": 0
+    },
+    {
+      "reason_id": "A_ADD_PROBE_TO_ADD_OK",
+      "origin_total_pnl": 780823.056366,
+      "close_realized_pnl": 0.0,
+      "open_events": 12,
+      "close_events": 0,
+      "open_units": 36,
+      "close_units": 0
+    },
+    {
+      "reason_id": "E_NEW_SWITCH_IN",
+      "origin_total_pnl": 1400902.191374,
+      "close_realized_pnl": 0.0,
+      "open_events": 12,
+      "close_events": 0,
+      "open_units": 24,
+      "close_units": 0
+    },
+    {
+      "reason_id": "A_ADD_ADD_TO_MAIN_OK",
+      "origin_total_pnl": 2568100.833238,
+      "close_realized_pnl": 0.0,
+      "open_events": 14,
+      "close_events": 0,
+      "open_units": 66,
+      "close_units": 0
+    }
+  ],
+  "top1_nextday_diagnostics": {
+    "n": 123,
+    "mean_nextday_ret": 0.009378,
+    "win_rate": 0.528455,
+    "p10": -0.074046,
+    "p50": 0.000929,
+    "p90": 0.145125
+  }
+}

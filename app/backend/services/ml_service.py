@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import math
+from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -14,7 +15,7 @@ from app.core.config import config as core_config
 from app.db.session import get_conn
 from app.backend.services.ml_config import MLConfig, load_ml_config
 
-FEATURE_VERSION = 3
+FEATURE_VERSION = 4
 LABEL_VERSION = 4
 MODEL_KEY = "ml_ev20_simple_v1"
 OBJECTIVE = "dual_sided_lambdarank_v1"
@@ -65,6 +66,13 @@ SHORT_SUPPORT_LOOKBACK = 10
 SHORT_SUPPORT_BREAK_BUFFER = 0.0015
 SHORT_SUPPORT_PREV_TOLERANCE = 0.002
 PREDICTION_HORIZONS: tuple[int, ...] = (5, 10, 20)
+LIQ_COST_TURNOVER_LOW = 50_000_000.0
+LIQ_COST_TURNOVER_MID = 200_000_000.0
+LIQ_SLIPPAGE_BPS_LOW = 14.0
+LIQ_SLIPPAGE_BPS_MID = 7.0
+LIQ_SLIPPAGE_BPS_HIGH = 2.0
+LIQ_SLIPPAGE_BPS_UNKNOWN = 18.0
+SHORT_BORROW_BPS_20D = 6.0
 
 RET_COL_BY_HORIZON: dict[int, str] = {
     5: "ret5",
@@ -159,6 +167,12 @@ DERIVED_FEATURE_COLUMNS: list[str] = [
     "rel_sector_ret5",
     "rel_sector_ret20",
     "sector_breadth_ma20",
+    "cal_dow_sin",
+    "cal_dow_cos",
+    "cal_month_sin",
+    "cal_month_cos",
+    "cal_month_start",
+    "cal_month_end",
 ]
 
 FEATURE_COLUMNS: list[str] = [*BASE_FEATURE_COLUMNS, *DERIVED_FEATURE_COLUMNS]
@@ -646,6 +660,23 @@ def compute_label_fields(ret20: float, neutral_band_pct: float) -> tuple[int, in
 
 def compute_ev20_net(ev20: float, cost_rate: float) -> float:
     return float(ev20) - float(cost_rate)
+
+
+def _liquidity_slippage_bps(turnover20: float | None) -> float:
+    turnover = _safe_float(turnover20)
+    if turnover is None:
+        return float(LIQ_SLIPPAGE_BPS_UNKNOWN)
+    if turnover < float(LIQ_COST_TURNOVER_LOW):
+        return float(LIQ_SLIPPAGE_BPS_LOW)
+    if turnover < float(LIQ_COST_TURNOVER_MID):
+        return float(LIQ_SLIPPAGE_BPS_MID)
+    return float(LIQ_SLIPPAGE_BPS_HIGH)
+
+
+def _trade_cost_rate(*, base_cost_rate: float, turnover20: float | None, side: str) -> float:
+    slippage_rate = _liquidity_slippage_bps(turnover20) / 10_000.0
+    borrow_rate = (SHORT_BORROW_BPS_20D / 10_000.0) if str(side) == "short" else 0.0
+    return float(base_cost_rate) + float(slippage_rate) + float(borrow_rate)
 
 
 def _rolling_mean(values: list[float], period: int) -> list[float | None]:
@@ -2736,6 +2767,32 @@ def _add_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     result["dist_ma20_delta1"] = result["dist_ma20"] - diff20_prev1
     result["cnt_7_above_norm"] = cnt_7_above / 7.0
     result["cnt_20_above_norm"] = cnt_20_above / 20.0
+
+    # Non-technical calendar features (weekday/month seasonality and month-turn effects).
+    dt_raw = pd.to_numeric(result.get("dt"), errors="coerce")
+    dt_series = pd.to_datetime(dt_raw, unit="s", utc=True, errors="coerce")
+    ymd_mask = dt_raw.between(19_000_101, 21_001_231, inclusive="both")
+    if bool(ymd_mask.fillna(False).any()):
+        dt_ymd = pd.to_datetime(
+            dt_raw[ymd_mask].astype("Int64").astype(str),
+            format="%Y%m%d",
+            utc=True,
+            errors="coerce",
+        )
+        dt_series.loc[ymd_mask] = dt_ymd
+    valid_cal = dt_series.notna()
+    dow = dt_series.dt.weekday
+    month = dt_series.dt.month
+    day = dt_series.dt.day
+    days_in_month = dt_series.dt.days_in_month
+    dow_rad = (2.0 * np.pi * dow) / 7.0
+    month_rad = (2.0 * np.pi * (month - 1.0)) / 12.0
+    result["cal_dow_sin"] = np.where(valid_cal, np.sin(dow_rad), np.nan)
+    result["cal_dow_cos"] = np.where(valid_cal, np.cos(dow_rad), np.nan)
+    result["cal_month_sin"] = np.where(valid_cal, np.sin(month_rad), np.nan)
+    result["cal_month_cos"] = np.where(valid_cal, np.cos(month_rad), np.nan)
+    result["cal_month_start"] = np.where(valid_cal, (day <= 5).astype(float), np.nan)
+    result["cal_month_end"] = np.where(valid_cal, ((days_in_month - day) <= 4).astype(float), np.nan)
     return result
 
 
@@ -3219,6 +3276,10 @@ def _predict_frame(df: pd.DataFrame, models: TrainedModels, cfg: MLConfig) -> pd
     )
     pred = df.copy()
     matrix_np = matrix.to_numpy(dtype=float)
+    turnover_series = pd.to_numeric(pred.get("turnover20"), errors="coerce")
+    long_cost_rate = turnover_series.apply(
+        lambda v: _trade_cost_rate(base_cost_rate=cfg.cost_rate, turnover20=_safe_float(v), side="long")
+    )
 
     cls_models = {int(k): v for k, v in (models.cls_by_horizon or {}).items() if v is not None}
     reg_models = {int(k): v for k, v in (models.reg_by_horizon or {}).items() if v is not None}
@@ -3255,7 +3316,7 @@ def _predict_frame(df: pd.DataFrame, models: TrainedModels, cfg: MLConfig) -> pd
         else:
             pred[ret_col] = reg_model.predict(matrix_np)
         pred[ev_col] = pred[ret_col]
-        pred[ev_net_col] = pred[ev_col].apply(lambda v: compute_ev20_net(float(v), cfg.cost_rate))
+        pred[ev_net_col] = pred[ev_col] - long_cost_rate
 
     _enforce_nonincreasing_pup_curve(pred)
     pred["p_up"] = pred[_p_up_pred_col(20)]
@@ -3437,7 +3498,12 @@ def select_top_n_ml(
     return selected
 
 
-def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
+def _walk_forward_eval(
+    df: pd.DataFrame,
+    cfg: MLConfig,
+    *,
+    progress_cb: Callable[[int, int], None] | None = None,
+) -> dict[str, Any]:
     def _empty_payload() -> dict[str, Any]:
         return {
             "fold_count": 0,
@@ -3482,7 +3548,8 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
     use_expanding = bool(getattr(cfg, "wf_use_expanding_train", True))
     wf_max_train_days = int(max(0, int(getattr(cfg, "wf_max_train_days", 0))))
 
-    for window in windows:
+    total_windows = int(len(windows))
+    for index, window in enumerate(windows, start=1):
         if use_expanding:
             train_dates_seq = [d for d in all_dates if d <= int(window["train_end_dt"])]
             if wf_max_train_days > 0 and len(train_dates_seq) > wf_max_train_days:
@@ -3494,11 +3561,15 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
         train_df = df[df["dt"].isin(train_dates)].copy()
         test_df = df[df["dt"].isin(test_dates)].copy()
         if train_df.empty or test_df.empty:
+            if progress_cb is not None:
+                progress_cb(index, total_windows)
             continue
 
         try:
             models = _fit_models(train_df, cfg)
         except Exception:
+            if progress_cb is not None:
+                progress_cb(index, total_windows)
             continue
 
         pred_df = _predict_frame(test_df, models, cfg)
@@ -3527,13 +3598,23 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
                 ret20 = _safe_float(item.get("ret20"))
                 if ret20 is None:
                     continue
-                up_realized.append(compute_ev20_net(ret20, cfg.cost_rate))
+                cost_rate = _trade_cost_rate(
+                    base_cost_rate=cfg.cost_rate,
+                    turnover20=_safe_float(item.get("turnover20")),
+                    side="long",
+                )
+                up_realized.append(compute_ev20_net(ret20, cost_rate))
             down_realized: list[float] = []
             for item in selected_down:
                 ret20 = _safe_float(item.get("ret20"))
                 if ret20 is None:
                     continue
-                down_realized.append(compute_ev20_net(-ret20, cfg.cost_rate))
+                cost_rate = _trade_cost_rate(
+                    base_cost_rate=cfg.cost_rate,
+                    turnover20=_safe_float(item.get("turnover20")),
+                    side="short",
+                )
+                down_realized.append(compute_ev20_net(-ret20, cost_rate))
 
             up_score = float(np.mean(up_realized)) if up_realized else None
             down_score = float(np.mean(down_realized)) if down_realized else None
@@ -3558,7 +3639,12 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
                 ret20 = _safe_float(item.get("ret20"))
                 if ret20 is None:
                     continue
-                turn_long_realized.append(compute_ev20_net(ret20, cfg.cost_rate))
+                cost_rate = _trade_cost_rate(
+                    base_cost_rate=cfg.cost_rate,
+                    turnover20=_safe_float(item.get("turnover20")),
+                    side="long",
+                )
+                turn_long_realized.append(compute_ev20_net(ret20, cost_rate))
             if turn_long_realized:
                 turn_long_score = float(np.mean(turn_long_realized))
                 daily_turn_long_scores.append(turn_long_score)
@@ -3574,7 +3660,12 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
                 ret20 = _safe_float(item.get("ret20"))
                 if ret20 is None:
                     continue
-                turn_short_realized.append(compute_ev20_net(-ret20, cfg.cost_rate))
+                cost_rate = _trade_cost_rate(
+                    base_cost_rate=cfg.cost_rate,
+                    turnover20=_safe_float(item.get("turnover20")),
+                    side="short",
+                )
+                turn_short_realized.append(compute_ev20_net(-ret20, cost_rate))
             if turn_short_realized:
                 turn_short_score = float(np.mean(turn_short_realized))
                 daily_turn_short_scores.append(turn_short_score)
@@ -3597,6 +3688,8 @@ def _walk_forward_eval(df: pd.DataFrame, cfg: MLConfig) -> dict[str, Any]:
                 "turn_short_mean_ret10_proxy_net": float(np.mean(fold_turn_short)) if fold_turn_short else None,
             }
         )
+        if progress_cb is not None:
+            progress_cb(index, total_windows)
 
     up_summary = _summarize_daily_scores(daily_scores_up)
     down_summary = _summarize_daily_scores(daily_scores_down)
@@ -3674,10 +3767,12 @@ def _load_recent_labeled_predictions(
             p.code AS code,
             p.p_up AS p_up,
             p.ev20_net AS ev20_net,
-            l.ret20 AS ret20
+            l.ret20 AS ret20,
+            f.turnover20 AS turnover20
         FROM ml_pred_20d p
         JOIN recent_dt r ON r.dt = p.dt
         LEFT JOIN ml_label_20d l ON l.dt = p.dt AND l.code = p.code
+        LEFT JOIN ml_feature_daily f ON f.dt = p.dt AND f.code = p.code
         WHERE p.model_version = ?
         ORDER BY p.dt, p.code
         """,
@@ -3716,7 +3811,12 @@ def _evaluate_live_metrics_for_model(
             ret20 = _safe_float(item.get("ret20"))
             if ret20 is None:
                 continue
-            realized.append(compute_ev20_net(ret20, cfg.cost_rate))
+            cost_rate = _trade_cost_rate(
+                base_cost_rate=cfg.cost_rate,
+                turnover20=_safe_float(item.get("turnover20")),
+                side="long",
+            )
+            realized.append(compute_ev20_net(ret20, cost_rate))
         if realized:
             daily_scores.append(float(np.mean(realized)))
 
@@ -3743,8 +3843,6 @@ def _find_best_fallback_model(
             """
         ).fetchall()
         promoted_versions = {str(row[0]) for row in promoted_rows if row and row[0]}
-    allow_unverified_fallback = len(promoted_versions) == 0
-
     rows = conn.execute(
         """
         SELECT
@@ -3768,9 +3866,7 @@ def _find_best_fallback_model(
     if not rows:
         return None
 
-    best_item: dict[str, Any] | None = None
-    best_key: tuple[float, float, float, str] | None = None
-    for row in rows:
+    def _is_promoted(row: tuple) -> tuple[bool, dict[str, Any]]:
         model_version = str(row[0])
         metrics_payload: dict[str, Any] = {}
         try:
@@ -3781,30 +3877,93 @@ def _find_best_fallback_model(
         promotion_payload = metrics_payload.get("promotion")
         if not promoted_by_metrics and isinstance(promotion_payload, dict):
             promoted_by_metrics = bool(promotion_payload.get("promoted"))
-        is_promoted_model = model_version in promoted_versions or promoted_by_metrics
-        if not is_promoted_model and not allow_unverified_fallback:
-            continue
+        return model_version in promoted_versions or promoted_by_metrics, metrics_payload
 
-        wf = _extract_walk_forward_metrics_from_registry_row(row)
-        robust = _robust_lb_from_metrics(wf, cfg)
-        mean_ret = _safe_float((wf or {}).get("top30_mean_ret20_net"))
-        lcb95 = _safe_float((wf or {}).get("top30_lcb95_ret20_net"))
-        if robust is None and mean_ret is None and lcb95 is None:
-            continue
-        score_robust = float(robust) if robust is not None else float("-inf")
-        score_lcb = float(lcb95) if lcb95 is not None else float("-inf")
-        score_mean = float(mean_ret) if mean_ret is not None else float("-inf")
-        key = (score_robust, score_lcb, score_mean, model_version)
-        if best_key is None or key > best_key:
-            best_key = key
-            best_item = {
-                "model_version": model_version,
-                "robust_lb": robust,
-                "mean_ret20_net": mean_ret,
-                "lcb95_ret20_net": lcb95,
-                "created_at": row[10],
-            }
-    return best_item
+    def _pick_best(
+        *,
+        require_promoted: bool,
+        enforce_guard_floor: bool,
+        source: str,
+    ) -> dict[str, Any] | None:
+        best_item: dict[str, Any] | None = None
+        best_key: tuple[float, float, float, str] | None = None
+        for row in rows:
+            model_version = str(row[0])
+            is_promoted_model, _ = _is_promoted(row)
+            if require_promoted and not is_promoted_model:
+                continue
+
+            wf = _extract_walk_forward_metrics_from_registry_row(row)
+            robust = _robust_lb_from_metrics(wf, cfg)
+            mean_ret = _safe_float((wf or {}).get("top30_mean_ret20_net"))
+            lcb95 = _safe_float((wf or {}).get("top30_lcb95_ret20_net"))
+            if robust is None and mean_ret is None and lcb95 is None:
+                continue
+
+            if enforce_guard_floor:
+                robust_val = float(robust) if robust is not None else float("-inf")
+                mean_val = float(mean_ret) if mean_ret is not None else float("-inf")
+                lcb_val = float(lcb95) if lcb95 is not None else float("-inf")
+                if (
+                    robust_val < float(cfg.live_guard_min_robust_lb)
+                    and mean_val < float(cfg.live_guard_min_mean_ret20_net)
+                    and lcb_val < float(cfg.live_guard_min_lcb95_ret20_net)
+                ):
+                    continue
+
+            score_robust = float(robust) if robust is not None else float("-inf")
+            score_lcb = float(lcb95) if lcb95 is not None else float("-inf")
+            score_mean = float(mean_ret) if mean_ret is not None else float("-inf")
+            key = (score_robust, score_lcb, score_mean, model_version)
+            if best_key is None or key > best_key:
+                best_key = key
+                best_item = {
+                    "model_version": model_version,
+                    "robust_lb": robust,
+                    "mean_ret20_net": mean_ret,
+                    "lcb95_ret20_net": lcb95,
+                    "created_at": row[10],
+                    "selection_source": source,
+                }
+        return best_item
+
+    # Pass-1: prefer promoted models when promotion history exists.
+    if promoted_versions:
+        promoted_best = _pick_best(
+            require_promoted=True,
+            enforce_guard_floor=False,
+            source="promoted_only",
+        )
+        if promoted_best is not None:
+            return promoted_best
+
+    # Pass-2: if no promoted fallback exists, allow non-promoted candidates
+    # that at least clear one live-guard floor condition.
+    guarded_best = _pick_best(
+        require_promoted=False,
+        enforce_guard_floor=True,
+        source="guard_floor",
+    )
+    if guarded_best is not None:
+        return guarded_best
+
+    # Pass-3: final permissive fallback to keep rollback path available.
+    permissive = _pick_best(
+        require_promoted=False,
+        enforce_guard_floor=False,
+        source="permissive",
+    )
+    if permissive is not None:
+        return permissive
+    latest_row = rows[0]
+    return {
+        "model_version": str(latest_row[0]),
+        "robust_lb": None,
+        "mean_ret20_net": None,
+        "lcb95_ret20_net": None,
+        "created_at": latest_row[10],
+        "selection_source": "latest_registry_no_metrics",
+    }
 
 
 def _save_live_guard_audit(
@@ -4767,8 +4926,19 @@ def train_models(
     start_dt: int | None = None,
     end_dt: int | None = None,
     dry_run: bool = False,
+    progress_cb: Callable[[int, str], None] | None = None,
 ) -> dict[str, Any]:
     cfg = load_ml_config()
+
+    def _notify(progress: int, message: str) -> None:
+        if progress_cb is None:
+            return
+        try:
+            progress_cb(max(0, min(100, int(progress))), str(message))
+        except Exception:
+            return
+
+    _notify(2, "Preparing ML training...")
     with get_conn() as conn:
         _ensure_ml_schema(conn)
         active_row = _load_active_model_row(conn)
@@ -4776,12 +4946,15 @@ def train_models(
         active_objective = str(active_row[2]) if active_row and len(active_row) > 2 and active_row[2] is not None else None
         compare_to_champion = bool(has_active_model and active_objective == OBJECTIVE)
         champion_wf_metrics = _extract_walk_forward_metrics_from_registry_row(active_row)
+        _notify(6, "Refreshing feature table...")
         feature_rows = refresh_ml_feature_table(
             conn,
             feature_version=FEATURE_VERSION,
             start_dt=start_dt,
             end_dt=end_dt,
         )
+        _notify(14, f"Feature table refreshed ({int(feature_rows)} rows).")
+        _notify(18, "Refreshing label table...")
         label_rows = refresh_ml_label_table(
             conn,
             cfg=cfg,
@@ -4789,12 +4962,15 @@ def train_models(
             start_dt=start_dt,
             end_dt=end_dt,
         )
+        _notify(26, f"Label table refreshed ({int(label_rows)} rows).")
+        _notify(30, "Refreshing monthly labels...")
         monthly_label_rows = refresh_ml_monthly_label_table(
             conn,
             label_version=MONTHLY_LABEL_VERSION,
             start_dt=start_dt,
             end_dt=end_dt,
         )
+        _notify(36, "Loading training datasets...")
         df = _load_training_df(conn, start_dt=start_dt, end_dt=end_dt)
         if df.empty:
             raise RuntimeError("No joined rows for ML training")
@@ -4804,8 +4980,18 @@ def train_models(
         monthly_ret20_lookup: dict[str, Any] = {}
         monthly_train_error: str | None = None
 
-        wf_metrics = _walk_forward_eval(df, cfg)
+        _notify(40, f"Running walk-forward ({int(len(df))} rows)...")
+        wf_start = 40
+        wf_span = 30
+
+        def _on_wf_progress(done: int, total: int) -> None:
+            pct = wf_start + int(wf_span * max(0, done) / max(1, total))
+            _notify(pct, f"Walk-forward {int(done)}/{int(total)}")
+
+        wf_metrics = _walk_forward_eval(df, cfg, progress_cb=_on_wf_progress)
+        _notify(72, "Fitting production models...")
         models = _fit_models(df, cfg)
+        _notify(80, "Fitting monthly models...")
         if monthly_df.empty:
             monthly_train_error = "No joined rows for monthly ML training"
         else:
@@ -4830,6 +5016,7 @@ def train_models(
 
         monthly_enabled = bool(monthly_models is not None and monthly_models.abs_cls is not None)
 
+        _notify(88, "Evaluating promotion policy...")
         trained_at = datetime.now(tz=timezone.utc)
         model_version = trained_at.strftime("%Y%m%d%H%M%S")
         monthly_model_version = (
@@ -4883,6 +5070,13 @@ def train_models(
                 "p_up_threshold": cfg.p_up_threshold,
                 "top_n": cfg.top_n,
                 "cost_bps": cfg.cost_bps,
+                "liq_cost_turnover_low": LIQ_COST_TURNOVER_LOW,
+                "liq_cost_turnover_mid": LIQ_COST_TURNOVER_MID,
+                "liq_slippage_bps_low": LIQ_SLIPPAGE_BPS_LOW,
+                "liq_slippage_bps_mid": LIQ_SLIPPAGE_BPS_MID,
+                "liq_slippage_bps_high": LIQ_SLIPPAGE_BPS_HIGH,
+                "liq_slippage_bps_unknown": LIQ_SLIPPAGE_BPS_UNKNOWN,
+                "short_borrow_bps_20d": SHORT_BORROW_BPS_20D,
                 "train_days": cfg.train_days,
                 "test_days": cfg.test_days,
                 "step_days": cfg.step_days,
@@ -4964,6 +5158,7 @@ def train_models(
             }
         )
         if dry_run:
+            _notify(100, "ML training completed (dry-run).")
             return {
                 **payload,
                 "monthly": {
@@ -4981,6 +5176,7 @@ def train_models(
                 "dry_run": True,
             }
 
+        _notify(92, "Saving model artifacts...")
         art_dir = _artifact_dir()
         cls_path = art_dir / f"{model_version}_cls.txt"
         reg_path = art_dir / f"{model_version}_reg.txt"
@@ -5048,6 +5244,7 @@ def train_models(
             if monthly_abs_path is not None
             else None
         )
+        _notify(96, "Writing model registry...")
         train_start = int(df["dt"].min()) if not df.empty else None
         train_end = int(df["dt"].max()) if not df.empty else None
         promote = bool(gate.get("promoted"))
@@ -5081,6 +5278,7 @@ def train_models(
             wf_metrics=wf_metrics,
             gate=gate,
         )
+        _notify(100, "ML training completed.")
         return {
             **payload,
             "dry_run": False,
@@ -5528,89 +5726,330 @@ def predict_monthly_for_dt(dt: int | None = None) -> dict[str, Any]:
         return _predict_monthly_for_dt_with_conn(conn, target_dt)
 
 
+def _load_prediction_feature_frame(conn, target_dates: list[int]) -> pd.DataFrame:
+    if not target_dates:
+        return pd.DataFrame()
+    placeholders = ", ".join("?" for _ in target_dates)
+    return conn.execute(
+        f"""
+        SELECT
+            dt,
+            code,
+            close,
+            ma7,
+            ma20,
+            ma60,
+            atr14,
+            diff20_pct,
+            cnt_20_above,
+            cnt_7_above,
+            close_prev1,
+            close_prev5,
+            close_prev10,
+            ma7_prev1,
+            ma20_prev1,
+            ma60_prev1,
+            diff20_prev1,
+            cnt_20_prev1,
+            cnt_7_prev1,
+            weekly_breakout_up_prob,
+            weekly_breakout_down_prob,
+            weekly_range_prob,
+            monthly_breakout_up_prob,
+            monthly_breakout_down_prob,
+            monthly_range_prob,
+            candle_triplet_up_prob,
+            candle_triplet_down_prob,
+            candle_body_ratio,
+            candle_upper_wick_ratio,
+            candle_lower_wick_ratio,
+            atr14_pct,
+            range_pct,
+            gap_pct,
+            close_ret2,
+            close_ret3,
+            close_ret20,
+            close_ret60,
+            vol_ret5,
+            vol_ret20,
+            vol_ratio5_20,
+            turnover20,
+            turnover_z20,
+            high20_dist,
+            low20_dist,
+            breakout20_up,
+            breakout20_down,
+            drawdown60,
+            rebound60,
+            market_ret1,
+            market_ret5,
+            market_ret20,
+            rel_ret5,
+            rel_ret20,
+            breadth_above_ma20,
+            breadth_above_ma60,
+            sector_ret5,
+            sector_ret20,
+            rel_sector_ret5,
+            rel_sector_ret20,
+            sector_breadth_ma20
+        FROM ml_feature_daily
+        WHERE dt IN ({placeholders})
+        ORDER BY dt, code
+        """,
+        [int(value) for value in target_dates],
+    ).df()
+
+
+def _build_ml_pred_rows(pred: pd.DataFrame, *, model_version: str, n_train: int) -> list[tuple[Any, ...]]:
+    if pred is None or pred.empty:
+        return []
+    return [
+        (
+            int(item.dt),
+            str(item.code),
+            float(item.p_up),
+            float(item.p_down),
+            float(item.p_up_5),
+            float(item.p_up_10),
+            float(item.p_turn_up),
+            float(item.p_turn_down),
+            float(item.p_turn_down_5),
+            float(item.p_turn_down_10),
+            float(item.p_turn_down_20),
+            float(item.rank_up_20),
+            float(item.rank_down_20),
+            float(item.ret_pred5),
+            float(item.ret_pred10),
+            float(item.ret_pred20),
+            float(item.ev5),
+            float(item.ev10),
+            float(item.ev20),
+            float(item.ev5_net),
+            float(item.ev10_net),
+            float(item.ev20_net),
+            str(model_version),
+            int(n_train),
+        )
+        for item in pred.itertuples(index=False)
+    ]
+
+
+def _replace_ml_predictions_for_dates(conn, target_dates: list[int], rows: list[tuple[Any, ...]]) -> None:
+    if target_dates:
+        placeholders = ", ".join("?" for _ in target_dates)
+        conn.execute(
+            f"DELETE FROM ml_pred_20d WHERE dt IN ({placeholders})",
+            [int(value) for value in target_dates],
+        )
+    if rows:
+        conn.executemany(
+            """
+            INSERT INTO ml_pred_20d (
+                dt,
+                code,
+                p_up,
+                p_down,
+                p_up_5,
+                p_up_10,
+                p_turn_up,
+                p_turn_down,
+                p_turn_down_5,
+                p_turn_down_10,
+                p_turn_down_20,
+                rank_up_20,
+                rank_down_20,
+                ret_pred5,
+                ret_pred10,
+                ret_pred20,
+                ev5,
+                ev10,
+                ev20,
+                ev5_net,
+                ev10_net,
+                ev20_net,
+                model_version,
+                n_train,
+                computed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            rows,
+        )
+
+
+def predict_for_dates_bulk(
+    *,
+    dates: list[int],
+    chunk_size_days: int = 40,
+    include_monthly: bool = False,
+    progress_cb: Callable[[int, int, int], None] | None = None,
+) -> dict[str, Any]:
+    requested_dates = sorted({int(value) for value in dates if value is not None})
+    if not requested_dates:
+        return {
+            "requested_dates": [],
+            "resolved_dates": [],
+            "predicted_dates": [],
+            "rows_total": 0,
+            "model_version": None,
+            "n_train": 0,
+            "skipped_dates": [],
+            "monthly": None,
+        }
+    chunk_size_days = max(1, int(chunk_size_days))
+    cfg = load_ml_config()
+    with get_conn() as conn:
+        _ensure_ml_schema(conn)
+        feature_rows = int(conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()[0] or 0)
+        if feature_rows <= 0:
+            refresh_ml_feature_table(conn, feature_version=FEATURE_VERSION)
+
+        available_rows = conn.execute(
+            """
+            SELECT DISTINCT dt
+            FROM ml_feature_daily
+            WHERE dt <= ?
+            ORDER BY dt
+            """,
+            [int(requested_dates[-1])],
+        ).fetchall()
+        available_dates = [int(row[0]) for row in available_rows if row and row[0] is not None]
+        if not available_dates:
+            raise RuntimeError("ml_feature_daily is empty")
+        available_set = set(available_dates)
+
+        resolved_dates_raw: list[int] = []
+        skipped_dates: list[int] = []
+        for req_dt in requested_dates:
+            if req_dt in available_set:
+                resolved_dates_raw.append(int(req_dt))
+                continue
+            idx = bisect_right(available_dates, int(req_dt)) - 1
+            if idx >= 0:
+                resolved_dates_raw.append(int(available_dates[idx]))
+            else:
+                skipped_dates.append(int(req_dt))
+        resolved_dates = sorted(set(resolved_dates_raw))
+        if not resolved_dates:
+            return {
+                "requested_dates": requested_dates,
+                "resolved_dates": [],
+                "predicted_dates": [],
+                "rows_total": 0,
+                "model_version": None,
+                "n_train": 0,
+                "skipped_dates": skipped_dates,
+                "monthly": None,
+            }
+
+        models, model_version, n_train = _load_models_from_registry(conn)
+        monthly_bootstrap: dict[str, Any] | None = None
+        if include_monthly and _load_active_monthly_model_row(conn) is None:
+            try:
+                monthly_bootstrap = _train_monthly_models_with_conn(conn)
+            except Exception as exc:
+                monthly_bootstrap = {
+                    "ok": False,
+                    "error": str(exc),
+                }
+
+        total_dates = int(len(resolved_dates))
+        processed_dates = 0
+        predicted_dates: set[int] = set()
+        rows_total = 0
+        for start in range(0, total_dates, chunk_size_days):
+            chunk_dates = resolved_dates[start : start + chunk_size_days]
+            frame = _load_prediction_feature_frame(conn, chunk_dates)
+            if frame.empty:
+                processed_dates += len(chunk_dates)
+                if progress_cb is not None:
+                    progress_cb(int(processed_dates), int(total_dates), int(chunk_dates[-1]))
+                continue
+
+            pred = _predict_frame(frame, models, cfg)
+            rows = _build_ml_pred_rows(pred, model_version=str(model_version), n_train=int(n_train))
+            chunk_predicted_dates = sorted({int(value) for value in pred["dt"].tolist()})
+            _replace_ml_predictions_for_dates(conn, chunk_predicted_dates, rows)
+
+            predicted_dates.update(chunk_predicted_dates)
+            rows_total += int(len(rows))
+            processed_dates += len(chunk_dates)
+            if progress_cb is not None:
+                progress_cb(int(processed_dates), int(total_dates), int(chunk_dates[-1]))
+
+        monthly_result: dict[str, Any] | None = None
+        if include_monthly:
+            monthly_rows: list[dict[str, Any]] = []
+            for dt_value in resolved_dates:
+                try:
+                    monthly_rows.append(_predict_monthly_for_dt_with_conn(conn, int(dt_value)))
+                except Exception as exc:
+                    monthly_rows.append(
+                        {
+                            "dt": int(dt_value),
+                            "pred_dt": None,
+                            "rows": 0,
+                            "model_version": None,
+                            "n_train_abs": 0,
+                            "n_train_dir": 0,
+                            "disabled_reason": str(exc),
+                        }
+                    )
+            monthly_result = {
+                "results": monthly_rows,
+                "bootstrap": monthly_bootstrap,
+            }
+
+        return {
+            "requested_dates": requested_dates,
+            "resolved_dates": resolved_dates,
+            "predicted_dates": sorted(predicted_dates),
+            "rows_total": int(rows_total),
+            "model_version": str(model_version),
+            "n_train": int(n_train),
+            "skipped_dates": skipped_dates,
+            "monthly": monthly_result,
+        }
+
+
 def predict_for_dt(dt: int | None = None) -> dict[str, Any]:
     cfg = load_ml_config()
     with get_conn() as conn:
         _ensure_ml_schema(conn)
-        if conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()[0] == 0:
-            refresh_ml_feature_table(conn, feature_version=FEATURE_VERSION)
 
         target_dt = int(dt) if dt is not None else None
+        feature_rows = int(conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()[0] or 0)
+        needs_feature_refresh = feature_rows == 0
+        if not needs_feature_refresh and target_dt is not None:
+            has_target = conn.execute(
+                "SELECT 1 FROM ml_feature_daily WHERE dt = ? LIMIT 1",
+                [target_dt],
+            ).fetchone()
+            needs_feature_refresh = has_target is None
+        if needs_feature_refresh:
+            refresh_ml_feature_table(conn, feature_version=FEATURE_VERSION)
+
         if target_dt is None:
             row = conn.execute("SELECT MAX(dt) FROM ml_feature_daily").fetchone()
             if not row or row[0] is None:
                 raise RuntimeError("ml_feature_daily is empty")
             target_dt = int(row[0])
+        else:
+            has_target = conn.execute(
+                "SELECT 1 FROM ml_feature_daily WHERE dt = ? LIMIT 1",
+                [target_dt],
+            ).fetchone()
+            if has_target is None:
+                fallback_row = conn.execute(
+                    "SELECT MAX(dt) FROM ml_feature_daily WHERE dt <= ?",
+                    [target_dt],
+                ).fetchone()
+                if not fallback_row or fallback_row[0] is None:
+                    raise RuntimeError(f"No features found for dt={target_dt}")
+                target_dt = int(fallback_row[0])
 
-        frame = conn.execute(
-            """
-            SELECT
-                dt,
-                code,
-                close,
-                ma7,
-                ma20,
-                ma60,
-                atr14,
-                diff20_pct,
-                cnt_20_above,
-                cnt_7_above,
-                close_prev1,
-                close_prev5,
-                close_prev10,
-                ma7_prev1,
-                ma20_prev1,
-                ma60_prev1,
-                diff20_prev1,
-                cnt_20_prev1,
-                cnt_7_prev1,
-                weekly_breakout_up_prob,
-                weekly_breakout_down_prob,
-                weekly_range_prob,
-                monthly_breakout_up_prob,
-                monthly_breakout_down_prob,
-                monthly_range_prob,
-                candle_triplet_up_prob,
-                candle_triplet_down_prob,
-                candle_body_ratio,
-                candle_upper_wick_ratio,
-                candle_lower_wick_ratio,
-                atr14_pct,
-                range_pct,
-                gap_pct,
-                close_ret2,
-                close_ret3,
-                close_ret20,
-                close_ret60,
-                vol_ret5,
-                vol_ret20,
-                vol_ratio5_20,
-                turnover20,
-                turnover_z20,
-                high20_dist,
-                low20_dist,
-                breakout20_up,
-                breakout20_down,
-                drawdown60,
-                rebound60,
-                market_ret1,
-                market_ret5,
-                market_ret20,
-                rel_ret5,
-                rel_ret20,
-                breadth_above_ma20,
-                breadth_above_ma60,
-                sector_ret5,
-                sector_ret20,
-                rel_sector_ret5,
-                rel_sector_ret20,
-                sector_breadth_ma20
-            FROM ml_feature_daily
-            WHERE dt = ?
-            ORDER BY code
-            """,
-            [target_dt],
-        ).df()
+        frame = _load_prediction_feature_frame(conn, [int(target_dt)])
         if frame.empty:
             raise RuntimeError(f"No features found for dt={target_dt}")
 
@@ -5625,70 +6064,8 @@ def predict_for_dt(dt: int | None = None) -> dict[str, Any]:
                     "ok": False,
                     "error": str(exc),
                 }
-        rows = [
-            (
-                int(target_dt),
-                str(item.code),
-                float(item.p_up),
-                float(item.p_down),
-                float(item.p_up_5),
-                float(item.p_up_10),
-                float(item.p_turn_up),
-                float(item.p_turn_down),
-                float(item.p_turn_down_5),
-                float(item.p_turn_down_10),
-                float(item.p_turn_down_20),
-                float(item.rank_up_20),
-                float(item.rank_down_20),
-                float(item.ret_pred5),
-                float(item.ret_pred10),
-                float(item.ret_pred20),
-                float(item.ev5),
-                float(item.ev10),
-                float(item.ev20),
-                float(item.ev5_net),
-                float(item.ev10_net),
-                float(item.ev20_net),
-                str(model_version),
-                int(n_train),
-            )
-            for item in pred.itertuples(index=False)
-        ]
-        conn.execute("DELETE FROM ml_pred_20d WHERE dt = ?", [target_dt])
-        if rows:
-            conn.executemany(
-                """
-                INSERT INTO ml_pred_20d (
-                    dt,
-                    code,
-                    p_up,
-                    p_down,
-                    p_up_5,
-                    p_up_10,
-                    p_turn_up,
-                    p_turn_down,
-                    p_turn_down_5,
-                    p_turn_down_10,
-                    p_turn_down_20,
-                    rank_up_20,
-                    rank_down_20,
-                    ret_pred5,
-                    ret_pred10,
-                    ret_pred20,
-                    ev5,
-                    ev10,
-                    ev20,
-                    ev5_net,
-                    ev10_net,
-                    ev20_net,
-                    model_version,
-                    n_train,
-                    computed_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                rows,
-            )
+        rows = _build_ml_pred_rows(pred, model_version=str(model_version), n_train=int(n_train))
+        _replace_ml_predictions_for_dates(conn, [int(target_dt)], rows)
         try:
             monthly_result = _predict_monthly_for_dt_with_conn(conn, target_dt)
         except Exception as exc:

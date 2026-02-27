@@ -1,0 +1,32 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -2,
+      "reasonId": "R_CUT_LOSS_WARN",
+      "side": "LONG",
+      "ticker": "1711"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_TOP1_GATE_OK",
+      "side": "LONG",
+      "ticker": "9501"
+    }
+  ],
+  "asOf": "2025-06-23",
+  "checks": {
+    "exposureOk": true,
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v8",
+  "seasonId": "stage1_rank2_entryEv001_20260218",
+  "stage": {
+    "goal20Reached": false,
+    "goal30Reached": false,
+    "stage2Active": false
+  }
+}

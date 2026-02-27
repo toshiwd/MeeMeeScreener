@@ -23,19 +23,27 @@ def handle_toredex_live(job_id: str, payload: dict) -> None:
     as_of = payload.get("asOf")
     as_of_text = str(as_of).strip() if as_of is not None else None
     dry_run = _to_bool(payload.get("dry_run"))
+    config_override = payload.get("config_override") if isinstance(payload.get("config_override"), dict) else {}
+    operating_mode = str(payload.get("operating_mode") or "").strip().lower()
+    if operating_mode in {"champion", "challenger"}:
+        config_override = {**config_override, "operatingMode": operating_mode}
 
     job_manager._update_db(
         job_id,
         "toredex_live",
         "running",
         progress=10,
-        message=f"TOREDEX run_live starting (season_id={season_id}, asOf={as_of_text or 'auto'})",
+        message=(
+            f"TOREDEX run_live starting (season_id={season_id}, asOf={as_of_text or 'auto'}, "
+            f"operating_mode={operating_mode or 'default'})"
+        ),
     )
 
     result = run_live(
         season_id=season_id,
         as_of=as_of_text,
         dry_run=dry_run,
+        config_override=config_override,
     )
     status = str(result.get("status") or "success")
     message = (

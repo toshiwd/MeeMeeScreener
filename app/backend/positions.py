@@ -212,18 +212,9 @@ def _map_parser_row_to_event(row: dict) -> TradeEvent:
 
 
 def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
-    # Decode
-    text = ""
-    for enc in ("cp932", "utf-8-sig", "utf-8"):
-        try:
-             text = data.decode(enc)
-             break
-        except: continue
-    if not text:
+    result = _parse_with_best_encoding(data, TradeParser.parse_rakuten_rows)
+    if result is None:
         return [], ["decode_failed"]
-        
-    rows_all = list(csv.reader(text.splitlines()))
-    result = TradeParser.parse_rakuten_rows(rows_all)
     
     events = [_map_parser_row_to_event(r) for r in result["rows"]]
     warnings = [w["message"] for w in result["warnings"]]
@@ -240,21 +231,47 @@ def _find_header_row(rows: list[list[str]], header_keys: list[str]) -> int | Non
 
 
 def parse_sbi_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
-    text = ""
-    for enc in ("cp932", "utf-8-sig", "utf-8"):
-        try:
-             text = data.decode(enc)
-             break
-        except: continue
-    if not text:
+    result = _parse_with_best_encoding(data, TradeParser.parse_sbi_rows)
+    if result is None:
         return [], ["decode_failed"]
-        
-    rows_all = list(csv.reader(text.splitlines()))
-    result = TradeParser.parse_sbi_rows(rows_all)
     
     events = [_map_parser_row_to_event(r) for r in result["rows"]]
     warnings = [w["message"] for w in result["warnings"]]
     return events, warnings
+
+
+def _parse_with_best_encoding(data: bytes, parser) -> dict | None:
+    best_result: dict | None = None
+    best_rows = -1
+    best_warnings = 10**9
+    seen_text: set[str] = set()
+
+    for enc in ("cp932", "utf-8-sig", "utf-8"):
+        try:
+            text = data.decode(enc)
+        except Exception:
+            continue
+        if not text or text in seen_text:
+            continue
+        seen_text.add(text)
+
+        rows_all = list(csv.reader(text.splitlines()))
+        if not rows_all:
+            continue
+        try:
+            result = parser(rows_all, enc)
+        except Exception:
+            continue
+        rows = result.get("rows") if isinstance(result, dict) else None
+        warnings = result.get("warnings") if isinstance(result, dict) else None
+        row_count = len(rows) if isinstance(rows, list) else 0
+        warning_count = len(warnings) if isinstance(warnings, list) else 0
+        if row_count > best_rows or (row_count == best_rows and warning_count < best_warnings):
+            best_result = result
+            best_rows = row_count
+            best_warnings = warning_count
+
+    return best_result
 
 
 def rebuild_positions(conn) -> dict:

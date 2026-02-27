@@ -1,0 +1,37 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -2,
+      "reasonId": "S_SWITCH_EV_GAP",
+      "side": "LONG",
+      "ticker": "7003"
+    },
+    {
+      "deltaUnits": 2,
+      "reasonId": "E_NEW_SWITCH_IN",
+      "side": "LONG",
+      "ticker": "7245"
+    },
+    {
+      "deltaUnits": 3,
+      "reasonId": "A_ADD_PROBE_TO_ADD_OK",
+      "side": "LONG",
+      "ticker": "6302"
+    }
+  ],
+  "asOf": "2025-10-24",
+  "checks": {
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v3",
+  "seasonId": "tradex_demo_202510_v4",
+  "stage": {
+    "goal20Reached": false,
+    "goal30Reached": false,
+    "stage2Active": false
+  }
+}

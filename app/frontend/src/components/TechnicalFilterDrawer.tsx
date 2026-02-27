@@ -13,7 +13,9 @@ type TechnicalFilterDrawerProps = {
   anchorLabel: string | null;
   matchCount: number | null;
   value: TechnicalFilterState;
+  shortTierAbOnly: boolean;
   onChange: (next: TechnicalFilterState) => void;
+  onShortTierAbOnlyChange: (next: boolean) => void;
   onApply: () => void;
   onCancel: () => void;
   onReset: () => void;
@@ -74,7 +76,9 @@ export default function TechnicalFilterDrawer({
   anchorLabel,
   matchCount,
   value,
+  shortTierAbOnly,
   onChange,
+  onShortTierAbOnlyChange,
   onApply,
   onCancel,
   onReset,
@@ -160,6 +164,18 @@ export default function TechnicalFilterDrawer({
                   }
                 >
                   今月ボックス
+                </button>
+              </div>
+            </div>
+            <div className="tech-filter-section">
+              <div className="tech-filter-section-title">クイック</div>
+              <div className="tech-filter-pill-row">
+                <button
+                  type="button"
+                  className={`tech-filter-pill ${shortTierAbOnly ? "active" : ""}`}
+                  onClick={() => onShortTierAbOnlyChange(!shortTierAbOnly)}
+                >
+                  売りTier A/Bのみ
                 </button>
               </div>
             </div>

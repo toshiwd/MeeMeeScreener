@@ -40,10 +40,30 @@ def _map_regime(item: dict[str, Any]) -> str:
 
 def _map_gate(item: dict[str, Any]) -> dict[str, Any]:
     setup = str(item.get("setupType") or "watch")
-    ok = bool(item.get("entryQualified"))
+    raw_ok = item.get("entryQualified")
+    up_prob = _first_finite(
+        item.get("probSideCalib"),
+        item.get("probSide"),
+        item.get("mlPUpShort"),
+        item.get("mlPUp"),
+    )
+    ev = _first_finite(item.get("mlEvShortNet"), item.get("mlEv20Net"), item.get("changePct"))
+    rev_risk = _first_finite(item.get("revRisk"), item.get("mlPTurnDownShort"), item.get("mlPDownShort"), item.get("mlPDown"))
+    if raw_ok is None:
+        ok = bool(
+            up_prob is not None
+            and up_prob >= 0.53
+            and ev is not None
+            and ev >= 0.0
+            and (rev_risk is None or rev_risk <= 0.58)
+        )
+        reason = "ENTRY_HEURISTIC_OK" if ok else "ENTRY_HEURISTIC_NG"
+    else:
+        ok = bool(raw_ok)
+        reason = "ENTRY_OK" if ok else f"SETUP_{setup}"
     return {
         "ok": ok,
-        "reason": "ENTRY_OK" if ok else f"SETUP_{setup}",
+        "reason": reason,
     }
 
 
@@ -54,11 +74,27 @@ def _map_rank_item(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "ticker": code,
         "ev": _first_finite(item.get("mlEv20Net"), item.get("mlEvShortNet"), item.get("changePct")),
-        "upProb": _first_finite(item.get("mlPUpShort"), item.get("mlPUp"), item.get("probSide")),
-        "revRisk": _first_finite(item.get("mlPTurnDownShort"), item.get("mlPDownShort"), item.get("mlPDown")),
+        "upProb": _first_finite(
+            item.get("probSideCalib"),
+            item.get("probSide"),
+            item.get("mlPUpShort"),
+            item.get("mlPUp"),
+            item.get("weeklyBreakoutUpProb"),
+            item.get("monthlyBreakoutUpProb"),
+        ),
+        "revRisk": _first_finite(
+            item.get("mlPTurnDownShort"),
+            item.get("mlPDownShort"),
+            item.get("mlPDown"),
+            item.get("weeklyBreakoutDownProb"),
+            item.get("monthlyBreakoutDownProb"),
+        ),
         "regime": _map_regime(item),
         "gate": _map_gate(item),
         "close": _first_finite(item.get("close")),
+        "liquidity20d": _first_finite(item.get("liquidity20d"), item.get("turnover20d")),
+        "sector": str(item.get("sector") or item.get("sectorName") or item.get("industryName") or ""),
+        "shortable": bool(item.get("shortable", True)),
         "entryScore": _first_finite(item.get("entryScore"), item.get("hybridScore")),
         "sourceAsOf": item.get("asOf"),
     }

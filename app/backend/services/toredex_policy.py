@@ -98,6 +98,48 @@ def _distinct_tickers(state: dict[tuple[str, str], int]) -> set[str]:
     return out
 
 
+def _gross_units(state: dict[tuple[str, str], int]) -> int:
+    total = 0
+    for units in state.values():
+        ui = int(units or 0)
+        if ui > 0:
+            total += ui
+    return total
+
+
+def _long_short_units(state: dict[tuple[str, str], int]) -> tuple[int, int]:
+    long_units = 0
+    short_units = 0
+    for (_ticker, side), units in state.items():
+        ui = int(units or 0)
+        if ui <= 0:
+            continue
+        if str(side).upper() == "SHORT":
+            short_units += ui
+        else:
+            long_units += ui
+    return long_units, short_units
+
+
+def _units_for_ticker(state: dict[tuple[str, str], int], ticker: str) -> int:
+    total = 0
+    for (tk, _side), units in state.items():
+        if tk == ticker and int(units or 0) > 0:
+            total += int(units or 0)
+    return total
+
+
+def _sector_counts(state: dict[tuple[str, str], int], sector_map: dict[str, str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    tickers = _distinct_tickers(state)
+    for ticker in tickers:
+        sector = str(sector_map.get(ticker) or "").strip()
+        if not sector:
+            continue
+        counts[sector] = int(counts.get(sector, 0)) + 1
+    return counts
+
+
 def _append_close_all_actions(
     actions: list[dict[str, Any]],
     *,
@@ -132,6 +174,72 @@ def _add_action(actions: list[dict[str, Any]], ticker: str, side: str, delta: in
     actions.append(payload)
 
 
+def _has_reduce_action(actions: list[dict[str, Any]], *, ticker: str, side: str) -> bool:
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        if str(action.get("ticker") or "") != ticker:
+            continue
+        if str(action.get("side") or "LONG").upper() != side:
+            continue
+        if int(action.get("deltaUnits") or 0) < 0:
+            return True
+    return False
+
+
+def _should_exit_on_gate_ng(
+    *,
+    pnl_pct: float,
+    holding_days: int,
+    rev_risk: float | None,
+    rev_risk_high: float,
+    gate_ng_min_holding_days: int,
+    gate_ng_min_pnl_pct: float,
+) -> bool:
+    # If reversal risk is already high, allow immediate exit on gate miss.
+    if rev_risk is not None and rev_risk >= rev_risk_high:
+        return True
+    # Allow immediate exit when position is not in profit enough.
+    if pnl_pct <= gate_ng_min_pnl_pct:
+        return True
+    # Otherwise require a minimum holding period before exiting on gate miss.
+    return int(holding_days) >= int(gate_ng_min_holding_days)
+
+
+def _can_apply_exposure_constraints(
+    *,
+    state_now: dict[tuple[str, str], int],
+    ticker: str,
+    side: str,
+    delta: int,
+    max_gross_units: int,
+    max_net_units: int,
+    max_units_per_ticker: int,
+    max_per_sector: int,
+    sector_map: dict[str, str],
+) -> bool:
+    next_state = dict(state_now)
+    key = (ticker, side)
+    next_state[key] = int(next_state.get(key, 0)) + int(delta)
+    if next_state[key] <= 0:
+        next_state[key] = 0
+
+    if _gross_units(next_state) > max_gross_units:
+        return False
+    long_units, short_units = _long_short_units(next_state)
+    if abs(long_units - short_units) > max_net_units:
+        return False
+    if _units_for_ticker(next_state, ticker) > max_units_per_ticker:
+        return False
+    if max_per_sector > 0:
+        sector = str(sector_map.get(ticker) or "").strip()
+        if sector:
+            counts = _sector_counts(next_state, sector_map)
+            if int(counts.get(sector, 0)) > max_per_sector:
+                return False
+    return True
+
+
 def build_decision(
     *,
     snapshot: dict[str, Any],
@@ -156,8 +264,37 @@ def build_decision(
     exit_min_ev = float(th.get("exitMinEv", -0.01))
     rev_risk_warn = float(th.get("revRiskWarn", 0.55))
     rev_risk_high = float(th.get("revRiskHigh", 0.65))
+    entry_max_rev_risk = float(th.get("entryMaxRevRisk", rev_risk_warn))
+    topk_entry_up_boost = float(th.get("topKEntryUpProbBoost", 0.0))
+    topk_entry_ev_boost = float(th.get("topKEntryEvBoost", 0.0))
+    add_min_up = float(th.get("addMinUpProb", entry_min_up))
+    add_min_ev = float(th.get("addMinEv", entry_min_ev))
+    add_max_rev_risk = float(th.get("addMaxRevRisk", rev_risk_warn))
+    add_min_pnl = float(th.get("addMinPnlPct", -1.0))
+    add_max_pnl = float(th.get("addMaxPnlPct", 15.0))
     switch_gap = float(th.get("switchMinEvGap", 0.03))
     take_profit_hint = float(th.get("takeProfitHintPct", 10.0))
+    exit_if_unranked = float(th.get("exitIfUnranked", 1.0)) >= 0.5
+    exit_gate_ng_min_holding_days = max(0, int(float(th.get("exitGateNgMinHoldingDays", 10.0))))
+    exit_gate_ng_min_pnl_pct = float(th.get("exitGateNgMinPnlPct", 0.0))
+    max_new_entries_per_day = max(0, int(float(th.get("maxNewEntriesPerDay", 1.0))))
+    new_entry_max_rank = max(1, int(float(th.get("newEntryMaxRank", 3.0))))
+    unit_notional = float(config.max_per_ticker) / 10.0 if float(config.max_per_ticker) > 0 else 0.0
+    equity_for_limit = _float_or_none((prev_metrics or {}).get("equity"))
+    if equity_for_limit is None or equity_for_limit <= 0:
+        equity_for_limit = float(config.initial_cash)
+    if unit_notional > 0:
+        max_gross_units = max(1, int(float(equity_for_limit) // unit_notional))
+    else:
+        max_gross_units = 10
+    constraints = config.portfolio_constraints if hasattr(config, "portfolio_constraints") else {}
+    configured_gross_units = max(1, int(constraints.get("grossUnitsCap", 10)))
+    max_gross_units = min(max_gross_units, configured_gross_units)
+    max_net_units = max(0, int(constraints.get("maxNetUnits", configured_gross_units)))
+    max_units_per_ticker = max(1, int(constraints.get("maxUnitsPerTicker", 10)))
+    max_per_sector = max(0, int(constraints.get("maxPerSector", 0)))
+    min_liquidity20d = max(0.0, float(constraints.get("minLiquidity20d", 0.0)))
+    short_blacklist = {str(v).strip() for v in (constraints.get("shortBlacklist") or []) if str(v).strip()}
 
     prev_cum_return = _float_or_none((prev_metrics or {}).get("cum_return_pct")) or 0.0
     goal20 = float(config.stage_rules.get("goal20Pct", 20.0))
@@ -168,14 +305,24 @@ def build_decision(
 
     buy_map = {str(item.get("ticker") or ""): item for item in buy_rankings if isinstance(item, dict)}
     sell_map = {str(item.get("ticker") or ""): item for item in sell_rankings if isinstance(item, dict)}
+    sector_map: dict[str, str] = {}
+    for item in [*buy_rankings, *sell_rankings]:
+        if not isinstance(item, dict):
+            continue
+        ticker = str(item.get("ticker") or "")
+        if not ticker:
+            continue
+        sector_map[ticker] = str(item.get("sector") or "")
 
     actions: list[dict[str, Any]] = []
+    new_entries_today = 0
 
     # 1) Risk hard rules
     sorted_positions = sorted(
         [p for p in positions if isinstance(p, dict)],
         key=lambda p: (str(p.get("ticker") or ""), str(p.get("side") or "LONG")),
     )
+    position_map = {_position_key(pos): pos for pos in sorted_positions}
     for pos in sorted_positions:
         ticker = str(pos.get("ticker") or "")
         side = str(pos.get("side") or "LONG").upper()
@@ -202,18 +349,42 @@ def build_decision(
         if units <= 0:
             continue
 
+        pnl_pct = _float_or_none(pos.get("pnlPct")) or 0.0
+        holding_days = max(0, int(pos.get("holdingDays") or 0))
         ref = buy_map.get(ticker) if side == "LONG" else sell_map.get(ticker)
         if not isinstance(ref, dict):
+            if exit_if_unranked and _should_exit_on_gate_ng(
+                pnl_pct=pnl_pct,
+                holding_days=holding_days,
+                rev_risk=None,
+                rev_risk_high=rev_risk_high,
+                gate_ng_min_holding_days=exit_gate_ng_min_holding_days,
+                gate_ng_min_pnl_pct=exit_gate_ng_min_pnl_pct,
+            ):
+                _append_close_all_actions(actions, ticker=ticker, side=side, units=units, reason_id="X_EXIT_GATE_NG")
             continue
         gate = ref.get("gate") if isinstance(ref.get("gate"), dict) else {}
         gate_ok = bool(gate.get("ok"))
         ev = _float_or_none(ref.get("ev"))
         up_prob = _float_or_none(ref.get("upProb"))
         rev_risk = _float_or_none(ref.get("revRisk"))
-        pnl_pct = _float_or_none(pos.get("pnlPct")) or 0.0
 
         if not gate_ok:
-            _append_close_all_actions(actions, ticker=ticker, side=side, units=units, reason_id="X_EXIT_GATE_NG")
+            signal_weak = (
+                (ev is not None and ev < exit_min_ev)
+                or (up_prob is not None and up_prob < exit_min_up)
+            )
+            if _should_exit_on_gate_ng(
+                pnl_pct=pnl_pct,
+                holding_days=holding_days,
+                rev_risk=rev_risk,
+                rev_risk_high=rev_risk_high,
+                gate_ng_min_holding_days=exit_gate_ng_min_holding_days,
+                gate_ng_min_pnl_pct=exit_gate_ng_min_pnl_pct,
+            ) and (
+                bool(signal_weak) or (rev_risk is not None and rev_risk >= rev_risk_high)
+            ):
+                _append_close_all_actions(actions, ticker=ticker, side=side, units=units, reason_id="X_EXIT_GATE_NG")
             continue
         if ev is not None and ev < exit_min_ev:
             _append_close_all_actions(actions, ticker=ticker, side=side, units=units, reason_id="X_EXIT_EV_DROP")
@@ -244,14 +415,23 @@ def build_decision(
             ticker = str(item.get("ticker") or "")
             if not ticker:
                 continue
+            regime = str(item.get("regime") or "").upper()
+            if regime == "DOWN_WEAK":
+                continue
             gate = item.get("gate") if isinstance(item.get("gate"), dict) else {}
             if not bool(gate.get("ok")):
                 continue
             up_prob = _float_or_none(item.get("upProb"))
             ev = _float_or_none(item.get("ev"))
+            rev_risk = _float_or_none(item.get("revRisk"))
+            liquidity20d = _float_or_none(item.get("liquidity20d"))
             if up_prob is None or ev is None:
                 continue
             if up_prob < entry_min_up or ev < entry_min_ev:
+                continue
+            if rev_risk is not None and rev_risk > entry_max_rev_risk:
+                continue
+            if min_liquidity20d > 0 and (liquidity20d is None or liquidity20d < min_liquidity20d):
                 continue
             candidates.append({"side": "LONG", **item})
 
@@ -267,9 +447,18 @@ def build_decision(
                 continue
             up_prob = _float_or_none(item.get("upProb"))
             ev = _float_or_none(item.get("ev"))
+            rev_risk = _float_or_none(item.get("revRisk"))
+            liquidity20d = _float_or_none(item.get("liquidity20d"))
+            shortable = bool(item.get("shortable", True))
             if up_prob is None or ev is None:
                 continue
             if up_prob < entry_min_up or ev < entry_min_ev:
+                continue
+            if rev_risk is not None and rev_risk > entry_max_rev_risk:
+                continue
+            if ticker in short_blacklist or not shortable:
+                continue
+            if min_liquidity20d > 0 and (liquidity20d is None or liquidity20d < min_liquidity20d):
                 continue
             candidates.append({"side": "SHORT", **item})
 
@@ -284,10 +473,39 @@ def build_decision(
 
         state_now = _state_after_actions(positions, actions)
         units_now = int(state_now.get((ticker, side), 0))
+        if _has_reduce_action(actions, ticker=ticker, side=side):
+            continue
 
         if units_now > 0:
+            pos_ref = position_map.get((ticker, side), {})
+            current_pnl = _float_or_none(pos_ref.get("pnlPct")) or 0.0
+            cand_up_prob = _float_or_none(cand.get("upProb"))
+            cand_ev = _float_or_none(cand.get("ev"))
+            cand_rev_risk = _float_or_none(cand.get("revRisk"))
+            if current_pnl < add_min_pnl or current_pnl > add_max_pnl:
+                continue
+            if cand_up_prob is not None and cand_up_prob < add_min_up:
+                continue
+            if cand_ev is not None and cand_ev < add_min_ev:
+                continue
+            if cand_rev_risk is not None and cand_rev_risk > add_max_rev_risk:
+                continue
             add_qty = _next_add_units(units_now)
-            if add_qty in {2, 3, 5} and units_now + add_qty <= 10:
+            if (
+                add_qty in {2, 3, 5}
+                and units_now + add_qty <= max_units_per_ticker
+                and _can_apply_exposure_constraints(
+                    state_now=state_now,
+                    ticker=ticker,
+                    side=side,
+                    delta=add_qty,
+                    max_gross_units=max_gross_units,
+                    max_net_units=max_net_units,
+                    max_units_per_ticker=max_units_per_ticker,
+                    max_per_sector=max_per_sector,
+                    sector_map=sector_map,
+                )
+            ):
                 if stage2_active:
                     reason_id = "A_ADD_STAGE2_STRICT_OK"
                 elif units_now <= 2:
@@ -299,8 +517,36 @@ def build_decision(
 
         held_tickers = _distinct_tickers(state_now)
         if len(held_tickers) < int(config.max_holdings):
+            if max_new_entries_per_day and new_entries_today >= max_new_entries_per_day:
+                continue
+            if rank_index >= new_entry_max_rank:
+                continue
+            cand_up_prob = _float_or_none(cand.get("upProb"))
+            cand_ev = _float_or_none(cand.get("ev"))
+            rank_entry_min_up = entry_min_up
+            rank_entry_min_ev = entry_min_ev
+            if rank_index > 0:
+                rank_entry_min_up += max(0.0, topk_entry_up_boost)
+                rank_entry_min_ev += max(0.0, topk_entry_ev_boost)
+            if cand_up_prob is not None and cand_up_prob < rank_entry_min_up:
+                continue
+            if cand_ev is not None and cand_ev < rank_entry_min_ev:
+                continue
+            if not _can_apply_exposure_constraints(
+                state_now=state_now,
+                ticker=ticker,
+                side=side,
+                delta=2,
+                max_gross_units=max_gross_units,
+                max_net_units=max_net_units,
+                max_units_per_ticker=max_units_per_ticker,
+                max_per_sector=max_per_sector,
+                sector_map=sector_map,
+            ):
+                continue
             reason_id = "E_NEW_TOP1_GATE_OK" if rank_index == 0 else "E_NEW_TOPK_GATE_OK"
             _add_action(actions, ticker, side, 2, reason_id)
+            new_entries_today += 1
             continue
 
         if switched:
@@ -328,12 +574,41 @@ def build_decision(
         if worst_units <= 0:
             continue
         _append_close_all_actions(actions, ticker=worst_ticker, side=worst_side, units=worst_units, reason_id="S_SWITCH_EV_GAP")
+        state_after_switch_out = _state_after_actions(positions, actions)
+        if not _can_apply_exposure_constraints(
+            state_now=state_after_switch_out,
+            ticker=ticker,
+            side=side,
+            delta=2,
+            max_gross_units=max_gross_units,
+            max_net_units=max_net_units,
+            max_units_per_ticker=max_units_per_ticker,
+            max_per_sector=max_per_sector,
+            sector_map=sector_map,
+        ):
+            continue
         _add_action(actions, ticker, side, 2, "E_NEW_SWITCH_IN")
+        new_entries_today += 1
         switched = True
 
     final_state = _state_after_actions(positions, actions)
     max_holdings_ok = len(_distinct_tickers(final_state)) <= int(config.max_holdings)
     unit_rule_ok = all(int(action.get("deltaUnits") or 0) in ALLOWED_UNIT_SET for action in actions)
+    final_long_units, final_short_units = _long_short_units(final_state)
+    exposure_ok = True
+    if _gross_units(final_state) > max_gross_units:
+        exposure_ok = False
+    if abs(final_long_units - final_short_units) > max_net_units:
+        exposure_ok = False
+    for held_ticker in _distinct_tickers(final_state):
+        if _units_for_ticker(final_state, held_ticker) > max_units_per_ticker:
+            exposure_ok = False
+            break
+    if exposure_ok and max_per_sector > 0:
+        for count in _sector_counts(final_state, sector_map).values():
+            if int(count) > max_per_sector:
+                exposure_ok = False
+                break
 
     loss_limit_ok = True
     for pos in sorted_positions:
@@ -357,6 +632,7 @@ def build_decision(
             "maxHoldingsOk": bool(max_holdings_ok),
             "unitRuleOk": bool(unit_rule_ok),
             "lossLimitOk": bool(loss_limit_ok),
+            "exposureOk": bool(exposure_ok),
             "noFutureLeakOk": bool(no_future),
         },
         "stage": {

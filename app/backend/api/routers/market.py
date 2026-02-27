@@ -69,7 +69,11 @@ def _build_heatmap_item(
         "name": name,
         "weight": weight,
         "value": value,
+        # Backward-compatible alias used by older clients/selftest.
+        "color": value,
         "tickerCount": ticker_count,
+        # Backward-compatible alias used by older clients.
+        "count": ticker_count,
         "detailRoute": detail_route,
     }
 

@@ -1,0 +1,87 @@
+{
+  "asOf": "2023-05-19",
+  "metrics": {
+    "asOf": "2023-05-19",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 8782517.395248,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": 782517.395248,
+        "net_cum_return_pct": 7.825174
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": 782517.395248,
+        "net_cum_return_pct": 7.825174
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": 719517.395248,
+        "net_cum_return_pct": 7.195174
+      }
+    ],
+    "cum_pnl": 782517.395248,
+    "cum_return_pct": 7.825174,
+    "daily_pnl": 5750.433238,
+    "equity": 10782517.395248,
+    "fees_cost_cum": 126000.0,
+    "fees_cost_daily": 4000.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 943023.045079,
+    "gross_cum_return_pct": 9.43023,
+    "gross_daily_pnl": 10570.720748,
+    "gross_units": 2,
+    "holdings_count": 1,
+    "long_units": 2,
+    "max_drawdown_pct": -2.398624,
+    "net_cum_pnl": 782517.395248,
+    "net_cum_return_pct": 7.825174,
+    "net_daily_pnl": 5750.433238,
+    "net_exposure_pct": 20.0,
+    "net_units": 2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -2.398624,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 646.431196,
+        "worstMonthPct": -1.3413901953378216
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 2000.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "stage2_baseline_relaxed_cost10_20260218",
+    "short_units": 0,
+    "slippage_cost_cum": 34505.649831,
+    "slippage_cost_daily": 820.28751,
+    "turnover_notional_cum": 126000000.0,
+    "turnover_notional_daily": 4000000.0,
+    "turnover_pct_daily": 37.116883
+  },
+  "positions": [
+    {
+      "avgPrice": 2912.0,
+      "holdingDays": 1,
+      "openedAt": "2023-05-19",
+      "pnlPct": 0.0,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "7747",
+      "units": 2
+    }
+  ],
+  "seasonId": "stage2_baseline_relaxed_cost10_20260218"
+}

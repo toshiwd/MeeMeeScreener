@@ -1,0 +1,32 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -2,
+      "reasonId": "R_CUT_LOSS_WARN",
+      "side": "LONG",
+      "ticker": "4375"
+    },
+    {
+      "deltaUnits": -2,
+      "reasonId": "X_EXIT_GATE_NG",
+      "side": "LONG",
+      "ticker": "2120"
+    }
+  ],
+  "asOf": "2025-08-15",
+  "checks": {
+    "exposureOk": true,
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v8",
+  "seasonId": "stage1_rank2_dd_entry064_20260219",
+  "stage": {
+    "goal20Reached": true,
+    "goal30Reached": false,
+    "stage2Active": true
+  }
+}

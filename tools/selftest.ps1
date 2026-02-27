@@ -55,6 +55,10 @@ function Start-DevServer($Port) {
 
 function Stop-ProcessSafe($Proc) {
     if ($null -eq $Proc) { return }
+    try {
+        # Kill the full process tree so npm/vite child node.exe processes do not leak.
+        & taskkill /PID $Proc.Id /T /F *> $null
+    } catch {}
     try { Stop-Process -Id $Proc.Id -Force -ErrorAction SilentlyContinue } catch {}
 }
 

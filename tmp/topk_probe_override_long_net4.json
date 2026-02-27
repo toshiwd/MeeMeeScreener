@@ -1,0 +1,18 @@
+{
+  "maxHoldings": 10,
+  "sides": {"longEnabled": true, "shortEnabled": false},
+  "portfolioConstraints": {
+    "grossUnitsCap": 10,
+    "maxNetUnits": 4,
+    "maxUnitsPerTicker": 2,
+    "maxPerSector": 3,
+    "minLiquidity20d": 0.0,
+    "shortBlacklist": []
+  },
+  "thresholds": {
+    "entryMinUpProb": 0.55,
+    "entryMinEv": 0.0,
+    "maxNewEntriesPerDay": 2.0,
+    "newEntryMaxRank": 10.0
+  }
+}

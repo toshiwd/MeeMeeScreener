@@ -1,0 +1,1833 @@
+{
+  "asOf": "2024-06-04",
+  "configHash": "80530955c212b9ba836c8cde6b6da37f274c7c3aedc5487df4aed3e6e7d94936",
+  "meta": {
+    "noFutureLeakOk": true,
+    "predDtBuy": null,
+    "predDtSell": null,
+    "requestedAsOf": "2024-06-04"
+  },
+  "mode": "LIVE",
+  "policyVersion": "toredex.v8",
+  "positions": [
+    {
+      "avgPrice": 2424.0,
+      "holdingDays": 1,
+      "openedAt": "2024-06-03",
+      "pnlPct": -12.541254125412541,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "7014",
+      "units": 2
+    }
+  ],
+  "rankings": {
+    "buy": [
+      {
+        "close": 4195.0,
+        "entryScore": 0.7904674443306734,
+        "ev": 0.036826495304003955,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 5351292.05,
+        "regime": "RANGE",
+        "revRisk": 0.07005496865069141,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "5801",
+        "upProb": 1.0
+      },
+      {
+        "close": 1412.5,
+        "entryScore": 0.7184217627313769,
+        "ev": 0.07210626185958255,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 688762.5,
+        "regime": "RANGE",
+        "revRisk": 0.35149328249818446,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "2585",
+        "upProb": 0.5213462236746551
+      },
+      {
+        "close": 866.0,
+        "entryScore": 0.6913881793445218,
+        "ev": 0.09898477157360407,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 351532.4,
+        "regime": "RANGE",
+        "revRisk": 0.23757127371273717,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4165",
+        "upProb": 0.46717127371273715
+      },
+      {
+        "close": 1252.66674804688,
+        "entryScore": 0.6400907415998621,
+        "ev": 0.05799556422878378,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 7638896.296307391,
+        "regime": "RANGE",
+        "revRisk": 0.4054748194744138,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7951",
+        "upProb": 0.7353868965129303
+      },
+      {
+        "close": 659.5,
+        "entryScore": 0.6113003634631993,
+        "ev": 0.04104183109707971,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 678480.9,
+        "regime": "RANGE",
+        "revRisk": 0.2778103177784707,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "3661",
+        "upProb": 0.6155725555407083
+      },
+      {
+        "close": 4375.0,
+        "entryScore": 0.6017085213126057,
+        "ev": 0.06447688564476886,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 850582.0,
+        "regime": "RANGE",
+        "revRisk": 0.10731116750254197,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "2980",
+        "upProb": 0.336284954451789
+      },
+      {
+        "close": 2758.5,
+        "entryScore": 0.5943884655643631,
+        "ev": 0.036056338028169016,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 8808259.375,
+        "regime": "RANGE",
+        "revRisk": 0.3938919319134341,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "3659",
+        "upProb": 0.5930923082069429
+      },
+      {
+        "close": 765.0,
+        "entryScore": 0.5931065276483101,
+        "ev": 0.05662983425414365,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1589200.25,
+        "regime": "RANGE",
+        "revRisk": 0.4469440535751511,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4680",
+        "upProb": 0.3830017458828434
+      },
+      {
+        "close": 970.0,
+        "entryScore": 0.5730381137624025,
+        "ev": 0.061269146608315096,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 387481.7,
+        "regime": "RANGE",
+        "revRisk": 0.0550925925925926,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "5246",
+        "upProb": 0.2949074074074074
+      },
+      {
+        "close": 2367.5,
+        "entryScore": 0.5485090096849312,
+        "ev": 0.03316604843988654,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 9734112.725,
+        "regime": "RANGE",
+        "revRisk": 0.4692845654112877,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6702",
+        "upProb": 0.4235811113253568
+      },
+      {
+        "close": 1600.5,
+        "entryScore": 0.5446687965612353,
+        "ev": 0.031914893617021274,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 2243304.8,
+        "regime": "RANGE",
+        "revRisk": 0.4604391372272657,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "3086",
+        "upProb": 0.47927766413944695
+      },
+      {
+        "close": 1652.5,
+        "entryScore": 0.5250645948968289,
+        "ev": 0.07479674796747968,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 154819.55,
+        "regime": "RANGE",
+        "revRisk": 0.36817272439032017,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7685",
+        "upProb": 0.45225093668082295
+      },
+      {
+        "close": 548.0,
+        "entryScore": 0.5247751874348556,
+        "ev": 0.03984819734345351,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1438662.9,
+        "regime": "RANGE",
+        "revRisk": 0.27405629310297913,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8848",
+        "upProb": 0.5113046152506301
+      },
+      {
+        "close": 1873.66674804688,
+        "entryScore": 0.49053510992152377,
+        "ev": 0.03651115454289938,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 7244041.828076179,
+        "regime": "RANGE",
+        "revRisk": 0.2786218579042581,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "1911",
+        "upProb": 0.4390797789397367
+      },
+      {
+        "close": 481.0,
+        "entryScore": 0.4795176558715079,
+        "ev": 0.04793028322440087,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 677494.0,
+        "regime": "RANGE",
+        "revRisk": 0.47472848788638267,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "3660",
+        "upProb": 0.3720969089390142
+      },
+      {
+        "close": 1608.33337402344,
+        "entryScore": 0.47474493623004066,
+        "ev": 0.040992475096077674,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 786849.2707946791,
+        "regime": "RANGE",
+        "revRisk": 0.47762458910984196,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "9418",
+        "upProb": 0.432752794238047
+      },
+      {
+        "close": 2836.0,
+        "entryScore": 0.46056904901043666,
+        "ev": 0.0449521002210759,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 2276723.35,
+        "regime": "RANGE",
+        "revRisk": 0.7737394784543872,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6890",
+        "upProb": 0.40810298102981035
+      },
+      {
+        "close": 1594.0,
+        "entryScore": 0.446581209226779,
+        "ev": 0.036410923276983094,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 318301.85,
+        "regime": "RANGE",
+        "revRisk": 0.2815149976523515,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "9278",
+        "upProb": 0.407357694281565
+      },
+      {
+        "close": 1499.0,
+        "entryScore": 0.44657777560650047,
+        "ev": 0.04097222222222222,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1210966.7,
+        "regime": "RANGE",
+        "revRisk": 0.5062608749689287,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4565",
+        "upProb": 0.3312608749689287
+      },
+      {
+        "close": 2182.0,
+        "entryScore": 0.4240933544241162,
+        "ev": 0.0326549929010885,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 191489.9,
+        "regime": "RANGE",
+        "revRisk": 0.7628235294117647,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4431",
+        "upProb": 0.37504480286738356
+      },
+      {
+        "close": 1844.0,
+        "entryScore": 0.41372098123969525,
+        "ev": 0.06589595375722543,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 908197.65,
+        "regime": "RANGE",
+        "revRisk": 0.4217161757351292,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4776",
+        "upProb": 0.22686129446863848
+      },
+      {
+        "close": 2590.0,
+        "entryScore": 0.40837081263814723,
+        "ev": 0.0426731078904992,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1861207.2,
+        "regime": "RANGE",
+        "revRisk": 0.49609705274638416,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "3186",
+        "upProb": 0.3874046307552994
+      },
+      {
+        "close": 2101.0,
+        "entryScore": 0.40448934765341327,
+        "ev": 0.044234592445328035,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 503446.85,
+        "regime": "RANGE",
+        "revRisk": 0.3933504975392537,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6814",
+        "upProb": 0.31567425733037646
+      },
+      {
+        "close": 2505.5,
+        "entryScore": 0.40344144277893,
+        "ev": 0.034262125902992775,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 5170498.8,
+        "regime": "RANGE",
+        "revRisk": 0.3586815953845933,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8136",
+        "upProb": 0.27703789459719175
+      },
+      {
+        "close": 2440.5,
+        "entryScore": 0.3809126388764759,
+        "ev": 0.05535135135135135,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 3728178.85,
+        "regime": "RANGE",
+        "revRisk": 0.825726872246696,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6965",
+        "upProb": 0.2799486117920503
+      },
+      {
+        "close": 1610.0,
+        "entryScore": 0.36664588396528097,
+        "ev": 0.12666200139958012,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1490517.95,
+        "regime": "RANGE",
+        "revRisk": null,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "176A",
+        "upProb": 0.37248789401553223
+      },
+      {
+        "close": 2281.33349609375,
+        "entryScore": 0.362654267956488,
+        "ev": 0.033836893637409236,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 3001240.729516604,
+        "regime": "RANGE",
+        "revRisk": 0.5831877852327984,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "3132",
+        "upProb": 0.24275934509460617
+      },
+      {
+        "close": 1158.0,
+        "entryScore": 0.36133065647928103,
+        "ev": 0.05560619872379216,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 407567.9,
+        "regime": "RANGE",
+        "revRisk": 0.490349829946625,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6523",
+        "upProb": 0.19905003959023088
+      },
+      {
+        "close": 2088.0,
+        "entryScore": 0.358959258953167,
+        "ev": 0.06693919264179868,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 820159.9,
+        "regime": "RANGE",
+        "revRisk": 0.8511435523114355,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7071",
+        "upProb": 0.1968665897731642
+      },
+      {
+        "close": 4812.0,
+        "entryScore": 0.3434804718567919,
+        "ev": 0.04155844155844156,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 6205859.55,
+        "regime": "RANGE",
+        "revRisk": 0.8053849597135183,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4021",
+        "upProb": 0.19873294346978562
+      },
+      {
+        "close": 1523.0,
+        "entryScore": 0.33522650219621875,
+        "ev": 0.04458161865569273,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 178734.55,
+        "regime": "RANGE",
+        "revRisk": 0.4163830296226029,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4499",
+        "upProb": 0.27847094171051495
+      },
+      {
+        "close": 451.0,
+        "entryScore": 0.3282143832040988,
+        "ev": 0.0367816091954023,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 199916.2,
+        "regime": "RANGE",
+        "revRisk": 0.8519290465631929,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "2170",
+        "upProb": 0.20832445864394747
+      },
+      {
+        "close": 5250.0,
+        "entryScore": 0.32693134895436904,
+        "ev": 0.032448377581120944,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 2653546.6,
+        "regime": "RANGE",
+        "revRisk": 0.3807146896986203,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "3994",
+        "upProb": 0.22481498468387112
+      },
+      {
+        "close": 914.75,
+        "entryScore": 0.3256754944970151,
+        "ev": 0.039784029553850526,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1837694.675,
+        "regime": "RANGE",
+        "revRisk": 0.37373020514480876,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "3923",
+        "upProb": 0.1960501143904128
+      },
+      {
+        "close": 1308.0,
+        "entryScore": 0.318462454158118,
+        "ev": 0.04975922953451043,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1618082.25,
+        "regime": "RANGE",
+        "revRisk": 0.831154144074361,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4180",
+        "upProb": 0.18719438392641008
+      },
+      {
+        "close": 1154.0,
+        "entryScore": 0.3169290623106908,
+        "ev": 0.074487895716946,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 133534.8,
+        "regime": "RANGE",
+        "revRisk": 0.4310284519974564,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7794",
+        "upProb": 0.1434410394100438
+      },
+      {
+        "close": 3010.0,
+        "entryScore": 0.31338452718221,
+        "ev": 0.08979000724112962,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 702636.85,
+        "regime": "RANGE",
+        "revRisk": 0.4132412778717008,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6027",
+        "upProb": 0.09540572769032227
+      },
+      {
+        "close": 169.0,
+        "entryScore": 0.30753538673287767,
+        "ev": 0.049689440993788817,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 261275.2,
+        "regime": "RANGE",
+        "revRisk": 0.7416049382716049,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7383",
+        "upProb": 0.19619883040935673
+      },
+      {
+        "close": 3565.0,
+        "entryScore": 0.3042975349692203,
+        "ev": 0.06417910447761194,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1234177.75,
+        "regime": "RANGE",
+        "revRisk": 0.4754938194703985,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4480",
+        "upProb": 0.13151101144747587
+      },
+      {
+        "close": 2996.5,
+        "entryScore": 0.27717689970392706,
+        "ev": 0.04791047385906627,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1171598.0,
+        "regime": "RANGE",
+        "revRisk": 0.7604113296049071,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4483",
+        "upProb": 0.1401012523314682
+      },
+      {
+        "close": 328.0,
+        "entryScore": 0.27132527544997154,
+        "ev": 0.044585987261146494,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 378734.35,
+        "regime": "RANGE",
+        "revRisk": 0.4615517425272645,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "2492",
+        "upProb": 0.13315668079886944
+      },
+      {
+        "close": 346.0,
+        "entryScore": 0.2665371896263147,
+        "ev": 0.054878048780487805,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1786628.9,
+        "regime": "RANGE",
+        "revRisk": 0.4183481027039309,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4506",
+        "upProb": 0.08686662122244948
+      },
+      {
+        "close": 3715.0,
+        "entryScore": 0.2630213174010883,
+        "ev": 0.04943502824858757,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1302296.5,
+        "regime": "RANGE",
+        "revRisk": 0.31326222035221696,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "9338",
+        "upProb": 0.06227990208109713
+      },
+      {
+        "close": 1116.0,
+        "entryScore": 0.24958264245925035,
+        "ev": 0.09698553934817306,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 12766899.675186167,
+        "regime": "RANGE",
+        "revRisk": 0.3328881384656243,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "3697",
+        "upProb": 0.017111861534375647
+      },
+      {
+        "close": 1028.0,
+        "entryScore": 0.2473074922359069,
+        "ev": 0.05979381443298969,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 612889.95,
+        "regime": "RANGE",
+        "revRisk": 0.39402890649120303,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4475",
+        "upProb": 0.06264042790922375
+      },
+      {
+        "close": 366.0,
+        "entryScore": 0.2333930116434763,
+        "ev": 0.03977272727272727,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 458425.5,
+        "regime": "RANGE",
+        "revRisk": 0.9429916897506925,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4259",
+        "upProb": 0.08719640466628419
+      },
+      {
+        "close": 1796.0,
+        "entryScore": 0.23085605627181394,
+        "ev": 0.0539906103286385,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 16110862.8,
+        "regime": "RANGE",
+        "revRisk": 0.3109409190371991,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "5253",
+        "upProb": 0.03905908096280087
+      },
+      {
+        "close": 722.0,
+        "entryScore": 0.22574349850796244,
+        "ev": 0.06020558002936858,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 140840.25,
+        "regime": "RANGE",
+        "revRisk": 0.37682596389492945,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4168",
+        "upProb": 0.03358272065168621
+      },
+      {
+        "close": 478.0,
+        "entryScore": 0.2175112427921617,
+        "ev": 0.0645879732739421,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 506753.35,
+        "regime": "RANGE",
+        "revRisk": 0.7734934497816593,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6619",
+        "upProb": 0.0
+      },
+      {
+        "close": 3920.0,
+        "entryScore": 0.21190854748257407,
+        "ev": 0.053763440860215055,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 926802.0,
+        "regime": "RANGE",
+        "revRisk": 0.35961962489605515,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6036",
+        "upProb": 0.017967154708661653
+      }
+    ],
+    "sell": [
+      {
+        "close": 2072.5,
+        "entryScore": 0.5135596060522325,
+        "ev": -0.0304093567251462,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 6237351.725,
+        "regime": "RANGE",
+        "revRisk": 0.4453412073490814,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "9502",
+        "upProb": 0.4453412073490814
+      },
+      {
+        "close": 23.0,
+        "entryScore": 0.5130592185592185,
+        "ev": -0.041666666666666664,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 14132.1,
+        "regime": "RANGE",
+        "revRisk": 0.3846153846153846,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "5721",
+        "upProb": 0.3846153846153846
+      },
+      {
+        "close": 1018.0,
+        "entryScore": 0.5065266484899316,
+        "ev": -0.0327790973871734,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1355213.375,
+        "regime": "RANGE",
+        "revRisk": 0.47510671477832206,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "3941",
+        "upProb": 0.47510671477832206
+      },
+      {
+        "close": 3075.0,
+        "entryScore": 0.45512268245820353,
+        "ev": -0.04945904173106646,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 454665.0,
+        "regime": "RANGE",
+        "revRisk": 0.40009602556772367,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "1671",
+        "upProb": 0.40009602556772367
+      },
+      {
+        "close": 1800.0,
+        "entryScore": 0.44813367566119633,
+        "ev": -0.03948772678762007,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 917118.4,
+        "regime": "RANGE",
+        "revRisk": 0.4819774032182549,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4046",
+        "upProb": 0.4819774032182549
+      },
+      {
+        "close": 4545.0,
+        "entryScore": 0.42751705059280637,
+        "ev": -0.02676659528907923,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 3506829.7,
+        "regime": "RANGE",
+        "revRisk": 0.3553704574660387,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6586",
+        "upProb": 0.3553704574660387
+      },
+      {
+        "close": 1292.0,
+        "entryScore": 0.42303624568906206,
+        "ev": -0.031484257871064465,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 2155277.3,
+        "regime": "RANGE",
+        "revRisk": 0.42425641025641025,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "1662",
+        "upProb": 0.42425641025641025
+      },
+      {
+        "close": 38460.0,
+        "entryScore": 0.41490962424065087,
+        "ev": -0.040897755610972565,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 218501627.5,
+        "regime": "RANGE",
+        "revRisk": 0.39692251167661224,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6920",
+        "upProb": 0.39692251167661224
+      },
+      {
+        "close": 2943.0,
+        "entryScore": 0.4119820921850008,
+        "ev": -0.028071334214002642,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 3806551.775,
+        "regime": "RANGE",
+        "revRisk": 0.39311534732675973,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7181",
+        "upProb": 0.39311534732675973
+      },
+      {
+        "close": 2390.5,
+        "entryScore": 0.4009346773053791,
+        "ev": -0.037640901771336555,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 14908527.675,
+        "regime": "RANGE",
+        "revRisk": 0.36075474039415734,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "1605",
+        "upProb": 0.36075474039415734
+      },
+      {
+        "close": 371.0,
+        "entryScore": 0.3876441876994738,
+        "ev": -0.0583756345177665,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 136707.4,
+        "regime": "RANGE",
+        "revRisk": 0.2723672758920801,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8550",
+        "upProb": 0.2723672758920801
+      },
+      {
+        "close": 1018.0,
+        "entryScore": 0.38693613513283115,
+        "ev": -0.047262517547964435,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 2529109.5791290286,
+        "regime": "RANGE",
+        "revRisk": 0.31618884213365916,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7180",
+        "upProb": 0.31618884213365916
+      },
+      {
+        "close": 3220.0,
+        "entryScore": 0.38471650145153796,
+        "ev": -0.026602176541717048,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 4673210.625,
+        "regime": "RANGE",
+        "revRisk": 0.3527049133350254,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6479",
+        "upProb": 0.3527049133350254
+      },
+      {
+        "close": 820.833374023438,
+        "entryScore": 0.37019949464893637,
+        "ev": -0.039960966054458535,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 512788.97260131856,
+        "regime": "RANGE",
+        "revRisk": 0.32569224663789614,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7327",
+        "upProb": 0.32569224663789614
+      },
+      {
+        "close": 4443.0,
+        "entryScore": 0.370014912082862,
+        "ev": -0.03706111833550065,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 4004536.35,
+        "regime": "RANGE",
+        "revRisk": 0.2985681557846507,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8354",
+        "upProb": 0.2985681557846507
+      },
+      {
+        "close": 1580.0,
+        "entryScore": 0.3681428034302496,
+        "ev": -0.030377416385394294,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 2934836.4,
+        "regime": "RANGE",
+        "revRisk": 0.3244685442969678,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "5831",
+        "upProb": 0.3244685442969678
+      },
+      {
+        "close": 421.0,
+        "entryScore": 0.3626125141100502,
+        "ev": -0.05605381165919283,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 850694.2,
+        "regime": "RANGE",
+        "revRisk": 0.27676282051282053,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8714",
+        "upProb": 0.27676282051282053
+      },
+      {
+        "close": 1430.0,
+        "entryScore": 0.36180487654991095,
+        "ev": -0.05859117840684661,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 3462495.45,
+        "regime": "RANGE",
+        "revRisk": 0.2553017484489566,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8331",
+        "upProb": 0.2553017484489566
+      },
+      {
+        "close": 687.0,
+        "entryScore": 0.35850593464392927,
+        "ev": -0.04184100418410042,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 485796.3,
+        "regime": "RANGE",
+        "revRisk": 0.30414053706383665,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8368",
+        "upProb": 0.30414053706383665
+      },
+      {
+        "close": 1238.0,
+        "entryScore": 0.35212751478736465,
+        "ev": -0.036575875486381325,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1053050.375,
+        "regime": "RANGE",
+        "revRisk": 0.285091428569093,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7337",
+        "upProb": 0.285091428569093
+      },
+      {
+        "close": 2058.0,
+        "entryScore": 0.35176130223055196,
+        "ev": -0.04501160092807425,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 994663.35,
+        "regime": "RANGE",
+        "revRisk": 0.270192671970558,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7189",
+        "upProb": 0.270192671970558
+      },
+      {
+        "close": 3766.0,
+        "entryScore": 0.34752485051685117,
+        "ev": -0.04525288376220053,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 3225094.7,
+        "regime": "RANGE",
+        "revRisk": 0.2983773848141714,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "5021",
+        "upProb": 0.2983773848141714
+      },
+      {
+        "close": 1038.75,
+        "entryScore": 0.343971821985397,
+        "ev": -0.03372093023255814,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 13805769.6875,
+        "regime": "RANGE",
+        "revRisk": 0.2860754070265639,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8750",
+        "upProb": 0.2860754070265639
+      },
+      {
+        "close": 321.0,
+        "entryScore": 0.3389222768788331,
+        "ev": -0.05865102639296188,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 219594.45,
+        "regime": "RANGE",
+        "revRisk": 0.20659617321248744,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8338",
+        "upProb": 0.20659617321248744
+      },
+      {
+        "close": 3971.0,
+        "entryScore": 0.335596935503499,
+        "ev": -0.03264311814859927,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 4064604.7,
+        "regime": "RANGE",
+        "revRisk": 0.26588331218702377,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "4186",
+        "upProb": 0.26588331218702377
+      },
+      {
+        "close": 3311.0,
+        "entryScore": 0.32664866082088007,
+        "ev": -0.034412365121026536,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 13066501.7,
+        "regime": "RANGE",
+        "revRisk": 0.25906771955819163,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8630",
+        "upProb": 0.25906771955819163
+      },
+      {
+        "close": 926.100036621094,
+        "entryScore": 0.32661896449793837,
+        "ev": -0.05711665128152343,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 4713546.620150758,
+        "regime": "RANGE",
+        "revRisk": 0.20479722259480385,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7186",
+        "upProb": 0.20479722259480385
+      },
+      {
+        "close": 3916.5,
+        "entryScore": 0.3265223063211858,
+        "ev": -0.03020923610251331,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 30550914.45,
+        "regime": "RANGE",
+        "revRisk": 0.2255886877353684,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8031",
+        "upProb": 0.2255886877353684
+      },
+      {
+        "close": 2187.0,
+        "entryScore": 0.32631069898060855,
+        "ev": -0.05773373545885394,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 878729.875,
+        "regime": "RANGE",
+        "revRisk": 0.2001370936153545,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8377",
+        "upProb": 0.2001370936153545
+      },
+      {
+        "close": 1051.0,
+        "entryScore": 0.32591042216762445,
+        "ev": -0.042805100182149364,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 12141002.472549438,
+        "regime": "RANGE",
+        "revRisk": 0.22318971660362882,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8308",
+        "upProb": 0.22318971660362882
+      },
+      {
+        "close": 390.0,
+        "entryScore": 0.3226240740000198,
+        "ev": -0.034653465346534656,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 143451.75,
+        "regime": "RANGE",
+        "revRisk": 0.21859205776173285,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "1711",
+        "upProb": 0.21859205776173285
+      },
+      {
+        "close": 797.299987792969,
+        "entryScore": 0.3125610957110542,
+        "ev": -0.02768294171589149,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 16066032.595141605,
+        "regime": "RANGE",
+        "revRisk": 0.26350701694036655,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "5020",
+        "upProb": 0.26350701694036655
+      },
+      {
+        "close": 1852.5,
+        "entryScore": 0.31187742545172303,
+        "ev": -0.0431301652892562,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1310486.45,
+        "regime": "RANGE",
+        "revRisk": 0.2288321167883212,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8418",
+        "upProb": 0.2288321167883212
+      },
+      {
+        "close": 2772.5,
+        "entryScore": 0.3032840438324208,
+        "ev": -0.026851526851526853,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 10871542.675,
+        "regime": "RANGE",
+        "revRisk": 0.22162756439418557,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "9503",
+        "upProb": 0.22162756439418557
+      },
+      {
+        "close": 1036.5,
+        "entryScore": 0.2998570608154951,
+        "ev": -0.03894297635605007,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1284912.125,
+        "regime": "RANGE",
+        "revRisk": 0.2117866026342751,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8359",
+        "upProb": 0.2117866026342751
+      },
+      {
+        "close": 1486.5,
+        "entryScore": 0.2992857997183315,
+        "ev": -0.03661697990926766,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 5999084.1,
+        "regime": "RANGE",
+        "revRisk": 0.20962851907379645,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "9506",
+        "upProb": 0.20962851907379645
+      },
+      {
+        "close": 1482.0,
+        "entryScore": 0.2971330692493863,
+        "ev": -0.03389830508474576,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 33156736.4,
+        "regime": "RANGE",
+        "revRisk": 0.20500270416441319,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7003",
+        "upProb": 0.20500270416441319
+      },
+      {
+        "close": 1561.0,
+        "entryScore": 0.27725024287676786,
+        "ev": -0.0376078914919852,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 224378.7,
+        "regime": "RANGE",
+        "revRisk": 0.13984321745057943,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6208",
+        "upProb": 0.13984321745057943
+      },
+      {
+        "close": 613.700012207031,
+        "entryScore": 0.27091833269939547,
+        "ev": -0.03551779981063152,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 2566639.7436248786,
+        "regime": "RANGE",
+        "revRisk": 0.1899066543935278,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7167",
+        "upProb": 0.1899066543935278
+      },
+      {
+        "close": 1091.0,
+        "entryScore": 0.26749785040626595,
+        "ev": -0.035793194874060984,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1375610.8294067383,
+        "regime": "RANGE",
+        "revRisk": 0.1123601944145118,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "9505",
+        "upProb": 0.1123601944145118
+      },
+      {
+        "close": 2120.0,
+        "entryScore": 0.26390330788804073,
+        "ev": -0.1254125412541254,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 24120278.3,
+        "regime": "RANGE",
+        "revRisk": 0.04268447837150131,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "7014",
+        "upProb": 0.04268447837150131
+      },
+      {
+        "close": 6580.0,
+        "entryScore": 0.2625895799286691,
+        "ev": -0.029498525073746312,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 3353423.5,
+        "regime": "RANGE",
+        "revRisk": 0.18333333333333338,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "3110",
+        "upProb": 0.18333333333333338
+      },
+      {
+        "close": 1042.0,
+        "entryScore": 0.25998370312341085,
+        "ev": -0.04709647919524463,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1854269.0527069091,
+        "regime": "RANGE",
+        "revRisk": 0.12409330641461598,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8334",
+        "upProb": 0.12409330641461598
+      },
+      {
+        "close": 1436.0,
+        "entryScore": 0.2523002741854819,
+        "ev": -0.027758970886932972,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 783045.55,
+        "regime": "RANGE",
+        "revRisk": 0.17588488765774085,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8381",
+        "upProb": 0.17588488765774085
+      },
+      {
+        "close": 509.0,
+        "entryScore": 0.2488450580100061,
+        "ev": -0.04681647940074907,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 536409.75,
+        "regime": "RANGE",
+        "revRisk": 0.1143281718747089,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "5017",
+        "upProb": 0.1143281718747089
+      },
+      {
+        "close": 1637.0,
+        "entryScore": 0.23204856075426325,
+        "ev": -0.03847283406754772,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 857117.9,
+        "regime": "RANGE",
+        "revRisk": 0.11112512260053244,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "5832",
+        "upProb": 0.11112512260053244
+      },
+      {
+        "close": 3733.33349609375,
+        "entryScore": 0.2177191082015089,
+        "ev": -0.03780064533666237,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 58071719.416711435,
+        "regime": "RANGE",
+        "revRisk": 0.08084646324813051,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "6315",
+        "upProb": 0.08084646324813051
+      },
+      {
+        "close": 1470.0,
+        "entryScore": 0.2135826500859088,
+        "ev": -0.04700162074554295,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 45019618.325,
+        "regime": "RANGE",
+        "revRisk": 0.0,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "9509",
+        "upProb": 0.0
+      },
+      {
+        "close": 595.0,
+        "entryScore": 0.20457871491842108,
+        "ev": -0.02936378466557912,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 1791041.6,
+        "regime": "RANGE",
+        "revRisk": 0.07078337330135892,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "8524",
+        "upProb": 0.07078337330135892
+      },
+      {
+        "close": 914.0,
+        "entryScore": 0.2039261762340887,
+        "ev": -0.0368809272918862,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 3175283.7,
+        "regime": "RANGE",
+        "revRisk": 0.06567164179104476,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2024-06-04",
+        "ticker": "1518",
+        "upProb": 0.06567164179104476
+      }
+    ]
+  },
+  "seasonId": "stage2_candidate8d1_relaxed_cost10_20260218",
+  "universe": [
+    "1518",
+    "1605",
+    "1662",
+    "1671",
+    "1711",
+    "176A",
+    "1911",
+    "2170",
+    "2492",
+    "2585",
+    "2980",
+    "3086",
+    "3110",
+    "3132",
+    "3186",
+    "3659",
+    "3660",
+    "3661",
+    "3697",
+    "3923",
+    "3941",
+    "3994",
+    "4021",
+    "4046",
+    "4165",
+    "4168",
+    "4180",
+    "4186",
+    "4259",
+    "4431",
+    "4475",
+    "4480",
+    "4483",
+    "4499",
+    "4506",
+    "4565",
+    "4680",
+    "4776",
+    "5017",
+    "5020",
+    "5021",
+    "5246",
+    "5253",
+    "5721",
+    "5801",
+    "5831",
+    "5832",
+    "6027",
+    "6036",
+    "6208",
+    "6315",
+    "6479",
+    "6523",
+    "6586",
+    "6619",
+    "6702",
+    "6814",
+    "6890",
+    "6920",
+    "6965",
+    "7003",
+    "7014",
+    "7071",
+    "7167",
+    "7180",
+    "7181",
+    "7186",
+    "7189",
+    "7327",
+    "7337",
+    "7383",
+    "7685",
+    "7794",
+    "7951",
+    "8031",
+    "8136",
+    "8308",
+    "8331",
+    "8334",
+    "8338",
+    "8354",
+    "8359",
+    "8368",
+    "8377",
+    "8381",
+    "8418",
+    "8524",
+    "8550",
+    "8630",
+    "8714",
+    "8750",
+    "8848",
+    "9278",
+    "9338",
+    "9418",
+    "9502",
+    "9503",
+    "9505",
+    "9506",
+    "9509"
+  ]
+}
