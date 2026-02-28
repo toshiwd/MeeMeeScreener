@@ -1804,8 +1804,6 @@ export default function DetailView() {
   const canShowAnalysis = showBuyAnalysis || showSellAnalysis;
   const analysisLoadingText = analysisLoading ? "読込中..." : null;
   const sellAnalysisLoadingText = sellAnalysisLoading ? "読込中..." : null;
-  const analysisSummaryLoading =
-    analysisLoadingText != null || sellAnalysisLoadingText != null || analysisTimelineLoading;
   const analysisDtLabel = useMemo(() => {
     if (!analysisFallback) return "";
     const normalized = normalizeTime(analysisFallback.dt);
@@ -2101,6 +2099,8 @@ export default function DetailView() {
     normalizePoint: normalizeAnalysisTimelinePoint,
     getSortTime: (point) => normalizeTime(point.dt),
   });
+  const analysisSummaryLoading =
+    analysisLoadingText != null || sellAnalysisLoadingText != null || analysisTimelineLoading;
 
   const dailyEventMarkers = useMemo(() => {
     const eventMs = parseEventDateMs(activeTicker?.eventEarningsDate);
