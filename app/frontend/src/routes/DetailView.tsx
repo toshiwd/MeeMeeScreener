@@ -43,6 +43,7 @@ import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from 
 import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
 import { useAnalysisTimeline } from "./detail/hooks/useAnalysisTimeline";
+import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
 
 
 type Timeframe = "daily" | "weekly" | "monthly";
@@ -1265,23 +1266,8 @@ export default function DetailView() {
   const [compareDailyErrors, setCompareDailyErrors] = useState<string[]>([]);
   const [compareDailyLoading, setCompareDailyLoading] = useState(false);
   const [compareDailyLimit, setCompareDailyLimit] = useState(DEFAULT_LIMITS.daily);
-  const [phaseFallback, setPhaseFallback] = useState<PhaseFallback | null>(null);
-  const [phaseFallbackLoading, setPhaseFallbackLoading] = useState(false);
-  const lastPhaseAttemptAsOfRef = useRef<number | null>(null);
-  const phaseFallbackRequestKeyRef = useRef<string | null>(null);
-  const [analysisFallback, setAnalysisFallback] = useState<AnalysisFallback | null>(null);
   const [analysisHorizon] = useState<AnalysisHorizonKey>(20);
   const [analysisRiskMode, setAnalysisRiskMode] = useState<RankRiskMode>(() => resolveRiskModeFromSession());
-  const [analysisLoading, setAnalysisLoading] = useState(false);
-  const lastAnalysisAttemptAsOfRef = useRef<number | null>(null);
-  const analysisRequestKeyRef = useRef<string | null>(null);
-  const [sellAnalysisFallback, setSellAnalysisFallback] = useState<SellAnalysisFallback | null>(null);
-  const [sellAnalysisLoading, setSellAnalysisLoading] = useState(false);
-  const lastSellAnalysisAttemptAsOfRef = useRef<number | null>(null);
-  const sellAnalysisRequestKeyRef = useRef<string | null>(null);
-  const phaseFallbackCacheRef = useRef<Map<string, PhaseFallback | null>>(new Map());
-  const analysisFallbackCacheRef = useRef<Map<string, AnalysisFallback | null>>(new Map());
-  const sellAnalysisFallbackCacheRef = useRef<Map<string, SellAnalysisFallback | null>>(new Map());
   const [analysisAsOfTime, setAnalysisAsOfTime] = useState<number | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const signalsRef = useRef<HTMLDivElement | null>(null);
@@ -1454,10 +1440,6 @@ export default function DetailView() {
   }, []);
 
   useEffect(() => {
-    lastAnalysisAttemptAsOfRef.current = null;
-  }, [analysisRiskMode]);
-
-  useEffect(() => {
     if (headerMode !== "draw" && activeDrawTool !== null) {
       setActiveDrawTool(null);
     }
@@ -1513,21 +1495,6 @@ export default function DetailView() {
   }, [compareCode, compareAsOf]);
 
   useEffect(() => {
-    setPhaseFallback(null);
-    setPhaseFallbackLoading(false);
-    lastPhaseAttemptAsOfRef.current = null;
-    phaseFallbackRequestKeyRef.current = null;
-    phaseFallbackCacheRef.current.clear();
-    setAnalysisFallback(null);
-    setAnalysisLoading(false);
-    lastAnalysisAttemptAsOfRef.current = null;
-    analysisRequestKeyRef.current = null;
-    analysisFallbackCacheRef.current.clear();
-    setSellAnalysisFallback(null);
-    setSellAnalysisLoading(false);
-    lastSellAnalysisAttemptAsOfRef.current = null;
-    sellAnalysisRequestKeyRef.current = null;
-    sellAnalysisFallbackCacheRef.current.clear();
     setAnalysisAsOfTime(null);
     setDailyData([]);
   }, [code]);
@@ -1570,6 +1537,128 @@ export default function DetailView() {
     const cleaned = raw.replace(/\s*\?\s*$/, "").trim();
     return cleaned === "?" ? "" : cleaned;
   }, [tickers, compareCode]);
+
+  const {
+    item: phaseFallback,
+    loading: phaseFallbackLoading,
+  } = useAsOfItemFetch<PhaseFallback>({
+    backendReady,
+    code,
+    asof: analysisAsOfTime,
+    endpoint: "/ticker/phase",
+    timeoutMs: 10000,
+    enabled:
+      !(
+        activeTicker?.bodyScore != null ||
+        activeTicker?.earlyScore != null ||
+        activeTicker?.lateScore != null ||
+        typeof activeTicker?.phaseN === "number"
+      ) || !(activeTicker?.phaseReasons?.length),
+    parseItem: (item) => {
+      if (!item || typeof item !== "object") return null;
+      const source = item as Record<string, unknown>;
+      const reasonsRaw = source.reasonsTop3;
+      const reasons = Array.isArray(reasonsRaw)
+        ? (reasonsRaw as string[])
+        : typeof reasonsRaw === "string"
+          ? reasonsRaw
+              .split(",")
+              .map((part) => part.trim())
+              .filter(Boolean)
+          : [];
+      return {
+        dt: typeof source.dt === "number" ? source.dt : null,
+        earlyScore: Number.isFinite(source.earlyScore) ? Number(source.earlyScore) : null,
+        lateScore: Number.isFinite(source.lateScore) ? Number(source.lateScore) : null,
+        bodyScore: Number.isFinite(source.bodyScore) ? Number(source.bodyScore) : null,
+        n: typeof source.n === "number" ? source.n : null,
+        reasons,
+      };
+    },
+  });
+
+  const {
+    item: analysisFallback,
+    loading: analysisLoading,
+  } = useAsOfItemFetch<AnalysisFallback>({
+    backendReady,
+    code,
+    asof: analysisAsOfTime,
+    endpoint: "/ticker/analysis",
+    timeoutMs: 30000,
+    requestKeyExtra: analysisRiskMode,
+    buildParams: (symbol, asof) => ({ code: symbol, asof, risk_mode: analysisRiskMode }),
+    parseItem: (item) => {
+      if (!item || typeof item !== "object") return null;
+      const source = item as Record<string, unknown>;
+      return {
+        dt: source.dt ?? null,
+        pUp: toFiniteNumber(source.pUp),
+        pDown: toFiniteNumber(source.pDown),
+        pTurnUp: toFiniteNumber(source.pTurnUp),
+        pTurnDown: toFiniteNumber(source.pTurnDown),
+        pTurnDownHorizon: toFiniteNumber(source.pTurnDownHorizon),
+        retPred20: toFiniteNumber(source.retPred20),
+        ev20: toFiniteNumber(source.ev20),
+        ev20Net: toFiniteNumber(source.ev20Net),
+        horizonAnalysis: normalizeHorizonAnalysis(source.horizonAnalysis),
+        additiveSignals: normalizeAdditiveSignals(source.additiveSignals),
+        entryPolicy: normalizeEntryPolicy(source.entryPolicy),
+        riskMode: source.riskMode == null ? null : normalizeRiskMode(source.riskMode),
+        buyStagePrecision: normalizeBuyStagePrecision(source.buyStagePrecision),
+        modelVersion: typeof source.modelVersion === "string" ? source.modelVersion : null,
+      };
+    },
+  });
+
+  const {
+    item: sellAnalysisFallback,
+    loading: sellAnalysisLoading,
+  } = useAsOfItemFetch<SellAnalysisFallback>({
+    backendReady,
+    code,
+    asof: analysisAsOfTime,
+    endpoint: "/ticker/analysis/sell",
+    timeoutMs: 30000,
+    parseItem: (item) => {
+      if (!item || typeof item !== "object") return null;
+      const source = item as Record<string, unknown>;
+      return {
+        dt: source.dt ?? null,
+        close: toFiniteNumber(source.close),
+        dayChangePct: toFiniteNumber(source.dayChangePct),
+        pDown: toFiniteNumber(source.pDown),
+        pTurnDown: toFiniteNumber(source.pTurnDown),
+        ev20Net: toFiniteNumber(source.ev20Net),
+        rankDown20: toFiniteNumber(source.rankDown20),
+        predDt: source.predDt ?? null,
+        pUp5: toFiniteNumber(source.pUp5),
+        pUp10: toFiniteNumber(source.pUp10),
+        pUp20: toFiniteNumber(source.pUp20),
+        shortScore: toFiniteNumber(source.shortScore),
+        aScore: toFiniteNumber(source.aScore),
+        bScore: toFiniteNumber(source.bScore),
+        ma20: toFiniteNumber(source.ma20),
+        ma60: toFiniteNumber(source.ma60),
+        ma20Slope: toFiniteNumber(source.ma20Slope),
+        ma60Slope: toFiniteNumber(source.ma60Slope),
+        distMa20Signed: toFiniteNumber(source.distMa20Signed),
+        distMa60Signed: toFiniteNumber(source.distMa60Signed),
+        trendDown: source.trendDown == null ? null : toBoolean(source.trendDown),
+        trendDownStrict: source.trendDownStrict == null ? null : toBoolean(source.trendDownStrict),
+        fwdClose5: toFiniteNumber(source.fwdClose5),
+        fwdClose10: toFiniteNumber(source.fwdClose10),
+        fwdClose20: toFiniteNumber(source.fwdClose20),
+        shortRet5: toFiniteNumber(source.shortRet5),
+        shortRet10: toFiniteNumber(source.shortRet10),
+        shortRet20: toFiniteNumber(source.shortRet20),
+        shortWin5: source.shortWin5 == null ? null : toBoolean(source.shortWin5),
+        shortWin10: source.shortWin10 == null ? null : toBoolean(source.shortWin10),
+        shortWin20: source.shortWin20 == null ? null : toBoolean(source.shortWin20),
+      };
+    },
+  });
+
   const formatPhaseScore = (value: number | null | undefined) => {
     if (phaseFallbackLoading) return "読込中...";
     return Number.isFinite(value)
@@ -1928,210 +2017,6 @@ export default function DetailView() {
       loadFavorites();
     }
   }, [backendReady, favoritesLoaded, loadFavorites]);
-
-  useEffect(() => {
-    if (!backendReady) return;
-    if (!code) return;
-    if (hasPhaseScores && !needsPhaseReasons) {
-      setPhaseFallback(null);
-      setPhaseFallbackLoading(false);
-      lastPhaseAttemptAsOfRef.current = null;
-      return;
-    }
-    const asof = analysisAsOfTime;
-    if (asof == null) {
-      setPhaseFallbackLoading(false);
-      return;
-    }
-    const requestKey = `${code}|${asof}`;
-    if (phaseFallbackCacheRef.current.has(requestKey)) {
-      setPhaseFallback(phaseFallbackCacheRef.current.get(requestKey) ?? null);
-      setPhaseFallbackLoading(false);
-      lastPhaseAttemptAsOfRef.current = asof;
-      return;
-    }
-    if (lastPhaseAttemptAsOfRef.current === asof) return;
-    setPhaseFallbackLoading(true);
-    lastPhaseAttemptAsOfRef.current = asof;
-    phaseFallbackRequestKeyRef.current = requestKey;
-    api
-      .get("/ticker/phase", { params: { code, asof }, timeout: 10000 })
-      .then((res) => {
-        if (phaseFallbackRequestKeyRef.current !== requestKey) return;
-        const item = res.data?.item ?? null;
-        if (!item) {
-          phaseFallbackCacheRef.current.set(requestKey, null);
-          setPhaseFallback(null);
-          return;
-        }
-        const reasons = Array.isArray(item.reasonsTop3)
-          ? (item.reasonsTop3 as string[])
-          : typeof item.reasonsTop3 === "string"
-            ? item.reasonsTop3.split(",").map((part: string) => part.trim()).filter(Boolean)
-            : [];
-        const payload: PhaseFallback = {
-          dt: typeof item.dt === "number" ? item.dt : null,
-          earlyScore: Number.isFinite(item.earlyScore) ? item.earlyScore : null,
-          lateScore: Number.isFinite(item.lateScore) ? item.lateScore : null,
-          bodyScore: Number.isFinite(item.bodyScore) ? item.bodyScore : null,
-          n: typeof item.n === "number" ? item.n : null,
-          reasons
-        };
-        phaseFallbackCacheRef.current.set(requestKey, payload);
-        setPhaseFallback(payload);
-      })
-      .catch(() => {
-        if (phaseFallbackRequestKeyRef.current !== requestKey) return;
-        phaseFallbackCacheRef.current.set(requestKey, null);
-        setPhaseFallback(null);
-      })
-      .finally(() => {
-        if (phaseFallbackRequestKeyRef.current !== requestKey) return;
-        setPhaseFallbackLoading(false);
-      });
-  }, [
-    backendReady,
-    code,
-    hasPhaseScores,
-    needsPhaseReasons,
-    analysisAsOfTime
-  ]);
-
-  useEffect(() => {
-    if (!backendReady) return;
-    if (!code) return;
-    const asof = analysisAsOfTime;
-    if (asof == null) {
-      setAnalysisLoading(false);
-      return;
-    }
-    const requestKey = `${code}|${asof}|${analysisRiskMode}`;
-    if (analysisFallbackCacheRef.current.has(requestKey)) {
-      setAnalysisFallback(analysisFallbackCacheRef.current.get(requestKey) ?? null);
-      setAnalysisLoading(false);
-      lastAnalysisAttemptAsOfRef.current = asof;
-      return;
-    }
-    if (lastAnalysisAttemptAsOfRef.current === asof) return;
-    setAnalysisLoading(true);
-    lastAnalysisAttemptAsOfRef.current = asof;
-    analysisRequestKeyRef.current = requestKey;
-    api
-      .get("/ticker/analysis", { params: { code, asof, risk_mode: analysisRiskMode }, timeout: 30000 })
-      .then((res) => {
-        if (analysisRequestKeyRef.current !== requestKey) return;
-        const item = res.data?.item ?? null;
-        if (!item) {
-          analysisFallbackCacheRef.current.set(requestKey, null);
-          setAnalysisFallback(null);
-          return;
-        }
-        const payload: AnalysisFallback = {
-          dt: item.dt ?? null,
-          pUp: toFiniteNumber(item.pUp),
-          pDown: toFiniteNumber(item.pDown),
-          pTurnUp: toFiniteNumber(item.pTurnUp),
-          pTurnDown: toFiniteNumber(item.pTurnDown),
-          pTurnDownHorizon: toFiniteNumber(item.pTurnDownHorizon),
-          retPred20: toFiniteNumber(item.retPred20),
-          ev20: toFiniteNumber(item.ev20),
-          ev20Net: toFiniteNumber(item.ev20Net),
-          horizonAnalysis: normalizeHorizonAnalysis(item.horizonAnalysis),
-          additiveSignals: normalizeAdditiveSignals(item.additiveSignals),
-          entryPolicy: normalizeEntryPolicy(item.entryPolicy),
-          riskMode: item.riskMode == null ? null : normalizeRiskMode(item.riskMode),
-          buyStagePrecision: normalizeBuyStagePrecision(item.buyStagePrecision),
-          modelVersion: typeof item.modelVersion === "string" ? item.modelVersion : null
-        };
-        analysisFallbackCacheRef.current.set(requestKey, payload);
-        setAnalysisFallback(payload);
-      })
-      .catch(() => {
-        if (analysisRequestKeyRef.current !== requestKey) return;
-        analysisFallbackCacheRef.current.set(requestKey, null);
-        setAnalysisFallback(null);
-      })
-      .finally(() => {
-        if (analysisRequestKeyRef.current !== requestKey) return;
-        setAnalysisLoading(false);
-      });
-  }, [backendReady, code, analysisAsOfTime, analysisRiskMode]);
-
-  useEffect(() => {
-    if (!backendReady) return;
-    if (!code) return;
-    const asof = analysisAsOfTime;
-    if (asof == null) {
-      setSellAnalysisLoading(false);
-      return;
-    }
-    const requestKey = `${code}|${asof}`;
-    if (sellAnalysisFallbackCacheRef.current.has(requestKey)) {
-      setSellAnalysisFallback(sellAnalysisFallbackCacheRef.current.get(requestKey) ?? null);
-      setSellAnalysisLoading(false);
-      lastSellAnalysisAttemptAsOfRef.current = asof;
-      return;
-    }
-    if (lastSellAnalysisAttemptAsOfRef.current === asof) return;
-    setSellAnalysisLoading(true);
-    lastSellAnalysisAttemptAsOfRef.current = asof;
-    sellAnalysisRequestKeyRef.current = requestKey;
-    api
-      .get("/ticker/analysis/sell", { params: { code, asof }, timeout: 30000 })
-      .then((res) => {
-        if (sellAnalysisRequestKeyRef.current !== requestKey) return;
-        const item = res.data?.item ?? null;
-        if (!item) {
-          sellAnalysisFallbackCacheRef.current.set(requestKey, null);
-          setSellAnalysisFallback(null);
-          return;
-        }
-        const payload: SellAnalysisFallback = {
-          dt: item.dt ?? null,
-          close: toFiniteNumber(item.close),
-          dayChangePct: toFiniteNumber(item.dayChangePct),
-          pDown: toFiniteNumber(item.pDown),
-          pTurnDown: toFiniteNumber(item.pTurnDown),
-          ev20Net: toFiniteNumber(item.ev20Net),
-          rankDown20: toFiniteNumber(item.rankDown20),
-          predDt: item.predDt ?? null,
-          pUp5: toFiniteNumber(item.pUp5),
-          pUp10: toFiniteNumber(item.pUp10),
-          pUp20: toFiniteNumber(item.pUp20),
-          shortScore: toFiniteNumber(item.shortScore),
-          aScore: toFiniteNumber(item.aScore),
-          bScore: toFiniteNumber(item.bScore),
-          ma20: toFiniteNumber(item.ma20),
-          ma60: toFiniteNumber(item.ma60),
-          ma20Slope: toFiniteNumber(item.ma20Slope),
-          ma60Slope: toFiniteNumber(item.ma60Slope),
-          distMa20Signed: toFiniteNumber(item.distMa20Signed),
-          distMa60Signed: toFiniteNumber(item.distMa60Signed),
-          trendDown: item.trendDown == null ? null : toBoolean(item.trendDown),
-          trendDownStrict: item.trendDownStrict == null ? null : toBoolean(item.trendDownStrict),
-          fwdClose5: toFiniteNumber(item.fwdClose5),
-          fwdClose10: toFiniteNumber(item.fwdClose10),
-          fwdClose20: toFiniteNumber(item.fwdClose20),
-          shortRet5: toFiniteNumber(item.shortRet5),
-          shortRet10: toFiniteNumber(item.shortRet10),
-          shortRet20: toFiniteNumber(item.shortRet20),
-          shortWin5: item.shortWin5 == null ? null : toBoolean(item.shortWin5),
-          shortWin10: item.shortWin10 == null ? null : toBoolean(item.shortWin10),
-          shortWin20: item.shortWin20 == null ? null : toBoolean(item.shortWin20)
-        };
-        sellAnalysisFallbackCacheRef.current.set(requestKey, payload);
-        setSellAnalysisFallback(payload);
-      })
-      .catch(() => {
-        if (sellAnalysisRequestKeyRef.current !== requestKey) return;
-        sellAnalysisFallbackCacheRef.current.set(requestKey, null);
-        setSellAnalysisFallback(null);
-      })
-      .finally(() => {
-        if (sellAnalysisRequestKeyRef.current !== requestKey) return;
-        setSellAnalysisLoading(false);
-      });
-  }, [backendReady, code, analysisAsOfTime]);
 
   useEffect(() => {
     if (!backendReady) return;
