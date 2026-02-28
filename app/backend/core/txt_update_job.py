@@ -504,6 +504,162 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         _to_float(os.getenv("MEEMEE_TXT_UPDATE_MAX_STALE_EXPORT_HOURS"), 36.0, minimum=1.0),
         minimum=1.0,
     )
+    auto_walkforward_gate = _to_bool(
+        payload.get("auto_walkforward_gate"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_AUTO_WALKFORWARD_GATE"), True),
+    )
+    walkforward_gate_monthly_only = _to_bool(
+        payload.get("walkforward_gate_monthly_only"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_GATE_MONTHLY_ONLY"), True),
+    )
+    walkforward_gate_strict = _to_bool(
+        payload.get("walkforward_gate_strict"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_GATE_STRICT"), False),
+    )
+    walkforward_gate_min_oos_total = _to_float(
+        payload.get("walkforward_gate_min_oos_total_realized_unit_pnl"),
+        _to_float(
+            os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_GATE_MIN_OOS_TOTAL_REALIZED_UNIT_PNL"),
+            0.0,
+            minimum=-1_000_000_000.0,
+        ),
+        minimum=-1_000_000_000.0,
+    )
+    walkforward_gate_min_oos_pf = _to_float(
+        payload.get("walkforward_gate_min_oos_mean_profit_factor"),
+        _to_float(
+            os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_GATE_MIN_OOS_MEAN_PROFIT_FACTOR"),
+            1.05,
+            minimum=0.0,
+        ),
+        minimum=0.0,
+    )
+    walkforward_gate_min_oos_pos_ratio = _to_float(
+        payload.get("walkforward_gate_min_oos_positive_window_ratio"),
+        _to_float(
+            os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_GATE_MIN_OOS_POSITIVE_WINDOW_RATIO"),
+            0.40,
+            minimum=0.0,
+        ),
+        minimum=0.0,
+    )
+    auto_walkforward_run = _to_bool(
+        payload.get("auto_walkforward_run"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_AUTO_WALKFORWARD_RUN"), True),
+    )
+    walkforward_run_monthly_only = _to_bool(
+        payload.get("walkforward_run_monthly_only"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_MONTHLY_ONLY"), True),
+    )
+    walkforward_run_strict = _to_bool(
+        payload.get("walkforward_run_strict"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_STRICT"), False),
+    )
+    walkforward_run_start_dt = _to_optional_int(payload.get("walkforward_run_start_dt"))
+    walkforward_run_end_dt = _to_optional_int(payload.get("walkforward_run_end_dt"))
+    walkforward_run_max_codes = _to_int(
+        payload.get("walkforward_run_max_codes"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_MAX_CODES"), 500, minimum=50),
+        minimum=50,
+    )
+    walkforward_run_train_months = _to_int(
+        payload.get("walkforward_run_train_months"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_TRAIN_MONTHS"), 24, minimum=1),
+        minimum=1,
+    )
+    walkforward_run_test_months = _to_int(
+        payload.get("walkforward_run_test_months"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_TEST_MONTHS"), 3, minimum=1),
+        minimum=1,
+    )
+    walkforward_run_step_months = _to_int(
+        payload.get("walkforward_run_step_months"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_STEP_MONTHS"), 12, minimum=1),
+        minimum=1,
+    )
+    walkforward_run_min_windows = _to_int(
+        payload.get("walkforward_run_min_windows"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_MIN_WINDOWS"), 1, minimum=1),
+        minimum=1,
+    )
+    walkforward_run_allowed_sides = str(
+        payload.get("walkforward_run_allowed_sides")
+        or os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_ALLOWED_SIDES")
+        or "long"
+    ).strip().lower()
+    if walkforward_run_allowed_sides not in {"both", "long", "short"}:
+        walkforward_run_allowed_sides = "long"
+    raw_walkforward_run_allowed_long_setups = (
+        payload.get("walkforward_run_allowed_long_setups")
+        if payload.get("walkforward_run_allowed_long_setups") is not None
+        else os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_ALLOWED_LONG_SETUPS")
+    )
+    walkforward_run_allowed_long_setups: tuple[str, ...]
+    if raw_walkforward_run_allowed_long_setups is None:
+        walkforward_run_allowed_long_setups = ("long_breakout_p2",)
+    elif isinstance(raw_walkforward_run_allowed_long_setups, (list, tuple, set)):
+        parsed = [str(v).strip() for v in raw_walkforward_run_allowed_long_setups if str(v).strip()]
+        walkforward_run_allowed_long_setups = tuple(parsed) if parsed else ("long_breakout_p2",)
+    else:
+        parsed = [
+            s.strip()
+            for s in str(raw_walkforward_run_allowed_long_setups).split(",")
+            if s.strip()
+        ]
+        walkforward_run_allowed_long_setups = tuple(parsed) if parsed else ("long_breakout_p2",)
+    walkforward_run_use_regime_filter = _to_bool(
+        payload.get("walkforward_run_use_regime_filter"),
+        _to_bool(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_USE_REGIME_FILTER"), True),
+    )
+    walkforward_run_min_long_score = _to_float(
+        payload.get("walkforward_run_min_long_score"),
+        _to_float(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_MIN_LONG_SCORE"), 2.0, minimum=-1000.0),
+        minimum=-1000.0,
+    )
+    walkforward_run_min_short_score = _to_float(
+        payload.get("walkforward_run_min_short_score"),
+        _to_float(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_MIN_SHORT_SCORE"), 99.0, minimum=-1000.0),
+        minimum=-1000.0,
+    )
+    walkforward_run_max_new_entries_per_day = _to_int(
+        payload.get("walkforward_run_max_new_entries_per_day"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_MAX_NEW_ENTRIES_PER_DAY"), 1, minimum=1),
+        minimum=1,
+    )
+    walkforward_run_regime_long_min_breadth_above60 = _to_float(
+        payload.get("walkforward_run_regime_long_min_breadth_above60"),
+        _to_float(
+            os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_REGIME_LONG_MIN_BREADTH_ABOVE60"),
+            0.57,
+            minimum=0.0,
+        ),
+        minimum=0.0,
+    )
+    walkforward_run_range_bias_width_min = _to_float(
+        payload.get("walkforward_run_range_bias_width_min"),
+        _to_float(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_RANGE_BIAS_WIDTH_MIN"), 0.08, minimum=0.0),
+        minimum=0.0,
+    )
+    walkforward_run_range_bias_long_pos_min = _to_float(
+        payload.get("walkforward_run_range_bias_long_pos_min"),
+        _to_float(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_RANGE_BIAS_LONG_POS_MIN"), 0.60, minimum=0.0),
+        minimum=0.0,
+    )
+    walkforward_run_range_bias_short_pos_max = _to_float(
+        payload.get("walkforward_run_range_bias_short_pos_max"),
+        _to_float(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_RANGE_BIAS_SHORT_POS_MAX"), 0.40, minimum=0.0),
+        minimum=0.0,
+    )
+    walkforward_run_ma20_count20_min_long = _to_int(
+        payload.get("walkforward_run_ma20_count20_min_long"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_MA20_COUNT20_MIN_LONG"), 12, minimum=1),
+        minimum=1,
+    )
+    walkforward_run_ma60_count60_min_long = _to_int(
+        payload.get("walkforward_run_ma60_count60_min_long"),
+        _to_int(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_MA60_COUNT60_MIN_LONG"), 30, minimum=1),
+        minimum=1,
+    )
     state = _load_update_state()
     state["last_pipeline_status"] = "running"
     state["last_pipeline_started_at"] = datetime.now().isoformat()
@@ -1068,6 +1224,215 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             finished_at=datetime.now(),
         )
         return
+
+    walkforward_run_failed = False
+    try:
+        if _exit_if_canceled(
+            job_id,
+            state,
+            stage="walkforward_run",
+            message="Canceled before walkforward run",
+        ):
+            return
+        run_now = datetime.now()
+        run_month_key = run_now.strftime("%Y-%m")
+        if not auto_walkforward_run:
+            state["last_walkforward_run_skipped_at"] = run_now.isoformat()
+            state["last_walkforward_run_skipped_reason"] = "disabled"
+            state.pop("last_walkforward_run_error", None)
+            state.pop("last_walkforward_run_error_at", None)
+            ml_note_parts.append("walkforward_run=skip(disabled)")
+        elif walkforward_run_monthly_only and str(state.get("last_walkforward_run_month_key") or "") == run_month_key:
+            state["last_walkforward_run_skipped_at"] = run_now.isoformat()
+            state["last_walkforward_run_skipped_reason"] = f"already_ran_month:{run_month_key}"
+            state.pop("last_walkforward_run_error", None)
+            state.pop("last_walkforward_run_error_at", None)
+            ml_note_parts.append(f"walkforward_run=skip(month={run_month_key})")
+        else:
+            _set_pipeline_stage(state, "walkforward_run", message="Running strategy walkforward...")
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "running",
+                message="Running strategy walkforward...",
+                progress=99,
+            )
+            from app.backend.services import strategy_backtest_service
+
+            walkforward_cfg = strategy_backtest_service.StrategyBacktestConfig(
+                min_long_score=float(walkforward_run_min_long_score),
+                min_short_score=float(walkforward_run_min_short_score),
+                max_new_entries_per_day=int(walkforward_run_max_new_entries_per_day),
+                allowed_sides=str(walkforward_run_allowed_sides),
+                allowed_long_setups=tuple(walkforward_run_allowed_long_setups),
+                use_regime_filter=bool(walkforward_run_use_regime_filter),
+                regime_long_min_breadth_above60=float(walkforward_run_regime_long_min_breadth_above60),
+                range_bias_width_min=float(walkforward_run_range_bias_width_min),
+                range_bias_long_pos_min=float(walkforward_run_range_bias_long_pos_min),
+                range_bias_short_pos_max=float(walkforward_run_range_bias_short_pos_max),
+                ma20_count20_min_long=int(walkforward_run_ma20_count20_min_long),
+                ma60_count60_min_long=int(walkforward_run_ma60_count60_min_long),
+            )
+            run_result = strategy_backtest_service.run_strategy_walkforward(
+                start_dt=walkforward_run_start_dt,
+                end_dt=walkforward_run_end_dt,
+                max_codes=int(walkforward_run_max_codes),
+                dry_run=False,
+                config=walkforward_cfg,
+                train_months=int(walkforward_run_train_months),
+                test_months=int(walkforward_run_test_months),
+                step_months=int(walkforward_run_step_months),
+                min_windows=int(walkforward_run_min_windows),
+            )
+            run_id = str(run_result.get("run_id") or "")
+            run_summary = run_result.get("summary") if isinstance(run_result.get("summary"), dict) else {}
+            state["last_walkforward_run_at"] = datetime.now().isoformat()
+            state["last_walkforward_run_month_key"] = run_month_key
+            state["last_walkforward_run_run_id"] = run_id
+            state["last_walkforward_run_windowing"] = run_result.get("windowing") or {}
+            state["last_walkforward_run_summary"] = run_summary
+            state.pop("last_walkforward_run_error", None)
+            state.pop("last_walkforward_run_error_at", None)
+            state.pop("last_walkforward_run_skipped_at", None)
+            state.pop("last_walkforward_run_skipped_reason", None)
+            ml_note_parts.append(
+                "walkforward_run="
+                f"ok(run={run_id or 'unknown'},"
+                f"oos_pnl={run_summary.get('oos_total_realized_unit_pnl')},"
+                f"oos_pf={run_summary.get('oos_mean_profit_factor')})"
+            )
+    except Exception as exc:
+        logger.exception("Walkforward run failed: %s", exc)
+        state["last_walkforward_run_error"] = str(exc)
+        state["last_walkforward_run_error_at"] = datetime.now().isoformat()
+        walkforward_run_failed = True
+        ml_note_parts.append(f"walkforward_run=failed({exc})")
+        if walkforward_run_strict:
+            _record_pipeline_failure(
+                state,
+                stage="walkforward_run",
+                error=str(exc),
+                message="Walkforward run failed",
+            )
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "failed",
+                error="Walkforward run failed",
+                message=f"Walkforward run failed: {exc}",
+                finished_at=datetime.now(),
+            )
+            return
+
+    try:
+        if _exit_if_canceled(
+            job_id,
+            state,
+            stage="walkforward_gate",
+            message="Canceled before walkforward gate",
+        ):
+            return
+        gate_now = datetime.now()
+        gate_month_key = gate_now.strftime("%Y-%m")
+        latest_run_id = str(state.get("last_walkforward_run_run_id") or "")
+        last_gate_source_run_id = str(state.get("last_walkforward_gate_source_run_id") or "")
+        if walkforward_run_failed:
+            state["last_walkforward_gate_skipped_at"] = gate_now.isoformat()
+            state["last_walkforward_gate_skipped_reason"] = "walkforward_run_failed"
+            state.pop("last_walkforward_gate_error", None)
+            state.pop("last_walkforward_gate_error_at", None)
+            ml_note_parts.append("walkforward_gate=skip(run_failed)")
+        elif not auto_walkforward_gate:
+            state["last_walkforward_gate_skipped_at"] = gate_now.isoformat()
+            state["last_walkforward_gate_skipped_reason"] = "disabled"
+            state.pop("last_walkforward_gate_error", None)
+            state.pop("last_walkforward_gate_error_at", None)
+            ml_note_parts.append("walkforward_gate=skip(disabled)")
+        elif (
+            walkforward_gate_monthly_only
+            and str(state.get("last_walkforward_gate_month_key") or "") == gate_month_key
+            and ((not latest_run_id) or latest_run_id == last_gate_source_run_id)
+        ):
+            state["last_walkforward_gate_skipped_at"] = gate_now.isoformat()
+            state["last_walkforward_gate_skipped_reason"] = f"already_ran_month:{gate_month_key}"
+            state.pop("last_walkforward_gate_error", None)
+            state.pop("last_walkforward_gate_error_at", None)
+            ml_note_parts.append(f"walkforward_gate=skip(month={gate_month_key})")
+        else:
+            _set_pipeline_stage(state, "walkforward_gate", message="Evaluating strategy walkforward gate...")
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "running",
+                message="Evaluating strategy walkforward gate...",
+                progress=99,
+            )
+            from app.backend.services import strategy_backtest_service
+
+            gate_result = strategy_backtest_service.run_strategy_walkforward_gate(
+                min_oos_total_realized_unit_pnl=walkforward_gate_min_oos_total,
+                min_oos_mean_profit_factor=walkforward_gate_min_oos_pf,
+                min_oos_positive_window_ratio=walkforward_gate_min_oos_pos_ratio,
+                dry_run=False,
+                note=f"txt_update_job:{job_id}:run={latest_run_id or 'unknown'}",
+            )
+            source = gate_result.get("source") if isinstance(gate_result.get("source"), dict) else {}
+            source_run_id = str(source.get("run_id") or "")
+            state["last_walkforward_gate_at"] = datetime.now().isoformat()
+            state["last_walkforward_gate_month_key"] = gate_month_key
+            state["last_walkforward_gate_gate_id"] = str(gate_result.get("gate_id") or "")
+            state["last_walkforward_gate_source_run_id"] = source_run_id
+            state["last_walkforward_gate_source_finished_at"] = source.get("finished_at")
+            state["last_walkforward_gate_status"] = str(gate_result.get("status") or "")
+            state["last_walkforward_gate_passed"] = bool(gate_result.get("passed"))
+            state["last_walkforward_gate_thresholds"] = gate_result.get("thresholds") or {}
+            state.pop("last_walkforward_gate_error", None)
+            state.pop("last_walkforward_gate_error_at", None)
+            state.pop("last_walkforward_gate_skipped_at", None)
+            state.pop("last_walkforward_gate_skipped_reason", None)
+            passed = bool(gate_result.get("passed"))
+            ml_note_parts.append(
+                f"walkforward_gate={'pass' if passed else 'fail'}"
+                f"(run={source_run_id or 'unknown'})"
+            )
+            if walkforward_gate_strict and not passed:
+                error_msg = "Walkforward gate failed"
+                _record_pipeline_failure(
+                    state,
+                    stage="walkforward_gate",
+                    error=error_msg,
+                    message=f"{error_msg} (source_run_id={source_run_id or 'unknown'})",
+                )
+                job_manager._update_db(
+                    job_id,
+                    "txt_update",
+                    "failed",
+                    error=error_msg,
+                    message=f"{error_msg} (source_run_id={source_run_id or 'unknown'})",
+                    finished_at=datetime.now(),
+                )
+                return
+    except Exception as exc:
+        logger.exception("Walkforward gate evaluation failed: %s", exc)
+        state["last_walkforward_gate_error"] = str(exc)
+        state["last_walkforward_gate_error_at"] = datetime.now().isoformat()
+        ml_note_parts.append(f"walkforward_gate=failed({exc})")
+        if walkforward_gate_strict:
+            _record_pipeline_failure(
+                state,
+                stage="walkforward_gate",
+                error=str(exc),
+                message="Walkforward gate failed",
+            )
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "failed",
+                error="Walkforward gate failed",
+                message=f"Walkforward gate failed: {exc}",
+                finished_at=datetime.now(),
+            )
+            return
 
     if _exit_if_canceled(job_id, state, stage="finalize", message="Canceled before finalize"):
         return

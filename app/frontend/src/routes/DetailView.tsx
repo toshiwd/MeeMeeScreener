@@ -293,6 +293,49 @@ type AnalysisFallback = {
   modelVersion: string | null;
 };
 
+type AnalysisTimelinePoint = {
+  dt: number | string | null;
+  pUp: number | null;
+  pDown: number | null;
+  pTurnUp: number | null;
+  pTurnDown: number | null;
+  ev20Net: number | null;
+  sellPDown: number | null;
+  sellPTurnDown: number | null;
+  trendDown: boolean | null;
+  trendDownStrict: boolean | null;
+};
+
+type EnvironmentTone = "up" | "down" | "neutral";
+type EnvironmentScenario = {
+  key: "up" | "down" | "range";
+  label: string;
+  tone: EnvironmentTone;
+  score: number;
+  reasons: string[];
+};
+type EnvironmentSummary = {
+  environmentLabel: string;
+  environmentTone: EnvironmentTone;
+  scenarios: EnvironmentScenario[];
+};
+
+type EnvironmentComputationInput = {
+  analysisPUp: number | null;
+  analysisPDown: number | null;
+  analysisPTurnUp: number | null;
+  analysisPTurnDown: number | null;
+  analysisEvNet: number | null;
+  playbookUpScoreBonus: number | null;
+  playbookDownScoreBonus: number | null;
+  additiveSignals: AnalysisAdditiveSignals | null;
+  sellAnalysis: Pick<
+    SellAnalysisFallback,
+    "pDown" | "pTurnDown" | "shortScore" | "distMa20Signed" | "ma20Slope" | "ma60Slope" | "trendDown" | "trendDownStrict"
+  > | null;
+  includeReasons?: boolean;
+};
+
 const DEFAULT_LIMITS = {
   daily: 2000,
   monthly: 240
@@ -312,11 +355,6 @@ const RANGE_PRESETS = [
 
 const ANALYSIS_HORIZONS = [5, 10, 20] as const;
 const RANK_VIEW_STATE_KEY = "rankingViewState";
-const RISK_MODE_LABEL: Record<RankRiskMode, string> = {
-  defensive: "守り",
-  balanced: "中立",
-  aggressive: "攻め"
-};
 
 const buildMonthBoundaries = (candles: Candle[]) => {
   if (!candles.length) return [];
@@ -426,23 +464,6 @@ const resolveRiskModeFromSession = (): RankRiskMode => {
   } catch {
     return "balanced";
   }
-};
-
-const formatInvalidationTrigger = (value: string | null | undefined): string => {
-  if (!value) return "--";
-  if (value === "box_break") return "Box下限割れ";
-  if (value === "box_reclaim") return "Box回復";
-  if (value === "stop3") return "3日否定";
-  if (value === "stop5") return "5日否定";
-  return value;
-};
-
-const formatInvalidationAction = (value: string | null | undefined): string => {
-  if (!value) return "--";
-  if (value === "exit") return "撤退";
-  if (value === "hold") return "継続";
-  if (value === "doten_opt") return "ドテン検討";
-  return value;
 };
 
 const normalizeEntryPolicySide = (value: unknown): AnalysisEntryPolicySide | null => {
@@ -595,6 +616,23 @@ const normalizeBuyStagePrecision = (value: unknown): BuyStagePrecisionPayload | 
     add: normalizeBuyStagePrecisionEntry(payload.add),
     core: normalizeBuyStagePrecisionEntry(payload.core),
     strategy: normalizeBuyStrategyBacktest(payload.strategy)
+  };
+};
+
+const normalizeAnalysisTimelinePoint = (value: unknown): AnalysisTimelinePoint | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  return {
+    dt: payload.dt == null || typeof payload.dt === "number" || typeof payload.dt === "string" ? payload.dt ?? null : null,
+    pUp: toFiniteNumber(payload.pUp),
+    pDown: toFiniteNumber(payload.pDown),
+    pTurnUp: toFiniteNumber(payload.pTurnUp),
+    pTurnDown: toFiniteNumber(payload.pTurnDown),
+    ev20Net: toFiniteNumber(payload.ev20Net),
+    sellPDown: toFiniteNumber(payload.sellPDown),
+    sellPTurnDown: toFiniteNumber(payload.sellPTurnDown),
+    trendDown: payload.trendDown == null ? null : toBoolean(payload.trendDown),
+    trendDownStrict: payload.trendDownStrict == null ? null : toBoolean(payload.trendDownStrict)
   };
 };
 
@@ -788,6 +826,205 @@ const buildWeekly = (candles: Candle[], volume: VolumePoint[]) => {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const computeEnvironmentTone = (input: EnvironmentComputationInput): EnvironmentSummary => {
+  const includeReasons = input.includeReasons !== false;
+  const upProb = clamp(
+    input.analysisPUp ?? (input.analysisPDown != null ? 1 - input.analysisPDown : 0.5),
+    0,
+    1
+  );
+  const downProb = clamp(
+    input.analysisPDown ?? (input.sellAnalysis?.pDown ?? (input.analysisPUp != null ? 1 - input.analysisPUp : 0.5)),
+    0,
+    1
+  );
+  const playbookUpBias = clamp((input.playbookUpScoreBonus ?? 0) / 0.04, -0.35, 0.35);
+  const playbookDownBias = clamp((input.playbookDownScoreBonus ?? 0) / 0.04, -0.35, 0.35);
+  const turnUp = clamp(input.analysisPTurnUp ?? 0.5, 0, 1);
+  const turnDown = clamp(
+    ((input.analysisPTurnDown ?? 0.5) * 0.5) +
+    ((input.sellAnalysis?.pTurnDown ?? input.analysisPTurnDown ?? 0.5) * 0.5),
+    0,
+    1
+  );
+  const evBias = input.analysisEvNet == null ? 0 : clamp(input.analysisEvNet / 0.06, -1, 1);
+  const additiveBias =
+    input.additiveSignals?.bonusEstimate == null
+      ? 0
+      : clamp(input.additiveSignals.bonusEstimate / 0.06, -1, 1);
+  const trendDownPenalty =
+    input.sellAnalysis?.trendDownStrict ? 0.08 : input.sellAnalysis?.trendDown ? 0.04 : 0;
+  const trendDownBoost =
+    input.sellAnalysis?.trendDownStrict ? 1.0 : input.sellAnalysis?.trendDown ? 0.7 : 0.3;
+  const trendDownFlag = input.sellAnalysis?.trendDown === true;
+  const trendDownStrictFlag = input.sellAnalysis?.trendDownStrict === true;
+  const shortScoreNorm = clamp(((input.sellAnalysis?.shortScore ?? 70) - 70) / 90, 0, 1);
+  const bullishStructure = Boolean(
+    !trendDownFlag &&
+    (input.sellAnalysis?.distMa20Signed ?? 0) > 0 &&
+    (input.sellAnalysis?.ma20Slope ?? 0) >= 0 &&
+    (input.sellAnalysis?.ma60Slope ?? 0) >= 0
+  );
+  const strongUpContext = Boolean(
+    input.additiveSignals?.trendUpStrict &&
+    (input.additiveSignals?.monthlyBreakoutUpProb ?? 0) >= 0.8
+  );
+
+  const upScore = clamp(
+    0.5 * upProb +
+    0.18 * turnUp +
+    0.17 * (0.5 + evBias * 0.5) +
+    0.15 * (0.5 + additiveBias * 0.5) -
+    0.06 * playbookDownBias +
+    0.08 * playbookUpBias -
+    trendDownPenalty,
+    0,
+    1
+  );
+  const downScore = clamp(
+    0.45 * downProb +
+    0.22 * turnDown +
+    0.18 * (0.5 - evBias * 0.5) +
+    0.1 * trendDownBoost +
+    0.08 * playbookDownBias -
+    0.06 * playbookUpBias +
+    0.05 * (0.5 - additiveBias * 0.5),
+    0,
+    1
+  );
+  const sellSignalQuality = clamp(
+    0.38 * downProb +
+    0.22 * turnDown +
+    0.14 * clamp((-(input.analysisEvNet ?? 0) + 0.005) / 0.04, 0, 1) +
+    0.16 * (trendDownStrictFlag ? 1.0 : trendDownFlag ? 0.72 : 0.2) +
+    0.1 * shortScoreNorm -
+    0.12 * (bullishStructure ? 1 : 0),
+    0,
+    1
+  );
+  const rangeScore = clamp(
+    0.4 * (1 - Math.abs(upProb - downProb)) +
+    0.3 * Math.min(turnUp, turnDown) +
+    0.3 * (1 - Math.abs(evBias)),
+    0,
+    1
+  );
+  const forceUpReclaim = Boolean(
+    strongUpContext &&
+    input.additiveSignals?.mtfStrongAligned &&
+    upScore >= downScore &&
+    turnUp >= turnDown - 0.10
+  );
+  const forceDownConfirm = Boolean(
+    (trendDownStrictFlag && downProb >= 0.58 && turnDown >= 0.56 && (input.analysisEvNet ?? 0) <= 0) ||
+    (downProb >= 0.68 && turnDown >= 0.64 && (input.analysisEvNet ?? 0) <= -0.01)
+  );
+  const downConfirm = Boolean(
+    trendDownFlag ||
+    trendDownStrictFlag ||
+    downProb - upProb >= 0.10 ||
+    downProb >= 0.62
+  );
+  const downThreshold = strongUpContext ? 0.66 : 0.56;
+
+  const scenarios: EnvironmentScenario[] = [
+    {
+      key: "up",
+      label: "上昇継続（押し目再開）",
+      tone: "up",
+      score: upScore,
+      reasons: includeReasons
+        ? [
+          `上昇 ${formatPercentLabel(upProb)} / 下落 ${formatPercentLabel(downProb)}`,
+          `期待値 ${formatSignedPercentLabel(input.analysisEvNet)}`,
+          `転換 上 ${formatPercentLabel(turnUp)}`
+        ]
+        : []
+    },
+    {
+      key: "down",
+      label: "下落継続（戻り売り優位）",
+      tone: "down",
+      score: downScore,
+      reasons: includeReasons
+        ? [
+          `下落 ${formatPercentLabel(downProb)} / 上昇 ${formatPercentLabel(upProb)}`,
+          `転換 下 ${formatPercentLabel(turnDown)}`,
+          `売り品質 ${formatPercentLabel(sellSignalQuality)}`,
+          `下向きトレンド判定 ${input.sellAnalysis?.trendDownStrict ? "強い" : input.sellAnalysis?.trendDown ? "あり" : "弱い"}`
+        ]
+        : []
+    },
+    {
+      key: "range",
+      label: "往復レンジ（上下振れ）",
+      tone: "neutral",
+      score: rangeScore,
+      reasons: includeReasons
+        ? [
+          `確率差 ${formatPercentLabel(Math.abs(upProb - downProb), 1)}`,
+          `転換 上 ${formatPercentLabel(turnUp)} / 下 ${formatPercentLabel(turnDown)}`,
+          `方向感弱め ${(1 - Math.abs(evBias)).toFixed(2)}`
+        ]
+        : []
+    }
+  ].sort((a, b) => b.score - a.score);
+
+  const top = scenarios[0];
+  const preSurgeLongCandidate = Boolean(
+    !trendDownStrictFlag &&
+    (
+      input.additiveSignals?.boxBottomAligned ||
+      (
+        (input.additiveSignals?.monthlyRangeProb ?? 0) >= 0.6 &&
+        (input.additiveSignals?.monthlyRangePos ?? 1) <= 0.45
+      )
+    ) &&
+    turnUp >= turnDown - 0.08 &&
+    upScore >= downScore - 0.04
+  );
+  const preSurgeShortCandidate = Boolean(
+    downConfirm &&
+    turnDown >= turnUp - 0.08 &&
+    downScore >= upScore - 0.04
+  );
+  let environmentLabel = "方向感拮抗";
+  let environmentTone: EnvironmentTone = "neutral";
+  if (forceUpReclaim && upScore >= 0.56) {
+    environmentLabel = "上昇優位";
+    environmentTone = "up";
+  } else if (forceDownConfirm) {
+    environmentLabel = "下落優位";
+    environmentTone = "down";
+  } else if (top?.key === "up" && top.score >= 0.56) {
+    environmentLabel = "上昇優位";
+    environmentTone = "up";
+  } else if (
+    top?.key === "down" &&
+    top.score >= downThreshold &&
+    downConfirm &&
+    sellSignalQuality >= 0.52
+  ) {
+    environmentLabel = "下落優位";
+    environmentTone = "down";
+  } else if (top?.key === "range" && top.score >= 0.56) {
+    if (preSurgeLongCandidate && !preSurgeShortCandidate) {
+      environmentLabel = "レンジ優位（先回り買い監視）";
+    } else if (preSurgeShortCandidate && !preSurgeLongCandidate) {
+      environmentLabel = "レンジ優位（戻り売り監視）";
+    } else {
+      environmentLabel = "レンジ優位";
+    }
+    environmentTone = "neutral";
+  }
+
+  return {
+    environmentLabel,
+    environmentTone,
+    scenarios
+  };
+};
+
 const buildRange = (candles: Candle[], months: number) => {
   if (!candles.length) return null;
   const end = candles[candles.length - 1].time;
@@ -831,6 +1068,14 @@ const formatDateLabel = (value: number | null) => {
   const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
   const dd = String(date.getUTCDate()).padStart(2, "0");
   return `${yyyy}/${mm}/${dd}`;
+};
+
+const toDateKey = (time: number) => {
+  const date = new Date(time * 1000);
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  return year * 10000 + month * 100 + day;
 };
 
 const countInRange = (candles: Candle[], months: number | null) => {
@@ -919,6 +1164,7 @@ export default function DetailView() {
   const [signalsOpen, setSignalsOpen] = useState(false);
   const [showGapBands, setShowGapBands] = useState(true);
   const [showVolumeEnabled, setShowVolumeEnabled] = useState(true);
+  const [showDecisionMarkers, setShowDecisionMarkers] = useState(true);
   const [activeDrawTool, setActiveDrawTool] = useState<DrawTool | null>(null);
   const [, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
   const [drawingsByKey, setDrawingsByKey] = useState<Record<string, ChartDrawings>>({});
@@ -1030,11 +1276,15 @@ export default function DetailView() {
   const analysisRequestKeyRef = useRef<string | null>(null);
   const [sellAnalysisFallback, setSellAnalysisFallback] = useState<SellAnalysisFallback | null>(null);
   const [sellAnalysisLoading, setSellAnalysisLoading] = useState(false);
+  const [analysisTimeline, setAnalysisTimeline] = useState<AnalysisTimelinePoint[]>([]);
+  const [analysisTimelineLoading, setAnalysisTimelineLoading] = useState(false);
   const lastSellAnalysisAttemptAsOfRef = useRef<number | null>(null);
   const sellAnalysisRequestKeyRef = useRef<string | null>(null);
   const phaseFallbackCacheRef = useRef<Map<string, PhaseFallback | null>>(new Map());
   const analysisFallbackCacheRef = useRef<Map<string, AnalysisFallback | null>>(new Map());
   const sellAnalysisFallbackCacheRef = useRef<Map<string, SellAnalysisFallback | null>>(new Map());
+  const analysisTimelineCacheRef = useRef<Map<string, AnalysisTimelinePoint[]>>(new Map());
+  const analysisTimelineRequestKeyRef = useRef<string | null>(null);
   const [analysisAsOfTime, setAnalysisAsOfTime] = useState<number | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const signalsRef = useRef<HTMLDivElement | null>(null);
@@ -1281,6 +1531,10 @@ export default function DetailView() {
     lastSellAnalysisAttemptAsOfRef.current = null;
     sellAnalysisRequestKeyRef.current = null;
     sellAnalysisFallbackCacheRef.current.clear();
+    setAnalysisTimeline([]);
+    setAnalysisTimelineLoading(false);
+    analysisTimelineRequestKeyRef.current = null;
+    analysisTimelineCacheRef.current.clear();
     setAnalysisAsOfTime(null);
     setDailyData([]);
   }, [code]);
@@ -1419,176 +1673,17 @@ export default function DetailView() {
     sellAnalysisFallback?.shortRet10 != null ||
     sellAnalysisFallback?.shortRet20 != null;
   const patternSummary = useMemo(() => {
-    const entryPolicy = analysisFallback?.entryPolicy ?? null;
-    const playbookUpBonus = toFiniteNumber(entryPolicy?.up?.playbookScoreBonus) ?? 0;
-    const playbookDownBonus = toFiniteNumber(entryPolicy?.down?.playbookScoreBonus) ?? 0;
-    const playbookUpBias = clamp(playbookUpBonus / 0.08, -0.4, 0.4);
-    const playbookDownBias = clamp(playbookDownBonus / 0.08, -0.4, 0.4);
-    const upProb = clamp(analysisPUp ?? 0.5, 0, 1);
-    const downProbMl = analysisPDown ?? (analysisPUp != null ? 1 - analysisPUp : 0.5);
-    const downProb = clamp(
-      ((downProbMl ?? 0.5) * 0.6) + ((sellAnalysisFallback?.pDown ?? downProbMl ?? 0.5) * 0.4),
-      0,
-      1
-    );
-    const turnUp = clamp(analysisPTurnUp ?? 0.5, 0, 1);
-    const turnDown = clamp(
-      ((analysisPTurnDown ?? 0.5) * 0.5) + ((sellAnalysisFallback?.pTurnDown ?? analysisPTurnDown ?? 0.5) * 0.5),
-      0,
-      1
-    );
-    const evBias = analysisEvNet == null ? 0 : clamp(analysisEvNet / 0.06, -1, 1);
-    const additiveBias =
-      analysisAdditive?.bonusEstimate == null
-        ? 0
-        : clamp(analysisAdditive.bonusEstimate / 0.06, -1, 1);
-    const trendDownPenalty =
-      sellAnalysisFallback?.trendDownStrict ? 0.08 : sellAnalysisFallback?.trendDown ? 0.04 : 0;
-    const trendDownBoost =
-      sellAnalysisFallback?.trendDownStrict ? 1.0 : sellAnalysisFallback?.trendDown ? 0.7 : 0.3;
-    const trendDownFlag = sellAnalysisFallback?.trendDown === true;
-    const trendDownStrictFlag = sellAnalysisFallback?.trendDownStrict === true;
-    const shortScoreNorm = clamp(
-      ((sellAnalysisFallback?.shortScore ?? 70) - 70) / 90,
-      0,
-      1
-    );
-    const bullishStructure = Boolean(
-      !trendDownFlag &&
-      (sellAnalysisFallback?.distMa20Signed ?? 0) > 0 &&
-      (sellAnalysisFallback?.ma20Slope ?? 0) >= 0 &&
-      (sellAnalysisFallback?.ma60Slope ?? 0) >= 0
-    );
-    const strongUpContext = Boolean(
-      analysisAdditive?.trendUpStrict &&
-      (analysisAdditive?.monthlyBreakoutUpProb ?? 0) >= 0.8
-    );
-
-    const upScore = clamp(
-      0.5 * upProb +
-      0.18 * turnUp +
-      0.17 * (0.5 + evBias * 0.5) +
-      0.15 * (0.5 + additiveBias * 0.5) -
-      0.06 * playbookDownBias +
-      0.08 * playbookUpBias -
-      trendDownPenalty,
-      0,
-      1
-    );
-    const downScore = clamp(
-      0.45 * downProb +
-      0.22 * turnDown +
-      0.18 * (0.5 - evBias * 0.5) +
-      0.1 * trendDownBoost +
-      0.08 * playbookDownBias -
-      0.06 * playbookUpBias +
-      0.05 * (0.5 - additiveBias * 0.5),
-      0,
-      1
-    );
-    const sellSignalQuality = clamp(
-      0.38 * downProb +
-      0.22 * turnDown +
-      0.14 * clamp((-analysisEvNet + 0.005) / 0.04, 0, 1) +
-      0.16 * (trendDownStrictFlag ? 1.0 : trendDownFlag ? 0.72 : 0.2) +
-      0.1 * shortScoreNorm -
-      0.12 * (bullishStructure ? 1 : 0),
-      0,
-      1
-    );
-    const rangeScore = clamp(
-      0.4 * (1 - Math.abs(upProb - downProb)) +
-      0.3 * Math.min(turnUp, turnDown) +
-      0.3 * (1 - Math.abs(evBias)),
-      0,
-      1
-    );
-    const forceUpReclaim = Boolean(
-      strongUpContext &&
-      analysisAdditive?.mtfStrongAligned &&
-      upScore >= downScore &&
-      turnUp >= turnDown - 0.10
-    );
-    const forceDownConfirm = Boolean(
-      (trendDownStrictFlag && downProb >= 0.58 && turnDown >= 0.56 && (analysisEvNet ?? 0) <= 0) ||
-      (downProb >= 0.68 && turnDown >= 0.64 && (analysisEvNet ?? 0) <= -0.01)
-    );
-    const downConfirm = Boolean(
-      trendDownFlag ||
-      trendDownStrictFlag ||
-      downProb - upProb >= 0.10 ||
-      downProb >= 0.62
-    );
-    const downThreshold = strongUpContext ? 0.66 : 0.56;
-
-    const scenarios = [
-      {
-        key: "up",
-        label: "上昇継続（押し目再開）",
-        tone: "up" as const,
-        score: upScore,
-        reasons: [
-          `上昇 ${formatPercentLabel(upProb)} / 下落 ${formatPercentLabel(downProb)}`,
-          `期待値 ${formatSignedPercentLabel(analysisEvNet)}`,
-          `転換 上 ${formatPercentLabel(turnUp)}`
-        ]
-      },
-      {
-        key: "down",
-        label: "下落継続（戻り売り優位）",
-        tone: "down" as const,
-        score: downScore,
-        reasons: [
-          `下落 ${formatPercentLabel(downProb)} / 上昇 ${formatPercentLabel(upProb)}`,
-          `転換 下 ${formatPercentLabel(turnDown)}`,
-          `売り品質 ${formatPercentLabel(sellSignalQuality)}`,
-          `下向きトレンド判定 ${sellAnalysisFallback?.trendDownStrict ? "強い" : sellAnalysisFallback?.trendDown ? "あり" : "弱い"
-          }`
-        ]
-      },
-      {
-        key: "range",
-        label: "往復レンジ（上下振れ）",
-        tone: "neutral" as const,
-        score: rangeScore,
-        reasons: [
-          `確率差 ${formatPercentLabel(Math.abs(upProb - downProb), 1)}`,
-          `転換 上 ${formatPercentLabel(turnUp)} / 下 ${formatPercentLabel(turnDown)}`,
-          `方向感弱め ${(1 - Math.abs(evBias)).toFixed(2)}`
-        ]
-      }
-    ].sort((a, b) => b.score - a.score);
-
-    const top = scenarios[0];
-    let environmentLabel = "方向感拮抗";
-    let environmentTone: "up" | "down" | "neutral" = "neutral";
-    if (forceUpReclaim && upScore >= 0.56) {
-      environmentLabel = "上昇優位";
-      environmentTone = "up";
-    } else if (forceDownConfirm) {
-      environmentLabel = "下落優位";
-      environmentTone = "down";
-    } else if (top?.key === "up" && top.score >= 0.56) {
-      environmentLabel = "上昇優位";
-      environmentTone = "up";
-    } else if (
-      top?.key === "down" &&
-      top.score >= downThreshold &&
-      downConfirm &&
-      sellSignalQuality >= 0.52
-    ) {
-      environmentLabel = "下落優位";
-      environmentTone = "down";
-    } else if (top?.key === "range" && top.score >= 0.56) {
-      environmentLabel = "レンジ優位";
-      environmentTone = "neutral";
-    }
-
-    return {
-      environmentLabel,
-      environmentTone,
-      scenarios
-    };
+    return computeEnvironmentTone({
+      analysisPUp,
+      analysisPDown,
+      analysisPTurnUp,
+      analysisPTurnDown,
+      analysisEvNet,
+      playbookUpScoreBonus: toFiniteNumber(analysisFallback?.entryPolicy?.up?.playbookScoreBonus),
+      playbookDownScoreBonus: toFiniteNumber(analysisFallback?.entryPolicy?.down?.playbookScoreBonus),
+      additiveSignals: analysisAdditive,
+      sellAnalysis: sellAnalysisFallback
+    });
   }, [
     analysisPUp,
     analysisPDown,
@@ -1601,6 +1696,9 @@ export default function DetailView() {
     analysisAdditive?.trendUpStrict,
     analysisAdditive?.mtfStrongAligned,
     analysisAdditive?.monthlyBreakoutUpProb,
+    analysisAdditive?.monthlyRangeProb,
+    analysisAdditive?.monthlyRangePos,
+    analysisAdditive?.boxBottomAligned,
     sellAnalysisFallback?.shortScore,
     sellAnalysisFallback?.distMa20Signed,
     sellAnalysisFallback?.ma20Slope,
@@ -1640,28 +1738,10 @@ export default function DetailView() {
     const entryPolicy = analysisFallback?.entryPolicy ?? null;
     const upPolicy = entryPolicy?.up ?? null;
     const downPolicy = entryPolicy?.down ?? null;
-    const activePolicy =
-      analysisDecision.tone === "up"
-        ? upPolicy
-        : analysisDecision.tone === "down"
-          ? downPolicy
-          : buyProb >= sellProb
-            ? upPolicy
-            : downPolicy;
-    const policyRiskMode = entryPolicy?.riskMode ?? analysisFallback?.riskMode ?? null;
     const stagePrecision = analysisFallback?.buyStagePrecision ?? null;
     const strategyBacktest = stagePrecision?.strategy ?? null;
-    const stageHorizonRaw = stagePrecision?.horizon;
-    const stageHorizon =
-      stageHorizonRaw == null || !Number.isFinite(stageHorizonRaw) ? 20 : Math.max(1, Math.round(stageHorizonRaw));
     const strategySamples = strategyBacktest?.samples ?? 0;
     const coreSamples = stagePrecision?.core.samples ?? 0;
-    const stagePrecisionModeLabel =
-      strategySamples > 0
-        ? `${stageHorizon}D実測`
-        : coreSamples > 0
-          ? `${stageHorizon}D実測(本玉)`
-          : "推定";
     const confidence = clamp(analysisDecision.confidence ?? 0, 0, 1);
     const spread = Math.abs(buyProb - sellProb);
     const turnUp = clamp(analysisPTurnUp ?? 0.5, 0, 1);
@@ -1669,8 +1749,8 @@ export default function DetailView() {
     const evBias = analysisEvNet == null ? 0 : clamp(analysisEvNet / 0.06, -1, 1);
     const confidenceRank = confidence >= 0.66 ? "高" : confidence >= 0.56 ? "中" : "低";
 
-    let action = "様子見";
-    let watchpoint = "方向が固まるまでポジションを小さく維持。";
+    let action = "中立";
+    let watchpoint = "優勢側の仕込み確率が上がるまで監視。";
 
     const tonePenalty = analysisDecision.tone === "down" ? 0.08 : analysisDecision.tone === "neutral" ? 0.03 : 0;
     const baseLongPrecision = clamp(
@@ -1690,8 +1770,6 @@ export default function DetailView() {
     );
     const corePrecisionResolved = stagePrecision?.core.precision ?? corePrecision;
     const strategyPrecisionResolved = strategyBacktest?.precision ?? corePrecisionResolved;
-    const strategyWins = Math.max(0, Math.trunc(strategyBacktest?.wins ?? 0));
-    const coreWins = Math.max(0, Math.trunc(stagePrecision?.core.wins ?? 0));
     const strategyPrecisionLabel = (() => {
       if (strategySamples > 0) {
         return `${formatPercentLabel(strategyPrecisionResolved)} (n${strategySamples})`;
@@ -1701,88 +1779,86 @@ export default function DetailView() {
       }
       return `${formatPercentLabel(strategyPrecisionResolved)} (推定)`;
     })();
-    const probeShares = Math.max(0, Math.round(strategyBacktest?.probeShares ?? 100));
-    const addShares = Math.max(0, Math.round(strategyBacktest?.addShares ?? 300));
-    const coreShares = Math.max(0, Math.round(strategyBacktest?.coreShares ?? 500));
-    const topupShares = Math.max(0, Math.round(strategyBacktest?.topupShares ?? 100));
-    const targetShares = Math.max(0, Math.round(strategyBacktest?.targetShares ?? probeShares + addShares + coreShares + topupShares));
-    const takeProfitPct = clamp(strategyBacktest?.takeProfitPct ?? 0.06, 0, 1);
-
-    const probeReady = buyProb > sellProb;
-    const addReady = buyProb >= 0.54 && spread >= 0.06;
     const coreReady = buyProb >= 0.58 && spread >= 0.1 && turnUp >= turnDown;
     const currentStageLabel = coreReady
       ? "本玉成立"
-      : addReady
-        ? "追加成立（本玉待ち）"
-        : probeReady
-          ? "打診成立（追加待ち）"
-          : "未成立（打診待ち）";
-    const backtestSummary = strategySamples > 0
-      ? `過去検証 ${formatPercentLabel(strategyPrecisionResolved)}（勝ち ${strategyWins}/${strategySamples}）`
-      : coreSamples > 0
-        ? `過去検証(本玉) ${formatPercentLabel(corePrecisionResolved)}（勝ち ${coreWins}/${coreSamples}）`
-        : "過去検証データ不足（推定）";
-
-    let probeRule = "買い確率が売り確率を上回ったら";
-    let addRule = "押し目でも買い優位を維持したら";
-    let coreRule = "買い優位の拡大（買い-売り差 10pt 以上）で";
-    let buyTimingTitle = `3分割買いタイミング（主精度 ${strategyPrecisionLabel}）`;
+      : analysisDecision.tone === "up"
+        ? "買い監視"
+        : analysisDecision.tone === "down"
+          ? "売り監視"
+          : "中立監視";
+    let buyTimingTitle = "仕込み状態";
     if (analysisDecision.tone === "up") {
-      action = spread >= 0.12 ? "押し目買い優先" : "買い寄りだが慎重";
-      watchpoint = "売り確率が買い確率に接近したら撤退を優先。";
-      buyTimingTitle = `3分割買いタイミング（${stagePrecisionModeLabel} 主精度 ${strategyPrecisionLabel}）`;
+      action = "買い寄り";
+      watchpoint = "買い仕込みを優先監視。";
     } else if (analysisDecision.tone === "down") {
-      action = spread >= 0.12 ? "戻り売り優先" : "売り寄りだが慎重";
-      watchpoint = "買い確率が売り確率に接近したら戻しを警戒。";
-      buyTimingTitle = `買いは条件付き（主精度 ${strategyPrecisionLabel}）`;
-      probeRule = "買い確率が 50% を回復してから";
-      addRule = "売り確率を上回る状態が2日続いたら";
-      coreRule = "想定パターンが上昇側へ転じてから";
+      action = "売り寄り";
+      watchpoint = "売り仕込みを優先監視。";
     } else {
-      buyTimingTitle = `買いは段階的に（主精度 ${strategyPrecisionLabel}）`;
-      probeRule = "買い確率が売り確率を上回ってから";
-      addRule = "押し目で買い優位が崩れないことを確認してから";
-      coreRule = "方向が明確化（買い-売り差 10pt 以上）してから";
+      action = "中立";
+      watchpoint = "買い/売り仕込みの優勢側を監視。";
     }
     if (coreReady) {
-      buyTimingTitle = "本玉成立";
+      action = "買い本玉成立";
     }
-    if (activePolicy?.invalidationPolicyNote) {
-      watchpoint = `${watchpoint} ${activePolicy.invalidationPolicyNote}`;
+    const upPlaybookBias = clamp((toFiniteNumber(upPolicy?.playbookScoreBonus) ?? 0) / 0.04, -0.35, 0.35);
+    const downPlaybookBias = clamp((toFiniteNumber(downPolicy?.playbookScoreBonus) ?? 0) / 0.04, -0.35, 0.35);
+    const buySetupProb = clamp(
+      0.5 * buyProb +
+      0.2 * turnUp +
+      0.12 * (1 - sellProb) +
+      0.1 * (0.5 + evBias * 0.5) +
+      0.08 * (0.5 + upPlaybookBias * 0.5),
+      0,
+      1
+    );
+    const sellSetupProb = clamp(
+      0.5 * sellProb +
+      0.2 * turnDown +
+      0.12 * (1 - buyProb) +
+      0.1 * (0.5 - evBias * 0.5) +
+      0.08 * (0.5 + downPlaybookBias * 0.5),
+      0,
+      1
+    );
+    const buySetupReady = Boolean(
+      buySetupProb >= 0.58 &&
+      buyProb >= sellProb - 0.02 &&
+      turnUp >= turnDown - 0.03
+    );
+    const buySetupWatch = Boolean(
+      !buySetupReady &&
+      buySetupProb >= 0.5
+    );
+    const sellSetupReady = Boolean(
+      sellSetupProb >= 0.58 &&
+      sellProb >= buyProb - 0.02 &&
+      turnDown >= turnUp - 0.03
+    );
+    const sellSetupWatch = Boolean(
+      !sellSetupReady &&
+      sellSetupProb >= 0.5
+    );
+    const buySetupState = buySetupReady ? "実行" : buySetupWatch ? "監視" : "待機";
+    const sellSetupState = sellSetupReady ? "実行" : sellSetupWatch ? "監視" : "待機";
+    if (analysisDecision.tone === "neutral") {
+      action = buySetupProb >= sellSetupProb ? "中立（買い仕込み監視）" : "中立（売り仕込み監視）";
+      watchpoint = `買い ${buySetupState} / 売り ${sellSetupState} を監視。`;
     }
-    const buyTimingPlan = coreReady
-      ? [
-        `本玉成立: ${coreShares}株エントリー優先 / 主精度 ${strategyPrecisionLabel} / ${backtestSummary}`
-      ]
-      : [
-        `現在判定: ${currentStageLabel} / 主精度 ${strategyPrecisionLabel}（${probeShares}/${addShares}/${coreShares}株 + 追撃${topupShares}株 = ${targetShares}株 / 利確 ${formatPercentLabel(takeProfitPct)}）`,
-        `打診 ${probeShares}株: ${probeRule}打診 / ${probeReady ? "成立" : "待機"}`,
-        `追加 ${addShares}株: ${addRule}追加 / ${addReady ? "成立" : "待機"}`,
-        `本玉 ${coreShares}株: ${coreRule}本玉 / ${coreReady ? "成立" : "待機"}`,
-        backtestSummary
-      ];
+    const setupTimingLines = [
+      `買い仕込み: ${buySetupState} ${formatPercentLabel(buySetupProb)}`,
+      `売り仕込み: ${sellSetupState} ${formatPercentLabel(sellSetupProb)}`
+    ];
 
-    const trendLine =
-      analysisDecision.tone === "down"
-        ? `下向きトレンド ${sellAnalysisFallback?.trendDownStrict ? "強い" : sellAnalysisFallback?.trendDown ? "あり" : "弱い"
-        }`
-        : null;
+    const buyTimingPlan = [
+      `現在判定: ${currentStageLabel} / 主精度 ${strategyPrecisionLabel}`,
+      ...setupTimingLines
+    ];
+
     const reasonLines = [
-      `買い ${formatPercentLabel(buyProb)} / 売り ${formatPercentLabel(sellProb)}（差 ${formatPercentLabel(spread)}）`,
-      `転換 上 ${formatPercentLabel(analysisPTurnUp)} / 下 ${formatPercentLabel(analysisPTurnDown)}`,
-      analysisEvNet == null ? null : `期待値 ${formatSignedPercentLabel(analysisEvNet)}`,
-      policyRiskMode ? `運用モード ${RISK_MODE_LABEL[policyRiskMode]}` : null,
-      activePolicy?.recommendedHoldDays != null
-        ? `保有目安 ${Math.round(activePolicy.recommendedHoldDays)}日`
-        : null,
-      activePolicy?.invalidationTrigger
-        ? `否定 ${formatInvalidationTrigger(activePolicy.invalidationTrigger)} / 推奨 ${formatInvalidationAction(activePolicy.invalidationRecommendedAction)}`
-        : null,
-      activePolicy?.playbookScoreBonus != null
-        ? `Playbook補正 ${formatSignedPercentLabel(activePolicy.playbookScoreBonus)}`
-        : null,
-      trendLine
+      `方向確率 上昇 ${formatPercentLabel(buyProb)} / 下落 ${formatPercentLabel(sellProb)} / 中立 ${formatPercentLabel(neutralProb)}`,
+      `仕込み 買い ${buySetupState} ${formatPercentLabel(buySetupProb)} / 売り ${sellSetupState} ${formatPercentLabel(sellSetupProb)}`,
+      analysisEvNet == null ? null : `期待値 ${formatSignedPercentLabel(analysisEvNet)}`
     ].filter((value): value is string => typeof value === "string" && value.length > 0);
 
     return {
@@ -1794,6 +1870,12 @@ export default function DetailView() {
       buyWidth: Math.round(buyProb * 100),
       sellWidth: Math.round(sellProb * 100),
       neutralWidth: Math.round(neutralProb * 100),
+      buySetupProb,
+      sellSetupProb,
+      buySetupWidth: Math.round(buySetupProb * 100),
+      sellSetupWidth: Math.round(sellSetupProb * 100),
+      buySetupState,
+      sellSetupState,
       reasonLines
     };
   }, [
@@ -1803,7 +1885,6 @@ export default function DetailView() {
     analysisDecision.confidence,
     analysisDecision.tone,
     analysisFallback?.entryPolicy,
-    analysisFallback?.riskMode,
     analysisFallback?.buyStagePrecision,
     analysisPTurnUp,
     analysisPTurnDown,
@@ -1817,7 +1898,8 @@ export default function DetailView() {
   const canShowAnalysis = showBuyAnalysis || showSellAnalysis;
   const analysisLoadingText = analysisLoading ? "読込中..." : null;
   const sellAnalysisLoadingText = sellAnalysisLoading ? "読込中..." : null;
-  const analysisSummaryLoading = analysisLoadingText != null || sellAnalysisLoadingText != null;
+  const analysisSummaryLoading =
+    analysisLoadingText != null || sellAnalysisLoadingText != null || analysisTimelineLoading;
   const analysisDtLabel = useMemo(() => {
     if (!analysisFallback) return "";
     const normalized = normalizeTime(analysisFallback.dt);
@@ -2306,6 +2388,58 @@ export default function DetailView() {
   );
   const weeklyData = useMemo(() => buildWeekly(dailyCandles, dailyVolume), [dailyCandles, dailyVolume]);
 
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!code) return;
+    if (dailyCandles.length === 0) {
+      setAnalysisTimeline([]);
+      setAnalysisTimelineLoading(false);
+      return;
+    }
+    if (!showDecisionMarkers) {
+      setAnalysisTimelineLoading(false);
+      return;
+    }
+    const requestKey = `${code}|${mainAsOf ?? ""}|${dailyCandles.length}`;
+    if (analysisTimelineCacheRef.current.has(requestKey)) {
+      setAnalysisTimeline(analysisTimelineCacheRef.current.get(requestKey) ?? []);
+      setAnalysisTimelineLoading(false);
+      return;
+    }
+    const limit = Math.min(2000, Math.max(400, dailyCandles.length || 0));
+    setAnalysisTimelineLoading(true);
+    analysisTimelineRequestKeyRef.current = requestKey;
+    const params: Record<string, string | number> = { code, limit };
+    if (mainAsOf) {
+      params.asof = mainAsOf;
+    }
+    api
+      .get("/ticker/analysis/timeline", { params, timeout: 30000 })
+      .then((res) => {
+        if (analysisTimelineRequestKeyRef.current !== requestKey) return;
+        const itemsRaw = Array.isArray(res.data?.items) ? res.data.items : [];
+        const normalized = itemsRaw
+          .map((item) => normalizeAnalysisTimelinePoint(item))
+          .filter((item): item is AnalysisTimelinePoint => item != null)
+          .sort((a, b) => {
+            const ta = normalizeTime(a.dt) ?? 0;
+            const tb = normalizeTime(b.dt) ?? 0;
+            return ta - tb;
+          });
+        analysisTimelineCacheRef.current.set(requestKey, normalized);
+        setAnalysisTimeline(normalized);
+      })
+      .catch(() => {
+        if (analysisTimelineRequestKeyRef.current !== requestKey) return;
+        analysisTimelineCacheRef.current.set(requestKey, []);
+        setAnalysisTimeline([]);
+      })
+      .finally(() => {
+        if (analysisTimelineRequestKeyRef.current !== requestKey) return;
+        setAnalysisTimelineLoading(false);
+      });
+  }, [backendReady, code, mainAsOf, dailyCandles.length, showDecisionMarkers]);
+
   const dailyEventMarkers = useMemo(() => {
     const eventMs = parseEventDateMs(activeTicker?.eventEarningsDate);
     if (eventMs == null || dailyCandles.length === 0) return [];
@@ -2315,6 +2449,83 @@ export default function DetailView() {
     if (Math.abs(nearestTime - eventTime) > MAX_EVENT_OFFSET_SEC) return [];
     return [{ time: nearestTime, kind: "earnings", label: "E" }];
   }, [activeTicker?.eventEarningsDate, dailyCandles]);
+  const dailyDecisionMarkers = useMemo(() => {
+    if (!showDecisionMarkers) return [];
+    if (!dailyCandles.length || !analysisTimeline.length) return [];
+
+    const timelineMap = new Map<number, AnalysisTimelinePoint>();
+    analysisTimeline.forEach((point) => {
+      const normalized = normalizeTime(point.dt);
+      if (normalized == null) return;
+      timelineMap.set(toDateKey(normalized), point);
+    });
+    if (!timelineMap.size) return [];
+
+    let prevTone: EnvironmentTone | null = null;
+    let latestTone: EnvironmentTone | null = null;
+    let latestTime: number | null = null;
+    const markers: { time: number; kind: "decision-buy" | "decision-sell" }[] = [];
+    const toMarkerKind = (tone: EnvironmentTone): "decision-buy" | "decision-sell" | null => {
+      if (tone === "up") return "decision-buy";
+      if (tone === "down") return "decision-sell";
+      return null;
+    };
+
+    dailyCandles.forEach((candle) => {
+      const timelinePoint = timelineMap.get(toDateKey(candle.time));
+      if (!timelinePoint) return;
+      const summary = computeEnvironmentTone({
+        analysisPUp: timelinePoint.pUp,
+        analysisPDown: timelinePoint.pDown,
+        analysisPTurnUp: timelinePoint.pTurnUp,
+        analysisPTurnDown: timelinePoint.pTurnDown,
+        analysisEvNet: timelinePoint.ev20Net,
+        playbookUpScoreBonus: null,
+        playbookDownScoreBonus: null,
+        additiveSignals: null,
+        sellAnalysis: {
+          pDown: timelinePoint.sellPDown,
+          pTurnDown: timelinePoint.sellPTurnDown,
+          shortScore: null,
+          distMa20Signed: null,
+          ma20Slope: null,
+          ma60Slope: null,
+          trendDown: timelinePoint.trendDown,
+          trendDownStrict: timelinePoint.trendDownStrict
+        },
+        includeReasons: false
+      });
+      const tone = summary.environmentTone;
+      latestTone = tone;
+      latestTime = candle.time;
+      if (prevTone != null && prevTone !== tone) {
+        const kind = toMarkerKind(tone);
+        if (kind) {
+          markers.push({
+            time: candle.time,
+            kind
+          });
+        }
+      }
+      prevTone = tone;
+    });
+
+    if (latestTone != null && latestTime != null && markers[markers.length - 1]?.time !== latestTime) {
+      const kind = toMarkerKind(latestTone);
+      if (kind) {
+        markers.push({
+          time: latestTime,
+          kind
+        });
+      }
+    }
+
+    return markers;
+  }, [showDecisionMarkers, dailyCandles, analysisTimeline]);
+  const mergedDailyEventMarkers = useMemo(
+    () => [...dailyEventMarkers, ...dailyDecisionMarkers],
+    [dailyEventMarkers, dailyDecisionMarkers]
+  );
 
   const weeklyCandles = weeklyData.candles;
   const weeklyVolume = weeklyData.volume;
@@ -3857,6 +4068,14 @@ export default function DetailView() {
                 </button>
                 <button
                   type="button"
+                  className={`popover-item ${showDecisionMarkers ? "active" : ""}`}
+                  onClick={() => setShowDecisionMarkers((prev) => !prev)}
+                >
+                  <span className="popover-item-label">判定マーカー</span>
+                  {showDecisionMarkers && <span className="popover-check">ON</span>}
+                </button>
+                <button
+                  type="button"
                   className={`popover-item ${syncRanges ? "active" : ""}`}
                   onClick={() => setSyncRanges((prev) => !prev)}
                 >
@@ -4221,6 +4440,14 @@ export default function DetailView() {
                       </button>
                       <button
                         type="button"
+                        className={`popover-item ${showDecisionMarkers ? "active" : ""}`}
+                        onClick={() => setShowDecisionMarkers((prev) => !prev)}
+                      >
+                        <span className="popover-item-label">判定マーカー</span>
+                        {showDecisionMarkers && <span className="popover-check">ON</span>}
+                      </button>
+                      <button
+                        type="button"
                         className={`popover-item ${syncRanges ? "active" : ""}`}
                         onClick={() => setSyncRanges((prev) => !prev)}
                       >
@@ -4456,7 +4683,7 @@ export default function DetailView() {
                       volume={dailyVolume}
                       maLines={dailyMaLines}
                       showVolume={showVolumeDaily}
-                      eventMarkers={dailyEventMarkers}
+                      eventMarkers={mergedDailyEventMarkers}
                       boxes={boxes}
                       showBoxes={showBoxes}
                       gapBands={gapBandsOverride}
@@ -4585,7 +4812,7 @@ export default function DetailView() {
                     volume={dailyVolume}
                     maLines={dailyMaLines}
                     showVolume={showVolumeDaily}
-                    eventMarkers={dailyEventMarkers}
+                    eventMarkers={mergedDailyEventMarkers}
                     boxes={boxes}
                     showBoxes={showBoxes}
                     gapBands={gapBandsOverride}
@@ -4758,7 +4985,7 @@ export default function DetailView() {
                     volume={dailyVolume}
                     maLines={dailyMaLines}
                     showVolume={showVolumeDaily}
-                    eventMarkers={dailyEventMarkers}
+                    eventMarkers={mergedDailyEventMarkers}
                     boxes={boxes}
                     showBoxes={showBoxes}
                     gapBands={gapBandsOverride}
@@ -4958,24 +5185,11 @@ export default function DetailView() {
                           確信度 {analysisSummaryLoading ? "読込中..." : analysisGuidance.confidenceRank}
                         </span>
                       </div>
-                      <div className="detail-analysis-call-action">{analysisGuidance.action}</div>
                       <div className="detail-analysis-regime-title">{patternSummary.environmentLabel}</div>
-                      <div className="detail-analysis-call-pattern">
-                        想定チャートパターン {analysisDecision.patternLabel}
-                      </div>
-                      <div className="detail-analysis-regime-text">{analysisGuidance.watchpoint}</div>
-                      <div className="detail-analysis-entry-plan">
-                        <div className="detail-analysis-entry-plan-title">{analysisGuidance.buyTimingTitle}</div>
-                        {analysisGuidance.buyTimingPlan.map((step, index) => (
-                          <div key={`analysis-entry-plan-${index}`} className="detail-analysis-entry-plan-item">
-                            {step}
-                          </div>
-                        ))}
-                      </div>
                       <div className="detail-analysis-prob-meter-list">
                         <div className="detail-analysis-prob-meter-row tone-up">
                           <div className="detail-analysis-prob-meter-label">
-                            買い {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.buyProb)}
+                            上昇確率 {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.buyProb)}
                           </div>
                           <div className="detail-analysis-prob-meter-track">
                             <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.buyWidth}%` }} />
@@ -4983,7 +5197,7 @@ export default function DetailView() {
                         </div>
                         <div className="detail-analysis-prob-meter-row tone-down">
                           <div className="detail-analysis-prob-meter-label">
-                            売り {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.sellProb)}
+                            下落確率 {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.sellProb)}
                           </div>
                           <div className="detail-analysis-prob-meter-track">
                             <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.sellWidth}%` }} />
@@ -4991,23 +5205,28 @@ export default function DetailView() {
                         </div>
                         <div className="detail-analysis-prob-meter-row tone-neutral">
                           <div className="detail-analysis-prob-meter-label">
-                            中立 {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.neutralProb)}
+                            中立確率 {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.neutralProb)}
                           </div>
                           <div className="detail-analysis-prob-meter-track">
                             <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.neutralWidth}%` }} />
                           </div>
                         </div>
-                      </div>
-                      <div className="detail-analysis-call-reason-list">
-                        {analysisGuidance.reasonLines.length ? (
-                          analysisGuidance.reasonLines.map((reason, index) => (
-                            <div key={`analysis-call-reason-${index}`} className="detail-analysis-call-reason">
-                              {reason}
-                            </div>
-                          ))
-                        ) : (
-                          <div className="detail-analysis-empty">根拠データがありません。</div>
-                        )}
+                        <div className="detail-analysis-prob-meter-row tone-up">
+                          <div className="detail-analysis-prob-meter-label">
+                            買い仕込み {analysisSummaryLoading ? "読込中..." : `${analysisGuidance.buySetupState} ${formatPercentLabel(analysisGuidance.buySetupProb)}`}
+                          </div>
+                          <div className="detail-analysis-prob-meter-track">
+                            <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.buySetupWidth}%` }} />
+                          </div>
+                        </div>
+                        <div className="detail-analysis-prob-meter-row tone-down">
+                          <div className="detail-analysis-prob-meter-label">
+                            売り仕込み {analysisSummaryLoading ? "読込中..." : `${analysisGuidance.sellSetupState} ${formatPercentLabel(analysisGuidance.sellSetupProb)}`}
+                          </div>
+                          <div className="detail-analysis-prob-meter-track">
+                            <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.sellSetupWidth}%` }} />
+                          </div>
+                        </div>
                       </div>
                     </div>
                     {analysisSummaryLoading && (

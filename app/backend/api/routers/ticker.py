@@ -617,7 +617,10 @@ def _build_additive_signal_summary(
 
     candle_signals = rankings_cache._calc_triplet_candle_signals(daily_rows)
     shooting_star_like = bool((_to_float_or_none(candle_signals.get("shootingStarLike")) or 0.0) >= 0.5)
+    bear_marubozu = bool((_to_float_or_none(candle_signals.get("bearMarubozu")) or 0.0) >= 0.5)
     three_white_soldiers = bool((_to_float_or_none(candle_signals.get("threeWhiteSoldiers")) or 0.0) >= 0.5)
+    three_black_crows = bool((_to_float_or_none(candle_signals.get("threeBlackCrows")) or 0.0) >= 0.5)
+    morning_star = bool((_to_float_or_none(candle_signals.get("morningStar")) or 0.0) >= 0.5)
     bull_engulfing = bool((_to_float_or_none(candle_signals.get("bullEngulfing")) or 0.0) >= 0.5)
 
     v60_signals = rankings_cache._calc_60v_signals(daily_rows)
@@ -639,10 +642,9 @@ def _build_additive_signal_summary(
         and monthly_range_pos <= 0.38
     )
 
-    candlestick_pattern_bonus = (
-        (0.01 if shooting_star_like else 0.0)
-        + (0.01 if three_white_soldiers else 0.0)
-        + (0.01 if bull_engulfing else 0.0)
+    candlestick_pattern_bonus, candlestick_pattern_bonus_details = rankings_cache._calc_candlestick_pattern_bonus(
+        candle_signals,
+        direction="up",
     )
     v60_strong_penalty = bool(v60_strong)
     bonus_estimate = (
@@ -658,13 +660,17 @@ def _build_additive_signal_summary(
         "mtfStrongAligned": mtf_strong_aligned,
         "boxBottomAligned": box_bottom_aligned,
         "shootingStarLike": shooting_star_like,
+        "bearMarubozu": bear_marubozu,
         "threeWhiteSoldiers": three_white_soldiers,
+        "threeBlackCrows": three_black_crows,
+        "morningStar": morning_star,
         "bullEngulfing": bull_engulfing,
         "reclaim60": reclaim60,
         "v60Core": v60_core,
         "v60Strong": v60_strong,
         "v60StrongPenalty": v60_strong_penalty,
         "candlestickPatternBonus": candlestick_pattern_bonus,
+        "candlestickPatternBonusDetails": candlestick_pattern_bonus_details,
         "bonusEstimate": bonus_estimate,
         "weeklyBreakoutUpProb": weekly_breakout_up_prob,
         "monthlyBreakoutUpProb": monthly_breakout_up_prob,
@@ -787,6 +793,29 @@ def get_analysis_pred(
             "modelVersion": str(model_version) if model_version is not None else None,
         }
     }
+
+
+@router.get("/analysis/timeline", response_model=None)
+def get_analysis_timeline(
+    code: str,
+    limit: int = Query(400, ge=1, le=2000),
+    asof: str | int | None = None,
+    repo: StockRepository = Depends(get_stock_repo),
+) -> Dict[str, Any]:
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+    asof_dt = _parse_dt(asof)
+    items = repo.get_analysis_timeline(code, asof_dt, limit=limit)
+    if not items and asof_dt is not None:
+        _maybe_backfill_for_analysis(
+            repo=repo,
+            code=code,
+            asof_dt=asof_dt,
+            ensure_ml=True,
+            ensure_sell=True,
+        )
+        items = repo.get_analysis_timeline(code, asof_dt, limit=limit)
+    return {"items": items}
 
 
 @router.get("/analysis/sell", response_model=None)

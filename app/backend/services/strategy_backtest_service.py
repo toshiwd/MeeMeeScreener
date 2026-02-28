@@ -53,6 +53,13 @@ class StrategyBacktestConfig:
     regime_breadth_lookback_days: int = 20
     regime_long_min_breadth_above60: float = 0.52
     regime_short_max_breadth_above60: float = 0.48
+    range_bias_width_min: float = 0.08
+    range_bias_long_pos_min: float = 0.60
+    range_bias_short_pos_max: float = 0.40
+    ma20_count20_min_long: int = 12
+    ma20_count20_min_short: int = 12
+    ma60_count60_min_long: int = 30
+    ma60_count60_min_short: int = 30
 
     @property
     def cost_rate(self) -> float:
@@ -357,12 +364,19 @@ def _load_market_frame(
     return conn.execute(sql, params).df()
 
 
-def _prepare_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
+def _prepare_feature_frame(df: pd.DataFrame, cfg: StrategyBacktestConfig) -> pd.DataFrame:
     if df.empty:
         return df
     frame = df.copy()
     frame = frame.sort_values(["code", "dt"], kind="stable").reset_index(drop=True)
     g = frame.groupby("code", sort=False, group_keys=False)
+    range_width_min = max(0.0, float(cfg.range_bias_width_min))
+    range_pos_long_min = min(1.0, max(0.0, float(cfg.range_bias_long_pos_min)))
+    range_pos_short_max = min(1.0, max(0.0, float(cfg.range_bias_short_pos_max)))
+    ma20_count20_min_long = max(1, int(cfg.ma20_count20_min_long))
+    ma20_count20_min_short = max(1, int(cfg.ma20_count20_min_short))
+    ma60_count60_min_long = max(1, int(cfg.ma60_count60_min_long))
+    ma60_count60_min_short = max(1, int(cfg.ma60_count60_min_short))
 
     # MAs: daily_ma values are preferred; missing values are backfilled from raw close rolling.
     for period in (7, 20, 60):
@@ -397,6 +411,10 @@ def _prepare_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     frame["prev20_low"] = shifted_l.groupby(frame["code"]).transform(
         lambda s: s.rolling(20, min_periods=20).min()
     )
+    range20_width = frame["prev20_high"] - frame["prev20_low"]
+    frame["range20_width"] = range20_width
+    frame["range20_width_pct"] = range20_width / frame["ma20"]
+    frame["range20_pos"] = (frame["c"] - frame["prev20_low"]) / range20_width.replace(0, np.nan)
     frame["range20_pct"] = (
         frame["h"].groupby(frame["code"]).transform(lambda s: s.rolling(20, min_periods=20).max())
         - frame["l"].groupby(frame["code"]).transform(lambda s: s.rolling(20, min_periods=20).min())
@@ -421,11 +439,29 @@ def _prepare_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     for col in ("below7", "below20", "below60", "above7", "above20", "above60"):
         frame[f"{col}_streak"] = g[col].transform(_build_streak)
 
+    frame["above20_count20"] = g["above20"].transform(lambda s: s.rolling(20, min_periods=1).sum())
+    frame["below20_count20"] = g["below20"].transform(lambda s: s.rolling(20, min_periods=1).sum())
+    frame["above60_count60"] = g["above60"].transform(lambda s: s.rolling(60, min_periods=1).sum())
+    frame["below60_count60"] = g["below60"].transform(lambda s: s.rolling(60, min_periods=1).sum())
+
     frame["touch20"] = ((frame["l"] <= frame["ma20"]) & (frame["h"] >= frame["ma20"])).fillna(False)
     frame["touch20_20"] = g["touch20"].transform(lambda s: s.rolling(20, min_periods=1).sum())
     frame["ma20_band"] = (frame["c"] - frame["ma20"]).abs() / frame["ma20"] <= 0.03
     frame["ma20_band_20"] = g["ma20_band"].transform(lambda s: s.rolling(20, min_periods=1).sum())
     frame["sideways_10_20"] = (frame["ma20_band_20"] >= 10) & (frame["range20_pct"] <= 0.18)
+    frame["range_bias_long"] = (
+        (frame["range20_pos"] >= range_pos_long_min) & (frame["range20_width_pct"] >= range_width_min)
+    ).fillna(False)
+    frame["range_bias_short"] = (
+        (frame["range20_pos"] <= range_pos_short_max) & (frame["range20_width_pct"] >= range_width_min)
+    ).fillna(False)
+    frame["ma_up_persist_long"] = (
+        (frame["above20_count20"] >= ma20_count20_min_long) & (frame["above60_count60"] >= ma60_count60_min_long)
+    ).fillna(False)
+    frame["ma_up_persist_short"] = (
+        (frame["below20_count20"] >= ma20_count20_min_short)
+        & (frame["below60_count60"] >= ma60_count60_min_short)
+    ).fillna(False)
 
     # B/G/M (down)
     frame["flag_bear_big"] = (
@@ -546,12 +582,16 @@ def _prepare_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
         + frame["sell_p4"].astype(int) * 2
         + frame["sell_p5"].astype(int) * 2
         + frame["decision_down"].astype(int)
+        + frame["range_bias_short"].astype(int)
+        + frame["ma_up_persist_short"].astype(int)
     )
     frame["long_score"] = (
         frame["buy_p1"].astype(int) * 4
         + frame["buy_p2"].astype(int) * 3
         + frame["buy_p3"].astype(int) * 2
         + frame["decision_up"].astype(int)
+        + frame["range_bias_long"].astype(int)
+        + frame["ma_up_persist_long"].astype(int)
     )
 
     frame["entry_short"] = (
@@ -1308,7 +1348,7 @@ def run_strategy_backtest(
     if market.empty:
         raise RuntimeError("No daily_bars rows for backtest range")
 
-    features = _prepare_feature_frame(market)
+    features = _prepare_feature_frame(market, cfg)
     features["bar_index"] = features.groupby("code", sort=False).cumcount() + 1
     features = features[
         (features["signal_ready"])
@@ -1440,6 +1480,129 @@ def _ensure_walkforward_schema(conn) -> None:
         );
         """
     )
+
+
+def _ensure_walkforward_gate_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS strategy_walkforward_gate_reports (
+            gate_id TEXT PRIMARY KEY,
+            created_at TIMESTAMP,
+            source_run_id TEXT,
+            source_finished_at TIMESTAMP,
+            status TEXT,
+            thresholds_json TEXT,
+            report_json TEXT,
+            note TEXT
+        );
+        """
+    )
+
+
+def _save_walkforward_gate_report(
+    conn,
+    *,
+    gate_id: str,
+    created_at: datetime,
+    source_run_id: str,
+    source_finished_at: datetime | None,
+    status: str,
+    thresholds: dict[str, Any],
+    report: dict[str, Any],
+    note: str | None,
+) -> None:
+    _ensure_walkforward_gate_schema(conn)
+    conn.execute(
+        """
+        INSERT INTO strategy_walkforward_gate_reports (
+            gate_id,
+            created_at,
+            source_run_id,
+            source_finished_at,
+            status,
+            thresholds_json,
+            report_json,
+            note
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            gate_id,
+            created_at,
+            source_run_id,
+            source_finished_at,
+            status,
+            json.dumps(thresholds, ensure_ascii=False),
+            json.dumps(report, ensure_ascii=False),
+            note,
+        ],
+    )
+
+
+def _build_walkforward_gate_report(
+    *,
+    gate_id: str,
+    created_at: datetime,
+    source_run_id: str,
+    source_finished_at: datetime | None,
+    source_status: str | None,
+    source_summary: dict[str, Any],
+    source_windowing: dict[str, Any],
+    min_oos_total_realized_unit_pnl: float,
+    min_oos_mean_profit_factor: float,
+    min_oos_positive_window_ratio: float,
+    note: str | None,
+) -> dict[str, Any]:
+    oos_total = _safe_float(source_summary.get("oos_total_realized_unit_pnl"))
+    oos_pf = _safe_float(source_summary.get("oos_mean_profit_factor"))
+    oos_pos_ratio = _safe_float(source_summary.get("oos_positive_window_ratio"))
+    checks = {
+        "oos_total_realized_unit_pnl": {
+            "actual": oos_total,
+            "threshold": float(min_oos_total_realized_unit_pnl),
+            "pass": (oos_total is not None and oos_total >= float(min_oos_total_realized_unit_pnl)),
+        },
+        "oos_mean_profit_factor": {
+            "actual": oos_pf,
+            "threshold": float(min_oos_mean_profit_factor),
+            "pass": (oos_pf is not None and oos_pf >= float(min_oos_mean_profit_factor)),
+        },
+        "oos_positive_window_ratio": {
+            "actual": oos_pos_ratio,
+            "threshold": float(min_oos_positive_window_ratio),
+            "pass": (
+                oos_pos_ratio is not None
+                and oos_pos_ratio >= float(min_oos_positive_window_ratio)
+            ),
+        },
+    }
+    passed = all(bool(v.get("pass")) for v in checks.values())
+    month_key = (
+        source_finished_at.strftime("%Y-%m")
+        if isinstance(source_finished_at, datetime)
+        else datetime.now(tz=timezone.utc).strftime("%Y-%m")
+    )
+    return {
+        "gate_id": gate_id,
+        "created_at": created_at.isoformat(),
+        "status": "pass" if passed else "fail",
+        "passed": bool(passed),
+        "month_key": month_key,
+        "source": {
+            "run_id": source_run_id,
+            "finished_at": source_finished_at.isoformat() if isinstance(source_finished_at, datetime) else None,
+            "status": source_status,
+            "windowing": source_windowing,
+            "summary": source_summary,
+        },
+        "thresholds": {
+            "min_oos_total_realized_unit_pnl": float(min_oos_total_realized_unit_pnl),
+            "min_oos_mean_profit_factor": float(min_oos_mean_profit_factor),
+            "min_oos_positive_window_ratio": float(min_oos_positive_window_ratio),
+        },
+        "checks": checks,
+        "note": note,
+    }
 
 
 def _save_walkforward_run(
@@ -1617,7 +1780,7 @@ def run_strategy_walkforward(
     if market.empty:
         raise RuntimeError("No daily_bars rows for walkforward range")
 
-    features = _prepare_feature_frame(market)
+    features = _prepare_feature_frame(market, cfg)
     features["bar_index"] = features.groupby("code", sort=False).cumcount() + 1
     features = features[
         (features["signal_ready"])
@@ -1781,6 +1944,72 @@ def run_strategy_walkforward(
     return report
 
 
+def run_strategy_walkforward_gate(
+    *,
+    min_oos_total_realized_unit_pnl: float = 0.0,
+    min_oos_mean_profit_factor: float = 1.05,
+    min_oos_positive_window_ratio: float = 0.40,
+    dry_run: bool = False,
+    note: str | None = None,
+) -> dict[str, Any]:
+    gate_id = datetime.now(tz=timezone.utc).strftime("swfg_%Y%m%d%H%M%S_%f")
+    created_at = datetime.now(tz=timezone.utc)
+
+    with get_conn() as conn:
+        _ensure_walkforward_schema(conn)
+        row = conn.execute(
+            """
+            SELECT
+                run_id,
+                finished_at,
+                status,
+                report_json
+            FROM strategy_walkforward_runs
+            ORDER BY finished_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if not row:
+            raise RuntimeError("No strategy_walkforward_runs found")
+
+        source_run_id = str(row[0])
+        source_finished_at = row[1]
+        source_status = str(row[2]) if row[2] is not None else None
+        try:
+            report_json = json.loads(row[3]) if row[3] else {}
+        except Exception:
+            report_json = {}
+        source_summary = (report_json.get("summary") or {})
+        source_windowing = (report_json.get("windowing") or {})
+        report = _build_walkforward_gate_report(
+            gate_id=gate_id,
+            created_at=created_at,
+            source_run_id=source_run_id,
+            source_finished_at=source_finished_at,
+            source_status=source_status,
+            source_summary=source_summary,
+            source_windowing=source_windowing,
+            min_oos_total_realized_unit_pnl=float(min_oos_total_realized_unit_pnl),
+            min_oos_mean_profit_factor=float(min_oos_mean_profit_factor),
+            min_oos_positive_window_ratio=float(min_oos_positive_window_ratio),
+            note=note,
+        )
+        if not dry_run:
+            _save_walkforward_gate_report(
+                conn,
+                gate_id=gate_id,
+                created_at=created_at,
+                source_run_id=source_run_id,
+                source_finished_at=source_finished_at,
+                status=str(report.get("status") or "fail"),
+                thresholds=report.get("thresholds") or {},
+                report=report,
+                note=note,
+            )
+    report["dry_run"] = bool(dry_run)
+    return report
+
+
 def get_latest_strategy_walkforward() -> dict[str, Any]:
     with get_conn() as conn:
         _ensure_walkforward_schema(conn)
@@ -1832,5 +2061,50 @@ def get_latest_strategy_walkforward() -> dict[str, Any]:
             "config": config_json,
             "report": report_json,
             "note": row[12],
+        },
+    }
+
+
+def get_latest_strategy_walkforward_gate() -> dict[str, Any]:
+    with get_conn() as conn:
+        _ensure_walkforward_gate_schema(conn)
+        row = conn.execute(
+            """
+            SELECT
+                gate_id,
+                created_at,
+                source_run_id,
+                source_finished_at,
+                status,
+                thresholds_json,
+                report_json,
+                note
+            FROM strategy_walkforward_gate_reports
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    if not row:
+        return {"has_run": False, "latest": None}
+
+    try:
+        thresholds_json = json.loads(row[5]) if row[5] else {}
+    except Exception:
+        thresholds_json = {}
+    try:
+        report_json = json.loads(row[6]) if row[6] else {}
+    except Exception:
+        report_json = {}
+    return {
+        "has_run": True,
+        "latest": {
+            "gate_id": row[0],
+            "created_at": row[1],
+            "source_run_id": row[2],
+            "source_finished_at": row[3],
+            "status": row[4],
+            "thresholds": thresholds_json,
+            "report": report_json,
+            "note": row[7],
         },
     }

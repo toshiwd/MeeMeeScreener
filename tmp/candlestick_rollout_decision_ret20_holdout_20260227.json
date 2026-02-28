@@ -1,0 +1,31 @@
+{
+  "generated_at": "2026-02-27",
+  "decision": "reject_for_primary_signal",
+  "reason": "no_pair_passed_time_holdout",
+  "evidence": {
+    "events_rows": 992431,
+    "events_ymd_min": 20200106,
+    "events_ymd_max": 20260116,
+    "pairs_scored": 28,
+    "stable_pairs_count_window": 4,
+    "holdout_train_selected_count": 3,
+    "holdout_test_pass_count": 0,
+    "holdout_split": {
+      "train_ymd_to": 20241231,
+      "test_ymd_from": 20250101,
+      "train_rows": 818800,
+      "test_rows": 173631
+    }
+  },
+  "policy": {
+    "window_stability_required": true,
+    "time_holdout_required": true,
+    "primary_signal_requires": "diff_ret>0 and diff_precision>0 on holdout",
+    "fallback_usage": "telemetry_only_or_tiny_weight"
+  },
+  "next": [
+    "test triple-pattern interactions with sector/market regime filters",
+    "re-score as auxiliary feature only with near-zero capped weight",
+    "re-evaluate after accumulating 2026Q2 data"
+  ]
+}

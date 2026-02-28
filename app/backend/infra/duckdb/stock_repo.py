@@ -393,6 +393,152 @@ class StockRepository:
             row = conn.execute(query, params).fetchone()
         return row
 
+    def get_analysis_timeline(
+        self,
+        code: str,
+        asof_dt: int | None,
+        *,
+        limit: int = 400,
+    ) -> List[Dict[str, Any]]:
+        resolved_limit = max(1, min(2000, int(limit)))
+
+        def _to_float_or_none(value: Any) -> float | None:
+            if not isinstance(value, (int, float)):
+                return None
+            fv = float(value)
+            return fv if math.isfinite(fv) else None
+
+        ml_rows_desc: List[Tuple[Any, ...]] = []
+        sell_rows_desc: List[Tuple[Any, ...]] = []
+        with self._get_conn() as conn:
+            if (
+                self._table_exists(conn, "ml_pred_20d")
+                and self._column_exists(conn, "ml_pred_20d", "code")
+                and self._column_exists(conn, "ml_pred_20d", "dt")
+            ):
+                has_p_up = self._column_exists(conn, "ml_pred_20d", "p_up")
+                has_p_down = self._column_exists(conn, "ml_pred_20d", "p_down")
+                has_p_turn_up = self._column_exists(conn, "ml_pred_20d", "p_turn_up")
+                has_p_turn_down = self._column_exists(conn, "ml_pred_20d", "p_turn_down")
+                has_ev20_net = self._column_exists(conn, "ml_pred_20d", "ev20_net")
+                dt_type = self._column_type(conn, "ml_pred_20d", "dt")
+
+                query = f"""
+                    SELECT
+                        dt,
+                        {"p_up" if has_p_up else "NULL::DOUBLE AS p_up"},
+                        {"p_down" if has_p_down else "NULL::DOUBLE AS p_down"},
+                        {"p_turn_up" if has_p_turn_up else "NULL::DOUBLE AS p_turn_up"},
+                        {"p_turn_down" if has_p_turn_down else "NULL::DOUBLE AS p_turn_down"},
+                        {"ev20_net" if has_ev20_net else "NULL::DOUBLE AS ev20_net"}
+                    FROM ml_pred_20d
+                    WHERE code = ?
+                """
+                params: List[Any] = [code]
+                if asof_dt is not None and dt_type:
+                    normalized_type = dt_type.upper()
+                    if any(
+                        token in normalized_type
+                        for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
+                    ):
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
+                    else:
+                        asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
+                        query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
+                        params.append(asof_date)
+                query += " ORDER BY dt DESC LIMIT ?"
+                params.append(resolved_limit)
+                ml_rows_desc = conn.execute(query, params).fetchall()
+
+            if (
+                self._table_exists(conn, "sell_analysis_daily")
+                and self._column_exists(conn, "sell_analysis_daily", "code")
+                and self._column_exists(conn, "sell_analysis_daily", "dt")
+            ):
+                has_p_down = self._column_exists(conn, "sell_analysis_daily", "p_down")
+                has_p_turn_down = self._column_exists(conn, "sell_analysis_daily", "p_turn_down")
+                has_trend_down = self._column_exists(conn, "sell_analysis_daily", "trend_down")
+                has_trend_down_strict = self._column_exists(conn, "sell_analysis_daily", "trend_down_strict")
+
+                query = f"""
+                    SELECT
+                        dt,
+                        {"p_down" if has_p_down else "NULL::DOUBLE AS p_down"},
+                        {"p_turn_down" if has_p_turn_down else "NULL::DOUBLE AS p_turn_down"},
+                        {"trend_down" if has_trend_down else "NULL::BOOLEAN AS trend_down"},
+                        {"trend_down_strict" if has_trend_down_strict else "NULL::BOOLEAN AS trend_down_strict"}
+                    FROM sell_analysis_daily
+                    WHERE code = ?
+                """
+                params = [code]
+                if asof_dt is not None:
+                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                    query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                    params.extend([asof_dt, asof_ymd])
+                query += " ORDER BY dt DESC LIMIT ?"
+                params.append(max(resolved_limit * 2, resolved_limit))
+                sell_rows_desc = conn.execute(query, params).fetchall()
+
+        if not ml_rows_desc and not sell_rows_desc:
+            return []
+
+        timeline_by_key: Dict[int, Dict[str, Any]] = {}
+
+        def _ensure_point(dt_key: int) -> Dict[str, Any]:
+            point = timeline_by_key.get(dt_key)
+            if point is not None:
+                return point
+            payload: Dict[str, Any] = {
+                "dt": dt_key,
+                "pUp": None,
+                "pDown": None,
+                "pTurnUp": None,
+                "pTurnDown": None,
+                "ev20Net": None,
+                "sellPDown": None,
+                "sellPTurnDown": None,
+                "trendDown": None,
+                "trendDownStrict": None,
+            }
+            timeline_by_key[dt_key] = payload
+            return payload
+
+        for row in reversed(ml_rows_desc):
+            if not row:
+                continue
+            dt_key = self._normalize_dt_key(row[0])
+            if dt_key is None:
+                continue
+            point = _ensure_point(dt_key)
+            p_up = _to_float_or_none(row[1] if len(row) > 1 else None)
+            p_down = _to_float_or_none(row[2] if len(row) > 2 else None)
+            if p_down is None and p_up is not None:
+                p_down = 1.0 - p_up
+            point["pUp"] = p_up
+            point["pDown"] = p_down
+            point["pTurnUp"] = _to_float_or_none(row[3] if len(row) > 3 else None)
+            point["pTurnDown"] = _to_float_or_none(row[4] if len(row) > 4 else None)
+            point["ev20Net"] = _to_float_or_none(row[5] if len(row) > 5 else None)
+
+        for row in reversed(sell_rows_desc):
+            if not row:
+                continue
+            dt_key = self._normalize_dt_key(row[0])
+            if dt_key is None:
+                continue
+            point = _ensure_point(dt_key)
+            point["sellPDown"] = _to_float_or_none(row[1] if len(row) > 1 else None)
+            point["sellPTurnDown"] = _to_float_or_none(row[2] if len(row) > 2 else None)
+            point["trendDown"] = bool(row[3]) if len(row) > 3 and row[3] is not None else None
+            point["trendDownStrict"] = bool(row[4]) if len(row) > 4 and row[4] is not None else None
+
+        keys = sorted(timeline_by_key.keys())
+        if len(keys) > resolved_limit:
+            keys = keys[-resolved_limit:]
+        return [timeline_by_key[key] for key in keys]
+
     def get_buy_stage_precision(
         self,
         code: str,

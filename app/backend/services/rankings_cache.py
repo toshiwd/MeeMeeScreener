@@ -48,7 +48,20 @@ _ENTRY_MAX_COUNTER_MOVE_DOWN = 0.01
 # A hard 0.70 gate eliminates all symbols.
 _ENTRY_MIN_PROB_UP_5D = 0.58
 _ENTRY_PROB_CURVE_EPS = 0.02
-_ENTRY_BONUS_CANDLE_PATTERN = 0.01
+_ENTRY_CANDLE_PATTERN_WEIGHTS_UP: tuple[tuple[str, float], ...] = (
+    ("shootingStarLike", 0.01),
+    ("threeWhiteSoldiers", 0.01),
+    ("bullEngulfing", 0.01),
+    # Off by default. Promote only after walk-forward verification.
+    ("morningStar", 0.0),
+    ("threeBlackCrows", 0.0),
+)
+_ENTRY_CANDLE_PATTERN_COMBO_WEIGHTS_UP: tuple[tuple[str, str, str, float], ...] = (
+    # Experimental, regime-conditioned combo validated only under risk-off breadth.
+    ("bearMarubozu+threeBlackCrows@riskOff", "bearMarubozu", "threeBlackCrows", 0.003),
+)
+_MARKET_BREADTH_RISK_ON_MIN_ADV = 0.55
+_MARKET_BREADTH_RISK_OFF_MAX_ADV = 0.45
 _ENTRY_BONUS_BOX_BOTTOM = 0.03
 _ENTRY_BONUS_MTF_SYNERGY = 0.02
 _ENTRY_BONUS_STRICT_STACK = 0.02
@@ -821,7 +834,11 @@ def _calc_triplet_candle_signals(daily_rows: list[tuple]) -> dict[str, float | N
             "candleTripletUp": None,
             "candleTripletDown": None,
             "shootingStarLike": None,
+            "bullMarubozu": None,
+            "bearMarubozu": None,
             "threeWhiteSoldiers": None,
+            "threeBlackCrows": None,
+            "morningStar": None,
             "bullEngulfing": None,
         }
 
@@ -830,6 +847,18 @@ def _calc_triplet_candle_signals(daily_rows: list[tuple]) -> dict[str, float | N
         float(latest["upper_ratio"]) >= 0.48
         and float(latest["body_ratio"]) <= 0.38
         and float(latest["lower_ratio"]) <= 0.24
+    ) else 0.0
+    bull_marubozu = 1.0 if (
+        float(latest["body"]) > 0
+        and float(latest["body_ratio"]) >= 0.70
+        and float(latest["upper_ratio"]) <= 0.12
+        and float(latest["lower_ratio"]) <= 0.12
+    ) else 0.0
+    bear_marubozu = 1.0 if (
+        float(latest["body"]) < 0
+        and float(latest["body_ratio"]) >= 0.70
+        and float(latest["upper_ratio"]) <= 0.12
+        and float(latest["lower_ratio"]) <= 0.12
     ) else 0.0
     bull_engulfing: float | None = None
     if len(bars) >= 2:
@@ -848,7 +877,11 @@ def _calc_triplet_candle_signals(daily_rows: list[tuple]) -> dict[str, float | N
             "candleTripletUp": None,
             "candleTripletDown": None,
             "shootingStarLike": shooting_star_like,
+            "bullMarubozu": bull_marubozu,
+            "bearMarubozu": bear_marubozu,
             "threeWhiteSoldiers": None,
+            "threeBlackCrows": None,
+            "morningStar": None,
             "bullEngulfing": bull_engulfing,
         }
 
@@ -870,6 +903,20 @@ def _calc_triplet_candle_signals(daily_rows: list[tuple]) -> dict[str, float | N
         all(float(bar["body"]) > 0 for bar in trio)
         and float(b0["c"]) < float(b1["c"]) < float(b2["c"])
         and min(float(bar["body_ratio"]) for bar in trio) >= 0.45
+    ) else 0.0
+    three_black_crows = 1.0 if (
+        all(float(bar["body"]) < 0 for bar in trio)
+        and float(b0["h"]) > float(b1["h"]) > float(b2["h"])
+        and float(b0["c"]) > float(b1["c"]) > float(b2["c"])
+        and max(float(bar["lower_ratio"]) for bar in trio) <= 0.30
+    ) else 0.0
+    morning_star = 1.0 if (
+        float(b0["body"]) < 0
+        and float(b0["body_ratio"]) >= 0.60
+        and float(b1["body_ratio"]) <= 0.20
+        and float(b2["body"]) > 0
+        and float(b2["body_ratio"]) >= 0.60
+        and float(b2["c"]) >= (float(b0["o"]) + float(b0["c"])) / 2.0
     ) else 0.0
 
     # Reversal-style 3-candle block:
@@ -900,7 +947,11 @@ def _calc_triplet_candle_signals(daily_rows: list[tuple]) -> dict[str, float | N
         "candleTripletUp": up_prob,
         "candleTripletDown": down_prob,
         "shootingStarLike": shooting_star_like,
+        "bullMarubozu": bull_marubozu,
+        "bearMarubozu": bear_marubozu,
         "threeWhiteSoldiers": three_white_soldiers,
+        "threeBlackCrows": three_black_crows,
+        "morningStar": morning_star,
         "bullEngulfing": bull_engulfing,
     }
 
@@ -953,6 +1004,69 @@ def _calc_regime_probs(closes: list[float], *, lookback: int) -> dict[str, float
         "rangeProb": range_prob,
         "rangeWidth": width,
         "rangePos": range_pos,
+    }
+
+
+def _calc_market_breadth_state(daily_map: dict[str, list[tuple]]) -> dict[str, Any]:
+    up_counts: dict[int, int] = {}
+    total_counts: dict[int, int] = {}
+    for rows in daily_map.values():
+        prev_close: float | None = None
+        for row in rows:
+            if len(row) < 5:
+                continue
+            date_raw = row[0]
+            close = _finite_float(row[4])
+            if close is None:
+                prev_close = None
+                continue
+            if prev_close is not None and abs(prev_close) > 1e-12:
+                try:
+                    date_key = int(date_raw)
+                except (TypeError, ValueError):
+                    prev_close = close
+                    continue
+                total_counts[date_key] = int(total_counts.get(date_key, 0)) + 1
+                if close > prev_close:
+                    up_counts[date_key] = int(up_counts.get(date_key, 0)) + 1
+            prev_close = close
+
+    if not total_counts:
+        return {
+            "marketBreadthDate": None,
+            "marketBreadthDateIso": None,
+            "marketBreadthAdvRatio": None,
+            "marketBreadthSampleSize": 0,
+            "marketRiskOff": None,
+            "marketRiskOn": None,
+            "marketRegime": None,
+        }
+
+    latest_date = max(total_counts.keys())
+    sample_size = int(total_counts.get(latest_date, 0))
+    if sample_size <= 0:
+        return {
+            "marketBreadthDate": latest_date,
+            "marketBreadthDateIso": _format_date(_parse_date_value(latest_date)),
+            "marketBreadthAdvRatio": None,
+            "marketBreadthSampleSize": 0,
+            "marketRiskOff": None,
+            "marketRiskOn": None,
+            "marketRegime": None,
+        }
+
+    adv_ratio = float(up_counts.get(latest_date, 0) / sample_size)
+    risk_off = bool(adv_ratio <= _MARKET_BREADTH_RISK_OFF_MAX_ADV)
+    risk_on = bool(adv_ratio >= _MARKET_BREADTH_RISK_ON_MIN_ADV)
+    regime = "risk_off" if risk_off else ("risk_on" if risk_on else "neutral")
+    return {
+        "marketBreadthDate": latest_date,
+        "marketBreadthDateIso": _format_date(_parse_date_value(latest_date)),
+        "marketBreadthAdvRatio": adv_ratio,
+        "marketBreadthSampleSize": sample_size,
+        "marketRiskOff": risk_off,
+        "marketRiskOn": risk_on,
+        "marketRegime": regime,
     }
 
 
@@ -1429,6 +1543,31 @@ def _first_finite(*values: object) -> float | None:
     return None
 
 
+def _calc_candlestick_pattern_bonus(
+    item: dict[str, Any],
+    *,
+    direction: RankDir,
+) -> tuple[float, dict[str, float]]:
+    rules: tuple[tuple[str, float], ...] = _ENTRY_CANDLE_PATTERN_WEIGHTS_UP if direction == "up" else ()
+    details: dict[str, float] = {}
+    bonus = 0.0
+    for key, weight in rules:
+        active = bool((_first_finite(item.get(key)) or 0.0) >= 0.5)
+        contribution = float(weight) if active else 0.0
+        details[key] = contribution
+        bonus += contribution
+    if direction == "up":
+        market_risk_off = bool(item.get("marketRiskOff"))
+        for combo_key, left_key, right_key, weight in _ENTRY_CANDLE_PATTERN_COMBO_WEIGHTS_UP:
+            left_active = bool((_first_finite(item.get(left_key)) or 0.0) >= 0.5)
+            right_active = bool((_first_finite(item.get(right_key)) or 0.0) >= 0.5)
+            combo_active = bool(market_risk_off and left_active and right_active)
+            contribution = float(weight) if combo_active else 0.0
+            details[combo_key] = contribution
+            bonus += contribution
+    return float(bonus), details
+
+
 def _is_non_increasing_curve(
     value_5d: float | None,
     value_10d: float | None,
@@ -1571,6 +1710,7 @@ def _build_cache() -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]
     daily_map: dict[str, list[tuple]] = {}
     for row in daily_rows:
         daily_map.setdefault(row[0], []).append(row[1:])
+    market_breadth_state = _calc_market_breadth_state(daily_map)
 
     monthly_map: dict[str, list[tuple]] = {}
     for row in monthly_rows:
@@ -1642,8 +1782,19 @@ def _build_cache() -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]
             "candleTripletUp": candle_signals.get("candleTripletUp"),
             "candleTripletDown": candle_signals.get("candleTripletDown"),
             "shootingStarLike": candle_signals.get("shootingStarLike"),
+            "bullMarubozu": candle_signals.get("bullMarubozu"),
+            "bearMarubozu": candle_signals.get("bearMarubozu"),
             "threeWhiteSoldiers": candle_signals.get("threeWhiteSoldiers"),
+            "threeBlackCrows": candle_signals.get("threeBlackCrows"),
+            "morningStar": candle_signals.get("morningStar"),
             "bullEngulfing": candle_signals.get("bullEngulfing"),
+            "marketBreadthDate": market_breadth_state.get("marketBreadthDate"),
+            "marketBreadthDateIso": market_breadth_state.get("marketBreadthDateIso"),
+            "marketBreadthAdvRatio": market_breadth_state.get("marketBreadthAdvRatio"),
+            "marketBreadthSampleSize": market_breadth_state.get("marketBreadthSampleSize"),
+            "marketRiskOff": market_breadth_state.get("marketRiskOff"),
+            "marketRiskOn": market_breadth_state.get("marketRiskOn"),
+            "marketRegime": market_breadth_state.get("marketRegime"),
             "weeklyBreakoutUpProb": weekly_regime.get("breakoutUpProb"),
             "weeklyBreakoutDownProb": weekly_regime.get("breakoutDownProb"),
             "weeklyRangeProb": weekly_regime.get("rangeProb"),
@@ -1747,6 +1898,7 @@ def _build_cache_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> dict[t
     daily_map: dict[str, list[tuple]] = {}
     for row in daily_rows:
         daily_map.setdefault(row[0], []).append(row[1:])
+    market_breadth_state = _calc_market_breadth_state(daily_map)
     monthly_map: dict[str, list[tuple]] = {}
     for row in monthly_rows:
         monthly_map.setdefault(row[0], []).append(row[1:])
@@ -1819,8 +1971,19 @@ def _build_cache_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> dict[t
             "candleTripletUp": candle_signals.get("candleTripletUp"),
             "candleTripletDown": candle_signals.get("candleTripletDown"),
             "shootingStarLike": candle_signals.get("shootingStarLike"),
+            "bullMarubozu": candle_signals.get("bullMarubozu"),
+            "bearMarubozu": candle_signals.get("bearMarubozu"),
             "threeWhiteSoldiers": candle_signals.get("threeWhiteSoldiers"),
+            "threeBlackCrows": candle_signals.get("threeBlackCrows"),
+            "morningStar": candle_signals.get("morningStar"),
             "bullEngulfing": candle_signals.get("bullEngulfing"),
+            "marketBreadthDate": market_breadth_state.get("marketBreadthDate"),
+            "marketBreadthDateIso": market_breadth_state.get("marketBreadthDateIso"),
+            "marketBreadthAdvRatio": market_breadth_state.get("marketBreadthAdvRatio"),
+            "marketBreadthSampleSize": market_breadth_state.get("marketBreadthSampleSize"),
+            "marketRiskOff": market_breadth_state.get("marketRiskOff"),
+            "marketRiskOn": market_breadth_state.get("marketRiskOn"),
+            "marketRegime": market_breadth_state.get("marketRegime"),
             "weeklyBreakoutUpProb": weekly_regime.get("breakoutUpProb"),
             "weeklyBreakoutDownProb": weekly_regime.get("breakoutDownProb"),
             "weeklyRangeProb": weekly_regime.get("rangeProb"),
@@ -2506,9 +2669,10 @@ def _apply_monthly_ml_mode(
         dist_ma20_signed = _first_finite(item.get("distMa20Signed"))
         trend_up_strict = bool(item.get("trendUpStrict"))
         trend_down_strict = bool(item.get("trendDownStrict"))
-        shooting_star_like = _first_finite(item.get("shootingStarLike"))
-        three_white_soldiers = _first_finite(item.get("threeWhiteSoldiers"))
-        bull_engulfing = _first_finite(item.get("bullEngulfing"))
+        candlestick_pattern_bonus, candlestick_pattern_bonus_details = _calc_candlestick_pattern_bonus(
+            item,
+            direction=direction,
+        )
         v60_strong = _first_finite(item.get("v60Strong"))
         shape_patterns = _calc_shape_pattern_flags(
             direction=direction,
@@ -2579,12 +2743,7 @@ def _apply_monthly_ml_mode(
             and monthly_range_pos <= 0.45
         )
         if direction == "up":
-            if shooting_star_like is not None and shooting_star_like >= 0.5:
-                pattern_bonus += _ENTRY_BONUS_CANDLE_PATTERN
-            if three_white_soldiers is not None and three_white_soldiers >= 0.5:
-                pattern_bonus += _ENTRY_BONUS_CANDLE_PATTERN
-            if bull_engulfing is not None and bull_engulfing >= 0.5:
-                pattern_bonus += _ENTRY_BONUS_CANDLE_PATTERN
+            pattern_bonus += candlestick_pattern_bonus
             if v60_strong is not None and v60_strong >= 0.5:
                 pattern_bonus -= _ENTRY_PENALTY_60V_STRONG
             if ma_streak_balanced:
@@ -2642,6 +2801,7 @@ def _apply_monthly_ml_mode(
         item["patternDTrapStackDownFar"] = bool(shape_patterns.get("dTrapStackDownFar"))
         item["patternDTrapOverheatMomentum"] = bool(shape_patterns.get("dTrapOverheatMomentum"))
         item["candlestickPatternBonus"] = float(pattern_bonus)
+        item["candlestickPatternBonusDetails"] = candlestick_pattern_bonus_details
         item["v60StrongPenalty"] = bool(direction == "up" and v60_strong is not None and v60_strong >= 0.5)
         item["target20Gate"] = float(target20_gate)
         item["target20GateSource"] = target20_gate_source
@@ -3340,9 +3500,10 @@ def _apply_ml_mode(
         dist_ma20_signed = _first_finite(item.get("distMa20Signed"))
         ma20_slope = _first_finite(item.get("ma20Slope"))
         ma60_slope = _first_finite(item.get("ma60Slope"))
-        shooting_star_like = _first_finite(item.get("shootingStarLike"))
-        three_white_soldiers = _first_finite(item.get("threeWhiteSoldiers"))
-        bull_engulfing = _first_finite(item.get("bullEngulfing"))
+        candle_shape_bonus, candle_shape_bonus_details = _calc_candlestick_pattern_bonus(
+            item,
+            direction=direction,
+        )
         v60_strong = _first_finite(item.get("v60Strong"))
         short_prob_gate, short_turn_gate = _resolve_short_precision_gates(risk_mode=risk_mode)
         short_prob_ok = bool(
@@ -3461,14 +3622,6 @@ def _apply_ml_mode(
             and dist_ma20_signed is not None
             and dist_ma20_signed < 0.0
         )
-        candle_shape_bonus = 0.0
-        if direction == "up":
-            if shooting_star_like is not None and shooting_star_like >= 0.5:
-                candle_shape_bonus += _ENTRY_BONUS_CANDLE_PATTERN
-            if three_white_soldiers is not None and three_white_soldiers >= 0.5:
-                candle_shape_bonus += _ENTRY_BONUS_CANDLE_PATTERN
-            if bull_engulfing is not None and bull_engulfing >= 0.5:
-                candle_shape_bonus += _ENTRY_BONUS_CANDLE_PATTERN
         bonus = 0.0
         if trend_ok:
             bonus += 0.08
@@ -3600,6 +3753,7 @@ def _apply_ml_mode(
         item["patternDTrapStackDownFar"] = bool(shape_patterns.get("dTrapStackDownFar"))
         item["patternDTrapOverheatMomentum"] = bool(shape_patterns.get("dTrapOverheatMomentum"))
         item["candlestickPatternBonus"] = float(candle_shape_bonus)
+        item["candlestickPatternBonusDetails"] = candle_shape_bonus_details
         item["v60StrongPenalty"] = bool(direction == "up" and v60_strong is not None and v60_strong >= 0.5)
         item["weeklyRegimeAligned"] = bool(
             weekly_breakout_prob is not None and weekly_breakout_prob >= 0.56

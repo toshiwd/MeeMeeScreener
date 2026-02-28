@@ -71,6 +71,10 @@ def _build_config(payload: dict) -> strategy_backtest_service.StrategyBacktestCo
         "max_new_entries_per_day",
         "max_new_entries_per_month",
         "regime_breadth_lookback_days",
+        "ma20_count20_min_long",
+        "ma20_count20_min_short",
+        "ma60_count60_min_long",
+        "ma60_count60_min_short",
     )
     float_fields = (
         "min_hedge_ratio",
@@ -84,6 +88,9 @@ def _build_config(payload: dict) -> strategy_backtest_service.StrategyBacktestCo
         "min_ml_p_up_long",
         "regime_long_min_breadth_above60",
         "regime_short_max_breadth_above60",
+        "range_bias_width_min",
+        "range_bias_long_pos_min",
+        "range_bias_short_pos_max",
     )
     bool_fields = ("require_decision_for_long", "require_ma_bull_stack_long", "use_regime_filter")
 
@@ -190,6 +197,47 @@ def handle_strategy_walkforward(job_id: str, payload: dict) -> None:
     job_manager._update_db(
         job_id,
         "strategy_walkforward",
+        "success",
+        progress=100,
+        message=message,
+        finished_at=datetime.now(),
+    )
+
+
+def handle_strategy_walkforward_gate(job_id: str, payload: dict) -> None:
+    dry_run = bool(payload.get("dry_run", False))
+    min_oos_total = _to_float(payload.get("min_oos_total_realized_unit_pnl"))
+    min_oos_pf = _to_float(payload.get("min_oos_mean_profit_factor"))
+    min_oos_pos = _to_float(payload.get("min_oos_positive_window_ratio"))
+    note = payload.get("note")
+    note_text = str(note).strip() if note is not None else None
+    if note_text == "":
+        note_text = None
+
+    job_manager._update_db(
+        job_id,
+        "strategy_walkforward_gate",
+        "running",
+        progress=10,
+        message="Evaluating walkforward gate...",
+    )
+    result = strategy_backtest_service.run_strategy_walkforward_gate(
+        min_oos_total_realized_unit_pnl=float(min_oos_total) if min_oos_total is not None else 0.0,
+        min_oos_mean_profit_factor=float(min_oos_pf) if min_oos_pf is not None else 1.05,
+        min_oos_positive_window_ratio=float(min_oos_pos) if min_oos_pos is not None else 0.40,
+        dry_run=dry_run,
+        note=note_text,
+    )
+    passed = bool(result.get("passed"))
+    source = (result.get("source") or {})
+    source_run_id = source.get("run_id")
+    message = (
+        "Walkforward gate evaluated "
+        f"(dry_run={dry_run}, passed={passed}, source_run_id={source_run_id})"
+    )
+    job_manager._update_db(
+        job_id,
+        "strategy_walkforward_gate",
         "success",
         progress=100,
         message=message,

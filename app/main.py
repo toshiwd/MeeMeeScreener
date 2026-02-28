@@ -44,7 +44,11 @@ from app.backend.core.jobs import job_manager
 from app.backend.core.ml_job import handle_ml_predict, handle_ml_train
 from app.backend.core.analysis_backfill_job import handle_analysis_backfill
 from app.backend.core.phase_batch_job import handle_phase_rebuild
-from app.backend.core.strategy_backtest_job import handle_strategy_backtest, handle_strategy_walkforward
+from app.backend.core.strategy_backtest_job import (
+    handle_strategy_backtest,
+    handle_strategy_walkforward,
+    handle_strategy_walkforward_gate,
+)
 from app.backend.core.toredex_live_job import handle_toredex_live
 from app.backend.core.toredex_self_improve_job import handle_toredex_self_improve
 from app.backend.core.txt_update_job import handle_txt_update
@@ -57,6 +61,7 @@ job_manager.register_handler("ml_predict", handle_ml_predict)
 job_manager.register_handler("analysis_backfill", handle_analysis_backfill)
 job_manager.register_handler("strategy_backtest", handle_strategy_backtest)
 job_manager.register_handler("strategy_walkforward", handle_strategy_walkforward)
+job_manager.register_handler("strategy_walkforward_gate", handle_strategy_walkforward_gate)
 job_manager.register_handler("toredex_live", handle_toredex_live)
 job_manager.register_handler("toredex_self_improve", handle_toredex_self_improve)
 

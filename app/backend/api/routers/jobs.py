@@ -254,6 +254,34 @@ def submit_txt_update(
     auto_fill_missing_history: bool = False,
     backfill_lookback_days: int = 130,
     backfill_max_missing_days: int = 260,
+    auto_walkforward_run: bool = True,
+    walkforward_run_monthly_only: bool = True,
+    walkforward_run_strict: bool = False,
+    walkforward_run_start_dt: int | None = None,
+    walkforward_run_end_dt: int | None = None,
+    walkforward_run_max_codes: int = 500,
+    walkforward_run_train_months: int = 24,
+    walkforward_run_test_months: int = 3,
+    walkforward_run_step_months: int = 12,
+    walkforward_run_min_windows: int = 1,
+    walkforward_run_allowed_sides: str = "long",
+    walkforward_run_allowed_long_setups: str = "long_breakout_p2",
+    walkforward_run_use_regime_filter: bool = True,
+    walkforward_run_min_long_score: float = 2.0,
+    walkforward_run_min_short_score: float = 99.0,
+    walkforward_run_max_new_entries_per_day: int = 1,
+    walkforward_run_regime_long_min_breadth_above60: float = 0.57,
+    walkforward_run_range_bias_width_min: float = 0.08,
+    walkforward_run_range_bias_long_pos_min: float = 0.60,
+    walkforward_run_range_bias_short_pos_max: float = 0.40,
+    walkforward_run_ma20_count20_min_long: int = 12,
+    walkforward_run_ma60_count60_min_long: int = 30,
+    auto_walkforward_gate: bool = True,
+    walkforward_gate_monthly_only: bool = True,
+    walkforward_gate_strict: bool = False,
+    walkforward_gate_min_oos_total_realized_unit_pnl: float = 0.0,
+    walkforward_gate_min_oos_mean_profit_factor: float = 1.05,
+    walkforward_gate_min_oos_positive_window_ratio: float = 0.40,
 ):
     try:
         request_payload = {
@@ -262,6 +290,42 @@ def submit_txt_update(
             "auto_fill_missing_history": bool(auto_fill_missing_history),
             "backfill_lookback_days": int(backfill_lookback_days),
             "backfill_max_missing_days": int(backfill_max_missing_days),
+            "auto_walkforward_run": bool(auto_walkforward_run),
+            "walkforward_run_monthly_only": bool(walkforward_run_monthly_only),
+            "walkforward_run_strict": bool(walkforward_run_strict),
+            "walkforward_run_start_dt": int(walkforward_run_start_dt) if walkforward_run_start_dt is not None else None,
+            "walkforward_run_end_dt": int(walkforward_run_end_dt) if walkforward_run_end_dt is not None else None,
+            "walkforward_run_max_codes": int(walkforward_run_max_codes),
+            "walkforward_run_train_months": int(walkforward_run_train_months),
+            "walkforward_run_test_months": int(walkforward_run_test_months),
+            "walkforward_run_step_months": int(walkforward_run_step_months),
+            "walkforward_run_min_windows": int(walkforward_run_min_windows),
+            "walkforward_run_allowed_sides": str(walkforward_run_allowed_sides),
+            "walkforward_run_allowed_long_setups": str(walkforward_run_allowed_long_setups),
+            "walkforward_run_use_regime_filter": bool(walkforward_run_use_regime_filter),
+            "walkforward_run_min_long_score": float(walkforward_run_min_long_score),
+            "walkforward_run_min_short_score": float(walkforward_run_min_short_score),
+            "walkforward_run_max_new_entries_per_day": int(walkforward_run_max_new_entries_per_day),
+            "walkforward_run_regime_long_min_breadth_above60": float(
+                walkforward_run_regime_long_min_breadth_above60
+            ),
+            "walkforward_run_range_bias_width_min": float(walkforward_run_range_bias_width_min),
+            "walkforward_run_range_bias_long_pos_min": float(walkforward_run_range_bias_long_pos_min),
+            "walkforward_run_range_bias_short_pos_max": float(walkforward_run_range_bias_short_pos_max),
+            "walkforward_run_ma20_count20_min_long": int(walkforward_run_ma20_count20_min_long),
+            "walkforward_run_ma60_count60_min_long": int(walkforward_run_ma60_count60_min_long),
+            "auto_walkforward_gate": bool(auto_walkforward_gate),
+            "walkforward_gate_monthly_only": bool(walkforward_gate_monthly_only),
+            "walkforward_gate_strict": bool(walkforward_gate_strict),
+            "walkforward_gate_min_oos_total_realized_unit_pnl": float(
+                walkforward_gate_min_oos_total_realized_unit_pnl
+            ),
+            "walkforward_gate_min_oos_mean_profit_factor": float(
+                walkforward_gate_min_oos_mean_profit_factor
+            ),
+            "walkforward_gate_min_oos_positive_window_ratio": float(
+                walkforward_gate_min_oos_positive_window_ratio
+            ),
         }
         return submit_txt_update_job(
             request_payload,
@@ -404,6 +468,13 @@ def submit_strategy_backtest(
     regime_breadth_lookback_days: int | None = None,
     regime_long_min_breadth_above60: float | None = None,
     regime_short_max_breadth_above60: float | None = None,
+    range_bias_width_min: float | None = None,
+    range_bias_long_pos_min: float | None = None,
+    range_bias_short_pos_max: float | None = None,
+    ma20_count20_min_long: int | None = None,
+    ma20_count20_min_short: int | None = None,
+    ma60_count60_min_long: int | None = None,
+    ma60_count60_min_short: int | None = None,
 ):
     try:
         config_payload = {
@@ -435,6 +506,13 @@ def submit_strategy_backtest(
             "regime_breadth_lookback_days": regime_breadth_lookback_days,
             "regime_long_min_breadth_above60": regime_long_min_breadth_above60,
             "regime_short_max_breadth_above60": regime_short_max_breadth_above60,
+            "range_bias_width_min": range_bias_width_min,
+            "range_bias_long_pos_min": range_bias_long_pos_min,
+            "range_bias_short_pos_max": range_bias_short_pos_max,
+            "ma20_count20_min_long": ma20_count20_min_long,
+            "ma20_count20_min_short": ma20_count20_min_short,
+            "ma60_count60_min_long": ma60_count60_min_long,
+            "ma60_count60_min_short": ma60_count60_min_short,
         }
         return _submit_job(
             "strategy_backtest",
@@ -603,6 +681,13 @@ def submit_strategy_walkforward(
     regime_breadth_lookback_days: int | None = None,
     regime_long_min_breadth_above60: float | None = None,
     regime_short_max_breadth_above60: float | None = None,
+    range_bias_width_min: float | None = None,
+    range_bias_long_pos_min: float | None = None,
+    range_bias_short_pos_max: float | None = None,
+    ma20_count20_min_long: int | None = None,
+    ma20_count20_min_short: int | None = None,
+    ma60_count60_min_long: int | None = None,
+    ma60_count60_min_short: int | None = None,
 ):
     try:
         config_payload = {
@@ -618,6 +703,13 @@ def submit_strategy_walkforward(
             "regime_breadth_lookback_days": regime_breadth_lookback_days,
             "regime_long_min_breadth_above60": regime_long_min_breadth_above60,
             "regime_short_max_breadth_above60": regime_short_max_breadth_above60,
+            "range_bias_width_min": range_bias_width_min,
+            "range_bias_long_pos_min": range_bias_long_pos_min,
+            "range_bias_short_pos_max": range_bias_short_pos_max,
+            "ma20_count20_min_long": ma20_count20_min_long,
+            "ma20_count20_min_short": ma20_count20_min_short,
+            "ma60_count60_min_long": ma60_count60_min_long,
+            "ma60_count60_min_short": ma60_count60_min_short,
         }
         return _submit_job(
             "strategy_walkforward",
@@ -644,6 +736,39 @@ def get_strategy_walkforward_latest():
         return strategy_backtest_service.get_latest_strategy_walkforward()
     except Exception as exc:
         logger.exception("Error fetching strategy walkforward status: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/jobs/strategy/walkforward/gate")
+def submit_strategy_walkforward_gate(
+    dry_run: bool = False,
+    min_oos_total_realized_unit_pnl: float = 0.0,
+    min_oos_mean_profit_factor: float = 1.05,
+    min_oos_positive_window_ratio: float = 0.40,
+    note: str | None = None,
+):
+    try:
+        return _submit_job(
+            "strategy_walkforward_gate",
+            {
+                "dry_run": dry_run,
+                "min_oos_total_realized_unit_pnl": min_oos_total_realized_unit_pnl,
+                "min_oos_mean_profit_factor": min_oos_mean_profit_factor,
+                "min_oos_positive_window_ratio": min_oos_positive_window_ratio,
+                "note": note,
+            },
+        )
+    except Exception as exc:
+        logger.exception("Error submitting strategy_walkforward_gate: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/api/jobs/strategy/walkforward/gate/latest")
+def get_strategy_walkforward_gate_latest():
+    try:
+        return strategy_backtest_service.get_latest_strategy_walkforward_gate()
+    except Exception as exc:
+        logger.exception("Error fetching strategy walkforward gate status: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 

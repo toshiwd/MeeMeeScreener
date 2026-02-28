@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-02-27",
+  "primary_signal": {
+    "decision": "reject_for_primary_signal",
+    "reason": "no_pair_passed_time_holdout"
+  },
+  "conditional_signal": {
+    "decision": "experimental_accept",
+    "rule": {
+      "regime": "risk_off",
+      "pair": "bear_marubozu+three_black_crows"
+    },
+    "evidence": {
+      "train_q_bh": 0.00022423975599549352,
+      "test_diff_ret20": 0.0106736605884485,
+      "test_diff_precision": 0.0784381769878718,
+      "test_z_precision": 1.7567496527652346,
+      "test_signal_rows": 117,
+      "test_signal_coverage": 0.0018860320786652696,
+      "test_unique_dates": 51
+    },
+    "constraints": [
+      "very_low_coverage",
+      "requires_market_regime_input",
+      "requires_bear_marubozu_feature_in_runtime"
+    ],
+    "rollout_guardrails": {
+      "max_bonus": 0.003,
+      "enable_only_when_regime_risk_off": true,
+      "monitoring": [
+        "precision_delta_20d",
+        "coverage",
+        "drawdown_by_regime"
+      ],
+      "auto_disable_if": "rolling_60d_diff_ret20<=0"
+    },
+    "runtime_verification": {
+      "as_of": 20251230,
+      "base_universe_count": 693,
+      "base_combo_hit_count": 1,
+      "ranking_limit": 200,
+      "ranking_combo_hit_count": 0,
+      "note": "combo bonus computes correctly in base universe; top-200 ranking exposure remains sparse"
+    },
+    "runtime_status": "verified_in_universe"
+  },
+  "regime_holdout": {
+    "train_selected_count": 6,
+    "test_pass_count": 3,
+    "fdr_train_selected_count": 2,
+    "fdr_test_pass_count": 1
+  }
+}

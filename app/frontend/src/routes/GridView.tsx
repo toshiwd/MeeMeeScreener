@@ -2097,6 +2097,17 @@ export default function GridView() {
     void fetchLatestWalkforward(true);
   }, [backendReady, fetchLatestWalkforward]);
 
+  const applyWalkforwardTenYearPreset = useCallback(() => {
+    setWalkforwardParams((prev) => ({
+      ...prev,
+      trainMonths: 120,
+      testMonths: 12,
+      stepMonths: 12,
+      minWindows: 1
+    }));
+    showToast("10年単位プリセットを適用しました。");
+  }, [showToast]);
+
   const handleRunWalkforward = useCallback(async () => {
     if (!backendReady || walkforwardSubmitting) return;
     setWalkforwardSubmitting(true);
@@ -2906,6 +2917,15 @@ export default function GridView() {
                             </div>
                           )}
                           <div className="popover-title" style={{ marginTop: 10 }}>検証期間設定</div>
+                          <div className="popover-input-row" style={{ marginTop: 6 }}>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={applyWalkforwardTenYearPreset}
+                            >
+                              10年単位(120/12/12)
+                            </button>
+                          </div>
                           <div className="popover-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                             <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
                               <span>学習期間(月)</span>

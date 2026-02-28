@@ -40,7 +40,7 @@ type MaLine = {
 type EventMarker = {
   time: number;
   label?: string;
-  kind?: "earnings";
+  kind?: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral";
 };
 
 type ChartWithCrosshairApi = ReturnType<typeof createChart> & {
@@ -319,6 +319,9 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       ),
       muted: pick("--theme-text-muted", resolvedTheme === "light" ? "#94a3b8" : "#64748b"),
       earnings: pick("--theme-event-earnings", "#ef4444"),
+      decisionBuy: pick("--color-pnl-up", "#ef4444"),
+      decisionSell: pick("--color-pnl-down", "#22c55e"),
+      decisionNeutral: pick("--theme-text-muted", resolvedTheme === "light" ? "#64748b" : "#94a3b8"),
       gapBandFill: pick(
         "--theme-gap-band-fill",
         resolvedTheme === "light" ? "rgba(100, 116, 139, 0.10)" : "rgba(148, 163, 184, 0.12)"
@@ -1311,7 +1314,15 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       if (typeof timeScale.timeToCoordinate === "function") {
         const colors = readChartColors();
         const markerRadius = 3;
-        const markerY = Math.max(10, height - 14);
+        const markerBaseY = Math.max(10, height - 14);
+        const earningsStackIndex = new Map<number, number>();
+        const decisionStackIndex = new Map<number, number>();
+        const candleMap = new Map<number, Candle>();
+        (candlesRef.current ?? []).forEach((candle) => {
+          if (Number.isFinite(candle.time)) {
+            candleMap.set(candle.time, candle);
+          }
+        });
         ctx.save();
         ctx.font = "9px sans-serif";
         ctx.textBaseline = "middle";
@@ -1319,9 +1330,39 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         eventMarkers.forEach((marker) => {
           const x = timeScale.timeToCoordinate(marker.time as Time);
           if (x == null || !Number.isFinite(x)) return;
+          const markerColor =
+            marker.kind === "decision-buy"
+              ? colors.decisionBuy
+              : marker.kind === "decision-sell"
+                ? colors.decisionSell
+                : marker.kind === "decision-neutral"
+                  ? colors.decisionNeutral
+                  : colors.earnings;
+          const isDecisionMarker =
+            marker.kind === "decision-buy" ||
+            marker.kind === "decision-sell" ||
+            marker.kind === "decision-neutral";
+          let markerY = markerBaseY;
+          if (isDecisionMarker && typeof series?.priceToCoordinate === "function") {
+            const candle = candleMap.get(marker.time);
+            const highY = candle ? series.priceToCoordinate(candle.high) : null;
+            if (highY != null && Number.isFinite(highY)) {
+              const stackCount = decisionStackIndex.get(marker.time) ?? 0;
+              decisionStackIndex.set(marker.time, stackCount + 1);
+              markerY = Math.max(8, highY - 10 - stackCount * 11);
+            } else {
+              const stackCount = earningsStackIndex.get(marker.time) ?? 0;
+              earningsStackIndex.set(marker.time, stackCount + 1);
+              markerY = Math.max(8, markerBaseY - stackCount * 8);
+            }
+          } else {
+            const stackCount = earningsStackIndex.get(marker.time) ?? 0;
+            earningsStackIndex.set(marker.time, stackCount + 1);
+            markerY = Math.max(8, markerBaseY - stackCount * 8);
+          }
           ctx.globalAlpha = 0.45;
-          ctx.fillStyle = colors.earnings;
-          ctx.strokeStyle = colors.earnings;
+          ctx.fillStyle = markerColor;
+          ctx.strokeStyle = markerColor;
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.arc(x, markerY, markerRadius, 0, Math.PI * 2);
@@ -1329,8 +1370,12 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           ctx.globalAlpha = 0.65;
           ctx.stroke();
           ctx.globalAlpha = 0.6;
-          ctx.fillStyle = colors.muted;
-          ctx.fillText(marker.label ?? "E", x + 6, markerY);
+          if (isDecisionMarker) {
+            // Decision markers are color-only dots placed above candles.
+          } else {
+            ctx.fillStyle = colors.muted;
+            ctx.fillText(marker.label ?? "E", x + 6, markerY);
+          }
         });
         ctx.restore();
       }

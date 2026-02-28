@@ -28,6 +28,7 @@ from app.backend.core.analysis_backfill_job import handle_analysis_backfill  # n
 from app.backend.core.strategy_backtest_job import (  # noqa: E402
     handle_strategy_backtest,
     handle_strategy_walkforward,
+    handle_strategy_walkforward_gate,
 )
 from app.backend.core.toredex_live_job import handle_toredex_live  # noqa: E402
 from app.backend.core.toredex_self_improve_job import handle_toredex_self_improve  # noqa: E402
@@ -49,6 +50,7 @@ job_manager.register_handler("ml_live_guard", handle_ml_live_guard)
 job_manager.register_handler("analysis_backfill", handle_analysis_backfill)
 job_manager.register_handler("strategy_backtest", handle_strategy_backtest)
 job_manager.register_handler("strategy_walkforward", handle_strategy_walkforward)
+job_manager.register_handler("strategy_walkforward_gate", handle_strategy_walkforward_gate)
 job_manager.register_handler("toredex_live", handle_toredex_live)
 job_manager.register_handler("toredex_self_improve", handle_toredex_self_improve)
 
