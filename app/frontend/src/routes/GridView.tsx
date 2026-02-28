@@ -56,6 +56,7 @@ import {
   type TxtUpdateStartPayload
 } from "../utils/txtUpdate";
 import { useResizeObserver } from "./grid/hooks/useResizeObserver";
+import { useTerminalJobPolling } from "./grid/hooks/useTerminalJobPolling";
 
 const GRID_GAP = 12;
 const KP_LIMIT = 24;
@@ -277,7 +278,6 @@ const toWalkforwardParams = (value: unknown): WalkforwardParams => {
 };
 
 const TERMINAL_JOB_STATUS = new Set(["success", "failed", "canceled"]);
-const ACTIVE_JOB_STATUS = new Set(["queued", "running", "cancel_requested"]);
 
 const extractErrorDetail = (err: unknown, fallback = "不明なエラー"): string => {
   if (!err || typeof err !== "object") return fallback;
@@ -439,8 +439,6 @@ export default function GridView() {
   const undoTimerRef = useRef<number | null>(null);
   const txtUpdateTerminalStatusRef = useRef<string | null>(null);
   const txtUpdateDailyFollowupRef = useRef(false);
-  const seenTerminalJobsRef = useRef<Set<string>>(new Set());
-  const terminalJobsInitializedRef = useRef(false);
   const walkforwardPresetsLoadedRef = useRef(false);
 
 
@@ -2421,64 +2419,7 @@ export default function GridView() {
     }
     showToast(`${label}が失敗しました。(${detail ?? "詳細不明"})`, action);
   }, [formatJobTypeLabel, handlePhaseRebuild, handleRunWalkforward, showToast]);
-
-  useEffect(() => {
-    if (!backendReady) return;
-    let disposed = false;
-    let timer: number | null = null;
-    const scheduleNext = (delayMs: number) => {
-      if (disposed) return;
-      if (timer !== null) {
-        window.clearTimeout(timer);
-      }
-      timer = window.setTimeout(() => {
-        void pollTerminalJobs();
-      }, delayMs);
-    };
-
-    const pollTerminalJobs = async () => {
-      let nextDelayMs = 15000;
-      try {
-        const res = await api.get("/jobs/history", { params: { limit: 20 } });
-        if (disposed) return;
-        const list = Array.isArray(res.data) ? (res.data as JobHistoryItem[]) : [];
-        const hasActiveJobs = list.some((item) => ACTIVE_JOB_STATUS.has(String(item?.status ?? "")));
-        nextDelayMs = hasActiveJobs ? 4000 : 15000;
-        const terminalItems = list.filter((item) =>
-          TERMINAL_JOB_STATUS.has(String(item?.status ?? ""))
-        );
-        if (!terminalJobsInitializedRef.current) {
-          for (const item of terminalItems) {
-            if (typeof item.id === "string" && item.id) {
-              seenTerminalJobsRef.current.add(item.id);
-            }
-          }
-          terminalJobsInitializedRef.current = true;
-          scheduleNext(nextDelayMs);
-          return;
-        }
-
-        for (const item of [...terminalItems].reverse()) {
-          const id = typeof item.id === "string" ? item.id : "";
-          if (!id) continue;
-          if (seenTerminalJobsRef.current.has(id)) continue;
-          seenTerminalJobsRef.current.add(id);
-          void notifyTerminalJob(item);
-        }
-      } catch {
-        // Keep silent; polling failures are transient.
-      }
-      scheduleNext(nextDelayMs);
-    };
-
-    void pollTerminalJobs();
-    return () => {
-      disposed = true;
-      if (timer !== null) {
-        window.clearTimeout(timer);
-      }
-    };
-  }, [backendReady, notifyTerminalJob]);
+  useTerminalJobPolling({ enabled: backendReady, onTerminalJob: notifyTerminalJob });
 
 
   return (
