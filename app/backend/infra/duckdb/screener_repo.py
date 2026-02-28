@@ -27,7 +27,8 @@ class ScreenerRepository:
         daily_limit: int,
         earnings_start: date,
         earnings_end: date,
-        rights_min_date: date
+        rights_min_date: date,
+        monthly_limit: int = 120,
     ) -> Tuple[List[str], List[Tuple], List[Tuple], List[Tuple], List[Tuple], List[Tuple]]:
         """
         Fetch all necessary data for screener generation in one go (or efficient batching).
@@ -79,13 +80,25 @@ class ScreenerRepository:
                 [daily_limit]
             ).fetchall()
 
-            # 4. Get Monthly Bars (All? Or limit? screener_engine gets all)
+            # 4. Get Monthly Bars (Windowed)
             monthly_rows = conn.execute(
                 """
                 SELECT code, month, o, h, l, c
-                FROM monthly_bars
+                FROM (
+                    SELECT
+                        code,
+                        month,
+                        o,
+                        h,
+                        l,
+                        c,
+                        ROW_NUMBER() OVER (PARTITION BY code ORDER BY month DESC) AS rn
+                    FROM monthly_bars
+                )
+                WHERE rn <= ?
                 ORDER BY code, month
-                """
+                """,
+                [monthly_limit],
             ).fetchall()
 
             # 5. Earnings (prefer upcoming; fallback to recent past)

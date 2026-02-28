@@ -55,6 +55,7 @@ import {
   isTxtUpdateConflictError,
   type TxtUpdateStartPayload
 } from "../utils/txtUpdate";
+import { useResizeObserver } from "./grid/hooks/useResizeObserver";
 
 const GRID_GAP = 12;
 const KP_LIMIT = 24;
@@ -79,26 +80,6 @@ const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalFilterSt
   conditions: [],
   boxThisMonth: false
 });
-
-function useResizeObserver() {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
-
-  useEffect(() => {
-    if (!ref.current) return;
-    const element = ref.current;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        setSize({ width, height });
-      }
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-
-  return { ref, size };
-}
 
 type HealthStatus = {
   txt_count: number;
@@ -296,6 +277,7 @@ const toWalkforwardParams = (value: unknown): WalkforwardParams => {
 };
 
 const TERMINAL_JOB_STATUS = new Set(["success", "failed", "canceled"]);
+const ACTIVE_JOB_STATUS = new Set(["queued", "running", "cancel_requested"]);
 
 const extractErrorDetail = (err: unknown, fallback = "不明なエラー"): string => {
   if (!err || typeof err !== "object") return fallback;
@@ -2443,11 +2425,25 @@ export default function GridView() {
   useEffect(() => {
     if (!backendReady) return;
     let disposed = false;
+    let timer: number | null = null;
+    const scheduleNext = (delayMs: number) => {
+      if (disposed) return;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      timer = window.setTimeout(() => {
+        void pollTerminalJobs();
+      }, delayMs);
+    };
+
     const pollTerminalJobs = async () => {
+      let nextDelayMs = 15000;
       try {
         const res = await api.get("/jobs/history", { params: { limit: 20 } });
         if (disposed) return;
         const list = Array.isArray(res.data) ? (res.data as JobHistoryItem[]) : [];
+        const hasActiveJobs = list.some((item) => ACTIVE_JOB_STATUS.has(String(item?.status ?? "")));
+        nextDelayMs = hasActiveJobs ? 4000 : 15000;
         const terminalItems = list.filter((item) =>
           TERMINAL_JOB_STATUS.has(String(item?.status ?? ""))
         );
@@ -2458,6 +2454,7 @@ export default function GridView() {
             }
           }
           terminalJobsInitializedRef.current = true;
+          scheduleNext(nextDelayMs);
           return;
         }
 
@@ -2471,15 +2468,15 @@ export default function GridView() {
       } catch {
         // Keep silent; polling failures are transient.
       }
+      scheduleNext(nextDelayMs);
     };
 
     void pollTerminalJobs();
-    const timer = window.setInterval(() => {
-      void pollTerminalJobs();
-    }, 4000);
     return () => {
       disposed = true;
-      window.clearInterval(timer);
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
     };
   }, [backendReady, notifyTerminalJob]);
 

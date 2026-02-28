@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse
 
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
@@ -807,7 +807,7 @@ def get_current_job():
 
 
 @router.get("/api/jobs/history")
-def get_job_history(limit: int = 20):
+def get_job_history(limit: int = Query(20, ge=1, le=100)):
     return job_manager.get_history(limit)
 
 

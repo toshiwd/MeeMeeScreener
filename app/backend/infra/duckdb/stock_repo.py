@@ -3,12 +3,14 @@ import duckdb
 import os
 import logging
 import math
+import time
 from threading import Lock
 from typing import List, Optional, Tuple, Any, Dict
 import json
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+_SCHEMA_CACHE_TTL_SEC = max(5, int(os.getenv("MEEMEE_SCHEMA_CACHE_TTL_SEC", "60")))
 
 class StockRepository:
     _instance = None
@@ -17,6 +19,11 @@ class StockRepository:
     def __init__(self, db_path: str):
         self._db_path = db_path
         self._conn = None
+        self._schema_cache_ttl_sec = _SCHEMA_CACHE_TTL_SEC
+        self._schema_cache_lock = Lock()
+        self._table_exists_cache: dict[str, tuple[float, bool]] = {}
+        self._column_exists_cache: dict[tuple[str, str], tuple[float, bool]] = {}
+        self._column_type_cache: dict[tuple[str, str], tuple[float, str | None]] = {}
 
     def _get_conn(self):
         # Use the default (read/write) config to match other connections.
@@ -53,6 +60,53 @@ class StockRepository:
             rows = conn.execute(query, params).fetchall()
         # Return valid sort order (ASC)
         return sorted(rows, key=lambda x: x[0])
+
+    def get_daily_bars_batch(
+        self,
+        codes: List[str],
+        limit: int = 400,
+        asof_dt: int | None = None,
+    ) -> Dict[str, List[Tuple]]:
+        unique_codes = [code for code in dict.fromkeys(str(code).strip() for code in codes) if code]
+        if not unique_codes:
+            return {}
+
+        placeholders = ",".join(["?"] * len(unique_codes))
+        query = f"""
+            SELECT code, date, o, h, l, c, v
+            FROM (
+                SELECT
+                    code,
+                    date,
+                    o,
+                    h,
+                    l,
+                    c,
+                    v,
+                    ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
+                FROM daily_bars
+                WHERE code IN ({placeholders})
+        """
+        params: List[Any] = list(unique_codes)
+        if asof_dt is not None:
+            asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+            query += " AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END"
+            params.extend([asof_dt, asof_ymd])
+        query += """
+            )
+            WHERE rn <= ?
+            ORDER BY code, date
+        """
+        params.append(limit)
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        grouped: Dict[str, List[Tuple]] = {code: [] for code in unique_codes}
+        for row in rows:
+            code = str(row[0])
+            grouped.setdefault(code, []).append(tuple(row[1:]))
+        return grouped
 
     def get_monthly_bars(
         self,
@@ -113,6 +167,107 @@ class StockRepository:
                     fallback_params,
                 ).fetchall()
         return sorted(rows, key=lambda x: x[0])
+
+    def get_monthly_bars_batch(
+        self,
+        codes: List[str],
+        limit: int = 120,
+        asof_dt: int | None = None,
+    ) -> Dict[str, List[Tuple]]:
+        unique_codes = [code for code in dict.fromkeys(str(code).strip() for code in codes) if code]
+        if not unique_codes:
+            return {}
+
+        placeholders = ",".join(["?"] * len(unique_codes))
+        query = f"""
+            SELECT code, month, o, h, l, c, v
+            FROM (
+                SELECT
+                    code,
+                    month,
+                    o,
+                    h,
+                    l,
+                    c,
+                    v,
+                    ROW_NUMBER() OVER (PARTITION BY code ORDER BY month DESC) AS rn
+                FROM monthly_bars
+                WHERE code IN ({placeholders})
+        """
+        params: List[Any] = list(unique_codes)
+        if asof_dt is not None:
+            asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+            asof_ym = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m"))
+            query += """
+                AND month <= CASE
+                    WHEN month >= 1000000000 THEN ?
+                    WHEN month >= 10000000 THEN ?
+                    ELSE ?
+                END
+            """
+            params.extend([asof_dt, asof_ymd, asof_ym])
+        query += """
+            )
+            WHERE rn <= ?
+            ORDER BY code, month
+        """
+        params.append(limit)
+
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            grouped: Dict[str, List[Tuple]] = {code: [] for code in unique_codes}
+            for row in rows:
+                code = str(row[0])
+                grouped.setdefault(code, []).append(tuple(row[1:]))
+
+            missing_codes = [code for code, code_rows in grouped.items() if not code_rows]
+            if not missing_codes:
+                return grouped
+
+            fallback_placeholders = ",".join(["?"] * len(missing_codes))
+            fallback_query = f"""
+                WITH monthly_agg AS (
+                    SELECT
+                        code,
+                        CAST(epoch(date_trunc('month', to_timestamp(date))) AS BIGINT) AS month,
+                        arg_min(o, date) AS o,
+                        max(h) AS h,
+                        min(l) AS l,
+                        arg_max(c, date) AS c,
+                        sum(v) AS v
+                    FROM daily_bars
+                    WHERE code IN ({fallback_placeholders})
+            """
+            fallback_params: List[Any] = list(missing_codes)
+            if asof_dt is not None:
+                asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                fallback_query += " AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END"
+                fallback_params.extend([asof_dt, asof_ymd])
+            fallback_query += """
+                    GROUP BY 1, 2
+                )
+                SELECT code, month, o, h, l, c, v
+                FROM (
+                    SELECT
+                        code,
+                        month,
+                        o,
+                        h,
+                        l,
+                        c,
+                        v,
+                        ROW_NUMBER() OVER (PARTITION BY code ORDER BY month DESC) AS rn
+                    FROM monthly_agg
+                )
+                WHERE rn <= ?
+                ORDER BY code, month
+            """
+            fallback_params.append(limit)
+            fallback_rows = conn.execute(fallback_query, fallback_params).fetchall()
+            for row in fallback_rows:
+                code = str(row[0])
+                grouped.setdefault(code, []).append(tuple(row[1:]))
+        return grouped
 
     def get_latest_params_for_screening(self, codes: Optional[List[str]] = None) -> List[Tuple]:
         if codes is not None and len(codes) == 0:
@@ -264,13 +419,27 @@ class StockRepository:
         return row
 
     def _table_exists(self, conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
+        now = time.monotonic()
+        with self._schema_cache_lock:
+            cached = self._table_exists_cache.get(table_name)
+        if cached and now - cached[0] <= self._schema_cache_ttl_sec:
+            return cached[1]
         row = conn.execute(
             "SELECT 1 FROM information_schema.tables WHERE table_name = ? LIMIT 1",
             [table_name],
         ).fetchone()
-        return row is not None
+        exists = row is not None
+        with self._schema_cache_lock:
+            self._table_exists_cache[table_name] = (now, exists)
+        return exists
 
     def _column_exists(self, conn: duckdb.DuckDBPyConnection, table_name: str, column_name: str) -> bool:
+        key = (table_name, column_name)
+        now = time.monotonic()
+        with self._schema_cache_lock:
+            cached = self._column_exists_cache.get(key)
+        if cached and now - cached[0] <= self._schema_cache_ttl_sec:
+            return cached[1]
         row = conn.execute(
             """
             SELECT 1
@@ -280,11 +449,20 @@ class StockRepository:
             """,
             [table_name, column_name],
         ).fetchone()
-        return row is not None
+        exists = row is not None
+        with self._schema_cache_lock:
+            self._column_exists_cache[key] = (now, exists)
+        return exists
 
     def _column_type(
         self, conn: duckdb.DuckDBPyConnection, table_name: str, column_name: str
     ) -> str | None:
+        key = (table_name, column_name)
+        now = time.monotonic()
+        with self._schema_cache_lock:
+            cached = self._column_type_cache.get(key)
+        if cached and now - cached[0] <= self._schema_cache_ttl_sec:
+            return cached[1]
         row = conn.execute(
             """
             SELECT data_type
@@ -295,9 +473,14 @@ class StockRepository:
             [table_name, column_name],
         ).fetchone()
         if not row:
+            with self._schema_cache_lock:
+                self._column_type_cache[key] = (now, None)
             return None
         value = row[0]
-        return str(value) if value is not None else None
+        column_type = str(value) if value is not None else None
+        with self._schema_cache_lock:
+            self._column_type_cache[key] = (now, column_type)
+        return column_type
 
     def _normalize_dt_key(self, value: Any) -> int | None:
         if value is None:

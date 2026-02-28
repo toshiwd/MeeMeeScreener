@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from app.backend.services.system_status import (
+    _collect_db_readiness,
     _collect_db_stats,
     _get_last_updated_timestamp,
 )
@@ -21,29 +22,30 @@ from app.core.config import (
 )
 
 router = APIRouter()
+_HEALTH_LIGHT = os.getenv("HEALTH_LIGHT", "1").lower() in {"1", "true", "yes", "on"}
 
 
 @router.get("/health")
 def health_check():
-    # Basic health check for launcher
+    # Basic health check for launcher.
     return {"status": "ok", "last_updated": _get_last_updated_timestamp()}
 
 
 @router.get("/api/health")
 def health():
+    if not _HEALTH_LIGHT:
+        return health_deep()
     now = datetime.utcnow().isoformat()
     status = get_txt_status()
-    stats = _collect_db_stats()
-    has_daily = (stats["daily_rows"] or 0) > 0
-    has_monthly = (stats["monthly_rows"] or 0) > 0
-    is_backend_ready = (
-        not stats["missing_tables"]
-        and stats["errors"] == []
-    )
-    data_initialized = has_daily or has_monthly
+    readiness = _collect_db_readiness()
+    missing_tables = readiness["missing_tables"]
+    errors = readiness["errors"]
+    ready = not missing_tables and not errors
 
-    # Empty DB is a valid first-run state. Keep app bootable and prompt data setup in UI.
-    if not is_backend_ready:
+    if not ready:
+        detail_errors = list(errors)
+        if missing_tables:
+            detail_errors.append(f"missing_tables:{','.join(missing_tables)}")
         return JSONResponse(
             status_code=503,
             content={
@@ -51,7 +53,61 @@ def health():
                 "status": "starting",
                 "ready": False,
                 "phase": "starting",
-                "message": "起動中",
+                "message": "バックエンド起動中",
+                "error_code": "BACKEND_NOT_READY",
+                "version": APP_VERSION,
+                "env": APP_ENV,
+                "time": now,
+                "retryAfterMs": 1000,
+                "missing_tables": missing_tables,
+                "txt_count": status.get("txt_count"),
+                "last_updated": status.get("last_updated"),
+                "code_txt_missing": status.get("code_txt_missing"),
+                "errors": detail_errors,
+            },
+        )
+
+    return {
+        "ok": True,
+        "status": "ok",
+        "ready": True,
+        "phase": "ready",
+        "message": "準備完了",
+        "error_code": None,
+        "version": APP_VERSION,
+        "env": APP_ENV,
+        "time": now,
+        "txt_count": status.get("txt_count"),
+        "last_updated": status.get("last_updated"),
+        "code_txt_missing": status.get("code_txt_missing"),
+        "errors": [],
+    }
+
+
+@router.get("/api/health/deep")
+def health_deep():
+    now = datetime.utcnow().isoformat()
+    status = get_txt_status()
+    stats = _collect_db_stats()
+    has_daily = (stats["daily_rows"] or 0) > 0
+    has_monthly = (stats["monthly_rows"] or 0) > 0
+    data_initialized = has_daily or has_monthly
+    is_backend_ready = (not stats["missing_tables"]) and stats["errors"] == []
+    status_label = "ok" if data_initialized else "degraded"
+    message = "準備完了" if data_initialized else "データ未初期化（空データで起動）"
+
+    if not is_backend_ready:
+        detail_errors = list(stats["errors"])
+        if stats["missing_tables"]:
+            detail_errors.append(f"missing_tables:{','.join(stats['missing_tables'])}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "status": "starting",
+                "ready": False,
+                "phase": "starting",
+                "message": "バックエンド起動中",
                 "error_code": "BACKEND_NOT_READY",
                 "version": APP_VERSION,
                 "env": APP_ENV,
@@ -61,14 +117,10 @@ def health():
                 "txt_count": status.get("txt_count"),
                 "last_updated": status.get("last_updated"),
                 "code_txt_missing": status.get("code_txt_missing"),
-                "errors": stats["errors"] + [f"missing_tables:{','.join(stats['missing_tables'])}"]
-                if stats["missing_tables"]
-                else stats["errors"],
+                "errors": detail_errors,
             },
         )
 
-    message = "準備完了" if data_initialized else "データ未初期化（空データで起動）"
-    status_label = "ok" if data_initialized else "degraded"
     return {
         "ok": True,
         "status": status_label,
@@ -79,10 +131,10 @@ def health():
         "version": APP_VERSION,
         "env": APP_ENV,
         "time": now,
-        "stats": {"tickers": stats["tickers"], "daily_rows": stats["daily_rows"], "monthly_rows": stats["monthly_rows"]},
+        "stats": stats,
         "data_initialized": data_initialized,
         "txt_count": status.get("txt_count"),
-        "code_count": stats["tickers"],
+        "code_count": stats.get("tickers"),
         "pan_out_txt_dir": resolve_pan_out_txt_dir(),
         "last_updated": status.get("last_updated"),
         "code_txt_missing": status.get("code_txt_missing"),

@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+import copy
 from threading import Lock
 from fastapi import APIRouter, Depends
 from typing import List, Any, Dict
@@ -12,6 +13,7 @@ from app.backend.api.dependencies import get_screener_repo, get_stock_repo
 from app.backend.domain.screening import metrics, ranking
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
 from app.backend.services.watchlist import load_watchlist_codes, resolve_watchlist_path, watchlist_lock
+from app.core.config import config as core_config
 from app.utils.date_utils import jst_now
 
 router = APIRouter(prefix="/api/grid", tags=["grid"])
@@ -399,11 +401,19 @@ def _maybe_trigger_missing_data_repair(covered_codes: list[str]) -> None:
 
 
 # Simple in-memory cache for screener results (to match legacy behavior of caching)
-# In production, use Redis or similar.
+# Cache key is tied to DB mtime and request window so stale data is naturally invalidated.
 _screener_cache = {
     "data": [],
-    "last_updated": None
+    "cache_key": None,
 }
+_screener_cache_lock = Lock()
+
+
+def _resolve_db_mtime() -> float | None:
+    try:
+        return os.path.getmtime(str(core_config.DB_PATH))
+    except OSError:
+        return None
 
 @router.get("/screener", response_model=List[Dict[str, Any]])
 def get_screener_rows(
@@ -413,28 +423,36 @@ def get_screener_rows(
     stock_repo: StockRepository = Depends(get_stock_repo),
 ):
     global _screener_cache
-    
-    # Check cache (1 hour expiry for example, or based on force_update)
-    now = datetime.now()
-    if not force_update and _screener_cache["data"] and _screener_cache["last_updated"]:
-        if (now - _screener_cache["last_updated"]).total_seconds() < 3600:
-             score_map = stock_repo.get_scores()
-             cache_codes = [
-                 str(item.get("code"))
-                 for item in _screener_cache["data"]
-                 if isinstance(item.get("code"), str)
-             ]
-             _maybe_trigger_missing_data_repair(cache_codes)
-             ml_map = stock_repo.get_latest_ml_pred_map(cache_codes)
-             _apply_short_scores(_screener_cache["data"], score_map)
-             _apply_ml_metrics(_screener_cache["data"], ml_map)
-             _apply_short_priority_metrics(_screener_cache["data"])
-             _apply_entry_priority_metrics(_screener_cache["data"])
-             return _screener_cache["data"]
 
     # 1. Fetch Data
     today = jst_now().date()
     window_end = today + timedelta(days=30)
+    cache_key = (
+        _resolve_db_mtime(),
+        int(limit),
+        today.isoformat(),
+        window_end.isoformat(),
+    )
+
+    if not force_update:
+        with _screener_cache_lock:
+            cached_key = _screener_cache.get("cache_key")
+            cached_data = _screener_cache.get("data") if cached_key == cache_key else None
+        if cached_data:
+            cached_results = copy.deepcopy(cached_data)
+            score_map = stock_repo.get_scores()
+            cache_codes = [
+                str(item.get("code"))
+                for item in cached_results
+                if isinstance(item.get("code"), str)
+            ]
+            _maybe_trigger_missing_data_repair(cache_codes)
+            ml_map = stock_repo.get_latest_ml_pred_map(cache_codes)
+            _apply_short_scores(cached_results, score_map)
+            _apply_ml_metrics(cached_results, ml_map)
+            _apply_short_priority_metrics(cached_results)
+            _apply_entry_priority_metrics(cached_results)
+            return cached_results
     
     (
         codes,
@@ -447,7 +465,8 @@ def get_screener_rows(
         daily_limit=limit,
         earnings_start=today,
         earnings_end=window_end,
-        rights_min_date=today
+        rights_min_date=today,
+        monthly_limit=120,
     )
     
     # 2. Process Data
@@ -528,16 +547,18 @@ def get_screener_rows(
         item["phaseN"] = phase_info["n"]
         item["phaseDt"] = phase_info["dt"]
 
-    _apply_short_scores(results, short_score_map)
-    _apply_ml_metrics(results, ml_map)
-    _apply_short_priority_metrics(results)
-    _apply_entry_priority_metrics(results)
+    response_results = copy.deepcopy(results)
+    _apply_short_scores(response_results, short_score_map)
+    _apply_ml_metrics(response_results, ml_map)
+    _apply_short_priority_metrics(response_results)
+    _apply_entry_priority_metrics(response_results)
 
-    _screener_cache["data"] = results
-    _screener_cache["last_updated"] = now
+    with _screener_cache_lock:
+        _screener_cache["data"] = copy.deepcopy(results)
+        _screener_cache["cache_key"] = cache_key
     _maybe_trigger_missing_data_repair(codes)
-    
-    return results
+
+    return response_results
 
 @router.get("/ranking", response_model=Dict[str, Any])
 def get_ranking(

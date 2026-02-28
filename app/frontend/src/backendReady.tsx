@@ -21,7 +21,7 @@ const BACKOFF_STEPS = [200, 500, 1000];
 const ERROR_THRESHOLD = 5;
 const ERROR_GRACE_MS = 60000;
 const HEALTH_TIMEOUT_MS = 5000;
-const KEEPALIVE_INTERVAL_MS = 5000;
+const KEEPALIVE_INTERVAL_MS = 15000;
 const KEEPALIVE_FAIL_THRESHOLD = 2;
 
 const getDefaultMessage = (phase: string) => {
