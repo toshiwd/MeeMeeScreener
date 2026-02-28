@@ -42,6 +42,7 @@ import DailyMemoPanel from "../components/DailyMemoPanel";
 import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from "../utils/consultCopy";
 import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
+import { useAnalysisTimeline } from "./detail/hooks/useAnalysisTimeline";
 
 
 type Timeframe = "daily" | "weekly" | "monthly";
@@ -1276,15 +1277,11 @@ export default function DetailView() {
   const analysisRequestKeyRef = useRef<string | null>(null);
   const [sellAnalysisFallback, setSellAnalysisFallback] = useState<SellAnalysisFallback | null>(null);
   const [sellAnalysisLoading, setSellAnalysisLoading] = useState(false);
-  const [analysisTimeline, setAnalysisTimeline] = useState<AnalysisTimelinePoint[]>([]);
-  const [analysisTimelineLoading, setAnalysisTimelineLoading] = useState(false);
   const lastSellAnalysisAttemptAsOfRef = useRef<number | null>(null);
   const sellAnalysisRequestKeyRef = useRef<string | null>(null);
   const phaseFallbackCacheRef = useRef<Map<string, PhaseFallback | null>>(new Map());
   const analysisFallbackCacheRef = useRef<Map<string, AnalysisFallback | null>>(new Map());
   const sellAnalysisFallbackCacheRef = useRef<Map<string, SellAnalysisFallback | null>>(new Map());
-  const analysisTimelineCacheRef = useRef<Map<string, AnalysisTimelinePoint[]>>(new Map());
-  const analysisTimelineRequestKeyRef = useRef<string | null>(null);
   const [analysisAsOfTime, setAnalysisAsOfTime] = useState<number | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const signalsRef = useRef<HTMLDivElement | null>(null);
@@ -1531,10 +1528,6 @@ export default function DetailView() {
     lastSellAnalysisAttemptAsOfRef.current = null;
     sellAnalysisRequestKeyRef.current = null;
     sellAnalysisFallbackCacheRef.current.clear();
-    setAnalysisTimeline([]);
-    setAnalysisTimelineLoading(false);
-    analysisTimelineRequestKeyRef.current = null;
-    analysisTimelineCacheRef.current.clear();
     setAnalysisAsOfTime(null);
     setDailyData([]);
   }, [code]);
@@ -2387,58 +2380,18 @@ export default function DetailView() {
     [compareDailyData]
   );
   const weeklyData = useMemo(() => buildWeekly(dailyCandles, dailyVolume), [dailyCandles, dailyVolume]);
-
-  useEffect(() => {
-    if (!backendReady) return;
-    if (!code) return;
-    if (dailyCandles.length === 0) {
-      setAnalysisTimeline([]);
-      setAnalysisTimelineLoading(false);
-      return;
-    }
-    if (!showDecisionMarkers) {
-      setAnalysisTimelineLoading(false);
-      return;
-    }
-    const requestKey = `${code}|${mainAsOf ?? ""}|${dailyCandles.length}`;
-    if (analysisTimelineCacheRef.current.has(requestKey)) {
-      setAnalysisTimeline(analysisTimelineCacheRef.current.get(requestKey) ?? []);
-      setAnalysisTimelineLoading(false);
-      return;
-    }
-    const limit = Math.min(2000, Math.max(400, dailyCandles.length || 0));
-    setAnalysisTimelineLoading(true);
-    analysisTimelineRequestKeyRef.current = requestKey;
-    const params: Record<string, string | number> = { code, limit };
-    if (mainAsOf) {
-      params.asof = mainAsOf;
-    }
-    api
-      .get("/ticker/analysis/timeline", { params, timeout: 30000 })
-      .then((res) => {
-        if (analysisTimelineRequestKeyRef.current !== requestKey) return;
-        const itemsRaw = Array.isArray(res.data?.items) ? res.data.items : [];
-        const normalized = itemsRaw
-          .map((item) => normalizeAnalysisTimelinePoint(item))
-          .filter((item): item is AnalysisTimelinePoint => item != null)
-          .sort((a, b) => {
-            const ta = normalizeTime(a.dt) ?? 0;
-            const tb = normalizeTime(b.dt) ?? 0;
-            return ta - tb;
-          });
-        analysisTimelineCacheRef.current.set(requestKey, normalized);
-        setAnalysisTimeline(normalized);
-      })
-      .catch(() => {
-        if (analysisTimelineRequestKeyRef.current !== requestKey) return;
-        analysisTimelineCacheRef.current.set(requestKey, []);
-        setAnalysisTimeline([]);
-      })
-      .finally(() => {
-        if (analysisTimelineRequestKeyRef.current !== requestKey) return;
-        setAnalysisTimelineLoading(false);
-      });
-  }, [backendReady, code, mainAsOf, dailyCandles.length, showDecisionMarkers]);
+  const {
+    timeline: analysisTimeline,
+    loading: analysisTimelineLoading,
+  } = useAnalysisTimeline<AnalysisTimelinePoint>({
+    backendReady,
+    code,
+    asOf: mainAsOf,
+    candlesLength: dailyCandles.length,
+    enabled: showDecisionMarkers,
+    normalizePoint: normalizeAnalysisTimelinePoint,
+    getSortTime: (point) => normalizeTime(point.dt),
+  });
 
   const dailyEventMarkers = useMemo(() => {
     const eventMs = parseEventDateMs(activeTicker?.eventEarningsDate);
