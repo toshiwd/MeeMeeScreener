@@ -56,6 +56,7 @@ import {
   type TxtUpdateStartPayload
 } from "../utils/txtUpdate";
 import { useResizeObserver } from "./grid/hooks/useResizeObserver";
+import GridIndicatorOverlay from "./grid/components/GridIndicatorOverlay";
 import { useTerminalJobPolling } from "./grid/hooks/useTerminalJobPolling";
 
 const GRID_GAP = 12;
@@ -73,6 +74,10 @@ const rangeOptions = [
 const gridRowOptions: Array<1 | 2 | 3 | 4 | 5 | 6> = [1, 2, 3, 4, 5, 6];
 const gridColumnOptions: Array<1 | 2 | 3 | 4> = [1, 2, 3, 4];
 const APP_VERSION_LABEL = `MeeMee v${__APP_VERSION__}`;
+const GRID_REFACTOR_FLAG_RAW = String(import.meta.env.VITE_GRID_REFACTOR ?? "1")
+  .trim()
+  .toLowerCase();
+const GRID_REFACTOR_ENABLED = ["1", "true", "yes", "on"].includes(GRID_REFACTOR_FLAG_RAW);
 
 const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalFilterState => ({
   defaultTimeframe,
@@ -278,6 +283,7 @@ const toWalkforwardParams = (value: unknown): WalkforwardParams => {
 };
 
 const TERMINAL_JOB_STATUS = new Set(["success", "failed", "canceled"]);
+const ACTIVE_JOB_STATUS = new Set(["queued", "running", "cancel_requested"]);
 
 const extractErrorDetail = (err: unknown, fallback = "不明なエラー"): string => {
   if (!err || typeof err !== "object") return fallback;
@@ -439,6 +445,8 @@ export default function GridView() {
   const undoTimerRef = useRef<number | null>(null);
   const txtUpdateTerminalStatusRef = useRef<string | null>(null);
   const txtUpdateDailyFollowupRef = useRef(false);
+  const seenTerminalJobsRef = useRef<Set<string>>(new Set());
+  const terminalJobsInitializedRef = useRef(false);
   const walkforwardPresetsLoadedRef = useRef(false);
 
 
@@ -2419,7 +2427,63 @@ export default function GridView() {
     }
     showToast(`${label}が失敗しました。(${detail ?? "詳細不明"})`, action);
   }, [formatJobTypeLabel, handlePhaseRebuild, handleRunWalkforward, showToast]);
-  useTerminalJobPolling({ enabled: backendReady, onTerminalJob: notifyTerminalJob });
+  useEffect(() => {
+    if (!backendReady || GRID_REFACTOR_ENABLED) return;
+    let disposed = false;
+    let timer: number | null = null;
+    const scheduleNext = (delayMs: number) => {
+      if (disposed) return;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      timer = window.setTimeout(() => {
+        void pollTerminalJobs();
+      }, delayMs);
+    };
+
+    const pollTerminalJobs = async () => {
+      let nextDelayMs = 15000;
+      try {
+        const res = await api.get("/jobs/history", { params: { limit: 20 } });
+        if (disposed) return;
+        const list = Array.isArray(res.data) ? (res.data as JobHistoryItem[]) : [];
+        const hasActiveJobs = list.some((entry) => ACTIVE_JOB_STATUS.has(String(entry?.status ?? "")));
+        nextDelayMs = hasActiveJobs ? 4000 : 15000;
+        const terminalItems = list.filter((entry) =>
+          TERMINAL_JOB_STATUS.has(String(entry?.status ?? ""))
+        );
+        if (!terminalJobsInitializedRef.current) {
+          for (const entry of terminalItems) {
+            if (typeof entry.id === "string" && entry.id) {
+              seenTerminalJobsRef.current.add(entry.id);
+            }
+          }
+          terminalJobsInitializedRef.current = true;
+          scheduleNext(nextDelayMs);
+          return;
+        }
+        for (const entry of [...terminalItems].reverse()) {
+          const id = typeof entry.id === "string" ? entry.id : "";
+          if (!id) continue;
+          if (seenTerminalJobsRef.current.has(id)) continue;
+          seenTerminalJobsRef.current.add(id);
+          void notifyTerminalJob(entry);
+        }
+      } catch {
+        // Keep silent; polling failures are transient.
+      }
+      scheduleNext(nextDelayMs);
+    };
+
+    void pollTerminalJobs();
+    return () => {
+      disposed = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [backendReady, notifyTerminalJob]);
+  useTerminalJobPolling({ enabled: backendReady && GRID_REFACTOR_ENABLED, onTerminalJob: notifyTerminalJob });
 
 
   return (
@@ -3672,63 +3736,13 @@ export default function GridView() {
           </div>
         )}
       </div>
-      {showIndicators && (
-        <div className="indicator-overlay" onClick={() => setShowIndicators(false)}>
-          <div className="indicator-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="indicator-header">
-              <div className="indicator-title">Indicators</div>
-              <button className="indicator-close" onClick={() => setShowIndicators(false)}>
-                Close
-              </button>
-            </div>
-            {(["daily", "weekly", "monthly"] as Timeframe[]).map((frame) => (
-              <div className="indicator-section" key={frame}>
-                <div className="indicator-subtitle">Moving Averages ({frame})</div>
-                <div className="indicator-rows">
-                  {maSettings[frame].map((setting, index) => (
-                    <div className="indicator-row" key={setting.key}>
-                      <input
-                        type="checkbox"
-                        checked={setting.visible}
-                        onChange={() => updateSetting(frame, index, { visible: !setting.visible })}
-                      />
-                      <div className="indicator-label">{setting.label}</div>
-                      <input
-                        className="indicator-input"
-                        type="number"
-                        min={1}
-                        value={setting.period}
-                        onChange={(event) =>
-                          updateSetting(frame, index, { period: Number(event.target.value) || 1 })
-                        }
-                      />
-                      <input
-                        className="indicator-input indicator-width"
-                        type="number"
-                        min={1}
-                        max={6}
-                        value={setting.lineWidth}
-                        onChange={(event) =>
-                          updateSetting(frame, index, { lineWidth: Number(event.target.value) })
-                        }
-                      />
-                      <input
-                        className="indicator-color-input"
-                        type="color"
-                        value={setting.color}
-                        onChange={(event) => updateSetting(frame, index, { color: event.target.value })}
-                      />
-                    </div>
-                  ))}
-                </div>
-                <button className="indicator-reset" onClick={() => resetSettings(frame)}>
-                  Reset {frame}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <GridIndicatorOverlay
+        isOpen={showIndicators}
+        maSettings={maSettings}
+        onClose={() => setShowIndicators(false)}
+        onUpdateSetting={updateSetting}
+        onResetSettings={resetSettings}
+      />
       <TechnicalFilterDrawer
         open={techFilterOpen}
         timeframe={techFilterDraft.defaultTimeframe}
