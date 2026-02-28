@@ -8,7 +8,6 @@ import {
   IconArrowRight,
   IconBox,
   IconCamera,
-  IconCopy,
   IconCurrencyYen,
   IconHeart,
   IconHeartFilled,
@@ -40,6 +39,7 @@ import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
 import { useAnalysisTimeline } from "./detail/hooks/useAnalysisTimeline";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
+import DetailDebugBanner from "./detail/components/DetailDebugBanner";
 import DetailIndicatorOverlay from "./detail/components/DetailIndicatorOverlay";
 import { useDetailDrawings } from "./detail/hooks/useDetailDrawings";
 
@@ -5202,60 +5202,20 @@ export default function DetailView() {
           )}
         </div>
       )}
-      {hasIssues && (
-        <div className={`detail-debug-banner ${bannerTone}`}>
-          <button
-            type="button"
-            className="detail-debug-toggle"
-            onClick={() => setDebugOpen((prev) => !prev)}
-          >
-            {`${bannerTitle}${debugSummary.length ? ` (${debugSummary.join(", ")})` : ""}`}
-          </button>
-          {debugOpen && (
-            <div className="detail-debug-panel">
-              <div className="detail-debug-header">
-                <div className="detail-debug-title">Debug Details</div>
-                <div className="detail-debug-actions">
-                  <button
-                    type="button"
-                    className="detail-debug-copy"
-                    onClick={handleCopyDebug}
-                    title="Copy"
-                    aria-label="Copy"
-                  >
-                    <IconCopy size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    className="detail-debug-info-toggle"
-                    onClick={() => setShowInfoDetails((prev) => !prev)}
-                  >
-                    {showInfoDetails ? "Info: ON" : "Info: OFF"}
-                  </button>
-                  <button
-                    type="button"
-                    className="detail-debug-close"
-                    onClick={() => setDebugOpen(false)}
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-              <div className="detail-debug-lines">
-                {debugLines.map((line, index) => (
-                  <div key={`${line}-${index}`}>{line}</div>
-                ))}
-              </div>
-              {copyFallbackText && (
-                <div className="detail-debug-fallback">
-                  <div className="detail-debug-fallback-title">Copy failed</div>
-                  <textarea readOnly value={copyFallbackText} />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      <DetailDebugBanner
+        hasIssues={hasIssues}
+        bannerTone={bannerTone}
+        bannerTitle={bannerTitle}
+        debugSummary={debugSummary}
+        debugOpen={debugOpen}
+        showInfoDetails={showInfoDetails}
+        debugLines={debugLines}
+        copyFallbackText={copyFallbackText}
+        onToggleOpen={() => setDebugOpen((prev) => !prev)}
+        onCopy={handleCopyDebug}
+        onToggleInfoDetails={() => setShowInfoDetails((prev) => !prev)}
+        onClose={() => setDebugOpen(false)}
+      />
       <DetailIndicatorOverlay
         isOpen={showIndicators}
         compareCode={compareCode}
