@@ -21,12 +21,8 @@ import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import DetailChart, {
   DetailChartHandle,
-  type DrawBox,
   type DrawTool,
-  type HorizontalLine,
-  type PriceBand,
-  type SelectedDrawingInfo,
-  type TimeZone
+  type SelectedDrawingInfo
 } from "../components/DetailChart";
 import Toast from "../components/Toast";
 import IconButton from "../components/IconButton";
@@ -44,54 +40,11 @@ import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
 import { useAnalysisTimeline } from "./detail/hooks/useAnalysisTimeline";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
+import { useDetailDrawings } from "./detail/hooks/useDetailDrawings";
 
 
 type Timeframe = "daily" | "weekly" | "monthly";
 type FocusPanel = Timeframe | null;
-
-type ChartDrawings = {
-  timeZones: TimeZone[];
-  priceBands: PriceBand[];
-  drawBoxes: DrawBox[];
-  horizontalLines: HorizontalLine[];
-};
-
-const DRAWING_STORAGE_PREFIX = "drawings:v1";
-
-const createEmptyDrawings = (): ChartDrawings => ({
-  timeZones: [],
-  priceBands: [],
-  drawBoxes: [],
-  horizontalLines: []
-});
-
-const normalizeDrawings = (value: any): ChartDrawings => {
-  if (!value || typeof value !== "object") return createEmptyDrawings();
-  return {
-    timeZones: Array.isArray(value.timeZones) ? value.timeZones : [],
-    priceBands: Array.isArray(value.priceBands) ? value.priceBands : [],
-    drawBoxes: Array.isArray(value.drawBoxes) ? value.drawBoxes : [],
-    horizontalLines: Array.isArray(value.horizontalLines) ? value.horizontalLines : []
-  };
-};
-
-const loadDrawingsFromStorage = (key: string): ChartDrawings => {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return createEmptyDrawings();
-    return normalizeDrawings(JSON.parse(raw));
-  } catch {
-    return createEmptyDrawings();
-  }
-};
-
-const saveDrawingsToStorage = (key: string, drawings: ChartDrawings) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(drawings));
-  } catch {
-    // ignore storage errors
-  }
-};
 
 type Candle = {
   time: number;
@@ -1169,7 +1122,6 @@ export default function DetailView() {
   const [showDecisionMarkers, setShowDecisionMarkers] = useState(true);
   const [activeDrawTool, setActiveDrawTool] = useState<DrawTool | null>(null);
   const [, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
-  const [drawingsByKey, setDrawingsByKey] = useState<Record<string, ChartDrawings>>({});
   const COLOR_PALETTE = ["#ef4444", "#22c55e", "#0ea5e9", "#f59e0b", "#64748b"];
   const [activeDrawColorIndex, setActiveDrawColorIndex] = useState(4);
   const activeDrawColor = COLOR_PALETTE[activeDrawColorIndex] ?? "#64748b";
@@ -1271,142 +1223,35 @@ export default function DetailView() {
   const [analysisAsOfTime, setAnalysisAsOfTime] = useState<number | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const signalsRef = useRef<HTMLDivElement | null>(null);
-  const emptyDrawingsRef = useRef<ChartDrawings>(createEmptyDrawings());
-
-  const buildDrawingKey = (symbol: string | null | undefined, timeframe: Timeframe) =>
-    symbol ? `${DRAWING_STORAGE_PREFIX}:${symbol}:${timeframe}` : null;
-
-  const dailyDrawingKey = useMemo(() => buildDrawingKey(code, "daily"), [code]);
-  const weeklyDrawingKey = useMemo(() => buildDrawingKey(code, "weekly"), [code]);
-  const monthlyDrawingKey = useMemo(() => buildDrawingKey(code, "monthly"), [code]);
-  const compareDailyDrawingKey = useMemo(() => buildDrawingKey(compareCode, "daily"), [compareCode]);
-  const compareMonthlyDrawingKey = useMemo(
-    () => buildDrawingKey(compareCode, "monthly"),
-    [compareCode]
-  );
-
-  const updateDrawings = (key: string | null, updater: (prev: ChartDrawings) => ChartDrawings) => {
-    if (!key) return;
-    setDrawingsByKey((prev) => {
-      const current = prev[key] ?? emptyDrawingsRef.current;
-      const nextValue = updater(current);
-      const next = { ...prev, [key]: nextValue };
-      saveDrawingsToStorage(key, nextValue);
-      return next;
-    });
-  };
-
-  const resolveDrawings = (key: string | null) =>
-    key ? drawingsByKey[key] ?? emptyDrawingsRef.current : emptyDrawingsRef.current;
-
-  const addTimeZone = (key: string | null) => (zone: TimeZone) =>
-    updateDrawings(key, (prev) => ({ ...prev, timeZones: [...prev.timeZones, zone] }));
-  const updateTimeZone = (key: string | null) => (index: number, zone: TimeZone) =>
-    updateDrawings(key, (prev) => {
-      const next = [...prev.timeZones];
-      if (!next[index]) return prev;
-      next[index] = zone;
-      return { ...prev, timeZones: next };
-    });
-
-  const addPriceBand = (key: string | null) => (band: PriceBand) =>
-    updateDrawings(key, (prev) => ({ ...prev, priceBands: [...prev.priceBands, band] }));
-  const updatePriceBand = (key: string | null) => (index: number, band: PriceBand) =>
-    updateDrawings(key, (prev) => {
-      const next = [...prev.priceBands];
-      if (!next[index]) return prev;
-      next[index] = band;
-      return { ...prev, priceBands: next };
-    });
-
-  const addDrawBox = (key: string | null) => (box: DrawBox) =>
-    updateDrawings(key, (prev) => ({ ...prev, drawBoxes: [...prev.drawBoxes, box] }));
-  const updateDrawBox = (key: string | null) => (index: number, box: DrawBox) =>
-    updateDrawings(key, (prev) => {
-      const next = [...prev.drawBoxes];
-      if (!next[index]) return prev;
-      next[index] = box;
-      return { ...prev, drawBoxes: next };
-    });
-
-  const addHorizontalLine = (key: string | null) => (line: HorizontalLine) =>
-    updateDrawings(key, (prev) => ({
-      ...prev,
-      horizontalLines: [...prev.horizontalLines, line]
-    }));
-  const updateHorizontalLine = (key: string | null) => (index: number, line: HorizontalLine) =>
-    updateDrawings(key, (prev) => {
-      const next = [...prev.horizontalLines];
-      if (!next[index]) return prev;
-      next[index] = line;
-      return { ...prev, horizontalLines: next };
-    });
-  const deleteTimeZone = (key: string | null) => (index: number) =>
-    updateDrawings(key, (prev) => ({
-      ...prev,
-      timeZones: prev.timeZones.filter((_, i) => i !== index)
-    }));
-  const deletePriceBand = (key: string | null) => (index: number) =>
-    updateDrawings(key, (prev) => ({
-      ...prev,
-      priceBands: prev.priceBands.filter((_, i) => i !== index)
-    }));
-  const deleteDrawBox = (key: string | null) => (index: number) =>
-    updateDrawings(key, (prev) => ({
-      ...prev,
-      drawBoxes: prev.drawBoxes.filter((_, i) => i !== index)
-    }));
-  const deleteHorizontalLine = (key: string | null) => (index: number) =>
-    updateDrawings(key, (prev) => ({
-      ...prev,
-      horizontalLines: prev.horizontalLines.filter((_, i) => i !== index)
-    }));
-
-  const resetAllDrawings = () => {
-    const keys = [
-      dailyDrawingKey,
-      weeklyDrawingKey,
-      monthlyDrawingKey,
-      compareDailyDrawingKey,
-      compareMonthlyDrawingKey
-    ].filter(Boolean) as string[];
-    if (!keys.length) return;
-    setDrawingsByKey((prev) => {
-      const next = { ...prev };
-      keys.forEach((key) => {
-        const empty = createEmptyDrawings();
-        next[key] = empty;
-        saveDrawingsToStorage(key, empty);
-      });
-      return next;
-    });
-    setSelectedDrawing(null);
-  };
-
-  useEffect(() => {
-    const keys = [
-      dailyDrawingKey,
-      weeklyDrawingKey,
-      monthlyDrawingKey,
-      compareDailyDrawingKey,
-      compareMonthlyDrawingKey
-    ].filter(Boolean) as string[];
-    if (!keys.length) return;
-    setDrawingsByKey((prev) => {
-      let next = prev;
-      let changed = false;
-      keys.forEach((key) => {
-        if (next[key]) return;
-        const loaded = loadDrawingsFromStorage(key);
-        if (!changed) {
-          next = { ...prev };
-          changed = true;
-        }
-        next[key] = loaded;
-      });
-      return changed ? next : prev;
-    });
-  }, [dailyDrawingKey, weeklyDrawingKey, monthlyDrawingKey, compareDailyDrawingKey, compareMonthlyDrawingKey]);
+  const {
+    dailyDrawingKey,
+    weeklyDrawingKey,
+    monthlyDrawingKey,
+    compareDailyDrawingKey,
+    compareMonthlyDrawingKey,
+    dailyDrawings,
+    weeklyDrawings,
+    monthlyDrawings,
+    compareDailyDrawings,
+    compareMonthlyDrawings,
+    addTimeZone,
+    updateTimeZone,
+    addPriceBand,
+    updatePriceBand,
+    addDrawBox,
+    updateDrawBox,
+    addHorizontalLine,
+    updateHorizontalLine,
+    deleteTimeZone,
+    deletePriceBand,
+    deleteDrawBox,
+    deleteHorizontalLine,
+    resetAllDrawings,
+  } = useDetailDrawings({
+    code,
+    compareCode,
+    onResetSelection: () => setSelectedDrawing(null),
+  });
 
   useEffect(() => {
     if (!displayOpen && !signalsOpen) return;
@@ -1456,12 +1301,6 @@ export default function DetailView() {
       setSelectedDrawing(null);
     }
   }, [headerMode]);
-
-  const dailyDrawings = resolveDrawings(dailyDrawingKey);
-  const weeklyDrawings = resolveDrawings(weeklyDrawingKey);
-  const monthlyDrawings = resolveDrawings(monthlyDrawingKey);
-  const compareDailyDrawings = resolveDrawings(compareDailyDrawingKey);
-  const compareMonthlyDrawings = resolveDrawings(compareMonthlyDrawingKey);
 
   useEffect(() => {
     if (compareCode) return;
