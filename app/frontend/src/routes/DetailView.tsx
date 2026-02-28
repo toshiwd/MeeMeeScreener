@@ -40,6 +40,7 @@ import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
 import { useAnalysisTimeline } from "./detail/hooks/useAnalysisTimeline";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
+import DetailIndicatorOverlay from "./detail/components/DetailIndicatorOverlay";
 import { useDetailDrawings } from "./detail/hooks/useDetailDrawings";
 
 
@@ -5255,81 +5256,16 @@ export default function DetailView() {
           )}
         </div>
       )}
-      {showIndicators && (
-        <div className="indicator-overlay" onClick={() => setShowIndicators(false)}>
-          <div className="indicator-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="indicator-header">
-              <div className="indicator-title">Indicators</div>
-              {compareCode && (
-                <div className="ma-toggle">
-                  <button
-                    type="button"
-                    className={`indicator-button${maEditMode === "main" ? " active" : ""}`}
-                    onClick={() => setMaEditMode("main")}
-                  >
-                    株式
-                  </button>
-                  <button
-                    type="button"
-                    className={`indicator-button${maEditMode === "compare" ? " active" : ""}`}
-                    onClick={() => setMaEditMode("compare")}
-                  >
-                    比較
-                  </button>
-                </div>
-              )}
-              <button className="indicator-close" onClick={() => setShowIndicators(false)}>
-                Close
-              </button>
-            </div>
-            {(["daily", "weekly", "monthly"] as Timeframe[]).map((frame) => (
-              <div className="indicator-section" key={frame}>
-                <div className="indicator-subtitle">Moving Averages ({frame})</div>
-                <div className="indicator-rows">
-                  {activeMaSettings[frame].map((setting, index) => (
-                    <div className="indicator-row" key={setting.key}>
-                      <input
-                        type="checkbox"
-                        checked={setting.visible}
-                        onChange={() => updateSetting(frame, index, { visible: !setting.visible })}
-                      />
-                      <div className="indicator-label">{setting.label}</div>
-                      <input
-                        className="indicator-input"
-                        type="number"
-                        min={1}
-                        value={setting.period}
-                        onChange={(event) =>
-                          updateSetting(frame, index, { period: Number(event.target.value) || 1 })
-                        }
-                      />
-                      <input
-                        className="indicator-input indicator-width"
-                        type="number"
-                        min={1}
-                        max={6}
-                        value={setting.lineWidth}
-                        onChange={(event) =>
-                          updateSetting(frame, index, { lineWidth: Number(event.target.value) })
-                        }
-                      />
-                      <input
-                        className="indicator-color-input"
-                        type="color"
-                        value={setting.color}
-                        onChange={(event) => updateSetting(frame, index, { color: event.target.value })}
-                      />
-                    </div>
-                  ))}
-                </div>
-                <button className="indicator-reset" onClick={() => resetSettings(frame)}>
-                  Reset {frame}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <DetailIndicatorOverlay
+        isOpen={showIndicators}
+        compareCode={compareCode}
+        maEditMode={maEditMode}
+        activeMaSettings={activeMaSettings}
+        onSetMaEditMode={setMaEditMode}
+        onUpdateSetting={updateSetting}
+        onResetSettings={resetSettings}
+        onClose={() => setShowIndicators(false)}
+      />
       <Toast
         message={toastMessage}
         onClose={() => { setToastMessage(null); setToastAction(null); }}
