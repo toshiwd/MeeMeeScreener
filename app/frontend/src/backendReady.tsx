@@ -4,6 +4,27 @@ import { api } from "./api";
 import { useStore } from "./store";
 import StartupOverlay from "./components/StartupOverlay";
 
+export type HealthReadyResponse = {
+  ok?: boolean;
+  status?: string;
+  ready?: boolean;
+  phase?: string;
+  message?: string;
+  error_code?: string | null;
+  errors?: string[];
+  retryAfterMs?: number;
+  txt_count?: number;
+  last_updated?: string | null;
+  code_txt_missing?: boolean;
+};
+
+export type HealthDeepResponse = HealthReadyResponse & {
+  code_count?: number;
+  pan_out_txt_dir?: string | null;
+  stats?: Record<string, unknown>;
+  data_initialized?: boolean;
+};
+
 type BackendReadyState = {
   ready: boolean;
   phase: string;
@@ -80,15 +101,10 @@ const useBackendReadyInternal = (): BackendReadyState => {
         timeout: HEALTH_TIMEOUT_MS,
         validateStatus: () => true
       });
-      const data = res.data as {
-        ready?: boolean;
-        phase?: string;
-        message?: string;
-        errors?: string[];
-        retryAfterMs?: number;
-      };
+      const data = res.data as HealthReadyResponse;
       const isHttpOk = res.status >= 200 && res.status < 300;
-      const isReady = data?.ready === true;
+      const hasReadyFlag = typeof data?.ready === "boolean";
+      const isReady = hasReadyFlag && data.ready === true;
       const nextPhase = data?.phase ?? (isReady ? "ready" : "starting");
       const nextMessage = data?.message ?? getDefaultMessage(nextPhase);
 
@@ -100,6 +116,13 @@ const useBackendReadyInternal = (): BackendReadyState => {
         setError(null);
         setErrorDetails(null);
         keepaliveFailRef.current = 0;
+        return;
+      }
+
+      if (isHttpOk && !hasReadyFlag) {
+        failureRef.current += 1;
+        setNotReadyState("starting", "バックエンド応答を確認中");
+        scheduleNext(data?.retryAfterMs);
         return;
       }
 
@@ -155,8 +178,9 @@ const useBackendReadyInternal = (): BackendReadyState => {
         validateStatus: () => true
       });
       const isHttpOk = res.status >= 200 && res.status < 300;
-      const data = res.data as { ready?: boolean; phase?: string; message?: string };
-      const isReady = data?.ready === true;
+      const data = res.data as HealthReadyResponse;
+      const hasReadyFlag = typeof data?.ready === "boolean";
+      const isReady = hasReadyFlag && data.ready === true;
       if (isHttpOk && isReady) {
         keepaliveFailRef.current = 0;
         return;

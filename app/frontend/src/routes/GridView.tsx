@@ -6,7 +6,11 @@ import {
 } from "react-window";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { useBackendReadyState } from "../backendReady";
+import {
+  useBackendReadyState,
+  type HealthDeepResponse,
+  type HealthReadyResponse
+} from "../backendReady";
 import type { MaSetting, SortDir, SortKey } from "../store";
 import { useStore } from "../store";
 import StockTile from "../components/StockTile";
@@ -91,7 +95,7 @@ const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalFilterSt
 
 type HealthStatus = {
   txt_count: number;
-  code_count: number;
+  code_count?: number;
   last_updated: string | null;
   code_txt_missing: boolean;
   pan_out_txt_dir?: string | null;
@@ -110,6 +114,16 @@ type TxtUpdateJobState = {
   status: string;
   message: string | null;
 };
+
+const normalizeHealthStatus = (
+  payload: HealthReadyResponse | HealthDeepResponse | null | undefined
+): HealthStatus => ({
+  txt_count: typeof payload?.txt_count === "number" ? payload.txt_count : 0,
+  code_count: typeof payload?.code_count === "number" ? payload.code_count : undefined,
+  last_updated: typeof payload?.last_updated === "string" ? payload.last_updated : null,
+  code_txt_missing: payload?.code_txt_missing === true,
+  pan_out_txt_dir: typeof payload?.pan_out_txt_dir === "string" ? payload.pan_out_txt_dir : null
+});
 
 type ToastAction = {
   label: string;
@@ -680,14 +694,33 @@ export default function GridView() {
 
   useEffect(() => {
     if (!backendReady) return;
-    api
-      .get("/health", { validateStatus: () => true })
-      .then((res) => {
-        if (res.status >= 200 && res.status < 300) {
-          setHealth(res.data as HealthStatus);
+    let canceled = false;
+    const loadHealth = async () => {
+      try {
+        const deepRes = await api.get("/api/health/deep", { validateStatus: () => true });
+        if (canceled) return;
+        if (deepRes.status >= 200 && deepRes.status < 300) {
+          setHealth(normalizeHealthStatus(deepRes.data as HealthDeepResponse));
+          return;
         }
-      })
-      .catch(() => undefined);
+      } catch {
+        // fall through to lightweight health
+      }
+      try {
+        const lightRes = await api.get("/api/health", { validateStatus: () => true });
+        if (canceled) return;
+        if (lightRes.status >= 200 && lightRes.status < 300) {
+          const lightData = lightRes.data as HealthReadyResponse;
+          setHealth((prev) => ({ ...(prev ?? normalizeHealthStatus(null)), ...normalizeHealthStatus(lightData) }));
+        }
+      } catch {
+        // keep previous health view on fetch error
+      }
+    };
+    void loadHealth();
+    return () => {
+      canceled = true;
+    };
   }, [backendReady]);
 
   useEffect(() => {
