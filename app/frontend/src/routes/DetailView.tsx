@@ -263,6 +263,27 @@ type AnalysisFallback = {
   buyStagePrecision: BuyStagePrecisionPayload | null;
   researchPrior: AnalysisResearchPrior | null;
   modelVersion: string | null;
+  decision: AnalysisDecision | null;
+};
+
+type AnalysisDecisionTone = "up" | "down" | "neutral";
+type AnalysisDecisionScenario = {
+  key: "up" | "down" | "range";
+  label: string;
+  tone: AnalysisDecisionTone;
+  score: number;
+};
+type AnalysisDecision = {
+  tone: AnalysisDecisionTone;
+  sideLabel: string | null;
+  patternLabel: string | null;
+  environmentLabel: string | null;
+  confidence: number | null;
+  buyProb: number | null;
+  sellProb: number | null;
+  neutralProb: number | null;
+  version: string | null;
+  scenarios: AnalysisDecisionScenario[];
 };
 
 type AnalysisTimelinePoint = {
@@ -508,6 +529,69 @@ const normalizeResearchPrior = (value: unknown): AnalysisResearchPrior | null =>
   const down = normalizeResearchPriorSide(payload.down);
   if (!runId && !up && !down) return null;
   return { runId, up, down };
+};
+
+const normalizeDecisionTone = (value: unknown): AnalysisDecisionTone => {
+  if (value === "up" || value === "down" || value === "neutral") return value;
+  return "neutral";
+};
+
+const normalizeAnalysisDecision = (value: unknown): AnalysisDecision | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const tone = normalizeDecisionTone(payload.tone);
+  const scenariosRaw = Array.isArray(payload.scenarios) ? payload.scenarios : [];
+  const scenarios: AnalysisDecisionScenario[] = scenariosRaw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const row = entry as Record<string, unknown>;
+      const key = row.key === "up" || row.key === "down" || row.key === "range" ? row.key : null;
+      if (!key) return null;
+      const score = toFiniteNumber(row.score);
+      if (score == null) return null;
+      return {
+        key,
+        label: typeof row.label === "string" ? row.label : key,
+        tone: normalizeDecisionTone(row.tone),
+        score: clamp(score, 0, 1)
+      };
+    })
+    .filter((entry): entry is AnalysisDecisionScenario => entry != null);
+  const fallbackScenarios: AnalysisDecisionScenario[] =
+    scenarios.length > 0
+      ? scenarios
+      : [
+          {
+            key: "up",
+            label: "上昇継続（押し目再開）",
+            tone: "up",
+            score: clamp(toFiniteNumber(payload.buyProb) ?? 0, 0, 1)
+          },
+          {
+            key: "down",
+            label: "下落継続（戻り売り優位）",
+            tone: "down",
+            score: clamp(toFiniteNumber(payload.sellProb) ?? 0, 0, 1)
+          },
+          {
+            key: "range",
+            label: "往復レンジ（上下振れ）",
+            tone: "neutral",
+            score: clamp(toFiniteNumber(payload.neutralProb) ?? 0, 0, 1)
+          }
+        ];
+  return {
+    tone,
+    sideLabel: typeof payload.sideLabel === "string" ? payload.sideLabel : null,
+    patternLabel: typeof payload.patternLabel === "string" ? payload.patternLabel : null,
+    environmentLabel: typeof payload.environmentLabel === "string" ? payload.environmentLabel : null,
+    confidence: toFiniteNumber(payload.confidence),
+    buyProb: toFiniteNumber(payload.buyProb),
+    sellProb: toFiniteNumber(payload.sellProb),
+    neutralProb: toFiniteNumber(payload.neutralProb),
+    version: typeof payload.version === "string" ? payload.version : null,
+    scenarios: fallbackScenarios.sort((a, b) => b.score - a.score)
+  };
 };
 
 const normalizeAnalysisHorizonEntry = (horizon: AnalysisHorizonKey, value: unknown): AnalysisHorizonEntry => {
@@ -1510,6 +1594,7 @@ export default function DetailView() {
         buyStagePrecision: normalizeBuyStagePrecision(source.buyStagePrecision),
         researchPrior: normalizeResearchPrior(source.researchPrior),
         modelVersion: typeof source.modelVersion === "string" ? source.modelVersion : null,
+        decision: normalizeAnalysisDecision(source.decision),
       };
     },
   });
@@ -1669,7 +1754,53 @@ export default function DetailView() {
     sellAnalysisFallback?.shortRet5 != null ||
     sellAnalysisFallback?.shortRet10 != null ||
     sellAnalysisFallback?.shortRet20 != null;
+  const analysisDecisionFromBackend = analysisFallback?.decision ?? null;
   const patternSummary = useMemo(() => {
+    if (analysisDecisionFromBackend) {
+      const scenarios = analysisDecisionFromBackend.scenarios.length
+        ? analysisDecisionFromBackend.scenarios.map((scenario) => ({
+            key: scenario.key,
+            label: scenario.label,
+            tone: scenario.tone,
+            score: clamp(scenario.score, 0, 1),
+            reasons: [] as string[],
+          }))
+        : [
+            {
+              key: "up" as const,
+              label: "上昇継続（押し目再開）",
+              tone: "up" as const,
+              score: clamp(analysisDecisionFromBackend.buyProb ?? 0, 0, 1),
+              reasons: [] as string[],
+            },
+            {
+              key: "down" as const,
+              label: "下落継続（戻り売り優位）",
+              tone: "down" as const,
+              score: clamp(analysisDecisionFromBackend.sellProb ?? 0, 0, 1),
+              reasons: [] as string[],
+            },
+            {
+              key: "range" as const,
+              label: "往復レンジ（上下振れ）",
+              tone: "neutral" as const,
+              score: clamp(analysisDecisionFromBackend.neutralProb ?? 0, 0, 1),
+              reasons: [] as string[],
+            },
+          ];
+      scenarios.sort((a, b) => b.score - a.score);
+      return {
+        environmentLabel:
+          analysisDecisionFromBackend.environmentLabel ??
+          (analysisDecisionFromBackend.tone === "up"
+            ? "上昇優位"
+            : analysisDecisionFromBackend.tone === "down"
+              ? "下落優位"
+              : "方向感拮抗"),
+        environmentTone: analysisDecisionFromBackend.tone,
+        scenarios
+      };
+    }
     return computeEnvironmentTone({
       analysisPUp,
       analysisPDown,
@@ -1682,6 +1813,7 @@ export default function DetailView() {
       sellAnalysis: sellAnalysisFallback
     });
   }, [
+    analysisDecisionFromBackend,
     analysisPUp,
     analysisPDown,
     analysisEvNet,
@@ -1706,6 +1838,20 @@ export default function DetailView() {
     sellAnalysisFallback?.trendDownStrict
   ]);
   const analysisDecision = useMemo(() => {
+    if (analysisDecisionFromBackend) {
+      const tone = analysisDecisionFromBackend.tone;
+      return {
+        tone,
+        sideLabel:
+          analysisDecisionFromBackend.sideLabel ??
+          (tone === "up" ? "買い" : tone === "down" ? "売り" : "中立"),
+        patternLabel: analysisDecisionFromBackend.patternLabel ?? "--",
+        confidence: toFiniteNumber(analysisDecisionFromBackend.confidence),
+        buyProb: toFiniteNumber(analysisDecisionFromBackend.buyProb),
+        sellProb: toFiniteNumber(analysisDecisionFromBackend.sellProb),
+        neutralProb: toFiniteNumber(analysisDecisionFromBackend.neutralProb)
+      };
+    }
     const scenarioMap = new Map(patternSummary.scenarios.map((scenario) => [scenario.key, scenario]));
     const buyScenario = scenarioMap.get("up") ?? null;
     const sellScenario = scenarioMap.get("down") ?? null;
@@ -1727,7 +1873,7 @@ export default function DetailView() {
       sellProb: sellScenario?.score ?? null,
       neutralProb: neutralScenario?.score ?? null
     };
-  }, [patternSummary.environmentTone, patternSummary.scenarios]);
+  }, [analysisDecisionFromBackend, patternSummary.environmentTone, patternSummary.scenarios]);
   const analysisGuidance = useMemo(() => {
     const buyProb = clamp(analysisDecision.buyProb ?? 0, 0, 1);
     const sellProb = clamp(analysisDecision.sellProb ?? 0, 0, 1);

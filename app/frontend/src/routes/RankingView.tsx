@@ -134,6 +134,7 @@ type RankItem = {
   patternDTrapOverheatMomentum?: boolean | null;
   mtfStrictResolved?: MtfStrictnessResolved | null;
   mtfLiquidity20d?: number | null;
+  qualityFlags?: string[] | null;
 };
 
 type RankTimeframe = "D" | "W" | "M";

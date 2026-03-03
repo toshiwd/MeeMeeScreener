@@ -16,48 +16,16 @@ if str(_backend_dir) not in sys.path:
     sys.path.insert(0, str(_backend_dir))
 
 from app.main import app  # noqa: E402
-from app.db.session import get_conn, try_get_conn  # noqa: E402
-from app.backend.services.system_status import (
-    _collect_db_stats,
-    _get_last_updated_timestamp,
-)
-from app.backend.core.force_sync_job import handle_force_sync  # noqa: E402
-from app.backend.core.phase_batch_job import handle_phase_rebuild  # noqa: E402
-from app.backend.core.ml_job import handle_ml_live_guard, handle_ml_predict, handle_ml_train  # noqa: E402
-from app.backend.core.analysis_backfill_job import handle_analysis_backfill  # noqa: E402
-from app.backend.core.strategy_backtest_job import (  # noqa: E402
-    handle_strategy_backtest,
-    handle_strategy_walkforward,
-    handle_strategy_walkforward_gate,
-)
-from app.backend.core.yahoo_daily_ingest_job import (  # noqa: E402
-    YF_DAILY_INGEST_JOB_TYPE,
-    handle_yf_daily_ingest,
-)
-from app.backend.core.toredex_live_job import handle_toredex_live  # noqa: E402
-from app.backend.core.toredex_self_improve_job import handle_toredex_self_improve  # noqa: E402
-from app.backend.core.jobs import cleanup_stale_jobs, job_manager  # noqa: E402
+from app.backend.core.jobs import cleanup_stale_jobs  # noqa: E402
 from app.backend.core.txt_update_job import (
     _load_update_state,
     _save_update_state,
-    handle_txt_update,
     run_vbs_export,
 )  # noqa: E402
 
-# Register job handlers (idempotent).
-job_manager.register_handler("force_sync", handle_force_sync)
-job_manager.register_handler("txt_update", handle_txt_update)
-job_manager.register_handler("phase_rebuild", handle_phase_rebuild)
-job_manager.register_handler("ml_train", handle_ml_train)
-job_manager.register_handler("ml_predict", handle_ml_predict)
-job_manager.register_handler("ml_live_guard", handle_ml_live_guard)
-job_manager.register_handler("analysis_backfill", handle_analysis_backfill)
-job_manager.register_handler("strategy_backtest", handle_strategy_backtest)
-job_manager.register_handler("strategy_walkforward", handle_strategy_walkforward)
-job_manager.register_handler("strategy_walkforward_gate", handle_strategy_walkforward_gate)
-job_manager.register_handler(YF_DAILY_INGEST_JOB_TYPE, handle_yf_daily_ingest)
-job_manager.register_handler("toredex_live", handle_toredex_live)
-job_manager.register_handler("toredex_self_improve", handle_toredex_self_improve)
+# Compatibility note:
+# `app.main` is the canonical app entrypoint and owns job handler registration.
+# Keep this module import-safe for legacy launcher paths without re-registering handlers.
 
 STATIC_DIR = os.path.abspath(os.getenv("STATIC_DIR") or os.path.join(os.path.dirname(__file__), "static"))
 _RESOLVED_PATHS_LOGGED = False

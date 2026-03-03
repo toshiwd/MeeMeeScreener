@@ -9,6 +9,8 @@ from typing import List, Optional, Tuple, Any, Dict
 import json
 from datetime import datetime, timezone
 
+from app.db.session import get_conn_for_path
+
 logger = logging.getLogger(__name__)
 _SCHEMA_CACHE_TTL_SEC = max(5, int(os.getenv("MEEMEE_SCHEMA_CACHE_TTL_SEC", "60")))
 
@@ -26,8 +28,8 @@ class StockRepository:
         self._column_type_cache: dict[tuple[str, str], tuple[float, str | None]] = {}
 
     def _get_conn(self):
-        # Use the default (read/write) config to match other connections.
-        return duckdb.connect(self._db_path)
+        # Use the shared retry/connect policy from app.db.session.
+        return get_conn_for_path(self._db_path, timeout_sec=2.5, read_only=False)
 
     def get_all_codes(self) -> List[str]:
         with self._get_conn() as conn:

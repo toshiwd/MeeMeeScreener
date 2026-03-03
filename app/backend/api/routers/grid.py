@@ -2,6 +2,7 @@ import logging
 import os
 import time
 import copy
+import json
 from threading import Lock
 from fastapi import APIRouter, Depends
 from typing import List, Any, Dict
@@ -604,15 +605,24 @@ def get_ranking(
     down_items = []
     
     # Config is required.
-    # We should define a minimal default config if file not found, or use ConfigRepository.
-    # Assuming default for now.
-    config = {
-        "common": {"min_daily_bars": 80},
-        "weekly": {
-             "weights": {"ma_alignment": 10}, 
-             "thresholds": {"volume_ratio": 1.5}
+    config_path = os.getenv(
+        "RANK_CONFIG_PATH",
+        os.path.join(os.path.dirname(__file__), "..", "..", "rank_config.json"),
+    )
+    config: dict[str, Any]
+    try:
+        with open(os.path.abspath(config_path), "r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        config = loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        # Minimal safe fallback when config cannot be loaded.
+        config = {
+            "common": {"min_daily_bars": 80},
+            "weekly": {
+                "weights": {"ma_alignment": 10},
+                "thresholds": {"volume_ratio": 1.5},
+            },
         }
-    }
     
     # Process
     for code in codes:

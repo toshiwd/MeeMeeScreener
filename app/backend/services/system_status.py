@@ -6,7 +6,11 @@ import logging
 from datetime import datetime
 
 from app.core.config import UPDATE_STATE_PATH
-from app.db.session import get_conn
+from app.db.session import (
+    get_connect_stats,
+    is_transient_duckdb_error,
+    try_get_conn,
+)
 
 logger = logging.getLogger(__name__)
 _REQUIRED_TABLES = [
@@ -37,9 +41,15 @@ def _collect_db_stats() -> dict:
         "position_rounds": None,
         "missing_tables": [],
         "errors": [],
+        "db_retryable": False,
+        "db_connect_stats": get_connect_stats(),
     }
     try:
-        with get_conn() as conn:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                stats["db_retryable"] = True
+                stats["errors"].append("db_unavailable")
+                return stats
             tables = _list_tables(conn)
             stats["missing_tables"] = [name for name in _REQUIRED_TABLES if name not in tables]
             if "tickers" in tables:
@@ -55,7 +65,10 @@ def _collect_db_stats() -> dict:
             if "position_rounds" in tables:
                 stats["position_rounds"] = conn.execute("SELECT COUNT(*) FROM position_rounds").fetchone()[0]
     except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            stats["db_retryable"] = True
         stats["errors"].append(str(exc))
+    stats["db_connect_stats"] = get_connect_stats()
     return stats
 
 
@@ -63,13 +76,22 @@ def _collect_db_readiness() -> dict:
     state = {
         "missing_tables": [],
         "errors": [],
+        "db_retryable": False,
+        "db_connect_stats": get_connect_stats(),
     }
     try:
-        with get_conn() as conn:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                state["db_retryable"] = True
+                state["errors"].append("db_unavailable")
+                return state
             tables = _list_tables(conn)
             state["missing_tables"] = [name for name in _REQUIRED_TABLES if name not in tables]
     except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            state["db_retryable"] = True
         state["errors"].append(str(exc))
+    state["db_connect_stats"] = get_connect_stats()
     return state
 
 

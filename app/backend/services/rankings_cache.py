@@ -14,11 +14,13 @@ from typing import Any, Literal
 import duckdb
 
 from app.core.config import config as core_config
+from app.db.session import get_conn, is_transient_duckdb_error
 from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.domain.screening.metrics import _calc_liquidity_20d
 from app.backend.services.edinet_rank_features import load_edinet_rank_features
 from app.backend.services.ml_config import load_ml_config
 from app.backend.services.ml_service import select_top_n_ml
+from app.backend.services.ranking_analysis_quality import get_latest_prob_up_gates
 from app.backend.services.yahoo_provisional import (
     get_provisional_daily_rows_from_spark,
     merge_daily_rows_with_provisional,
@@ -274,7 +276,7 @@ def _get_asof_base_cache(as_of_int: int) -> dict[tuple[RankTimeframe, RankWhich,
             _ASOF_BASE_CACHE.move_to_end(as_of_int)
             return cached
 
-    with duckdb.connect(str(core_config.DB_PATH)) as conn:
+    with get_conn() as conn:
         built = _build_cache_asof(conn, as_of_int)
 
     with _ASOF_BASE_CACHE_LOCK:
@@ -334,6 +336,21 @@ def _ensure_cache_fresh() -> None:
         needs_refresh = _cache_needs_refresh(db_mtime)
     if needs_refresh:
         refresh_cache()
+
+
+def _ensure_cache_fresh_stale_ok(*, key: tuple[RankTimeframe, RankWhich, RankDir] | None = None) -> None:
+    try:
+        _ensure_cache_fresh()
+    except Exception as exc:
+        if not is_transient_duckdb_error(exc):
+            raise
+        with _LOCK:
+            has_any_cache = bool(_CACHE)
+            has_key_cache = key is not None and _CACHE.get(key) is not None
+        if has_any_cache or has_key_cache:
+            logger.warning("rankings cache refresh skipped due to transient DB lock: %s", exc)
+            return
+        raise
 
 
 def _shift_yyyymmdd(value: int, *, days: int) -> int:
@@ -806,7 +823,7 @@ def _persist_monthly_edinet_audit(
     if tf != "M" or mode != "hybrid" or not items:
         return
     try:
-        with duckdb.connect(str(core_config.DB_PATH)) as conn:
+        with get_conn() as conn:
             _ensure_ranking_edinet_audit_table(conn)
             rows: list[tuple[Any, ...]] = []
             for index, item in enumerate(items, start=1):
@@ -1018,7 +1035,7 @@ def get_edinet_monitor(
         },
     }
     try:
-        with duckdb.connect(str(core_config.DB_PATH)) as conn:
+        with get_conn() as conn:
             if not _table_exists(conn, "ranking_edinet_audit_daily"):
                 return {
                     "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -2142,6 +2159,63 @@ def _sanitize_rank_item_for_json(item: dict) -> dict:
     return sanitized
 
 
+def _freshness_days_from_asof(as_of_value: Any, *, now_ymd: int | None = None) -> int | None:
+    as_of_ymd = _iso_date_to_int(str(as_of_value or ""))
+    if as_of_ymd is None:
+        return None
+    try:
+        base = datetime.strptime(str(as_of_ymd), "%Y%m%d")
+    except ValueError:
+        return None
+    anchor = (
+        int(now_ymd)
+        if now_ymd is not None
+        else int((datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y%m%d"))
+    )
+    try:
+        today = datetime.strptime(str(anchor), "%Y%m%d")
+    except ValueError:
+        return None
+    return max(0, int((today.date() - base.date()).days))
+
+
+def _attach_quality_flags(
+    items: list[dict],
+    *,
+    mode: RankMode,
+    direction: RankDir,
+    now_ymd: int | None = None,
+) -> list[dict]:
+    enriched: list[dict] = []
+    for base in items:
+        item = dict(base)
+        flags: list[str] = []
+        if mode != "rule":
+            prob_side = _first_finite(
+                item.get("mlPUp") if direction == "up" else item.get("mlPDown"),
+                item.get("mlPUpShort") if direction == "up" else item.get("mlPDownShort"),
+                item.get("probSide"),
+            )
+            if prob_side is None:
+                flags.append("missing_ml_prob")
+            if _first_finite(item.get("mlEv20Net"), item.get("mlEvShortNet")) is None:
+                flags.append("missing_ml_ev")
+            if not str(item.get("modelVersion") or "").strip():
+                flags.append("missing_model_version")
+        if bool(item.get("entryQualifiedByFallback")) or str(item.get("entryQualifiedFallbackStage") or "").strip():
+            flags.append("fallback_rule_applied")
+        freshness_days = _freshness_days_from_asof(item.get("asOf"), now_ymd=now_ymd)
+        if isinstance(freshness_days, int) and freshness_days >= 5:
+            flags.append("low_freshness")
+        if bool(item.get("entryQualified")) is False:
+            flags.append("entry_not_qualified")
+        if not flags:
+            flags.append("ok")
+        item["qualityFlags"] = sorted(set(flags))
+        enriched.append(item)
+    return enriched
+
+
 def _fetch_daily_rows(conn: duckdb.DuckDBPyConnection) -> list[tuple]:
     return conn.execute(
         """
@@ -2245,7 +2319,7 @@ def _fetch_names(conn: duckdb.DuckDBPyConnection) -> dict[str, str]:
 
 
 def _build_cache() -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]:
-    with duckdb.connect(str(core_config.DB_PATH)) as conn:
+    with get_conn() as conn:
         codes = [row[0] for row in conn.execute("SELECT DISTINCT code FROM daily_bars ORDER BY code").fetchall()]
         names = _fetch_names(conn)
         daily_rows = _fetch_daily_rows(conn)
@@ -3164,7 +3238,7 @@ def _apply_monthly_ml_mode(
     if anchor_asof_ymd is None:
         anchor_asof_ymd = int(datetime.now(timezone.utc).strftime("%Y%m%d"))
     try:
-        with duckdb.connect(str(core_config.DB_PATH)) as conn:
+        with get_conn() as conn:
             pred_dt = _resolve_monthly_prediction_dt(conn, items)
             if pred_dt is not None:
                 pred_map, model_version = _load_monthly_pred_map(conn, pred_dt)
@@ -3177,7 +3251,7 @@ def _apply_monthly_ml_mode(
     if pred_dt is None or not pred_map:
         _try_repair_monthly_prediction(pred_dt=pred_dt, items=items)
         try:
-            with duckdb.connect(str(core_config.DB_PATH)) as conn:
+            with get_conn() as conn:
                 pred_dt = _resolve_monthly_prediction_dt(conn, items)
                 if pred_dt is None:
                     return items[:limit], None, None
@@ -3797,7 +3871,7 @@ def _apply_ml_mode(
 ) -> tuple[list[dict], int | None, str | None]:
     daily_prob_lookup = _default_daily_prob_lookup()
     try:
-        with duckdb.connect(str(core_config.DB_PATH)) as conn:
+        with get_conn() as conn:
             pred_dt = _resolve_prediction_dt(conn, items)
             if pred_dt is None:
                 return items[:limit], None, None
@@ -3809,6 +3883,16 @@ def _apply_ml_mode(
 
     cfg = load_ml_config()
     enriched = _decorate_items_with_ml(items, pred_map, snapshot_map)
+    dynamic_up_gates = get_latest_prob_up_gates() if direction == "up" else None
+
+    def _resolve_up_gate(base_value: float) -> float:
+        if direction != "up" or not isinstance(dynamic_up_gates, dict):
+            return float(base_value)
+        dynamic = _first_finite(dynamic_up_gates.get(risk_mode))
+        if dynamic is None:
+            return float(base_value)
+        blended = 0.5 * float(base_value) + 0.5 * float(dynamic)
+        return float(max(0.0, min(1.0, blended)))
 
     def _prob_up_short(item: dict) -> float | None:
         return _first_finite(item.get("mlPUpShort"), item.get("mlPUp"))
@@ -3834,10 +3918,12 @@ def _apply_ml_mode(
         return _first_finite(item.get("mlRankDown"))
 
     if mode == "ml":
+        ml_prob_threshold = float(cfg.p_up_threshold if direction == "up" else cfg.min_prob_down)
+        ml_prob_threshold = _resolve_up_gate(ml_prob_threshold)
         selected = select_top_n_ml(
             enriched,
             top_n=int(cfg.top_n),
-            p_up_threshold=float(cfg.p_up_threshold if direction == "up" else cfg.min_prob_down),
+            p_up_threshold=ml_prob_threshold,
             direction=direction,
         )
         if direction == "up":
@@ -3866,6 +3952,7 @@ def _apply_ml_mode(
 
     sign = 1.0 if direction == "up" else -1.0
     prob_min = float(cfg.min_prob_up if direction == "up" else cfg.min_prob_down)
+    prob_min = _resolve_up_gate(prob_min)
     prob_gate = prob_min if direction == "up" else max(prob_min, _ENTRY_MIN_PROB_DOWN_STRICT)
     fallback_prob_gate = prob_gate if direction == "up" else max(prob_min, 0.52)
     rule_values = {
@@ -4735,14 +4822,20 @@ def get_rankings(
     mode: RankMode = "hybrid",
     risk_mode: RankRiskMode = "balanced",
 ) -> dict:
-    _ensure_cache_fresh()
+    cache_key = (tf, which, direction)
+    _ensure_cache_fresh_stale_ok(key=cache_key)
     with _LOCK:
-        items = _CACHE.get((tf, which, direction))
+        items = _CACHE.get(cache_key)
         last_updated = _LAST_UPDATED
     if items is None:
-        refresh_cache()
+        try:
+            refresh_cache()
+        except Exception as exc:
+            if not is_transient_duckdb_error(exc):
+                raise
+            logger.warning("rankings refresh fallback to stale cache due to lock: %s", exc)
         with _LOCK:
-            items = _CACHE.get((tf, which, direction), [])
+            items = _CACHE.get(cache_key, [])
             last_updated = _LAST_UPDATED
 
     limit = max(1, min(int(limit or 50), 200))
@@ -4780,6 +4873,11 @@ def get_rankings(
             risk_mode=risk_mode,
             items=out_items,
         )
+    out_items = _attach_quality_flags(
+        out_items,
+        mode=mode,
+        direction=direction,
+    )
     out_items = [_sanitize_rank_item_for_json(item) for item in out_items]
 
     try:
@@ -4841,8 +4939,21 @@ def get_rankings_asof(
     if as_of_int is None:
         raise ValueError("as_of must be YYYY-MM-DD or YYYYMMDD")
 
-    _ensure_cache_fresh()
-    cache = _get_asof_base_cache(as_of_int)
+    cache_key = (tf, which, direction)
+    _ensure_cache_fresh_stale_ok(key=cache_key)
+    try:
+        cache = _get_asof_base_cache(as_of_int)
+    except Exception as exc:
+        if not is_transient_duckdb_error(exc):
+            raise
+        logger.warning("asof cache build fallback due to transient DB lock: as_of=%s err=%s", as_of_int, exc)
+        with _ASOF_BASE_CACHE_LOCK:
+            cached = _ASOF_BASE_CACHE.get(as_of_int)
+            cache = cached if cached is not None else {}
+        if not cache:
+            with _LOCK:
+                fallback_items = list(_CACHE.get(cache_key, []) or [])
+            cache = {cache_key: fallback_items}
     items = cache.get((tf, which, direction), [])
     limit = max(1, min(int(limit or 50), 200))
 
@@ -4872,6 +4983,12 @@ def get_rankings_asof(
     if tf == "M" and mode == "hybrid":
         flag_applied = _is_edinet_bonus_enabled()
         out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
+    out_items = _attach_quality_flags(
+        out_items,
+        mode=mode,
+        direction=direction,
+        now_ymd=as_of_int,
+    )
 
     if pred_dt is not None:
         pred_key = pred_dt
@@ -4887,6 +5004,12 @@ def get_rankings_asof(
                 items[:limit],
                 direction=direction,
                 risk_mode=risk_mode,
+            )
+            out_items = _attach_quality_flags(
+                out_items,
+                mode="rule",
+                direction=direction,
+                now_ymd=as_of_int,
             )
 
     filtered: list[dict] = []
@@ -4939,7 +5062,7 @@ def _fetch_recent_asof_dates(
         LIMIT ?
     """
     params.append(int(max(1, lookback_days)))
-    with duckdb.connect(str(core_config.DB_PATH)) as conn:
+    with get_conn() as conn:
         rows = conn.execute(query, params).fetchall()
     return [int(row[0]) for row in rows if row and row[0] is not None]
 
@@ -4971,7 +5094,7 @@ def get_last_qualified_trace(
             cloned.pop("_db_mtime", None)
             return cloned
 
-    _ensure_cache_fresh()
+    _ensure_cache_fresh_stale_ok(key=(tf, which, direction))
     try:
         dates_desc = _fetch_recent_asof_dates(as_of_int=as_of_int, lookback_days=lookback_days)
     except Exception as exc:

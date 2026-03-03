@@ -2,12 +2,18 @@ import sys
 import os
 import threading
 import time
+import subprocess
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 _LOGGED_RESOLVED_PATHS = False
+_PROCESS_LOCK_STATE_LOCK = threading.Lock()
+_PROCESS_LOCK_OWNED = False
+_PROCESS_LOCK_REFCOUNT = 0
+_PROCESS_LOCK_PATH: str | None = None
 
 
 def _rankings_warmup_delay_sec() -> float:
@@ -29,6 +35,95 @@ def _refresh_rankings_cache_async() -> None:
     except Exception as exc:
         print(f"[main] Rankings cache refresh failed: {exc}")
 
+
+def _process_lock_enabled() -> bool:
+    raw = os.getenv("MEEMEE_PROCESS_LOCK_ENABLED", "1")
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_pid_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            cmd = f'tasklist /fi "PID eq {pid}" /fo csv /nh'
+            out = subprocess.check_output(cmd, shell=True).decode("cp932", errors="ignore")
+            return str(pid) in out and "No tasks are running" not in out
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _acquire_process_lock() -> tuple[str | None, bool]:
+    from app.core.config import config as core_config
+
+    global _PROCESS_LOCK_OWNED, _PROCESS_LOCK_REFCOUNT, _PROCESS_LOCK_PATH
+    if not _process_lock_enabled():
+        return None, False
+
+    lock_path = str(core_config.LOCK_FILE_PATH)
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    current_pid = os.getpid()
+
+    with _PROCESS_LOCK_STATE_LOCK:
+        if _PROCESS_LOCK_OWNED:
+            _PROCESS_LOCK_REFCOUNT += 1
+            return _PROCESS_LOCK_PATH, True
+
+        if os.path.exists(lock_path):
+            stale = True
+            try:
+                with open(lock_path, "r", encoding="utf-8") as handle:
+                    text = handle.read().strip()
+                existing_pid = int(text) if text.isdigit() else -1
+                if existing_pid > 0 and existing_pid != current_pid and _is_pid_running(existing_pid):
+                    raise RuntimeError(f"another backend process is running (PID={existing_pid})")
+                if existing_pid == current_pid:
+                    stale = False
+            except RuntimeError:
+                raise
+            except Exception:
+                stale = True
+            if stale:
+                try:
+                    os.remove(lock_path)
+                except Exception:
+                    pass
+
+        if not os.path.exists(lock_path):
+            with open(lock_path, "w", encoding="utf-8") as handle:
+                handle.write(str(current_pid))
+                handle.flush()
+                os.fsync(handle.fileno())
+
+        _PROCESS_LOCK_OWNED = True
+        _PROCESS_LOCK_REFCOUNT = 1
+        _PROCESS_LOCK_PATH = lock_path
+        return lock_path, True
+
+
+def _release_process_lock(lock_path: str | None, acquired: bool) -> None:
+    global _PROCESS_LOCK_OWNED, _PROCESS_LOCK_REFCOUNT, _PROCESS_LOCK_PATH
+    if not acquired:
+        return
+    with _PROCESS_LOCK_STATE_LOCK:
+        if not _PROCESS_LOCK_OWNED:
+            return
+        _PROCESS_LOCK_REFCOUNT = max(0, int(_PROCESS_LOCK_REFCOUNT) - 1)
+        if _PROCESS_LOCK_REFCOUNT > 0:
+            return
+        _PROCESS_LOCK_OWNED = False
+        _PROCESS_LOCK_PATH = None
+        try:
+            if lock_path and os.path.exists(lock_path):
+                os.remove(lock_path)
+        except Exception:
+            pass
+
 # Add project root to sys.path
 sys.path.insert(0, os.getcwd())
 
@@ -48,12 +143,13 @@ from app.backend.api.routers import (
     favorites,
     market,
     memo,
+    quality,
 )
 from app.backend.api import watchlist_routes
 from app.backend.api.routers import rankings
 from app.backend.core.force_sync_job import handle_force_sync
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
-from app.backend.core.ml_job import handle_ml_predict, handle_ml_train
+from app.backend.core.ml_job import handle_ml_live_guard, handle_ml_predict, handle_ml_train
 from app.backend.core.analysis_backfill_job import handle_analysis_backfill
 from app.backend.core.phase_batch_job import handle_phase_rebuild
 from app.backend.core.strategy_backtest_job import (
@@ -67,26 +163,37 @@ from app.backend.core.yahoo_daily_ingest_job import (
     start_yf_daily_ingest_scheduler,
     stop_yf_daily_ingest_scheduler,
 )
+from app.backend.core.ranking_quality_job import (
+    RANKING_ANALYSIS_QUALITY_JOB_TYPE,
+    handle_ranking_analysis_quality,
+    start_ranking_analysis_quality_scheduler,
+    stop_ranking_analysis_quality_scheduler,
+)
 from app.backend.core.toredex_live_job import handle_toredex_live
 from app.backend.core.toredex_self_improve_job import handle_toredex_self_improve
 from app.backend.core.txt_update_job import handle_txt_update
+from app.db.session import get_connect_stats, is_transient_duckdb_error
 
 job_manager.register_handler("force_sync", handle_force_sync)
 job_manager.register_handler("txt_update", handle_txt_update)
 job_manager.register_handler("phase_rebuild", handle_phase_rebuild)
 job_manager.register_handler("ml_train", handle_ml_train)
 job_manager.register_handler("ml_predict", handle_ml_predict)
+job_manager.register_handler("ml_live_guard", handle_ml_live_guard)
 job_manager.register_handler("analysis_backfill", handle_analysis_backfill)
 job_manager.register_handler("strategy_backtest", handle_strategy_backtest)
 job_manager.register_handler("strategy_walkforward", handle_strategy_walkforward)
 job_manager.register_handler("strategy_walkforward_gate", handle_strategy_walkforward_gate)
 job_manager.register_handler(YF_DAILY_INGEST_JOB_TYPE, handle_yf_daily_ingest)
+job_manager.register_handler(RANKING_ANALYSIS_QUALITY_JOB_TYPE, handle_ranking_analysis_quality)
 job_manager.register_handler("toredex_live", handle_toredex_live)
 job_manager.register_handler("toredex_self_improve", handle_toredex_self_improve)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _LOGGED_RESOLVED_PATHS
+    lock_path = None
+    lock_acquired = False
     # Startup: Initialize Infra
     print("[Main] Initializing Resources...")
     # Determine data directory from env first; fall back to config if unset.
@@ -114,21 +221,27 @@ async def lifespan(app: FastAPI):
                 f" auto_update_enabled={auto_update_enabled}"
             )
     
-    init_resources(data_dir)
-    # Ensure jobs left by a previous backend process are finalized on boot.
-    cleanup_stale_jobs()
-    print("[Main] Resources Initialized.")
-    # Warm cache in background so /health is not blocked by heavy or locked DB work.
-    threading.Thread(
-        target=_refresh_rankings_cache_async,
-        name="rankings-cache-warmup",
-        daemon=True,
-    ).start()
-    start_yf_daily_ingest_scheduler()
-    yield
-    # Shutdown
-    stop_yf_daily_ingest_scheduler(timeout_sec=1.0)
-    print("[Main] Shutting down.")
+    lock_path, lock_acquired = _acquire_process_lock()
+    try:
+        init_resources(data_dir)
+        # Ensure jobs left by a previous backend process are finalized on boot.
+        cleanup_stale_jobs()
+        print("[Main] Resources Initialized.")
+        # Warm cache in background so /health is not blocked by heavy or locked DB work.
+        threading.Thread(
+            target=_refresh_rankings_cache_async,
+            name="rankings-cache-warmup",
+            daemon=True,
+        ).start()
+        start_yf_daily_ingest_scheduler()
+        start_ranking_analysis_quality_scheduler()
+        yield
+    finally:
+        # Shutdown
+        stop_ranking_analysis_quality_scheduler(timeout_sec=1.0)
+        stop_yf_daily_ingest_scheduler(timeout_sec=1.0)
+        _release_process_lock(lock_path, lock_acquired)
+        print("[Main] Shutting down.")
 
 def create_app() -> FastAPI:
     app = FastAPI(title="MeeMee Screener (Clean Architecture)", lifespan=lifespan)
@@ -142,6 +255,22 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def transient_duckdb_guard(request, call_next):
+        try:
+            return await call_next(request)
+        except Exception as exc:
+            if not is_transient_duckdb_error(exc):
+                raise
+            payload = {
+                "error": "db_unavailable",
+                "retryable": True,
+                "message": "Database is temporarily unavailable",
+                "path": str(getattr(request, "url", "")),
+                "db_connect_stats": get_connect_stats(),
+            }
+            return JSONResponse(status_code=503, content=payload, headers={"Retry-After": "1"})
 
     # Routes
     app.include_router(bars.router)
@@ -157,6 +286,7 @@ def create_app() -> FastAPI:
     app.include_router(favorites.router)
     app.include_router(market.router)
     app.include_router(memo.router)
+    app.include_router(quality.router)
     app.include_router(rankings.router)
     app.include_router(watchlist_routes.router)
     app.include_router(spa.router)

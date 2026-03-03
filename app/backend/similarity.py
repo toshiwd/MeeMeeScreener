@@ -10,6 +10,7 @@ import pickle
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Literal, Any, TYPE_CHECKING
 from dataclasses import dataclass
+from app.db.session import get_conn_for_path
 
 try:
     import pandas as pd
@@ -283,7 +284,7 @@ class SimilarityService:
                 print(f"Incremental refresh fallback to full: {exc}")
                 incremental = False
 
-        with duckdb.connect(self.db_path) as conn:
+        with get_conn_for_path(self.db_path, timeout_sec=2.5, read_only=False) as conn:
             if incremental:
                 db_max = conn.execute(
                     "SELECT code, MAX(month) AS max_month FROM monthly_bars GROUP BY code"

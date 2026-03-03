@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body
 from fastapi.responses import JSONResponse
 
 from app.db.schema import _get_practice_conn
-from app.db.session import get_conn
+from app.db.session import is_transient_duckdb_error, try_get_conn
 
 router = APIRouter()
 
@@ -54,6 +54,17 @@ def _resolve_practice_start_date(session_id: str | None, start_date: int | str |
     if not row:
         return None
     return _parse_practice_date(row["start_date"])
+
+
+def _db_retryable_response(*, error_detail: str | None = None) -> JSONResponse:
+    payload: dict[str, object] = {
+        "error": "db_unavailable",
+        "retryable": True,
+        "message": "Database is temporarily unavailable",
+    }
+    if error_detail:
+        payload["error_detail"] = error_detail
+    return JSONResponse(status_code=503, content=payload, headers={"Retry-After": "1"})
 
 
 @router.get("/api/practice/session")
@@ -323,11 +334,18 @@ def practice_daily(code: str, limit: int = 400, session_id: str | None = None, s
         params.append(int(resolved.strftime("%Y%m%d")))
     params.append(limit)
 
-    with get_conn() as conn:
-        try:
-            rows = conn.execute(query_with_ma.format(date_filter=date_filter), params).fetchall()
-        except Exception:
-            rows = conn.execute(query_basic.format(date_filter=date_filter), params).fetchall()
+    try:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
+            try:
+                rows = conn.execute(query_with_ma.format(date_filter=date_filter), params).fetchall()
+            except Exception:
+                rows = conn.execute(query_basic.format(date_filter=date_filter), params).fetchall()
+    except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return _db_retryable_response(error_detail=str(exc))
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
     return JSONResponse(content={"data": rows, "errors": []})
 
@@ -348,7 +366,9 @@ def practice_monthly(
     params: list = [code]
     month_value = None
     try:
-        with get_conn() as conn:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
             if resolved:
                 max_month = conn.execute(
                     "SELECT MAX(month) FROM monthly_bars WHERE code = ?",
@@ -385,5 +405,7 @@ def practice_monthly(
             ).fetchall()
         return JSONResponse(content={"data": rows, "errors": errors})
     except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return _db_retryable_response(error_detail=str(exc))
         errors.append(f"monthly_query_failed:{exc}")
         return JSONResponse(content={"data": [], "errors": errors})

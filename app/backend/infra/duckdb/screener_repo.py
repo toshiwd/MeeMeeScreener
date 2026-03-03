@@ -6,14 +6,15 @@ import pandas as pd
 
 import duckdb
 from app.backend.core.text_encoding import repair_cp932_mojibake
+from app.db.session import get_conn_for_path
 
 class ScreenerRepository:
     def __init__(self, db_path: str):
         self.db_path = db_path
 
     def _get_conn(self):
-        # Use the default (read/write) config to match other connections.
-        return duckdb.connect(self.db_path)
+        # Use the shared retry/connect policy from app.db.session.
+        return get_conn_for_path(self.db_path, timeout_sec=2.5, read_only=False)
 
     def _table_exists(self, conn: duckdb.DuckDBPyConnection, name: str) -> bool:
         row = conn.execute(

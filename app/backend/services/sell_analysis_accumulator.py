@@ -5,7 +5,7 @@ from typing import Any
 
 import duckdb
 
-from app.core.config import config as core_config
+from app.db.session import get_conn
 
 
 logger = logging.getLogger(__name__)
@@ -379,7 +379,7 @@ def _upsert_snapshot_for_date(conn: duckdb.DuckDBPyConnection, dt: int) -> int:
 
 
 def accumulate_sell_analysis(*, lookback_days: int = 1, anchor_dt: int | None = None) -> dict[str, Any]:
-    with duckdb.connect(str(core_config.DB_PATH)) as conn:
+    with get_conn() as conn:
         _ensure_table(conn)
         target_dates = _resolve_target_dates(
             conn,
@@ -405,7 +405,7 @@ def accumulate_sell_analysis(*, lookback_days: int = 1, anchor_dt: int | None = 
 
 def accumulate_sell_analysis_for_dates(*, target_dates: list[int]) -> dict[str, Any]:
     values = sorted({int(value) for value in target_dates if value is not None})
-    with duckdb.connect(str(core_config.DB_PATH)) as conn:
+    with get_conn() as conn:
         _ensure_table(conn)
         if not values:
             return {

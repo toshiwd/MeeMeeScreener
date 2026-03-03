@@ -14,6 +14,7 @@ from app.backend.api.dependencies import get_stock_repo
 from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.domain.screening import ranking
 from app.backend.services import rankings_cache
+from app.backend.services.analysis_decision import build_analysis_decision
 from app.backend.services.yahoo_provisional import (
     get_provisional_daily_row_from_chart,
     merge_daily_rows_with_provisional,
@@ -147,6 +148,21 @@ def _to_int_or_none(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed
+
+
+def _build_sell_context_from_row(row: tuple[Any, ...] | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+    return {
+        "pDown": _to_float_or_none(row[3]) if len(row) > 3 else None,
+        "pTurnDown": _to_float_or_none(row[4]) if len(row) > 4 else None,
+        "shortScore": _to_float_or_none(row[11]) if len(row) > 11 else None,
+        "distMa20Signed": _to_float_or_none(row[18]) if len(row) > 18 else None,
+        "ma20Slope": _to_float_or_none(row[16]) if len(row) > 16 else None,
+        "ma60Slope": _to_float_or_none(row[17]) if len(row) > 17 else None,
+        "trendDown": bool(row[20]) if len(row) > 20 and row[20] is not None else None,
+        "trendDownStrict": bool(row[21]) if len(row) > 21 and row[21] is not None else None,
+    }
 
 
 def _build_research_prior_summary(code: str) -> Dict[str, Any] | None:
@@ -829,6 +845,26 @@ def get_analysis_pred(
     except Exception:
         buy_stage_precision = None
     research_prior = _build_research_prior_summary(code)
+    sell_context = None
+    try:
+        sell_context = _build_sell_context_from_row(repo.get_sell_analysis_snapshot(code, asof_dt))
+    except Exception:
+        sell_context = None
+    decision = build_analysis_decision(
+        analysis_p_up=p_up,
+        analysis_p_down=p_down,
+        analysis_p_turn_up=p_turn_up,
+        analysis_p_turn_down=p_turn_down,
+        analysis_ev_net=ev20_net,
+        playbook_up_score_bonus=_to_float_or_none((entry_policy or {}).get("up", {}).get("playbookScoreBonus"))
+        if isinstance(entry_policy, dict)
+        else None,
+        playbook_down_score_bonus=_to_float_or_none((entry_policy or {}).get("down", {}).get("playbookScoreBonus"))
+        if isinstance(entry_policy, dict)
+        else None,
+        additive_signals=additive_signals if isinstance(additive_signals, dict) else None,
+        sell_analysis=sell_context if isinstance(sell_context, dict) else None,
+    )
     return {
         "item": {
             "dt": row[0],
@@ -847,6 +883,7 @@ def get_analysis_pred(
             "buyStagePrecision": buy_stage_precision,
             "researchPrior": research_prior,
             "modelVersion": str(model_version) if model_version is not None else None,
+            "decision": decision,
         }
     }
 

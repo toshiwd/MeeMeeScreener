@@ -10,6 +10,7 @@ import duckdb
 from fastapi import APIRouter, Query
 
 from app.backend.core.config import config
+from app.db.session import try_get_conn_for_path
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 logger = logging.getLogger(__name__)
@@ -128,7 +129,10 @@ def _build_heatmap_diagnostics(period: str) -> dict[str, Any]:
     if not offset:
         return diagnostics
     try:
-        with duckdb.connect(db_path) as conn:
+        with try_get_conn_for_path(db_path, timeout_sec=0.8, read_only=True) as conn:
+            if conn is None:
+                logger.warning("heatmap diagnostics skipped: db unavailable")
+                return diagnostics
             diagnostics["industry_master_present"] = _has_industry_master(conn)
             diagnostics["industry_master_rows"] = _get_table_count(conn, "industry_master")
             table_info = _resolve_price_table(conn)
@@ -146,7 +150,10 @@ def _fetch_heatmap(period: str) -> list[dict[str, Any]] | None:
     if not offset:
         return None
     try:
-        with duckdb.connect(db_path) as conn:
+        with try_get_conn_for_path(db_path, timeout_sec=0.8, read_only=True) as conn:
+            if conn is None:
+                logger.warning("heatmap fetch skipped: db unavailable")
+                return None
             if not _has_industry_master(conn):
                 logger.warning("industry_master missing or empty; returning fallback heatmap")
                 return None
@@ -219,7 +226,10 @@ def _fetch_heatmap_timeline(period: str, limit: int) -> list[dict[str, Any]] | N
         return None
     safe_limit = max(1, min(int(limit or 0), 400))
     try:
-        with duckdb.connect(db_path) as conn:
+        with try_get_conn_for_path(db_path, timeout_sec=0.8, read_only=True) as conn:
+            if conn is None:
+                logger.warning("heatmap timeline skipped: db unavailable")
+                return None
             if not _has_industry_master(conn):
                 logger.warning("industry_master missing or empty; returning fallback heatmap timeline")
                 return None

@@ -98,6 +98,8 @@ def health():
         retry_after_ms=None if ready else 1000,
         extra={
             "missing_tables": missing_tables,
+            "db_retryable": bool(readiness.get("db_retryable")),
+            "db_connect_stats": readiness.get("db_connect_stats"),
             "txt_count": txt_status.get("txt_count"),
             "last_updated": txt_status.get("last_updated"),
             "code_txt_missing": txt_status.get("code_txt_missing"),
@@ -170,4 +172,6 @@ def diagnostics():
         "trade_csv_dir_env": os.getenv("TRADE_CSV_DIR"),
         "trade_csv_paths": [path for path in resolve_trade_csv_paths() if os.path.isfile(path)],
         "stats": stats,
+        "db_retryable": bool(stats.get("db_retryable")),
+        "db_connect_stats": stats.get("db_connect_stats"),
     }

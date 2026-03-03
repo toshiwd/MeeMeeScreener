@@ -578,6 +578,31 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ranking_analysis_quality_daily (
+            as_of_ymd INTEGER,
+            scope TEXT,
+            precision_top30_20d DOUBLE,
+            avg_ret20_net DOUBLE,
+            ece DOUBLE,
+            samples INTEGER,
+            decision_match_rate DOUBLE,
+            decision_match_samples INTEGER,
+            rolling_precision_delta_pt DOUBLE,
+            rolling_avg_ret_delta DOUBLE,
+            rolling_target_met BOOLEAN,
+            up_gate_defensive DOUBLE,
+            up_gate_balanced DOUBLE,
+            up_gate_aggressive DOUBLE,
+            table_health_json TEXT,
+            alerts_json TEXT,
+            computed_at TIMESTAMP,
+            updated_at TIMESTAMP,
+            PRIMARY KEY(as_of_ymd, scope)
+        );
+        """
+    )
 
     # Trade history / positions (used by /api/trades and Positions UI).
     # Keep schemas compatible with legacy inserts from `app.backend.import_positions`.
@@ -653,16 +678,11 @@ def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
 
 
 def init_schema() -> None:
-    import duckdb
+    # Lazy import to avoid module import cycle (`session` imports `schema`).
+    from app.db.session import get_conn_for_path
 
-    conn = duckdb.connect(str(config.DB_PATH))
-    try:
+    with get_conn_for_path(str(config.DB_PATH), timeout_sec=2.5, read_only=False) as conn:
         ensure_schema(conn)
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
 
 
 def _get_favorites_conn():

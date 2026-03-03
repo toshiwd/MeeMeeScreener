@@ -10,11 +10,12 @@ from fastapi.responses import JSONResponse
 
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
 from app.backend.core.yahoo_daily_ingest_job import YF_DAILY_INGEST_JOB_TYPE
+from app.backend.core.ranking_quality_job import RANKING_ANALYSIS_QUALITY_JOB_TYPE
 from app.backend.core.config import config
 from app.backend.services import ml_service, strategy_backtest_service
 from app.backend.services.yahoo_daily_ingest import get_daily_ingest_coverage
 from app.backend.services.yahoo_provisional import normalize_date_key
-from app.db.session import get_conn
+from app.db.session import try_get_conn
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -35,12 +36,29 @@ def _is_transient_db_lock_error(exc: Exception) -> bool:
         or "already open" in text
         or "used by" in text
         or "database is locked" in text
+        or "different configuration" in text
+        or "unique file handle conflict" in text
+        or "cannot attach" in text
     )
+
+
+def _db_retryable_response(*, message: str, error_detail: str | None = None) -> JSONResponse:
+    payload: dict[str, object] = {
+        "error": "db_unavailable",
+        "retryable": True,
+        "message": message,
+    }
+    if error_detail:
+        payload["error_detail"] = error_detail
+    return JSONResponse(status_code=503, content=payload, headers={"Retry-After": "1"})
 
 
 def _count_active_jobs(job_type: str) -> tuple[int, str | None]:
     try:
-        with get_conn() as conn:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                logger.warning("count_active_jobs fallback due to DB unavailability: type=%s", job_type)
+                return 1, "db_lock_during_active_job_check"
             count = conn.execute(
                 "SELECT COUNT(*) FROM sys_jobs WHERE type = ? AND status IN ('queued', 'running', 'cancel_requested')",
                 [job_type],
@@ -57,6 +75,11 @@ def _count_active_jobs(job_type: str) -> tuple[int, str | None]:
 def _submit_job(job_type: str, payload: dict | None = None):
     cleanup_stale_jobs()
     active_count, error_detail = _count_active_jobs(job_type)
+    if error_detail == "db_lock_during_active_job_check":
+        return _db_retryable_response(
+            message="Database is temporarily unavailable",
+            error_detail=error_detail,
+        )
     if active_count > 0:
         body: dict[str, object] = {"error": "Job already running"}
         if error_detail:
@@ -399,6 +422,25 @@ def submit_yahoo_daily_ingest(
         return _submit_job(YF_DAILY_INGEST_JOB_TYPE, payload)
     except Exception as exc:
         logger.exception("Error submitting yahoo daily ingest: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/jobs/quality/ranking-analysis")
+def submit_ranking_analysis_quality(
+    as_of: int | None = Query(default=None),
+    persist: bool = True,
+):
+    try:
+        if as_of is not None and not (19_000_101 <= int(as_of) <= 21_001_231):
+            return JSONResponse(status_code=400, content={"error": "as_of must be YYYYMMDD"})
+        payload = {
+            "as_of": int(as_of) if as_of is not None else None,
+            "persist": bool(persist),
+            "source": "manual_api",
+        }
+        return _submit_job(RANKING_ANALYSIS_QUALITY_JOB_TYPE, payload)
+    except Exception as exc:
+        logger.exception("Error submitting ranking analysis quality job: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
@@ -859,7 +901,9 @@ def run_txt_update_legacy():
 @router.get("/api/jobs/current")
 def get_current_job():
     try:
-        with get_conn() as conn:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response(message="Database is temporarily unavailable")
             row = conn.execute(
                 "SELECT id, type, status, created_at, started_at, progress, message "
                 "FROM sys_jobs WHERE status IN ('queued', 'running', 'cancel_requested') "
@@ -877,21 +921,71 @@ def get_current_job():
                 "message": row[6],
             }
     except Exception as exc:
+        if _is_transient_db_lock_error(exc):
+            return _db_retryable_response(message="Database is temporarily unavailable", error_detail=str(exc))
         logger.exception("Error current job: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.get("/api/jobs/history")
 def get_job_history(limit: int = Query(20, ge=1, le=100)):
-    return job_manager.get_history(limit)
+    safe_limit = max(1, min(int(limit), 100))
+    try:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response(message="Database is temporarily unavailable")
+            rows = conn.execute(
+                "SELECT id, type, status, created_at, finished_at, message "
+                "FROM sys_jobs ORDER BY created_at DESC LIMIT ?",
+                [safe_limit],
+            ).fetchall()
+        return [
+            {
+                "id": row[0],
+                "type": row[1],
+                "status": row[2],
+                "created_at": row[3],
+                "finished_at": row[4],
+                "message": row[5],
+            }
+            for row in rows
+        ]
+    except Exception as exc:
+        if _is_transient_db_lock_error(exc):
+            return _db_retryable_response(message="Database is temporarily unavailable", error_detail=str(exc))
+        logger.exception("Error fetching job history: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.get("/api/jobs/{job_id}")
 def get_job_status(job_id: str):
-    status = job_manager.get_status(job_id)
-    if not status:
-        return JSONResponse(status_code=404, content={"error": "Not Found"})
-    return status
+    try:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response(message="Database is temporarily unavailable")
+            row = conn.execute(
+                "SELECT id, type, status, created_at, started_at, finished_at, progress, message, error "
+                "FROM sys_jobs WHERE id = ?",
+                [job_id],
+            ).fetchone()
+        if not row:
+            return JSONResponse(status_code=404, content={"error": "Not Found"})
+        return {
+            "id": row[0],
+            "type": row[1],
+            "status": row[2],
+            "created_at": row[3],
+            "started_at": row[4],
+            "finished_at": row[5],
+            "progress": row[6],
+            "message": row[7],
+            "error": row[8],
+        }
+    except Exception as exc:
+        if _is_transient_db_lock_error(exc):
+            return _db_retryable_response(message="Database is temporarily unavailable", error_detail=str(exc))
+        logger.exception("Error fetching job status: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
 @router.post("/api/jobs/{job_id}/cancel")

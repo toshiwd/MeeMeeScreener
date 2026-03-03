@@ -13,7 +13,7 @@ from app.services import (
     trade_events,
     trade_ingest
 )
-from app.db.session import get_conn
+from app.db.session import is_transient_duckdb_error, try_get_conn
 from app.utils.date_utils import _format_event_timestamp, jst_now
 from app.utils.text_utils import _normalize_code
 from app.backend.infra.files.trade_repo import TradeRepository
@@ -24,13 +24,26 @@ from app.backend.core.text_encoding import repair_cp932_mojibake
 
 router = APIRouter()
 
+
+def _db_retryable_response(*, error_detail: str | None = None) -> JSONResponse:
+    payload: dict[str, object] = {
+        "error": "db_unavailable",
+        "retryable": True,
+        "message": "Database is temporarily unavailable",
+    }
+    if error_detail:
+        payload["error_detail"] = error_detail
+    return JSONResponse(status_code=503, content=payload, headers={"Retry-After": "1"})
+
 @router.get("/api/trades/{code}")
 def trades_by_code(code: str):
     try:
         daily_positions = position_calc._get_daily_positions_db([code])
         daily_for_code = daily_positions.get(code, [])
 
-        with get_conn() as conn:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
             db_events = trade_events.get_events(conn, [code])
 
             row = conn.execute(
@@ -69,6 +82,8 @@ def trades_by_code(code: str):
             }
         )
     except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return _db_retryable_response(error_detail=str(exc))
         return JSONResponse(
             content={
                 "events": [],
@@ -85,7 +100,9 @@ def trades(code: str | None = None):
         code_list = [code] if code else None
         daily_positions_map = position_calc._get_daily_positions_db(code_list)
 
-        with get_conn() as conn:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
             db_events = trade_events.get_events(conn, code_list)
 
         events_payload = []
@@ -106,6 +123,8 @@ def trades(code: str | None = None):
             }
         )
     except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return _db_retryable_response(error_detail=str(exc))
         return JSONResponse(
             content={
                 "events": [],
@@ -118,19 +137,26 @@ def trades(code: str | None = None):
 
 @router.get("/api/positions/current")
 def positions_current():
-    with get_conn() as conn:
-        live_rows = conn.execute(
-            """
-            SELECT symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note
-            FROM positions_live
-            """
-        ).fetchall()
-        traded_rows = conn.execute(
-            """
-            SELECT DISTINCT symbol
-            FROM trade_events
-            """
-        ).fetchall()
+    try:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
+            live_rows = conn.execute(
+                """
+                SELECT symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note
+                FROM positions_live
+                """
+            ).fetchall()
+            traded_rows = conn.execute(
+                """
+                SELECT DISTINCT symbol
+                FROM trade_events
+                """
+            ).fetchall()
+    except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return _db_retryable_response(error_detail=str(exc))
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
     def to_lots(value: float | None) -> float:
         if value is None:
@@ -170,7 +196,9 @@ def positions_current():
 def positions_rebuild():
     """Force rebuild all positions from trade events"""
     try:
-        with get_conn() as conn:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
             summary = positions_ops.rebuild_positions(conn)
 
             holdings_count = conn.execute(
@@ -189,6 +217,8 @@ def positions_rebuild():
             }
         )
     except Exception as e:
+        if is_transient_duckdb_error(e):
+            return _db_retryable_response(error_detail=str(e))
         return JSONResponse(status_code=500, content={"success": False, "error": str(e), "message": "Failed to rebuild positions"})
 
 @router.post("/api/trade_csv/upload")
@@ -310,131 +340,159 @@ def upsert_position_seed(payload: dict = Body(...)):
     sell_qty = float(payload.get("sell_qty") or 0)
     asof_dt = payload.get("asof_dt") or jst_now().replace(tzinfo=None).isoformat()
     memo = payload.get("memo")
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO initial_positions_seed (symbol, buy_qty, sell_qty, asof_dt, memo)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(symbol) DO UPDATE SET
-                buy_qty = excluded.buy_qty,
-                sell_qty = excluded.sell_qty,
-                asof_dt = excluded.asof_dt,
-                memo = excluded.memo
-            """,
-            [symbol, buy_qty, sell_qty, asof_dt, memo],
-        )
-        rebuild_summary = positions_ops.rebuild_positions(conn)
-    return JSONResponse(content={"symbol": symbol, "rebuild": rebuild_summary})
+    try:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
+            conn.execute(
+                """
+                INSERT INTO initial_positions_seed (symbol, buy_qty, sell_qty, asof_dt, memo)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(symbol) DO UPDATE SET
+                    buy_qty = excluded.buy_qty,
+                    sell_qty = excluded.sell_qty,
+                    asof_dt = excluded.asof_dt,
+                    memo = excluded.memo
+                """,
+                [symbol, buy_qty, sell_qty, asof_dt, memo],
+            )
+            rebuild_summary = positions_ops.rebuild_positions(conn)
+        return JSONResponse(content={"symbol": symbol, "rebuild": rebuild_summary})
+    except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return _db_retryable_response(error_detail=str(exc))
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 @router.get("/api/positions/held")
 def get_held_positions():
-    with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note
-            FROM positions_live
-            WHERE buy_qty > 0 OR sell_qty > 0
-            ORDER BY opened_at DESC
-            """
-        ).fetchall()
+    try:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
+            rows = conn.execute(
+                """
+                SELECT symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note
+                FROM positions_live
+                WHERE buy_qty > 0 OR sell_qty > 0
+                ORDER BY opened_at DESC
+                """
+            ).fetchall()
 
-        def to_lots(value: float | None) -> float:
-            if value is None:
-                return 0.0
-            try:
-                return float(value) / 100.0
-            except (TypeError, ValueError):
-                return 0.0
+            def to_lots(value: float | None) -> float:
+                if value is None:
+                    return 0.0
+                try:
+                    return float(value) / 100.0
+                except (TypeError, ValueError):
+                    return 0.0
 
-        result = []
-        for r in rows:
-            sym = r[0]
-            name_row = conn.execute("SELECT name FROM tickers WHERE code = ?", [sym]).fetchone()
-            name = repair_cp932_mojibake(str(name_row[0] or sym)) if name_row else ""
+            result = []
+            for r in rows:
+                sym = r[0]
+                name_row = conn.execute("SELECT name FROM tickers WHERE code = ?", [sym]).fetchone()
+                name = repair_cp932_mojibake(str(name_row[0] or sym)) if name_row else ""
 
-            b_qty = to_lots(r[1])
-            s_qty = to_lots(r[2])
-            b_str = f"{int(b_qty)}" if b_qty.is_integer() else f"{b_qty}"
-            s_str = f"{int(s_qty)}" if s_qty.is_integer() else f"{s_qty}"
+                b_qty = to_lots(r[1])
+                s_qty = to_lots(r[2])
+                b_str = f"{int(b_qty)}" if b_qty.is_integer() else f"{b_qty}"
+                s_str = f"{int(s_qty)}" if s_qty.is_integer() else f"{s_qty}"
 
-            result.append(
-                {
-                    "symbol": sym,
-                    "name": name,
-                    "buy_qty": b_qty,
-                    "sell_qty": s_qty,
-                    "sell_buy_text": f"{s_str}-{b_str}",
-                    "opened_at": r[3],
-                    "has_issue": r[4],
-                    "issue_note": r[5],
-                }
-            )
+                result.append(
+                    {
+                        "symbol": sym,
+                        "name": name,
+                        "buy_qty": b_qty,
+                        "sell_qty": s_qty,
+                        "sell_buy_text": f"{s_str}-{b_str}",
+                        "opened_at": r[3],
+                        "has_issue": r[4],
+                        "issue_note": r[5],
+                    }
+                )
 
-        return {"items": result}
+            return {"items": result}
+    except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return _db_retryable_response(error_detail=str(exc))
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 @router.get("/api/positions/history")
 def get_position_history(symbol: str | None = None):
-    with get_conn() as conn:
-        query = """
-            SELECT round_id, symbol, opened_at, closed_at, closed_reason, last_state_sell_buy, has_issue, issue_note
-            FROM position_rounds
-        """
-        params = []
-        if symbol:
-            query += " WHERE symbol = ?"
-            params.append(symbol)
+    try:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
+            query = """
+                SELECT round_id, symbol, opened_at, closed_at, closed_reason, last_state_sell_buy, has_issue, issue_note
+                FROM position_rounds
+            """
+            params = []
+            if symbol:
+                query += " WHERE symbol = ?"
+                params.append(symbol)
 
-        query += " ORDER BY closed_at DESC"
+            query += " ORDER BY closed_at DESC"
 
-        rows = conn.execute(query, params).fetchall()
-        result = []
-        for r in rows:
-            sym = r[1]
-            name_row = conn.execute("SELECT name FROM tickers WHERE code = ?", [sym]).fetchone()
-            name = repair_cp932_mojibake(str(name_row[0] or sym)) if name_row else ""
+            rows = conn.execute(query, params).fetchall()
+            result = []
+            for r in rows:
+                sym = r[1]
+                name_row = conn.execute("SELECT name FROM tickers WHERE code = ?", [sym]).fetchone()
+                name = repair_cp932_mojibake(str(name_row[0] or sym)) if name_row else ""
 
-            result.append(
-                {
-                    "round_id": r[0],
-                    "symbol": sym,
-                    "name": name,
-                    "opened_at": r[2],
-                    "closed_at": r[3],
-                    "closed_reason": r[4],
-                    "last_state_sell_buy": r[5],
-                    "has_issue": r[6],
-                    "issue_note": r[7],
-                }
-            )
-        return {"items": result}
+                result.append(
+                    {
+                        "round_id": r[0],
+                        "symbol": sym,
+                        "name": name,
+                        "opened_at": r[2],
+                        "closed_at": r[3],
+                        "closed_reason": r[4],
+                        "last_state_sell_buy": r[5],
+                        "has_issue": r[6],
+                        "issue_note": r[7],
+                    }
+                )
+            return {"items": result}
+    except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return _db_retryable_response(error_detail=str(exc))
+        return JSONResponse(status_code=500, content={"error": str(exc)})
 
 @router.get("/api/positions/history/events")
 def get_round_events(round_id: str):
-    with get_conn() as conn:
-        round_info = conn.execute("SELECT symbol, opened_at, closed_at FROM position_rounds WHERE round_id = ?", [round_id]).fetchone()
+    try:
+        with try_get_conn(timeout_sec=0.4) as conn:
+            if conn is None:
+                return _db_retryable_response()
+            round_info = conn.execute("SELECT symbol, opened_at, closed_at FROM position_rounds WHERE round_id = ?", [round_id]).fetchone()
 
-        if not round_info:
-            return {"events": []}
+            if not round_info:
+                return {"events": []}
 
-        symbol = round_info[0]
-        start_at = round_info[1]
-        end_at = round_info[2]
+            symbol = round_info[0]
+            start_at = round_info[1]
+            end_at = round_info[2]
 
-        query = "SELECT broker, exec_dt, action, qty, price FROM trade_events WHERE symbol = ?"
-        params = [symbol]
+            query = "SELECT broker, exec_dt, action, qty, price FROM trade_events WHERE symbol = ?"
+            params = [symbol]
 
-        if start_at:
-            query += " AND exec_dt >= ?"
-            params.append(start_at)
-        if end_at:
-            query += " AND exec_dt <= ?"
-            params.append(end_at)
+            if start_at:
+                query += " AND exec_dt >= ?"
+                params.append(start_at)
+            if end_at:
+                query += " AND exec_dt <= ?"
+                params.append(end_at)
 
-        query += " ORDER BY exec_dt ASC"
+            query += " ORDER BY exec_dt ASC"
 
-        rows = conn.execute(query, params).fetchall()
-        events = []
-        for r in rows:
-            events.append({"broker": r[0], "exec_dt": r[1], "action": r[2], "qty": r[3], "price": r[4]})
+            rows = conn.execute(query, params).fetchall()
+            events = []
+            for r in rows:
+                events.append({"broker": r[0], "exec_dt": r[1], "action": r[2], "qty": r[3], "price": r[4]})
 
-        return {"events": events}
+            return {"events": events}
+    except Exception as exc:
+        if is_transient_duckdb_error(exc):
+            return _db_retryable_response(error_detail=str(exc))
+        return JSONResponse(status_code=500, content={"error": str(exc)})
