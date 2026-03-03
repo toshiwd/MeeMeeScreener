@@ -168,12 +168,12 @@ def main() -> int:
     parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Backend base URL")
     parser.add_argument("--runs", type=int, default=20, help="Measured runs per scenario")
     parser.add_argument("--warmup", type=int, default=3, help="Warmup runs per scenario")
-    parser.add_argument("--batch-codes", type=int, default=48, help="Number of codes for batch_bars")
-    parser.add_argument("--limit", type=int, default=240, help="Bar limit for batch_bars")
+    parser.add_argument("--batch-codes", type=int, default=48, help="Number of codes for batch_bars_v3")
+    parser.add_argument("--limit", type=int, default=240, help="Bar limit for batch_bars_v3")
     parser.add_argument(
         "--codes",
         default="",
-        help="Comma separated codes to use for batch_bars. Empty means auto from /api/list.",
+        help="Comma separated codes to use for batch_bars_v3. Empty means auto from /api/list.",
     )
     parser.add_argument("--output", default="", help="Optional JSON output path")
     args = parser.parse_args()
@@ -196,16 +196,26 @@ def main() -> int:
     print(f"[INFO] runs={args.runs} warmup={args.warmup} codes={len(codes)} limit={args.limit}")
 
     def run_batch_daily() -> None:
-        payload = {"timeframe": "daily", "codes": codes, "limit": int(args.limit)}
-        status, _ = _request_json("POST", f"{base_api}/batch_bars", payload=payload)
+        payload = {
+            "timeframes": ["daily"],
+            "codes": codes,
+            "limit": int(args.limit),
+            "includeProvisional": True,
+        }
+        status, _ = _request_json("POST", f"{base_api}/batch_bars_v3", payload=payload)
         if status >= 400:
-            raise RuntimeError(f"POST /batch_bars daily failed: status={status}")
+            raise RuntimeError(f"POST /batch_bars_v3 daily failed: status={status}")
 
     def run_batch_monthly() -> None:
-        payload = {"timeframe": "monthly", "codes": codes, "limit": int(args.limit)}
-        status, _ = _request_json("POST", f"{base_api}/batch_bars", payload=payload)
+        payload = {
+            "timeframes": ["monthly"],
+            "codes": codes,
+            "limit": int(args.limit),
+            "includeProvisional": False,
+        }
+        status, _ = _request_json("POST", f"{base_api}/batch_bars_v3", payload=payload)
         if status >= 400:
-            raise RuntimeError(f"POST /batch_bars monthly failed: status={status}")
+            raise RuntimeError(f"POST /batch_bars_v3 monthly failed: status={status}")
 
     def run_grid_screener() -> None:
         query = urllib.parse.urlencode({"limit": 260})
@@ -214,8 +224,8 @@ def main() -> int:
             raise RuntimeError(f"GET /grid/screener failed: status={status}")
 
     scenarios = [
-        _benchmark("batch_bars_daily", run_batch_daily, warmup=args.warmup, runs=args.runs),
-        _benchmark("batch_bars_monthly", run_batch_monthly, warmup=args.warmup, runs=args.runs),
+        _benchmark("batch_bars_v3_daily", run_batch_daily, warmup=args.warmup, runs=args.runs),
+        _benchmark("batch_bars_v3_monthly", run_batch_monthly, warmup=args.warmup, runs=args.runs),
         _benchmark("grid_screener", run_grid_screener, warmup=max(1, args.warmup // 2), runs=args.runs),
     ]
 
