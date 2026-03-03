@@ -417,6 +417,9 @@ const barsFetchedLimit: Record<GridTimeframe, Record<string, number>> = {
   daily: {}
 };
 let batchRequestCount = 0;
+let v3RequestCount = 0;
+let coalescedRequestCount = 0;
+let dedupHitCount = 0;
 let eventsPollPromise: Promise<void> | null = null;
 const ensurePendingCodes: Record<GridTimeframe, Set<string>> = {
   monthly: new Set<string>(),
@@ -1451,11 +1454,18 @@ export const useStore = create<StoreState>((set, get) => ({
       if (cachedAt && Date.now() - cachedAt < BATCH_TTL_MS) return;
 
       const inFlight = inFlightBatchRequests.get(requestKey);
-      if (inFlight) return inFlight.promise;
+      if (inFlight) {
+        dedupHitCount += 1;
+        return inFlight.promise;
+      }
 
       batchRequestCount += 1;
+      v3RequestCount += 1;
       console.debug("[batch_bars_v3]", {
         count: batchRequestCount,
+        v3_request_count: v3RequestCount,
+        coalesced_request_count: coalescedRequestCount,
+        dedup_hit_count: dedupHitCount,
         key: requestKey,
         reason: reason ?? "unknown",
         timeframe,
@@ -1609,11 +1619,18 @@ export const useStore = create<StoreState>((set, get) => ({
     if (cachedAt && Date.now() - cachedAt < BATCH_TTL_MS) return;
 
     const inFlight = inFlightBatchRequests.get(requestKey);
-    if (inFlight) return inFlight.promise;
+    if (inFlight) {
+      dedupHitCount += 1;
+      return inFlight.promise;
+    }
 
     batchRequestCount += 1;
-    console.debug("[batch_bars]", {
+    v3RequestCount += 1;
+    console.debug("[batch_bars_v3]", {
       count: batchRequestCount,
+      v3_request_count: v3RequestCount,
+      coalesced_request_count: coalescedRequestCount,
+      dedup_hit_count: dedupHitCount,
       key: requestKey,
       reason: reason ?? "unknown",
       timeframe,
@@ -1645,15 +1662,16 @@ export const useStore = create<StoreState>((set, get) => ({
 
       try {
         const requestPayload = {
-          timeframe,
+          timeframes: [timeframe],
           codes: requestCodes,
-          limit
+          limit,
+          includeProvisional: timeframe === "daily"
         };
         let res: { status: number; data?: any } | null = null;
         let attempt = 0;
         while (true) {
           try {
-            res = await api.post("/batch_bars", requestPayload, {
+            res = await api.post("/batch_bars_v3", requestPayload, {
               signal: controller.signal,
               timeout: BATCH_REQUEST_TIMEOUT_MS
             });
@@ -1671,18 +1689,33 @@ export const useStore = create<StoreState>((set, get) => ({
           }
         }
         if (!res) {
-          throw new Error("batch_bars failed without response");
+          throw new Error("batch_bars_v3 failed without response");
         }
         if (res.status !== 200) {
-          throw new Error(`batch_bars failed with status ${res.status}`);
+          throw new Error(`batch_bars_v3 failed with status ${res.status}`);
         }
-        const items = (res.data?.items || {}) as Record<string, BarsPayload>;
+        const rawItems = (res.data?.items || {}) as Record<string, MultiTimeframeBarsPayload | undefined>;
+        const items: Record<string, BarsPayload> = {};
         const boxesMonthly: Record<string, Box[]> = {};
         const boxesDaily: Record<string, Box[]> = {};
-        Object.entries(items).forEach(([code, payload]) => {
+        requestCodes.forEach((code) => {
+          const framePayload = rawItems[code]?.[timeframe];
+          const payload: BarsPayload =
+            framePayload && Array.isArray(framePayload.bars)
+              ? framePayload
+              : {
+                  bars: [],
+                  ma: { ma7: [], ma20: [], ma60: [] },
+                  boxes: []
+                };
+          items[code] = payload;
           const boxes = payload.boxes ?? [];
-          boxesMonthly[code] = boxes;
-          boxesDaily[code] = boxes;
+          if (timeframe === "monthly") {
+            boxesMonthly[code] = boxes;
+            boxesDaily[code] = boxes;
+          } else if (timeframe === "daily") {
+            boxesDaily[code] = boxes;
+          }
         });
         requestCodes.forEach((code) => markFetchedLimit(timeframe, code, limit));
         recentBatchRequests.set(requestKey, Date.now());
@@ -1760,6 +1793,7 @@ export const useStore = create<StoreState>((set, get) => ({
     return new Promise<void>((resolve, reject) => {
       ensurePendingWaiters[timeframe].push({ resolve, reject });
       if (ensureCoalesceTimers[timeframe] !== null) {
+        coalescedRequestCount += 1;
         return;
       }
       ensureCoalesceTimers[timeframe] = setTimeout(async () => {

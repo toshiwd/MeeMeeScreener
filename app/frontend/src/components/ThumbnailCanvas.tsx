@@ -345,6 +345,7 @@ export default function ThumbnailCanvas({
   const lastKeyRef = useRef<string>("");
   const rafRef = useRef<number | null>(null);
   const lastSnapshotRef = useRef<string>("");
+  const lastDrawFingerprintRef = useRef<string>("");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const hoverIndexRef = useRef<number | null>(null);
   const hoverRafRef = useRef<number | null>(null);
@@ -375,6 +376,12 @@ export default function ThumbnailCanvas({
     const width = Math.floor(containerRef.current.clientWidth || 0);
     const height = Math.max(MIN_HEIGHT, Math.floor(containerRef.current.clientHeight || 0));
     if (width <= 0 || height <= 0) return false;
+    const drawFingerprint = `${renderKey}:${width}x${height}`;
+    if (lastDrawFingerprintRef.current === drawFingerprint) {
+      setHasDrawn(true);
+      return true;
+    }
+    lastDrawFingerprintRef.current = drawFingerprint;
     const canvas = canvasRef.current;
     const ratio = window.devicePixelRatio || 1;
     canvas.width = Math.floor(width * ratio);
@@ -456,6 +463,7 @@ export default function ThumbnailCanvas({
 
   useEffect(() => {
     setHasDrawn(false);
+    lastDrawFingerprintRef.current = "";
     if (!cacheKey) {
       setCachedSnapshot(null);
       return;
