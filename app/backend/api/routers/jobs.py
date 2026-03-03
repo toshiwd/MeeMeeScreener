@@ -26,12 +26,31 @@ TXT_UPDATE_DEPRECATION_DOC = "/docs/TXT_UPDATE_RUNBOOK.md"
 TXT_UPDATE_DISABLE_LEGACY_ENV = "MEEMEE_DISABLE_LEGACY_TXT_UPDATE_ENDPOINTS"
 
 
+def _is_transient_db_lock_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    if not text:
+        return False
+    return (
+        "cannot open file" in text
+        or "already open" in text
+        or "used by" in text
+        or "database is locked" in text
+    )
+
+
 def _count_active_jobs(job_type: str) -> int:
-    with get_conn() as conn:
-        return conn.execute(
-            "SELECT COUNT(*) FROM sys_jobs WHERE type = ? AND status IN ('queued', 'running', 'cancel_requested')",
-            [job_type],
-        ).fetchone()[0]
+    try:
+        with get_conn() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) FROM sys_jobs WHERE type = ? AND status IN ('queued', 'running', 'cancel_requested')",
+                [job_type],
+            ).fetchone()[0]
+    except Exception as exc:
+        # Fail closed on transient DuckDB lock/open errors: reject duplicate trigger.
+        if _is_transient_db_lock_error(exc):
+            logger.warning("count_active_jobs fallback to conflict due to DB lock: type=%s err=%s", job_type, exc)
+            return 1
+        raise
 
 
 def _submit_job(job_type: str, payload: dict | None = None):

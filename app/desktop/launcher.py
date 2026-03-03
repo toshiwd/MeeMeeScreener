@@ -1203,6 +1203,30 @@ def _configure_logging(logs_dir: str) -> Path:
     return log_path
 
 
+def _write_app_lock(data_dir: str) -> str | None:
+    lock_path = os.path.join(data_dir, "app.lock")
+    payload = {
+        "pid": os.getpid(),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    try:
+        _write_json(lock_path, payload)
+        return lock_path
+    except Exception as exc:
+        print(f"[launcher] Failed to write app lock: {exc}")
+        return None
+
+
+def _remove_app_lock(lock_path: str | None) -> None:
+    if not lock_path:
+        return
+    try:
+        if os.path.exists(lock_path):
+            os.remove(lock_path)
+    except Exception as exc:
+        print(f"[launcher] Failed to remove app lock: {exc}")
+
+
 def _backend_command() -> list[str]:
     if _is_dev_mode() and not getattr(sys, "frozen", False):
         return [sys.executable, "-m", "uvicorn", "app.main:app"]
@@ -1457,6 +1481,7 @@ def main() -> None:
         return
 
     log_path: Path | None = None
+    app_lock_path: str | None = None
     try:
         icon_path = resolve_path("resources", "icons", "app_icon.ico")
         if not os.path.isfile(icon_path):
@@ -1467,6 +1492,7 @@ def main() -> None:
             return
 
         paths = _prepare_appdata()
+        app_lock_path = _write_app_lock(paths["data_dir"])
         log_path = _configure_logging(paths["logs_dir"])
         _configure_environment(paths)
         _log_resolved_paths_once(paths)
@@ -1741,6 +1767,7 @@ def main() -> None:
             except Exception:
                 _message_box(f"Launch failed:\n{exc}", WINDOW_TITLE)
     finally:
+        _remove_app_lock(app_lock_path)
         _release_mutex(mutex)
 
 

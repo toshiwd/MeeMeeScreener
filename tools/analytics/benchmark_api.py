@@ -121,21 +121,46 @@ def _benchmark(
     )
 
 
+def _extract_codes(payload: Any) -> list[str]:
+    if not isinstance(payload, list):
+        return []
+    resolved: list[str] = []
+    for row in payload:
+        code = None
+        if isinstance(row, list) and row:
+            code = row[0]
+        elif isinstance(row, dict):
+            code = row.get("code")
+        if code is None:
+            continue
+        text = str(code).strip()
+        if text:
+            resolved.append(text)
+    return resolved
+
+
 def _resolve_codes(base_api: str, explicit_codes: list[str], max_codes: int) -> list[str]:
     if explicit_codes:
         return explicit_codes[:max_codes]
-    status, payload = _request_json("GET", f"{base_api}/list")
-    if status >= 400:
-        raise RuntimeError(f"GET /list failed: status={status}")
-    if not isinstance(payload, list):
-        return []
-    codes: list[str] = []
-    for row in payload:
-        if isinstance(row, list) and row:
-            code = str(row[0]).strip()
-            if code:
-                codes.append(code)
-    return codes[:max_codes]
+    errors: list[str] = []
+    endpoints = [
+        f"{base_api}/list",
+        f"{base_api}/grid/screener?limit={max(260, max_codes)}",
+    ]
+    for url in endpoints:
+        try:
+            status, payload = _request_json("GET", url)
+        except (urllib.error.URLError, json.JSONDecodeError) as exc:
+            errors.append(f"{url}: {exc}")
+            continue
+        if status >= 400:
+            errors.append(f"{url}: status={status}")
+            continue
+        codes = _extract_codes(payload)
+        if codes:
+            return codes[:max_codes]
+        errors.append(f"{url}: no codes in payload")
+    raise RuntimeError(" ; ".join(errors) if errors else "no code source available")
 
 
 def main() -> int:
