@@ -79,6 +79,20 @@ type RankItem = {
   researchPriorRank?: number | null;
   researchPriorUniverse?: number | null;
   researchPriorBonus?: number | null;
+  edinetStatus?: string | null;
+  edinetMapped?: boolean | null;
+  edinetFreshnessDays?: number | null;
+  edinetMetricCount?: number | null;
+  edinetQualityScore?: number | null;
+  edinetDataScore?: number | null;
+  edinetScoreBonus?: number | null;
+  edinetFeatureFlagApplied?: boolean | null;
+  edinetEbitdaMetric?: number | null;
+  edinetRoe?: number | null;
+  edinetEquityRatio?: number | null;
+  edinetDebtRatio?: number | null;
+  edinetOperatingCfMargin?: number | null;
+  edinetRevenueGrowthYoy?: number | null;
   entryQualified?: boolean | null;
   entryQualifiedByFallback?: boolean | null;
   entryQualifiedFallbackStage?: string | null;
@@ -144,6 +158,21 @@ type RankLastQualifiedTrace = {
   last_non_zero_count?: number | null;
   last_non_zero_codes?: string[] | null;
   recent_hits?: RankTraceRecentHit[] | null;
+};
+type EdinetMonitorGroup = {
+  count?: number | null;
+  realized_count?: number | null;
+  avg_ret20?: number | null;
+  win_rate20?: number | null;
+};
+type EdinetMonitorPayload = {
+  groups?: Record<"positive" | "negative" | "zero", EdinetMonitorGroup> | null;
+  comparison?: {
+    delta_avg_ret20?: number | null;
+    delta_win_rate20?: number | null;
+  } | null;
+  insufficient_samples?: boolean | null;
+  min_samples?: number | null;
 };
 
 const RANK_VIEW_STATE_KEY = "rankingViewState";
@@ -416,6 +445,8 @@ export default function RankingView() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [qualificationTrace, setQualificationTrace] = useState<RankLastQualifiedTrace | null>(null);
   const [qualificationTraceLoading, setQualificationTraceLoading] = useState(false);
+  const [edinetMonitor, setEdinetMonitor] = useState<EdinetMonitorPayload | null>(null);
+  const [edinetMonitorLoading, setEdinetMonitorLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
@@ -553,6 +584,7 @@ export default function RankingView() {
     }
   }, [listTimeframe]);
   const rankLabelTf: RankTimeframe = rankScope === "multi" ? "D" : (tfChar as RankTimeframe);
+  const showEdinetMonitor = rankScope === "single" && tfChar === "M" && rankMode === "hybrid" && !useFallback;
 
   /*
   const timeframeButtons = useMemo(
@@ -973,6 +1005,39 @@ export default function RankingView() {
   }, [backendReady, useFallback, rankScope, qualificationFilterRelaxed, tfChar, rankWhich, dir, rankMode, riskMode]);
 
   useEffect(() => {
+    if (!backendReady || !showEdinetMonitor) {
+      setEdinetMonitor(null);
+      setEdinetMonitorLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setEdinetMonitorLoading(true);
+    api
+      .get("/rankings/edinet/monitor", {
+        params: {
+          lookback_days: 365,
+          dir,
+          risk_mode: riskMode,
+          which: rankWhich
+        }
+      })
+      .then((res) => {
+        if (cancelled) return;
+        setEdinetMonitor((res.data ?? null) as EdinetMonitorPayload | null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setEdinetMonitor(null);
+      })
+      .finally(() => {
+        if (!cancelled) setEdinetMonitorLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backendReady, showEdinetMonitor, dir, riskMode, rankWhich]);
+
+  useEffect(() => {
     if (!backendReady) return;
     if (!sortedItems.length) return;
     ensureBarsForVisible(
@@ -1266,6 +1331,35 @@ export default function RankingView() {
     const sign = n > 0 ? "+" : "";
     return `${sign}${(n * 100).toFixed(2)}%`;
   };
+  const formatEdinetStatus = (value?: string | null) => {
+    if (!value) return "未判定";
+    if (value === "ok") return "OK";
+    if (value === "missing_tables") return "テーブル不足";
+    if (value === "unmapped") return "未マップ";
+    if (value === "no_payload") return "データなし";
+    return value;
+  };
+  const formatEdinetNotAppliedReason = (value?: string | null) => {
+    if (!value || value === "ok") return "補正条件外";
+    if (value === "missing_tables") return "補正未適用: EDINETテーブル未整備";
+    if (value === "unmapped") return "補正未適用: EDINETコード未対応";
+    if (value === "no_payload") return "補正未適用: 財務ペイロード未取得";
+    return `補正未適用: ${value}`;
+  };
+  const edinetMonitorLabel = useMemo(() => {
+    if (!showEdinetMonitor) return null;
+    if (edinetMonitorLoading) return "EDINET20D 集計中...";
+    const positive = edinetMonitor?.groups?.positive;
+    const negative = edinetMonitor?.groups?.negative;
+    const posN = Number.isFinite(positive?.realized_count ?? NaN) ? Number(positive?.realized_count ?? 0) : 0;
+    const negN = Number.isFinite(negative?.realized_count ?? NaN) ? Number(negative?.realized_count ?? 0) : 0;
+    const minSamples = Number.isFinite(edinetMonitor?.min_samples ?? NaN) ? Number(edinetMonitor?.min_samples ?? 0) : 0;
+    const suffix =
+      edinetMonitor?.insufficient_samples === true
+        ? ` (要サンプル>=${minSamples})`
+        : "";
+    return `EDI20D +補正 ret${formatPct(positive?.avg_ret20)} / 勝率${formatPct(positive?.win_rate20)} (${posN}) | -補正 ret${formatPct(negative?.avg_ret20)} / 勝率${formatPct(negative?.win_rate20)} (${negN})${suffix}`;
+  }, [showEdinetMonitor, edinetMonitorLoading, edinetMonitor, formatPct]);
   const formatInvalidationTrigger = (value?: string | null) => {
     if (!value) return "--";
     if (value === "box_break") return "Box下限割れ";
@@ -1415,6 +1509,11 @@ export default function RankingView() {
         <span className="rank-score-badge">
           運用: {RISK_MODE_LABEL[riskMode]}
         </span>
+        {showEdinetMonitor && edinetMonitorLabel && (
+          <div className={`rank-top-summary${edinetMonitor?.insufficient_samples ? " is-warn" : ""}`}>
+            {edinetMonitorLabel}
+          </div>
+        )}
         {rankScope === "multi" && (
           <span className="rank-score-badge">
             厳選[{mtfStrictness === "auto" ? `自動→${mtfStrictRule.label}` : mtfStrictRule.label}] 合意{mtfStrictRule.minQualified}/3+ or 勝ちやすさ{(mtfStrictGateApplied * 100).toFixed(1)}% / 候補{mtfStrictCount}件
@@ -1774,6 +1873,46 @@ export default function RankingView() {
                               <span className="rank-score-badge">
                                 貯め度 {formatPct(item.accumulationScore)}
                               </span>
+                            )}
+                            {isMonthlyList && (
+                              <span className="rank-score-badge">
+                                EDI状態 {formatEdinetStatus(item.edinetStatus)}
+                              </span>
+                            )}
+                            {isMonthlyList && item.edinetStatus && item.edinetStatus !== "ok" && (
+                              <span className="rank-score-badge">
+                                {formatEdinetNotAppliedReason(item.edinetStatus)}
+                              </span>
+                            )}
+                            {isMonthlyList && Number.isFinite(item.edinetFreshnessDays ?? NaN) && (
+                              <span className="rank-score-badge">
+                                EDI鮮度 {Math.max(0, Math.round(item.edinetFreshnessDays ?? 0))}日
+                              </span>
+                            )}
+                            {isMonthlyList && Number.isFinite(item.edinetQualityScore ?? NaN) && (
+                              <span className="rank-score-badge">
+                                EDI品質 {formatPct(item.edinetQualityScore)}
+                              </span>
+                            )}
+                            {isMonthlyList && Number.isFinite(item.edinetScoreBonus ?? NaN) && (
+                              <span className="rank-score-badge">
+                                EDI補正 {formatPctSigned(item.edinetScoreBonus)}
+                              </span>
+                            )}
+                            {isMonthlyList && Number.isFinite(item.edinetRoe ?? NaN) && (
+                              <span className="rank-score-badge">ROE {formatPct(item.edinetRoe)}</span>
+                            )}
+                            {isMonthlyList && Number.isFinite(item.edinetEquityRatio ?? NaN) && (
+                              <span className="rank-score-badge">自己資本比率 {formatPct(item.edinetEquityRatio)}</span>
+                            )}
+                            {isMonthlyList && Number.isFinite(item.edinetDebtRatio ?? NaN) && (
+                              <span className="rank-score-badge">D/E {formatRankScore(item.edinetDebtRatio)}</span>
+                            )}
+                            {isMonthlyList && Number.isFinite(item.edinetOperatingCfMargin ?? NaN) && (
+                              <span className="rank-score-badge">営業CF率 {formatPct(item.edinetOperatingCfMargin)}</span>
+                            )}
+                            {isMonthlyList && Number.isFinite(item.edinetRevenueGrowthYoy ?? NaN) && (
+                              <span className="rank-score-badge">売上成長率 {formatPct(item.edinetRevenueGrowthYoy)}</span>
                             )}
                           </>
                         )}

@@ -12,6 +12,7 @@
 
 - `docs/TXT_UPDATE_RUNBOOK.md`: TXT 更新ジョブの運用手順
 - `docs/EDINETDB_RUNBOOK.md`: EDINET DB 自動取得ジョブの運用手順
+- `docs/EDINETDB_RUNBOOK.md` (補足): 月足ランキング連携時の `STOCKS_DB_PATH` / `EDINETDB_DB_PATH` 統一、`MEEMEE_RANK_EDINET_BONUS_ENABLED` の運用
 - `SMOKE_TEST.md`: 最小回帰テスト手順
 - `docs/PERF_BENCHMARK.md`: API 性能計測手順（p50/p95）
 

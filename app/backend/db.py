@@ -374,6 +374,44 @@ def _init_schema_on_conn(conn: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ranking_edinet_audit_daily (
+            as_of_ymd INTEGER,
+            tf TEXT,
+            "which" TEXT,
+            direction TEXT,
+            mode TEXT,
+            risk_mode TEXT,
+            code TEXT,
+            name TEXT,
+            rank_position INTEGER,
+            entry_score DOUBLE,
+            hybrid_score DOUBLE,
+            edinet_status TEXT,
+            edinet_mapped BOOLEAN,
+            edinet_freshness_days INTEGER,
+            edinet_metric_count INTEGER,
+            edinet_quality_score DOUBLE,
+            edinet_data_score DOUBLE,
+            edinet_score_bonus DOUBLE,
+            edinet_flag_applied BOOLEAN,
+            edinet_ebitda_metric DOUBLE,
+            edinet_roe DOUBLE,
+            edinet_equity_ratio DOUBLE,
+            edinet_debt_ratio DOUBLE,
+            edinet_operating_cf_margin DOUBLE,
+            edinet_revenue_growth_yoy DOUBLE,
+            realized_ret_20 DOUBLE,
+            realized_win_20 BOOLEAN,
+            realized_as_of_ymd INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP,
+            realized_updated_at TIMESTAMP,
+            PRIMARY KEY(as_of_ymd, tf, "which", direction, mode, risk_mode, code)
+        );
+        """
+    )
 
 
 def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:

@@ -51,3 +51,29 @@ Windowsでは `edinetdb.cmd` でも同じように実行できます。
 1. `daily_watch` を1日1回実行。
 2. 必要に応じて週末や夜間に `backfill_700` を実行。
 3. ログ出力の `budget_remaining` と `pending_tasks` を監視。
+
+## ランキング連携時のDBパス統一
+
+月足ランキングでEDINET特徴量を使う場合、価格系テーブル（`daily_bars`, `ml_pred_20d`）とEDINET系テーブル（`edinetdb_*`）が同じDuckDBに入っている必要があります。  
+運用では `STOCKS_DB_PATH` と `EDINETDB_DB_PATH` を同一ファイルへ設定してください。
+
+例:
+
+- `STOCKS_DB_PATH=C:\work\meemee-screener\data\stocks.duckdb`
+- `EDINETDB_DB_PATH=C:\work\meemee-screener\data\stocks.duckdb`
+
+## ランキング補正フラグ（初期OFF）
+
+月足ハイブリッドランキングのEDINET補正は、次の環境変数で有効化します。
+
+- `MEEMEE_RANK_EDINET_BONUS_ENABLED` (`0` or `1`, default: `0`)
+
+`0` の場合は診断値と監査保存のみ、`1` の場合は `entryScore` へEDINET補正を加算します。
+
+## 監視API（ランキング側）
+
+EDINET補正の有効性はランキングAPIから確認できます。
+
+- `GET /api/rankings/edinet/monitor?lookback_days=365&dir=up&risk_mode=balanced&which=latest`
+
+レスポンスには `groups.positive/negative/zero` ごとの件数・20営業日平均リターン・勝率、`insufficient_samples` が含まれます。

@@ -68,3 +68,27 @@ def get_rankings_last_qualified_trace(
         recent_hits=recent_hits,
         as_of=as_of,
     )
+
+
+@router.get("/rankings/edinet/monitor")
+def get_rankings_edinet_monitor(
+    lookback_days: int = Query(365, ge=30, le=2000),
+    dir: str = Query("all"),
+    risk_mode: str = Query("all"),
+    which: str = Query("latest"),
+):
+    dir = dir.lower()
+    risk_mode = risk_mode.lower()
+    which = which.lower()
+    if dir not in ("all", "up", "down"):
+        raise HTTPException(status_code=400, detail="dir must be all/up/down")
+    if risk_mode not in ("all", "defensive", "balanced", "aggressive"):
+        raise HTTPException(status_code=400, detail="risk_mode must be all/defensive/balanced/aggressive")
+    if which not in ("latest", "prev"):
+        raise HTTPException(status_code=400, detail="which must be latest/prev")
+    return rankings_cache.get_edinet_monitor(
+        lookback_days=lookback_days,
+        direction=dir,
+        risk_mode=risk_mode,
+        which=which,
+    )

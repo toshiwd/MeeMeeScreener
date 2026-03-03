@@ -16,6 +16,7 @@ import duckdb
 from app.core.config import config as core_config
 from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.domain.screening.metrics import _calc_liquidity_20d
+from app.backend.services.edinet_rank_features import load_edinet_rank_features
 from app.backend.services.ml_config import load_ml_config
 from app.backend.services.ml_service import select_top_n_ml
 from app.backend.services.yahoo_provisional import (
@@ -144,8 +145,26 @@ _ENTRY_SHORT_PRESSURE_MAX_EV_AGGRESSIVE = -0.001
 _RESEARCH_PRIOR_TTL_SEC = 300
 _RESEARCH_PRIOR_BONUS_UP = 0.015
 _RESEARCH_PRIOR_BONUS_DOWN = 0.025
+_EDINET_SCORE_BONUS_SCALE = 0.06
+_EDINET_MONITOR_MIN_SAMPLES = 20
 _RESEARCH_PRIOR_CACHE_LOCK = Lock()
 _RESEARCH_PRIOR_CACHE: dict[str, Any] = {"loaded_at": None, "payload": None}
+_EDINET_ITEM_DEFAULTS: dict[str, Any] = {
+    "edinetStatus": None,
+    "edinetMapped": None,
+    "edinetFreshnessDays": None,
+    "edinetMetricCount": None,
+    "edinetQualityScore": None,
+    "edinetDataScore": None,
+    "edinetScoreBonus": 0.0,
+    "edinetFeatureFlagApplied": None,
+    "edinetEbitdaMetric": None,
+    "edinetRoe": None,
+    "edinetEquityRatio": None,
+    "edinetDebtRatio": None,
+    "edinetOperatingCfMargin": None,
+    "edinetRevenueGrowthYoy": None,
+}
 
 
 def _parse_date_value(value: int | str | None) -> datetime | None:
@@ -224,6 +243,28 @@ def _coerce_as_of_int(value: str | int | None) -> int | None:
     if text.isdigit():
         return _coerce_as_of_int(int(text))
     return _iso_date_to_int(text)
+
+
+def _is_edinet_bonus_enabled() -> bool:
+    return str(os.getenv("MEEMEE_RANK_EDINET_BONUS_ENABLED", "0")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _apply_edinet_defaults(item: dict, *, flag_applied: bool) -> dict:
+    for key, default_value in _EDINET_ITEM_DEFAULTS.items():
+        item.setdefault(key, default_value)
+    item["edinetFeatureFlagApplied"] = bool(flag_applied)
+    if not isinstance(item.get("edinetScoreBonus"), (int, float)):
+        item["edinetScoreBonus"] = 0.0
+    elif not math.isfinite(float(item.get("edinetScoreBonus"))):
+        item["edinetScoreBonus"] = 0.0
+    else:
+        item["edinetScoreBonus"] = float(item["edinetScoreBonus"])
+    return item
 
 
 def _get_asof_base_cache(as_of_int: int) -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]:
@@ -710,6 +751,371 @@ def _table_exists(conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
         [table_name],
     ).fetchone()
     return bool(row and row[0])
+
+
+def _ensure_ranking_edinet_audit_table(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ranking_edinet_audit_daily (
+            as_of_ymd INTEGER,
+            tf TEXT,
+            "which" TEXT,
+            direction TEXT,
+            mode TEXT,
+            risk_mode TEXT,
+            code TEXT,
+            name TEXT,
+            rank_position INTEGER,
+            entry_score DOUBLE,
+            hybrid_score DOUBLE,
+            edinet_status TEXT,
+            edinet_mapped BOOLEAN,
+            edinet_freshness_days INTEGER,
+            edinet_metric_count INTEGER,
+            edinet_quality_score DOUBLE,
+            edinet_data_score DOUBLE,
+            edinet_score_bonus DOUBLE,
+            edinet_flag_applied BOOLEAN,
+            edinet_ebitda_metric DOUBLE,
+            edinet_roe DOUBLE,
+            edinet_equity_ratio DOUBLE,
+            edinet_debt_ratio DOUBLE,
+            edinet_operating_cf_margin DOUBLE,
+            edinet_revenue_growth_yoy DOUBLE,
+            realized_ret_20 DOUBLE,
+            realized_win_20 BOOLEAN,
+            realized_as_of_ymd INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP,
+            realized_updated_at TIMESTAMP,
+            PRIMARY KEY(as_of_ymd, tf, "which", direction, mode, risk_mode, code)
+        )
+        """
+    )
+
+
+def _persist_monthly_edinet_audit(
+    *,
+    tf: RankTimeframe,
+    which: RankWhich,
+    direction: RankDir,
+    mode: RankMode,
+    risk_mode: RankRiskMode,
+    items: list[dict],
+) -> None:
+    if tf != "M" or mode != "hybrid" or not items:
+        return
+    try:
+        with duckdb.connect(str(core_config.DB_PATH)) as conn:
+            _ensure_ranking_edinet_audit_table(conn)
+            rows: list[tuple[Any, ...]] = []
+            for index, item in enumerate(items, start=1):
+                as_of_ymd = _iso_date_to_int(str(item.get("asOf") or ""))
+                code = str(item.get("code") or "").strip()
+                if as_of_ymd is None or not code:
+                    continue
+                updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                rows.append(
+                    (
+                        int(as_of_ymd),
+                        str(tf),
+                        str(which),
+                        str(direction),
+                        str(mode),
+                        str(risk_mode),
+                        code,
+                        str(item.get("name") or code),
+                        int(index),
+                        _first_finite(item.get("entryScore")),
+                        _first_finite(item.get("hybridScore")),
+                        str(item.get("edinetStatus") or "") or None,
+                        bool(item.get("edinetMapped")) if item.get("edinetMapped") is not None else None,
+                        int(item["edinetFreshnessDays"])
+                        if isinstance(item.get("edinetFreshnessDays"), (int, float))
+                        and math.isfinite(float(item.get("edinetFreshnessDays")))
+                        else None,
+                        int(item["edinetMetricCount"])
+                        if isinstance(item.get("edinetMetricCount"), (int, float))
+                        and math.isfinite(float(item.get("edinetMetricCount")))
+                        else None,
+                        _first_finite(item.get("edinetQualityScore")),
+                        _first_finite(item.get("edinetDataScore")),
+                        _first_finite(item.get("edinetScoreBonus")) or 0.0,
+                        bool(item.get("edinetFeatureFlagApplied"))
+                        if item.get("edinetFeatureFlagApplied") is not None
+                        else None,
+                        _first_finite(item.get("edinetEbitdaMetric")),
+                        _first_finite(item.get("edinetRoe")),
+                        _first_finite(item.get("edinetEquityRatio")),
+                        _first_finite(item.get("edinetDebtRatio")),
+                        _first_finite(item.get("edinetOperatingCfMargin")),
+                        _first_finite(item.get("edinetRevenueGrowthYoy")),
+                        updated_at,
+                    )
+                )
+            if rows:
+                conn.executemany(
+                    """
+                    INSERT INTO ranking_edinet_audit_daily (
+                        as_of_ymd,
+                        tf,
+                        "which",
+                        direction,
+                        mode,
+                        risk_mode,
+                        code,
+                        name,
+                        rank_position,
+                        entry_score,
+                        hybrid_score,
+                        edinet_status,
+                        edinet_mapped,
+                        edinet_freshness_days,
+                        edinet_metric_count,
+                        edinet_quality_score,
+                        edinet_data_score,
+                        edinet_score_bonus,
+                        edinet_flag_applied,
+                        edinet_ebitda_metric,
+                        edinet_roe,
+                        edinet_equity_ratio,
+                        edinet_debt_ratio,
+                        edinet_operating_cf_margin,
+                        edinet_revenue_growth_yoy,
+                        updated_at
+                    )
+                    VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
+                    ON CONFLICT(as_of_ymd, tf, "which", direction, mode, risk_mode, code) DO UPDATE SET
+                        name = excluded.name,
+                        rank_position = excluded.rank_position,
+                        entry_score = excluded.entry_score,
+                        hybrid_score = excluded.hybrid_score,
+                        edinet_status = excluded.edinet_status,
+                        edinet_mapped = excluded.edinet_mapped,
+                        edinet_freshness_days = excluded.edinet_freshness_days,
+                        edinet_metric_count = excluded.edinet_metric_count,
+                        edinet_quality_score = excluded.edinet_quality_score,
+                        edinet_data_score = excluded.edinet_data_score,
+                        edinet_score_bonus = excluded.edinet_score_bonus,
+                        edinet_flag_applied = excluded.edinet_flag_applied,
+                        edinet_ebitda_metric = excluded.edinet_ebitda_metric,
+                        edinet_roe = excluded.edinet_roe,
+                        edinet_equity_ratio = excluded.edinet_equity_ratio,
+                        edinet_debt_ratio = excluded.edinet_debt_ratio,
+                        edinet_operating_cf_margin = excluded.edinet_operating_cf_margin,
+                        edinet_revenue_growth_yoy = excluded.edinet_revenue_growth_yoy,
+                        updated_at = excluded.updated_at
+                    """,
+                    rows,
+                )
+            _refresh_monthly_edinet_audit_realized_20(conn)
+    except Exception as exc:
+        logger.debug("ranking_edinet_audit persist skipped: %s", exc)
+
+
+def _refresh_monthly_edinet_audit_realized_20(conn: duckdb.DuckDBPyConnection) -> None:
+    if not _table_exists(conn, "ranking_edinet_audit_daily") or not _table_exists(conn, "daily_bars"):
+        return
+    conn.execute(
+        """
+        WITH bars AS (
+            SELECT
+                code,
+                CASE
+                    WHEN date BETWEEN 19000101 AND 20991231 THEN date
+                    WHEN date >= 1000000000000 THEN CAST(strftime(to_timestamp(date / 1000), '%Y%m%d') AS INTEGER)
+                    WHEN date >= 1000000000 THEN CAST(strftime(to_timestamp(date), '%Y%m%d') AS INTEGER)
+                    ELSE NULL
+                END AS ymd,
+                c
+            FROM daily_bars
+            WHERE c IS NOT NULL
+        ),
+        seq AS (
+            SELECT
+                code,
+                ymd,
+                c,
+                LEAD(ymd, 20) OVER (PARTITION BY code ORDER BY ymd) AS ymd_fwd20,
+                LEAD(c, 20) OVER (PARTITION BY code ORDER BY ymd) AS c_fwd20
+            FROM bars
+            WHERE ymd IS NOT NULL
+        ),
+        calc AS (
+            SELECT
+                a.as_of_ymd,
+                a.tf,
+                a."which",
+                a.direction,
+                a.mode,
+                a.risk_mode,
+                a.code,
+                s.ymd_fwd20 AS realized_as_of_ymd,
+                CASE
+                    WHEN s.c IS NULL OR ABS(s.c) <= 1e-12 OR s.c_fwd20 IS NULL THEN NULL
+                    ELSE (s.c_fwd20 / s.c) - 1.0
+                END AS realized_ret_20
+            FROM ranking_edinet_audit_daily a
+            JOIN seq s
+              ON s.code = a.code
+             AND s.ymd = a.as_of_ymd
+            WHERE a.tf = 'M'
+              AND a.mode = 'hybrid'
+              AND a.realized_ret_20 IS NULL
+        )
+        UPDATE ranking_edinet_audit_daily AS a
+           SET realized_ret_20 = calc.realized_ret_20,
+               realized_win_20 = CASE
+                   WHEN calc.realized_ret_20 IS NULL THEN NULL
+                   WHEN calc.realized_ret_20 > 0 THEN TRUE
+                   ELSE FALSE
+               END,
+               realized_as_of_ymd = calc.realized_as_of_ymd,
+               realized_updated_at = CURRENT_TIMESTAMP,
+               updated_at = CURRENT_TIMESTAMP
+        FROM calc
+        WHERE a.as_of_ymd = calc.as_of_ymd
+          AND a.tf = calc.tf
+          AND a."which" = calc."which"
+          AND a.direction = calc.direction
+          AND a.mode = calc.mode
+          AND a.risk_mode = calc.risk_mode
+          AND a.code = calc.code
+          AND calc.realized_as_of_ymd IS NOT NULL
+        """
+    )
+
+
+def get_edinet_monitor(
+    *,
+    lookback_days: int = 365,
+    direction: str = "all",
+    risk_mode: str = "all",
+    which: str = "latest",
+) -> dict[str, Any]:
+    lookback = max(30, min(int(lookback_days or 365), 2000))
+    from_ymd = int((datetime.now(timezone.utc) - timedelta(days=lookback)).strftime("%Y%m%d"))
+    groups: dict[str, dict[str, Any]] = {
+        "positive": {
+            "count": 0,
+            "realized_count": 0,
+            "avg_ret20": None,
+            "win_rate20": None,
+        },
+        "negative": {
+            "count": 0,
+            "realized_count": 0,
+            "avg_ret20": None,
+            "win_rate20": None,
+        },
+        "zero": {
+            "count": 0,
+            "realized_count": 0,
+            "avg_ret20": None,
+            "win_rate20": None,
+        },
+    }
+    try:
+        with duckdb.connect(str(core_config.DB_PATH)) as conn:
+            if not _table_exists(conn, "ranking_edinet_audit_daily"):
+                return {
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "lookback_days": lookback,
+                    "from_ymd": int(from_ymd),
+                    "filters": {
+                        "tf": "M",
+                        "which": str(which),
+                        "direction": str(direction),
+                        "risk_mode": str(risk_mode),
+                        "mode": "hybrid",
+                    },
+                    "groups": groups,
+                    "comparison": {"delta_avg_ret20": None, "delta_win_rate20": None},
+                    "insufficient_samples": True,
+                    "min_samples": int(_EDINET_MONITOR_MIN_SAMPLES),
+                }
+            where_parts = [
+                "tf = 'M'",
+                "mode = 'hybrid'",
+                "as_of_ymd >= ?",
+            ]
+            params: list[Any] = [int(from_ymd)]
+            if which in ("latest", "prev"):
+                where_parts.append('"which" = ?')
+                params.append(str(which))
+            if direction in ("up", "down"):
+                where_parts.append("direction = ?")
+                params.append(str(direction))
+            if risk_mode in ("defensive", "balanced", "aggressive"):
+                where_parts.append("risk_mode = ?")
+                params.append(str(risk_mode))
+            where_sql = " AND ".join(where_parts)
+            rows = conn.execute(
+                f"""
+                SELECT
+                    CASE
+                        WHEN edinet_score_bonus > 1e-12 THEN 'positive'
+                        WHEN edinet_score_bonus < -1e-12 THEN 'negative'
+                        ELSE 'zero'
+                    END AS bucket,
+                    COUNT(*) AS cnt,
+                    COUNT(realized_ret_20) AS realized_cnt,
+                    AVG(realized_ret_20) AS avg_ret20,
+                    AVG(
+                        CASE
+                            WHEN realized_win_20 IS TRUE THEN 1.0
+                            WHEN realized_win_20 IS FALSE THEN 0.0
+                            ELSE NULL
+                        END
+                    ) AS win_rate20
+                FROM ranking_edinet_audit_daily
+                WHERE {where_sql}
+                GROUP BY 1
+                """,
+                params,
+            ).fetchall()
+            for row in rows:
+                bucket = str(row[0] or "")
+                if bucket not in groups:
+                    continue
+                groups[bucket] = {
+                    "count": int(row[1] or 0),
+                    "realized_count": int(row[2] or 0),
+                    "avg_ret20": float(row[3]) if row[3] is not None else None,
+                    "win_rate20": float(row[4]) if row[4] is not None else None,
+                }
+    except Exception as exc:
+        logger.debug("edinet monitor query failed: %s", exc)
+    pos = groups["positive"]
+    neg = groups["negative"]
+    delta_ret = None
+    if pos["avg_ret20"] is not None and neg["avg_ret20"] is not None:
+        delta_ret = float(pos["avg_ret20"] - neg["avg_ret20"])
+    delta_win = None
+    if pos["win_rate20"] is not None and neg["win_rate20"] is not None:
+        delta_win = float(pos["win_rate20"] - neg["win_rate20"])
+    insufficient = bool(
+        int(pos["realized_count"]) < int(_EDINET_MONITOR_MIN_SAMPLES)
+        or int(neg["realized_count"]) < int(_EDINET_MONITOR_MIN_SAMPLES)
+    )
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "lookback_days": lookback,
+        "from_ymd": int(from_ymd),
+        "filters": {
+            "tf": "M",
+            "which": str(which),
+            "direction": str(direction),
+            "risk_mode": str(risk_mode),
+            "mode": "hybrid",
+        },
+        "groups": groups,
+        "comparison": {"delta_avg_ret20": delta_ret, "delta_win_rate20": delta_win},
+        "insufficient_samples": insufficient,
+        "min_samples": int(_EDINET_MONITOR_MIN_SAMPLES),
+    }
 
 
 def _to_month_start_int(value: int | None) -> int | None:
@@ -2750,12 +3156,21 @@ def _apply_monthly_ml_mode(
     pred_dt: int | None = None
     pred_map: dict[str, dict] = {}
     model_version: str | None = None
+    edinet_feature_map: dict[str, dict[str, Any]] = {}
+    edinet_flag_applied = _is_edinet_bonus_enabled()
+    target_codes = sorted({str(item.get("code") or "").strip() for item in items if str(item.get("code") or "").strip()})
+    asof_candidates = [_iso_date_to_int(str(item.get("asOf") or "")) for item in items]
+    anchor_asof_ymd = max((value for value in asof_candidates if isinstance(value, int)), default=None)
+    if anchor_asof_ymd is None:
+        anchor_asof_ymd = int(datetime.now(timezone.utc).strftime("%Y%m%d"))
     try:
         with duckdb.connect(str(core_config.DB_PATH)) as conn:
             pred_dt = _resolve_monthly_prediction_dt(conn, items)
             if pred_dt is not None:
                 pred_map, model_version = _load_monthly_pred_map(conn, pred_dt)
                 gate_recommendation, ret20_lookup = _load_monthly_gate_recommendation(conn, model_version)
+            if target_codes:
+                edinet_feature_map = load_edinet_rank_features(conn, target_codes, anchor_asof_ymd)
     except Exception:
         return items[:limit], None, None
 
@@ -2768,6 +3183,8 @@ def _apply_monthly_ml_mode(
                     return items[:limit], None, None
                 pred_map, model_version = _load_monthly_pred_map(conn, pred_dt)
                 gate_recommendation, ret20_lookup = _load_monthly_gate_recommendation(conn, model_version)
+                if target_codes:
+                    edinet_feature_map = load_edinet_rank_features(conn, target_codes, anchor_asof_ymd)
         except Exception:
             return items[:limit], None, None
     if not pred_map:
@@ -2800,6 +3217,21 @@ def _apply_monthly_ml_mode(
     for item in enriched:
         code = str(item.get("code") or "")
         by_code[code] = item
+        _apply_edinet_defaults(item, flag_applied=edinet_flag_applied)
+        edinet_features = edinet_feature_map.get(code) if isinstance(edinet_feature_map.get(code), dict) else None
+        if edinet_features:
+            for key in _EDINET_ITEM_DEFAULTS.keys():
+                if key in edinet_features:
+                    item[key] = edinet_features.get(key)
+        item["edinetFeatureFlagApplied"] = bool(edinet_flag_applied)
+        edinet_data_score = _first_finite(item.get("edinetDataScore"))
+        edinet_metric_count = _first_finite(item.get("edinetMetricCount")) or 0.0
+        edinet_coverage = float(max(0.0, min(1.0, float(edinet_metric_count) / 3.0)))
+        bonus_core = 0.0
+        if edinet_data_score is not None and edinet_coverage > 0:
+            bonus_core = float((float(edinet_data_score) - 0.5) * _EDINET_SCORE_BONUS_SCALE * edinet_coverage)
+        edinet_bonus = float(bonus_core if direction == "up" else -bonus_core)
+        item["edinetScoreBonus"] = float(edinet_bonus)
         p_abs_big = _first_finite(item.get("mlPAbsBig"))
         prob_side = _first_finite(item.get("mlPUpBig") if direction == "up" else item.get("mlPDownBig"))
         score_side = _first_finite(item.get("mlScoreUp1M") if direction == "up" else item.get("mlScoreDown1M"))
@@ -2985,7 +3417,10 @@ def _apply_monthly_ml_mode(
         )
         item["playbookScoreBonus"] = float(playbook_bonus)
         if item["entryScore"] is not None:
-            item["entryScore"] = float(max(0.0, min(1.0, float(item["entryScore"]) + float(research_bonus))))
+            bonus_total = float(research_bonus)
+            if edinet_flag_applied:
+                bonus_total += float(edinet_bonus)
+            item["entryScore"] = float(max(0.0, min(1.0, float(item["entryScore"]) + bonus_total)))
         item["monthlyRegimeAligned"] = bool(monthly_breakout_prob is not None and monthly_breakout_prob >= 0.60)
         trend_breakout_ok = bool(
             breakout_readiness >= 0.70
@@ -3101,6 +3536,17 @@ def _apply_monthly_ml_mode(
                 "entryQualified": False,
                 "setupType": "watch",
             }
+            _apply_edinet_defaults(candidate, flag_applied=edinet_flag_applied)
+            edinet_features = (
+                edinet_feature_map.get(code)
+                if isinstance(edinet_feature_map.get(code), dict)
+                else None
+            )
+            if edinet_features:
+                for key in _EDINET_ITEM_DEFAULTS.keys():
+                    if key in edinet_features:
+                        candidate[key] = edinet_features.get(key)
+            candidate["edinetFeatureFlagApplied"] = bool(edinet_flag_applied)
             _apply_entry_playbook_fields(
                 candidate,
                 direction=direction,
@@ -3112,6 +3558,30 @@ def _apply_monthly_ml_mode(
         if len(selected) >= limit:
             break
     return selected[:limit], pred_dt, model_version
+
+
+def _call_apply_monthly_ml_mode(
+    items: list[dict],
+    *,
+    direction: RankDir,
+    limit: int,
+    risk_mode: RankRiskMode,
+) -> tuple[list[dict], int | None, str | None]:
+    try:
+        return _apply_monthly_ml_mode(
+            items,
+            direction=direction,
+            limit=limit,
+            risk_mode=risk_mode,
+        )
+    except TypeError as exc:
+        if "unexpected keyword argument 'risk_mode'" not in str(exc):
+            raise
+        return _apply_monthly_ml_mode(
+            items,
+            direction=direction,
+            limit=limit,
+        )
 
 
 def _load_daily_snapshot_map(
@@ -4213,6 +4683,34 @@ def _apply_ml_mode(
     return selected[:limit], pred_dt, model_version
 
 
+def _call_apply_ml_mode(
+    items: list[dict],
+    *,
+    direction: RankDir,
+    mode: RankMode,
+    limit: int,
+    risk_mode: RankRiskMode,
+) -> tuple[list[dict], int | None, str | None]:
+    try:
+        return _apply_ml_mode(
+            items,
+            direction=direction,
+            mode=mode,
+            limit=limit,
+            risk_mode=risk_mode,
+        )
+    except TypeError as exc:
+        # Backward-compatible path for tests that monkeypatch a legacy signature.
+        if "unexpected keyword argument 'risk_mode'" not in str(exc):
+            raise
+        return _apply_ml_mode(
+            items,
+            direction=direction,
+            mode=mode,
+            limit=limit,
+        )
+
+
 def refresh_cache() -> None:
     global _CACHE, _LAST_UPDATED, _LAST_DB_MTIME
     cache = _build_cache()
@@ -4257,19 +4755,30 @@ def get_rankings(
             risk_mode=risk_mode,
         )
     elif tf == "M" and mode == "hybrid":
-        out_items, pred_dt, model_version = _apply_monthly_ml_mode(
+        out_items, pred_dt, model_version = _call_apply_monthly_ml_mode(
             items,
             direction=direction,
             limit=limit,
             risk_mode=risk_mode,
         )
     else:
-        out_items, pred_dt, model_version = _apply_ml_mode(
+        out_items, pred_dt, model_version = _call_apply_ml_mode(
             items,
             direction=direction,
             mode=mode,
             limit=limit,
             risk_mode=risk_mode,
+        )
+    if tf == "M" and mode == "hybrid":
+        flag_applied = _is_edinet_bonus_enabled()
+        out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
+        _persist_monthly_edinet_audit(
+            tf=tf,
+            which=which,
+            direction=direction,
+            mode=mode,
+            risk_mode=risk_mode,
+            items=out_items,
         )
     out_items = [_sanitize_rank_item_for_json(item) for item in out_items]
 
@@ -4346,20 +4855,23 @@ def get_rankings_asof(
             risk_mode=risk_mode,
         )
     elif tf == "M" and mode == "hybrid":
-        out_items, pred_dt, model_version = _apply_monthly_ml_mode(
+        out_items, pred_dt, model_version = _call_apply_monthly_ml_mode(
             items,
             direction=direction,
             limit=limit,
             risk_mode=risk_mode,
         )
     else:
-        out_items, pred_dt, model_version = _apply_ml_mode(
+        out_items, pred_dt, model_version = _call_apply_ml_mode(
             items,
             direction=direction,
             mode=mode,
             limit=limit,
             risk_mode=risk_mode,
         )
+    if tf == "M" and mode == "hybrid":
+        flag_applied = _is_edinet_bonus_enabled()
+        out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
 
     if pred_dt is not None:
         pred_key = pred_dt
