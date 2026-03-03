@@ -697,7 +697,7 @@ export default function GridView() {
     let canceled = false;
     const loadHealth = async () => {
       try {
-        const deepRes = await api.get("/api/health/deep", { validateStatus: () => true });
+        const deepRes = await api.get("/health/deep", { validateStatus: () => true });
         if (canceled) return;
         if (deepRes.status >= 200 && deepRes.status < 300) {
           setHealth(normalizeHealthStatus(deepRes.data as HealthDeepResponse));
@@ -707,7 +707,7 @@ export default function GridView() {
         // fall through to lightweight health
       }
       try {
-        const lightRes = await api.get("/api/health", { validateStatus: () => true });
+        const lightRes = await api.get("/health", { validateStatus: () => true });
         if (canceled) return;
         if (lightRes.status >= 200 && lightRes.status < 300) {
           const lightData = lightRes.data as HealthReadyResponse;

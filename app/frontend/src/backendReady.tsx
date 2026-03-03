@@ -97,7 +97,7 @@ const useBackendReadyInternal = (): BackendReadyState => {
     attemptRef.current += 1;
     setAttemptCount(attemptRef.current);
     try {
-      const res = await api.get("/api/health", {
+      const res = await api.get("/health", {
         timeout: HEALTH_TIMEOUT_MS,
         validateStatus: () => true
       });
@@ -173,7 +173,7 @@ const useBackendReadyInternal = (): BackendReadyState => {
     if (!readyRef.current || inFlightRef.current) return;
     inFlightRef.current = true;
     try {
-      const res = await api.get("/api/health", {
+      const res = await api.get("/health", {
         timeout: 2000,
         validateStatus: () => true
       });
