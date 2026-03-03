@@ -38,30 +38,40 @@ def _is_transient_db_lock_error(exc: Exception) -> bool:
     )
 
 
-def _count_active_jobs(job_type: str) -> int:
+def _count_active_jobs(job_type: str) -> tuple[int, str | None]:
     try:
         with get_conn() as conn:
-            return conn.execute(
+            count = conn.execute(
                 "SELECT COUNT(*) FROM sys_jobs WHERE type = ? AND status IN ('queued', 'running', 'cancel_requested')",
                 [job_type],
             ).fetchone()[0]
+            return int(count), None
     except Exception as exc:
         # Fail closed on transient DuckDB lock/open errors: reject duplicate trigger.
         if _is_transient_db_lock_error(exc):
             logger.warning("count_active_jobs fallback to conflict due to DB lock: type=%s err=%s", job_type, exc)
-            return 1
+            return 1, "db_lock_during_active_job_check"
         raise
 
 
 def _submit_job(job_type: str, payload: dict | None = None):
     cleanup_stale_jobs()
-    if _count_active_jobs(job_type) > 0:
-        return JSONResponse(status_code=409, content={"error": "Job already running"})
+    active_count, error_detail = _count_active_jobs(job_type)
+    if active_count > 0:
+        body: dict[str, object] = {"error": "Job already running"}
+        if error_detail:
+            body["error_detail"] = error_detail
+        return JSONResponse(status_code=409, content=body)
     job_id = job_manager.submit(job_type, payload or {})
     return {"ok": True, "job_id": job_id}
 
 
-def _txt_update_conflict_response(*, source: str, legacy_endpoint: str | None = None) -> JSONResponse:
+def _txt_update_conflict_response(
+    *,
+    source: str,
+    legacy_endpoint: str | None = None,
+    error_detail: str | None = None,
+) -> JSONResponse:
     payload: dict[str, object] = {
         "ok": False,
         "started": False,
@@ -72,6 +82,8 @@ def _txt_update_conflict_response(*, source: str, legacy_endpoint: str | None = 
         "active_statuses": list(ACTIVE_JOB_STATUSES),
         "source": source,
     }
+    if error_detail:
+        payload["error_detail"] = error_detail
     if legacy_endpoint:
         payload["deprecated_endpoint"] = legacy_endpoint
     return JSONResponse(status_code=409, content=payload)
@@ -245,9 +257,14 @@ def submit_txt_update_job(
         )
 
     cleanup_stale_jobs()
-    if _count_active_jobs(TXT_UPDATE_JOB_TYPE) > 0:
+    active_count, error_detail = _count_active_jobs(TXT_UPDATE_JOB_TYPE)
+    if active_count > 0:
         return _maybe_apply_legacy_headers(
-            _txt_update_conflict_response(source=source, legacy_endpoint=legacy_endpoint),
+            _txt_update_conflict_response(
+                source=source,
+                legacy_endpoint=legacy_endpoint,
+                error_detail=error_detail,
+            ),
             legacy_endpoint=legacy_endpoint,
         )
 

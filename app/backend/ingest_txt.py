@@ -1293,18 +1293,21 @@ def ingest(incremental: bool = False) -> None:
                 conn.execute("DELETE FROM tickers")
             else:
                 # Incremental: Delete only processed codes
-                codes = daily["code"].unique().tolist()
+                codes = [str(code) for code in daily["code"].dropna().unique().tolist() if str(code)]
                 if codes:
-                    placeholders = ",".join(["?"] * len(codes))
-                    # Note: DuckDB supports DELETE FROM ... WHERE code IN (...)
-                    # We need to run delete for all tables
-                    conn.execute(f"DELETE FROM daily_bars WHERE code IN ({placeholders})", codes)
-                    conn.execute(f"DELETE FROM daily_ma WHERE code IN ({placeholders})", codes)
-                    conn.execute(f"DELETE FROM feature_snapshot_daily WHERE code IN ({placeholders})", codes)
-                    conn.execute(f"DELETE FROM monthly_bars WHERE code IN ({placeholders})", codes)
-                    conn.execute(f"DELETE FROM monthly_ma WHERE code IN ({placeholders})", codes)
-                    conn.execute(f"DELETE FROM stock_meta WHERE code IN ({placeholders})", codes)
-                    conn.execute(f"DELETE FROM tickers WHERE code IN ({placeholders})", codes)
+                    codes_df = pd.DataFrame({"code": codes})
+                    conn.register("incremental_codes_df", codes_df)
+                    conn.execute("CREATE TEMP TABLE _tmp_incremental_codes AS SELECT DISTINCT code FROM incremental_codes_df")
+                    conn.execute("DELETE FROM daily_bars WHERE code IN (SELECT code FROM _tmp_incremental_codes)")
+                    conn.execute("DELETE FROM daily_ma WHERE code IN (SELECT code FROM _tmp_incremental_codes)")
+                    conn.execute(
+                        "DELETE FROM feature_snapshot_daily WHERE code IN (SELECT code FROM _tmp_incremental_codes)"
+                    )
+                    conn.execute("DELETE FROM monthly_bars WHERE code IN (SELECT code FROM _tmp_incremental_codes)")
+                    conn.execute("DELETE FROM monthly_ma WHERE code IN (SELECT code FROM _tmp_incremental_codes)")
+                    conn.execute("DELETE FROM stock_meta WHERE code IN (SELECT code FROM _tmp_incremental_codes)")
+                    conn.execute("DELETE FROM tickers WHERE code IN (SELECT code FROM _tmp_incremental_codes)")
+                    conn.execute("DROP TABLE IF EXISTS _tmp_incremental_codes")
 
             conn.register("daily_df", daily)
             conn.execute("INSERT INTO daily_bars SELECT code, date, o, h, l, c, v FROM daily_df")

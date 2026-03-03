@@ -5,13 +5,14 @@ import json
 import logging
 import os
 import queue
+import random
 import subprocess
 import threading
 import time
 import traceback
 from contextlib import redirect_stdout, redirect_stderr
 from datetime import datetime
-from typing import Callable
+from typing import Any, Callable
 
 from .config import config
 from .jobs import job_manager
@@ -25,6 +26,8 @@ except ImportError:
         ingest_txt = None
 
 logger = logging.getLogger(__name__)
+_RETRY_TRACE_MAX = 200
+_RETRY_JITTER_RATIO = 0.20
 
 
 def _update_vbs_path() -> str:
@@ -64,6 +67,79 @@ def _save_update_state(state: dict) -> None:
             json.dump(state, handle, ensure_ascii=False, indent=2)
     except Exception as exc:
         logger.warning("Failed to save update state (%s): %s", path, exc)
+
+
+def _trim_retry_trace(state: dict) -> None:
+    trace = state.get("retry_trace")
+    if not isinstance(trace, list):
+        state["retry_trace"] = []
+        return
+    if len(trace) > _RETRY_TRACE_MAX:
+        state["retry_trace"] = trace[-_RETRY_TRACE_MAX:]
+
+
+def _append_retry_trace(
+    state: dict,
+    *,
+    stage: str,
+    operation: str,
+    attempt: int,
+    max_attempts: int,
+    kind: str,
+    error: str,
+    will_retry: bool,
+    sleep_seconds: float | None,
+) -> None:
+    _trim_retry_trace(state)
+    trace = state.get("retry_trace")
+    if not isinstance(trace, list):
+        trace = []
+        state["retry_trace"] = trace
+    trace.append(
+        {
+            "at": datetime.now().isoformat(),
+            "stage": stage,
+            "operation": operation,
+            "attempt": int(attempt),
+            "max_attempts": int(max_attempts),
+            "kind": kind,
+            "error": str(error),
+            "will_retry": bool(will_retry),
+            "sleep_seconds": float(sleep_seconds) if sleep_seconds is not None else None,
+        }
+    )
+    _trim_retry_trace(state)
+
+
+def _set_retry_summary(
+    state: dict,
+    *,
+    stage: str,
+    operation: str,
+    attempts: int,
+    status: str,
+    kind: str,
+    error: str | None = None,
+) -> None:
+    now_iso = datetime.now().isoformat()
+    state["last_retry_summary"] = {
+        "at": now_iso,
+        "stage": stage,
+        "operation": operation,
+        "attempts": int(attempts),
+        "status": status,
+        "kind": kind,
+        "error": str(error) if error else None,
+    }
+    state["last_retry_stage"] = stage
+    state["last_retry_reason"] = kind
+    state["last_retry_count"] = int(attempts)
+    if status == "failed":
+        state["last_retry_exhausted_stage"] = stage
+        state["last_retry_exhausted_kind"] = kind
+    else:
+        state.pop("last_retry_exhausted_stage", None)
+        state.pop("last_retry_exhausted_kind", None)
 
 
 def _set_pipeline_stage(
@@ -364,22 +440,117 @@ def _classify_ingest_error_text(error_text: str) -> str:
     return "other"
 
 
-def _run_phase_with_retry(*, max_attempts: int, sleep_seconds: float) -> int:
+def _classify_retry_exception(exc: Exception) -> str:
+    if _is_transient_db_lock_error(exc):
+        return "db_lock"
+    return "other"
+
+
+def _compute_retry_sleep_seconds(base_sleep_seconds: float, attempt: int) -> float:
+    base = max(0.1, float(base_sleep_seconds))
+    exponent = max(0, int(attempt) - 1)
+    jitter = 1.0 + random.uniform(-_RETRY_JITTER_RATIO, _RETRY_JITTER_RATIO)
+    return max(0.1, base * (2 ** exponent) * jitter)
+
+
+def _execute_with_retry(
+    *,
+    stage: str,
+    operation: str,
+    max_attempts: int,
+    sleep_seconds: float,
+    state: dict | None,
+    run_once: Callable[[], Any],
+    classify_error: Callable[[Exception], str],
+    retry_if: Callable[[Exception], bool],
+) -> tuple[bool, Any, int, str, str | None]:
     attempt = 0
-    while True:
+    while attempt < max_attempts:
         attempt += 1
         try:
-            return _run_phase_batch_latest()
+            value = run_once()
         except Exception as exc:
-            if attempt >= max_attempts or not _is_transient_db_lock_error(exc):
-                raise
+            kind = classify_error(exc)
+            should_retry = retry_if(exc)
+            will_retry = attempt < max_attempts and should_retry
+            sleep_for = _compute_retry_sleep_seconds(sleep_seconds, attempt) if will_retry else None
+            if state is not None:
+                _append_retry_trace(
+                    state,
+                    stage=stage,
+                    operation=operation,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    kind=kind,
+                    error=str(exc),
+                    will_retry=will_retry,
+                    sleep_seconds=sleep_for,
+                )
+                _set_retry_summary(
+                    state,
+                    stage=stage,
+                    operation=operation,
+                    attempts=attempt,
+                    status="retrying" if will_retry else "failed",
+                    kind=kind,
+                    error=str(exc),
+                )
+                _save_update_state(state)
+            if not will_retry:
+                logger.warning(
+                    "%s failed (%s/%s, kind=%s): %s",
+                    operation,
+                    attempt,
+                    max_attempts,
+                    kind,
+                    exc,
+                )
+                return False, None, attempt, kind, str(exc)
             logger.warning(
-                "Phase update retry due to transient DB lock (attempt %s/%s): %s",
+                "%s retry (%s/%s, kind=%s) after %.2fs: %s",
+                operation,
                 attempt,
                 max_attempts,
+                kind,
+                float(sleep_for or 0.0),
                 exc,
             )
-            time.sleep(max(0.1, float(sleep_seconds)))
+            time.sleep(max(0.1, float(sleep_for or 0.1)))
+            continue
+        if state is not None:
+            _set_retry_summary(
+                state,
+                stage=stage,
+                operation=operation,
+                attempts=attempt,
+                status="success",
+                kind="none",
+            )
+            _save_update_state(state)
+        return True, value, attempt, "none", None
+    return False, None, attempt, "other", "retry_exhausted"
+
+
+def _run_phase_with_retry(
+    *,
+    max_attempts: int,
+    sleep_seconds: float,
+    state: dict | None = None,
+    stage: str = "phase",
+) -> int:
+    ok, value, _attempts, _kind, error_text = _execute_with_retry(
+        stage=stage,
+        operation="phase_update",
+        max_attempts=max_attempts,
+        sleep_seconds=sleep_seconds,
+        state=state,
+        run_once=_run_phase_batch_latest,
+        classify_error=_classify_retry_exception,
+        retry_if=_is_transient_db_lock_error,
+    )
+    if ok:
+        return int(value)
+    raise RuntimeError(error_text or "phase update failed")
 
 
 def _run_ingest_with_retry(
@@ -387,29 +558,35 @@ def _run_ingest_with_retry(
     incremental: bool,
     max_attempts: int,
     sleep_seconds: float,
+    state: dict | None = None,
+    stage: str = "ingest",
 ) -> tuple[str, str, dict, int, str]:
-    attempt = 0
     last_output = ""
-    last_error = ""
     last_stats: dict = {}
-    last_error_kind = "none"
-    while attempt < max_attempts:
-        attempt += 1
+
+    def _run_once() -> tuple[str, dict]:
+        nonlocal last_output, last_stats
         out, err, stats = run_ingest(incremental=incremental)
-        last_output, last_error, last_stats = out, err, stats
-        last_error_kind = _classify_ingest_error_text(err)
-        if not err:
-            return out, "", stats, attempt, "none"
-        if attempt >= max_attempts or last_error_kind != "db_lock":
-            break
-        logger.warning(
-            "Ingest retry due to transient DB lock (attempt %s/%s): %s",
-            attempt,
-            max_attempts,
-            err,
-        )
-        time.sleep(max(0.1, float(sleep_seconds)))
-    return last_output, last_error, last_stats, attempt, last_error_kind
+        last_output = out
+        last_stats = stats
+        if err:
+            raise RuntimeError(err)
+        return out, stats
+
+    ok, value, attempts, error_kind, error_text = _execute_with_retry(
+        stage=stage,
+        operation="ingest_incremental" if incremental else "ingest_full",
+        max_attempts=max_attempts,
+        sleep_seconds=sleep_seconds,
+        state=state,
+        run_once=_run_once,
+        classify_error=lambda exc: _classify_ingest_error_text(str(exc)),
+        retry_if=lambda exc: _classify_ingest_error_text(str(exc)) == "db_lock",
+    )
+    if ok and value is not None:
+        out, stats = value
+        return out, "", stats, attempts, "none"
+    return last_output, str(error_text or "ingest_failed"), last_stats, attempts, error_kind
 
 
 def _is_job_canceled(job_id: str) -> bool:
@@ -676,6 +853,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         minimum=1,
     )
     state = _load_update_state()
+    _trim_retry_trace(state)
     state["last_pipeline_status"] = "running"
     state["last_pipeline_started_at"] = datetime.now().isoformat()
     state.pop("last_pipeline_finished_at", None)
@@ -928,6 +1106,8 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         incremental=True,
         max_attempts=ingest_retry,
         sleep_seconds=ingest_retry_sleep,
+        state=state,
+        stage="ingest",
     )
     state["last_ingest_attempts"] = int(ingest_attempts)
     state["last_ingest_retry_sleep_sec"] = float(ingest_retry_sleep)
@@ -959,7 +1139,12 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     _set_pipeline_stage(state, "phase", message="Rebuilding latest phase snapshot...")
     job_manager._update_db(job_id, "txt_update", "running", message="Refreshing phase snapshot...", progress=92)
     try:
-        phase_dt = _run_phase_with_retry(max_attempts=phase_retry, sleep_seconds=phase_retry_sleep)
+        phase_dt = _run_phase_with_retry(
+            max_attempts=phase_retry,
+            sleep_seconds=phase_retry_sleep,
+            state=state,
+            stage="phase",
+        )
         state["last_phase_dt"] = int(phase_dt)
         state["last_phase_at"] = datetime.now().isoformat()
         job_manager._update_db(
