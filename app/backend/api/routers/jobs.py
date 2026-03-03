@@ -9,8 +9,11 @@ from fastapi import APIRouter, Body, Query
 from fastapi.responses import JSONResponse
 
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
+from app.backend.core.yahoo_daily_ingest_job import YF_DAILY_INGEST_JOB_TYPE
 from app.backend.core.config import config
 from app.backend.services import ml_service, strategy_backtest_service
+from app.backend.services.yahoo_daily_ingest import get_daily_ingest_coverage
+from app.backend.services.yahoo_provisional import normalize_date_key
 from app.db.session import get_conn
 
 router = APIRouter()
@@ -342,6 +345,42 @@ def submit_force_sync():
         return _submit_job("force_sync")
     except Exception as exc:
         logger.exception("Error submitting force_sync: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/jobs/yahoo/daily-ingest")
+def submit_yahoo_daily_ingest(
+    dry_run: bool = False,
+    asof_dt: int | None = None,
+    max_codes: int | None = Query(default=None, ge=1, le=20000),
+):
+    try:
+        payload = {
+            "dry_run": bool(dry_run),
+            "asof_dt": int(asof_dt) if asof_dt is not None else None,
+            "max_codes": int(max_codes) if max_codes is not None else None,
+        }
+        return _submit_job(YF_DAILY_INGEST_JOB_TYPE, payload)
+    except Exception as exc:
+        logger.exception("Error submitting yahoo daily ingest: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.get("/api/jobs/yahoo/daily-ingest/coverage")
+def get_yahoo_daily_ingest_coverage(
+    target_dt: int | None = None,
+    max_codes: int | None = Query(default=None, ge=1, le=20000),
+):
+    try:
+        target_key = normalize_date_key(target_dt) if target_dt is not None else None
+        if target_dt is not None and target_key is None:
+            return JSONResponse(status_code=400, content={"error": "invalid target_dt"})
+        return {
+            "ok": True,
+            **get_daily_ingest_coverage(target_date_key=target_key, max_codes=max_codes),
+        }
+    except Exception as exc:
+        logger.exception("Error fetching yahoo daily ingest coverage: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 

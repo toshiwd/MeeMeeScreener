@@ -3,7 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { BarsPayload, Box, MaSetting } from "../store";
 import { getDomTheme } from "../utils/theme";
 import { getBodyRangeFromBars, getBoxFill, getBoxStroke } from "../utils/boxes";
-import { setThumbnailCache } from "./thumbnailCache";
+import { getThumbnailCache, setThumbnailCache } from "./thumbnailCache";
 
 const COLORS = {
   up: "#ef4444",
@@ -340,168 +340,185 @@ export default function ThumbnailCanvas({
   theme?: "dark" | "light";
 }) {
   const resolvedTheme = theme ?? getDomTheme();
-    const containerRef = useRef<HTMLDivElement | null>(null);
-    const canvasRef = useRef<HTMLCanvasElement | null>(null);
-    const lastKeyRef = useRef<string>("");
-    const rafRef = useRef<number | null>(null);
-    const lastSnapshotRef = useRef<string>("");
-    const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-    const hoverIndexRef = useRef<number | null>(null);
-    const hoverRafRef = useRef<number | null>(null);
-    const hoverPendingRef = useRef<number | null>(null);
-    const maxBarsValue = Math.max(1, Math.floor(maxBars ?? DEFAULT_MAX_BARS));
-    const displayBars = useMemo(() => {
-      const allBars = payload.bars ?? [];
-      if (allBars.length <= maxBarsValue) return allBars;
-      return allBars.slice(-maxBarsValue);
-    }, [payload, maxBarsValue]);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastKeyRef = useRef<string>("");
+  const rafRef = useRef<number | null>(null);
+  const lastSnapshotRef = useRef<string>("");
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const hoverIndexRef = useRef<number | null>(null);
+  const hoverRafRef = useRef<number | null>(null);
+  const hoverPendingRef = useRef<number | null>(null);
+  const [hasDrawn, setHasDrawn] = useState(false);
+  const [cachedSnapshot, setCachedSnapshot] = useState<string | null>(
+    () => (cacheKey ? getThumbnailCache(cacheKey) ?? null : null)
+  );
+  const maxBarsValue = Math.max(1, Math.floor(maxBars ?? DEFAULT_MAX_BARS));
+  const displayBars = useMemo(() => {
+    const allBars = payload.bars ?? [];
+    if (allBars.length <= maxBarsValue) return allBars;
+    return allBars.slice(-maxBarsValue);
+  }, [payload, maxBarsValue]);
 
-    const renderKey = useMemo(() => {
-      const bars = displayBars;
-      const last = bars[bars.length - 1];
-      const firstBox = boxes[0];
-      const settingsKey = maSettings
-        .map((setting) => `${setting.period}-${setting.visible}-${setting.color}-${setting.lineWidth}`)
-        .join("|");
-      return `${bars.length}-${bars[0]?.[0]}-${last?.[0]}-${last?.[4]}-${boxes.length}-${firstBox?.startTime ?? "none"}-${showBoxes}-${settingsKey}-${maxBarsValue}-${showAxes}-${resolvedTheme}`;
-    }, [displayBars, boxes, showBoxes, maSettings, maxBarsValue, showAxes, resolvedTheme]);
+  const renderKey = useMemo(() => {
+    const bars = displayBars;
+    const last = bars[bars.length - 1];
+    const firstBox = boxes[0];
+    const settingsKey = maSettings
+      .map((setting) => `${setting.period}-${setting.visible}-${setting.color}-${setting.lineWidth}`)
+      .join("|");
+    return `${bars.length}-${bars[0]?.[0]}-${last?.[0]}-${last?.[4]}-${boxes.length}-${firstBox?.startTime ?? "none"}-${showBoxes}-${settingsKey}-${maxBarsValue}-${showAxes}-${resolvedTheme}`;
+  }, [displayBars, boxes, showBoxes, maSettings, maxBarsValue, showAxes, resolvedTheme]);
 
-    const draw = useCallback(() => {
-      if (!containerRef.current || !canvasRef.current) return false;
-      const width = Math.floor(containerRef.current.clientWidth || 0);
-      const height = Math.max(MIN_HEIGHT, Math.floor(containerRef.current.clientHeight || 0));
-      if (width <= 0 || height <= 0) return false;
-      const canvas = canvasRef.current;
-      const ratio = window.devicePixelRatio || 1;
-      canvas.width = Math.floor(width * ratio);
-      canvas.height = Math.floor(height * ratio);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-      }
-      drawChart(
-        canvas,
-        payload,
-        boxes,
-        showBoxes,
-        maSettings,
-        width,
-        height,
-        maxBarsValue,
-        showAxes,
-        resolvedTheme
-      );
-      if (cacheKey) {
-        const snapshotKey = `${cacheKey}:${renderKey}:${width}x${height}`;
-        if (lastSnapshotRef.current !== snapshotKey) {
-          lastSnapshotRef.current = snapshotKey;
-          try {
-            setThumbnailCache(cacheKey, canvas.toDataURL("image/png"));
-          } catch {
-            // ignore snapshot failures
-          }
+  const draw = useCallback(() => {
+    if (!containerRef.current || !canvasRef.current) return false;
+    const width = Math.floor(containerRef.current.clientWidth || 0);
+    const height = Math.max(MIN_HEIGHT, Math.floor(containerRef.current.clientHeight || 0));
+    if (width <= 0 || height <= 0) return false;
+    const canvas = canvasRef.current;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(width * ratio);
+    canvas.height = Math.floor(height * ratio);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
+    drawChart(
+      canvas,
+      payload,
+      boxes,
+      showBoxes,
+      maSettings,
+      width,
+      height,
+      maxBarsValue,
+      showAxes,
+      resolvedTheme
+    );
+    setHasDrawn(true);
+    if (cacheKey) {
+      const snapshotKey = `${cacheKey}:${renderKey}:${width}x${height}`;
+      if (lastSnapshotRef.current !== snapshotKey) {
+        lastSnapshotRef.current = snapshotKey;
+        try {
+          const dataUrl = canvas.toDataURL("image/png");
+          setThumbnailCache(cacheKey, dataUrl);
+          setCachedSnapshot(dataUrl);
+        } catch {
+          // ignore snapshot failures
         }
       }
-      return true;
-    }, [payload, boxes, showBoxes, maSettings, renderKey, cacheKey, maxBarsValue, showAxes, resolvedTheme]);
+    }
+    return true;
+  }, [payload, boxes, showBoxes, maSettings, renderKey, cacheKey, maxBarsValue, showAxes, resolvedTheme]);
 
-    const scheduleDraw = useCallback(() => {
+  const scheduleDraw = useCallback(() => {
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current);
+    }
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null;
+      const ok = draw();
+      if (!ok) {
+        rafRef.current = window.requestAnimationFrame(() => {
+          rafRef.current = null;
+          draw();
+        });
+      }
+    });
+  }, [draw]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(() => scheduleDraw());
+    observer.observe(containerRef.current);
+    scheduleDraw();
+    return () => {
+      observer.disconnect();
       if (rafRef.current !== null) {
         window.cancelAnimationFrame(rafRef.current);
-      }
-      rafRef.current = window.requestAnimationFrame(() => {
         rafRef.current = null;
-        const ok = draw();
-        if (!ok) {
-          rafRef.current = window.requestAnimationFrame(() => {
-            rafRef.current = null;
-            draw();
-          });
-        }
-      });
-    }, [draw]);
-
-    useEffect(() => {
-      if (!containerRef.current) return;
-      const observer = new ResizeObserver(() => scheduleDraw());
-      observer.observe(containerRef.current);
-      scheduleDraw();
-      return () => {
-        observer.disconnect();
-        if (rafRef.current !== null) {
-          window.cancelAnimationFrame(rafRef.current);
-          rafRef.current = null;
-        }
-        if (hoverRafRef.current !== null) {
-          window.cancelAnimationFrame(hoverRafRef.current);
-          hoverRafRef.current = null;
-        }
-      };
-    }, [scheduleDraw]);
-
-    useEffect(() => {
-      if (lastKeyRef.current === renderKey) return;
-      lastKeyRef.current = renderKey;
-      scheduleDraw();
-    }, [renderKey, scheduleDraw]);
-
-    const scheduleHoverIndex = (index: number | null) => {
-      hoverPendingRef.current = index;
-      if (hoverRafRef.current !== null) return;
-      hoverRafRef.current = window.requestAnimationFrame(() => {
+      }
+      if (hoverRafRef.current !== null) {
+        window.cancelAnimationFrame(hoverRafRef.current);
         hoverRafRef.current = null;
-        const next = hoverPendingRef.current;
-        if (hoverIndexRef.current === next) return;
-        hoverIndexRef.current = next;
-        setHoverIndex(next);
-      });
+      }
     };
+  }, [scheduleDraw]);
 
-    const handleMouseMove = (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (!displayBars.length || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      if (rect.width <= 0) return;
-      const ratio = Math.min(0.999, Math.max(0, x / rect.width));
-      const nextIndex = Math.min(displayBars.length - 1, Math.floor(ratio * displayBars.length));
-      scheduleHoverIndex(nextIndex);
-    };
+  useEffect(() => {
+    if (lastKeyRef.current === renderKey) return;
+    lastKeyRef.current = renderKey;
+    scheduleDraw();
+  }, [renderKey, scheduleDraw]);
 
-    const handleMouseLeave = () => {
-      scheduleHoverIndex(null);
-    };
+  useEffect(() => {
+    setHasDrawn(false);
+    if (!cacheKey) {
+      setCachedSnapshot(null);
+      return;
+    }
+    setCachedSnapshot(getThumbnailCache(cacheKey) ?? null);
+  }, [cacheKey, renderKey]);
 
-    const safeHoverIndex =
-      hoverIndex !== null && displayBars.length
-        ? Math.min(hoverIndex, displayBars.length - 1)
-        : null;
-    const activeIndex =
-      safeHoverIndex !== null ? safeHoverIndex : displayBars.length ? displayBars.length - 1 : null;
-    const activeBar = activeIndex !== null ? displayBars[activeIndex] : null;
-    const crosshairLeft =
-      safeHoverIndex !== null && displayBars.length
-        ? `${((safeHoverIndex + 0.5) / displayBars.length) * 100}%`
-        : null;
+  const scheduleHoverIndex = (index: number | null) => {
+    hoverPendingRef.current = index;
+    if (hoverRafRef.current !== null) return;
+    hoverRafRef.current = window.requestAnimationFrame(() => {
+      hoverRafRef.current = null;
+      const next = hoverPendingRef.current;
+      if (hoverIndexRef.current === next) return;
+      hoverIndexRef.current = next;
+      setHoverIndex(next);
+    });
+  };
 
-    return (
-      <div
-        ref={containerRef}
-        className="thumb-canvas"
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-      >
-        <canvas ref={canvasRef} />
-        {activeBar && (
-          <div className="thumb-overlay">
-            <div className="thumb-overlay-label">日付</div>
-            <div className="thumb-overlay-value">{formatDate(activeBar[0])}</div>
-            <div className="thumb-overlay-label">終値</div>
-            <div className="thumb-overlay-value">{formatPrice(activeBar[4])}</div>
-          </div>
-        )}
-        {crosshairLeft && <div className="thumb-crosshair" style={{ left: crosshairLeft }} />}
-      </div>
-    );
-  }
+  const handleMouseMove = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!displayBars.length || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    if (rect.width <= 0) return;
+    const ratio = Math.min(0.999, Math.max(0, x / rect.width));
+    const nextIndex = Math.min(displayBars.length - 1, Math.floor(ratio * displayBars.length));
+    scheduleHoverIndex(nextIndex);
+  };
+
+  const handleMouseLeave = () => {
+    scheduleHoverIndex(null);
+  };
+
+  const safeHoverIndex =
+    hoverIndex !== null && displayBars.length
+      ? Math.min(hoverIndex, displayBars.length - 1)
+      : null;
+  const activeIndex =
+    safeHoverIndex !== null ? safeHoverIndex : displayBars.length ? displayBars.length - 1 : null;
+  const activeBar = activeIndex !== null ? displayBars[activeIndex] : null;
+  const crosshairLeft =
+    safeHoverIndex !== null && displayBars.length
+      ? `${((safeHoverIndex + 0.5) / displayBars.length) * 100}%`
+      : null;
+
+  return (
+    <div
+      ref={containerRef}
+      className="thumb-canvas"
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+    >
+      {!hasDrawn && cachedSnapshot && <img className="thumb-canvas-image" src={cachedSnapshot} alt="" />}
+      <canvas ref={canvasRef} style={!hasDrawn && cachedSnapshot ? { opacity: 0 } : undefined} />
+      {activeBar && (
+        <div className="thumb-overlay">
+          <div className="thumb-overlay-label">日付</div>
+          <div className="thumb-overlay-value">{formatDate(activeBar[0])}</div>
+          <div className="thumb-overlay-label">終値</div>
+          <div className="thumb-overlay-value">{formatPrice(activeBar[4])}</div>
+        </div>
+      )}
+      {crosshairLeft && <div className="thumb-crosshair" style={{ left: crosshairLeft }} />}
+    </div>
+  );
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import ctypes
 import json
 import os
@@ -131,6 +132,148 @@ def _can_bind_port(port: int) -> bool:
         return False
 
 
+def _tasklist_rows(*, image_name: str | None = None, pid: int | None = None) -> list[list[str]]:
+    cmd = ["tasklist", "/FO", "CSV", "/NH"]
+    if image_name:
+        cmd.extend(["/FI", f"IMAGENAME eq {image_name}"])
+    if pid is not None:
+        cmd.extend(["/FI", f"PID eq {int(pid)}"])
+    try:
+        raw = subprocess.check_output(
+            cmd,
+            stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            text=True,
+            encoding="cp932",
+            errors="ignore",
+        )
+    except Exception:
+        return []
+    rows: list[list[str]] = []
+    for row in csv.reader(line for line in raw.splitlines() if line.strip()):
+        if not row:
+            continue
+        if row[0].startswith("INFO:"):
+            continue
+        rows.append(row)
+    return rows
+
+
+def _list_pids_by_image(image_name: str) -> list[int]:
+    pids: list[int] = []
+    for row in _tasklist_rows(image_name=image_name):
+        if len(row) < 2:
+            continue
+        try:
+            pids.append(int(str(row[1]).replace(",", "").strip()))
+        except Exception:
+            continue
+    return pids
+
+
+def _get_process_commandline(pid: int) -> str:
+    script = (
+        f"$p = Get-CimInstance Win32_Process -Filter \"ProcessId = {int(pid)}\"; "
+        "if ($p) { $p.CommandLine }"
+    )
+    try:
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", script],
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            text=True,
+            encoding="cp932",
+            errors="ignore",
+        )
+        return out.strip()
+    except Exception:
+        return ""
+
+
+def _is_backend_process(pid: int) -> bool:
+    cmdline = _get_process_commandline(pid).lower()
+    if not cmdline:
+        return False
+    return "--backend" in cmdline or "meemee_backend_only" in cmdline
+
+
+def _terminate_pid(pid: int) -> bool:
+    try:
+        subprocess.check_call(
+            ["taskkill", "/PID", str(int(pid)), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _cleanup_stale_backend_processes() -> int:
+    if not getattr(sys, "frozen", False):
+        return 0
+    image_name = os.path.basename(sys.executable)
+    if not image_name:
+        return 0
+    current_pid = os.getpid()
+    killed = 0
+    for pid in _list_pids_by_image(image_name):
+        if pid == current_pid:
+            continue
+        if not _is_backend_process(pid):
+            continue
+        if _terminate_pid(pid):
+            killed += 1
+            print(f"[launcher] Terminated stale backend process PID={pid}")
+    return killed
+
+
+def _list_listening_pids_on_port(port: int) -> list[int]:
+    try:
+        raw = subprocess.check_output(
+            ["netstat", "-ano", "-p", "tcp"],
+            stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            text=True,
+            encoding="cp932",
+            errors="ignore",
+        )
+    except Exception:
+        return []
+    pids: set[int] = set()
+    suffix = f":{int(port)}"
+    for line in raw.splitlines():
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        local_addr = parts[1]
+        state = parts[3].upper()
+        if state != "LISTENING":
+            continue
+        if not local_addr.endswith(suffix):
+            continue
+        try:
+            pids.add(int(parts[4]))
+        except Exception:
+            continue
+    return sorted(pids)
+
+
+def _terminate_unhealthy_backend_on_port(port: int) -> int:
+    killed = 0
+    current_pid = os.getpid()
+    for pid in _list_listening_pids_on_port(port):
+        if pid == current_pid:
+            continue
+        if not _is_backend_process(pid):
+            continue
+        if _terminate_pid(pid):
+            killed += 1
+            print(f"[launcher] Terminated unhealthy backend PID={pid} on port {port}")
+    return killed
+
+
 def _get_health_timeout_seconds() -> int:
     raw = os.getenv("MEEMEE_HEALTH_TIMEOUT_SECONDS")
     if not raw:
@@ -144,23 +287,50 @@ def _get_health_timeout_seconds() -> int:
 
 def _wait_for_health_detail(port: int, timeout_seconds: int) -> tuple[bool, str | None]:
     deadline = time.monotonic() + timeout_seconds
-    url = f"http://127.0.0.1:{port}/health"
+    url = f"http://127.0.0.1:{port}/api/health"
     # Ensure localhost health checks are not routed through system proxy settings
     # (common on corporate Windows setups), otherwise we can mistakenly think the
     # backend is down and shut it back off.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     last_err: Exception | None = None
+    last_detail: str | None = None
     while time.monotonic() < deadline:
         try:
             with opener.open(url, timeout=1) as response:
-                if response.status == 200:
+                body = response.read()
+                payload: dict[str, object] = {}
+                if body:
+                    try:
+                        payload = json.loads(body.decode("utf-8"))
+                    except Exception:
+                        payload = {}
+                is_http_ok = 200 <= int(response.status) < 300
+                is_ready = payload.get("ready")
+                if is_http_ok and is_ready is True:
                     return True, None
+                phase = str(payload.get("phase") or "")
+                message = str(payload.get("message") or "")
+                last_detail = f"status={response.status} phase={phase} message={message}".strip()
+        except urllib.error.HTTPError as exc:
+            last_err = exc
+            detail = f"status={exc.code}"
+            try:
+                body = exc.read()
+                if body:
+                    payload = json.loads(body.decode("utf-8"))
+                    phase = str(payload.get("phase") or "")
+                    message = str(payload.get("message") or "")
+                    detail = f"status={exc.code} phase={phase} message={message}".strip()
+            except Exception:
+                pass
+            last_detail = detail
         except Exception as exc:
             last_err = exc
-            time.sleep(0.2)
+            last_detail = str(exc)
+        time.sleep(0.2)
     if last_err is not None:
         print(f"[launcher] Health check failed for {url}: {last_err}")
-    return False, str(last_err) if last_err else None
+    return False, (last_detail or (str(last_err) if last_err else None))
 
 
 def _wait_for_health(port: int, timeout_seconds: int) -> bool:
@@ -1454,6 +1624,9 @@ def main() -> None:
             backend_log_path = os.path.join(paths["logs_dir"], "backend.log")
             server_state["backend_log"] = backend_log_path
             _update_loading(win, "Starting backend...")
+            cleaned = _cleanup_stale_backend_processes()
+            if cleaned > 0:
+                print(f"[launcher] Cleaned up stale backend processes: {cleaned}")
             
             # Check port availability / existing backend health
             final_port = port
@@ -1463,13 +1636,24 @@ def main() -> None:
                 if existing_ok:
                     reuse_existing_backend = True
                     print(f"[launcher] Reusing existing healthy backend on port {final_port}")
-                else:
-                    fallback_port = _find_free_port()
+                elif existing_err and "status=503" in existing_err:
+                    reuse_existing_backend = True
                     print(
-                        f"[launcher] Port {final_port} is busy and unhealthy ({existing_err}); "
-                        f"retrying with free port {fallback_port}"
+                        f"[launcher] Reusing existing backend still starting on port {final_port}: {existing_err}"
                     )
-                    final_port = fallback_port
+                else:
+                    killed = _terminate_unhealthy_backend_on_port(final_port)
+                    if killed > 0:
+                        time.sleep(0.4)
+                    if _can_bind_port(final_port):
+                        print(f"[launcher] Reclaimed backend port {final_port} after terminating stale process")
+                    else:
+                        fallback_port = _find_free_port()
+                        print(
+                            f"[launcher] Port {final_port} is busy and unhealthy ({existing_err}); "
+                            f"retrying with free port {fallback_port}"
+                        )
+                        final_port = fallback_port
 
             if not reuse_existing_backend:
                 try:
@@ -1496,7 +1680,7 @@ def main() -> None:
                 server_state["log_handle"] = None
                 error_html = _build_error_html(
                     "Backend failed to start",
-                    "Backend did not respond to /health.",
+                    "Backend did not become ready on /api/health.",
                     paths,
                     backend_log_path,
                     health_error=f"{health_err or 'health_check_timeout'} (timeout={health_timeout}s){exit_note}",

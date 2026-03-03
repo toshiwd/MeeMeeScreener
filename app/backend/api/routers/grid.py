@@ -12,6 +12,10 @@ from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.api.dependencies import get_screener_repo, get_stock_repo
 from app.backend.domain.screening import metrics, ranking
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
+from app.backend.services.yahoo_provisional import (
+    get_provisional_daily_rows_from_spark,
+    merge_daily_rows_with_provisional,
+)
 from app.backend.services.watchlist import load_watchlist_codes, resolve_watchlist_path, watchlist_lock
 from app.core.config import config as core_config
 from app.utils.date_utils import jst_now
@@ -589,6 +593,11 @@ def get_ranking(
     )
     
     daily_map = _group_rows_by_code(daily_rows)
+    provisional_map: dict[str, tuple] = {}
+    try:
+        provisional_map = get_provisional_daily_rows_from_spark(codes)
+    except Exception as exc:
+        logger.debug("grid ranking provisional fetch skipped: %s", exc)
     meta_map = {row[0]: row[1] for row in meta_rows} # code -> name
     
     up_items = []
@@ -609,6 +618,7 @@ def get_ranking(
     for code in codes:
         d_rows = daily_map.get(code, [])
         d_rows_sliced = [r[1:] for r in d_rows]
+        d_rows_sliced = merge_daily_rows_with_provisional(d_rows_sliced, provisional_map.get(code))
         
         name = meta_map.get(code, code)
         

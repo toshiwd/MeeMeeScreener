@@ -232,6 +232,20 @@ type PhaseFallback = {
   reasons: string[];
 };
 
+type AnalysisResearchPriorSide = {
+  aligned: boolean;
+  rank: number | null;
+  universe: number | null;
+  bonus: number | null;
+  asOf: string | null;
+};
+
+type AnalysisResearchPrior = {
+  runId: string | null;
+  up: AnalysisResearchPriorSide | null;
+  down: AnalysisResearchPriorSide | null;
+};
+
 type AnalysisFallback = {
   dt: number | string | null;
   pUp: number | null;
@@ -247,6 +261,7 @@ type AnalysisFallback = {
   entryPolicy: AnalysisEntryPolicy | null;
   riskMode: RankRiskMode | null;
   buyStagePrecision: BuyStagePrecisionPayload | null;
+  researchPrior: AnalysisResearchPrior | null;
   modelVersion: string | null;
 };
 
@@ -261,6 +276,7 @@ type AnalysisTimelinePoint = {
   sellPTurnDown: number | null;
   trendDown: boolean | null;
   trendDownStrict: boolean | null;
+  rankingScore?: number | null;
 };
 
 type EnvironmentTone = "up" | "down" | "neutral";
@@ -383,6 +399,21 @@ const formatSignedPercentLabel = (value: number | null | undefined, digits = 1) 
   return `${sign}${scaled.toFixed(digits)}%`;
 };
 
+const formatResearchPriorRank = (rank: number | null | undefined, universe: number | null | undefined) => {
+  if (!Number.isFinite(rank ?? NaN)) return "--";
+  const base = `#${Math.max(1, Math.round(rank ?? 0))}`;
+  if (!Number.isFinite(universe ?? NaN)) return base;
+  return `${base}/${Math.max(1, Math.round(universe ?? 0))}`;
+};
+
+const formatResearchPriorMetaLine = (label: string, side: AnalysisResearchPriorSide | null) => {
+  if (!side) return `${label} --`;
+  const status = side.aligned ? "一致" : "非一致";
+  const rank = formatResearchPriorRank(side.rank, side.universe);
+  const bonus = formatSignedPercentLabel(side.bonus);
+  return `${label} ${status} / Rank ${rank} / 補正 ${bonus}${side.asOf ? ` / asOf ${side.asOf}` : ""}`;
+};
+
 const toFiniteNumber = (value: unknown): number | null => {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
@@ -455,6 +486,28 @@ const normalizeEntryPolicy = (value: unknown): AnalysisEntryPolicy | null => {
     up: normalizeEntryPolicySide(payload.up),
     down: normalizeEntryPolicySide(payload.down)
   };
+};
+
+const normalizeResearchPriorSide = (value: unknown): AnalysisResearchPriorSide | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  return {
+    aligned: toBoolean(payload.aligned),
+    rank: toFiniteNumber(payload.rank),
+    universe: toFiniteNumber(payload.universe),
+    bonus: toFiniteNumber(payload.bonus),
+    asOf: typeof payload.asOf === "string" ? payload.asOf : null
+  };
+};
+
+const normalizeResearchPrior = (value: unknown): AnalysisResearchPrior | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const runId = typeof payload.runId === "string" ? payload.runId : null;
+  const up = normalizeResearchPriorSide(payload.up);
+  const down = normalizeResearchPriorSide(payload.down);
+  if (!runId && !up && !down) return null;
+  return { runId, up, down };
 };
 
 const normalizeAnalysisHorizonEntry = (horizon: AnalysisHorizonKey, value: unknown): AnalysisHorizonEntry => {
@@ -589,7 +642,8 @@ const normalizeAnalysisTimelinePoint = (value: unknown): AnalysisTimelinePoint |
     sellPDown: toFiniteNumber(payload.sellPDown),
     sellPTurnDown: toFiniteNumber(payload.sellPTurnDown),
     trendDown: payload.trendDown == null ? null : toBoolean(payload.trendDown),
-    trendDownStrict: payload.trendDownStrict == null ? null : toBoolean(payload.trendDownStrict)
+    trendDownStrict: payload.trendDownStrict == null ? null : toBoolean(payload.trendDownStrict),
+    rankingScore: toFiniteNumber(payload.rankingScore)
   };
 };
 
@@ -1000,6 +1054,28 @@ const buildRangeFromEndTime = (months: number, endTime: number | null) => {
   return { from: Math.floor(startDate.getTime() / 1000), to: endTime };
 };
 
+const RANGE_DRAG_SWITCH_TOLERANCE_SEC = 5 * 24 * 60 * 60;
+
+const hasSignificantRangeChange = (
+  base: { from: number; to: number } | null | undefined,
+  next: { from: number; to: number } | null | undefined,
+  toleranceSec = RANGE_DRAG_SWITCH_TOLERANCE_SEC
+) => {
+  if (!base || !next) return false;
+  if (
+    !Number.isFinite(base.from) ||
+    !Number.isFinite(base.to) ||
+    !Number.isFinite(next.from) ||
+    !Number.isFinite(next.to)
+  ) {
+    return false;
+  }
+  return (
+    Math.abs(base.from - next.from) > toleranceSec ||
+    Math.abs(base.to - next.to) > toleranceSec
+  );
+};
+
 const formatDateLabel = (value: number | null) => {
   if (!value) return "";
   const date = new Date(value * 1000);
@@ -1075,6 +1151,7 @@ export default function DetailView() {
   const manualWeeklyRangeRef = useRef<{ from: number; to: number } | null>(null);
   const manualMonthlyRangeRef = useRef<{ from: number; to: number } | null>(null);
   const manualCompareDailyRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const analysisBaseAsOfRef = useRef<number | null>(null);
 
   const tickers = useStore((state) => state.tickers);
   const loadList = useStore((state) => state.loadList);
@@ -1320,6 +1397,7 @@ export default function DetailView() {
 
   useEffect(() => {
     setAnalysisAsOfTime(null);
+    analysisBaseAsOfRef.current = null;
     setDailyData([]);
   }, [code]);
 
@@ -1386,9 +1464,9 @@ export default function DetailView() {
         ? (reasonsRaw as string[])
         : typeof reasonsRaw === "string"
           ? reasonsRaw
-              .split(",")
-              .map((part) => part.trim())
-              .filter(Boolean)
+            .split(",")
+            .map((part) => part.trim())
+            .filter(Boolean)
           : [];
       return {
         dt: typeof source.dt === "number" ? source.dt : null,
@@ -1430,6 +1508,7 @@ export default function DetailView() {
         entryPolicy: normalizeEntryPolicy(source.entryPolicy),
         riskMode: source.riskMode == null ? null : normalizeRiskMode(source.riskMode),
         buyStagePrecision: normalizeBuyStagePrecision(source.buyStagePrecision),
+        researchPrior: normalizeResearchPrior(source.researchPrior),
         modelVersion: typeof source.modelVersion === "string" ? source.modelVersion : null,
       };
     },
@@ -1519,11 +1598,7 @@ export default function DetailView() {
     phaseDtValue != null ||
     phaseReasons.length > 0;
   const hasPhasePanelData = hasPhaseData || phaseFallbackLoading;
-  const detailAsOfTime = useMemo(() => {
-    if (cursorMode && selectedBarData?.time != null) {
-      return selectedBarData.time;
-    }
-    if (mainAsOfTime != null) return mainAsOfTime;
+  const latestDailyAsOfTime = useMemo(() => {
     return dailyData.reduce<number | null>((maxValue, row) => {
       if (!Array.isArray(row) || row.length === 0) return maxValue;
       const normalized = normalizeTime(row[0]);
@@ -1531,7 +1606,23 @@ export default function DetailView() {
       if (maxValue == null || normalized > maxValue) return normalized;
       return maxValue;
     }, null);
-  }, [cursorMode, selectedBarData?.time, mainAsOfTime, dailyData]);
+  }, [dailyData]);
+  useEffect(() => {
+    if (mainAsOfTime != null) {
+      analysisBaseAsOfRef.current = mainAsOfTime;
+      return;
+    }
+    if (analysisBaseAsOfRef.current != null) return;
+    if (latestDailyAsOfTime == null) return;
+    analysisBaseAsOfRef.current = latestDailyAsOfTime;
+  }, [mainAsOfTime, latestDailyAsOfTime]);
+  const detailAsOfTime = useMemo(() => {
+    if (cursorMode && selectedBarData?.time != null) {
+      return selectedBarData.time;
+    }
+    if (mainAsOfTime != null) return mainAsOfTime;
+    return analysisBaseAsOfRef.current ?? latestDailyAsOfTime;
+  }, [cursorMode, selectedBarData?.time, mainAsOfTime, latestDailyAsOfTime]);
   useEffect(() => {
     if (detailAsOfTime == null) {
       setAnalysisAsOfTime(null);
@@ -1709,7 +1800,24 @@ export default function DetailView() {
     }
     const upPlaybookBias = clamp((toFiniteNumber(upPolicy?.playbookScoreBonus) ?? 0) / 0.04, -0.35, 0.35);
     const downPlaybookBias = clamp((toFiniteNumber(downPolicy?.playbookScoreBonus) ?? 0) / 0.04, -0.35, 0.35);
-    const buySetupProb = clamp(
+    const trendDown = sellAnalysisFallback?.trendDown === true;
+    const trendDownStrict = sellAnalysisFallback?.trendDownStrict === true;
+    const downLead = clamp(sellProb - buyProb, -1, 1);
+    const turnLeadDown = clamp(turnDown - turnUp, -1, 1);
+    const bearishPressure = clamp(
+      (trendDownStrict ? 0.12 : trendDown ? 0.06 : 0) +
+      Math.max(0, downLead) * 0.14 +
+      Math.max(0, turnLeadDown) * 0.08,
+      0,
+      0.32
+    );
+    const bullishOffset = clamp(
+      Math.max(0, buyProb - sellProb) * 0.08 +
+      Math.max(0, turnUp - turnDown) * 0.04,
+      0,
+      0.18
+    );
+    const buySetupProbRaw = clamp(
       0.5 * buyProb +
       0.2 * turnUp +
       0.12 * (1 - sellProb) +
@@ -1718,7 +1826,7 @@ export default function DetailView() {
       0,
       1
     );
-    const sellSetupProb = clamp(
+    const sellSetupProbRaw = clamp(
       0.5 * sellProb +
       0.2 * turnDown +
       0.12 * (1 - buyProb) +
@@ -1727,23 +1835,45 @@ export default function DetailView() {
       0,
       1
     );
-    const buySetupReady = Boolean(
-      buySetupProb >= 0.58 &&
-      buyProb >= sellProb - 0.02 &&
-      turnUp >= turnDown - 0.03
+    const buySetupProb = clamp(
+      buySetupProbRaw - bearishPressure + 0.04 * bullishOffset,
+      0,
+      1
     );
+    const sellSetupProb = clamp(
+      sellSetupProbRaw + 0.55 * bearishPressure,
+      0,
+      1
+    );
+    const buyReadyProbGate = trendDownStrict ? 0.66 : trendDown ? 0.62 : 0.58;
+    const buyReadyLeadGate = trendDownStrict ? 0.05 : trendDown ? 0.03 : -0.02;
+    const buyReadyTurnGate = trendDownStrict ? 0.04 : trendDown ? 0.02 : -0.03;
+    const buySetupReady = Boolean(
+      buySetupProb >= buyReadyProbGate &&
+      buyProb >= sellProb + buyReadyLeadGate &&
+      turnUp >= turnDown + buyReadyTurnGate &&
+      (!trendDownStrict || (analysisEvNet ?? 0) > 0)
+    );
+    const buyWatchProbGate = trendDown ? 0.56 : 0.5;
+    const buyWatchLeadGate = trendDownStrict ? 0.05 : -0.02;
+    const buyWatchTurnGate = trendDownStrict ? 0.04 : -0.08;
     const buySetupWatch = Boolean(
       !buySetupReady &&
-      buySetupProb >= 0.5
+      buySetupProb >= buyWatchProbGate &&
+      buyProb >= sellProb + buyWatchLeadGate &&
+      turnUp >= turnDown + buyWatchTurnGate
     );
+    const sellReadyProbGate = trendDownStrict ? 0.56 : trendDown ? 0.57 : 0.58;
+    const sellReadyLeadGate = trendDown ? -0.06 : -0.02;
+    const sellReadyTurnGate = trendDown ? -0.06 : -0.03;
     const sellSetupReady = Boolean(
-      sellSetupProb >= 0.58 &&
-      sellProb >= buyProb - 0.02 &&
-      turnDown >= turnUp - 0.03
+      sellSetupProb >= sellReadyProbGate &&
+      sellProb >= buyProb + sellReadyLeadGate &&
+      turnDown >= turnUp + sellReadyTurnGate
     );
     const sellSetupWatch = Boolean(
       !sellSetupReady &&
-      sellSetupProb >= 0.5
+      sellSetupProb >= (trendDown ? 0.48 : 0.5)
     );
     const buySetupState = buySetupReady ? "実行" : buySetupWatch ? "監視" : "待機";
     const sellSetupState = sellSetupReady ? "実行" : sellSetupWatch ? "監視" : "待機";
@@ -1764,6 +1894,7 @@ export default function DetailView() {
     const reasonLines = [
       `方向確率 上昇 ${formatPercentLabel(buyProb)} / 下落 ${formatPercentLabel(sellProb)} / 中立 ${formatPercentLabel(neutralProb)}`,
       `仕込み 買い ${buySetupState} ${formatPercentLabel(buySetupProb)} / 売り ${sellSetupState} ${formatPercentLabel(sellSetupProb)}`,
+      `下降圧力 ${formatPercentLabel(bearishPressure)}`,
       analysisEvNet == null ? null : `期待値 ${formatSignedPercentLabel(analysisEvNet)}`
     ].filter((value): value is string => typeof value === "string" && value.length > 0);
 
@@ -1819,6 +1950,10 @@ export default function DetailView() {
     const normalized = normalizeTime(sellAnalysisFallback.predDt);
     return formatDateLabel(normalized);
   }, [sellAnalysisFallback]);
+  const analysisResearchPrior = analysisFallback?.researchPrior ?? null;
+  const researchPriorRunId = analysisResearchPrior?.runId ?? null;
+  const researchPriorUpMeta = formatResearchPriorMetaLine("研究連携 上", analysisResearchPrior?.up ?? null);
+  const researchPriorDownMeta = formatResearchPriorMetaLine("研究連携 下", analysisResearchPrior?.down ?? null);
   const showAnalysisPanel = headerMode === "analysis" && !compareCode;
   const showMemoPanel = cursorMode && !compareCode && !showAnalysisPanel;
   const showRightPanel = showAnalysisPanel || showMemoPanel;
@@ -2102,7 +2237,7 @@ export default function DetailView() {
   const analysisSummaryLoading =
     analysisLoadingText != null || sellAnalysisLoadingText != null || analysisTimelineLoading;
 
-  const dailyEventMarkers = useMemo(() => {
+  const dailyEventMarkers = useMemo<{ time: number; kind: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral"; label?: string }[]>(() => {
     const eventMs = parseEventDateMs(activeTicker?.eventEarningsDate);
     if (eventMs == null || dailyCandles.length === 0) return [];
     const eventTime = Math.floor(eventMs / 1000);
@@ -2126,7 +2261,7 @@ export default function DetailView() {
     let prevTone: EnvironmentTone | null = null;
     let latestTone: EnvironmentTone | null = null;
     let latestTime: number | null = null;
-    const markers: { time: number; kind: "decision-buy" | "decision-sell" }[] = [];
+    const markers: { time: number; kind: "decision-buy" | "decision-sell"; label?: string }[] = [];
     const toMarkerKind = (tone: EnvironmentTone): "decision-buy" | "decision-sell" | null => {
       if (tone === "up") return "decision-buy";
       if (tone === "down") return "decision-sell";
@@ -2158,36 +2293,52 @@ export default function DetailView() {
         includeReasons: false
       });
       const tone = summary.environmentTone;
-      latestTone = tone;
-      latestTime = candle.time;
-      if (prevTone != null && prevTone !== tone) {
-        const kind = toMarkerKind(tone);
-        if (kind) {
-          markers.push({
-            time: candle.time,
-            kind
-          });
-        }
-      }
-      prevTone = tone;
-    });
-
-    if (latestTone != null && latestTime != null && markers[markers.length - 1]?.time !== latestTime) {
-      const kind = toMarkerKind(latestTone);
+      const kind = toMarkerKind(tone);
       if (kind) {
+        if (kind === "decision-buy") {
+          const rankingScore = timelinePoint.rankingScore;
+          if (rankingScore == null || rankingScore <= 0) {
+            return; // Skip adding a buy marker if ranking score is zero or absent
+          }
+        }
         markers.push({
-          time: latestTime,
-          kind
+          time: candle.time,
+          kind,
+          label: tone === "up" ? "B" : "S"
         });
       }
-    }
+    });
 
     return markers;
   }, [showDecisionMarkers, dailyCandles, analysisTimeline]);
-  const mergedDailyEventMarkers = useMemo(
-    () => [...dailyEventMarkers, ...dailyDecisionMarkers],
-    [dailyEventMarkers, dailyDecisionMarkers]
-  );
+  const currentDecisionMarker = useMemo<{ time: number; kind: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral"; label?: string }[]>(() => {
+    if (!showDecisionMarkers) return [];
+    if (!dailyCandles.length) return [];
+    if (analysisDecision.tone !== "up" && analysisDecision.tone !== "down") return [];
+    const anchorTime =
+      analysisAsOfTime ?? detailAsOfTime ?? dailyCandles[dailyCandles.length - 1]?.time ?? null;
+    if (anchorTime == null) return [];
+    const nearestTime = findNearestCandleTime(dailyCandles, anchorTime);
+    if (nearestTime == null) return [];
+    return [
+      {
+        time: nearestTime,
+        kind: analysisDecision.tone === "up" ? "decision-buy" : "decision-sell",
+        label: analysisDecision.tone === "up" ? "B" : "S"
+      }
+    ];
+  }, [showDecisionMarkers, dailyCandles, analysisDecision.tone, analysisAsOfTime, detailAsOfTime]);
+  const mergedDailyEventMarkers = useMemo(() => {
+    const merged = [...dailyEventMarkers, ...dailyDecisionMarkers, ...currentDecisionMarker];
+    const deduped = new Map<string, (typeof merged)[number]>();
+    merged.forEach((marker) => {
+      const key = `${marker.kind ?? "earnings"}:${marker.time}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, marker);
+      }
+    });
+    return [...deduped.values()].sort((a, b) => a.time - b.time);
+  }, [dailyEventMarkers, dailyDecisionMarkers, currentDecisionMarker]);
 
   const weeklyCandles = weeklyData.candles;
   const weeklyVolume = weeklyData.volume;
@@ -3139,6 +3290,16 @@ export default function DetailView() {
   const gapBandsOverride = showGapBands ? undefined : [];
 
   const handleDailyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+    if (rangeMonths && range) {
+      const shouldSwitchToManual = hasSignificantRangeChange(resolvedDailyVisibleRange, range);
+      if (!shouldSwitchToManual) {
+        return;
+      }
+      manualDailyRangeRef.current = range;
+      manualWeeklyRangeRef.current = range;
+      manualMonthlyRangeRef.current = range;
+      setRangeMonths(null);
+    }
     mainSync.handleDailyVisibleRangeChange(range);
     if (!rangeMonths && range) {
       manualDailyRangeRef.current = range;
@@ -4914,6 +5075,15 @@ export default function DetailView() {
                     )}
                     {sellPredDtLabel && (
                       <div className="detail-analysis-meta">予測スナップショット {sellPredDtLabel}</div>
+                    )}
+                    {researchPriorRunId && (
+                      <div className="detail-analysis-meta">研究連携 Run {researchPriorRunId}</div>
+                    )}
+                    {analysisResearchPrior && (
+                      <div className="detail-analysis-meta">{researchPriorUpMeta}</div>
+                    )}
+                    {analysisResearchPrior && (
+                      <div className="detail-analysis-meta">{researchPriorDownMeta}</div>
                     )}
                   </div>
                 </>

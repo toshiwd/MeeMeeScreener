@@ -3276,7 +3276,11 @@ def _predict_frame(df: pd.DataFrame, models: TrainedModels, cfg: MLConfig) -> pd
     )
     pred = df.copy()
     matrix_np = matrix.to_numpy(dtype=float)
-    turnover_series = pd.to_numeric(pred.get("turnover20"), errors="coerce")
+    _turnover_raw = pred.get("turnover20")
+    if isinstance(_turnover_raw, pd.Series):
+        turnover_series = pd.to_numeric(_turnover_raw, errors="coerce")
+    else:
+        turnover_series = pd.Series([_turnover_raw] * len(pred), index=pred.index, dtype=float)
     long_cost_rate = turnover_series.apply(
         lambda v: _trade_cost_rate(base_cost_rate=cfg.cost_rate, turnover20=_safe_float(v), side="long")
     )

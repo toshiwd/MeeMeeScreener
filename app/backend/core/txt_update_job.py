@@ -351,6 +351,19 @@ def _is_transient_db_lock_error(exc: Exception) -> bool:
     )
 
 
+def _classify_ingest_error_text(error_text: str) -> str:
+    if not error_text:
+        return "none"
+    if _is_transient_db_lock_error(RuntimeError(error_text)):
+        return "db_lock"
+    lowered = error_text.lower()
+    if "module not found" in lowered:
+        return "missing_module"
+    if "permission" in lowered:
+        return "permission"
+    return "other"
+
+
 def _run_phase_with_retry(*, max_attempts: int, sleep_seconds: float) -> int:
     attempt = 0
     while True:
@@ -374,18 +387,20 @@ def _run_ingest_with_retry(
     incremental: bool,
     max_attempts: int,
     sleep_seconds: float,
-) -> tuple[str, str, dict, int]:
+) -> tuple[str, str, dict, int, str]:
     attempt = 0
     last_output = ""
     last_error = ""
     last_stats: dict = {}
+    last_error_kind = "none"
     while attempt < max_attempts:
         attempt += 1
         out, err, stats = run_ingest(incremental=incremental)
         last_output, last_error, last_stats = out, err, stats
+        last_error_kind = _classify_ingest_error_text(err)
         if not err:
-            return out, "", stats, attempt
-        if attempt >= max_attempts or not _is_transient_db_lock_error(RuntimeError(err)):
+            return out, "", stats, attempt, "none"
+        if attempt >= max_attempts or last_error_kind != "db_lock":
             break
         logger.warning(
             "Ingest retry due to transient DB lock (attempt %s/%s): %s",
@@ -394,7 +409,7 @@ def _run_ingest_with_retry(
             err,
         )
         time.sleep(max(0.1, float(sleep_seconds)))
-    return last_output, last_error, last_stats, attempt
+    return last_output, last_error, last_stats, attempt, last_error_kind
 
 
 def _is_job_canceled(job_id: str) -> bool:
@@ -909,14 +924,19 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
 
     _set_pipeline_stage(state, "ingest", message="Ingesting incremental TXT data...")
     job_manager._update_db(job_id, "txt_update", "running", message="Ingesting (Incremental)...", progress=85)
-    _ingest_out, ingest_err, ingest_stats, ingest_attempts = _run_ingest_with_retry(
+    _ingest_out, ingest_err, ingest_stats, ingest_attempts, ingest_error_kind = _run_ingest_with_retry(
         incremental=True,
         max_attempts=ingest_retry,
         sleep_seconds=ingest_retry_sleep,
     )
+    state["last_ingest_attempts"] = int(ingest_attempts)
+    state["last_ingest_retry_sleep_sec"] = float(ingest_retry_sleep)
+    state["last_ingest_error_kind"] = ingest_error_kind
     if _exit_if_canceled(job_id, state, stage="ingest", message="Canceled during ingest"):
         return
     if ingest_err:
+        state["last_ingest_error"] = str(ingest_err)
+        state["last_ingest_failed_at"] = datetime.now().isoformat()
         _record_pipeline_failure(state, stage="ingest", error=ingest_err, message="Ingest failed")
         job_manager._update_db(
             job_id,
@@ -929,7 +949,8 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         return
     state["last_ingest_at"] = datetime.now().isoformat()
     state["last_ingest_stats"] = ingest_stats
-    state["last_ingest_attempts"] = int(ingest_attempts)
+    state.pop("last_ingest_error", None)
+    state.pop("last_ingest_failed_at", None)
     changed_files = _to_int(ingest_stats.get("changed"), 0, minimum=0)
 
     if _exit_if_canceled(job_id, state, stage="phase", message="Canceled before phase update"):
@@ -971,16 +992,21 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             if _exit_if_canceled(job_id, state, stage="ml_train", message="Canceled before ML training"):
                 return
             latest_pred_dt = _to_optional_int(state.get("last_ml_predict_dt"))
+            has_prior_ml = bool(state.get("last_ml_train_at") or state.get("last_ml_model_version"))
             skip_train = (
                 (not force_ml_train)
                 and bool(skip_ml_train_if_no_change)
                 and int(changed_files) == 0
-                and latest_pred_dt is not None
-                and int(latest_pred_dt) == int(phase_dt)
-                and bool(state.get("last_ml_train_at"))
+                and has_prior_ml
             )
             if skip_train:
-                skip_message = f"Skipping ML training (no data change, dt={int(phase_dt)})"
+                if latest_pred_dt is not None and int(latest_pred_dt) == int(phase_dt):
+                    skip_message = f"Skipping ML training (no data change, dt={int(phase_dt)})"
+                else:
+                    skip_message = (
+                        "Skipping ML training (no data change; "
+                        f"prediction refresh only, dt={int(phase_dt)})"
+                    )
                 _set_pipeline_stage(state, "ml_train", message=skip_message)
                 job_manager._update_db(
                     job_id,

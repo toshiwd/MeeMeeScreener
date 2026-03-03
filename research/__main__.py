@@ -10,7 +10,7 @@ from research.evaluate import run_evaluate
 from research.features import build_features_for_asof
 from research.ingest import run_ingest
 from research.labels import build_labels_for_asof
-from research.loop import run_loop
+from research.loop import run_loop, run_loop_all
 from research.publish import run_publish
 from research.storage import ResearchPaths
 from research.train import run_train
@@ -60,6 +60,7 @@ def _build_parser() -> argparse.ArgumentParser:
     publish = sub.add_parser("publish", help="Publish run result into published_vNNN and latest")
     publish.add_argument("--run_id", required=True)
     publish.add_argument("--allow-non-pareto", action="store_true")
+    publish.add_argument("--allow-quality-gate-fail", action="store_true")
     publish.add_argument("--publish-phases", default="test,inference")
 
     loop = sub.add_parser("loop", help="Run challenger loop (train+evaluate repeated)")
@@ -68,6 +69,11 @@ def _build_parser() -> argparse.ArgumentParser:
     loop.add_argument("--cycles", type=int, default=1)
     loop.add_argument("--workers", type=int, default=1)
     loop.add_argument("--chunk-size", type=int, default=120)
+
+    loop_all = sub.add_parser("loop_all", help="Batch build features and labels for all months in a snapshot")
+    loop_all.add_argument("--snapshot-id", default=None)
+    loop_all.add_argument("--workers", type=int, default=1)
+    loop_all.add_argument("--chunk-size", type=int, default=120)
 
     return parser
 
@@ -157,7 +163,9 @@ def main(argv: list[str] | None = None) -> int:
                 paths=paths,
                 run_id=str(args.run_id),
                 allow_non_pareto=bool(args.allow_non_pareto),
+                allow_quality_gate_fail=bool(args.allow_quality_gate_fail),
                 publish_phases=phases if phases else ("test", "inference"),
+                config=config,
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
@@ -170,6 +178,18 @@ def main(argv: list[str] | None = None) -> int:
                 snapshot_id=snapshot_id,
                 asof_date=str(args.asof),
                 cycles=int(args.cycles),
+                workers=int(args.workers),
+                chunk_size=int(args.chunk_size),
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "loop_all":
+            snapshot_id = _resolve_snapshot_id(paths, args.snapshot_id)
+            result = run_loop_all(
+                paths=paths,
+                config=config,
+                snapshot_id=snapshot_id,
                 workers=int(args.workers),
                 chunk_size=int(args.chunk_size),
             )

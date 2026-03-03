@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+import csv
 from datetime import datetime, timedelta, timezone
 import json
 import math
 import logging
 import os
+from pathlib import Path
 from threading import Lock
 from typing import Any, Literal
 
@@ -16,6 +18,10 @@ from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.domain.screening.metrics import _calc_liquidity_20d
 from app.backend.services.ml_config import load_ml_config
 from app.backend.services.ml_service import select_top_n_ml
+from app.backend.services.yahoo_provisional import (
+    get_provisional_daily_rows_from_spark,
+    merge_daily_rows_with_provisional,
+)
 
 RankTimeframe = Literal["D", "W", "M"]
 RankWhich = Literal["latest", "prev"]
@@ -35,6 +41,7 @@ _ASOF_BASE_CACHE_MAX = 4
 _TRACE_CACHE_LOCK = Lock()
 _TRACE_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
 _TRACE_CACHE_MAX = 16
+_YF_PROVISIONAL_RANK_REFRESH_SEC = max(30, int(os.getenv("MEEMEE_YF_PROVISIONAL_RANK_REFRESH_SEC", "300")))
 
 _DAILY_LIMIT = 1260
 _MONTHLY_LIMIT = 60
@@ -134,6 +141,11 @@ _ENTRY_SHORT_PRESSURE_PROB_EXTRA = 0.02
 _ENTRY_SHORT_PRESSURE_MAX_EV_DEFENSIVE = -0.004
 _ENTRY_SHORT_PRESSURE_MAX_EV_BALANCED = -0.0005
 _ENTRY_SHORT_PRESSURE_MAX_EV_AGGRESSIVE = -0.001
+_RESEARCH_PRIOR_TTL_SEC = 300
+_RESEARCH_PRIOR_BONUS_UP = 0.015
+_RESEARCH_PRIOR_BONUS_DOWN = 0.025
+_RESEARCH_PRIOR_CACHE_LOCK = Lock()
+_RESEARCH_PRIOR_CACHE: dict[str, Any] = {"loaded_at": None, "payload": None}
 
 
 def _parse_date_value(value: int | str | None) -> datetime | None:
@@ -258,6 +270,16 @@ def _db_mtime() -> float | None:
 def _cache_needs_refresh(db_mtime: float | None) -> bool:
     if not _CACHE or _LAST_UPDATED is None:
         return True
+    yf_enabled = str(os.getenv("MEEMEE_YF_PROVISIONAL_ENABLED", "1")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if yf_enabled and _LAST_UPDATED is not None:
+        age_sec = (datetime.now(timezone.utc) - _LAST_UPDATED).total_seconds()
+        if age_sec >= float(_YF_PROVISIONAL_RANK_REFRESH_SEC):
+            return True
     if db_mtime is None:
         return False
     if _LAST_DB_MTIME is None:
@@ -487,6 +509,113 @@ def _estimate_daily_downside_risk(
     return float(max(0.0, min(1.0, 0.60 * rev + 0.40 * tail)))
 
 
+def _load_research_prior_snapshot() -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    with _RESEARCH_PRIOR_CACHE_LOCK:
+        loaded_at = _RESEARCH_PRIOR_CACHE.get("loaded_at")
+        payload = _RESEARCH_PRIOR_CACHE.get("payload")
+        if (
+            isinstance(loaded_at, datetime)
+            and isinstance(payload, dict)
+            and (now - loaded_at).total_seconds() <= float(_RESEARCH_PRIOR_TTL_SEC)
+        ):
+            return payload
+
+    latest_dir = Path(core_config.REPO_ROOT) / "published" / "latest"
+    out: dict[str, Any] = {
+        "run_id": None,
+        "up": {"asof": None, "codes": [], "rank_map": {}},
+        "down": {"asof": None, "codes": [], "rank_map": {}},
+    }
+
+    manifest_path = latest_dir / "manifest.json"
+    if manifest_path.exists():
+        try:
+            with manifest_path.open("r", encoding="utf-8") as handle:
+                manifest = json.load(handle)
+            run_id = str(manifest.get("run_id") or "").strip()
+            out["run_id"] = run_id or None
+        except Exception:
+            pass
+
+    def _read_latest_codes(path: Path) -> tuple[str | None, list[str]]:
+        if not path.exists():
+            return None, []
+        rows_by_asof: dict[str, list[str]] = {}
+        latest_asof: str | None = None
+        try:
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    if not isinstance(row, dict):
+                        continue
+                    asof = str(row.get("asof_date") or "").strip()
+                    code = str(row.get("code") or "").strip()
+                    if not asof or not code:
+                        continue
+                    rows_by_asof.setdefault(asof, []).append(code)
+                    if latest_asof is None or asof > latest_asof:
+                        latest_asof = asof
+        except Exception:
+            return None, []
+        if latest_asof is None:
+            return None, []
+        seen: set[str] = set()
+        codes: list[str] = []
+        for code in rows_by_asof.get(latest_asof, []):
+            if code in seen:
+                continue
+            seen.add(code)
+            codes.append(code)
+        return latest_asof, codes
+
+    for side, name in (("up", "long_top20.csv"), ("down", "short_top20.csv")):
+        asof, codes = _read_latest_codes(latest_dir / name)
+        rank_map = {code: idx + 1 for idx, code in enumerate(codes)}
+        out[side] = {"asof": asof, "codes": codes, "rank_map": rank_map}
+
+    with _RESEARCH_PRIOR_CACHE_LOCK:
+        _RESEARCH_PRIOR_CACHE["loaded_at"] = now
+        _RESEARCH_PRIOR_CACHE["payload"] = out
+    return out
+
+
+def _calc_research_prior_bonus(
+    *,
+    item: dict[str, Any],
+    direction: RankDir,
+    code: str,
+    prior_snapshot: dict[str, Any] | None,
+) -> float:
+    side_key = "up" if direction == "up" else "down"
+    side_payload = (
+        prior_snapshot.get(side_key)
+        if isinstance(prior_snapshot, dict) and isinstance(prior_snapshot.get(side_key), dict)
+        else {}
+    )
+    rank_map = side_payload.get("rank_map") if isinstance(side_payload.get("rank_map"), dict) else {}
+    codes = side_payload.get("codes") if isinstance(side_payload.get("codes"), list) else []
+    rank_raw = rank_map.get(code)
+    rank = int(rank_raw) if isinstance(rank_raw, int) else None
+    n = int(len(codes))
+    aligned = rank is not None
+    bonus = 0.0
+    if aligned:
+        base = float(_RESEARCH_PRIOR_BONUS_UP if direction == "up" else _RESEARCH_PRIOR_BONUS_DOWN)
+        strength = 1.0 if n <= 1 else float(max(0.0, min(1.0, 1.0 - ((rank - 1) / max(1, n - 1)))))
+        bonus = float(base * (0.60 + 0.40 * strength))
+
+    item["researchPriorRunId"] = (
+        str(prior_snapshot.get("run_id") or "") if isinstance(prior_snapshot, dict) else ""
+    ) or None
+    item["researchPriorAsOf"] = str(side_payload.get("asof") or "") or None
+    item["researchPriorAligned"] = bool(aligned)
+    item["researchPriorRank"] = int(rank) if rank is not None else None
+    item["researchPriorUniverse"] = int(n)
+    item["researchPriorBonus"] = float(bonus)
+    return float(bonus)
+
+
 def _decorate_rule_items_with_entry_gate(
     items: list[dict],
     *,
@@ -494,8 +623,10 @@ def _decorate_rule_items_with_entry_gate(
     risk_mode: RankRiskMode = "balanced",
 ) -> list[dict]:
     decorated: list[dict] = []
+    research_prior = _load_research_prior_snapshot()
     for base in items:
         item = dict(base)
+        code = str(item.get("code") or "")
         change = _first_finite(item.get("changePct"))
         weekly_breakout = _first_finite(
             item.get("weeklyBreakoutUpProb") if direction == "up" else item.get("weeklyBreakoutDownProb")
@@ -525,6 +656,13 @@ def _decorate_rule_items_with_entry_gate(
         )
         if monthly_range is not None and monthly_range >= 0.72 and (monthly_breakout is None or monthly_breakout < 0.55):
             entry_score -= 0.05
+        research_bonus = _calc_research_prior_bonus(
+            item=item,
+            direction=direction,
+            code=code,
+            prior_snapshot=research_prior,
+        )
+        entry_score += float(research_bonus)
         entry_score = float(max(0.0, min(1.0, entry_score)))
         gate_ok = bool(
             liquidity is not None
@@ -1710,6 +1848,16 @@ def _build_cache() -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]
     daily_map: dict[str, list[tuple]] = {}
     for row in daily_rows:
         daily_map.setdefault(row[0], []).append(row[1:])
+    try:
+        provisional_map = get_provisional_daily_rows_from_spark(codes)
+        if provisional_map:
+            for code, provisional_row in provisional_map.items():
+                daily_map[code] = merge_daily_rows_with_provisional(
+                    daily_map.get(code, []),
+                    provisional_row,
+                )
+    except Exception as exc:
+        logger.debug("rankings provisional merge skipped: %s", exc)
     market_breadth_state = _calc_market_breadth_state(daily_map)
 
     monthly_map: dict[str, list[tuple]] = {}
@@ -2648,6 +2796,7 @@ def _apply_monthly_ml_mode(
         target20_gate_source = "baseline"
     qualified: list[dict] = []
     by_code: dict[str, dict] = {}
+    research_prior = _load_research_prior_snapshot()
     for item in enriched:
         code = str(item.get("code") or "")
         by_code[code] = item
@@ -2828,7 +2977,15 @@ def _apply_monthly_ml_mode(
             if score_side is not None
             else None
         )
+        research_bonus = _calc_research_prior_bonus(
+            item=item,
+            direction=direction,
+            code=code,
+            prior_snapshot=research_prior,
+        )
         item["playbookScoreBonus"] = float(playbook_bonus)
+        if item["entryScore"] is not None:
+            item["entryScore"] = float(max(0.0, min(1.0, float(item["entryScore"]) + float(research_bonus))))
         item["monthlyRegimeAligned"] = bool(monthly_breakout_prob is not None and monthly_breakout_prob >= 0.60)
         trend_breakout_ok = bool(
             breakout_readiness >= 0.70
@@ -3309,6 +3466,7 @@ def _apply_ml_mode(
     turn_margin_rank = _percent_rank_desc(turn_margin_values)
     qualified: list[dict] = []
     fallback: list[dict] = []
+    research_prior = _load_research_prior_snapshot()
     base_order = {str(item.get("code") or ""): idx for idx, item in enumerate(enriched)}
 
     def _base_entry_sort_key(item: dict) -> tuple[Any, ...]:
@@ -3726,6 +3884,13 @@ def _apply_ml_mode(
         )
         item["playbookScoreBonus"] = float(playbook_bonus)
         item["entryScore"] = float(max(0.0, min(1.0, float(item["entryScore"]) + playbook_bonus)))
+        research_bonus = _calc_research_prior_bonus(
+            item=item,
+            direction=direction,
+            code=code,
+            prior_snapshot=research_prior,
+        )
+        item["entryScore"] = float(max(0.0, min(1.0, float(item["entryScore"]) + float(research_bonus))))
         item["evAligned"] = bool(ev_ok)
         item["trendAligned"] = bool(trend_ok)
         item["distOk"] = bool(dist_ok)

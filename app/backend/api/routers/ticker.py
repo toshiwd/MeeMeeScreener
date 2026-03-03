@@ -12,7 +12,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.backend.api.dependencies import get_stock_repo
 from app.backend.infra.duckdb.stock_repo import StockRepository
+from app.backend.domain.screening import ranking
 from app.backend.services import rankings_cache
+from app.backend.services.yahoo_provisional import (
+    get_provisional_daily_row_from_chart,
+    merge_daily_rows_with_provisional,
+)
 from app.services.box_detector import detect_boxes
 
 
@@ -62,6 +67,11 @@ def get_daily_bars(
         raise HTTPException(status_code=400, detail="code is required")
     asof_dt = _parse_dt(asof)
     rows = repo.get_daily_bars(code, limit, asof_dt)
+    try:
+        provisional_row = get_provisional_daily_row_from_chart(code)
+        rows = merge_daily_rows_with_provisional(rows, provisional_row, asof_dt=asof_dt)
+    except Exception as exc:
+        logger.debug("Yahoo provisional merge skipped for code=%s: %s", code, exc)
     return {"data": _normalize_rows(rows, fill_volume=True), "errors": []}
 
 
@@ -127,6 +137,50 @@ def _to_float_or_none(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed == parsed else None
+
+
+def _to_int_or_none(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed
+
+
+def _build_research_prior_summary(code: str) -> Dict[str, Any] | None:
+    code_key = str(code or "").strip()
+    if not code_key:
+        return None
+    try:
+        snapshot = rankings_cache._load_research_prior_snapshot()
+    except Exception:
+        return None
+    if not isinstance(snapshot, dict):
+        return None
+
+    run_id = str(snapshot.get("run_id") or "").strip() or None
+    if run_id is None:
+        return None
+
+    summary: Dict[str, Any] = {"runId": run_id}
+    for side in ("up", "down"):
+        probe: Dict[str, Any] = {}
+        rankings_cache._calc_research_prior_bonus(
+            item=probe,
+            direction=side,  # type: ignore[arg-type]
+            code=code_key,
+            prior_snapshot=snapshot,
+        )
+        summary[side] = {
+            "aligned": bool(probe.get("researchPriorAligned")),
+            "rank": _to_int_or_none(probe.get("researchPriorRank")),
+            "universe": _to_int_or_none(probe.get("researchPriorUniverse")),
+            "bonus": _to_float_or_none(probe.get("researchPriorBonus")),
+            "asOf": str(probe.get("researchPriorAsOf") or "").strip() or None,
+        }
+    return summary
 
 
 def _normalize_risk_mode(value: str | None) -> str:
@@ -774,6 +828,7 @@ def get_analysis_pred(
         buy_stage_precision = repo.get_buy_stage_precision(code, asof_dt, lookback_bars=360, horizon=20)
     except Exception:
         buy_stage_precision = None
+    research_prior = _build_research_prior_summary(code)
     return {
         "item": {
             "dt": row[0],
@@ -790,6 +845,7 @@ def get_analysis_pred(
             "entryPolicy": entry_policy,
             "riskMode": resolved_risk_mode,
             "buyStagePrecision": buy_stage_precision,
+            "researchPrior": research_prior,
             "modelVersion": str(model_version) if model_version is not None else None,
         }
     }
@@ -815,6 +871,29 @@ def get_analysis_timeline(
             ensure_sell=True,
         )
         items = repo.get_analysis_timeline(code, asof_dt, limit=limit)
+        
+    if items:
+        try:
+            # Compute ranking score once for the latest date only (O(1) instead of O(N))
+            daily_rows = repo.get_daily_bars(code, limit=500, asof_dt=asof_dt)
+            if daily_rows:
+                daily_rows_asc = list(reversed(daily_rows))
+                config = {
+                    "common": {"min_daily_bars": 80},
+                    "weekly": {
+                        "weights": {"ma_alignment": 10},
+                        "thresholds": {"volume_ratio": 1.5}
+                    }
+                }
+                up, _, _ = ranking.score_weekly_candidate(code, "", daily_rows_asc, config, None)
+                if up:
+                    latest_score = up.get("total_score")
+                    if latest_score is not None:
+                        for item in items:
+                            item["rankingScore"] = latest_score
+        except Exception as exc:
+            logger.warning("timeline ranking score attach failed code=%s reason=%s", code, exc)
+
     return {"items": items}
 
 

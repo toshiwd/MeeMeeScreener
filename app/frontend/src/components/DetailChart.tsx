@@ -267,6 +267,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
   const drawModeRef = useRef<"timeZone" | "priceBand" | "drawBox" | null>(null);
   const drawStartRef = useRef<{ time?: number | null; price?: number | null }>({});
   const gapAsOfRef = useRef<number | null>(null);
+  const gapSourceCandlesRef = useRef<Candle[] | null>(null);
   const activeToolRef = useRef<DrawTool | null>(activeTool ?? null);
   const prevActiveToolRef = useRef<DrawTool | null>(activeTool ?? null);
   const selectedShapeRef = useRef<SelectedShape | null>(null);
@@ -439,26 +440,25 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 
   const updateGapBands = (asOf: number | null) => {
     if (gapBandsPropRef.current) return;
-    const resolvedAsOf = resolveGapAsOf(asOf);
+    const candleSource = candlesRef.current;
+    if (!candleSource.length) {
+      gapBandsRef.current = [];
+      gapAsOfRef.current = null;
+      gapSourceCandlesRef.current = candleSource;
+      return;
+    }
+    const anchorAsOf = asOf ?? resolveGapAsOfFromLatestCandle();
+    const resolvedAsOf = resolveGapAsOf(anchorAsOf);
     if (resolvedAsOf == null) return;
+    if (gapAsOfRef.current === resolvedAsOf && gapSourceCandlesRef.current === candleSource) return;
+    gapSourceCandlesRef.current = candleSource;
     gapAsOfRef.current = resolvedAsOf;
-    const poolCount = Math.max(GAP_BAND_MAX_VISIBLE, candlesRef.current.length);
-    gapBandsRef.current = computeGapBands(candlesRef.current, resolvedAsOf, poolCount);
+    const poolCount = Math.max(GAP_BAND_MAX_VISIBLE, candleSource.length);
+    gapBandsRef.current = computeGapBands(candleSource, resolvedAsOf, poolCount);
   };
 
-  const resolveGapAsOfFromVisibleRight = () => {
-    const chart = chartRef.current;
-    const latestTime = candlesRef.current.length
-      ? candlesRef.current[candlesRef.current.length - 1].time
-      : null;
-    if (!chart) return latestTime;
-    const timeScale = chart.timeScale();
-    if (!timeScale || typeof timeScale.getVisibleRange !== "function") return latestTime;
-    const range = timeScale.getVisibleRange();
-    if (!range) return latestTime;
-    const right = normalizeRangeTime(range.to);
-    return right ?? latestTime;
-  };
+  const resolveGapAsOfFromLatestCandle = () =>
+    candlesRef.current.length ? candlesRef.current[candlesRef.current.length - 1].time : null;
 
   const buildSelectionInfo = (selected: SelectedShape | null): SelectedDrawingInfo | null => {
     if (!selected) return null;
@@ -1370,10 +1370,17 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
           ctx.globalAlpha = 0.65;
           ctx.stroke();
           ctx.globalAlpha = 0.6;
+          ctx.fillStyle = colors.muted;
           if (isDecisionMarker) {
-            // Decision markers are color-only dots placed above candles.
+            const decisionLabel =
+              marker.label ??
+              (marker.kind === "decision-buy"
+                ? "B"
+                : marker.kind === "decision-sell"
+                  ? "S"
+                  : "N");
+            ctx.fillText(decisionLabel, x + 6, markerY);
           } else {
-            ctx.fillStyle = colors.muted;
             ctx.fillText(marker.label ?? "E", x + 6, markerY);
           }
         });
@@ -1626,7 +1633,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     partialTimesRef.current = partialTimes ?? [];
     eventMarkersRef.current = eventMarkers ?? [];
     if (!gapBandsPropRef.current) {
-      updateGapBands(resolveGapAsOfFromVisibleRight());
+      updateGapBands(resolveGapAsOfFromLatestCandle());
     }
     applyData(dataRef.current);
   }, [
@@ -1680,7 +1687,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     if (gapBands) {
       gapBandsRef.current = gapBands;
     } else {
-      updateGapBands(resolveGapAsOfFromVisibleRight());
+      updateGapBands(resolveGapAsOfFromLatestCandle());
     }
     drawOverlay();
   }, [
@@ -1725,7 +1732,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 
   useEffect(() => {
     if (gapBands) return;
-    updateGapBands(resolveGapAsOfFromVisibleRight());
+    updateGapBands(resolveGapAsOfFromLatestCandle());
     drawOverlay();
   }, [candles, gapBands]);
 
@@ -1936,10 +1943,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       const priceScale = chart.priceScale("right");
       const rangeHandler = () => {
         if (!gapBandsPropRef.current) {
-          const currentRange =
-            typeof timeScale.getVisibleRange === "function" ? timeScale.getVisibleRange() : null;
-          const asOf = currentRange ? normalizeRangeTime(currentRange.to) : null;
-          updateGapBands(asOf);
+          updateGapBands(resolveGapAsOfFromLatestCandle());
         }
         drawOverlay();
         if (Date.now() < suppressVisibleRangeUntilRef.current) return;

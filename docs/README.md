@@ -11,6 +11,7 @@
 ## Operational
 
 - `docs/TXT_UPDATE_RUNBOOK.md`: TXT 更新ジョブの運用手順
+- `docs/EDINETDB_RUNBOOK.md`: EDINET DB 自動取得ジョブの運用手順
 - `SMOKE_TEST.md`: 最小回帰テスト手順
 - `docs/PERF_BENCHMARK.md`: API 性能計測手順（p50/p95）
 

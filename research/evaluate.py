@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import os
+from pathlib import Path
+import time
 from typing import Any
 
 import numpy as np
@@ -8,6 +12,11 @@ import pandas as pd
 from research.config import ResearchConfig, from_dict
 from research.labels import load_label_history
 from research.storage import ResearchPaths, now_utc_iso, read_csv, read_json, write_csv, write_json
+
+
+BLEND_VALID_WEIGHT = 0.60
+HISTORY_LOCK_TIMEOUT_SEC = 180.0
+HISTORY_LOCK_POLL_SEC = 0.25
 
 
 def _drawdown_series(monthly_returns: pd.Series) -> pd.Series:
@@ -177,6 +186,41 @@ def _overall_metrics(long_metrics: dict[str, Any], short_metrics: dict[str, Any]
     }
 
 
+def _blend_side_metrics(valid: dict[str, Any], test: dict[str, Any], valid_weight: float) -> dict[str, Any]:
+    w = float(min(max(valid_weight, 0.0), 1.0))
+    tw = 1.0 - w
+    return {
+        "phase": "valid_test_blend",
+        "side": str(valid.get("side") or test.get("side") or "unknown"),
+        "months": int(max(int(valid.get("months", 0)), int(test.get("months", 0)))),
+        "hit_at20": float(w * float(valid.get("hit_at20", 0.0)) + tw * float(test.get("hit_at20", 0.0))),
+        "return_at20": float(w * float(valid.get("return_at20", 0.0)) + tw * float(test.get("return_at20", 0.0))),
+        "mae_mean": float(w * float(valid.get("mae_mean", 0.0)) + tw * float(test.get("mae_mean", 0.0))),
+        "mae_p90": float(max(float(valid.get("mae_p90", 0.0)), float(test.get("mae_p90", 0.0)))),
+        "max_drawdown": float(max(float(valid.get("max_drawdown", 0.0)), float(test.get("max_drawdown", 0.0)))),
+        "coverage": float(w * float(valid.get("coverage", 0.0)) + tw * float(test.get("coverage", 0.0))),
+        "missing_rate": float(w * float(valid.get("missing_rate", 1.0)) + tw * float(test.get("missing_rate", 1.0))),
+    }
+
+
+def _blend_phase_metrics(valid_phase: dict[str, Any], test_phase: dict[str, Any], valid_weight: float) -> dict[str, Any]:
+    long_blend = _blend_side_metrics(valid_phase["long"], test_phase["long"], valid_weight=valid_weight)
+    short_blend = _blend_side_metrics(valid_phase["short"], test_phase["short"], valid_weight=valid_weight)
+    overall_blend = _overall_metrics(long_blend, short_blend)
+    return {
+        "long": long_blend,
+        "short": short_blend,
+        "overall": overall_blend,
+    }
+
+
+def _pareto_group(phase: str) -> str:
+    p = str(phase or "").strip().lower()
+    if p in {"valid", "test", "valid_test_blend", "blend"}:
+        return "core"
+    return p if p else "core"
+
+
 def _compute_pareto(history: pd.DataFrame) -> pd.DataFrame:
     if history.empty:
         return history
@@ -190,10 +234,12 @@ def _compute_pareto(history: pd.DataFrame) -> pd.DataFrame:
 
     for idx, row in hist.iterrows():
         dominated = False
+        row_group = _pareto_group(str(row.get("evaluation_phase", "test")))
         for jdx, other in hist.iterrows():
             if idx == jdx:
                 continue
-            if str(other.get("evaluation_phase", "test")) != str(row.get("evaluation_phase", "test")):
+            other_group = _pareto_group(str(other.get("evaluation_phase", "test")))
+            if other_group != row_group:
                 continue
             better_or_equal = (
                 float(other["overall_hit_at20"]) >= float(row["overall_hit_at20"])
@@ -214,6 +260,32 @@ def _compute_pareto(history: pd.DataFrame) -> pd.DataFrame:
     return hist
 
 
+@contextmanager
+def _history_file_lock(lock_path: Path, timeout_sec: float = HISTORY_LOCK_TIMEOUT_SEC):
+    start = time.time()
+    while True:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            try:
+                os.write(fd, str(os.getpid()).encode("utf-8"))
+            finally:
+                os.close(fd)
+            break
+        except FileExistsError:
+            if (time.time() - start) >= float(timeout_sec):
+                raise TimeoutError(f"history lock timeout: {lock_path}")
+            time.sleep(float(HISTORY_LOCK_POLL_SEC))
+
+    try:
+        yield
+    finally:
+        try:
+            lock_path.unlink(missing_ok=True)
+        except TypeError:
+            if lock_path.exists():
+                lock_path.unlink()
+
+
 def run_evaluate(paths: ResearchPaths, run_id: str) -> dict[str, Any]:
     run_dir = paths.run_dir(run_id)
     if not run_dir.exists():
@@ -227,6 +299,10 @@ def run_evaluate(paths: ResearchPaths, run_id: str) -> dict[str, Any]:
 
     rankings_long = read_csv(run_dir / "rankings_long.csv")
     rankings_short = read_csv(run_dir / "rankings_short.csv")
+    top20_long_path = run_dir / "top20_long.csv"
+    top20_short_path = run_dir / "top20_short.csv"
+    selected_long = read_csv(top20_long_path) if top20_long_path.exists() else rankings_long
+    selected_short = read_csv(top20_short_path) if top20_short_path.exists() else rankings_short
     split_info = manifest.get("split", {}) if isinstance(manifest.get("split"), dict) else {}
     label_load_end = split_info.get("test_end") or split_info.get("valid_end") or manifest.get("asof_date")
     labels = load_label_history(paths, cfg, snapshot_id, label_load_end)
@@ -242,7 +318,7 @@ def run_evaluate(paths: ResearchPaths, run_id: str) -> dict[str, Any]:
     for phase in ("valid", "test"):
         long_metrics, monthly_long = _metrics_for_side(
             side="long",
-            rankings=rankings_long,
+            rankings=selected_long,
             labels=labels,
             expected_by_month=expected_counts,
             top_k=cfg.model.top_k,
@@ -250,7 +326,7 @@ def run_evaluate(paths: ResearchPaths, run_id: str) -> dict[str, Any]:
         )
         short_metrics, monthly_short = _metrics_for_side(
             side="short",
-            rankings=rankings_short,
+            rankings=selected_short,
             labels=labels,
             expected_by_month=expected_counts,
             top_k=cfg.model.top_k,
@@ -264,52 +340,65 @@ def run_evaluate(paths: ResearchPaths, run_id: str) -> dict[str, Any]:
         }
         monthly_parts.extend([monthly_long, monthly_short])
 
-    selection_phase = "valid"
-    if int(metrics_by_phase["valid"]["overall"]["months"]) == 0:
+    valid_months = int(metrics_by_phase["valid"]["overall"]["months"])
+    test_months = int(metrics_by_phase["test"]["overall"]["months"])
+    if valid_months > 0 and test_months > 0:
+        selection_phase = "valid_test_blend"
+        selected_metrics = _blend_phase_metrics(
+            metrics_by_phase["valid"],
+            metrics_by_phase["test"],
+            valid_weight=float(BLEND_VALID_WEIGHT),
+        )
+    elif valid_months > 0:
+        selection_phase = "valid"
+        selected_metrics = metrics_by_phase["valid"]
+    else:
         selection_phase = "test"
-    selected_metrics = metrics_by_phase[selection_phase]
+        selected_metrics = metrics_by_phase["test"]
     overall = selected_metrics["overall"]
 
     history_file = paths.evaluations_root / "history.csv"
-    if history_file.exists():
-        history = read_csv(history_file)
-    else:
-        history = pd.DataFrame(
-            columns=[
-                "run_id",
-                "created_at",
-                "snapshot_id",
-                "evaluation_phase",
-                "overall_hit_at20",
-                "overall_return_at20",
-                "overall_risk_mae_p90",
-                "overall_coverage",
+    history_lock = paths.evaluations_root / ".history.lock"
+    with _history_file_lock(history_lock):
+        if history_file.exists():
+            history = read_csv(history_file)
+        else:
+            history = pd.DataFrame(
+                columns=[
+                    "run_id",
+                    "created_at",
+                    "snapshot_id",
+                    "evaluation_phase",
+                    "overall_hit_at20",
+                    "overall_return_at20",
+                    "overall_risk_mae_p90",
+                    "overall_coverage",
+                ]
+            )
+        if "evaluation_phase" not in history.columns:
+            history["evaluation_phase"] = "test"
+
+        current = pd.DataFrame(
+            [
+                {
+                    "run_id": run_id,
+                    "created_at": now_utc_iso(),
+                    "snapshot_id": snapshot_id,
+                    "evaluation_phase": selection_phase,
+                    "overall_hit_at20": overall["hit_at20"],
+                    "overall_return_at20": overall["return_at20"],
+                    "overall_risk_mae_p90": overall["risk_mae_p90"],
+                    "overall_coverage": overall["coverage"],
+                }
             ]
         )
-    if "evaluation_phase" not in history.columns:
-        history["evaluation_phase"] = "test"
-
-    current = pd.DataFrame(
-        [
-            {
-                "run_id": run_id,
-                "created_at": now_utc_iso(),
-                "snapshot_id": snapshot_id,
-                "evaluation_phase": selection_phase,
-                "overall_hit_at20": overall["hit_at20"],
-                "overall_return_at20": overall["return_at20"],
-                "overall_risk_mae_p90": overall["risk_mae_p90"],
-                "overall_coverage": overall["coverage"],
-            }
-        ]
-    )
-    if history.empty:
-        history = current.copy()
-    else:
-        history = history[history["run_id"] != run_id]
-        history = pd.concat([history, current], ignore_index=True)
-    history = _compute_pareto(history)
-    write_csv(history_file, history)
+        if history.empty:
+            history = current.copy()
+        else:
+            history = history[history["run_id"] != run_id]
+            history = pd.concat([history, current], ignore_index=True)
+        history = _compute_pareto(history)
+        write_csv(history_file, history)
 
     current_row = history[history["run_id"] == run_id]
     is_pareto = bool(current_row["is_pareto"].iloc[0]) if not current_row.empty else False
@@ -347,6 +436,14 @@ def run_evaluate(paths: ResearchPaths, run_id: str) -> dict[str, Any]:
         "created_at": now_utc_iso(),
         "snapshot_id": snapshot_id,
         "selection_phase": selection_phase,
+        "selection_params": (
+            {
+                "valid_weight": float(BLEND_VALID_WEIGHT),
+                "test_weight": float(1.0 - BLEND_VALID_WEIGHT),
+            }
+            if selection_phase == "valid_test_blend"
+            else {}
+        ),
         "metrics": {
             "long": selected_metrics["long"],
             "short": selected_metrics["short"],

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -25,133 +25,144 @@ router = APIRouter()
 _HEALTH_LIGHT = os.getenv("HEALTH_LIGHT", "1").lower() in {"1", "true", "yes", "on"}
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _health_payload(
+    *,
+    ok: bool,
+    status: str,
+    ready: bool,
+    phase: str,
+    message: str,
+    errors: list[str],
+    retry_after_ms: int | None,
+    extra: dict | None = None,
+) -> dict:
+    payload = {
+        "ok": bool(ok),
+        "status": status,
+        "ready": bool(ready),
+        "phase": phase,
+        "message": message,
+        "error_code": None if ok else "BACKEND_NOT_READY",
+        "version": APP_VERSION,
+        "env": APP_ENV,
+        "time": _utc_now_iso(),
+        "retryAfterMs": retry_after_ms,
+        "errors": errors,
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
 @router.get("/health")
 def health_check():
-    # Basic health check for launcher.
-    return {"status": "ok", "last_updated": _get_last_updated_timestamp()}
+    # Liveness endpoint for process-level checks.
+    return _health_payload(
+        ok=True,
+        status="ok",
+        ready=True,
+        phase="alive",
+        message="alive",
+        errors=[],
+        retry_after_ms=None,
+        extra={"last_updated": _get_last_updated_timestamp()},
+    )
 
 
 @router.get("/api/health")
 def health():
     if not _HEALTH_LIGHT:
         return health_deep()
-    now = datetime.utcnow().isoformat()
-    status = get_txt_status()
+
+    txt_status = get_txt_status()
     readiness = _collect_db_readiness()
-    missing_tables = readiness["missing_tables"]
-    errors = readiness["errors"]
+    missing_tables = list(readiness.get("missing_tables") or [])
+    errors = list(readiness.get("errors") or [])
     ready = not missing_tables and not errors
 
-    if not ready:
-        detail_errors = list(errors)
-        if missing_tables:
-            detail_errors.append(f"missing_tables:{','.join(missing_tables)}")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "ok": False,
-                "status": "starting",
-                "ready": False,
-                "phase": "starting",
-                "message": "バックエンド起動中",
-                "error_code": "BACKEND_NOT_READY",
-                "version": APP_VERSION,
-                "env": APP_ENV,
-                "time": now,
-                "retryAfterMs": 1000,
-                "missing_tables": missing_tables,
-                "txt_count": status.get("txt_count"),
-                "last_updated": status.get("last_updated"),
-                "code_txt_missing": status.get("code_txt_missing"),
-                "errors": detail_errors,
-            },
-        )
+    detail_errors = list(errors)
+    if missing_tables:
+        detail_errors.append(f"missing_tables:{','.join(missing_tables)}")
 
-    return {
-        "ok": True,
-        "status": "ok",
-        "ready": True,
-        "phase": "ready",
-        "message": "準備完了",
-        "error_code": None,
-        "version": APP_VERSION,
-        "env": APP_ENV,
-        "time": now,
-        "txt_count": status.get("txt_count"),
-        "last_updated": status.get("last_updated"),
-        "code_txt_missing": status.get("code_txt_missing"),
-        "errors": [],
-    }
+    payload = _health_payload(
+        ok=ready,
+        status="ok" if ready else "starting",
+        ready=ready,
+        phase="ready" if ready else "starting",
+        message="ready" if ready else "backend is starting",
+        errors=detail_errors if not ready else [],
+        retry_after_ms=None if ready else 1000,
+        extra={
+            "missing_tables": missing_tables,
+            "txt_count": txt_status.get("txt_count"),
+            "last_updated": txt_status.get("last_updated"),
+            "code_txt_missing": txt_status.get("code_txt_missing"),
+        },
+    )
+    if ready:
+        return payload
+    return JSONResponse(status_code=503, content=payload)
 
 
 @router.get("/api/health/deep")
 def health_deep():
-    now = datetime.utcnow().isoformat()
-    status = get_txt_status()
+    txt_status = get_txt_status()
     stats = _collect_db_stats()
-    has_daily = (stats["daily_rows"] or 0) > 0
-    has_monthly = (stats["monthly_rows"] or 0) > 0
-    data_initialized = has_daily or has_monthly
-    is_backend_ready = (not stats["missing_tables"]) and stats["errors"] == []
-    status_label = "ok" if data_initialized else "degraded"
-    message = "準備完了" if data_initialized else "データ未初期化（空データで起動）"
+    missing_tables = list(stats.get("missing_tables") or [])
+    errors = list(stats.get("errors") or [])
+    backend_ready = not missing_tables and not errors
+    has_daily = (stats.get("daily_rows") or 0) > 0
+    has_monthly = (stats.get("monthly_rows") or 0) > 0
+    data_initialized = bool(has_daily or has_monthly)
 
-    if not is_backend_ready:
-        detail_errors = list(stats["errors"])
-        if stats["missing_tables"]:
-            detail_errors.append(f"missing_tables:{','.join(stats['missing_tables'])}")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "ok": False,
-                "status": "starting",
-                "ready": False,
-                "phase": "starting",
-                "message": "バックエンド起動中",
-                "error_code": "BACKEND_NOT_READY",
-                "version": APP_VERSION,
-                "env": APP_ENV,
-                "time": now,
-                "retryAfterMs": 1000,
-                "stats": stats,
-                "txt_count": status.get("txt_count"),
-                "last_updated": status.get("last_updated"),
-                "code_txt_missing": status.get("code_txt_missing"),
-                "errors": detail_errors,
-            },
-        )
+    detail_errors = list(errors)
+    if missing_tables:
+        detail_errors.append(f"missing_tables:{','.join(missing_tables)}")
 
-    return {
-        "ok": True,
-        "status": status_label,
-        "ready": True,
-        "phase": "ready",
-        "message": message,
-        "error_code": None if data_initialized else "DATA_NOT_INITIALIZED",
-        "version": APP_VERSION,
-        "env": APP_ENV,
-        "time": now,
-        "stats": stats,
-        "data_initialized": data_initialized,
-        "txt_count": status.get("txt_count"),
-        "code_count": stats.get("tickers"),
-        "pan_out_txt_dir": resolve_pan_out_txt_dir(),
-        "last_updated": status.get("last_updated"),
-        "code_txt_missing": status.get("code_txt_missing"),
-        "errors": [],
-    }
+    payload = _health_payload(
+        ok=backend_ready,
+        status="ok" if data_initialized else "degraded",
+        ready=backend_ready,
+        phase="ready" if backend_ready else "starting",
+        message=(
+            "ready"
+            if backend_ready and data_initialized
+            else "data is not initialized yet"
+            if backend_ready
+            else "backend is starting"
+        ),
+        errors=[] if backend_ready else detail_errors,
+        retry_after_ms=None if backend_ready else 1000,
+        extra={
+            "stats": stats,
+            "data_initialized": data_initialized,
+            "txt_count": txt_status.get("txt_count"),
+            "code_count": stats.get("tickers"),
+            "pan_out_txt_dir": resolve_pan_out_txt_dir(),
+            "last_updated": txt_status.get("last_updated"),
+            "code_txt_missing": txt_status.get("code_txt_missing"),
+        },
+    )
+    if backend_ready:
+        if not data_initialized:
+            payload["error_code"] = "DATA_NOT_INITIALIZED"
+        return payload
+    return JSONResponse(status_code=503, content=payload)
 
 
 @router.get("/api/diagnostics")
 def diagnostics():
-    now = datetime.utcnow().isoformat()
     db_path = str(config.DB_PATH)
     stats = _collect_db_stats()
     return {
         "ok": True,
         "version": APP_VERSION,
         "env": APP_ENV,
-        "time": now,
+        "time": _utc_now_iso(),
         "data_dir": DATA_DIR,
         "pan_out_txt_dir": resolve_pan_out_txt_dir(),
         "db_path": db_path,

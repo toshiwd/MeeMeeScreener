@@ -73,6 +73,12 @@ type RankItem = {
   monthlyRangeProb?: number | null;
   hybridScore?: number | null;
   entryScore?: number | null;
+  researchPriorRunId?: string | null;
+  researchPriorAsOf?: string | null;
+  researchPriorAligned?: boolean | null;
+  researchPriorRank?: number | null;
+  researchPriorUniverse?: number | null;
+  researchPriorBonus?: number | null;
   entryQualified?: boolean | null;
   entryQualifiedByFallback?: boolean | null;
   entryQualifiedFallbackStage?: string | null;
@@ -917,7 +923,6 @@ export default function RankingView() {
         }
       } catch {
         if (cancelled) return;
-        setItems(fallbackItems);
         setUseFallback(true);
         setErrorMessage("ランキングの取得に失敗しました。簡易データを表示しています。");
       } finally {
@@ -927,7 +932,7 @@ export default function RankingView() {
     return () => {
       cancelled = true;
     };
-  }, [backendReady, dir, tfChar, rankWhich, rankMode, riskMode, rankScope, fallbackItems]);
+  }, [backendReady, dir, tfChar, rankWhich, rankMode, riskMode, rankScope]);
 
   useEffect(() => {
     if (!backendReady || useFallback || rankScope === "multi" || !qualificationFilterRelaxed) {
@@ -1214,6 +1219,13 @@ export default function RankingView() {
   const formatRankScore = (value?: number | null) => {
     if (!Number.isFinite(value ?? NaN)) return "--";
     return (value ?? 0).toFixed(3);
+  };
+  const formatResearchPriorRank = (item: RankItem) => {
+    if (!Number.isFinite(item.researchPriorRank ?? NaN)) return "--";
+    const rank = Math.max(1, Math.round(item.researchPriorRank ?? 0));
+    if (!Number.isFinite(item.researchPriorUniverse ?? NaN)) return `#${rank}`;
+    const universe = Math.max(1, Math.round(item.researchPriorUniverse ?? 0));
+    return `#${rank}/${universe}`;
   };
   const formatTurnProb = (upTurn?: number | null, downTurn?: number | null) => {
     if (dir === "up") return formatPct(upTurn);
@@ -1579,6 +1591,14 @@ export default function RankingView() {
                         >
                           {formatQualification(item)}
                         </span>
+                        {item.researchPriorAligned === true && (
+                          <span className="rank-score-badge">
+                            研究一致 {formatResearchPriorRank(item)}
+                            {Number.isFinite(item.researchPriorBonus ?? NaN)
+                              ? ` ${formatPctSigned(item.researchPriorBonus)}`
+                              : ""}
+                          </span>
+                        )}
                         {rankScope === "multi" && Number.isFinite(item.winNowScore ?? NaN) && (
                           <span className="rank-score-badge">
                             勝ちやすさ {((item.winNowScore ?? 0) * 100).toFixed(1)}%
@@ -1601,6 +1621,27 @@ export default function RankingView() {
                         )}
                         {showExtendedMetrics && (
                           <>
+                            {item.researchPriorRunId && (
+                              <span className="rank-score-badge">
+                                研究Run {item.researchPriorRunId}
+                              </span>
+                            )}
+                            {item.researchPriorAsOf && (
+                              <span className="rank-score-badge">
+                                研究asOf {item.researchPriorAsOf}
+                              </span>
+                            )}
+                            {Number.isFinite(item.researchPriorUniverse ?? NaN) && (
+                              <span className="rank-score-badge">
+                                研究母数 {Math.max(1, Math.round(item.researchPriorUniverse ?? 0))}
+                              </span>
+                            )}
+                            {Number.isFinite(item.researchPriorBonus ?? NaN) &&
+                              Math.abs(item.researchPriorBonus ?? 0) > 1e-9 && (
+                                <span className="rank-score-badge">
+                                  研究補正 {formatPctSigned(item.researchPriorBonus)}
+                                </span>
+                              )}
                             {item.invalidationTrigger && (
                               <span className="rank-score-badge">
                                 否定 {formatInvalidationTrigger(item.invalidationTrigger)} / 推奨 {formatInvalidationAction(item.invalidationRecommendedAction)} / 守 {formatInvalidationAction(item.invalidationConservativeAction)} / 攻 {formatInvalidationAction(item.invalidationAggressiveAction)}

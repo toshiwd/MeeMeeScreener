@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+import pandas as pd
 
 from research.config import ResearchConfig, apply_variant
 from research.evaluate import run_evaluate
@@ -64,3 +65,49 @@ def run_loop(
     summary_path = paths.evaluations_root / f"loop_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.json"
     write_json(summary_path, summary)
     return summary
+
+def run_loop_all(
+    paths: ResearchPaths,
+    config: ResearchConfig,
+    snapshot_id: str,
+    workers: int = 1,
+    chunk_size: int = 120,
+) -> dict[str, Any]:
+    # snapshot_id 配下の calendar_month_ends.csv を読み込む
+    snapshot_dir = paths.snapshot_dir(snapshot_id)
+    calendar_path = snapshot_dir / "calendar_month_ends.csv"
+    if not calendar_path.exists():
+        raise FileNotFoundError(f"calendar not found in snapshot: {calendar_path}")
+    
+    calendar = pd.read_csv(calendar_path)
+    asof_dates = calendar["asof_date"].astype(str).tolist()
+    
+    print(f"Starting loop_all for snapshot {snapshot_id} ({len(asof_dates)} months)")
+    
+    from research.features import build_features_for_asof
+    from research.labels import build_labels_for_asof
+    
+    results = []
+    for asof in asof_dates:
+        print(f"--- Processing asof_date: {asof} ---")
+        f_res = build_features_for_asof(
+            paths=paths,
+            config=config,
+            snapshot_id=snapshot_id,
+            asof_date=asof,
+            force=False,
+            workers=workers,
+            chunk_size=chunk_size,
+        )
+        l_res = build_labels_for_asof(
+            paths=paths,
+            config=config,
+            snapshot_id=snapshot_id,
+            asof_date=asof,
+            force=False,
+            workers=workers,
+            chunk_size=chunk_size,
+        )
+        results.append({"asof": asof, "features": f_res, "labels": l_res})
+        
+    return {"ok": True, "snapshot_id": snapshot_id, "months": len(asof_dates), "results_count": len(results)}

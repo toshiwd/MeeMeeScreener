@@ -152,6 +152,14 @@ def _label_chunk_worker(
         )
         long_mae, long_mfe = _mae_mfe_long(future, entry)
         long_gross = (long_exit / entry) - 1.0
+        # --- Sharpeベース品質ラベル ---
+        _rv20_long = float(
+            code_daily[code_daily["date"] <= asof_ts]["close"]
+            .pct_change().tail(20).std() * (20 ** 0.5)
+        ) if len(code_daily) >= 20 else 0.05
+        _rv20_long = max(_rv20_long, 0.01)
+        _lq = float(long_gross) / _rv20_long  # Sharpe類似スコア
+        _lhc = int(long_tp == 1 and long_mae < 0.04 and _lq > 0.4)
         out.append(
             {
                 "asof_date": asof_str,
@@ -164,6 +172,9 @@ def _label_chunk_worker(
                 "entry_price": float(entry),
                 "exit_price": float(long_exit),
                 "exit_reason": long_reason,
+                "label_quality": float(_lq),
+                "label_high_conf": int(_lhc),
+                "rv20": float(_rv20_long),
             }
         )
 
@@ -176,6 +187,13 @@ def _label_chunk_worker(
         )
         short_mae, short_mfe = _mae_mfe_short(future, entry)
         short_gross = (entry - short_exit) / entry
+        _rv20_short = float(
+            code_daily[code_daily["date"] <= asof_ts]["close"]
+            .pct_change().tail(20).std() * (20 ** 0.5)
+        ) if len(code_daily) >= 20 else 0.05
+        _rv20_short = max(_rv20_short, 0.01)
+        _sq = float(short_gross) / _rv20_short
+        _shc = int(short_tp == 1 and short_mae < 0.04 and _sq > 0.4)
         out.append(
             {
                 "asof_date": asof_str,
@@ -188,6 +206,9 @@ def _label_chunk_worker(
                 "entry_price": float(entry),
                 "exit_price": float(short_exit),
                 "exit_reason": short_reason,
+                "label_quality": float(_sq),
+                "label_high_conf": int(_shc),
+                "rv20": float(_rv20_short),
             }
         )
     return out

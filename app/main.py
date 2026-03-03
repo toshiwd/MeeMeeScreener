@@ -1,6 +1,7 @@
 import sys
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,8 +10,19 @@ from fastapi.staticfiles import StaticFiles
 _LOGGED_RESOLVED_PATHS = False
 
 
+def _rankings_warmup_delay_sec() -> float:
+    raw = os.getenv("MEEMEE_RANKINGS_WARMUP_DELAY_SEC", "5")
+    try:
+        return max(0.0, float(raw))
+    except Exception:
+        return 5.0
+
+
 def _refresh_rankings_cache_async() -> None:
     try:
+        delay_sec = _rankings_warmup_delay_sec()
+        if delay_sec > 0:
+            time.sleep(delay_sec)
         from app.backend.services import rankings_cache
         rankings_cache.refresh_cache()
         print("[main] Rankings cache refreshed.")
@@ -40,7 +52,7 @@ from app.backend.api.routers import (
 from app.backend.api import watchlist_routes
 from app.backend.api.routers import rankings
 from app.backend.core.force_sync_job import handle_force_sync
-from app.backend.core.jobs import job_manager
+from app.backend.core.jobs import cleanup_stale_jobs, job_manager
 from app.backend.core.ml_job import handle_ml_predict, handle_ml_train
 from app.backend.core.analysis_backfill_job import handle_analysis_backfill
 from app.backend.core.phase_batch_job import handle_phase_rebuild
@@ -48,6 +60,12 @@ from app.backend.core.strategy_backtest_job import (
     handle_strategy_backtest,
     handle_strategy_walkforward,
     handle_strategy_walkforward_gate,
+)
+from app.backend.core.yahoo_daily_ingest_job import (
+    YF_DAILY_INGEST_JOB_TYPE,
+    handle_yf_daily_ingest,
+    start_yf_daily_ingest_scheduler,
+    stop_yf_daily_ingest_scheduler,
 )
 from app.backend.core.toredex_live_job import handle_toredex_live
 from app.backend.core.toredex_self_improve_job import handle_toredex_self_improve
@@ -62,6 +80,7 @@ job_manager.register_handler("analysis_backfill", handle_analysis_backfill)
 job_manager.register_handler("strategy_backtest", handle_strategy_backtest)
 job_manager.register_handler("strategy_walkforward", handle_strategy_walkforward)
 job_manager.register_handler("strategy_walkforward_gate", handle_strategy_walkforward_gate)
+job_manager.register_handler(YF_DAILY_INGEST_JOB_TYPE, handle_yf_daily_ingest)
 job_manager.register_handler("toredex_live", handle_toredex_live)
 job_manager.register_handler("toredex_self_improve", handle_toredex_self_improve)
 
@@ -96,6 +115,8 @@ async def lifespan(app: FastAPI):
             )
     
     init_resources(data_dir)
+    # Ensure jobs left by a previous backend process are finalized on boot.
+    cleanup_stale_jobs()
     print("[Main] Resources Initialized.")
     # Warm cache in background so /health is not blocked by heavy or locked DB work.
     threading.Thread(
@@ -103,8 +124,10 @@ async def lifespan(app: FastAPI):
         name="rankings-cache-warmup",
         daemon=True,
     ).start()
+    start_yf_daily_ingest_scheduler()
     yield
     # Shutdown
+    stop_yf_daily_ingest_scheduler(timeout_sec=1.0)
     print("[Main] Shutting down.")
 
 def create_app() -> FastAPI:

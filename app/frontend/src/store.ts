@@ -172,6 +172,12 @@ export type BarsPayload = {
   boxes?: Box[];
 };
 
+export type MultiTimeframeBarsPayload = {
+  daily?: BarsPayload;
+  weekly?: BarsPayload;
+  monthly?: BarsPayload;
+};
+
 export type BarsCache = {
   monthly: Record<string, BarsPayload>;
   weekly: Record<string, BarsPayload>;
@@ -368,8 +374,10 @@ const MA_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#a855f7", "#f59e0b"];
 const THUMB_BARS = 60;
 const MIN_BATCH_LIMIT = 60;
 const MAX_BATCH_LIMIT = 2000;
-const WEEKLY_DAILY_FACTOR = 7;
 const BATCH_TTL_MS = 60_000;
+const BATCH_REQUEST_TIMEOUT_MS = 30_000;
+const BATCH_RETRY_DELAYS_MS = [400, 1200] as const;
+const ENSURE_COALESCE_MS = 16;
 const EVENTS_POLL_INTERVAL_MS = 10_000;
 const EVENTS_POLL_MAX_ATTEMPTS = 180;
 const KEEP_STORAGE_KEY = "keepList";
@@ -410,6 +418,29 @@ const barsFetchedLimit: Record<GridTimeframe, Record<string, number>> = {
 };
 let batchRequestCount = 0;
 let eventsPollPromise: Promise<void> | null = null;
+const ensurePendingCodes: Record<GridTimeframe, Set<string>> = {
+  monthly: new Set<string>(),
+  weekly: new Set<string>(),
+  daily: new Set<string>()
+};
+const ensurePendingReason: Record<GridTimeframe, string | undefined> = {
+  monthly: undefined,
+  weekly: undefined,
+  daily: undefined
+};
+const ensurePendingWaiters: Record<
+  GridTimeframe,
+  Array<{ resolve: () => void; reject: (error: unknown) => void }>
+> = {
+  monthly: [],
+  weekly: [],
+  daily: []
+};
+const ensureCoalesceTimers: Record<GridTimeframe, ReturnType<typeof setTimeout> | null> = {
+  monthly: null,
+  weekly: null,
+  daily: null
+};
 const DEFAULT_PERIODS: Record<MaTimeframe, number[]> = {
   daily: [7, 20, 60, 100, 200],
   weekly: [7, 20, 60, 100, 200],
@@ -435,6 +466,32 @@ const isAbortError = (error: unknown) => {
   if (!error || typeof error !== "object") return false;
   const err = error as { name?: string; code?: string };
   return err.name === "CanceledError" || err.code === "ERR_CANCELED";
+};
+
+const sleepMs = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const resolveErrorStatusCode = (error: unknown): number | null => {
+  if (!error || typeof error !== "object") return null;
+  const status = (error as { response?: { status?: unknown } }).response?.status;
+  return typeof status === "number" && Number.isFinite(status) ? status : null;
+};
+
+const isRetriableBatchError = (error: unknown) => {
+  if (isAbortError(error)) return false;
+  const status = resolveErrorStatusCode(error);
+  if (status === 429) return true;
+  if (status !== null && status >= 500) return true;
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: string }).code;
+  return (
+    code === "ECONNABORTED" ||
+    code === "ERR_NETWORK" ||
+    code === "ETIMEDOUT" ||
+    code === "ECONNRESET"
+  );
 };
 
 const markFetchedLimit = (timeframe: GridTimeframe, code: string, limit: number) => {
@@ -572,14 +629,6 @@ const getRequiredBars = (settings: MaSetting[]) => {
   return Math.min(MAX_BATCH_LIMIT, Math.max(MIN_BATCH_LIMIT, desired));
 };
 
-const getDailyLimitForWeekly = (settings: MaSetting[], weeklyBarsFloor = 0) => {
-  const weeklyBars = Math.max(
-    getRequiredBars(settings),
-    Math.max(1, Math.floor(weeklyBarsFloor))
-  );
-  return Math.min(MAX_BATCH_LIMIT, Math.max(MIN_BATCH_LIMIT, weeklyBars * WEEKLY_DAILY_FACTOR));
-};
-
 const startEventsMetaPolling = (
   get: () => StoreState,
   set: (partial: Partial<StoreState> | ((state: StoreState) => Partial<StoreState>)) => void
@@ -672,86 +721,6 @@ const startEventsMetaPolling = (
     eventsPollPromise = null;
   });
   return eventsPollPromise;
-};
-
-const normalizeDateParts = (year: number, month: number, day: number) => {
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
-  if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return null;
-  return Math.floor(Date.UTC(year, month - 1, day) / 1000);
-};
-
-const normalizeBarTime = (value: unknown) => {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    if (value > 10_000_000_000_000) return Math.floor(value / 1000);
-    if (value > 10_000_000_000) return Math.floor(value / 10);
-    if (value >= 10_000_000 && value < 100_000_000) {
-      const year = Math.floor(value / 10000);
-      const month = Math.floor((value % 10000) / 100);
-      const day = value % 100;
-      return normalizeDateParts(year, month, day);
-    }
-    if (value >= 100_000 && value < 1_000_000) {
-      const year = Math.floor(value / 100);
-      const month = value % 100;
-      return normalizeDateParts(year, month, 1);
-    }
-    return Math.floor(value);
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (/^\d{8}$/.test(trimmed)) {
-      const year = Number(trimmed.slice(0, 4));
-      const month = Number(trimmed.slice(4, 6));
-      const day = Number(trimmed.slice(6, 8));
-      return normalizeDateParts(year, month, day);
-    }
-    if (/^\d{6}$/.test(trimmed)) {
-      const year = Number(trimmed.slice(0, 4));
-      const month = Number(trimmed.slice(4, 6));
-      return normalizeDateParts(year, month, 1);
-    }
-    const match = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
-    if (match) {
-      const year = Number(match[1]);
-      const month = Number(match[2]);
-      const day = Number(match[3]);
-      return normalizeDateParts(year, month, day);
-    }
-  }
-  return null;
-};
-
-const buildWeeklyBars = (bars: number[][]) => {
-  const groups = new Map<number, { o: number; h: number; l: number; c: number }>();
-  for (const row of bars) {
-    if (!Array.isArray(row) || row.length < 5) continue;
-    const time = normalizeBarTime(row[0]);
-    if (time == null) continue;
-    const date = new Date(time * 1000);
-    const day = date.getUTCDay();
-    const diff = (day + 6) % 7;
-    const weekStart = Date.UTC(
-      date.getUTCFullYear(),
-      date.getUTCMonth(),
-      date.getUTCDate() - diff
-    );
-    const key = Math.floor(weekStart / 1000);
-    const open = Number(row[1]);
-    const high = Number(row[2]);
-    const low = Number(row[3]);
-    const close = Number(row[4]);
-    const existing = groups.get(key);
-    if (!existing) {
-      groups.set(key, { o: open, h: high, l: low, c: close });
-    } else {
-      existing.h = Math.max(existing.h, high);
-      existing.l = Math.min(existing.l, low);
-      existing.c = close;
-    }
-  }
-  return [...groups.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([time, bar]) => [time, bar.o, bar.h, bar.l, bar.c]);
 };
 
 const getInitialTimeframe = (): Settings["gridTimeframe"] => {
@@ -1471,79 +1440,164 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!trimmed.length) return;
 
     if (timeframe === "weekly") {
-      const weeklyTargetBars = Math.max(
+      const weeklyRequired = Math.max(
+        limitOverride ?? 0,
         getRequiredBars(get().maSettings.weekly),
         get().settings.listRangeBars
       );
-      const dailyLimit = Math.max(
-        limitOverride ?? 0,
-        getDailyLimitForWeekly(get().maSettings.weekly, weeklyTargetBars)
-      );
-      const weeklyRequired = Math.max(
-        getRequiredBars(get().maSettings.weekly),
-        Math.ceil(dailyLimit / WEEKLY_DAILY_FACTOR)
-      );
-      const reasonLabel = reason ? `${reason}:weekly` : "weekly";
-      try {
-        const dailyCache = get().barsCache.daily;
-        const dailyMissing = trimmed.filter((code) => {
-          const payload = dailyCache[code];
-          return !payload || payload.bars.length < dailyLimit;
-        });
-        if (dailyMissing.length) {
-          await get().loadBarsBatch("daily", dailyMissing, dailyLimit, reasonLabel);
-        }
-      } catch (error) {
-        set((prev) => ({
-          barsStatus: {
-            ...prev.barsStatus,
-            weekly: {
-              ...prev.barsStatus.weekly,
-              ...trimmed.reduce((acc, code) => {
-                acc[code] = "error";
-                return acc;
-              }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
-            }
-          }
-        }));
-        throw error;
-      }
-      set((prev) => {
-        const weeklyItems: Record<string, BarsPayload> = {};
-        const weeklyBoxes: Record<string, Box[]> = {};
-        trimmed.forEach((code) => {
-          const dailyPayload = prev.barsCache.daily[code];
-          if (!dailyPayload) return;
-          weeklyItems[code] = {
-            bars: buildWeeklyBars(dailyPayload.bars),
-            ma: { ma7: [], ma20: [], ma60: [] }
-          };
-          weeklyBoxes[code] = prev.boxesCache.daily[code] ?? [];
-        });
-        trimmed.forEach((code) => markFetchedLimit("weekly", code, weeklyRequired));
-        return {
-          barsCache: {
-            ...prev.barsCache,
-            weekly: { ...prev.barsCache.weekly, ...weeklyItems }
-          },
-          boxesCache: {
-            ...prev.boxesCache,
-            weekly: { ...prev.boxesCache.weekly, ...weeklyBoxes }
-          },
-          barsStatus: {
-            ...prev.barsStatus,
-            weekly: {
-              ...prev.barsStatus.weekly,
-              ...trimmed.reduce((acc, code) => {
-                const payload = weeklyItems[code];
-                acc[code] = payload && payload.bars.length ? "success" : "empty";
-                return acc;
-              }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
-            }
-          }
-        };
+      const requestCodes = [...new Set(trimmed)].sort();
+      const requestKey = buildBatchKey(timeframe, weeklyRequired, requestCodes);
+      const cachedAt = recentBatchRequests.get(requestKey);
+      if (cachedAt && Date.now() - cachedAt < BATCH_TTL_MS) return;
+
+      const inFlight = inFlightBatchRequests.get(requestKey);
+      if (inFlight) return inFlight.promise;
+
+      batchRequestCount += 1;
+      console.debug("[batch_bars_v3]", {
+        count: batchRequestCount,
+        key: requestKey,
+        reason: reason ?? "unknown",
+        timeframe,
+        limit: weeklyRequired,
+        codes: requestCodes.length
       });
-      return;
+
+      const controller = new AbortController();
+      const requestPromise = (async () => {
+        set((prev) => {
+          const nextLoading = { ...prev.barsLoading.weekly };
+          requestCodes.forEach((code) => {
+            nextLoading[code] = true;
+          });
+          return {
+            barsLoading: { ...prev.barsLoading, weekly: nextLoading },
+            barsStatus: {
+              ...prev.barsStatus,
+              weekly: {
+                ...prev.barsStatus.weekly,
+                ...requestCodes.reduce((acc, code) => {
+                  acc[code] = "loading";
+                  return acc;
+                }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
+              }
+            }
+          };
+        });
+
+        try {
+          const requestPayload = {
+            codes: requestCodes,
+            timeframes: ["weekly"],
+            limit: weeklyRequired,
+            includeProvisional: true
+          };
+          let res: { status: number; data?: any } | null = null;
+          let attempt = 0;
+          while (true) {
+            try {
+              res = await api.post("/batch_bars_v3", requestPayload, {
+                signal: controller.signal,
+                timeout: BATCH_REQUEST_TIMEOUT_MS
+              });
+              break;
+            } catch (error) {
+              const canRetry =
+                attempt < BATCH_RETRY_DELAYS_MS.length && isRetriableBatchError(error);
+              if (!canRetry) throw error;
+              const retryDelay =
+                BATCH_RETRY_DELAYS_MS[attempt] ??
+                BATCH_RETRY_DELAYS_MS[BATCH_RETRY_DELAYS_MS.length - 1] ??
+                0;
+              attempt += 1;
+              await sleepMs(retryDelay);
+            }
+          }
+          if (!res) {
+            throw new Error("batch_bars_v3 failed without response");
+          }
+          if (res.status !== 200) {
+            throw new Error(`batch_bars_v3 failed with status ${res.status}`);
+          }
+
+          const rawItems = (res.data?.items || {}) as Record<
+            string,
+            MultiTimeframeBarsPayload | undefined
+          >;
+          const weeklyItems: Record<string, BarsPayload> = {};
+          const weeklyBoxes: Record<string, Box[]> = {};
+          requestCodes.forEach((code) => {
+            const payload = rawItems[code]?.weekly;
+            if (payload && Array.isArray(payload.bars)) {
+              weeklyItems[code] = payload;
+              weeklyBoxes[code] = payload.boxes ?? [];
+            } else {
+              weeklyItems[code] = {
+                bars: [],
+                ma: { ma7: [], ma20: [], ma60: [] },
+                boxes: []
+              };
+              weeklyBoxes[code] = [];
+            }
+            markFetchedLimit("weekly", code, weeklyRequired);
+          });
+          recentBatchRequests.set(requestKey, Date.now());
+          set((prev) => ({
+            barsCache: {
+              ...prev.barsCache,
+              weekly: { ...prev.barsCache.weekly, ...weeklyItems }
+            },
+            boxesCache: {
+              ...prev.boxesCache,
+              weekly: { ...prev.boxesCache.weekly, ...weeklyBoxes }
+            },
+            barsStatus: {
+              ...prev.barsStatus,
+              weekly: {
+                ...prev.barsStatus.weekly,
+                ...requestCodes.reduce((acc, code) => {
+                  const payload = weeklyItems[code];
+                  acc[code] = payload && payload.bars.length ? "success" : "empty";
+                  return acc;
+                }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
+              }
+            }
+          }));
+        } catch (error) {
+          if (isAbortError(error)) return;
+          set((prev) => ({
+            barsStatus: {
+              ...prev.barsStatus,
+              weekly: {
+                ...prev.barsStatus.weekly,
+                ...requestCodes.reduce((acc, code) => {
+                  const cached = prev.barsCache.weekly[code];
+                  acc[code] = cached ? (cached.bars.length ? "success" : "empty") : "error";
+                  return acc;
+                }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
+              }
+            }
+          }));
+          throw error;
+        } finally {
+          set((prev) => {
+            const cleared = { ...prev.barsLoading.weekly };
+            requestCodes.forEach((code) => {
+              delete cleared[code];
+            });
+            return { barsLoading: { ...prev.barsLoading, weekly: cleared } };
+          });
+        }
+      })();
+
+      inFlightBatchRequests.set(requestKey, { promise: requestPromise, controller });
+      requestPromise.finally(() => {
+        const entry = inFlightBatchRequests.get(requestKey);
+        if (entry?.controller === controller) {
+          inFlightBatchRequests.delete(requestKey);
+        }
+      });
+      return requestPromise;
     }
 
     const maSettings =
@@ -1590,15 +1644,35 @@ export const useStore = create<StoreState>((set, get) => ({
       });
 
       try {
-        const res = await api.post(
-          "/batch_bars",
-          {
-            timeframe,
-            codes: requestCodes,
-            limit
-          },
-          { signal: controller.signal }
-        );
+        const requestPayload = {
+          timeframe,
+          codes: requestCodes,
+          limit
+        };
+        let res: { status: number; data?: any } | null = null;
+        let attempt = 0;
+        while (true) {
+          try {
+            res = await api.post("/batch_bars", requestPayload, {
+              signal: controller.signal,
+              timeout: BATCH_REQUEST_TIMEOUT_MS
+            });
+            break;
+          } catch (error) {
+            const canRetry =
+              attempt < BATCH_RETRY_DELAYS_MS.length && isRetriableBatchError(error);
+            if (!canRetry) throw error;
+            const retryDelay =
+              BATCH_RETRY_DELAYS_MS[attempt] ??
+              BATCH_RETRY_DELAYS_MS[BATCH_RETRY_DELAYS_MS.length - 1] ??
+              0;
+            attempt += 1;
+            await sleepMs(retryDelay);
+          }
+        }
+        if (!res) {
+          throw new Error("batch_bars failed without response");
+        }
         if (res.status !== 200) {
           throw new Error(`batch_bars failed with status ${res.status}`);
         }
@@ -1642,7 +1716,8 @@ export const useStore = create<StoreState>((set, get) => ({
             [timeframe]: {
               ...prev.barsStatus[timeframe],
               ...requestCodes.reduce((acc, code) => {
-                acc[code] = "error";
+                const cached = prev.barsCache[timeframe][code];
+                acc[code] = cached ? (cached.bars.length ? "success" : "empty") : "error";
                 return acc;
               }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
             }
@@ -1674,46 +1749,72 @@ export const useStore = create<StoreState>((set, get) => ({
     await get().loadBarsBatch("monthly", codes, undefined, "boxes");
   },
   ensureBarsForVisible: async (timeframe, codes, reason) => {
-    const state = get();
-    const cache = state.barsCache[timeframe];
-    const maSettings = state.maSettings;
-    const requiredBars =
-      timeframe === "daily"
-        ? getRequiredBars(maSettings.daily)
-        : timeframe === "weekly"
-          ? getRequiredBars(maSettings.weekly)
-          : getRequiredBars(maSettings.monthly);
-    const requiredWithRange = Math.max(requiredBars, state.settings.listRangeBars);
-    const dailyLimitForWeekly =
-      timeframe === "weekly"
-        ? getDailyLimitForWeekly(maSettings.weekly, requiredWithRange)
-        : null;
     const uniqueCodes = [...new Set(codes.filter((code) => code))];
-    const listKey = buildBatchKey(timeframe, requiredWithRange, uniqueCodes);
-    if (lastEnsureKeyByTimeframe[timeframe] !== listKey) {
-      abortInFlightForTimeframe(timeframe);
-      lastEnsureKeyByTimeframe[timeframe] = listKey;
+    if (!uniqueCodes.length) return;
+    const pending = ensurePendingCodes[timeframe];
+    uniqueCodes.forEach((code) => pending.add(code));
+    if (reason) {
+      ensurePendingReason[timeframe] = reason;
     }
-    const missing = uniqueCodes.filter((code) => {
-      const payload = cache[code];
-      const fetchedLimit = getFetchedLimit(timeframe, code);
-      if (!payload) return fetchedLimit < requiredWithRange;
-      if (payload.bars.length >= requiredWithRange) return false;
-      if (fetchedLimit >= requiredWithRange) return false;
-      return true;
-    });
-    if (!missing.length) return;
 
-    const batchSize = 48;
-    for (let i = 0; i < missing.length; i += batchSize) {
-      const batch = missing.slice(i, i + batchSize);
-      await get().loadBarsBatch(
-        timeframe,
-        batch,
-        timeframe === "weekly" ? dailyLimitForWeekly ?? undefined : requiredWithRange,
-        reason
-      );
-    }
+    return new Promise<void>((resolve, reject) => {
+      ensurePendingWaiters[timeframe].push({ resolve, reject });
+      if (ensureCoalesceTimers[timeframe] !== null) {
+        return;
+      }
+      ensureCoalesceTimers[timeframe] = setTimeout(async () => {
+        ensureCoalesceTimers[timeframe] = null;
+        const mergedCodes = [...ensurePendingCodes[timeframe]];
+        ensurePendingCodes[timeframe].clear();
+        const mergedReason = ensurePendingReason[timeframe];
+        ensurePendingReason[timeframe] = undefined;
+        const waiters = ensurePendingWaiters[timeframe].splice(0);
+
+        try {
+          const state = get();
+          const cache = state.barsCache[timeframe];
+          const maSettings = state.maSettings;
+          const requiredBars =
+            timeframe === "daily"
+              ? getRequiredBars(maSettings.daily)
+              : timeframe === "weekly"
+                ? getRequiredBars(maSettings.weekly)
+                : getRequiredBars(maSettings.monthly);
+          const requiredWithRange = Math.max(requiredBars, state.settings.listRangeBars);
+          const listKey = buildBatchKey(timeframe, requiredWithRange, mergedCodes);
+          if (lastEnsureKeyByTimeframe[timeframe] !== listKey) {
+            abortInFlightForTimeframe(timeframe);
+            lastEnsureKeyByTimeframe[timeframe] = listKey;
+          }
+          const missing = mergedCodes.filter((code) => {
+            const payload = cache[code];
+            const fetchedLimit = getFetchedLimit(timeframe, code);
+            if (!payload) return fetchedLimit < requiredWithRange;
+            if (payload.bars.length >= requiredWithRange) return false;
+            if (fetchedLimit >= requiredWithRange) return false;
+            return true;
+          });
+          if (!missing.length) {
+            waiters.forEach((w) => w.resolve());
+            return;
+          }
+
+          const batchSize = 48;
+          for (let i = 0; i < missing.length; i += batchSize) {
+            const batch = missing.slice(i, i + batchSize);
+            await get().loadBarsBatch(
+              timeframe,
+              batch,
+              requiredWithRange,
+              mergedReason
+            );
+          }
+          waiters.forEach((w) => w.resolve());
+        } catch (error) {
+          waiters.forEach((w) => w.reject(error));
+        }
+      }, ENSURE_COALESCE_MS);
+    });
   },
   setColumns: (columns) => {
     if (typeof window !== "undefined") {

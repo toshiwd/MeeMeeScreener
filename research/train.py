@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import itertools
 import shutil
 from typing import Any
 
@@ -471,16 +472,615 @@ def _walkforward_oos_stats(
     }
 
 
-def _topk_by_month(frame: pd.DataFrame, top_k: int) -> pd.DataFrame:
+def _topk_by_month(
+    frame: pd.DataFrame,
+    top_k: int,
+    side: str | None = None,
+    short_regime_caps: dict[str, int] | None = None,
+    short_month_gate: dict[str, Any] | None = None,
+) -> pd.DataFrame:
     if frame.empty:
         return frame.copy()
-    ranked = (
-        frame.sort_values(["asof_date", "score"], ascending=[True, False])
-        .groupby("asof_date", as_index=False, group_keys=False)
-        .head(top_k)
-        .reset_index(drop=True)
-    )
+    src = frame.sort_values(["asof_date", "score"], ascending=[True, False]).copy()
+    if side != "short":
+        ranked = (
+            src.groupby("asof_date", as_index=False, group_keys=False)
+            .head(top_k)
+            .reset_index(drop=True)
+        )
+        return ranked
+
+    caps = short_regime_caps if isinstance(short_regime_caps, dict) else {}
+    gate = short_month_gate if isinstance(short_month_gate, dict) else {}
+    gate_enabled = bool(gate.get("enabled", False))
+    allowed_regimes = {str(x).strip() for x in (gate.get("allowed_regimes", []) or []) if str(x).strip()}
+    pred_return_max_raw = gate.get("pred_return_max")
+    prob_min_raw = gate.get("prob_min")
+    risk_max_raw = gate.get("risk_max")
+    pred_return_max = float(pred_return_max_raw) if pred_return_max_raw is not None else None
+    prob_min = float(prob_min_raw) if prob_min_raw is not None else None
+    risk_max = float(risk_max_raw) if risk_max_raw is not None else None
+
+    rows: list[pd.DataFrame] = []
+    for asof, grp in src.groupby("asof_date", as_index=False, sort=True):
+        k = int(top_k)
+        regime_mode = ""
+        mt_key = ""
+        if "regime_key" in grp.columns and not grp["regime_key"].dropna().empty:
+            regime_mode = str(grp["regime_key"].dropna().astype(str).mode().iloc[0])
+            mt_key = regime_mode.split("_", 1)[0] if "_" in regime_mode else regime_mode
+            cap = caps.get(regime_mode)
+            if cap is None:
+                cap = caps.get(mt_key)
+            if cap is None:
+                cap = caps.get("*")
+            if cap is not None:
+                k = max(0, min(int(top_k), int(cap)))
+        if k <= 0:
+            continue
+
+        month_pick = grp.head(k).copy()
+        if gate_enabled:
+            if allowed_regimes:
+                matched = (
+                    regime_mode in allowed_regimes
+                    or mt_key in allowed_regimes
+                    or "*" in allowed_regimes
+                )
+                if not matched:
+                    continue
+            if pred_return_max is not None and "pred_return" in month_pick.columns:
+                mean_pred_return = float(pd.to_numeric(month_pick["pred_return"], errors="coerce").mean())
+                if np.isfinite(mean_pred_return) and mean_pred_return > float(pred_return_max):
+                    continue
+            if prob_min is not None and "pred_prob_tp" in month_pick.columns:
+                mean_prob = float(pd.to_numeric(month_pick["pred_prob_tp"], errors="coerce").mean())
+                if np.isfinite(mean_prob) and mean_prob < float(prob_min):
+                    continue
+            if risk_max is not None and "risk_dn" in month_pick.columns:
+                mean_risk = float(pd.to_numeric(month_pick["risk_dn"], errors="coerce").mean())
+                if np.isfinite(mean_risk) and mean_risk > float(risk_max):
+                    continue
+        rows.append(month_pick)
+    if not rows:
+        return src.iloc[0:0].copy().reset_index(drop=True)
+    ranked = pd.concat(rows, ignore_index=True).reset_index(drop=True)
     return ranked
+
+
+def _max_drawdown_returns(returns: pd.Series) -> float:
+    vals = pd.to_numeric(returns, errors="coerce").dropna()
+    if vals.empty:
+        return 0.0
+    equity = (1.0 + vals).cumprod()
+    peak = equity.cummax()
+    dd = equity / peak - 1.0
+    return float(max(0.0, -float(dd.min())))
+
+
+def _regime_key(frame: pd.DataFrame) -> pd.Series:
+    mt = pd.to_numeric(frame.get("market_trend_state", 1.0), errors="coerce").fillna(1.0).clip(0, 2).round().astype(int)
+    vr = pd.to_numeric(frame.get("vol_regime", 1.0), errors="coerce").fillna(1.0).clip(0, 2).round().astype(int)
+    return "mt" + mt.astype(str) + "_vr" + vr.astype(str)
+
+
+def _score_objective(
+    frame: pd.DataFrame,
+    top_k: int,
+    side: str,
+    short_regime_caps: dict[str, int] | None = None,
+    short_month_gate: dict[str, Any] | None = None,
+) -> float:
+    if frame.empty or "realized_return" not in frame.columns:
+        return float("-inf")
+    ranked = _topk_by_month(
+        frame,
+        top_k=top_k,
+        side=side,
+        short_regime_caps=short_regime_caps,
+        short_month_gate=short_month_gate,
+    )
+    if ranked.empty:
+        return float("-inf")
+    monthly = (
+        ranked.groupby("asof_date", as_index=False)["realized_return"]
+        .mean()
+        .rename(columns={"realized_return": "ret"})
+    )
+    ret = pd.to_numeric(monthly["ret"], errors="coerce").dropna()
+    if ret.empty:
+        return float("-inf")
+    ret_series = pd.Series(ret.to_numpy(dtype=float))
+    mean_ret = float(ret.mean())
+    vol = float(ret.std(ddof=0))
+    win_rate = float((ret > 0.0).mean())
+    if side == "short":
+        # Short-side objective emphasizes downside control to avoid a few large losses
+        # dominating expected value even when monthly win-rate looks acceptable.
+        p25 = float(np.quantile(ret_series.to_numpy(dtype=float), 0.25))
+        mdd = _max_drawdown_returns(ret_series)
+        downside_penalty = max(0.0, -p25)
+        return float(
+            mean_ret
+            - 0.30 * vol
+            - 0.45 * downside_penalty
+            - 0.20 * mdd
+            + 0.003 * win_rate
+        )
+    return float(mean_ret - 0.20 * vol + 0.001 * win_rate)
+
+
+def _normalize_short_month_gate(raw: dict[str, Any] | None) -> dict[str, Any]:
+    gate_raw = raw if isinstance(raw, dict) else {}
+    allowed = []
+    for item in (gate_raw.get("allowed_regimes", []) or []):
+        key = str(item).strip()
+        if key:
+            allowed.append(key)
+    pred_return_max_raw = gate_raw.get("pred_return_max")
+    prob_min_raw = gate_raw.get("prob_min")
+    risk_max_raw = gate_raw.get("risk_max")
+    return {
+        "enabled": bool(gate_raw.get("enabled", False)),
+        "allowed_regimes": sorted(set(allowed)),
+        "pred_return_max": float(pred_return_max_raw) if pred_return_max_raw is not None else None,
+        "prob_min": float(prob_min_raw) if prob_min_raw is not None else None,
+        "risk_max": float(risk_max_raw) if risk_max_raw is not None else None,
+    }
+
+
+def _learn_short_month_gate(
+    valid_frame: pd.DataFrame,
+    config: ResearchConfig,
+    top_k: int,
+    short_regime_caps: dict[str, int] | None,
+    base_gate: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    src = valid_frame.copy()
+    src = src.dropna(subset=["realized_return"]).copy()
+    if src.empty:
+        gate = _normalize_short_month_gate(base_gate)
+        return gate, {"enabled": False, "auto": True, "reason": "empty_valid"}
+    if "regime_key" not in src.columns:
+        src["regime_key"] = _regime_key(src)
+
+    base = _normalize_short_month_gate(base_gate)
+    min_improve = max(0.0, float(getattr(config.model, "short_month_gate_auto_min_improvement", 0.0002)))
+    min_months = max(1, int(getattr(config.model, "short_month_gate_auto_min_months", 6)))
+    max_regimes = max(1, int(getattr(config.model, "short_month_gate_auto_max_regimes", 4)))
+    months_sorted = sorted(src["asof_date"].astype(str).dropna().unique().tolist())
+    holdout_n = max(2, min(12, max(2, len(months_sorted) // 4)))
+    holdout_months = set(months_sorted[-holdout_n:]) if len(months_sorted) > holdout_n else set(months_sorted)
+    fit_months = set(months_sorted) - holdout_months
+    if not fit_months:
+        fit_months = set(months_sorted)
+
+    keys_all = [str(k).strip() for k in src["regime_key"].dropna().astype(str).unique().tolist() if str(k).strip()]
+    key_counts = src["regime_key"].astype(str).value_counts(dropna=False).to_dict()
+    keys = [k for k in sorted(keys_all) if int(key_counts.get(k, 0)) >= 20]
+    if not keys:
+        return base, {"enabled": bool(base.get("enabled", False)), "auto": True, "reason": "no_regimes"}
+
+    allowed_sets: list[list[str]] = []
+    max_r = min(max_regimes, len(keys))
+    for r in range(1, max_r + 1):
+        for combo in itertools.combinations(keys, r):
+            allowed_sets.append(list(combo))
+    if base.get("allowed_regimes"):
+        allowed_sets.append(list(base.get("allowed_regimes", [])))
+    allowed_sets.append(keys)
+
+    def _uniq_num(vals: list[float]) -> list[float]:
+        return sorted(set([round(float(v), 6) for v in vals]))
+
+    ret_vals = _uniq_num(
+        [
+            -0.012,
+            -0.010,
+            -0.008,
+            -0.006,
+            float(base["pred_return_max"]) if base.get("pred_return_max") is not None else -0.006,
+        ]
+    )
+    prob_vals = _uniq_num(
+        [
+            0.20,
+            0.22,
+            0.23,
+            0.24,
+            float(base["prob_min"]) if base.get("prob_min") is not None else 0.22,
+        ]
+    )
+    risk_vals = _uniq_num(
+        [
+            0.050,
+            0.055,
+            float(base["risk_max"]) if base.get("risk_max") is not None else 0.055,
+        ]
+    )
+
+    def _gate_month_count(frame: pd.DataFrame, gate: dict[str, Any]) -> int:
+        ranked = _topk_by_month(
+            frame,
+            top_k=top_k,
+            side="short",
+            short_regime_caps=short_regime_caps,
+            short_month_gate=gate,
+        )
+        if ranked.empty:
+            return 0
+        return int(ranked["asof_date"].astype(str).nunique())
+
+    def _robust_obj(gate: dict[str, Any]) -> tuple[float, float, float, int, int]:
+        fit = src[src["asof_date"].astype(str).isin(fit_months)]
+        hold = src[src["asof_date"].astype(str).isin(holdout_months)]
+        fit_obj = _score_objective(
+            fit,
+            top_k=top_k,
+            side="short",
+            short_regime_caps=short_regime_caps,
+            short_month_gate=gate,
+        )
+        hold_obj = _score_objective(
+            hold,
+            top_k=top_k,
+            side="short",
+            short_regime_caps=short_regime_caps,
+            short_month_gate=gate,
+        )
+        robust = float(0.65 * fit_obj + 0.35 * hold_obj)
+        fit_n = _gate_month_count(fit, gate)
+        hold_n = _gate_month_count(hold, gate)
+        return robust, float(fit_obj), float(hold_obj), int(fit_n), int(hold_n)
+
+    baseline_gate = dict(base)
+    baseline_gate["enabled"] = bool(base.get("enabled", False))
+    base_obj, base_fit_obj, base_hold_obj, base_fit_n, base_hold_n = _robust_obj(baseline_gate)
+    best_gate = dict(baseline_gate)
+    best_obj = float(base_obj)
+    best_fit_obj = float(base_fit_obj)
+    best_hold_obj = float(base_hold_obj)
+    best_fit_n = int(base_fit_n)
+    best_hold_n = int(base_hold_n)
+    tried = 0
+    accepted = 0
+
+    need_hold = max(1, min_months // 3)
+    for allowed in allowed_sets:
+        allowed_norm = sorted(set([str(x).strip() for x in allowed if str(x).strip()]))
+        if not allowed_norm:
+            continue
+        for ret_max in ret_vals:
+            for prob_min in prob_vals:
+                for risk_max in risk_vals:
+                    tried += 1
+                    trial = {
+                        "enabled": True,
+                        "allowed_regimes": allowed_norm,
+                        "pred_return_max": float(ret_max),
+                        "prob_min": float(prob_min),
+                        "risk_max": float(risk_max),
+                    }
+                    obj, fit_obj, hold_obj, fit_n, hold_n = _robust_obj(trial)
+                    if fit_n < min_months or hold_n < need_hold:
+                        continue
+                    if obj < best_obj + min_improve:
+                        continue
+                    if hold_obj < best_hold_obj - max(0.00025, min_improve * 0.5):
+                        continue
+                    best_gate = dict(trial)
+                    best_obj = float(obj)
+                    best_fit_obj = float(fit_obj)
+                    best_hold_obj = float(hold_obj)
+                    best_fit_n = int(fit_n)
+                    best_hold_n = int(hold_n)
+                    accepted += 1
+
+    summary = {
+        "enabled": bool(best_gate.get("enabled", False)),
+        "auto": True,
+        "baseline_objective": float(base_obj),
+        "baseline_objective_fit": float(base_fit_obj),
+        "baseline_objective_holdout": float(base_hold_obj),
+        "baseline_fit_months": int(base_fit_n),
+        "baseline_holdout_months": int(base_hold_n),
+        "final_objective": float(best_obj),
+        "final_objective_fit": float(best_fit_obj),
+        "final_objective_holdout": float(best_hold_obj),
+        "final_fit_months": int(best_fit_n),
+        "final_holdout_months": int(best_hold_n),
+        "objective_gain": float(best_obj - base_obj),
+        "tried": int(tried),
+        "accepted_updates": int(accepted),
+        "holdout_months": sorted(list(holdout_months)),
+        "selected_gate": best_gate,
+    }
+    return best_gate, summary
+
+
+def _profile_grid(side: str, default_profile: dict[str, float]) -> list[dict[str, float]]:
+    rb0 = float(default_profile["score_return_base"])
+    pw0 = float(default_profile["score_prob_weight"])
+    pa0 = float(default_profile.get("score_prob_alpha", 0.0))
+    rs0 = float(default_profile["score_risk_scale"])
+    oh0 = float(default_profile.get("overheat_penalty_scale", 1.0))
+    mb0 = float(default_profile.get("short_mt_bear_bonus", 0.0))
+    mu0 = float(default_profile.get("short_mt_bull_penalty", 0.0))
+    v10 = float(default_profile.get("short_vr1_penalty", 0.0))
+    v20 = float(default_profile.get("short_vr2_bonus", 0.0))
+
+    def _uniq(vals: list[float]) -> list[float]:
+        return sorted(set([round(float(v), 6) for v in vals]))
+
+    if side == "long":
+        rb_vals = _uniq([max(0.20, rb0 - 0.15), rb0, rb0 + 0.15])
+        pw_vals = _uniq([max(0.00, pw0 - 0.10), pw0, pw0 + 0.10])
+        pa_vals = [0.0]
+        rs_vals = _uniq([max(0.30, rs0 * 0.75), rs0, rs0 * 1.25, rs0 * 1.50])
+        oh_vals = _uniq([max(0.30, oh0 * 0.75), oh0, oh0 * 1.25, oh0 * 1.50])
+        mu_vals = [0.0]
+        v1_vals = [0.0]
+    else:
+        rb_vals = _uniq([max(0.20, rb0 - 0.10), rb0, rb0 + 0.10])
+        pw_vals = _uniq([max(0.00, pw0 - 0.10), pw0, pw0 + 0.10])
+        pa_vals = _uniq([pa0 - 0.010, pa0, pa0 + 0.010])
+        rs_vals = _uniq([max(0.50, rs0 * 0.75), rs0, rs0 * 1.25, rs0 * 1.50])
+        oh_vals = [0.0]
+        mu_vals = _uniq([max(0.0, mu0 * 0.50), mu0, mu0 * 1.50]) if mu0 > 0 else [0.0]
+        v1_vals = _uniq([max(0.0, v10 * 0.50), v10, v10 * 1.50]) if v10 > 0 else [0.0]
+
+    out: list[dict[str, float]] = []
+    for rb in rb_vals:
+        for pw in pw_vals:
+            for pa in pa_vals:
+                for rs in rs_vals:
+                    for oh in oh_vals:
+                        for mu in mu_vals:
+                            for v1 in v1_vals:
+                                out.append(
+                                    {
+                                        "score_return_base": float(rb),
+                                        "score_prob_weight": float(pw),
+                                        "score_prob_alpha": float(pa),
+                                        "score_risk_scale": float(rs),
+                                        "overheat_penalty_scale": float(oh),
+                                        "short_mt_bear_bonus": float(mb0),
+                                        "short_mt_bull_penalty": float(mu),
+                                        "short_vr1_penalty": float(v1),
+                                        "short_vr2_bonus": float(v20),
+                                    }
+                                )
+    return out
+
+
+def _apply_strategy_score(
+    frame: pd.DataFrame,
+    side: str,
+    risk_penalty: float,
+    default_profile: dict[str, float],
+    strategy_profiles: dict[str, dict[str, float]] | None = None,
+) -> pd.DataFrame:
+    if frame.empty:
+        out = frame.copy()
+        out["regime_key"] = pd.Series(dtype=str)
+        out["strategy_profile"] = pd.Series(dtype=str)
+        out["score"] = pd.Series(dtype=float)
+        return out
+
+    tmp = frame.copy()
+    tmp["regime_key"] = _regime_key(tmp)
+    profiles = strategy_profiles or {}
+
+    ret_base = pd.Series(float(default_profile["score_return_base"]), index=tmp.index, dtype=float)
+    prob_w = pd.Series(float(default_profile["score_prob_weight"]), index=tmp.index, dtype=float)
+    risk_scale = pd.Series(float(default_profile["score_risk_scale"]), index=tmp.index, dtype=float)
+    overheat_scale = pd.Series(float(default_profile.get("overheat_penalty_scale", 1.0)), index=tmp.index, dtype=float)
+    prob_alpha = pd.Series(float(default_profile.get("score_prob_alpha", 0.0)), index=tmp.index, dtype=float)
+    short_mt_bear_bonus = pd.Series(float(default_profile.get("short_mt_bear_bonus", 0.0)), index=tmp.index, dtype=float)
+    short_mt_bull_penalty = pd.Series(float(default_profile.get("short_mt_bull_penalty", 0.0)), index=tmp.index, dtype=float)
+    short_vr1_penalty = pd.Series(float(default_profile.get("short_vr1_penalty", 0.0)), index=tmp.index, dtype=float)
+    short_vr2_bonus = pd.Series(float(default_profile.get("short_vr2_bonus", 0.0)), index=tmp.index, dtype=float)
+
+    for key, prof in profiles.items():
+        m = tmp["regime_key"] == str(key)
+        if not bool(m.any()):
+            continue
+        ret_base.loc[m] = float(prof.get("score_return_base", ret_base.loc[m].iloc[0]))
+        prob_w.loc[m] = float(prof.get("score_prob_weight", prob_w.loc[m].iloc[0]))
+        prob_alpha.loc[m] = float(prof.get("score_prob_alpha", prob_alpha.loc[m].iloc[0]))
+        risk_scale.loc[m] = float(prof.get("score_risk_scale", risk_scale.loc[m].iloc[0]))
+        overheat_scale.loc[m] = float(prof.get("overheat_penalty_scale", overheat_scale.loc[m].iloc[0]))
+        short_mt_bear_bonus.loc[m] = float(prof.get("short_mt_bear_bonus", short_mt_bear_bonus.loc[m].iloc[0]))
+        short_mt_bull_penalty.loc[m] = float(prof.get("short_mt_bull_penalty", short_mt_bull_penalty.loc[m].iloc[0]))
+        short_vr1_penalty.loc[m] = float(prof.get("short_vr1_penalty", short_vr1_penalty.loc[m].iloc[0]))
+        short_vr2_bonus.loc[m] = float(prof.get("short_vr2_bonus", short_vr2_bonus.loc[m].iloc[0]))
+
+    if side == "long":
+        ma_bonus = 0.01 * pd.to_numeric(
+            tmp.get("ma_align_bull", pd.Series(0.0, index=tmp.index)), errors="coerce"
+        ).fillna(0.0)
+        rsi_bonus = 0.005 * pd.to_numeric(
+            tmp.get("rsi_oversold", pd.Series(0.0, index=tmp.index)), errors="coerce"
+        ).fillna(0.0)
+    else:
+        ma_bonus = 0.01 * pd.to_numeric(
+            tmp.get("ma_align_bear", pd.Series(0.0, index=tmp.index)), errors="coerce"
+        ).fillna(0.0)
+        rsi_bonus = 0.005 * pd.to_numeric(
+            tmp.get("rsi_overbought", pd.Series(0.0, index=tmp.index)), errors="coerce"
+        ).fillna(0.0)
+
+    vol_ratio_col = pd.to_numeric(
+        tmp.get("vol_ratio20", pd.Series(0.0, index=tmp.index)), errors="coerce"
+    ).fillna(0.0)
+    vol_bonus = 0.005 * (vol_ratio_col > 2.0).astype(float)
+
+    overheated = pd.to_numeric(
+        tmp.get("overheated25", pd.Series(0.0, index=tmp.index)), errors="coerce"
+    ).fillna(0.0)
+    if side == "long":
+        overheat_penalty = 0.015 * overheat_scale * overheated
+        short_regime_term = pd.Series(0.0, index=tmp.index, dtype=float)
+    else:
+        overheat_penalty = pd.Series(0.0, index=tmp.index, dtype=float)
+        mt_raw = pd.to_numeric(tmp.get("market_trend_state", np.nan), errors="coerce")
+        vr_raw = pd.to_numeric(tmp.get("vol_regime", np.nan), errors="coerce")
+        if mt_raw.isna().any() or vr_raw.isna().any():
+            rk = tmp["regime_key"].astype(str)
+            mt_from_key = pd.to_numeric(rk.str.extract(r"mt(\d+)")[0], errors="coerce")
+            vr_from_key = pd.to_numeric(rk.str.extract(r"vr(\d+)")[0], errors="coerce")
+            mt_raw = mt_raw.fillna(mt_from_key)
+            vr_raw = vr_raw.fillna(vr_from_key)
+        mt = mt_raw.fillna(1.0).clip(0.0, 2.0)
+        vr = vr_raw.fillna(1.0).clip(0.0, 2.0)
+        mt_bear = (mt <= 0.5).astype(float)
+        mt_bull = (mt >= 1.5).astype(float)
+        vr1 = ((vr >= 0.5) & (vr < 1.5)).astype(float)
+        vr2 = (vr >= 1.5).astype(float)
+        short_regime_term = (
+            short_mt_bear_bonus * mt_bear
+            - short_mt_bull_penalty * mt_bull
+            - short_vr1_penalty * vr1
+            + short_vr2_bonus * vr2
+        )
+
+    tmp["score"] = (
+        pd.to_numeric(tmp["pred_return"], errors="coerce").fillna(0.0) * (ret_base + prob_w * pd.to_numeric(tmp["pred_prob_tp"], errors="coerce").fillna(0.0))
+        + prob_alpha * pd.to_numeric(tmp["pred_prob_tp"], errors="coerce").fillna(0.0)
+        - float(risk_penalty) * risk_scale * pd.to_numeric(tmp["risk_dn"], errors="coerce").fillna(0.0)
+        + ma_bonus
+        + vol_bonus
+        + rsi_bonus
+        + short_regime_term
+        - overheat_penalty
+    )
+    tmp["strategy_profile"] = np.where(tmp["regime_key"].isin(list(profiles.keys())), "regime", "default")
+    return tmp
+
+
+def _learn_regime_profiles(
+    valid_frame: pd.DataFrame,
+    side: str,
+    config: ResearchConfig,
+    default_profile: dict[str, float],
+) -> tuple[dict[str, dict[str, float]], dict[str, Any]]:
+    src = valid_frame.copy()
+    src = src.dropna(subset=["realized_return"]).copy()
+    if src.empty:
+        return {}, {"enabled": False, "reason": "empty_valid"}
+    if "regime_key" not in src.columns:
+        src["regime_key"] = _regime_key(src)
+
+    min_rows = max(20, int(getattr(config.model, "regime_min_rows", 120)))
+    min_months = max(2, int(getattr(config.model, "regime_min_months", 4)))
+    min_improve = max(0.0, float(getattr(config.model, "regime_min_improvement", 0.0005)))
+    top_k = max(1, int(config.model.top_k))
+    months_sorted = sorted(src["asof_date"].astype(str).dropna().unique().tolist())
+    holdout_n = max(2, min(4, max(2, len(months_sorted) // 3)))
+    holdout_months = set(months_sorted[-holdout_n:]) if len(months_sorted) > holdout_n else set(months_sorted)
+    fit_months = set(months_sorted) - holdout_months
+    if not fit_months:
+        fit_months = set(months_sorted)
+
+    def _robust_objective(scored_frame: pd.DataFrame) -> tuple[float, float, float]:
+        fit = scored_frame[scored_frame["asof_date"].astype(str).isin(fit_months)]
+        hold = scored_frame[scored_frame["asof_date"].astype(str).isin(holdout_months)]
+        fit_obj = _score_objective(fit, top_k=top_k, side=side)
+        hold_obj = _score_objective(hold, top_k=top_k, side=side)
+        robust = float(0.65 * fit_obj + 0.35 * hold_obj)
+        return robust, float(fit_obj), float(hold_obj)
+
+    base_scored = _apply_strategy_score(
+        src,
+        side=side,
+        risk_penalty=float(config.model.risk_penalty),
+        default_profile=default_profile,
+        strategy_profiles={},
+    )
+    current_obj, current_fit_obj, current_hold_obj = _robust_objective(base_scored)
+    accepted_profiles: dict[str, dict[str, float]] = {}
+    accepted_meta: list[dict[str, Any]] = []
+
+    counts = src["regime_key"].value_counts(dropna=False)
+    keys = [str(k) for k in counts.index.tolist()]
+    grid = _profile_grid(side=side, default_profile=default_profile)
+
+    for key in keys:
+        sub = src[src["regime_key"] == key]
+        if len(sub) < min_rows:
+            continue
+        month_count = int(sub["asof_date"].nunique())
+        if month_count < min_months:
+            continue
+
+        best_obj = current_obj
+        best_profile: dict[str, float] | None = None
+        best_fit_obj = current_fit_obj
+        best_hold_obj = current_hold_obj
+        for profile in grid:
+            trial_profiles = dict(accepted_profiles)
+            trial_profiles[key] = dict(profile)
+            trial_scored = _apply_strategy_score(
+                src,
+                side=side,
+                risk_penalty=float(config.model.risk_penalty),
+                default_profile=default_profile,
+                strategy_profiles=trial_profiles,
+            )
+            obj, fit_obj, hold_obj = _robust_objective(trial_scored)
+            if obj > best_obj:
+                best_obj = obj
+                best_fit_obj = fit_obj
+                best_hold_obj = hold_obj
+                best_profile = dict(profile)
+
+        # Guard against profile overfit: holdout objective must not degrade.
+        if (
+            best_profile is not None
+            and best_obj >= current_obj + min_improve
+            and best_hold_obj >= current_hold_obj - max(0.00025, min_improve * 0.5)
+        ):
+            accepted_profiles[key] = best_profile
+            accepted_meta.append(
+                {
+                    "regime_key": key,
+                    "rows": int(len(sub)),
+                    "months": month_count,
+                    "objective_after": float(best_obj),
+                    "objective_gain": float(best_obj - current_obj),
+                    "fit_objective_after": float(best_fit_obj),
+                    "holdout_objective_after": float(best_hold_obj),
+                }
+            )
+            current_obj = float(best_obj)
+            current_fit_obj = float(best_fit_obj)
+            current_hold_obj = float(best_hold_obj)
+
+    summary = {
+        "enabled": True,
+        "baseline_objective": float(_score_objective(base_scored, top_k=top_k, side=side)),
+        "baseline_objective_fit": float(
+            _score_objective(
+                base_scored[base_scored["asof_date"].astype(str).isin(fit_months)],
+                top_k=top_k,
+                side=side,
+            )
+        ),
+        "baseline_objective_holdout": float(
+            _score_objective(
+                base_scored[base_scored["asof_date"].astype(str).isin(holdout_months)],
+                top_k=top_k,
+                side=side,
+            )
+        ),
+        "final_objective": float(current_obj),
+        "final_objective_fit": float(current_fit_obj),
+        "final_objective_holdout": float(current_hold_obj),
+        "holdout_months": sorted(list(holdout_months)),
+        "accepted_profiles": int(len(accepted_profiles)),
+        "accepted_meta": accepted_meta,
+    }
+    return accepted_profiles, summary
 
 
 def _train_side(
@@ -595,20 +1195,70 @@ def _train_side(
         for col, c in zip(list(FEATURE_COLUMNS), coef.tolist()):
             feature_importance[col] = abs(float(c))
 
-    # Side-specific score mix tuned on prod_v3_final candidate rankings
-    # while preserving technical bonus residuals.
+    # Side-specific base score mix. Regime strategies are learned on top of this baseline.
     if side == "long":
         score_return_base = 0.70
         score_prob_weight = 0.30
+        score_prob_alpha = 0.0
         score_risk_scale = 0.75
+        overheat_penalty_scale = 1.0
+        short_mt_bear_bonus = 0.0
+        short_mt_bull_penalty = 0.0
+        short_vr1_penalty = 0.0
+        short_vr2_bonus = 0.0
     else:
-        score_return_base = 0.55
-        score_prob_weight = 0.20
-        score_risk_scale = 1.50
+        score_return_base = float(getattr(config.model, "short_score_return_base", 0.45))
+        score_prob_weight = float(getattr(config.model, "short_score_prob_weight", 0.20))
+        score_prob_alpha = float(getattr(config.model, "short_score_prob_alpha", 0.01))
+        score_risk_scale = float(getattr(config.model, "short_score_risk_scale", 1.20))
+        overheat_penalty_scale = 0.0
+        short_mt_bear_bonus = float(getattr(config.model, "short_mt_bear_bonus", 0.0030))
+        short_mt_bull_penalty = float(getattr(config.model, "short_mt_bull_penalty", 0.0060))
+        short_vr1_penalty = float(getattr(config.model, "short_vr1_penalty", 0.0040))
+        short_vr2_bonus = float(getattr(config.model, "short_vr2_bonus", 0.0010))
 
-    def _predict_phase(frame: pd.DataFrame, phase: str) -> pd.DataFrame:
+    base_profile = {
+        "score_return_base": float(score_return_base),
+        "score_prob_weight": float(score_prob_weight),
+        "score_prob_alpha": float(score_prob_alpha),
+        "score_risk_scale": float(score_risk_scale),
+        "overheat_penalty_scale": float(overheat_penalty_scale),
+        "short_mt_bear_bonus": float(short_mt_bear_bonus),
+        "short_mt_bull_penalty": float(short_mt_bull_penalty),
+        "short_vr1_penalty": float(short_vr1_penalty),
+        "short_vr2_bonus": float(short_vr2_bonus),
+    }
+    regime_strategy_enabled = bool(getattr(config.model, "regime_strategy_enabled", True))
+    if side == "long":
+        regime_strategy_enabled = regime_strategy_enabled and bool(
+            getattr(config.model, "regime_strategy_long_enabled", True)
+        )
+    else:
+        regime_strategy_enabled = regime_strategy_enabled and bool(
+            getattr(config.model, "regime_strategy_short_enabled", True)
+        )
+
+    def _predict_phase(
+        frame: pd.DataFrame,
+        phase: str,
+        strategy_profiles: dict[str, dict[str, float]] | None = None,
+        keep_aux: bool = False,
+    ) -> pd.DataFrame:
         if frame.empty:
-            return pd.DataFrame(columns=["asof_date", "code", "side", "phase", "score", "pred_return", "pred_prob_tp", "risk_dn"])
+            return pd.DataFrame(
+                columns=[
+                    "asof_date",
+                    "code",
+                    "side",
+                    "phase",
+                    "score",
+                    "pred_return",
+                    "pred_prob_tp",
+                    "risk_dn",
+                    "regime_key",
+                    "strategy_profile",
+                ]
+            )
         tmp = frame.copy()
         tmp["candidate_seed"] = _candidate_seed(tmp, side)
         tmp = (
@@ -636,28 +1286,12 @@ def _train_side(
         tmp["pred_return"] = pred_return.astype(float)
         tmp["pred_prob_tp"] = pred_prob.astype(float)
         tmp["risk_dn"] = tmp["code"].map(risk_by_code).fillna(global_risk).astype(float)
-
-        # ---- Technical Bonuses/Penalties ----
-        if side == "long":
-            ma_bonus = 0.01 * tmp.get("ma_align_bull", pd.Series(0.0, index=tmp.index)).fillna(0.0)
-            rsi_bonus = 0.005 * tmp.get("rsi_oversold", pd.Series(0.0, index=tmp.index)).fillna(0.0)
-        else:
-            ma_bonus = 0.01 * tmp.get("ma_align_bear", pd.Series(0.0, index=tmp.index)).fillna(0.0)
-            rsi_bonus = 0.005 * tmp.get("rsi_overbought", pd.Series(0.0, index=tmp.index)).fillna(0.0)
-
-        vol_ratio_col = tmp.get("vol_ratio20", pd.Series(0.0, index=tmp.index)).fillna(0.0)
-        vol_bonus = 0.005 * (vol_ratio_col > 2.0).astype(float)
-
-        overheated = tmp.get("overheated25", pd.Series(0.0, index=tmp.index)).fillna(0.0)
-        overheat_penalty = (0.015 * overheated if side == "long" else pd.Series(0.0, index=tmp.index))
-
-        tmp["score"] = (
-            tmp["pred_return"] * (score_return_base + score_prob_weight * tmp["pred_prob_tp"])
-            - float(config.model.risk_penalty) * score_risk_scale * tmp["risk_dn"]
-            + ma_bonus
-            + vol_bonus
-            + rsi_bonus
-            - overheat_penalty
+        tmp = _apply_strategy_score(
+            tmp,
+            side=side,
+            risk_penalty=float(config.model.risk_penalty),
+            default_profile=base_profile,
+            strategy_profiles=strategy_profiles,
         )
 
         # ---- 信頼度スコアフィルタ ----
@@ -675,6 +1309,8 @@ def _train_side(
 
         tmp["side"] = side
         tmp["phase"] = phase
+        if keep_aux:
+            return tmp.copy()
         keep = [
             "asof_date",
             "code",
@@ -684,6 +1320,8 @@ def _train_side(
             "pred_return",
             "pred_prob_tp",
             "risk_dn",
+            "regime_key",
+            "strategy_profile",
             "realized_return",
             "tp_hit",
             "mae",
@@ -694,12 +1332,100 @@ def _train_side(
                 tmp[col] = np.nan
         return tmp[keep].copy()
 
-    valid_pred = _predict_phase(valid_df.copy(), phase="valid")
-    test_pred = _predict_phase(side_df[side_df["asof_date"].isin(test_months)].copy(), phase="test")
-    infer_pred = _predict_phase(inference_features.copy(), phase="inference")
+    strategy_profiles: dict[str, dict[str, float]] = {}
+    strategy_summary: dict[str, Any] = {"enabled": False, "reason": "disabled"}
+    short_regime_caps = getattr(config.model, "short_regime_topk_caps", {})
+    short_month_gate = _normalize_short_month_gate(
+        {
+            "enabled": bool(getattr(config.model, "short_month_gate_enabled", False)),
+            "allowed_regimes": list(getattr(config.model, "short_month_gate_allowed_regimes", []) or []),
+            "pred_return_max": getattr(config.model, "short_month_gate_pred_return_max", None),
+            "prob_min": getattr(config.model, "short_month_gate_prob_min", None),
+            "risk_max": getattr(config.model, "short_month_gate_risk_max", None),
+        }
+    )
+    short_month_gate_summary: dict[str, Any] = {
+        "enabled": bool(short_month_gate.get("enabled", False)),
+        "auto": False,
+        "selected_gate": dict(short_month_gate),
+    }
+    valid_probe_for_gate: pd.DataFrame | None = None
+    if regime_strategy_enabled:
+        valid_probe = _predict_phase(valid_df.copy(), phase="valid", strategy_profiles=None, keep_aux=True)
+        valid_probe_for_gate = valid_probe.copy()
+        strategy_profiles, strategy_summary = _learn_regime_profiles(
+            valid_probe,
+            side=side,
+            config=config,
+            default_profile=base_profile,
+        )
+        if strategy_profiles:
+            print(f"  [regime_strategy] side={side}, learned_profiles={len(strategy_profiles)}")
+    if side == "short" and bool(short_month_gate.get("enabled", False)):
+        if bool(getattr(config.model, "short_month_gate_auto", False)):
+            train_probe_for_gate = _predict_phase(
+                train_df.copy(),
+                phase="train_gate",
+                strategy_profiles=strategy_profiles,
+                keep_aux=True,
+            )
+            if valid_probe_for_gate is None:
+                valid_probe_for_gate = _predict_phase(
+                    valid_df.copy(),
+                    phase="valid",
+                    strategy_profiles=strategy_profiles,
+                    keep_aux=True,
+                )
+            gate_learn_frame = pd.concat(
+                [train_probe_for_gate, valid_probe_for_gate],
+                ignore_index=True,
+            )
+            short_month_gate, short_month_gate_summary = _learn_short_month_gate(
+                valid_frame=gate_learn_frame,
+                config=config,
+                top_k=int(config.model.top_k),
+                short_regime_caps=short_regime_caps,
+                base_gate=short_month_gate,
+            )
+            short_month_gate_summary["learn_rows"] = int(len(gate_learn_frame))
+            short_month_gate_summary["learn_months"] = int(
+                gate_learn_frame["asof_date"].astype(str).nunique()
+            )
+            print(
+                "  [short_month_gate] auto-selected "
+                f"enabled={bool(short_month_gate.get('enabled', False))}, "
+                f"regimes={len(short_month_gate.get('allowed_regimes', []))}, "
+                f"ret_max={short_month_gate.get('pred_return_max')}, "
+                f"prob_min={short_month_gate.get('prob_min')}, "
+                f"risk_max={short_month_gate.get('risk_max')}"
+            )
+        else:
+            short_month_gate_summary = {
+                "enabled": True,
+                "auto": False,
+                "selected_gate": dict(short_month_gate),
+            }
+
+    valid_pred = _predict_phase(valid_df.copy(), phase="valid", strategy_profiles=strategy_profiles)
+    test_pred = _predict_phase(
+        side_df[side_df["asof_date"].isin(test_months)].copy(),
+        phase="test",
+        strategy_profiles=strategy_profiles,
+    )
+    infer_pred = _predict_phase(
+        inference_features.copy(),
+        phase="inference",
+        strategy_profiles=strategy_profiles,
+    )
 
     rankings = pd.concat([valid_pred, test_pred, infer_pred], ignore_index=True)
-    top20 = _topk_by_month(rankings, top_k=config.model.top_k)
+    top20 = _topk_by_month(
+        rankings,
+        top_k=config.model.top_k,
+        side=side,
+        short_regime_caps=short_regime_caps,
+        short_month_gate=short_month_gate,
+    )
 
     model = {
         "side": side,
@@ -717,7 +1443,30 @@ def _train_side(
         "global_risk": float(global_risk),
         "score_return_base": float(score_return_base),
         "score_prob_weight": float(score_prob_weight),
+        "score_prob_alpha": float(score_prob_alpha),
         "score_risk_scale": float(score_risk_scale),
+        "overheat_penalty_scale": float(overheat_penalty_scale),
+        "short_mt_bear_bonus": float(short_mt_bear_bonus),
+        "short_mt_bull_penalty": float(short_mt_bull_penalty),
+        "short_vr1_penalty": float(short_vr1_penalty),
+        "short_vr2_bonus": float(short_vr2_bonus),
+        "short_regime_topk_caps": short_regime_caps,
+        "short_month_gate_enabled": bool(getattr(config.model, "short_month_gate_enabled", False)),
+        "short_month_gate_allowed_regimes": list(getattr(config.model, "short_month_gate_allowed_regimes", []) or []),
+        "short_month_gate_pred_return_max": getattr(config.model, "short_month_gate_pred_return_max", None),
+        "short_month_gate_prob_min": getattr(config.model, "short_month_gate_prob_min", None),
+        "short_month_gate_risk_max": getattr(config.model, "short_month_gate_risk_max", None),
+        "short_month_gate_auto": bool(getattr(config.model, "short_month_gate_auto", False)),
+        "short_month_gate_auto_max_regimes": int(getattr(config.model, "short_month_gate_auto_max_regimes", 4)),
+        "short_month_gate_auto_min_months": int(getattr(config.model, "short_month_gate_auto_min_months", 6)),
+        "short_month_gate_auto_min_improvement": float(
+            getattr(config.model, "short_month_gate_auto_min_improvement", 0.0002)
+        ),
+        "short_month_gate_selected": dict(short_month_gate),
+        "short_month_gate_summary": short_month_gate_summary,
+        "regime_strategy_enabled": bool(regime_strategy_enabled),
+        "regime_strategy_profiles": strategy_profiles,
+        "regime_strategy_summary": strategy_summary,
         "model_type": model_type,
         "feature_importance": feature_importance,
         "optuna_best_params": optuna_best_params,

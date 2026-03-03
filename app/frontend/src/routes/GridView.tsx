@@ -61,6 +61,8 @@ import { useTerminalJobPolling } from "./grid/hooks/useTerminalJobPolling";
 
 const GRID_GAP = 12;
 const KP_LIMIT = 24;
+const BARS_ERROR_RETRY_INTERVAL_MS = 4000;
+const BARS_ERROR_RETRY_COOLDOWN_MS = 8000;
 type Timeframe = "monthly" | "weekly" | "daily";
 type SortOption = { key: SortKey; label: string; fixedDirection?: SortDir };
 type SortSection = { title: string; options: SortOption[] };
@@ -442,6 +444,7 @@ export default function GridView() {
   const walkforwardPresetImportInputRef = useRef<HTMLInputElement | null>(null);
   const lastVisibleCodesRef = useRef<string[]>([]);
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
+  const barsErrorRetryCooldownRef = useRef<Record<string, number>>({});
   const undoTimerRef = useRef<number | null>(null);
   const txtUpdateTerminalStatusRef = useRef<string | null>(null);
   const txtUpdateDailyFollowupRef = useRef(false);
@@ -1468,6 +1471,41 @@ export default function GridView() {
     if (!lastVisibleCodesRef.current.length) return;
     ensureBarsForVisible(gridTimeframe, lastVisibleCodesRef.current, "timeframe-or-range-change");
   }, [backendReady, gridTimeframe, listRangeBars, maSettings, ensureBarsForVisible]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    let disposed = false;
+    const retryVisibleErrorTiles = async () => {
+      const visibleCodes = lastVisibleCodesRef.current;
+      if (!visibleCodes.length) return;
+      const now = Date.now();
+      const state = useStore.getState();
+      const statusMap = state.barsStatus[gridTimeframe] ?? {};
+      const retryCodes: string[] = [];
+      visibleCodes.forEach((code) => {
+        if (statusMap[code] !== "error") return;
+        const cooldownKey = `${gridTimeframe}:${code}`;
+        const nextAllowedAt = barsErrorRetryCooldownRef.current[cooldownKey] ?? 0;
+        if (now < nextAllowedAt) return;
+        barsErrorRetryCooldownRef.current[cooldownKey] = now + BARS_ERROR_RETRY_COOLDOWN_MS;
+        retryCodes.push(code);
+      });
+      if (!retryCodes.length || disposed) return;
+      try {
+        await ensureBarsForVisible(gridTimeframe, retryCodes, "visible-error-retry");
+      } catch {
+        // Keep polling with cooldown; transient failures are expected.
+      }
+    };
+    void retryVisibleErrorTiles();
+    const timer = window.setInterval(() => {
+      void retryVisibleErrorTiles();
+    }, BARS_ERROR_RETRY_INTERVAL_MS);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [backendReady, gridTimeframe, ensureBarsForVisible]);
 
   useEffect(() => {
     if (!backendReady) return;

@@ -25,17 +25,33 @@ export const useDetailInfo = (
     return useMemo(() => {
         if (!selectedBarData || selectedBarIndex < 0) return null;
 
+        const resolvedBarIndex = (() => {
+            if (selectedBarIndex < dailyCandles.length) {
+                const indexedBar = dailyCandles[selectedBarIndex];
+                if (indexedBar && indexedBar.time === selectedBarData.time) {
+                    return selectedBarIndex;
+                }
+            }
+            return dailyCandles.findIndex((bar) => bar.time === selectedBarData.time);
+        })();
+        if (resolvedBarIndex < 0) return null;
+
+        const currentBar = dailyCandles[resolvedBarIndex];
+        if (!currentBar) return null;
+
         // 1. Previous Day Data
         let prevDayData = undefined;
-        if (selectedBarIndex > 0) {
-            const prevBar = dailyCandles[selectedBarIndex - 1];
-            const change = selectedBarData.close - (prevBar.close || 0);
-            const changePercent = prevBar.close ? (change / prevBar.close) * 100 : 0;
-            prevDayData = { close: prevBar.close, change, changePercent };
+        if (resolvedBarIndex > 0) {
+            const prevBar = dailyCandles[resolvedBarIndex - 1];
+            if (prevBar) {
+                const change = currentBar.close - (prevBar.close || 0);
+                const changePercent = prevBar.close ? (change / prevBar.close) * 100 : 0;
+                prevDayData = { close: prevBar.close, change, changePercent };
+            }
         }
 
         // 2. Position Data
-        const posList = dailyPositions.filter((p) => p.time === selectedBarData.time);
+        const posList = dailyPositions.filter((p) => p.time === currentBar.time);
         const position = {
             buy: posList.reduce((acc, p) => acc + p.longLots, 0),
             sell: posList.reduce((acc, p) => acc + p.shortLots, 0),
@@ -49,14 +65,15 @@ export const useDetailInfo = (
 
         const countTrend = (lineData: { time: number; value: number }[]) => {
             const valueMap = new Map(lineData.map((d) => [d.time, d.value]));
-            const currentMa = valueMap.get(selectedBarData.time);
+            const currentMa = valueMap.get(currentBar.time);
             if (currentMa == null) return null;
 
-            const isUp = selectedBarData.close >= currentMa;
+            const isUp = currentBar.close >= currentMa;
             let count = 0;
 
-            for (let i = selectedBarIndex; i >= 0; i--) {
+            for (let i = resolvedBarIndex; i >= 0; i--) {
                 const bar = dailyCandles[i];
+                if (!bar) break;
                 const ma = valueMap.get(bar.time);
                 if (ma == null) break;
 
@@ -75,7 +92,7 @@ export const useDetailInfo = (
 
         dailyMaLines.forEach((line) => {
             // Value
-            const point = line.data.find((d) => d.time === selectedBarData.time);
+            const point = line.data.find((d) => d.time === currentBar.time);
             if (point) {
                 if (line.period === 5 || line.period === 7) maValues.ma7 = point.value;
                 else if (line.period === 20 || line.period === 25) maValues.ma20 = point.value;

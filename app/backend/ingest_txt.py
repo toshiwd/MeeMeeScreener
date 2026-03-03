@@ -1043,13 +1043,22 @@ def build_stock_meta(
 
 def clear_tables() -> None:
     with get_conn() as conn:
-        conn.execute("DELETE FROM daily_bars")
-        conn.execute("DELETE FROM daily_ma")
-        conn.execute("DELETE FROM feature_snapshot_daily")
-        conn.execute("DELETE FROM monthly_bars")
-        conn.execute("DELETE FROM monthly_ma")
-        conn.execute("DELETE FROM stock_meta")
-        conn.execute("DELETE FROM tickers")
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            conn.execute("DELETE FROM daily_bars")
+            conn.execute("DELETE FROM daily_ma")
+            conn.execute("DELETE FROM feature_snapshot_daily")
+            conn.execute("DELETE FROM monthly_bars")
+            conn.execute("DELETE FROM monthly_ma")
+            conn.execute("DELETE FROM stock_meta")
+            conn.execute("DELETE FROM tickers")
+            conn.execute("COMMIT")
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
 
 
 def log_counts(counts: dict, parsed_rows: int) -> None:
@@ -1272,127 +1281,136 @@ def ingest(incremental: bool = False) -> None:
     log_volume_stats("pre_db", daily)
     
     with get_conn() as conn:
-        if not incremental:
-            conn.execute("DELETE FROM daily_bars")
-            conn.execute("DELETE FROM daily_ma")
-            conn.execute("DELETE FROM feature_snapshot_daily")
-            conn.execute("DELETE FROM monthly_bars")
-            conn.execute("DELETE FROM monthly_ma")
-            conn.execute("DELETE FROM stock_meta")
-            conn.execute("DELETE FROM tickers")
-        else:
-            # Incremental: Delete only processed codes
-            codes = daily["code"].unique().tolist()
-            if codes:
-                placeholders = ",".join(["?"] * len(codes))
-                # Note: DuckDB supports DELETE FROM ... WHERE code IN (...)
-                # We need to run delete for all tables
-                conn.execute(f"DELETE FROM daily_bars WHERE code IN ({placeholders})", codes)
-                conn.execute(f"DELETE FROM daily_ma WHERE code IN ({placeholders})", codes)
-                conn.execute(f"DELETE FROM feature_snapshot_daily WHERE code IN ({placeholders})", codes)
-                conn.execute(f"DELETE FROM monthly_bars WHERE code IN ({placeholders})", codes)
-                conn.execute(f"DELETE FROM monthly_ma WHERE code IN ({placeholders})", codes)
-                conn.execute(f"DELETE FROM stock_meta WHERE code IN ({placeholders})", codes)
-                conn.execute(f"DELETE FROM tickers WHERE code IN ({placeholders})", codes)
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            if not incremental:
+                conn.execute("DELETE FROM daily_bars")
+                conn.execute("DELETE FROM daily_ma")
+                conn.execute("DELETE FROM feature_snapshot_daily")
+                conn.execute("DELETE FROM monthly_bars")
+                conn.execute("DELETE FROM monthly_ma")
+                conn.execute("DELETE FROM stock_meta")
+                conn.execute("DELETE FROM tickers")
+            else:
+                # Incremental: Delete only processed codes
+                codes = daily["code"].unique().tolist()
+                if codes:
+                    placeholders = ",".join(["?"] * len(codes))
+                    # Note: DuckDB supports DELETE FROM ... WHERE code IN (...)
+                    # We need to run delete for all tables
+                    conn.execute(f"DELETE FROM daily_bars WHERE code IN ({placeholders})", codes)
+                    conn.execute(f"DELETE FROM daily_ma WHERE code IN ({placeholders})", codes)
+                    conn.execute(f"DELETE FROM feature_snapshot_daily WHERE code IN ({placeholders})", codes)
+                    conn.execute(f"DELETE FROM monthly_bars WHERE code IN ({placeholders})", codes)
+                    conn.execute(f"DELETE FROM monthly_ma WHERE code IN ({placeholders})", codes)
+                    conn.execute(f"DELETE FROM stock_meta WHERE code IN ({placeholders})", codes)
+                    conn.execute(f"DELETE FROM tickers WHERE code IN ({placeholders})", codes)
 
-        conn.register("daily_df", daily)
-        conn.execute("INSERT INTO daily_bars SELECT code, date, o, h, l, c, v FROM daily_df")
+            conn.register("daily_df", daily)
+            conn.execute("INSERT INTO daily_bars SELECT code, date, o, h, l, c, v FROM daily_df")
 
-        conn.register("daily_ma_df", daily_ma)
-        conn.execute("INSERT INTO daily_ma SELECT code, date, ma7, ma20, ma60 FROM daily_ma_df")
+            conn.register("daily_ma_df", daily_ma)
+            conn.execute("INSERT INTO daily_ma SELECT code, date, ma7, ma20, ma60 FROM daily_ma_df")
 
-        conn.register("feature_snapshot_df", feature_snapshot)
-        conn.execute(
-            """
-            INSERT INTO feature_snapshot_daily (
-                dt,
-                code,
-                close,
-                ma7,
-                ma20,
-                ma60,
-                atr14,
-                diff20_pct,
-                diff20_atr,
-                cnt_20_above,
-                cnt_7_above,
-                day_count,
-                candle_flags
+            conn.register("feature_snapshot_df", feature_snapshot)
+            conn.execute(
+                """
+                INSERT INTO feature_snapshot_daily (
+                    dt,
+                    code,
+                    close,
+                    ma7,
+                    ma20,
+                    ma60,
+                    atr14,
+                    diff20_pct,
+                    diff20_atr,
+                    cnt_20_above,
+                    cnt_7_above,
+                    day_count,
+                    candle_flags
+                )
+                SELECT
+                    dt,
+                    code,
+                    close,
+                    ma7,
+                    ma20,
+                    ma60,
+                    atr14,
+                    diff20_pct,
+                    diff20_atr,
+                    cnt_20_above,
+                    cnt_7_above,
+                    day_count,
+                    candle_flags
+                FROM feature_snapshot_df
+                """
             )
-            SELECT
-                dt,
-                code,
-                close,
-                ma7,
-                ma20,
-                ma60,
-                atr14,
-                diff20_pct,
-                diff20_atr,
-                cnt_20_above,
-                cnt_7_above,
-                day_count,
-                candle_flags
-            FROM feature_snapshot_df
-            """
-        )
 
-        conn.register("monthly_df", monthly)
-        conn.execute("INSERT INTO monthly_bars SELECT code, month, o, h, l, c, v FROM monthly_df")
+            conn.register("monthly_df", monthly)
+            conn.execute("INSERT INTO monthly_bars SELECT code, month, o, h, l, c, v FROM monthly_df")
 
-        conn.register("monthly_ma_df", monthly_ma)
-        conn.execute("INSERT INTO monthly_ma SELECT code, month, ma7, ma20, ma60 FROM monthly_ma_df")
+            conn.register("monthly_ma_df", monthly_ma)
+            conn.execute("INSERT INTO monthly_ma SELECT code, month, ma7, ma20, ma60 FROM monthly_ma_df")
 
-        conn.register("meta_df", meta)
-        conn.execute(
-            """
-            INSERT INTO stock_meta (
-                code,
-                name,
-                stage,
-                score,
-                reason,
-                score_status,
-                missing_reasons_json,
-                score_breakdown_json,
-                latest_close,
-                monthly_box_status,
-                box_duration,
-                box_upper,
-                box_lower,
-                ma20_monthly_trend,
-                days_since_peak,
-                days_since_bottom,
-                signal_flags,
-                updated_at
+            conn.register("meta_df", meta)
+            conn.execute(
+                """
+                INSERT INTO stock_meta (
+                    code,
+                    name,
+                    stage,
+                    score,
+                    reason,
+                    score_status,
+                    missing_reasons_json,
+                    score_breakdown_json,
+                    latest_close,
+                    monthly_box_status,
+                    box_duration,
+                    box_upper,
+                    box_lower,
+                    ma20_monthly_trend,
+                    days_since_peak,
+                    days_since_bottom,
+                    signal_flags,
+                    updated_at
+                )
+                SELECT
+                    code,
+                    name,
+                    stage,
+                    score,
+                    reason,
+                    score_status,
+                    missing_reasons_json,
+                    score_breakdown_json,
+                    latest_close,
+                    monthly_box_status,
+                    box_duration,
+                    box_upper,
+                    box_lower,
+                    ma20_monthly_trend,
+                    days_since_peak,
+                    days_since_bottom,
+                    signal_flags,
+                    updated_at
+                FROM meta_df
+                """
             )
-            SELECT
-                code,
-                name,
-                stage,
-                score,
-                reason,
-                score_status,
-                missing_reasons_json,
-                score_breakdown_json,
-                latest_close,
-                monthly_box_status,
-                box_duration,
-                box_upper,
-                box_lower,
-                ma20_monthly_trend,
-                days_since_peak,
-                days_since_bottom,
-                signal_flags,
-                updated_at
-            FROM meta_df
-            """
-        )
 
-        conn.execute("INSERT INTO tickers SELECT code, name FROM meta_df")
-        
-        # Ensure industry_master exists and is populated (fixes heatmap on fresh install)
-        ensure_industry_master(conn)
+            conn.execute("INSERT INTO tickers SELECT code, name FROM meta_df")
+
+            # Ensure industry_master exists and is populated (fixes heatmap on fresh install)
+            ensure_industry_master(conn)
+            conn.execute("COMMIT")
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
 
     step_end("db_replace", start, daily_rows=len(daily), monthly_rows=len(monthly), meta_rows=len(meta))
 
