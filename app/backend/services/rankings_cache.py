@@ -21,6 +21,7 @@ from app.backend.services.edinet_rank_features import load_edinet_rank_features
 from app.backend.services.ml_config import load_ml_config
 from app.backend.services.ml_service import select_top_n_ml
 from app.backend.services.ranking_analysis_quality import get_latest_prob_up_gates
+from app.backend.services import swing_plan_service
 from app.backend.services.yahoo_provisional import (
     get_provisional_daily_rows_from_spark,
     merge_daily_rows_with_provisional,
@@ -2212,6 +2213,86 @@ def _attach_quality_flags(
         if not flags:
             flags.append("ok")
         item["qualityFlags"] = sorted(set(flags))
+        enriched.append(item)
+    return enriched
+
+
+def _attach_swing_fields(
+    items: list[dict],
+    *,
+    direction: RankDir,
+) -> list[dict]:
+    enriched: list[dict] = []
+    for base in items:
+        item = dict(base)
+        as_of_ymd = _iso_date_to_int(item.get("asOf"))
+        p_up = _first_finite(item.get("mlPUp"), item.get("mlPUpShort"))
+        p_down = _first_finite(item.get("mlPDown"), item.get("mlPDownShort"))
+        p_turn_up = _first_finite(item.get("mlPTurnUp"))
+        p_turn_down = _first_finite(item.get("mlPTurnDown"), item.get("mlPTurnDownShort"))
+        ev20_net = _first_finite(item.get("mlEv20Net"), item.get("mlEvShortNet"))
+        close = _first_finite(item.get("close"))
+        atr_pct = _first_finite(item.get("atrPct"))
+        liquidity20d = _first_finite(item.get("liquidity20d"))
+        playbook_bonus = _first_finite(item.get("playbookScoreBonus"))
+        short_score = _first_finite(
+            item.get("shortScore"),
+            item.get("shortCandidateScore"),
+            item.get("shortPriorityScore"),
+        )
+        if short_score is None:
+            a_score = _first_finite(item.get("aScore"), item.get("aCandidateScore"))
+            b_score = _first_finite(item.get("bScore"), item.get("bCandidateScore"))
+            if a_score is not None or b_score is not None:
+                short_score = float((a_score or 0.0) + (b_score or 0.0))
+        setup_type = str(item.get("setupType") or "watch")
+        swing_eval = swing_plan_service.evaluate_swing_candidates(
+            as_of_ymd=as_of_ymd,
+            p_up=p_up,
+            p_down=p_down,
+            p_turn_up=p_turn_up,
+            p_turn_down=p_turn_down,
+            ev20_net=ev20_net,
+            long_setup_type=setup_type,
+            short_setup_type=setup_type,
+            playbook_bonus_long=playbook_bonus,
+            playbook_bonus_short=playbook_bonus,
+            short_score=short_score,
+            atr_pct=atr_pct,
+            liquidity20d=liquidity20d,
+        )
+        side_key = "long" if direction == "up" else "short"
+        side_eval = swing_eval.get(side_key) if isinstance(swing_eval, dict) else {}
+        score = _first_finite((side_eval or {}).get("score"))
+        qualified = bool((side_eval or {}).get("qualified"))
+        reasons = (side_eval or {}).get("reasons")
+        item["swingScore"] = float(score) if score is not None else None
+        item["swingQualified"] = bool(qualified)
+        item["swingSide"] = side_key if qualified else "none"
+        item["swingReasons"] = [str(v) for v in reasons] if isinstance(reasons, list) else []
+        # Preserve quick view for consumers that need best side context.
+        item["swingLongScore"] = _first_finite(((swing_eval or {}).get("long") or {}).get("score"))
+        item["swingShortScore"] = _first_finite(((swing_eval or {}).get("short") or {}).get("score"))
+        item["swingPlanPreview"] = swing_plan_service.build_swing_plan(
+            code=str(item.get("code") or ""),
+            as_of_ymd=as_of_ymd,
+            close=close,
+            p_up=p_up,
+            p_down=p_down,
+            p_turn_up=p_turn_up,
+            p_turn_down=p_turn_down,
+            ev20_net=ev20_net,
+            long_setup_type=setup_type,
+            short_setup_type=setup_type,
+            playbook_bonus_long=playbook_bonus,
+            playbook_bonus_short=playbook_bonus,
+            short_score=short_score,
+            atr_pct=atr_pct,
+            liquidity20d=liquidity20d,
+            decision_tone="up" if direction == "up" else "down",
+            hold_days_long=_first_finite(item.get("recommendedHoldDays")),
+            hold_days_short=_first_finite(item.get("recommendedHoldDays")),
+        ).get("plan")
         enriched.append(item)
     return enriched
 
@@ -4798,6 +4879,86 @@ def _call_apply_ml_mode(
         )
 
 
+def _fallback_down_ml_items_when_empty(
+    *,
+    tf: RankTimeframe,
+    direction: RankDir,
+    mode: RankMode,
+    limit: int,
+    risk_mode: RankRiskMode,
+    items: list[dict],
+    out_items: list[dict],
+    pred_dt: int | None,
+    model_version: str | None,
+) -> tuple[list[dict], int | None, str | None]:
+    if tf != "D" or direction != "down":
+        return out_items, pred_dt, model_version
+    if mode not in {"hybrid", "turn"}:
+        return out_items, pred_dt, model_version
+    if out_items:
+        return out_items, pred_dt, model_version
+
+    ml_items, ml_pred_dt, ml_model_version = _call_apply_ml_mode(
+        items,
+        direction=direction,
+        mode="ml",
+        limit=limit,
+        risk_mode=risk_mode,
+    )
+    if not ml_items:
+        return out_items, pred_dt, model_version
+
+    promoted: list[dict] = []
+    for src in ml_items:
+        item = dict(src)
+        prob_down = _first_finite(
+            item.get("probSide"),
+            item.get("probSideCalib"),
+            item.get("mlPDownShort"),
+            item.get("mlPDown"),
+        )
+        ev_short = _first_finite(
+            item.get("mlEv20Net"),
+            item.get("mlEvShortNet"),
+            item.get("changePct"),
+        )
+        turn_down = _first_finite(
+            item.get("mlPTurnDownShort"),
+            item.get("mlPTurnDown"),
+            item.get("mlPDownShort"),
+            item.get("mlPDown"),
+        )
+
+        qualified = bool(
+            isinstance(prob_down, (int, float))
+            and math.isfinite(float(prob_down))
+            and float(prob_down) >= 0.55
+            and isinstance(ev_short, (int, float))
+            and math.isfinite(float(ev_short))
+            and float(ev_short) <= -0.002
+            and (
+                turn_down is None
+                or (
+                    isinstance(turn_down, (int, float))
+                    and math.isfinite(float(turn_down))
+                    and float(turn_down) <= 0.70
+                )
+            )
+        )
+
+        item["entryQualified"] = bool(qualified)
+        item["setupType"] = "ml_fallback_down"
+        item["entryQualifiedByFallback"] = True
+        item["entryQualifiedFallbackStage"] = "hybrid_to_ml_down_empty"
+        if item.get("probSide") is None and prob_down is not None:
+            item["probSide"] = float(prob_down)
+        promoted.append(item)
+
+    next_pred_dt = ml_pred_dt if ml_pred_dt is not None else pred_dt
+    next_model_version = str(ml_model_version or model_version) if (ml_model_version or model_version) else None
+    return promoted, next_pred_dt, next_model_version
+
+
 def refresh_cache() -> None:
     global _CACHE, _LAST_UPDATED, _LAST_DB_MTIME
     cache = _build_cache()
@@ -4862,6 +5023,17 @@ def get_rankings(
             limit=limit,
             risk_mode=risk_mode,
         )
+    out_items, pred_dt, model_version = _fallback_down_ml_items_when_empty(
+        tf=tf,
+        direction=direction,
+        mode=mode,
+        limit=limit,
+        risk_mode=risk_mode,
+        items=items,
+        out_items=out_items,
+        pred_dt=pred_dt,
+        model_version=model_version,
+    )
     if tf == "M" and mode == "hybrid":
         flag_applied = _is_edinet_bonus_enabled()
         out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
@@ -4876,6 +5048,10 @@ def get_rankings(
     out_items = _attach_quality_flags(
         out_items,
         mode=mode,
+        direction=direction,
+    )
+    out_items = _attach_swing_fields(
+        out_items,
         direction=direction,
     )
     out_items = [_sanitize_rank_item_for_json(item) for item in out_items]
@@ -4980,6 +5156,17 @@ def get_rankings_asof(
             limit=limit,
             risk_mode=risk_mode,
         )
+    out_items, pred_dt, model_version = _fallback_down_ml_items_when_empty(
+        tf=tf,
+        direction=direction,
+        mode=mode,
+        limit=limit,
+        risk_mode=risk_mode,
+        items=items,
+        out_items=out_items,
+        pred_dt=pred_dt,
+        model_version=model_version,
+    )
     if tf == "M" and mode == "hybrid":
         flag_applied = _is_edinet_bonus_enabled()
         out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
@@ -4988,6 +5175,10 @@ def get_rankings_asof(
         mode=mode,
         direction=direction,
         now_ymd=as_of_int,
+    )
+    out_items = _attach_swing_fields(
+        out_items,
+        direction=direction,
     )
 
     if pred_dt is not None:

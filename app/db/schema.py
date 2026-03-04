@@ -603,6 +603,24 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS swing_setup_stats_daily (
+            as_of_ymd INTEGER,
+            side TEXT,
+            setup_type TEXT,
+            horizon_days INTEGER,
+            samples INTEGER,
+            win_rate DOUBLE,
+            mean_ret DOUBLE,
+            p25_ret DOUBLE,
+            p10_ret DOUBLE,
+            max_adverse DOUBLE,
+            computed_at TIMESTAMP,
+            PRIMARY KEY(as_of_ymd, side, setup_type, horizon_days)
+        );
+        """
+    )
 
     # Trade history / positions (used by /api/trades and Positions UI).
     # Keep schemas compatible with legacy inserts from `app.backend.import_positions`.

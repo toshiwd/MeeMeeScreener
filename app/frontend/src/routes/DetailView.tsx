@@ -246,6 +246,62 @@ type AnalysisResearchPrior = {
   down: AnalysisResearchPriorSide | null;
 };
 
+type AnalysisEdinetSummary = {
+  status: string | null;
+  mapped: boolean | null;
+  freshnessDays: number | null;
+  metricCount: number | null;
+  qualityScore: number | null;
+  dataScore: number | null;
+  scoreBonus: number | null;
+  featureFlagApplied: boolean | null;
+  ebitdaMetric: number | null;
+  roe: number | null;
+  equityRatio: number | null;
+  debtRatio: number | null;
+  operatingCfMargin: number | null;
+  revenueGrowthYoy: number | null;
+};
+
+type AnalysisSwingPlanSide = "long" | "short";
+
+type AnalysisSwingPlan = {
+  code: string | null;
+  side: AnalysisSwingPlanSide;
+  score: number | null;
+  horizonDays: number | null;
+  entry: number | null;
+  stop: number | null;
+  tp1: number | null;
+  tp2: number | null;
+  timeStopDays: number | null;
+  reasons: string[];
+};
+
+type AnalysisSwingSetupExpectancy = {
+  asOfYmd: number | null;
+  side: "long" | "short" | null;
+  setupType: string | null;
+  horizonDays: number | null;
+  samples: number | null;
+  winRate: number | null;
+  meanRet: number | null;
+  shrunkMeanRet: number | null;
+  p25Ret: number | null;
+  p10Ret: number | null;
+  maxAdverse: number | null;
+  sideMeanRet: number | null;
+};
+
+type AnalysisSwingDiagnostics = {
+  edge: number | null;
+  risk: number | null;
+  setupExpectancy: AnalysisSwingSetupExpectancy | null;
+  regimeFit: number | null;
+  atrPct: number | null;
+  liquidity20d: number | null;
+};
+
 type AnalysisFallback = {
   dt: number | string | null;
   pUp: number | null;
@@ -262,8 +318,11 @@ type AnalysisFallback = {
   riskMode: RankRiskMode | null;
   buyStagePrecision: BuyStagePrecisionPayload | null;
   researchPrior: AnalysisResearchPrior | null;
+  edinetSummary: AnalysisEdinetSummary | null;
   modelVersion: string | null;
   decision: AnalysisDecision | null;
+  swingPlan: AnalysisSwingPlan | null;
+  swingDiagnostics: AnalysisSwingDiagnostics | null;
 };
 
 type AnalysisDecisionTone = "up" | "down" | "neutral";
@@ -297,6 +356,12 @@ type AnalysisTimelinePoint = {
   sellPTurnDown: number | null;
   trendDown: boolean | null;
   trendDownStrict: boolean | null;
+  shortRet5: number | null;
+  shortRet10: number | null;
+  shortRet20: number | null;
+  shortWin5: boolean | null;
+  shortWin10: boolean | null;
+  shortWin20: boolean | null;
   rankingScore?: number | null;
 };
 
@@ -435,6 +500,15 @@ const formatResearchPriorMetaLine = (label: string, side: AnalysisResearchPriorS
   return `${label} ${status} / Rank ${rank} / 補正 ${bonus}${side.asOf ? ` / asOf ${side.asOf}` : ""}`;
 };
 
+const formatEdinetStatus = (value: string | null | undefined) => {
+  if (!value) return "未判定";
+  if (value === "ok") return "OK";
+  if (value === "missing_tables") return "テーブル不足";
+  if (value === "unmapped") return "未マップ";
+  if (value === "no_payload") return "データなし";
+  return value;
+};
+
 const toFiniteNumber = (value: unknown): number | null => {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
@@ -454,6 +528,15 @@ const toBoolean = (value: unknown): boolean => {
     return trimmed === "1" || trimmed === "true" || trimmed === "yes";
   }
   return false;
+};
+
+const resolveSellShortScore = (sellAnalysis: SellAnalysisFallback | null | undefined): number | null => {
+  const direct = toFiniteNumber(sellAnalysis?.shortScore);
+  if (direct != null) return direct;
+  const aScore = toFiniteNumber(sellAnalysis?.aScore);
+  const bScore = toFiniteNumber(sellAnalysis?.bScore);
+  if (aScore == null && bScore == null) return null;
+  return (aScore ?? 0) + (bScore ?? 0);
 };
 
 const normalizeRiskMode = (value: unknown): RankRiskMode => {
@@ -529,6 +612,123 @@ const normalizeResearchPrior = (value: unknown): AnalysisResearchPrior | null =>
   const down = normalizeResearchPriorSide(payload.down);
   if (!runId && !up && !down) return null;
   return { runId, up, down };
+};
+
+const normalizeEdinetSummary = (value: unknown): AnalysisEdinetSummary | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const status = typeof payload.status === "string" ? payload.status : null;
+  const mapped = payload.mapped == null ? null : toBoolean(payload.mapped);
+  const featureFlagApplied = payload.featureFlagApplied == null ? null : toBoolean(payload.featureFlagApplied);
+  const parsed: AnalysisEdinetSummary = {
+    status,
+    mapped,
+    freshnessDays: toFiniteNumber(payload.freshnessDays),
+    metricCount: toFiniteNumber(payload.metricCount),
+    qualityScore: toFiniteNumber(payload.qualityScore),
+    dataScore: toFiniteNumber(payload.dataScore),
+    scoreBonus: toFiniteNumber(payload.scoreBonus),
+    featureFlagApplied,
+    ebitdaMetric: toFiniteNumber(payload.ebitdaMetric),
+    roe: toFiniteNumber(payload.roe),
+    equityRatio: toFiniteNumber(payload.equityRatio),
+    debtRatio: toFiniteNumber(payload.debtRatio),
+    operatingCfMargin: toFiniteNumber(payload.operatingCfMargin),
+    revenueGrowthYoy: toFiniteNumber(payload.revenueGrowthYoy),
+  };
+  const hasAny =
+    parsed.status != null ||
+    parsed.mapped != null ||
+    parsed.freshnessDays != null ||
+    parsed.metricCount != null ||
+    parsed.qualityScore != null ||
+    parsed.dataScore != null ||
+    parsed.scoreBonus != null ||
+    parsed.featureFlagApplied != null ||
+    parsed.ebitdaMetric != null ||
+    parsed.roe != null ||
+    parsed.equityRatio != null ||
+    parsed.debtRatio != null ||
+    parsed.operatingCfMargin != null ||
+    parsed.revenueGrowthYoy != null;
+  return hasAny ? parsed : null;
+};
+
+const normalizeSwingSetupExpectancy = (value: unknown): AnalysisSwingSetupExpectancy | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const parsed: AnalysisSwingSetupExpectancy = {
+    asOfYmd: toFiniteNumber(payload.asOfYmd),
+    side:
+      payload.side === "long" || payload.side === "short"
+        ? payload.side
+        : null,
+    setupType: typeof payload.setupType === "string" ? payload.setupType : null,
+    horizonDays: toFiniteNumber(payload.horizonDays),
+    samples: toFiniteNumber(payload.samples),
+    winRate: toFiniteNumber(payload.winRate),
+    meanRet: toFiniteNumber(payload.meanRet),
+    shrunkMeanRet: toFiniteNumber(payload.shrunkMeanRet),
+    p25Ret: toFiniteNumber(payload.p25Ret),
+    p10Ret: toFiniteNumber(payload.p10Ret),
+    maxAdverse: toFiniteNumber(payload.maxAdverse),
+    sideMeanRet: toFiniteNumber(payload.sideMeanRet),
+  };
+  const hasAny =
+    parsed.asOfYmd != null ||
+    parsed.side != null ||
+    parsed.setupType != null ||
+    parsed.horizonDays != null ||
+    parsed.samples != null ||
+    parsed.winRate != null ||
+    parsed.meanRet != null ||
+    parsed.shrunkMeanRet != null ||
+    parsed.p25Ret != null ||
+    parsed.p10Ret != null ||
+    parsed.maxAdverse != null ||
+    parsed.sideMeanRet != null;
+  return hasAny ? parsed : null;
+};
+
+const normalizeSwingPlan = (value: unknown): AnalysisSwingPlan | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const side = payload.side;
+  if (side !== "long" && side !== "short") return null;
+  const reasonsRaw = payload.reasons;
+  return {
+    code: typeof payload.code === "string" ? payload.code : null,
+    side,
+    score: toFiniteNumber(payload.score),
+    horizonDays: toFiniteNumber(payload.horizonDays),
+    entry: toFiniteNumber(payload.entry),
+    stop: toFiniteNumber(payload.stop),
+    tp1: toFiniteNumber(payload.tp1),
+    tp2: toFiniteNumber(payload.tp2),
+    timeStopDays: toFiniteNumber(payload.timeStopDays),
+    reasons: Array.isArray(reasonsRaw) ? reasonsRaw.filter((entry): entry is string => typeof entry === "string") : [],
+  };
+};
+
+const normalizeSwingDiagnostics = (value: unknown): AnalysisSwingDiagnostics | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const parsed: AnalysisSwingDiagnostics = {
+    edge: toFiniteNumber(payload.edge),
+    risk: toFiniteNumber(payload.risk),
+    setupExpectancy: normalizeSwingSetupExpectancy(payload.setupExpectancy),
+    regimeFit: toFiniteNumber(payload.regimeFit),
+    atrPct: toFiniteNumber(payload.atrPct),
+    liquidity20d: toFiniteNumber(payload.liquidity20d),
+  };
+  const hasAny =
+    parsed.edge != null ||
+    parsed.risk != null ||
+    parsed.setupExpectancy != null ||
+    parsed.regimeFit != null ||
+    parsed.atrPct != null ||
+    parsed.liquidity20d != null;
+  return hasAny ? parsed : null;
 };
 
 const normalizeDecisionTone = (value: unknown): AnalysisDecisionTone => {
@@ -727,6 +927,12 @@ const normalizeAnalysisTimelinePoint = (value: unknown): AnalysisTimelinePoint |
     sellPTurnDown: toFiniteNumber(payload.sellPTurnDown),
     trendDown: payload.trendDown == null ? null : toBoolean(payload.trendDown),
     trendDownStrict: payload.trendDownStrict == null ? null : toBoolean(payload.trendDownStrict),
+    shortRet5: toFiniteNumber(payload.shortRet5),
+    shortRet10: toFiniteNumber(payload.shortRet10),
+    shortRet20: toFiniteNumber(payload.shortRet20),
+    shortWin5: payload.shortWin5 == null ? null : toBoolean(payload.shortWin5),
+    shortWin10: payload.shortWin10 == null ? null : toBoolean(payload.shortWin10),
+    shortWin20: payload.shortWin20 == null ? null : toBoolean(payload.shortWin20),
     rankingScore: toFiniteNumber(payload.rankingScore)
   };
 };
@@ -936,13 +1142,18 @@ const computeEnvironmentTone = (input: EnvironmentComputationInput): Environment
     input.sellAnalysis?.trendDownStrict ? 1.0 : input.sellAnalysis?.trendDown ? 0.7 : 0.3;
   const trendDownFlag = input.sellAnalysis?.trendDown === true;
   const trendDownStrictFlag = input.sellAnalysis?.trendDownStrict === true;
-  const shortScoreNorm = clamp(((input.sellAnalysis?.shortScore ?? 70) - 70) / 90, 0, 1);
+  const resolvedShortScore = resolveSellShortScore(input.sellAnalysis);
+  const shortScoreNorm = clamp(((resolvedShortScore ?? 70) - 70) / 90, 0, 1);
   const bullishStructure = Boolean(
     !trendDownFlag &&
     (input.sellAnalysis?.distMa20Signed ?? 0) > 0 &&
     (input.sellAnalysis?.ma20Slope ?? 0) >= 0 &&
     (input.sellAnalysis?.ma60Slope ?? 0) >= 0
   );
+  const shortSignalConfirmed =
+    trendDownFlag ||
+    trendDownStrictFlag ||
+    shortScoreNorm >= 0.34;
   const strongUpContext = Boolean(
     input.additiveSignals?.trendUpStrict &&
     (input.additiveSignals?.monthlyBreakoutUpProb ?? 0) >= 0.8
@@ -995,15 +1206,14 @@ const computeEnvironmentTone = (input: EnvironmentComputationInput): Environment
   );
   const forceDownConfirm = Boolean(
     (trendDownStrictFlag && downProb >= 0.58 && turnDown >= 0.56 && (input.analysisEvNet ?? 0) <= 0) ||
-    (downProb >= 0.68 && turnDown >= 0.64 && (input.analysisEvNet ?? 0) <= -0.01)
+    (downProb >= 0.70 && turnDown >= 0.66 && (input.analysisEvNet ?? 0) <= -0.01 && shortScoreNorm >= 0.34)
   );
   const downConfirm = Boolean(
     trendDownFlag ||
     trendDownStrictFlag ||
-    downProb - upProb >= 0.10 ||
-    downProb >= 0.62
+    ((downProb - upProb >= 0.10 || downProb >= 0.62) && shortSignalConfirmed)
   );
-  const downThreshold = strongUpContext ? 0.66 : 0.56;
+  const downThreshold = strongUpContext ? 0.68 : 0.58;
 
   const scenarios: EnvironmentScenario[] = [
     {
@@ -1572,6 +1782,10 @@ export default function DetailView() {
     asof: analysisAsOfTime,
     endpoint: "/ticker/analysis",
     timeoutMs: 30000,
+    maxRetries: 4,
+    retryDelayMs: 1200,
+    retryOnNull: true,
+    negativeCacheTtlMs: 8000,
     requestKeyExtra: analysisRiskMode,
     buildParams: (symbol, asof) => ({ code: symbol, asof, risk_mode: analysisRiskMode }),
     parseItem: (item) => {
@@ -1593,8 +1807,11 @@ export default function DetailView() {
         riskMode: source.riskMode == null ? null : normalizeRiskMode(source.riskMode),
         buyStagePrecision: normalizeBuyStagePrecision(source.buyStagePrecision),
         researchPrior: normalizeResearchPrior(source.researchPrior),
+        edinetSummary: normalizeEdinetSummary(source.edinetSummary),
         modelVersion: typeof source.modelVersion === "string" ? source.modelVersion : null,
         decision: normalizeAnalysisDecision(source.decision),
+        swingPlan: normalizeSwingPlan(source.swingPlan),
+        swingDiagnostics: normalizeSwingDiagnostics(source.swingDiagnostics),
       };
     },
   });
@@ -1608,6 +1825,10 @@ export default function DetailView() {
     asof: analysisAsOfTime,
     endpoint: "/ticker/analysis/sell",
     timeoutMs: 30000,
+    maxRetries: 4,
+    retryDelayMs: 1200,
+    retryOnNull: true,
+    negativeCacheTtlMs: 8000,
     parseItem: (item) => {
       if (!item || typeof item !== "object") return null;
       const source = item as Record<string, unknown>;
@@ -1749,6 +1970,8 @@ export default function DetailView() {
     sellAnalysisFallback?.pTurnDown != null ||
     sellAnalysisFallback?.ev20Net != null ||
     sellAnalysisFallback?.shortScore != null ||
+    sellAnalysisFallback?.aScore != null ||
+    sellAnalysisFallback?.bScore != null ||
     sellAnalysisFallback?.trendDown != null ||
     sellAnalysisFallback?.trendDownStrict != null ||
     sellAnalysisFallback?.shortRet5 != null ||
@@ -1829,6 +2052,8 @@ export default function DetailView() {
     analysisAdditive?.monthlyRangePos,
     analysisAdditive?.boxBottomAligned,
     sellAnalysisFallback?.shortScore,
+    sellAnalysisFallback?.aScore,
+    sellAnalysisFallback?.bScore,
     sellAnalysisFallback?.distMa20Signed,
     sellAnalysisFallback?.ma20Slope,
     sellAnalysisFallback?.ma60Slope,
@@ -1948,6 +2173,31 @@ export default function DetailView() {
     const downPlaybookBias = clamp((toFiniteNumber(downPolicy?.playbookScoreBonus) ?? 0) / 0.04, -0.35, 0.35);
     const trendDown = sellAnalysisFallback?.trendDown === true;
     const trendDownStrict = sellAnalysisFallback?.trendDownStrict === true;
+    const resolvedShortScore = resolveSellShortScore(sellAnalysisFallback);
+    const shortScoreNorm = clamp(((resolvedShortScore ?? 70) - 70) / 90, 0, 1);
+    const distMa20Signed = toFiniteNumber(sellAnalysisFallback?.distMa20Signed);
+    const ma20Slope = toFiniteNumber(sellAnalysisFallback?.ma20Slope);
+    const ma60Slope = toFiniteNumber(sellAnalysisFallback?.ma60Slope);
+    const bearishStructure = Boolean(
+      trendDownStrict ||
+      (
+        distMa20Signed != null &&
+        ma20Slope != null &&
+        ma60Slope != null &&
+        distMa20Signed <= -0.003 &&
+        ma20Slope <= 0 &&
+        ma60Slope <= 0
+      )
+    );
+    const bullishStructure = Boolean(
+      !trendDown &&
+      distMa20Signed != null &&
+      ma20Slope != null &&
+      ma60Slope != null &&
+      distMa20Signed > 0 &&
+      ma20Slope >= 0 &&
+      ma60Slope >= 0
+    );
     const downLead = clamp(sellProb - buyProb, -1, 1);
     const turnLeadDown = clamp(turnDown - turnUp, -1, 1);
     const bearishPressure = clamp(
@@ -1991,6 +2241,16 @@ export default function DetailView() {
       0,
       1
     );
+    const sellSetupQuality = clamp(
+      0.42 * sellProb +
+      0.2 * turnDown +
+      0.16 * shortScoreNorm +
+      0.12 * (bearishStructure ? 1 : 0) +
+      0.1 * clamp((-(analysisEvNet ?? 0) + 0.005) / 0.04, 0, 1) -
+      0.16 * (bullishStructure ? 1 : 0),
+      0,
+      1
+    );
     const buyReadyProbGate = trendDownStrict ? 0.66 : trendDown ? 0.62 : 0.58;
     const buyReadyLeadGate = trendDownStrict ? 0.05 : trendDown ? 0.03 : -0.02;
     const buyReadyTurnGate = trendDownStrict ? 0.04 : trendDown ? 0.02 : -0.03;
@@ -2009,17 +2269,25 @@ export default function DetailView() {
       buyProb >= sellProb + buyWatchLeadGate &&
       turnUp >= turnDown + buyWatchTurnGate
     );
-    const sellReadyProbGate = trendDownStrict ? 0.56 : trendDown ? 0.57 : 0.58;
-    const sellReadyLeadGate = trendDown ? -0.06 : -0.02;
-    const sellReadyTurnGate = trendDown ? -0.06 : -0.03;
+    const sellReadyProbGate = trendDownStrict ? 0.56 : trendDown ? 0.59 : 0.63;
+    const sellReadyLeadGate = trendDown ? -0.04 : 0.02;
+    const sellReadyTurnGate = trendDown ? -0.04 : 0.01;
+    const sellReadyQualityGate = trendDownStrict ? 0.50 : trendDown ? 0.56 : 0.62;
+    const sellReadyShortScoreGate = trendDownStrict ? 58 : trendDown ? 64 : 72;
+    const sellReadyEvGate = trendDownStrict ? 0.008 : trendDown ? 0.002 : -0.002;
     const sellSetupReady = Boolean(
       sellSetupProb >= sellReadyProbGate &&
       sellProb >= buyProb + sellReadyLeadGate &&
-      turnDown >= turnUp + sellReadyTurnGate
+      turnDown >= turnUp + sellReadyTurnGate &&
+      sellSetupQuality >= sellReadyQualityGate &&
+      (resolvedShortScore ?? 70) >= sellReadyShortScoreGate &&
+      (analysisEvNet == null || analysisEvNet <= sellReadyEvGate) &&
+      !bullishStructure
     );
     const sellSetupWatch = Boolean(
       !sellSetupReady &&
-      sellSetupProb >= (trendDown ? 0.48 : 0.5)
+      sellSetupProb >= (trendDown ? 0.5 : 0.54) &&
+      sellSetupQuality >= (trendDown ? 0.46 : 0.52)
     );
     const buySetupState = buySetupReady ? "実行" : buySetupWatch ? "監視" : "待機";
     const sellSetupState = sellSetupReady ? "実行" : sellSetupWatch ? "監視" : "待機";
@@ -2037,9 +2305,11 @@ export default function DetailView() {
       ...setupTimingLines
     ];
 
+    const shortScoreLabel = resolvedShortScore == null ? "--" : resolvedShortScore.toFixed(1);
     const reasonLines = [
       `方向確率 上昇 ${formatPercentLabel(buyProb)} / 下落 ${formatPercentLabel(sellProb)} / 中立 ${formatPercentLabel(neutralProb)}`,
       `仕込み 買い ${buySetupState} ${formatPercentLabel(buySetupProb)} / 売り ${sellSetupState} ${formatPercentLabel(sellSetupProb)}`,
+      `売り品質 ${formatPercentLabel(sellSetupQuality)} / shortScore ${shortScoreLabel}`,
       `下降圧力 ${formatPercentLabel(bearishPressure)}`,
       analysisEvNet == null ? null : `期待値 ${formatSignedPercentLabel(analysisEvNet)}`
     ].filter((value): value is string => typeof value === "string" && value.length > 0);
@@ -2072,6 +2342,12 @@ export default function DetailView() {
     analysisPTurnUp,
     analysisPTurnDown,
     analysisEvNet,
+    sellAnalysisFallback?.shortScore,
+    sellAnalysisFallback?.aScore,
+    sellAnalysisFallback?.bScore,
+    sellAnalysisFallback?.distMa20Signed,
+    sellAnalysisFallback?.ma20Slope,
+    sellAnalysisFallback?.ma60Slope,
     sellAnalysisFallback?.trendDown,
     sellAnalysisFallback?.trendDownStrict
   ]);
@@ -2100,6 +2376,77 @@ export default function DetailView() {
   const researchPriorRunId = analysisResearchPrior?.runId ?? null;
   const researchPriorUpMeta = formatResearchPriorMetaLine("研究連携 上", analysisResearchPrior?.up ?? null);
   const researchPriorDownMeta = formatResearchPriorMetaLine("研究連携 下", analysisResearchPrior?.down ?? null);
+  const analysisEdinetSummary = analysisFallback?.edinetSummary ?? null;
+  const edinetStatusMeta = analysisEdinetSummary
+    ? `EDI状態 ${formatEdinetStatus(analysisEdinetSummary.status)}${
+        analysisEdinetSummary.mapped == null
+          ? ""
+          : analysisEdinetSummary.mapped
+            ? " / マップ済み"
+            : " / 未マップ"
+      }`
+    : null;
+  const edinetQualityMeta = analysisEdinetSummary
+    ? [
+        Number.isFinite(analysisEdinetSummary.freshnessDays ?? NaN)
+          ? `鮮度 ${Math.max(0, Math.round(analysisEdinetSummary.freshnessDays ?? 0))}日`
+          : null,
+        Number.isFinite(analysisEdinetSummary.metricCount ?? NaN)
+          ? `指標 ${Math.max(0, Math.round(analysisEdinetSummary.metricCount ?? 0))}件`
+          : null,
+        Number.isFinite(analysisEdinetSummary.qualityScore ?? NaN)
+          ? `品質 ${formatPercentLabel(analysisEdinetSummary.qualityScore)}`
+          : null,
+        Number.isFinite(analysisEdinetSummary.dataScore ?? NaN)
+          ? `データ ${formatPercentLabel(analysisEdinetSummary.dataScore)}`
+          : null,
+      ]
+        .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+        .join(" / ")
+    : null;
+  const edinetMetricsMeta = analysisEdinetSummary
+    ? [
+        Number.isFinite(analysisEdinetSummary.roe ?? NaN)
+          ? `ROE ${formatPercentLabel(analysisEdinetSummary.roe)}`
+          : null,
+        Number.isFinite(analysisEdinetSummary.equityRatio ?? NaN)
+          ? `自己資本比率 ${formatPercentLabel(analysisEdinetSummary.equityRatio)}`
+          : null,
+        Number.isFinite(analysisEdinetSummary.debtRatio ?? NaN)
+          ? `D/E ${formatNumber(analysisEdinetSummary.debtRatio, 2)}`
+          : null,
+        Number.isFinite(analysisEdinetSummary.operatingCfMargin ?? NaN)
+          ? `営業CF率 ${formatPercentLabel(analysisEdinetSummary.operatingCfMargin)}`
+          : null,
+        Number.isFinite(analysisEdinetSummary.revenueGrowthYoy ?? NaN)
+          ? `売上成長率 ${formatPercentLabel(analysisEdinetSummary.revenueGrowthYoy)}`
+          : null,
+      ]
+        .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+        .join(" / ")
+    : null;
+  const edinetBonusMeta =
+    analysisEdinetSummary && Number.isFinite(analysisEdinetSummary.scoreBonus ?? NaN)
+      ? `EDI補正 ${formatSignedPercentLabel(analysisEdinetSummary.scoreBonus)}${
+          analysisEdinetSummary.featureFlagApplied == null
+            ? ""
+            : analysisEdinetSummary.featureFlagApplied
+              ? " (適用ON)"
+              : " (適用OFF)"
+        }`
+      : null;
+  const swingPlan = analysisFallback?.swingPlan ?? null;
+  const swingDiagnostics = analysisFallback?.swingDiagnostics ?? null;
+  const swingSetupExpectancy = swingDiagnostics?.setupExpectancy ?? null;
+  const swingSideLabel =
+    swingPlan?.side === "long"
+      ? "買い"
+      : swingPlan?.side === "short"
+        ? "売り"
+        : "--";
+  const swingReasonsLabel =
+    swingPlan?.reasons?.filter((entry) => typeof entry === "string" && entry.length > 0).join(" / ") ?? "";
+  const hasSwingData = Boolean(swingPlan || swingDiagnostics);
   const showAnalysisPanel = headerMode === "analysis" && !compareCode;
   const showMemoPanel = cursorMode && !compareCode && !showAnalysisPanel;
   const showRightPanel = showAnalysisPanel || showMemoPanel;
@@ -2457,6 +2804,104 @@ export default function DetailView() {
 
     return markers;
   }, [showDecisionMarkers, dailyCandles, analysisTimeline]);
+  const sellMarkerPrecision20 = useMemo(() => {
+    if (!dailyDecisionMarkers.length || !analysisTimeline.length) return null;
+    const timelineMap = new Map<number, AnalysisTimelinePoint>();
+    analysisTimeline.forEach((point) => {
+      const normalized = normalizeTime(point.dt);
+      if (normalized == null) return;
+      timelineMap.set(toDateKey(normalized), point);
+    });
+    if (!timelineMap.size) return null;
+
+    let signalCount = 0;
+    let evaluatedCount = 0;
+    let wins = 0;
+    let retCount = 0;
+    let retSum = 0;
+
+    dailyDecisionMarkers.forEach((marker) => {
+      if (marker.kind !== "decision-sell") return;
+      signalCount += 1;
+      const point = timelineMap.get(toDateKey(marker.time));
+      if (!point) return;
+      if (point.shortWin20 == null) return;
+      evaluatedCount += 1;
+      if (point.shortWin20) wins += 1;
+      if (point.shortRet20 != null && Number.isFinite(point.shortRet20)) {
+        retCount += 1;
+        retSum += point.shortRet20;
+      }
+    });
+
+    if (signalCount === 0) return null;
+    return {
+      signalCount,
+      evaluatedCount,
+      wins,
+      precision: evaluatedCount > 0 ? clamp(wins / evaluatedCount, 0, 1) : null,
+      avgRet20: retCount > 0 ? retSum / retCount : null,
+    };
+  }, [dailyDecisionMarkers, analysisTimeline]);
+  const sellMarkerPrecisionMeta = useMemo(() => {
+    if (!sellMarkerPrecision20) return null;
+    if (sellMarkerPrecision20.evaluatedCount === 0 || sellMarkerPrecision20.precision == null) {
+      return `売りマーカー精度(20日) 検証待ち ${sellMarkerPrecision20.signalCount}件`;
+    }
+    const avgRetLabel =
+      sellMarkerPrecision20.avgRet20 == null
+        ? ""
+        : ` / 平均 ${formatSignedPercentLabel(sellMarkerPrecision20.avgRet20)}`;
+    return `売りマーカー精度(20日) ${formatPercentLabel(sellMarkerPrecision20.precision)} (${sellMarkerPrecision20.wins}/${sellMarkerPrecision20.evaluatedCount})${avgRetLabel}`;
+  }, [sellMarkerPrecision20]);
+  const buyMarkerPrecision20 = useMemo(() => {
+    if (!dailyDecisionMarkers.length || !analysisTimeline.length) return null;
+    const timelineMap = new Map<number, AnalysisTimelinePoint>();
+    analysisTimeline.forEach((point) => {
+      const normalized = normalizeTime(point.dt);
+      if (normalized == null) return;
+      timelineMap.set(toDateKey(normalized), point);
+    });
+    if (!timelineMap.size) return null;
+
+    let signalCount = 0;
+    let evaluatedCount = 0;
+    let wins = 0;
+    let retCount = 0;
+    let retSum = 0;
+
+    dailyDecisionMarkers.forEach((marker) => {
+      if (marker.kind !== "decision-buy") return;
+      signalCount += 1;
+      const point = timelineMap.get(toDateKey(marker.time));
+      if (!point || point.shortRet20 == null || !Number.isFinite(point.shortRet20)) return;
+      const longRet20 = -point.shortRet20;
+      evaluatedCount += 1;
+      if (longRet20 > 0) wins += 1;
+      retCount += 1;
+      retSum += longRet20;
+    });
+
+    if (signalCount === 0) return null;
+    return {
+      signalCount,
+      evaluatedCount,
+      wins,
+      precision: evaluatedCount > 0 ? clamp(wins / evaluatedCount, 0, 1) : null,
+      avgRet20: retCount > 0 ? retSum / retCount : null,
+    };
+  }, [dailyDecisionMarkers, analysisTimeline]);
+  const buyMarkerPrecisionMeta = useMemo(() => {
+    if (!buyMarkerPrecision20) return null;
+    if (buyMarkerPrecision20.evaluatedCount === 0 || buyMarkerPrecision20.precision == null) {
+      return `買いマーカー精度(20日) 検証待ち ${buyMarkerPrecision20.signalCount}件`;
+    }
+    const avgRetLabel =
+      buyMarkerPrecision20.avgRet20 == null
+        ? ""
+        : ` / 平均 ${formatSignedPercentLabel(buyMarkerPrecision20.avgRet20)}`;
+    return `買いマーカー精度(20日) ${formatPercentLabel(buyMarkerPrecision20.precision)} (${buyMarkerPrecision20.wins}/${buyMarkerPrecision20.evaluatedCount})${avgRetLabel}`;
+  }, [buyMarkerPrecision20]);
   const currentDecisionMarker = useMemo<{ time: number; kind: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral"; label?: string }[]>(() => {
     if (!showDecisionMarkers) return [];
     if (!dailyCandles.length) return [];
@@ -5222,6 +5667,12 @@ export default function DetailView() {
                     {sellPredDtLabel && (
                       <div className="detail-analysis-meta">予測スナップショット {sellPredDtLabel}</div>
                     )}
+                    {buyMarkerPrecisionMeta && (
+                      <div className="detail-analysis-meta">{buyMarkerPrecisionMeta}</div>
+                    )}
+                    {sellMarkerPrecisionMeta && (
+                      <div className="detail-analysis-meta">{sellMarkerPrecisionMeta}</div>
+                    )}
                     {researchPriorRunId && (
                       <div className="detail-analysis-meta">研究連携 Run {researchPriorRunId}</div>
                     )}
@@ -5231,7 +5682,57 @@ export default function DetailView() {
                     {analysisResearchPrior && (
                       <div className="detail-analysis-meta">{researchPriorDownMeta}</div>
                     )}
+                    {edinetStatusMeta && (
+                      <div className="detail-analysis-meta">{edinetStatusMeta}</div>
+                    )}
+                    {edinetQualityMeta && (
+                      <div className="detail-analysis-meta">EDI品質 {edinetQualityMeta}</div>
+                    )}
+                    {edinetMetricsMeta && (
+                      <div className="detail-analysis-meta">{edinetMetricsMeta}</div>
+                    )}
+                    {edinetBonusMeta && (
+                      <div className="detail-analysis-meta">{edinetBonusMeta}</div>
+                    )}
                   </div>
+                  {hasSwingData && (
+                    <div className="detail-analysis-section">
+                      <div className="detail-analysis-section-title">Swing Plan (10-25営業日)</div>
+                      {swingPlan ? (
+                        <>
+                          <div className="detail-analysis-meta">
+                            提案 {swingSideLabel} / Score {formatPercentLabel(swingPlan.score)} / Horizon {formatNumber(swingPlan.horizonDays, 0)}日
+                          </div>
+                          <div className="detail-analysis-meta">
+                            Entry {formatNumber(swingPlan.entry, 2)} / Stop {formatNumber(swingPlan.stop, 2)}
+                          </div>
+                          <div className="detail-analysis-meta">
+                            TP1 {formatNumber(swingPlan.tp1, 2)} / TP2 {formatNumber(swingPlan.tp2, 2)} / TimeStop {formatNumber(swingPlan.timeStopDays, 0)}日
+                          </div>
+                          {swingReasonsLabel && (
+                            <div className="detail-analysis-meta">理由 {swingReasonsLabel}</div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="detail-analysis-meta">現在条件では swing 提案なし</div>
+                      )}
+                      {swingDiagnostics && (
+                        <div className="detail-analysis-meta">
+                          Edge {formatPercentLabel(swingDiagnostics.edge)} / Risk {formatPercentLabel(swingDiagnostics.risk)} / RegimeFit {formatPercentLabel(swingDiagnostics.regimeFit)}
+                        </div>
+                      )}
+                      {swingDiagnostics && (
+                        <div className="detail-analysis-meta">
+                          ATR {formatPercentLabel(swingDiagnostics.atrPct)} / 流動性20d {formatNumber(swingDiagnostics.liquidity20d, 0)}
+                        </div>
+                      )}
+                      {swingSetupExpectancy && (
+                        <div className="detail-analysis-meta">
+                          Setup {swingSetupExpectancy.setupType ?? "--"} / n {formatNumber(swingSetupExpectancy.samples, 0)} / 勝率 {formatPercentLabel(swingSetupExpectancy.winRate)} / 平均 {formatSignedPercentLabel(swingSetupExpectancy.meanRet)} / 縮小平均 {formatSignedPercentLabel(swingSetupExpectancy.shrunkMeanRet)}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="detail-analysis-empty">分析データがありません。</div>

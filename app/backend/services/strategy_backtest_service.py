@@ -1551,11 +1551,13 @@ def _build_walkforward_gate_report(
     min_oos_total_realized_unit_pnl: float,
     min_oos_mean_profit_factor: float,
     min_oos_positive_window_ratio: float,
+    min_oos_worst_max_drawdown_unit: float,
     note: str | None,
 ) -> dict[str, Any]:
     oos_total = _safe_float(source_summary.get("oos_total_realized_unit_pnl"))
     oos_pf = _safe_float(source_summary.get("oos_mean_profit_factor"))
     oos_pos_ratio = _safe_float(source_summary.get("oos_positive_window_ratio"))
+    oos_worst_dd = _safe_float(source_summary.get("oos_worst_max_drawdown_unit"))
     checks = {
         "oos_total_realized_unit_pnl": {
             "actual": oos_total,
@@ -1573,6 +1575,14 @@ def _build_walkforward_gate_report(
             "pass": (
                 oos_pos_ratio is not None
                 and oos_pos_ratio >= float(min_oos_positive_window_ratio)
+            ),
+        },
+        "oos_worst_max_drawdown_unit": {
+            "actual": oos_worst_dd,
+            "threshold": float(min_oos_worst_max_drawdown_unit),
+            "pass": (
+                oos_worst_dd is not None
+                and oos_worst_dd >= float(min_oos_worst_max_drawdown_unit)
             ),
         },
     }
@@ -1599,6 +1609,7 @@ def _build_walkforward_gate_report(
             "min_oos_total_realized_unit_pnl": float(min_oos_total_realized_unit_pnl),
             "min_oos_mean_profit_factor": float(min_oos_mean_profit_factor),
             "min_oos_positive_window_ratio": float(min_oos_positive_window_ratio),
+            "min_oos_worst_max_drawdown_unit": float(min_oos_worst_max_drawdown_unit),
         },
         "checks": checks,
         "note": note,
@@ -1949,6 +1960,7 @@ def run_strategy_walkforward_gate(
     min_oos_total_realized_unit_pnl: float = 0.0,
     min_oos_mean_profit_factor: float = 1.05,
     min_oos_positive_window_ratio: float = 0.40,
+    min_oos_worst_max_drawdown_unit: float = -0.12,
     dry_run: bool = False,
     note: str | None = None,
 ) -> dict[str, Any]:
@@ -1992,6 +2004,7 @@ def run_strategy_walkforward_gate(
             min_oos_total_realized_unit_pnl=float(min_oos_total_realized_unit_pnl),
             min_oos_mean_profit_factor=float(min_oos_mean_profit_factor),
             min_oos_positive_window_ratio=float(min_oos_positive_window_ratio),
+            min_oos_worst_max_drawdown_unit=float(min_oos_worst_max_drawdown_unit),
             note=note,
         )
         if not dry_run:

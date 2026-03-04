@@ -206,11 +206,6 @@ const MTF_STRICTNESS_LABEL: Record<MtfStrictness, string> = {
   normal: "標準",
   tight: "強"
 };
-const RISK_MODE_LABEL: Record<RankRiskMode, string> = {
-  defensive: "守り",
-  balanced: "中立",
-  aggressive: "攻め"
-};
 const MTF_STRICT_ORDER: MtfStrictnessResolved[] = ["normal", "tight", "loose"];
 
 const finiteNum = (value?: number | null) => {
@@ -429,18 +424,18 @@ export default function RankingView() {
   const favorites = useStore((state) => state.favorites);
 
   const [dir, setDir] = useState<"up" | "down">("up");
-  // const [rankTimeframe, setRankTimeframe] = useState<RankTimeframe>("D"); // REMOVED
-  const [rankScope, setRankScope] = useState<RankScope>("single");
-  const [rankWhich, setRankWhich] = useState<RankWhich>("latest");
-  const [rankMode, setRankMode] = useState<RankMode>("hybrid");
-  const [riskMode, setRiskMode] = useState<RankRiskMode>("balanced");
+  // Keep only high-confidence unified mode to reduce UI complexity.
+  const rankScope: RankScope = "multi";
+  const rankWhich: RankWhich = "latest";
+  const rankMode: RankMode = "hybrid";
+  const riskMode: RankRiskMode = "balanced";
   const [items, setItems] = useState<RankItem[]>([]);
   const [search, setSearch] = useState("");
-  const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
-  const [filterDataOnly, setFilterDataOnly] = useState(false);
-  const [filterQualifiedOnly, setFilterQualifiedOnly] = useState(false);
-  const [filterMtfStrictOnly, setFilterMtfStrictOnly] = useState(false);
-  const [mtfStrictness, setMtfStrictness] = useState<MtfStrictness>("auto");
+  const filterSignalsOnly = false;
+  const filterDataOnly = false;
+  const filterQualifiedOnly = true;
+  const filterMtfStrictOnly = true;
+  const mtfStrictness: MtfStrictness = "auto";
   const [metricsView, setMetricsView] = useState<RankMetricsView>("compact");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -480,54 +475,13 @@ export default function RankingView() {
         stateVersion?: number;
         listTimeframe?: "daily" | "weekly" | "monthly";
         dir?: "up" | "down";
-        rankScope?: RankScope;
-        rankWhich?: RankWhich;
-        rankMode?: RankMode;
-        riskMode?: RankRiskMode;
-        filterQualifiedOnly?: boolean;
-        filterMtfStrictOnly?: boolean;
-        mtfStrictness?: MtfStrictness;
         metricsView?: RankMetricsView;
       };
-      const stateVersion = Number(parsed.stateVersion ?? 1);
       if (parsed.listTimeframe) {
         setListTimeframe(parsed.listTimeframe);
       }
       if (parsed.dir === "up" || parsed.dir === "down") {
         setDir(parsed.dir);
-      }
-      if (stateVersion >= RANK_VIEW_STATE_VERSION && (parsed.rankScope === "single" || parsed.rankScope === "multi")) {
-        setRankScope(parsed.rankScope);
-      }
-      if (parsed.rankWhich === "latest" || parsed.rankWhich === "prev") {
-        setRankWhich(parsed.rankWhich);
-      }
-      if (parsed.rankMode === "hybrid" || parsed.rankMode === "turn") {
-        setRankMode(parsed.rankMode);
-      }
-      if (
-        parsed.riskMode === "defensive"
-        || parsed.riskMode === "balanced"
-        || parsed.riskMode === "aggressive"
-      ) {
-        setRiskMode(parsed.riskMode);
-      }
-      if (stateVersion >= RANK_VIEW_STATE_VERSION && typeof parsed.filterQualifiedOnly === "boolean") {
-        setFilterQualifiedOnly(parsed.filterQualifiedOnly);
-      }
-      if (stateVersion >= RANK_VIEW_STATE_VERSION && typeof parsed.filterMtfStrictOnly === "boolean") {
-        setFilterMtfStrictOnly(parsed.filterMtfStrictOnly);
-      }
-      if (
-        stateVersion >= RANK_VIEW_STATE_VERSION
-        && (
-          parsed.mtfStrictness === "auto"
-          || parsed.mtfStrictness === "loose"
-          || parsed.mtfStrictness === "normal"
-          || parsed.mtfStrictness === "tight"
-        )
-      ) {
-        setMtfStrictness(parsed.mtfStrictness);
       }
       if (parsed.metricsView === "compact" || parsed.metricsView === "full") {
         setMetricsView(parsed.metricsView);
@@ -544,20 +498,13 @@ export default function RankingView() {
         stateVersion: RANK_VIEW_STATE_VERSION,
         listTimeframe,
         dir,
-        rankScope,
-        rankWhich,
-        rankMode,
-        riskMode,
-        filterQualifiedOnly,
-        filterMtfStrictOnly,
-        mtfStrictness,
         metricsView
       };
       window.sessionStorage.setItem(RANK_VIEW_STATE_KEY, JSON.stringify(payload));
     } catch {
       // ignore storage failures
     }
-  }, [listTimeframe, dir, rankScope, rankWhich, rankMode, riskMode, filterQualifiedOnly, filterMtfStrictOnly, mtfStrictness, metricsView]);
+  }, [listTimeframe, dir, metricsView]);
 
   const listStyles = useMemo(
     () =>
@@ -584,7 +531,6 @@ export default function RankingView() {
       default: return "D";
     }
   }, [listTimeframe]);
-  const rankLabelTf: RankTimeframe = rankScope === "multi" ? "D" : (tfChar as RankTimeframe);
   const showEdinetMonitor = rankScope === "single" && tfChar === "M" && rankMode === "hybrid" && !useFallback;
 
   /*
@@ -598,62 +544,15 @@ export default function RankingView() {
   );
   */
 
-  const whichLabelMap = useMemo(
-    () => ({
-      D: { latest: "当日", prev: "前日" },
-      W: { latest: "今週", prev: "前週" },
-      M: { latest: "今月", prev: "前月" }
-    }),
+  const sortOptions = useMemo(
+    () => [
+      { value: "up", label: "買い勝ちTop50" },
+      { value: "down", label: "売り勝ちTop50" }
+    ],
     []
   );
-  // Decoupling: rankTimeframe and listTimeframe are now independent.
-  // The user can view Weekly Ranking while looking at Daily Charts, for example.
 
-  const sortOptions = useMemo(
-    () =>
-      rankScope === "multi"
-        ? [
-          { value: "up", label: "買い勝ちTop50" },
-          { value: "down", label: "売り勝ちTop50" }
-        ]
-        : [
-          { value: "up", label: "買い優勢Top50" },
-          { value: "down", label: "売り優勢Top50" }
-        ],
-    [rankScope]
-  );
-
-  const filterItems = useMemo(() => {
-    const items = [
-      {
-        key: "signals",
-        label: "\u30b7\u30b0\u30ca\u30eb\u3042\u308a",
-        checked: filterSignalsOnly,
-        onToggle: () => setFilterSignalsOnly((prev) => !prev)
-      },
-      {
-        key: "data",
-        label: "\u30c7\u30fc\u30bf\u53d6\u5f97\u6e08\u307f",
-        checked: filterDataOnly,
-        onToggle: () => setFilterDataOnly((prev) => !prev)
-      },
-      {
-        key: "qualified",
-        label: "エントリー適格のみ",
-        checked: filterQualifiedOnly,
-        onToggle: () => setFilterQualifiedOnly((prev) => !prev)
-      }
-    ];
-    if (rankScope === "multi") {
-      items.push({
-        key: "mtfStrict",
-        label: `統合厳選(${MTF_STRICTNESS_LABEL[mtfStrictness]})`,
-        checked: filterMtfStrictOnly,
-        onToggle: () => setFilterMtfStrictOnly((prev) => !prev)
-      });
-    }
-    return items;
-  }, [filterSignalsOnly, filterDataOnly, filterQualifiedOnly, filterMtfStrictOnly, rankScope, mtfStrictness]);
+  const filterItems = useMemo(() => [], []);
 
   const fallbackItems = useMemo(() => {
     const normalizeBars = (bars: number[][]) => {
@@ -798,22 +697,6 @@ export default function RankingView() {
     () => Math.max(MTF_STRICT_GATE_FLOOR, Math.min(MTF_STRICT_GATE_CEIL, mtfStrictGate + mtfStrictRule.gateBias)),
     [mtfStrictGate, mtfStrictRule]
   );
-  const mtfStrictProfileCounts = useMemo(() => {
-    const calcCount = (key: MtfStrictnessResolved) => {
-      const profile = MTF_STRICT_PROFILES[key];
-      const gate = Math.max(MTF_STRICT_GATE_FLOOR, Math.min(MTF_STRICT_GATE_CEIL, mtfStrictGate + profile.gateBias));
-      return filteredItems.reduce(
-        (acc, item) => acc + (matchesMtfStrictRule(item, profile.minQualified, gate) ? 1 : 0),
-        0
-      );
-    };
-    return {
-      loose: calcCount("loose"),
-      normal: calcCount("normal"),
-      tight: calcCount("tight")
-    };
-  }, [filteredItems, mtfStrictGate]);
-
   const mtfStrictFilteredItems = useMemo(() => {
     if (rankScope !== "multi" || !filterMtfStrictOnly || useFallback) return filteredItems;
     return filteredItems.filter((item) => matchesMtfStrictRule(item, mtfStrictRule.minQualified, mtfStrictGateApplied));
@@ -1415,33 +1298,6 @@ export default function RankingView() {
           background: "var(--theme-bg-secondary)"
         }}
       >
-        {/* Timeframe buttons removed: Using Global Header Timeframe */}
-        <div className="segmented segmented-compact">
-          {(["single", "multi"] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              className={rankScope === key ? "active" : ""}
-              onClick={() => setRankScope(key)}
-            >
-              {key === "single" ? "単一足" : "統合"}
-            </button>
-          ))}
-        </div>
-        <div className="segmented segmented-compact">
-          {(["latest", "prev"] as RankWhich[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              className={rankWhich === key ? "active" : ""}
-              onClick={() => setRankWhich(key)}
-            >
-              {rankScope === "multi"
-                ? (key === "latest" ? "統合最新" : "統合前回")
-                : whichLabelMap[rankLabelTf][key]}
-            </button>
-          ))}
-        </div>
         <div className="segmented segmented-compact">
           {(["up", "down"] as const).map((key) => (
             <button
@@ -1455,44 +1311,6 @@ export default function RankingView() {
           ))}
         </div>
         <div className="segmented segmented-compact">
-          {(["hybrid", "turn"] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              className={rankMode === key ? "active" : ""}
-              onClick={() => setRankMode(key)}
-            >
-              {key === "hybrid" ? "継続" : "転換"}
-            </button>
-          ))}
-        </div>
-        <div className="segmented segmented-compact">
-          {(["defensive", "balanced", "aggressive"] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              className={riskMode === key ? "active" : ""}
-              onClick={() => setRiskMode(key)}
-            >
-              {RISK_MODE_LABEL[key]}
-            </button>
-          ))}
-        </div>
-        {rankScope === "multi" && filterMtfStrictOnly && (
-          <div className="segmented segmented-compact">
-            {(["auto", "loose", "normal", "tight"] as const).map((key) => (
-              <button
-                key={key}
-                type="button"
-                className={mtfStrictness === key ? "active" : ""}
-                onClick={() => setMtfStrictness(key)}
-              >
-                {MTF_STRICTNESS_LABEL[key]}
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="segmented segmented-compact">
           {(["compact", "full"] as const).map((key) => (
             <button
               key={key}
@@ -1505,26 +1323,19 @@ export default function RankingView() {
           ))}
         </div>
         <span className="rank-score-badge">
-          表示: {rankScope === "multi" ? "統合(今勝てる順)" : rankMode === "turn" ? "転換優先" : "エントリー優先"}
+          表示: 統合厳選(自動)
         </span>
         <span className="rank-score-badge">
-          運用: {RISK_MODE_LABEL[riskMode]}
+          運用: 継続 x 中立
         </span>
         {showEdinetMonitor && edinetMonitorLabel && (
           <div className={`rank-top-summary${edinetMonitor?.insufficient_samples ? " is-warn" : ""}`}>
             {edinetMonitorLabel}
           </div>
         )}
-        {rankScope === "multi" && (
-          <span className="rank-score-badge">
-            厳選[{mtfStrictness === "auto" ? `自動→${mtfStrictRule.label}` : mtfStrictRule.label}] 合意{mtfStrictRule.minQualified}/3+ or 勝ちやすさ{(mtfStrictGateApplied * 100).toFixed(1)}% / 候補{mtfStrictCount}件
-          </span>
-        )}
-        {rankScope === "multi" && mtfStrictness === "auto" && (
-          <span className="rank-score-badge">
-            自動候補(目標{mtfStrictTarget}): 緩{mtfStrictProfileCounts.loose} / 標準{mtfStrictProfileCounts.normal} / 強{mtfStrictProfileCounts.tight}
-          </span>
-        )}
+        <span className="rank-score-badge">
+          厳選: {mtfStrictRule.label} / 合意{mtfStrictRule.minQualified}/3+ or 勝ちやすさ{(mtfStrictGateApplied * 100).toFixed(1)}% / 候補{mtfStrictCount}件
+        </span>
         {qualificationFilterRelaxed && (
           <div className="rank-top-summary is-warn">
             適格銘柄が0件のため、条件未達を含む候補を表示しています。

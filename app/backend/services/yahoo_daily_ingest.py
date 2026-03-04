@@ -17,6 +17,14 @@ def _today_jst_key() -> int:
     return int((datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y%m%d"))
 
 
+def _date_key_to_utc_epoch(date_key: int) -> int:
+    text = str(int(date_key))
+    if len(text) != 8 or not text.isdigit():
+        raise ValueError(f"invalid date key: {date_key}")
+    parsed = datetime.strptime(text, "%Y%m%d").replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp())
+
+
 def _load_target_codes(conn, *, max_codes: int | None = None) -> tuple[list[str], str]:
     queries = (
         (
@@ -263,7 +271,7 @@ def ingest_latest_provisional_daily_rows(
         rows_to_insert.append(
             (
                 code,
-                int(row[0]),
+                _date_key_to_utc_epoch(int(row_key)),
                 float(row[1]),
                 float(row[2]),
                 float(row[3]),

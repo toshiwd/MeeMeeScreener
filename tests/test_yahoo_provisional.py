@@ -31,6 +31,62 @@ def test_merge_respects_asof_limit() -> None:
     assert merged == base
 
 
+def test_split_gap_adjustment_scales_forward_split_rows() -> None:
+    rows = [
+        (1, 100.0, 110.0, 95.0, 100.0, 10.0),
+        (2, 102.0, 111.0, 98.0, 102.0, 12.0),
+        (3, 51.0, 56.0, 50.0, 51.0, 14.0),
+        (4, 52.0, 57.0, 51.0, 52.0, 16.0),
+    ]
+    adjusted = yp.apply_split_gap_adjustment(rows)
+    assert adjusted[0][4] == 100.0
+    assert adjusted[1][4] == 102.0
+    assert adjusted[2][4] == 102.0
+    assert adjusted[3][4] == 104.0
+
+
+def test_split_gap_adjustment_scales_reverse_split_rows() -> None:
+    rows = [
+        (1, 100.0, 101.0, 99.0, 100.0, 10.0),
+        (2, 98.0, 99.0, 97.0, 98.0, 12.0),
+        (3, 490.0, 495.0, 480.0, 490.0, 14.0),
+        (4, 500.0, 505.0, 499.0, 500.0, 16.0),
+    ]
+    adjusted = yp.apply_split_gap_adjustment(rows)
+    assert adjusted[0][4] == 100.0
+    assert adjusted[1][4] == 98.0
+    assert adjusted[2][4] == 98.0
+    assert adjusted[3][4] == 100.0
+
+
+def test_split_gap_adjustment_supports_large_integer_factor() -> None:
+    rows = [
+        (1, 2600.0, 2600.0, 2597.0, 2597.0, 10.0),
+        (2, 153.0, 153.0, 153.0, 153.0, 0.0),
+    ]
+    adjusted = yp.apply_split_gap_adjustment(rows)
+    assert abs(adjusted[1][4] - 2601.0) < 1e-6
+
+
+def test_split_gap_adjustment_does_not_adjust_non_uniform_drop() -> None:
+    rows = [
+        (1, 100.0, 105.0, 95.0, 100.0, 10.0),
+        (2, 60.0, 70.0, 50.0, 50.0, 12.0),
+    ]
+    adjusted = yp.apply_split_gap_adjustment(rows)
+    assert adjusted == rows
+
+
+def test_split_gap_adjustment_keeps_normal_moves() -> None:
+    rows = [
+        (1, 100.0, 103.0, 99.0, 100.0, 10.0),
+        (2, 101.0, 104.0, 100.0, 101.0, 12.0),
+        (3, 102.0, 105.0, 101.0, 102.0, 11.0),
+    ]
+    adjusted = yp.apply_split_gap_adjustment(rows)
+    assert adjusted == rows
+
+
 def test_invalid_code_skips_fetch(monkeypatch) -> None:
     monkeypatch.setenv("MEEMEE_YF_PROVISIONAL_ENABLED", "1")
     called = {"count": 0}

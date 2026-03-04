@@ -646,6 +646,12 @@ class StockRepository:
                 has_p_turn_down = self._column_exists(conn, "sell_analysis_daily", "p_turn_down")
                 has_trend_down = self._column_exists(conn, "sell_analysis_daily", "trend_down")
                 has_trend_down_strict = self._column_exists(conn, "sell_analysis_daily", "trend_down_strict")
+                has_short_ret_5 = self._column_exists(conn, "sell_analysis_daily", "short_ret_5")
+                has_short_ret_10 = self._column_exists(conn, "sell_analysis_daily", "short_ret_10")
+                has_short_ret_20 = self._column_exists(conn, "sell_analysis_daily", "short_ret_20")
+                has_short_win_5 = self._column_exists(conn, "sell_analysis_daily", "short_win_5")
+                has_short_win_10 = self._column_exists(conn, "sell_analysis_daily", "short_win_10")
+                has_short_win_20 = self._column_exists(conn, "sell_analysis_daily", "short_win_20")
 
                 query = f"""
                     SELECT
@@ -653,7 +659,13 @@ class StockRepository:
                         {"p_down" if has_p_down else "NULL::DOUBLE AS p_down"},
                         {"p_turn_down" if has_p_turn_down else "NULL::DOUBLE AS p_turn_down"},
                         {"trend_down" if has_trend_down else "NULL::BOOLEAN AS trend_down"},
-                        {"trend_down_strict" if has_trend_down_strict else "NULL::BOOLEAN AS trend_down_strict"}
+                        {"trend_down_strict" if has_trend_down_strict else "NULL::BOOLEAN AS trend_down_strict"},
+                        {"short_ret_5" if has_short_ret_5 else "NULL::DOUBLE AS short_ret_5"},
+                        {"short_ret_10" if has_short_ret_10 else "NULL::DOUBLE AS short_ret_10"},
+                        {"short_ret_20" if has_short_ret_20 else "NULL::DOUBLE AS short_ret_20"},
+                        {"short_win_5" if has_short_win_5 else "NULL::BOOLEAN AS short_win_5"},
+                        {"short_win_10" if has_short_win_10 else "NULL::BOOLEAN AS short_win_10"},
+                        {"short_win_20" if has_short_win_20 else "NULL::BOOLEAN AS short_win_20"}
                     FROM sell_analysis_daily
                     WHERE code = ?
                 """
@@ -686,6 +698,12 @@ class StockRepository:
                 "sellPTurnDown": None,
                 "trendDown": None,
                 "trendDownStrict": None,
+                "shortRet5": None,
+                "shortRet10": None,
+                "shortRet20": None,
+                "shortWin5": None,
+                "shortWin10": None,
+                "shortWin20": None,
             }
             timeline_by_key[dt_key] = payload
             return payload
@@ -718,6 +736,12 @@ class StockRepository:
             point["sellPTurnDown"] = _to_float_or_none(row[2] if len(row) > 2 else None)
             point["trendDown"] = bool(row[3]) if len(row) > 3 and row[3] is not None else None
             point["trendDownStrict"] = bool(row[4]) if len(row) > 4 and row[4] is not None else None
+            point["shortRet5"] = _to_float_or_none(row[5] if len(row) > 5 else None)
+            point["shortRet10"] = _to_float_or_none(row[6] if len(row) > 6 else None)
+            point["shortRet20"] = _to_float_or_none(row[7] if len(row) > 7 else None)
+            point["shortWin5"] = bool(row[8]) if len(row) > 8 and row[8] is not None else None
+            point["shortWin10"] = bool(row[9]) if len(row) > 9 and row[9] is not None else None
+            point["shortWin20"] = bool(row[10]) if len(row) > 10 and row[10] is not None else None
 
         keys = sorted(timeline_by_key.keys())
         if len(keys) > resolved_limit:

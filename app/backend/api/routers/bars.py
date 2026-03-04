@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.backend.api.dependencies import get_stock_repo
 from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.services.yahoo_provisional import (
+    apply_split_gap_adjustment,
     get_provisional_daily_rows_from_spark,
     merge_daily_rows_with_provisional,
 )
@@ -157,6 +158,7 @@ def _fetch_multi_timeframe_items(
                 raw_daily.get(code, []),
                 provisional_map.get(code) if include_provisional else None,
             )
+            merged = apply_split_gap_adjustment(merged)
             daily_rows_by_code[code] = merged
             if "daily" in requested_frames:
                 items[code]["daily"] = _to_payload_rows(merged, boxes_enabled=False)
@@ -174,6 +176,7 @@ def _fetch_multi_timeframe_items(
         monthly_rows_by_code = repo.get_monthly_bars_batch(codes, limit)
         for code in codes:
             monthly_rows = monthly_rows_by_code.get(code, [])
+            monthly_rows = apply_split_gap_adjustment(monthly_rows)
             items[code]["monthly"] = _to_payload_rows(monthly_rows, boxes_enabled=True)
 
     return items

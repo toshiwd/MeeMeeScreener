@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-DECISION_VERSION = "2026-03-03-v1"
+DECISION_VERSION = "2026-03-04-v2"
 
 
 def _to_float(value: Any) -> float | None:
@@ -91,13 +91,25 @@ def build_analysis_decision(
     trend_down_strict = _to_bool((sell_analysis or {}).get("trendDownStrict"))
     trend_down_penalty = 0.08 if trend_down_strict else 0.04 if trend_down else 0.0
     trend_down_boost = 1.0 if trend_down_strict else 0.7 if trend_down else 0.3
-    short_score = _first_finite((sell_analysis or {}).get("shortScore"), 70.0) or 70.0
+    short_score = _first_finite((sell_analysis or {}).get("shortScore"))
+    if short_score is None:
+        a_score = _first_finite((sell_analysis or {}).get("aScore"))
+        b_score = _first_finite((sell_analysis or {}).get("bScore"))
+        if a_score is not None or b_score is not None:
+            short_score = float(a_score or 0.0) + float(b_score or 0.0)
+    if short_score is None:
+        short_score = 70.0
     short_score_norm = _clamp((short_score - 70.0) / 90.0, 0.0, 1.0)
     bullish_structure = bool(
         (not trend_down)
         and (_first_finite((sell_analysis or {}).get("distMa20Signed"), 0.0) or 0.0) > 0
         and (_first_finite((sell_analysis or {}).get("ma20Slope"), 0.0) or 0.0) >= 0
         and (_first_finite((sell_analysis or {}).get("ma60Slope"), 0.0) or 0.0) >= 0
+    )
+    short_signal_confirmed = bool(
+        trend_down
+        or trend_down_strict
+        or short_score_norm >= 0.34
     )
     strong_up_context = bool(
         _to_bool((additive_signals or {}).get("trendUpStrict"))
@@ -152,15 +164,19 @@ def build_analysis_decision(
     )
     force_down_confirm = bool(
         (trend_down_strict and down_prob >= 0.58 and turn_down >= 0.56 and (analysis_ev_net or 0.0) <= 0.0)
-        or (down_prob >= 0.68 and turn_down >= 0.64 and (analysis_ev_net or 0.0) <= -0.01)
+        or (
+            down_prob >= 0.70
+            and turn_down >= 0.66
+            and (analysis_ev_net or 0.0) <= -0.01
+            and short_score_norm >= 0.34
+        )
     )
     down_confirm = bool(
         trend_down
         or trend_down_strict
-        or (down_prob - up_prob) >= 0.10
-        or down_prob >= 0.62
+        or (((down_prob - up_prob) >= 0.10 or down_prob >= 0.62) and short_signal_confirmed)
     )
-    down_threshold = 0.66 if strong_up_context else 0.56
+    down_threshold = 0.68 if strong_up_context else 0.58
 
     scenarios = [
         {"key": "up", "label": "上昇継続（押し目再開）", "tone": "up", "score": float(up_score)},

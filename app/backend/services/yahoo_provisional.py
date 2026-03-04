@@ -18,6 +18,10 @@ _DEFAULT_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 _SPARK_MAX_SYMBOLS_PER_REQUEST = 20
+_SPLIT_FACTOR_CANDIDATES = (1.5, *tuple(float(v) for v in range(2, 31)))
+_SPLIT_GAP_MIN = 0.28
+_SPLIT_RATIO_TOLERANCE = 0.08
+_SPLIT_OHLC_TOLERANCE = 0.20
 _CACHE_MISS = object()
 _cache_lock = Lock()
 _chart_cache: dict[str, tuple[float, tuple[int, float, float, float, float, float] | None]] = {}
@@ -150,6 +154,55 @@ def merge_daily_rows_with_provisional(
 
     base_rows.append(normalized)
     return base_rows
+
+
+def apply_split_gap_adjustment(rows: Iterable[Sequence[Any]]) -> list[tuple]:
+    base_rows = [tuple(row) for row in rows]
+    if len(base_rows) < 2:
+        return base_rows
+
+    adjusted: list[tuple] = []
+    cumulative_factor = 1.0
+    prev_ohlc: tuple[float, float, float, float] | None = None
+    for row in base_rows:
+        if len(row) < 5:
+            adjusted.append(row)
+            continue
+
+        open_raw = _to_float(row[1])
+        high_raw = _to_float(row[2])
+        low_raw = _to_float(row[3])
+        close_raw = _to_float(row[4])
+        if open_raw is None or high_raw is None or low_raw is None or close_raw is None:
+            adjusted.append(row)
+            continue
+
+        current_ohlc = (
+            open_raw * cumulative_factor,
+            high_raw * cumulative_factor,
+            low_raw * cumulative_factor,
+            close_raw * cumulative_factor,
+        )
+        if prev_ohlc is not None and prev_ohlc[3] > 0 and current_ohlc[3] > 0:
+            correction = _estimate_split_correction_factor(prev_ohlc, current_ohlc)
+            if correction is not None:
+                cumulative_factor *= correction
+                current_ohlc = (
+                    open_raw * cumulative_factor,
+                    high_raw * cumulative_factor,
+                    low_raw * cumulative_factor,
+                    close_raw * cumulative_factor,
+                )
+
+        row_out = list(row)
+        row_out[1] = current_ohlc[0]
+        row_out[2] = current_ohlc[1]
+        row_out[3] = current_ohlc[2]
+        row_out[4] = current_ohlc[3]
+        adjusted.append(tuple(row_out))
+        prev_ohlc = current_ohlc
+
+    return adjusted
 
 
 def get_provisional_daily_row_from_chart(code: str) -> tuple[int, float, float, float, float, float] | None:
@@ -380,6 +433,53 @@ def _to_pan_volume_unit(value: float | None) -> float:
         return 0.0
     # PAN daily_bars.v uses thousand-share unit (千株). Yahoo is shares.
     return float(int(round(float(value) / 1000.0)))
+
+
+def _estimate_split_correction_factor(
+    prev_ohlc: tuple[float, float, float, float],
+    current_ohlc: tuple[float, float, float, float],
+) -> float | None:
+    prev_close = prev_ohlc[3]
+    current_close = current_ohlc[3]
+    if prev_close != prev_close or current_close != current_close:
+        return None
+    if prev_close <= 0 or current_close <= 0:
+        return None
+
+    ratio = current_close / prev_close
+    if ratio != ratio or ratio <= 0:
+        return None
+    if abs(1.0 - ratio) < _SPLIT_GAP_MIN:
+        return None
+
+    best_correction: float | None = None
+    best_error: float | None = None
+    for factor in _SPLIT_FACTOR_CANDIDATES:
+        correction = factor if ratio < 1.0 else (1.0 / factor)
+        close_error = abs((ratio * correction) - 1.0)
+        if close_error > _SPLIT_RATIO_TOLERANCE:
+            continue
+
+        component_errors: list[float] = []
+        valid = True
+        for idx in range(4):
+            prev_value = prev_ohlc[idx]
+            curr_value = current_ohlc[idx]
+            if prev_value <= 0 or curr_value <= 0:
+                valid = False
+                break
+            component_errors.append(abs(((curr_value * correction) / prev_value) - 1.0))
+        if not valid or not component_errors:
+            continue
+        if max(component_errors) > _SPLIT_OHLC_TOLERANCE:
+            continue
+
+        score = close_error + (sum(component_errors) / float(len(component_errors)))
+        if best_error is None or score < best_error:
+            best_error = score
+            best_correction = correction
+
+    return best_correction
 
 
 def _clear_caches_for_tests() -> None:

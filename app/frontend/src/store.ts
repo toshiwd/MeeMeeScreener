@@ -125,6 +125,12 @@ export type Ticker = {
   sellDownsideAtr?: number | null;
   eventEarningsDate?: string | null;
   eventRightsDate?: string | null;
+  swingScore?: number | null;
+  swingQualified?: boolean | null;
+  swingSide?: "long" | "short" | "none" | null;
+  swingReasons?: string[] | null;
+  swingLongScore?: number | null;
+  swingShortScore?: number | null;
 };
 
 export type EventsMeta = {
@@ -305,6 +311,7 @@ export type CandidateSortKey =
   | "buyCandidate"      // 買い候補（総合）
   | "buyInitial"        // 買い候補（初動）
   | "buyBase"           // 買い候補（底がため）
+  | "swingScore"        // スイング候補（総合）
   | "shortPriority"     // 売り精度優先
   | "shortScore"        // 売り候補（総合）
   | "aScore"            // 売り候補（反転確定）
@@ -324,6 +331,7 @@ export type BasicSortKey =
   | "downScore"
   | "overheatUp"
   | "overheatDown"
+  | "swingScore"
   | "mlEv20Net"
   | "mlPUpShort"
   | "mlPDownShort"
@@ -358,6 +366,7 @@ export type SortKey =
   | "downScore"
   | "overheatUp"
   | "overheatDown"
+  | "swingScore"
   | "mlEv20Net"
   | "mlPUpShort"
   | "mlPDownShort"
@@ -815,6 +824,7 @@ const getInitialSortKey = (): SortKey => {
     "downScore",
     "overheatUp",
     "overheatDown",
+    "swingScore",
     "mlEv20Net",
     "mlPUpShort",
     "mlPDownShort",
@@ -883,6 +893,7 @@ const getInitialSectorSortInnerKey = (): BasicSortKey => {
     "downScore",
     "overheatUp",
     "overheatDown",
+    "swingScore",
     "mlEv20Net",
     "mlPUpShort",
     "mlPDownShort",
@@ -1373,7 +1384,36 @@ export const useStore = create<StoreState>((set, get) => ({
                 ? item.sell_downside_atr
                 : null,
           eventEarningsDate: item.eventEarningsDate ?? item.event_earnings_date ?? null,
-          eventRightsDate: item.eventRightsDate ?? item.event_rights_date ?? null
+          eventRightsDate: item.eventRightsDate ?? item.event_rights_date ?? null,
+          swingScore:
+            typeof item.swingScore === "number"
+              ? item.swingScore
+              : typeof item.swing_score === "number"
+                ? item.swing_score
+                : null,
+          swingQualified:
+            typeof item.swingQualified === "boolean"
+              ? item.swingQualified
+              : typeof item.swing_qualified === "boolean"
+                ? item.swing_qualified
+                : null,
+          swingSide: (() => {
+            const raw = item.swingSide ?? item.swing_side;
+            return raw === "long" || raw === "short" || raw === "none" ? raw : null;
+          })(),
+          swingReasons: parseReasons(item.swingReasons ?? item.swing_reasons),
+          swingLongScore:
+            typeof item.swingLongScore === "number"
+              ? item.swingLongScore
+              : typeof item.swing_long_score === "number"
+                ? item.swing_long_score
+                : null,
+          swingShortScore:
+            typeof item.swingShortScore === "number"
+              ? item.swingShortScore
+              : typeof item.swing_short_score === "number"
+                ? item.swing_short_score
+                : null,
         };
       });
       try {

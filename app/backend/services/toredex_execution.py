@@ -283,7 +283,8 @@ def execute_live_decision(
         )
 
     positions_after: list[dict[str, Any]] = []
-    invested_base = 0.0
+    long_invested_base = 0.0
+    short_liability_base = 0.0
     unrealized = 0.0
     long_units = 0
     short_units = 0
@@ -309,13 +310,14 @@ def execute_live_decision(
             holding_days = max(holding_days, 1)
         pos["holdingDays"] = int(holding_days)
 
-        invested_base += abs(units) * unit_notional
         unrealized += abs(units) * unit_notional * (pnl_pct / 100.0)
 
         if side == "SHORT":
             short_units += abs(units)
+            short_liability_base += abs(units) * unit_notional
         else:
             long_units += abs(units)
+            long_invested_base += abs(units) * unit_notional
 
         positions_after.append(
             {
@@ -335,7 +337,9 @@ def execute_live_decision(
         borrow_cost_daily = (short_units * unit_notional) * (borrow_short_bps_annual / 10_000.0) / 252.0
         cash -= borrow_cost_daily
 
-    equity = float(cash + invested_base + unrealized)
+    # Cash already includes short sale proceeds. Subtract short notional as liability
+    # to avoid double-counting equity when short positions are open.
+    equity = float(cash + long_invested_base - short_liability_base + unrealized)
     net_daily_pnl = float(equity - prev_equity)
     net_cum_pnl = float(equity - initial_cash)
     net_cum_return_pct = float((net_cum_pnl / initial_cash) * 100.0) if initial_cash else 0.0

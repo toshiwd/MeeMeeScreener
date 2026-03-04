@@ -70,6 +70,39 @@ def _build_candidate_key(item: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def _is_crash_dip_short_candidate(
+    item: dict[str, Any],
+    *,
+    dip_pct: float,
+    min_down_prob: float,
+    min_turn_down: float,
+    max_ev: float,
+) -> bool:
+    change_pct = _float_or_none(item.get("changePct"))
+    if change_pct is None or change_pct > dip_pct:
+        return False
+
+    down_prob = _float_or_none(item.get("pDown"))
+    if down_prob is None:
+        down_prob = _float_or_none(item.get("upProb"))
+    if down_prob is None or down_prob < min_down_prob:
+        return False
+
+    turn_down = _float_or_none(item.get("pTurnDown"))
+    if turn_down is None:
+        turn_down = _float_or_none(item.get("revRisk"))
+    if turn_down is None or turn_down < min_turn_down:
+        return False
+
+    ev20_net = _float_or_none(item.get("ev20Net"))
+    if ev20_net is None:
+        ev20_net = _float_or_none(item.get("ev"))
+    if ev20_net is None or ev20_net > max_ev:
+        return False
+
+    return True
+
+
 def _position_key(pos: dict[str, Any]) -> tuple[str, str]:
     return (str(pos.get("ticker") or ""), str(pos.get("side") or "LONG").upper())
 
@@ -265,6 +298,13 @@ def build_decision(
     rev_risk_warn = float(th.get("revRiskWarn", 0.55))
     rev_risk_high = float(th.get("revRiskHigh", 0.65))
     entry_max_rev_risk = float(th.get("entryMaxRevRisk", rev_risk_warn))
+    crash_dip_bonus_enabled = float(th.get("crashDipBonusEnabled", 1.0)) >= 0.5
+    crash_dip_bonus = float(th.get("crashDipBonus", 0.08))
+    crash_dip_pct = float(th.get("crashDipPct", -0.07))
+    crash_dip_min_down_prob = float(th.get("crashDipMinDownProb", 0.57))
+    crash_dip_min_turn_down = float(th.get("crashDipMinTurnDown", 0.52))
+    crash_dip_max_ev = float(th.get("crashDipMaxEv", 0.0))
+    crash_dip_max_per_day = max(0, int(float(th.get("crashDipMaxPerDay", 1.0))))
     topk_entry_up_boost = float(th.get("topKEntryUpProbBoost", 0.0))
     topk_entry_ev_boost = float(th.get("topKEntryEvBoost", 0.0))
     add_min_up = float(th.get("addMinUpProb", entry_min_up))
@@ -316,6 +356,7 @@ def build_decision(
 
     actions: list[dict[str, Any]] = []
     new_entries_today = 0
+    crash_new_entries_today = 0
 
     # 1) Risk hard rules
     sorted_positions = sorted(
@@ -460,7 +501,21 @@ def build_decision(
                 continue
             if min_liquidity20d > 0 and (liquidity20d is None or liquidity20d < min_liquidity20d):
                 continue
-            candidates.append({"side": "SHORT", **item})
+            cand = {"side": "SHORT", **item}
+            crash_dip_match = False
+            if crash_dip_bonus_enabled:
+                crash_dip_match = _is_crash_dip_short_candidate(
+                    cand,
+                    dip_pct=crash_dip_pct,
+                    min_down_prob=crash_dip_min_down_prob,
+                    min_turn_down=crash_dip_min_turn_down,
+                    max_ev=crash_dip_max_ev,
+                )
+                if crash_dip_match and crash_dip_bonus != 0.0:
+                    base_score = _float_or_none(cand.get("entryScore")) or 0.0
+                    cand["entryScore"] = max(0.0, min(1.0, float(base_score + crash_dip_bonus)))
+            cand["crashDipBoostApplied"] = bool(crash_dip_match)
+            candidates.append(cand)
 
     candidates.sort(key=_build_candidate_key)
 
@@ -519,6 +574,9 @@ def build_decision(
         if len(held_tickers) < int(config.max_holdings):
             if max_new_entries_per_day and new_entries_today >= max_new_entries_per_day:
                 continue
+            is_crash_candidate = bool(cand.get("crashDipBoostApplied")) and side == "SHORT"
+            if is_crash_candidate and crash_dip_max_per_day and crash_new_entries_today >= crash_dip_max_per_day:
+                continue
             if rank_index >= new_entry_max_rank:
                 continue
             cand_up_prob = _float_or_none(cand.get("upProb"))
@@ -545,8 +603,11 @@ def build_decision(
             ):
                 continue
             reason_id = "E_NEW_TOP1_GATE_OK" if rank_index == 0 else "E_NEW_TOPK_GATE_OK"
-            _add_action(actions, ticker, side, 2, reason_id)
+            notes = "CRASH_DIP_BOOST" if is_crash_candidate else None
+            _add_action(actions, ticker, side, 2, reason_id, notes=notes)
             new_entries_today += 1
+            if is_crash_candidate:
+                crash_new_entries_today += 1
             continue
 
         if switched:

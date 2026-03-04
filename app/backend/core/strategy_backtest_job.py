@@ -209,6 +209,7 @@ def handle_strategy_walkforward_gate(job_id: str, payload: dict) -> None:
     min_oos_total = _to_float(payload.get("min_oos_total_realized_unit_pnl"))
     min_oos_pf = _to_float(payload.get("min_oos_mean_profit_factor"))
     min_oos_pos = _to_float(payload.get("min_oos_positive_window_ratio"))
+    min_oos_worst_dd = _to_float(payload.get("min_oos_worst_max_drawdown_unit"))
     note = payload.get("note")
     note_text = str(note).strip() if note is not None else None
     if note_text == "":
@@ -225,6 +226,7 @@ def handle_strategy_walkforward_gate(job_id: str, payload: dict) -> None:
         min_oos_total_realized_unit_pnl=float(min_oos_total) if min_oos_total is not None else 0.0,
         min_oos_mean_profit_factor=float(min_oos_pf) if min_oos_pf is not None else 1.05,
         min_oos_positive_window_ratio=float(min_oos_pos) if min_oos_pos is not None else 0.40,
+        min_oos_worst_max_drawdown_unit=float(min_oos_worst_dd) if min_oos_worst_dd is not None else -0.12,
         dry_run=dry_run,
         note=note_text,
     )

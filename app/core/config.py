@@ -62,6 +62,21 @@ def _resolve_data_dir() -> Path:
     return path
 
 
+def _get_config_path() -> Path:
+    return _get_exe_dir() / CONFIG_FILENAME
+
+
+def write_data_dir_override(data_dir: Path | str) -> Path:
+    target = Path(data_dir).expanduser().resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    config_path = _get_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as handle:
+        json.dump({"dataDir": str(target)}, handle, ensure_ascii=False, indent=2)
+    logger.info("Wrote MEEMEE_DATA_DIR override: %s -> %s", config_path, target)
+    return config_path
+
+
 class AppConfig:
     def __init__(self) -> None:
         self.REPO_ROOT = _get_exe_dir()

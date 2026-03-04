@@ -74,6 +74,7 @@ def _map_rank_item(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "ticker": code,
         "ev": _first_finite(item.get("mlEv20Net"), item.get("mlEvShortNet"), item.get("changePct")),
+        "ev20Net": _first_finite(item.get("mlEv20Net"), item.get("mlEvShortNet")),
         "upProb": _first_finite(
             item.get("probSideCalib"),
             item.get("probSide"),
@@ -82,6 +83,8 @@ def _map_rank_item(item: dict[str, Any]) -> dict[str, Any]:
             item.get("weeklyBreakoutUpProb"),
             item.get("monthlyBreakoutUpProb"),
         ),
+        "pDown": _first_finite(item.get("mlPDownShort"), item.get("mlPDown")),
+        "pTurnDown": _first_finite(item.get("mlPTurnDownShort"), item.get("mlPTurnDown")),
         "revRisk": _first_finite(
             item.get("mlPTurnDownShort"),
             item.get("mlPDownShort"),
@@ -89,6 +92,7 @@ def _map_rank_item(item: dict[str, Any]) -> dict[str, Any]:
             item.get("weeklyBreakoutDownProb"),
             item.get("monthlyBreakoutDownProb"),
         ),
+        "changePct": _first_finite(item.get("changePct")),
         "regime": _map_regime(item),
         "gate": _map_gate(item),
         "close": _first_finite(item.get("close")),

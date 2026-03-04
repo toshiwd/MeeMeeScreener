@@ -328,6 +328,10 @@ def submit_txt_update(
     walkforward_run_min_windows: int = 1,
     walkforward_run_allowed_sides: str = "long",
     walkforward_run_allowed_long_setups: str = "long_breakout_p2",
+    walkforward_run_allowed_short_setups: str = (
+        "short_crash_top_p3,short_downtrend_p4,short_failed_high_p1,"
+        "short_box_fail_p2,short_ma20_break_p5,short_decision_down,short_entry"
+    ),
     walkforward_run_use_regime_filter: bool = True,
     walkforward_run_min_long_score: float = 2.0,
     walkforward_run_min_short_score: float = 99.0,
@@ -344,6 +348,7 @@ def submit_txt_update(
     walkforward_gate_min_oos_total_realized_unit_pnl: float = 0.0,
     walkforward_gate_min_oos_mean_profit_factor: float = 1.05,
     walkforward_gate_min_oos_positive_window_ratio: float = 0.40,
+    walkforward_gate_min_oos_worst_max_drawdown_unit: float = -0.12,
 ):
     try:
         request_payload = {
@@ -364,6 +369,7 @@ def submit_txt_update(
             "walkforward_run_min_windows": int(walkforward_run_min_windows),
             "walkforward_run_allowed_sides": str(walkforward_run_allowed_sides),
             "walkforward_run_allowed_long_setups": str(walkforward_run_allowed_long_setups),
+            "walkforward_run_allowed_short_setups": str(walkforward_run_allowed_short_setups),
             "walkforward_run_use_regime_filter": bool(walkforward_run_use_regime_filter),
             "walkforward_run_min_long_score": float(walkforward_run_min_long_score),
             "walkforward_run_min_short_score": float(walkforward_run_min_short_score),
@@ -387,6 +393,9 @@ def submit_txt_update(
             ),
             "walkforward_gate_min_oos_positive_window_ratio": float(
                 walkforward_gate_min_oos_positive_window_ratio
+            ),
+            "walkforward_gate_min_oos_worst_max_drawdown_unit": float(
+                walkforward_gate_min_oos_worst_max_drawdown_unit
             ),
         }
         return submit_txt_update_job(
@@ -862,6 +871,7 @@ def submit_strategy_walkforward_gate(
     min_oos_total_realized_unit_pnl: float = 0.0,
     min_oos_mean_profit_factor: float = 1.05,
     min_oos_positive_window_ratio: float = 0.40,
+    min_oos_worst_max_drawdown_unit: float = -0.12,
     note: str | None = None,
 ):
     try:
@@ -872,6 +882,7 @@ def submit_strategy_walkforward_gate(
                 "min_oos_total_realized_unit_pnl": min_oos_total_realized_unit_pnl,
                 "min_oos_mean_profit_factor": min_oos_mean_profit_factor,
                 "min_oos_positive_window_ratio": min_oos_positive_window_ratio,
+                "min_oos_worst_max_drawdown_unit": min_oos_worst_max_drawdown_unit,
                 "note": note,
             },
         )

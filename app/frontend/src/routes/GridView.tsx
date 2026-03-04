@@ -780,6 +780,7 @@ export default function GridView() {
           { key: "buyCandidate", label: "買い候補(総合)" },
           { key: "buyInitial", label: "買い候補(初動)" },
           { key: "buyBase", label: "買い候補(底がため)" },
+          { key: "swingScore", label: "スイング候補(総合)" },
         ]
       },
       {
@@ -873,6 +874,7 @@ export default function GridView() {
       "buyCandidate",
       "buyInitial",
       "buyBase",
+      "swingScore",
       "shortPriority",
       "shortScore",
       "aScore",
@@ -1273,6 +1275,8 @@ export default function GridView() {
         sortValue = ticker.scores?.overheatUp ?? null;
       } else if (activeKey === "overheatDown") {
         sortValue = ticker.scores?.overheatDown ?? null;
+      } else if (activeKey === "swingScore") {
+        sortValue = ticker.swingScore ?? ticker.swingLongScore ?? ticker.swingShortScore ?? null;
       } else if (activeKey === "mlEv20Net") {
         sortValue = ticker.mlEv20Net ?? null;
       } else if (activeKey === "mlPUpShort") {

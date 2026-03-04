@@ -17,6 +17,7 @@ from app.backend.services.yahoo_provisional import (
     get_provisional_daily_rows_from_spark,
     merge_daily_rows_with_provisional,
 )
+from app.backend.services import swing_plan_service
 from app.backend.services.watchlist import load_watchlist_codes, resolve_watchlist_path, watchlist_lock
 from app.core.config import config as core_config
 from app.utils.date_utils import jst_now
@@ -40,6 +41,9 @@ _SHORT_CNT60_STRICT_MIN = max(0, int(os.getenv("MEEMEE_SHORT_CNT60_STRICT_MIN", 
 _SHORT_TIER_A_THRESHOLD = float(os.getenv("MEEMEE_SHORT_TIER_A", "66"))
 _SHORT_TIER_A_STRICT_FLOOR = float(os.getenv("MEEMEE_SHORT_TIER_A_STRICT_FLOOR", "57"))
 _SHORT_TIER_B_THRESHOLD = float(os.getenv("MEEMEE_SHORT_TIER_B", "54"))
+_SWING_SIDE_TOPN = max(1, int(os.getenv("MEEMEE_SWING_SIDE_TOPN", "5")))
+_SWING_TOTAL_TOPN = max(_SWING_SIDE_TOPN * 2, int(os.getenv("MEEMEE_SWING_TOTAL_TOPN", "10")))
+_SWING_FILL_MIN_SCORE = float(os.getenv("MEEMEE_SWING_FILL_MIN_SCORE", "0.66"))
 _auto_repair_lock = Lock()
 _last_auto_repair_ts = 0.0
 
@@ -115,6 +119,179 @@ def _first_finite(*values: Any) -> float | None:
         if finite is not None:
             return finite
     return None
+
+
+def _as_of_to_ymd(value: Any) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        as_int = int(text)
+        if 19000101 <= as_int <= 21001231:
+            return as_int
+        return None
+    try:
+        parsed = datetime.strptime(text[:10], "%Y-%m-%d")
+        return int(parsed.strftime("%Y%m%d"))
+    except ValueError:
+        return None
+
+
+def _guess_long_setup_type(item: dict[str, Any]) -> str:
+    code = str(item.get("buyPatternCode") or "").strip().lower()
+    state = str(item.get("buyState") or "").strip()
+    if "p2" in code:
+        return "breakout"
+    if "p1" in code:
+        return "rebound"
+    if "p3" in code:
+        return "accumulation"
+    if "初動" in state:
+        return "breakout"
+    if "底" in state:
+        return "accumulation"
+    return "watch"
+
+
+def _guess_short_setup_type(item: dict[str, Any]) -> str:
+    short_type = str(item.get("shortType") or "").strip().upper()
+    if short_type == "A":
+        return "breakdown"
+    if short_type == "B":
+        return "pressure"
+    return "watch"
+
+
+def _resolve_short_score(item: dict[str, Any]) -> float | None:
+    direct = _first_finite(
+        item.get("shortScore"),
+        item.get("shortCandidateScore"),
+        item.get("shortPriorityScore"),
+    )
+    if direct is not None:
+        return float(direct)
+    a_score = _first_finite(item.get("aScore"), item.get("aCandidateScore"))
+    b_score = _first_finite(item.get("bScore"), item.get("bCandidateScore"))
+    if a_score is None and b_score is None:
+        return None
+    return float((a_score or 0.0) + (b_score or 0.0))
+
+
+def _apply_swing_metrics(items: list[dict[str, Any]]) -> None:
+    long_candidates: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
+    short_candidates: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
+
+    for item in items:
+        close = _first_finite(item.get("lastClose"), item.get("close"))
+        atr14 = _first_finite(item.get("atr14"))
+        atr_pct = (float(atr14) / float(close)) if atr14 is not None and close not in (None, 0) else None
+        as_of_ymd = _as_of_to_ymd(item.get("asOf"))
+        eval_payload = swing_plan_service.evaluate_swing_candidates(
+            as_of_ymd=as_of_ymd,
+            p_up=_first_finite(item.get("mlPUp"), item.get("mlPUpShort")),
+            p_down=_first_finite(item.get("mlPDown"), item.get("mlPDownShort")),
+            p_turn_up=_first_finite(item.get("mlPTurnUp")),
+            p_turn_down=_first_finite(item.get("mlPTurnDown"), item.get("mlPTurnDownShort")),
+            ev20_net=_first_finite(item.get("mlEv20Net"), item.get("mlEvShortNet")),
+            long_setup_type=_guess_long_setup_type(item),
+            short_setup_type=_guess_short_setup_type(item),
+            playbook_bonus_long=_first_finite(item.get("buyStateScore")),
+            playbook_bonus_short=_first_finite(item.get("shortPriorityScore")),
+            short_score=_resolve_short_score(item),
+            atr_pct=atr_pct,
+            liquidity20d=_first_finite(item.get("liquidity20d")),
+        )
+        long_eval = eval_payload.get("long") if isinstance(eval_payload, dict) else {}
+        short_eval = eval_payload.get("short") if isinstance(eval_payload, dict) else {}
+        long_score = _first_finite((long_eval or {}).get("score"))
+        short_score = _first_finite((short_eval or {}).get("score"))
+        long_qualified = bool((long_eval or {}).get("qualified"))
+        short_qualified = bool((short_eval or {}).get("qualified"))
+
+        best_side = "long"
+        best_score = long_score
+        best_eval = long_eval
+        if (short_score is not None and best_score is None) or (
+            short_score is not None and best_score is not None and short_score > best_score
+        ):
+            best_side = "short"
+            best_score = short_score
+            best_eval = short_eval
+
+        item["swingScore"] = float(best_score) if best_score is not None else None
+        item["swingSide"] = best_side if bool((best_eval or {}).get("qualified")) else "none"
+        item["swingQualified"] = False
+        base_reasons = (best_eval or {}).get("reasons")
+        item["swingReasons"] = [str(v) for v in base_reasons] if isinstance(base_reasons, list) else []
+        item["swingLongScore"] = float(long_score) if long_score is not None else None
+        item["swingShortScore"] = float(short_score) if short_score is not None else None
+
+        if long_score is not None and long_qualified:
+            long_candidates.append((float(long_score), item, long_eval if isinstance(long_eval, dict) else {}))
+        if short_score is not None and short_qualified:
+            short_candidates.append((float(short_score), item, short_eval if isinstance(short_eval, dict) else {}))
+
+    long_candidates.sort(key=lambda row: (-row[0], str(row[1].get("code") or "")))
+    short_candidates.sort(key=lambda row: (-row[0], str(row[1].get("code") or "")))
+
+    selected_by_code: dict[str, tuple[str, float, dict[str, Any]]] = {}
+    long_count = 0
+    for score, item, side_eval in long_candidates:
+        code = str(item.get("code") or "")
+        if not code or code in selected_by_code:
+            continue
+        if long_count >= _SWING_SIDE_TOPN:
+            break
+        selected_by_code[code] = ("long", float(score), side_eval)
+        long_count += 1
+
+    short_count = 0
+    for score, item, side_eval in short_candidates:
+        code = str(item.get("code") or "")
+        if not code or code in selected_by_code:
+            continue
+        if short_count >= _SWING_SIDE_TOPN:
+            break
+        selected_by_code[code] = ("short", float(score), side_eval)
+        short_count += 1
+
+    if len(selected_by_code) < _SWING_TOTAL_TOPN:
+        fill_pool: list[tuple[float, str, str, dict[str, Any]]] = []
+        for score, item, side_eval in long_candidates:
+            code = str(item.get("code") or "")
+            if not code or code in selected_by_code:
+                continue
+            if score < _SWING_FILL_MIN_SCORE:
+                continue
+            fill_pool.append((float(score), code, "long", side_eval))
+        for score, item, side_eval in short_candidates:
+            code = str(item.get("code") or "")
+            if not code or code in selected_by_code:
+                continue
+            if score < _SWING_FILL_MIN_SCORE:
+                continue
+            fill_pool.append((float(score), code, "short", side_eval))
+        fill_pool.sort(key=lambda row: (-row[0], row[1]))
+        for score, code, inferred_side, side_eval in fill_pool:
+            if len(selected_by_code) >= _SWING_TOTAL_TOPN:
+                break
+            selected_by_code[code] = (inferred_side, float(score), side_eval if isinstance(side_eval, dict) else {})
+
+    for item in items:
+        code = str(item.get("code") or "")
+        selected = selected_by_code.get(code)
+        if not selected:
+            continue
+        side, score, side_eval = selected
+        reasons = side_eval.get("reasons") if isinstance(side_eval, dict) else []
+        resolved_reasons = [str(v) for v in reasons] if isinstance(reasons, list) else []
+        resolved_reasons.append("selected_top_candidates")
+        item["swingSide"] = side
+        item["swingScore"] = float(score)
+        item["swingQualified"] = True
+        item["swingReasons"] = resolved_reasons
 
 
 def _apply_short_priority_metrics(items: list[dict[str, Any]]) -> None:
@@ -457,6 +634,7 @@ def get_screener_rows(
             _apply_ml_metrics(cached_results, ml_map)
             _apply_short_priority_metrics(cached_results)
             _apply_entry_priority_metrics(cached_results)
+            _apply_swing_metrics(cached_results)
             return cached_results
     
     (
@@ -557,6 +735,7 @@ def get_screener_rows(
     _apply_ml_metrics(response_results, ml_map)
     _apply_short_priority_metrics(response_results)
     _apply_entry_priority_metrics(response_results)
+    _apply_swing_metrics(response_results)
 
     with _screener_cache_lock:
         _screener_cache["data"] = copy.deepcopy(results)

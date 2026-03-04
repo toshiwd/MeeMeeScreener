@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import logging
 import os
+import time
 from typing import Dict, Iterable, List, Sequence, Any
 from threading import Lock
 
@@ -14,11 +15,15 @@ from app.backend.api.dependencies import get_stock_repo
 from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.domain.screening import ranking
 from app.backend.services import rankings_cache
+from app.backend.services.edinet_rank_features import load_edinet_rank_features
 from app.backend.services.analysis_decision import build_analysis_decision
+from app.backend.services import swing_expectancy_service, swing_plan_service
 from app.backend.services.yahoo_provisional import (
+    apply_split_gap_adjustment,
     get_provisional_daily_row_from_chart,
     merge_daily_rows_with_provisional,
 )
+from app.db.session import get_conn
 from app.services.box_detector import detect_boxes
 
 
@@ -28,6 +33,15 @@ SYNC_BACKFILL_MAX_AGE_DAYS = max(0, int(os.getenv("MEEMEE_SYNC_BACKFILL_MAX_AGE_
 _VALID_RISK_MODES = {"defensive", "balanced", "aggressive"}
 _BACKFILL_ATTEMPTS: set[tuple[str, int, bool, bool]] = set()
 _BACKFILL_ATTEMPTS_LOCK = Lock()
+_EDINET_SUMMARY_CACHE: dict[tuple[str, int | None], tuple[float, Dict[str, Any] | None]] = {}
+_EDINET_SUMMARY_CACHE_LOCK = Lock()
+try:
+    _EDINET_SUMMARY_CACHE_TTL_SEC = max(
+        30.0,
+        float(os.getenv("MEEMEE_EDINET_SUMMARY_CACHE_TTL_SEC", "300")),
+    )
+except (TypeError, ValueError):
+    _EDINET_SUMMARY_CACHE_TTL_SEC = 300.0
 
 
 def _normalize_rows(rows: Iterable[Sequence], *, fill_volume: bool) -> List[List[float]]:
@@ -73,6 +87,7 @@ def get_daily_bars(
         rows = merge_daily_rows_with_provisional(rows, provisional_row, asof_dt=asof_dt)
     except Exception as exc:
         logger.debug("Yahoo provisional merge skipped for code=%s: %s", code, exc)
+    rows = apply_split_gap_adjustment(rows)
     return {"data": _normalize_rows(rows, fill_volume=True), "errors": []}
 
 
@@ -87,6 +102,7 @@ def get_monthly_bars(
         raise HTTPException(status_code=400, detail="code is required")
     asof_dt = _parse_dt(asof)
     rows = repo.get_monthly_bars(code, limit, asof_dt)
+    rows = apply_split_gap_adjustment(rows)
     return {"data": _normalize_rows(rows, fill_volume=True), "errors": []}
 
 
@@ -157,6 +173,8 @@ def _build_sell_context_from_row(row: tuple[Any, ...] | None) -> dict[str, Any] 
         "pDown": _to_float_or_none(row[3]) if len(row) > 3 else None,
         "pTurnDown": _to_float_or_none(row[4]) if len(row) > 4 else None,
         "shortScore": _to_float_or_none(row[11]) if len(row) > 11 else None,
+        "aScore": _to_float_or_none(row[12]) if len(row) > 12 else None,
+        "bScore": _to_float_or_none(row[13]) if len(row) > 13 else None,
         "distMa20Signed": _to_float_or_none(row[18]) if len(row) > 18 else None,
         "ma20Slope": _to_float_or_none(row[16]) if len(row) > 16 else None,
         "ma60Slope": _to_float_or_none(row[17]) if len(row) > 17 else None,
@@ -196,6 +214,73 @@ def _build_research_prior_summary(code: str) -> Dict[str, Any] | None:
             "bonus": _to_float_or_none(probe.get("researchPriorBonus")),
             "asOf": str(probe.get("researchPriorAsOf") or "").strip() or None,
         }
+    return summary
+
+
+def _asof_dt_to_ymd(asof_dt: int | None) -> int | None:
+    if asof_dt is None:
+        return None
+    try:
+        return int(datetime.fromtimestamp(int(asof_dt), tz=timezone.utc).strftime("%Y%m%d"))
+    except Exception:
+        return None
+
+
+def _build_edinet_summary(code: str, asof_dt: int | None) -> Dict[str, Any] | None:
+    code_key = str(code or "").strip()
+    if not code_key:
+        return None
+    asof_ymd = _asof_dt_to_ymd(asof_dt)
+    cache_key = (code_key, asof_ymd)
+    now_ts = time.time()
+    with _EDINET_SUMMARY_CACHE_LOCK:
+        cached = _EDINET_SUMMARY_CACHE.get(cache_key)
+        if cached and now_ts - cached[0] <= _EDINET_SUMMARY_CACHE_TTL_SEC:
+            payload = cached[1]
+            return dict(payload) if isinstance(payload, dict) else None
+
+    try:
+        with get_conn() as conn:
+            feature_map = load_edinet_rank_features(conn, [code_key], asof_ymd)
+    except Exception:
+        return None
+    if not isinstance(feature_map, dict):
+        return None
+    feature = feature_map.get(code_key)
+    if not isinstance(feature, dict):
+        return None
+
+    metric_count = _to_int_or_none(feature.get("edinetMetricCount"))
+    data_score = _to_float_or_none(feature.get("edinetDataScore"))
+    coverage = float(max(0.0, min(1.0, float(metric_count or 0) / 3.0)))
+    feature_flag_applied = bool(rankings_cache._is_edinet_bonus_enabled())
+    bonus_core = (
+        float((float(data_score) - 0.5) * rankings_cache._EDINET_SCORE_BONUS_SCALE * coverage)
+        if data_score is not None and coverage > 0
+        else 0.0
+    )
+    score_bonus = bonus_core if feature_flag_applied else 0.0
+    summary: Dict[str, Any] = {
+        "status": str(feature.get("edinetStatus") or "").strip() or None,
+        "mapped": bool(feature.get("edinetMapped")) if feature.get("edinetMapped") is not None else None,
+        "freshnessDays": _to_int_or_none(feature.get("edinetFreshnessDays")),
+        "metricCount": metric_count,
+        "qualityScore": _to_float_or_none(feature.get("edinetQualityScore")),
+        "dataScore": data_score,
+        "scoreBonus": score_bonus,
+        "featureFlagApplied": feature_flag_applied,
+        "ebitdaMetric": _to_float_or_none(feature.get("edinetEbitdaMetric")),
+        "roe": _to_float_or_none(feature.get("edinetRoe")),
+        "equityRatio": _to_float_or_none(feature.get("edinetEquityRatio")),
+        "debtRatio": _to_float_or_none(feature.get("edinetDebtRatio")),
+        "operatingCfMargin": _to_float_or_none(feature.get("edinetOperatingCfMargin")),
+        "revenueGrowthYoy": _to_float_or_none(feature.get("edinetRevenueGrowthYoy")),
+    }
+    with _EDINET_SUMMARY_CACHE_LOCK:
+        _EDINET_SUMMARY_CACHE[cache_key] = (now_ts, dict(summary))
+        if len(_EDINET_SUMMARY_CACHE) > 2048:
+            oldest_key = min(_EDINET_SUMMARY_CACHE, key=lambda key: _EDINET_SUMMARY_CACHE[key][0])
+            _EDINET_SUMMARY_CACHE.pop(oldest_key, None)
     return summary
 
 
@@ -828,6 +913,8 @@ def get_analysis_pred(
     additive_signals = None
     buy_stage_precision = None
     entry_policy = None
+    daily_rows: list[tuple] = []
+    monthly_rows: list[tuple] = []
     try:
         daily_rows = repo.get_daily_bars(code, limit=1260, asof_dt=asof_dt)
         monthly_rows = repo.get_monthly_bars(code, limit=60, asof_dt=asof_dt)
@@ -845,11 +932,22 @@ def get_analysis_pred(
     except Exception:
         buy_stage_precision = None
     research_prior = _build_research_prior_summary(code)
+    edinet_summary = _build_edinet_summary(code, asof_dt)
     sell_context = None
     try:
         sell_context = _build_sell_context_from_row(repo.get_sell_analysis_snapshot(code, asof_dt))
     except Exception:
         sell_context = None
+    atr_pct, liquidity20d = swing_expectancy_service.compute_atr_pct_and_liquidity20d(daily_rows)
+    as_of_ymd = _asof_dt_to_ymd(asof_dt)
+    if as_of_ymd is None:
+        as_of_ymd = _to_int_or_none(row[0])
+    if as_of_ymd is not None:
+        try:
+            swing_expectancy_service.refresh_swing_setup_stats(as_of_ymd=int(as_of_ymd))
+        except Exception:
+            # Keep analysis endpoint resilient when expectancy refresh fails.
+            pass
     decision = build_analysis_decision(
         analysis_p_up=p_up,
         analysis_p_down=p_down,
@@ -864,6 +962,40 @@ def get_analysis_pred(
         else None,
         additive_signals=additive_signals if isinstance(additive_signals, dict) else None,
         sell_analysis=sell_context if isinstance(sell_context, dict) else None,
+    )
+    swing_eval = swing_plan_service.build_swing_plan(
+        code=code,
+        as_of_ymd=as_of_ymd,
+        close=_to_float_or_none(daily_rows[-1][4]) if daily_rows else None,
+        p_up=p_up,
+        p_down=p_down,
+        p_turn_up=p_turn_up,
+        p_turn_down=p_turn_down,
+        ev20_net=ev20_net,
+        long_setup_type=(entry_policy or {}).get("up", {}).get("setupType")
+        if isinstance(entry_policy, dict)
+        else None,
+        short_setup_type=(entry_policy or {}).get("down", {}).get("setupType")
+        if isinstance(entry_policy, dict)
+        else None,
+        playbook_bonus_long=_to_float_or_none((entry_policy or {}).get("up", {}).get("playbookScoreBonus"))
+        if isinstance(entry_policy, dict)
+        else None,
+        playbook_bonus_short=_to_float_or_none((entry_policy or {}).get("down", {}).get("playbookScoreBonus"))
+        if isinstance(entry_policy, dict)
+        else None,
+        short_score=_to_float_or_none((sell_context or {}).get("shortScore"))
+        if isinstance(sell_context, dict)
+        else None,
+        atr_pct=atr_pct,
+        liquidity20d=liquidity20d,
+        decision_tone=str(decision.get("tone")) if isinstance(decision, dict) else None,
+        hold_days_long=_to_int_or_none((entry_policy or {}).get("up", {}).get("recommendedHoldDays"))
+        if isinstance(entry_policy, dict)
+        else None,
+        hold_days_short=_to_int_or_none((entry_policy or {}).get("down", {}).get("recommendedHoldDays"))
+        if isinstance(entry_policy, dict)
+        else None,
     )
     return {
         "item": {
@@ -882,8 +1014,11 @@ def get_analysis_pred(
             "riskMode": resolved_risk_mode,
             "buyStagePrecision": buy_stage_precision,
             "researchPrior": research_prior,
+            "edinetSummary": edinet_summary,
             "modelVersion": str(model_version) if model_version is not None else None,
             "decision": decision,
+            "swingPlan": swing_eval.get("plan") if isinstance(swing_eval, dict) else None,
+            "swingDiagnostics": swing_eval.get("diagnostics") if isinstance(swing_eval, dict) else None,
         }
     }
 

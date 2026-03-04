@@ -735,6 +735,15 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         ),
         minimum=0.0,
     )
+    walkforward_gate_min_oos_worst_dd = _to_float(
+        payload.get("walkforward_gate_min_oos_worst_max_drawdown_unit"),
+        _to_float(
+            os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_GATE_MIN_OOS_WORST_MAX_DRAWDOWN_UNIT"),
+            -0.12,
+            minimum=-1.0,
+        ),
+        minimum=-1.0,
+    )
     auto_walkforward_run = _to_bool(
         payload.get("auto_walkforward_run"),
         _to_bool(os.getenv("MEEMEE_TXT_UPDATE_AUTO_WALKFORWARD_RUN"), True),
@@ -799,6 +808,56 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             if s.strip()
         ]
         walkforward_run_allowed_long_setups = tuple(parsed) if parsed else ("long_breakout_p2",)
+    raw_walkforward_run_allowed_short_setups = (
+        payload.get("walkforward_run_allowed_short_setups")
+        if payload.get("walkforward_run_allowed_short_setups") is not None
+        else os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_ALLOWED_SHORT_SETUPS")
+    )
+    walkforward_run_allowed_short_setups: tuple[str, ...]
+    if raw_walkforward_run_allowed_short_setups is None:
+        walkforward_run_allowed_short_setups = (
+            "short_crash_top_p3",
+            "short_downtrend_p4",
+            "short_failed_high_p1",
+            "short_box_fail_p2",
+            "short_ma20_break_p5",
+            "short_decision_down",
+            "short_entry",
+        )
+    elif isinstance(raw_walkforward_run_allowed_short_setups, (list, tuple, set)):
+        parsed = [str(v).strip() for v in raw_walkforward_run_allowed_short_setups if str(v).strip()]
+        walkforward_run_allowed_short_setups = (
+            tuple(parsed)
+            if parsed
+            else (
+                "short_crash_top_p3",
+                "short_downtrend_p4",
+                "short_failed_high_p1",
+                "short_box_fail_p2",
+                "short_ma20_break_p5",
+                "short_decision_down",
+                "short_entry",
+            )
+        )
+    else:
+        parsed = [
+            s.strip()
+            for s in str(raw_walkforward_run_allowed_short_setups).split(",")
+            if s.strip()
+        ]
+        walkforward_run_allowed_short_setups = (
+            tuple(parsed)
+            if parsed
+            else (
+                "short_crash_top_p3",
+                "short_downtrend_p4",
+                "short_failed_high_p1",
+                "short_box_fail_p2",
+                "short_ma20_break_p5",
+                "short_decision_down",
+                "short_entry",
+            )
+        )
     walkforward_run_use_regime_filter = _to_bool(
         payload.get("walkforward_run_use_regime_filter"),
         _to_bool(os.getenv("MEEMEE_TXT_UPDATE_WALKFORWARD_RUN_USE_REGIME_FILTER"), True),
@@ -1476,6 +1535,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 max_new_entries_per_day=int(walkforward_run_max_new_entries_per_day),
                 allowed_sides=str(walkforward_run_allowed_sides),
                 allowed_long_setups=tuple(walkforward_run_allowed_long_setups),
+                allowed_short_setups=tuple(walkforward_run_allowed_short_setups),
                 use_regime_filter=bool(walkforward_run_use_regime_filter),
                 regime_long_min_breadth_above60=float(walkforward_run_regime_long_min_breadth_above60),
                 range_bias_width_min=float(walkforward_run_range_bias_width_min),
@@ -1584,6 +1644,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 min_oos_total_realized_unit_pnl=walkforward_gate_min_oos_total,
                 min_oos_mean_profit_factor=walkforward_gate_min_oos_pf,
                 min_oos_positive_window_ratio=walkforward_gate_min_oos_pos_ratio,
+                min_oos_worst_max_drawdown_unit=walkforward_gate_min_oos_worst_dd,
                 dry_run=False,
                 note=f"txt_update_job:{job_id}:run={latest_run_id or 'unknown'}",
             )
