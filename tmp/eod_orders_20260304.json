@@ -1,0 +1,30 @@
+{
+  "as_of": "2026-03-04",
+  "mode": "eod_defensive",
+  "orders": [
+    {
+      "symbol": "2413",
+      "action": "MARGIN_CLOSE_LONG",
+      "qty": 300,
+      "note": "net +300 -> 0"
+    },
+    {
+      "symbol": "5938",
+      "action": "MARGIN_CLOSE_LONG",
+      "qty": 300,
+      "note": "net +500 -> +200"
+    }
+  ],
+  "post_position": {
+    "2413": {
+      "long": 1000,
+      "short": 1000,
+      "net": 0
+    },
+    "5938": {
+      "long": 700,
+      "short": 500,
+      "net": 200
+    }
+  }
+}

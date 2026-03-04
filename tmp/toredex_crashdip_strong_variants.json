@@ -1,0 +1,48 @@
+{
+  "variants": [
+    {
+      "name": "hybrid_no_crashdip",
+      "override": {
+        "rankingMode": "hybrid",
+        "sides": {
+          "longEnabled": true,
+          "shortEnabled": true
+        },
+        "thresholds": {
+          "entryMinUpProb": 0.56,
+          "entryMinEv": -0.01,
+          "entryMaxRevRisk": 0.7,
+          "maxNewEntriesPerDay": 2.0,
+          "newEntryMaxRank": 10.0,
+          "crashDipBonusEnabled": 0.0,
+          "crashDipBonus": 0.0,
+          "crashDipMaxPerDay": 1.0
+        }
+      }
+    },
+    {
+      "name": "hybrid_crashdip_strong",
+      "override": {
+        "rankingMode": "hybrid",
+        "sides": {
+          "longEnabled": true,
+          "shortEnabled": true
+        },
+        "thresholds": {
+          "entryMinUpProb": 0.56,
+          "entryMinEv": -0.01,
+          "entryMaxRevRisk": 0.7,
+          "maxNewEntriesPerDay": 2.0,
+          "newEntryMaxRank": 10.0,
+          "crashDipBonusEnabled": 1.0,
+          "crashDipBonus": 0.08,
+          "crashDipPct": -0.07,
+          "crashDipMinDownProb": 0.57,
+          "crashDipMinTurnDown": 0.52,
+          "crashDipMaxEv": 0.0,
+          "crashDipMaxPerDay": 1.0
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,386 @@
+{
+  "generated_at_utc": "2026-03-04T07:33:47.264827+00:00",
+  "window": {
+    "start_date": "2026-02-17",
+    "end_date": "2026-03-04",
+    "days": 16
+  },
+  "variants": [
+    {
+      "name": "hybrid_no_crashdip",
+      "config_hash": "e0d5bf65aef420453184cf4f0ecb6b9595d02e03d3ad0fcba4c0751c3cad56d8",
+      "override": {
+        "rankingMode": "hybrid",
+        "sides": {
+          "longEnabled": true,
+          "shortEnabled": true
+        },
+        "thresholds": {
+          "entryMinUpProb": 0.56,
+          "entryMinEv": -0.01,
+          "entryMaxRevRisk": 0.7,
+          "maxNewEntriesPerDay": 2.0,
+          "newEntryMaxRank": 10.0,
+          "crashDipBonusEnabled": 0.0,
+          "crashDipBonus": 0.0,
+          "crashDipMaxPerDay": 1.0
+        }
+      },
+      "action_days": 4,
+      "total_actions": 4,
+      "long_entries": 0,
+      "short_entries": 4,
+      "top_short_tickers": [
+        {
+          "ticker": "5838",
+          "count": 1
+        },
+        {
+          "ticker": "6269",
+          "count": 1
+        },
+        {
+          "ticker": "6758",
+          "count": 1
+        },
+        {
+          "ticker": "9984",
+          "count": 1
+        }
+      ],
+      "errors": [],
+      "daily": [
+        {
+          "as_of": "2026-02-17",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-18",
+          "action_count": 1,
+          "long_entries": 0,
+          "short_entries": 1,
+          "actions": [
+            {
+              "ticker": "9984",
+              "side": "SHORT",
+              "delta_units": 2,
+              "reason_id": "E_NEW_TOP1_GATE_OK"
+            }
+          ]
+        },
+        {
+          "as_of": "2026-02-19",
+          "action_count": 1,
+          "long_entries": 0,
+          "short_entries": 1,
+          "actions": [
+            {
+              "ticker": "6758",
+              "side": "SHORT",
+              "delta_units": 2,
+              "reason_id": "E_NEW_TOP1_GATE_OK"
+            }
+          ]
+        },
+        {
+          "as_of": "2026-02-20",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-21",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-22",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-23",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-24",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-25",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-26",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-27",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-28",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-03-01",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-03-02",
+          "action_count": 1,
+          "long_entries": 0,
+          "short_entries": 1,
+          "actions": [
+            {
+              "ticker": "5838",
+              "side": "SHORT",
+              "delta_units": 2,
+              "reason_id": "E_NEW_TOP1_GATE_OK"
+            }
+          ]
+        },
+        {
+          "as_of": "2026-03-03",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-03-04",
+          "action_count": 1,
+          "long_entries": 0,
+          "short_entries": 1,
+          "actions": [
+            {
+              "ticker": "6269",
+              "side": "SHORT",
+              "delta_units": 2,
+              "reason_id": "E_NEW_TOP1_GATE_OK"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hybrid_crashdip_strong",
+      "config_hash": "9e7bedb2b8695c7e5b545d9f88d5149c6de03027fd4df8f5256632d0fb4b418b",
+      "override": {
+        "rankingMode": "hybrid",
+        "sides": {
+          "longEnabled": true,
+          "shortEnabled": true
+        },
+        "thresholds": {
+          "entryMinUpProb": 0.56,
+          "entryMinEv": -0.01,
+          "entryMaxRevRisk": 0.7,
+          "maxNewEntriesPerDay": 2.0,
+          "newEntryMaxRank": 10.0,
+          "crashDipBonusEnabled": 1.0,
+          "crashDipBonus": 0.08,
+          "crashDipPct": -0.07,
+          "crashDipMinDownProb": 0.57,
+          "crashDipMinTurnDown": 0.52,
+          "crashDipMaxEv": 0.0,
+          "crashDipMaxPerDay": 1.0
+        }
+      },
+      "action_days": 4,
+      "total_actions": 4,
+      "long_entries": 0,
+      "short_entries": 4,
+      "top_short_tickers": [
+        {
+          "ticker": "5838",
+          "count": 1
+        },
+        {
+          "ticker": "6269",
+          "count": 1
+        },
+        {
+          "ticker": "6758",
+          "count": 1
+        },
+        {
+          "ticker": "9984",
+          "count": 1
+        }
+      ],
+      "errors": [],
+      "daily": [
+        {
+          "as_of": "2026-02-17",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-18",
+          "action_count": 1,
+          "long_entries": 0,
+          "short_entries": 1,
+          "actions": [
+            {
+              "ticker": "9984",
+              "side": "SHORT",
+              "delta_units": 2,
+              "reason_id": "E_NEW_TOP1_GATE_OK"
+            }
+          ]
+        },
+        {
+          "as_of": "2026-02-19",
+          "action_count": 1,
+          "long_entries": 0,
+          "short_entries": 1,
+          "actions": [
+            {
+              "ticker": "6758",
+              "side": "SHORT",
+              "delta_units": 2,
+              "reason_id": "E_NEW_TOP1_GATE_OK"
+            }
+          ]
+        },
+        {
+          "as_of": "2026-02-20",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-21",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-22",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-23",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-24",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-25",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-26",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-27",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-28",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-03-01",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-03-02",
+          "action_count": 1,
+          "long_entries": 0,
+          "short_entries": 1,
+          "actions": [
+            {
+              "ticker": "5838",
+              "side": "SHORT",
+              "delta_units": 2,
+              "reason_id": "E_NEW_TOP1_GATE_OK"
+            }
+          ]
+        },
+        {
+          "as_of": "2026-03-03",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-03-04",
+          "action_count": 1,
+          "long_entries": 0,
+          "short_entries": 1,
+          "actions": [
+            {
+              "ticker": "6269",
+              "side": "SHORT",
+              "delta_units": 2,
+              "reason_id": "E_NEW_TOP1_GATE_OK"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

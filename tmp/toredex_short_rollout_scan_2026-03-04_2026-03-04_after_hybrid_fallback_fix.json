@@ -1,0 +1,165 @@
+{
+  "generated_at_utc": "2026-03-04T05:07:22.063081+00:00",
+  "window": {
+    "start_date": "2026-03-04",
+    "end_date": "2026-03-04",
+    "days": 1
+  },
+  "variants": [
+    {
+      "name": "live_current",
+      "config_hash": "9ae086a6ad6c92fe875cbd64363e2829fd33d03cd92e1df59f9acf0b97d27b88",
+      "override": {},
+      "action_days": 1,
+      "total_actions": 1,
+      "long_entries": 0,
+      "short_entries": 1,
+      "top_short_tickers": [
+        {
+          "ticker": "6269",
+          "count": 1
+        }
+      ],
+      "errors": [],
+      "daily": [
+        {
+          "as_of": "2026-03-04",
+          "action_count": 1,
+          "long_entries": 0,
+          "short_entries": 1,
+          "actions": [
+            {
+              "ticker": "6269",
+              "side": "SHORT",
+              "delta_units": 2,
+              "reason_id": "E_NEW_TOP1_GATE_OK"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ml_reference",
+      "config_hash": "3ef2dac1750cfc1a57fd8bd2cc988f63a334b6a366307ff5e69f4ebd8e041fb6",
+      "override": {
+        "rankingMode": "ml",
+        "sides": {
+          "longEnabled": true,
+          "shortEnabled": true
+        },
+        "thresholds": {
+          "entryMinUpProb": 0.65,
+          "entryMinEv": 0.03,
+          "entryMaxRevRisk": 0.55,
+          "maxNewEntriesPerDay": 1.0,
+          "newEntryMaxRank": 1.0
+        }
+      },
+      "action_days": 0,
+      "total_actions": 0,
+      "long_entries": 0,
+      "short_entries": 0,
+      "top_short_tickers": [],
+      "errors": [],
+      "daily": [
+        {
+          "as_of": "2026-03-04",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        }
+      ]
+    },
+    {
+      "name": "hybrid_balanced",
+      "config_hash": "9ae086a6ad6c92fe875cbd64363e2829fd33d03cd92e1df59f9acf0b97d27b88",
+      "override": {
+        "rankingMode": "hybrid",
+        "sides": {
+          "longEnabled": true,
+          "shortEnabled": true
+        },
+        "thresholds": {
+          "entryMinUpProb": 0.56,
+          "entryMinEv": -0.01,
+          "entryMaxRevRisk": 0.7,
+          "maxNewEntriesPerDay": 2.0,
+          "newEntryMaxRank": 10.0
+        }
+      },
+      "action_days": 1,
+      "total_actions": 1,
+      "long_entries": 0,
+      "short_entries": 1,
+      "top_short_tickers": [
+        {
+          "ticker": "6269",
+          "count": 1
+        }
+      ],
+      "errors": [],
+      "daily": [
+        {
+          "as_of": "2026-03-04",
+          "action_count": 1,
+          "long_entries": 0,
+          "short_entries": 1,
+          "actions": [
+            {
+              "ticker": "6269",
+              "side": "SHORT",
+              "delta_units": 2,
+              "reason_id": "E_NEW_TOP1_GATE_OK"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hybrid_aggressive",
+      "config_hash": "6fdc011407da5fd9708af5934e46b0d9ca669e1ea170989c2d68c7b927fc4e3a",
+      "override": {
+        "rankingMode": "hybrid",
+        "sides": {
+          "longEnabled": true,
+          "shortEnabled": true
+        },
+        "thresholds": {
+          "entryMinUpProb": 0.55,
+          "entryMinEv": -0.03,
+          "entryMaxRevRisk": 0.72,
+          "maxNewEntriesPerDay": 2.0,
+          "newEntryMaxRank": 10.0
+        }
+      },
+      "action_days": 1,
+      "total_actions": 1,
+      "long_entries": 0,
+      "short_entries": 1,
+      "top_short_tickers": [
+        {
+          "ticker": "6269",
+          "count": 1
+        }
+      ],
+      "errors": [],
+      "daily": [
+        {
+          "as_of": "2026-03-04",
+          "action_count": 1,
+          "long_entries": 0,
+          "short_entries": 1,
+          "actions": [
+            {
+              "ticker": "6269",
+              "side": "SHORT",
+              "delta_units": 2,
+              "reason_id": "E_NEW_TOP1_GATE_OK"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

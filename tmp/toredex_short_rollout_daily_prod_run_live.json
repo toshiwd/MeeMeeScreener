@@ -1,0 +1,64 @@
+{
+  "generated_at_utc": "2026-03-04T04:20:44.777872+00:00",
+  "season_id": "toredex_live_short_hybrid_prod_20260304",
+  "window_days": 10,
+  "rollback_max_dd": -8.0,
+  "config_override": {
+    "rankingMode": "hybrid",
+    "sides": {
+      "longEnabled": true,
+      "shortEnabled": true
+    },
+    "thresholds": {
+      "entryMinUpProb": 0.56,
+      "entryMinEv": -0.01,
+      "entryMaxRevRisk": 0.7,
+      "maxNewEntriesPerDay": 2.0,
+      "newEntryMaxRank": 10.0
+    },
+    "operatingMode": "champion"
+  },
+  "run_result": {
+    "ok": true,
+    "status": "noop",
+    "reason": "idempotent",
+    "season_id": "toredex_live_short_hybrid_prod_20260304",
+    "asOf": "2026-03-03",
+    "mode": "LIVE",
+    "snapshot_hash": "986374e2a9bb9b8b0898fdc7c8cdafbd3b6863c806db4cb7dbbae3590021d9fd",
+    "decision_hash": "2ae169a8e349c3b59563a050fb05b4cd3fea6ea94fc8f3f6d143c23142866526",
+    "trade_count": 0,
+    "dry_run": false
+  },
+  "summary": {
+    "window_days": 1,
+    "metric_days": 1,
+    "short_entries": 0,
+    "pass_days": 1,
+    "all_pass": true,
+    "min_max_drawdown_pct": 0.0,
+    "promotion_gate_pass": false,
+    "rollback_trigger": false,
+    "rollback_reason": "",
+    "latest": {
+      "as_of": "2026-03-03",
+      "net_cum_return_pct": 0.0,
+      "max_drawdown_pct": 0.0,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 0,
+      "long_units": 0
+    }
+  },
+  "metrics_window": [
+    {
+      "as_of": "2026-03-03",
+      "net_cum_return_pct": 0.0,
+      "max_drawdown_pct": 0.0,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 0,
+      "long_units": 0
+    }
+  ]
+}
