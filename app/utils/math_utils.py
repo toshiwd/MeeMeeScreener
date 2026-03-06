@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+import math
+from typing import Any
+
+
+def to_float_or_none(value: Any) -> float | None:
+    """Convert value to float, returning None for non-numeric or non-finite values."""
+    if not isinstance(value, (int, float)):
+        return None
+    fv = float(value)
+    return fv if math.isfinite(fv) else None
+
 
 def _pct_change(latest: float | None, prev: float | None) -> float | None:
     if latest is None or prev is None:

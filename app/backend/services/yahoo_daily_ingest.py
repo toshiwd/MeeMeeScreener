@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
 
 from app.backend.services.yahoo_provisional import (
     get_provisional_daily_rows_from_spark,
+    is_close_only_zero_volume_row,
     normalize_date_key,
 )
 from app.db.session import get_conn
@@ -15,6 +17,14 @@ logger = logging.getLogger(__name__)
 
 def _today_jst_key() -> int:
     return int((datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y%m%d"))
+
+
+def _allow_close_only_provisional() -> bool:
+    raw = os.getenv("MEEMEE_YF_ALLOW_CLOSE_ONLY")
+    if raw is None:
+        # Default to enabled so intraday timeline can advance before PAN finalization.
+        return True
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _date_key_to_utc_epoch(date_key: int) -> int:
@@ -87,37 +97,123 @@ def _load_latest_date_key_map(conn, codes: Sequence[str]) -> dict[str, int | Non
     return latest
 
 
-def _insert_rows(conn, rows: Sequence[tuple[str, int, float, float, float, float, float]]) -> tuple[int, int]:
-    if not rows:
-        return 0, 0
+def _date_key_sql_expr(column: str) -> str:
+    return (
+        f"CASE WHEN {column} >= 1000000000 "
+        f"THEN CAST(strftime(to_timestamp({column}), '%Y%m%d') AS BIGINT) "
+        f"ELSE CAST({column} AS BIGINT) END"
+    )
+
+
+def _cleanup_stale_yahoo_rows(conn) -> int:
+    date_key_expr = _date_key_sql_expr("y.date")
+    pan_date_key_expr = _date_key_sql_expr("date")
+    conn.execute("DROP TABLE IF EXISTS _tmp_yf_pan_latest")
+    conn.execute(
+        f"""
+        CREATE TEMP TABLE _tmp_yf_pan_latest AS
+        SELECT code, MAX({pan_date_key_expr}) AS max_pan_date_key
+        FROM daily_bars
+        WHERE COALESCE(source, 'pan') <> 'yahoo'
+        GROUP BY code
+        """
+    )
+    conn.execute("DROP TABLE IF EXISTS _tmp_yf_cleanup_targets")
+    conn.execute(
+        f"""
+        CREATE TEMP TABLE _tmp_yf_cleanup_targets AS
+        SELECT y.code, y.date
+        FROM daily_bars y
+        JOIN _tmp_yf_pan_latest p
+          ON p.code = y.code
+        WHERE COALESCE(y.source, 'pan') = 'yahoo'
+          AND ({date_key_expr}) <= p.max_pan_date_key
+        """,
+    )
+    deleted = int(conn.execute("SELECT COUNT(*) FROM _tmp_yf_cleanup_targets").fetchone()[0])
+    if deleted > 0:
+        conn.execute(
+            """
+            DELETE FROM daily_bars
+            WHERE COALESCE(source, 'pan') = 'yahoo'
+              AND EXISTS (
+                  SELECT 1
+                  FROM _tmp_yf_cleanup_targets t
+                  WHERE t.code = daily_bars.code
+                    AND t.date = daily_bars.date
+              )
+            """
+        )
+    conn.execute("DROP TABLE IF EXISTS _tmp_yf_cleanup_targets")
+    conn.execute("DROP TABLE IF EXISTS _tmp_yf_pan_latest")
+    return deleted
+
+
+def _insert_rows(
+    conn,
+    rows: Sequence[tuple[str, int, float, float, float, float, float]],
+) -> tuple[int, int, int]:
+    inserted = 0
+    cleaned_stale = 0
 
     conn.execute("BEGIN TRANSACTION")
     try:
-        conn.execute("DROP TABLE IF EXISTS _tmp_yf_daily_ingest")
-        conn.execute(
-            """
-            CREATE TEMP TABLE _tmp_yf_daily_ingest (
-                code TEXT,
-                date BIGINT,
-                o DOUBLE,
-                h DOUBLE,
-                l DOUBLE,
-                c DOUBLE,
-                v DOUBLE
-            )
-            """
-        )
-        conn.executemany(
-            """
-            INSERT INTO _tmp_yf_daily_ingest (code, date, o, h, l, c, v)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            [list(row) for row in rows],
-        )
-
-        inserted = int(
+        cleaned_stale = _cleanup_stale_yahoo_rows(conn)
+        if rows:
+            conn.execute("DROP TABLE IF EXISTS _tmp_yf_daily_ingest")
             conn.execute(
                 """
+                CREATE TEMP TABLE _tmp_yf_daily_ingest (
+                    code TEXT,
+                    date BIGINT,
+                    o DOUBLE,
+                    h DOUBLE,
+                    l DOUBLE,
+                    c DOUBLE,
+                    v DOUBLE
+                )
+                """
+            )
+            conn.executemany(
+                """
+                INSERT INTO _tmp_yf_daily_ingest (code, date, o, h, l, c, v)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [list(row) for row in rows],
+            )
+
+            inserted = int(
+                conn.execute(
+                    """
+                    WITH dedup AS (
+                        SELECT
+                            code,
+                            date,
+                            o,
+                            h,
+                            l,
+                            c,
+                            v,
+                            ROW_NUMBER() OVER (PARTITION BY code, date ORDER BY code) AS rn
+                        FROM _tmp_yf_daily_ingest
+                    ),
+                    pending AS (
+                        SELECT code, date, o, h, l, c, v
+                        FROM dedup
+                        WHERE rn = 1
+                    )
+                    SELECT COUNT(*)
+                    FROM pending p
+                    LEFT JOIN daily_bars d
+                        ON d.code = p.code AND d.date = p.date
+                    WHERE d.code IS NULL
+                    """
+                ).fetchone()[0]
+            )
+
+            conn.execute(
+                """
+                INSERT INTO daily_bars (code, date, o, h, l, c, v, source)
                 WITH dedup AS (
                     SELECT
                         code,
@@ -129,44 +225,15 @@ def _insert_rows(conn, rows: Sequence[tuple[str, int, float, float, float, float
                         v,
                         ROW_NUMBER() OVER (PARTITION BY code, date ORDER BY code) AS rn
                     FROM _tmp_yf_daily_ingest
-                ),
-                pending AS (
-                    SELECT code, date, o, h, l, c, v
-                    FROM dedup
-                    WHERE rn = 1
                 )
-                SELECT COUNT(*)
-                FROM pending p
+                SELECT p.code, p.date, p.o, p.h, p.l, p.c, p.v, 'yahoo'
+                FROM dedup p
                 LEFT JOIN daily_bars d
                     ON d.code = p.code AND d.date = p.date
-                WHERE d.code IS NULL
+                WHERE p.rn = 1 AND d.code IS NULL
                 """
-            ).fetchone()[0]
-        )
-
-        conn.execute(
-            """
-            INSERT INTO daily_bars (code, date, o, h, l, c, v)
-            WITH dedup AS (
-                SELECT
-                    code,
-                    date,
-                    o,
-                    h,
-                    l,
-                    c,
-                    v,
-                    ROW_NUMBER() OVER (PARTITION BY code, date ORDER BY code) AS rn
-                FROM _tmp_yf_daily_ingest
             )
-            SELECT p.code, p.date, p.o, p.h, p.l, p.c, p.v
-            FROM dedup p
-            LEFT JOIN daily_bars d
-                ON d.code = p.code AND d.date = p.date
-            WHERE p.rn = 1 AND d.code IS NULL
-            """
-        )
-        conn.execute("DROP TABLE IF EXISTS _tmp_yf_daily_ingest")
+            conn.execute("DROP TABLE IF EXISTS _tmp_yf_daily_ingest")
         conn.execute("COMMIT")
     except Exception:
         try:
@@ -176,7 +243,7 @@ def _insert_rows(conn, rows: Sequence[tuple[str, int, float, float, float, float
         raise
 
     conflicts = max(0, len(rows) - inserted)
-    return inserted, conflicts
+    return inserted, conflicts, cleaned_stale
 
 
 def get_daily_ingest_coverage(*, target_date_key: int | None = None, max_codes: int | None = None) -> dict[str, Any]:
@@ -216,6 +283,7 @@ def ingest_latest_provisional_daily_rows(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     asof_key = normalize_date_key(asof_dt) if asof_dt is not None else None
+    today_key = _today_jst_key()
 
     with get_conn() as conn:
         codes, universe_source = _load_target_codes(conn, max_codes=max_codes)
@@ -233,8 +301,10 @@ def ingest_latest_provisional_daily_rows(
             "insert_candidates": 0,
             "inserted": 0,
             "conflicts": 0,
+            "purged_stale_yahoo": 0,
             "skipped_not_newer": 0,
             "skipped_asof": 0,
+            "skipped_not_today": 0,
             "missing_from_yahoo": 0,
             "latest_yahoo_date": None,
             "coverage": coverage,
@@ -246,6 +316,9 @@ def ingest_latest_provisional_daily_rows(
     fetched_codes = 0
     skipped_not_newer = 0
     skipped_asof = 0
+    skipped_not_today = 0
+    skipped_close_only = 0
+    accepted_close_only = 0
     missing_from_yahoo = 0
     latest_yahoo_key: int | None = None
 
@@ -264,10 +337,18 @@ def ingest_latest_provisional_daily_rows(
         if asof_key is not None and row_key > asof_key:
             skipped_asof += 1
             continue
+        if row_key != today_key:
+            skipped_not_today += 1
+            continue
         last_key = latest_map.get(code)
         if last_key is not None and row_key <= last_key:
             skipped_not_newer += 1
             continue
+        if is_close_only_zero_volume_row(row):
+            if not _allow_close_only_provisional():
+                skipped_close_only += 1
+                continue
+            accepted_close_only += 1
         rows_to_insert.append(
             (
                 code,
@@ -282,11 +363,12 @@ def ingest_latest_provisional_daily_rows(
 
     inserted = 0
     conflicts = 0
-    if rows_to_insert and not dry_run:
+    cleaned_stale = 0
+    if not dry_run:
         with get_conn() as conn:
-            inserted, conflicts = _insert_rows(conn, rows_to_insert)
+            inserted, conflicts, cleaned_stale = _insert_rows(conn, rows_to_insert)
 
-    coverage_target = latest_yahoo_key or asof_key or _today_jst_key()
+    coverage_target = today_key
     coverage = get_daily_ingest_coverage(target_date_key=coverage_target, max_codes=max_codes)
     return {
         "ok": True,
@@ -298,8 +380,12 @@ def ingest_latest_provisional_daily_rows(
         "insert_candidates": len(rows_to_insert),
         "inserted": inserted,
         "conflicts": conflicts,
+        "purged_stale_yahoo": cleaned_stale,
         "skipped_not_newer": skipped_not_newer,
         "skipped_asof": skipped_asof,
+        "skipped_not_today": skipped_not_today,
+        "skipped_close_only": skipped_close_only,
+        "accepted_close_only": accepted_close_only,
         "missing_from_yahoo": missing_from_yahoo,
         "latest_yahoo_date": latest_yahoo_key,
         "coverage": coverage,

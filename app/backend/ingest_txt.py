@@ -4,6 +4,7 @@ import os
 import json
 import re
 import time
+import io
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -58,6 +59,10 @@ HEADER_ALIASES = {
     "c": {"c", "close", "終値", "終"},
     "v": {"v", "volume", "vol", "出来高", "出来高株", "売買高", "売買高株"},
 }
+CONCATENATED_RECORD_PATTERN = re.compile(
+    r"([0-9A-Za-z]{4,16},\d{4}[/-]\d{1,2}[/-]\d{1,2},[^,\r\n]*,[^,\r\n]*,[^,\r\n]*,[^,\r\n]*,[^,\r\n]*)"
+    r"([0-9A-Za-z]{4,16},\d{4}[/-]\d{1,2}[/-]\d{1,2},)"
+)
 
 TRADE_FLAG_CONFIG = {
     "BOX_MONTHS_MIN": 4,
@@ -712,23 +717,48 @@ def list_txt_files(data_dir: str) -> list[str]:
     ]
 
 
-def read_csv_with_fallback(path: str) -> pd.DataFrame:
+def _read_csv_table(source, *, encoding: str | None = None) -> pd.DataFrame:
+    header_df = pd.read_csv(source, header=0, dtype="string", encoding=encoding)
+    mapped = _map_headered_frame(header_df)
+    if mapped is not None:
+        return mapped
+    if hasattr(source, "seek"):
+        source.seek(0)
+    return pd.read_csv(
+        source,
+        header=None,
+        names=["code", "date", "o", "h", "l", "c", "v"],
+        dtype="string",
+        encoding=encoding,
+        usecols=[0, 1, 2, 3, 4, 5, 6]
+    )
+
+
+def _repair_concatenated_records(raw_text: str) -> tuple[str, int]:
+    repaired_text = raw_text
+    total_repairs = 0
+    while True:
+        repaired_text, repaired_count = CONCATENATED_RECORD_PATTERN.subn(r"\1\n\2", repaired_text)
+        total_repairs += repaired_count
+        if repaired_count <= 0:
+            break
+    return repaired_text, total_repairs
+
+
+def read_csv_with_fallback(path: str) -> tuple[pd.DataFrame, int]:
     encodings = ["utf-8", "shift_jis", "cp932"]
     last_err: Exception | None = None
     for encoding in encodings:
         try:
-            header_df = pd.read_csv(path, header=0, dtype="string", encoding=encoding)
-            mapped = _map_headered_frame(header_df)
-            if mapped is not None:
-                return mapped
-            return pd.read_csv(
-                path,
-                header=None,
-                names=["code", "date", "o", "h", "l", "c", "v"],
-                dtype="string",
-                encoding=encoding,
-                usecols=[0, 1, 2, 3, 4, 5, 6]
-            )
+            try:
+                with open(path, "r", encoding=encoding) as handle:
+                    raw_text = handle.read()
+            except Exception as read_exc:
+                last_err = read_exc
+                continue
+            repaired_text, repaired_boundaries = _repair_concatenated_records(raw_text)
+            source_text = repaired_text if repaired_boundaries > 0 else raw_text
+            return _read_csv_table(io.StringIO(source_text), encoding=None), repaired_boundaries
         except Exception as exc:
             last_err = exc
     if last_err:
@@ -766,11 +796,16 @@ def normalize_code(df: pd.DataFrame) -> tuple[pd.DataFrame, int, int, int]:
 
 def parse_file(path: str, watchlist: set[str] | None, counts: dict) -> pd.DataFrame:
     try:
-        df = read_csv_with_fallback(path)
+        df, repaired_boundaries = read_csv_with_fallback(path)
     except Exception as exc:
         counts["file_error"] += 1
         print(f"Warning: failed to read {path}: {exc}")
         return pd.DataFrame(columns=["code", "date", "o", "h", "l", "c", "v"])
+    if repaired_boundaries > 0:
+        counts["repaired_boundaries"] += int(repaired_boundaries)
+        print(
+            f"Warning: repaired {repaired_boundaries} concatenated row boundary(s) in {path}"
+        )
 
     df = strip_header_row(df)
     if df.empty:
@@ -1087,6 +1122,7 @@ def log_counts(counts: dict, parsed_rows: int) -> None:
     print(f"SKIPPED_ROWS={skipped_total} ({reason_text})")
     print(f"NONSTANDARD_CODE_ROWS={counts['nonstandard_code']}")
     print(f"FILE_ERRORS={counts['file_error']}")
+    print(f"REPAIRED_BOUNDARIES={counts['repaired_boundaries']}")
 
 
 def log_volume_stats(stage: str, df: pd.DataFrame) -> None:
@@ -1124,7 +1160,77 @@ def _save_ingest_state(state: dict[str, float]) -> None:
         print(f"Warning: Failed to save ingest state: {e}")
 
 
-def ingest(incremental: bool = False) -> None:
+def _detect_and_log_pan_source_revisions(
+    conn,
+    *,
+    incremental_daily: pd.DataFrame,
+    run_id: str,
+) -> int:
+    if incremental_daily.empty or not {"code", "date"}.issubset(incremental_daily.columns):
+        return 0
+    prepared = incremental_daily.loc[:, ["code", "date"]].copy()
+    prepared["code"] = prepared["code"].astype("string").str.strip()
+    prepared["date"] = pd.to_numeric(prepared["date"], errors="coerce").astype("Int64")
+    prepared = prepared.dropna(subset=["code", "date"])
+    if prepared.empty:
+        return 0
+    prepared["date"] = prepared["date"].astype("int64")
+    prepared = prepared.drop_duplicates(subset=["code", "date"])
+    conn.register("incremental_daily_revision_df", prepared)
+    try:
+        conn.execute("DROP TABLE IF EXISTS _tmp_pan_source_revisions")
+        conn.execute(
+            """
+            CREATE TEMP TABLE _tmp_pan_source_revisions AS
+            SELECT DISTINCT
+                ? AS run_id,
+                d.code AS code,
+                d.date AS date,
+                COALESCE(d.source, 'pan') AS old_source,
+                'pan' AS new_source,
+                CURRENT_TIMESTAMP AS detected_at
+            FROM daily_bars d
+            JOIN incremental_daily_revision_df p
+              ON p.code = d.code
+             AND p.date = d.date
+            WHERE COALESCE(d.source, 'pan') = 'yahoo'
+            """,
+            [str(run_id)],
+        )
+        row = conn.execute("SELECT COUNT(*) FROM _tmp_pan_source_revisions").fetchone()
+        detected = int(row[0]) if row and row[0] is not None else 0
+        if detected > 0:
+            conn.execute(
+                """
+                INSERT INTO daily_bar_source_revision_log (
+                    run_id,
+                    code,
+                    date,
+                    old_source,
+                    new_source,
+                    detected_at
+                )
+                SELECT
+                    run_id,
+                    code,
+                    date,
+                    old_source,
+                    new_source,
+                    detected_at
+                FROM _tmp_pan_source_revisions
+                ON CONFLICT(run_id, code, date, old_source, new_source) DO NOTHING
+                """
+            )
+        return int(detected)
+    finally:
+        conn.execute("DROP TABLE IF EXISTS _tmp_pan_source_revisions")
+        try:
+            conn.unregister("incremental_daily_revision_df")
+        except Exception:
+            pass
+
+
+def ingest(incremental: bool = False, run_id: str | None = None) -> dict[str, int | bool | str]:
     def step_start(label: str) -> float:
         print(f"[STEP_START] {label}")
         return time.perf_counter()
@@ -1140,6 +1246,7 @@ def ingest(incremental: bool = False) -> None:
             print(f"[STEP_END] {label} ms={elapsed_ms}")
 
     total_start = time.perf_counter()
+    resolved_run_id = str(run_id).strip() if run_id else datetime.now(timezone.utc).strftime("ingest_%Y%m%d%H%M%S")
 
     start = step_start("init_schema")
     init_schema()
@@ -1207,7 +1314,8 @@ def ingest(incremental: bool = False) -> None:
         "filtered_watchlist": 0,
         "duplicate_rows": 0,
         "nonstandard_code": 0,
-        "file_error": 0
+        "file_error": 0,
+        "repaired_boundaries": 0,
     }
 
     if not files:
@@ -1221,7 +1329,19 @@ def ingest(incremental: bool = False) -> None:
         
         total_ms = int((time.perf_counter() - total_start) * 1000)
         print(f"[STEP_END] ingest_total ms={total_ms} rows=0")
-        return
+        changed_files_count = int(len(changed_files))
+        skipped_files_count = int(skipped_count)
+        return {
+            "run_id": str(resolved_run_id),
+            "incremental": bool(incremental),
+            "force_full": bool(force_full),
+            "rows": 0,
+            "changed_files": changed_files_count,
+            "changed": changed_files_count,
+            "skipped_files": skipped_files_count,
+            "skipped": skipped_files_count,
+            "pan_finalized_rows": 0,
+        }
 
     start = step_start("load_watchlist")
     watchlist = load_watchlist(DATA_DIR)
@@ -1241,7 +1361,19 @@ def ingest(incremental: bool = False) -> None:
         print("No valid TXT rows found. Tables cleared.")
         total_ms = int((time.perf_counter() - total_start) * 1000)
         print(f"[STEP_END] ingest_total ms={total_ms} rows=0")
-        return
+        changed_files_count = int(len(changed_files))
+        skipped_files_count = int(skipped_count)
+        return {
+            "run_id": str(resolved_run_id),
+            "incremental": bool(incremental),
+            "force_full": bool(force_full),
+            "rows": 0,
+            "changed_files": changed_files_count,
+            "changed": changed_files_count,
+            "skipped_files": skipped_files_count,
+            "skipped": skipped_files_count,
+            "pan_finalized_rows": 0,
+        }
 
     start = step_start("build_monthly")
     monthly = build_monthly(daily)
@@ -1280,6 +1412,7 @@ def ingest(incremental: bool = False) -> None:
     start = step_start("db_replace")
     log_volume_stats("pre_db", daily)
     
+    pan_finalized_rows = 0
     with get_conn() as conn:
         conn.execute("BEGIN TRANSACTION")
         try:
@@ -1298,7 +1431,40 @@ def ingest(incremental: bool = False) -> None:
                     codes_df = pd.DataFrame({"code": codes})
                     conn.register("incremental_codes_df", codes_df)
                     conn.execute("CREATE TEMP TABLE _tmp_incremental_codes AS SELECT DISTINCT code FROM incremental_codes_df")
-                    conn.execute("DELETE FROM daily_bars WHERE code IN (SELECT code FROM _tmp_incremental_codes)")
+                    # Keep Yahoo provisional rows only when they are newer than PAN latest date.
+                    conn.register("incremental_daily_df", daily[["code", "date"]])
+                    pan_finalized_rows = _detect_and_log_pan_source_revisions(
+                        conn,
+                        incremental_daily=daily[["code", "date"]],
+                        run_id=str(resolved_run_id),
+                    )
+                    conn.execute(
+                        """
+                        CREATE TEMP TABLE _tmp_incremental_pan_latest AS
+                        SELECT code, MAX(date) AS max_pan_date
+                        FROM incremental_daily_df
+                        GROUP BY code
+                        """
+                    )
+                    conn.execute(
+                        """
+                        DELETE FROM daily_bars
+                        WHERE code IN (SELECT code FROM _tmp_incremental_codes)
+                          AND COALESCE(source, 'pan') <> 'yahoo'
+                        """
+                    )
+                    conn.execute(
+                        """
+                        DELETE FROM daily_bars
+                        WHERE COALESCE(source, 'pan') = 'yahoo'
+                          AND EXISTS (
+                              SELECT 1
+                              FROM _tmp_incremental_pan_latest p
+                              WHERE p.code = daily_bars.code
+                                AND daily_bars.date <= p.max_pan_date
+                          )
+                        """
+                    )
                     conn.execute("DELETE FROM daily_ma WHERE code IN (SELECT code FROM _tmp_incremental_codes)")
                     conn.execute(
                         "DELETE FROM feature_snapshot_daily WHERE code IN (SELECT code FROM _tmp_incremental_codes)"
@@ -1307,10 +1473,13 @@ def ingest(incremental: bool = False) -> None:
                     conn.execute("DELETE FROM monthly_ma WHERE code IN (SELECT code FROM _tmp_incremental_codes)")
                     conn.execute("DELETE FROM stock_meta WHERE code IN (SELECT code FROM _tmp_incremental_codes)")
                     conn.execute("DELETE FROM tickers WHERE code IN (SELECT code FROM _tmp_incremental_codes)")
+                    conn.execute("DROP TABLE IF EXISTS _tmp_incremental_pan_latest")
                     conn.execute("DROP TABLE IF EXISTS _tmp_incremental_codes")
 
             conn.register("daily_df", daily)
-            conn.execute("INSERT INTO daily_bars SELECT code, date, o, h, l, c, v FROM daily_df")
+            conn.execute(
+                "INSERT INTO daily_bars SELECT code, date, o, h, l, c, v, 'pan' FROM daily_df"
+            )
 
             conn.register("daily_ma_df", daily_ma)
             conn.execute("INSERT INTO daily_ma SELECT code, date, ma7, ma20, ma60 FROM daily_ma_df")
@@ -1415,7 +1584,14 @@ def ingest(incremental: bool = False) -> None:
                 pass
             raise
 
-    step_end("db_replace", start, daily_rows=len(daily), monthly_rows=len(monthly), meta_rows=len(meta))
+    step_end(
+        "db_replace",
+        start,
+        daily_rows=len(daily),
+        monthly_rows=len(monthly),
+        meta_rows=len(meta),
+        pan_finalized_rows=pan_finalized_rows,
+    )
 
     _save_ingest_state(new_state)
 
@@ -1425,6 +1601,19 @@ def ingest(incremental: bool = False) -> None:
     print(f"Inserted {len(daily)} daily rows")
     total_ms = int((time.perf_counter() - total_start) * 1000)
     print(f"[STEP_END] ingest_total ms={total_ms} rows={len(daily)}")
+    changed_files_count = int(len(changed_files))
+    skipped_files_count = int(skipped_count)
+    return {
+        "run_id": str(resolved_run_id),
+        "incremental": bool(incremental),
+        "force_full": bool(force_full),
+        "rows": int(len(daily)),
+        "changed_files": changed_files_count,
+        "changed": changed_files_count,
+        "skipped_files": skipped_files_count,
+        "skipped": skipped_files_count,
+        "pan_finalized_rows": int(pan_finalized_rows),
+    }
 
 
 def main() -> None:

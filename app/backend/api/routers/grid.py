@@ -1,8 +1,6 @@
 import logging
 import os
 import time
-import copy
-import json
 from threading import Lock
 from fastapi import APIRouter, Depends
 from typing import List, Any, Dict
@@ -11,12 +9,9 @@ from datetime import datetime, timedelta
 from app.backend.infra.duckdb.screener_repo import ScreenerRepository
 from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.api.dependencies import get_screener_repo, get_stock_repo
-from app.backend.domain.screening import metrics, ranking
+from app.backend.domain.screening import metrics
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
-from app.backend.services.yahoo_provisional import (
-    get_provisional_daily_rows_from_spark,
-    merge_daily_rows_with_provisional,
-)
+from app.backend.services import rankings_cache
 from app.backend.services import swing_plan_service
 from app.backend.services.watchlist import load_watchlist_codes, resolve_watchlist_path, watchlist_lock
 from app.core.config import config as core_config
@@ -55,6 +50,11 @@ def _group_rows_by_code(rows: list[tuple]) -> dict[str, list[tuple]]:
         code = row[0]
         grouped.setdefault(code, []).append(row)
     return grouped
+
+
+def _clone_screener_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Only top-level keys are modified per request, so shallow copy is sufficient.
+    return [dict(row) for row in rows]
 
 
 def _apply_short_scores(items: list[dict[str, Any]], score_map: dict[str, dict[str, Any]]) -> None:
@@ -529,6 +529,11 @@ def _maybe_trigger_missing_data_repair(covered_codes: list[str]) -> None:
     if not covered_codes:
         return
 
+    now_ts = time.time()
+    with _auto_repair_lock:
+        if now_ts - _last_auto_repair_ts < _AUTO_REPAIR_COOLDOWN_SEC:
+            return
+
     try:
         watchlist_path = resolve_watchlist_path()
         if not watchlist_path or not os.path.isfile(watchlist_path):
@@ -548,7 +553,6 @@ def _maybe_trigger_missing_data_repair(covered_codes: list[str]) -> None:
     if missing_count < _AUTO_REPAIR_MIN_MISSING or missing_ratio < _AUTO_REPAIR_MIN_RATIO:
         return
 
-    now_ts = time.time()
     with _auto_repair_lock:
         if now_ts - _last_auto_repair_ts < _AUTO_REPAIR_COOLDOWN_SEC:
             return
@@ -582,13 +586,13 @@ def _maybe_trigger_missing_data_repair(covered_codes: list[str]) -> None:
         logger.exception("auto-repair submission failed: %s", exc)
 
 
-# Simple in-memory cache for screener results (to match legacy behavior of caching)
-# Cache key is tied to DB mtime and request window so stale data is naturally invalidated.
-_screener_cache = {
+# Cache only the normalized base response to avoid duplicated row caches.
+_grid_api_cache = {
     "data": [],
+    "codes": [],
     "cache_key": None,
 }
-_screener_cache_lock = Lock()
+_grid_api_lock = Lock()
 
 
 def _resolve_db_mtime() -> float | None:
@@ -604,7 +608,7 @@ def get_screener_rows(
     screener_repo: ScreenerRepository = Depends(get_screener_repo),
     stock_repo: StockRepository = Depends(get_stock_repo),
 ):
-    global _screener_cache
+    global _grid_api_cache
 
     # 1. Fetch Data
     today = jst_now().date()
@@ -613,29 +617,19 @@ def get_screener_rows(
         _resolve_db_mtime(),
         int(limit),
         today.isoformat(),
-        window_end.isoformat(),
     )
 
     if not force_update:
-        with _screener_cache_lock:
-            cached_key = _screener_cache.get("cache_key")
-            cached_data = _screener_cache.get("data") if cached_key == cache_key else None
-        if cached_data:
-            cached_results = copy.deepcopy(cached_data)
-            score_map = stock_repo.get_scores()
-            cache_codes = [
-                str(item.get("code"))
-                for item in cached_results
-                if isinstance(item.get("code"), str)
-            ]
-            _maybe_trigger_missing_data_repair(cache_codes)
-            ml_map = stock_repo.get_latest_ml_pred_map(cache_codes)
-            _apply_short_scores(cached_results, score_map)
-            _apply_ml_metrics(cached_results, ml_map)
-            _apply_short_priority_metrics(cached_results)
-            _apply_entry_priority_metrics(cached_results)
-            _apply_swing_metrics(cached_results)
-            return cached_results
+        with _grid_api_lock:
+            cached_key = _grid_api_cache.get("cache_key")
+            cache_hit = cached_key == cache_key
+            cached_data = _grid_api_cache.get("data") if cache_hit else None
+            cached_codes = _grid_api_cache.get("codes") if cache_hit else None
+        if cache_hit and isinstance(cached_data, list):
+            response_results = _clone_screener_rows(cached_data)
+            repair_codes = cached_codes if isinstance(cached_codes, list) else []
+            _maybe_trigger_missing_data_repair(repair_codes)
+            return response_results
     
     (
         codes,
@@ -730,99 +724,75 @@ def get_screener_rows(
         item["phaseN"] = phase_info["n"]
         item["phaseDt"] = phase_info["dt"]
 
-    response_results = copy.deepcopy(results)
+    response_results = results
     _apply_short_scores(response_results, short_score_map)
     _apply_ml_metrics(response_results, ml_map)
     _apply_short_priority_metrics(response_results)
     _apply_entry_priority_metrics(response_results)
     _apply_swing_metrics(response_results)
 
-    with _screener_cache_lock:
-        _screener_cache["data"] = copy.deepcopy(results)
-        _screener_cache["cache_key"] = cache_key
+    with _grid_api_lock:
+        _grid_api_cache["data"] = _clone_screener_rows(response_results)
+        _grid_api_cache["codes"] = [str(code) for code in codes if isinstance(code, str)]
+        _grid_api_cache["cache_key"] = cache_key
+
     _maybe_trigger_missing_data_repair(codes)
 
     return response_results
 
 @router.get("/ranking", response_model=Dict[str, Any])
-def get_ranking(
-    limit: int = 50,
-    screener_repo: ScreenerRepository = Depends(get_screener_repo)
-):
-    # This roughly maps to `build_weekly_ranking`
-    # We need a way to load rank config. 
-    # For now, use an empty config or default.
-    # Ideally inject ConfigRepository and load it.
-    
-    # 1. Fetch Data (reuses fetch_screener_batch for efficiency?)
-    # ranking needs daily bars.
-    # fetch_screener_batch gets 260 days.
-    
-    today = jst_now().date()
-    (
-        codes,
-        meta_rows,
-        daily_rows,
-        monthly_rows,
-        _, _
-    ) = screener_repo.fetch_screener_batch(
-        daily_limit=260, # Ranking needs ~260 for MA200
-        earnings_start=today, # Not used for ranking but required by signature
-        earnings_end=today,
-        rights_min_date=today
-    )
-    
-    daily_map = _group_rows_by_code(daily_rows)
-    provisional_map: dict[str, tuple] = {}
+def get_ranking(limit: int = 50):
+    safe_limit = max(1, min(int(limit or 50), 200))
+
+    def _as_legacy_rows(items: list[dict]) -> list[dict]:
+        rows: list[dict] = []
+        for src in items:
+            row = dict(src)
+            score = _first_finite(
+                row.get("entryScore"),
+                row.get("hybridScore"),
+                row.get("changePct"),
+            )
+            row.setdefault("total_score", float(score) if score is not None else 0.0)
+            row.setdefault("as_of", row.get("asOf"))
+            row.setdefault("reasons", [])
+            row.setdefault("badges", [])
+            rows.append(row)
+        rows.sort(key=lambda item: float(item.get("total_score") or 0.0), reverse=True)
+        return rows
+
     try:
-        provisional_map = get_provisional_daily_rows_from_spark(codes)
-    except Exception as exc:
-        logger.debug("grid ranking provisional fetch skipped: %s", exc)
-    meta_map = {row[0]: row[1] for row in meta_rows} # code -> name
-    
-    up_items = []
-    down_items = []
-    
-    # Config is required.
-    config_path = os.getenv(
-        "RANK_CONFIG_PATH",
-        os.path.join(os.path.dirname(__file__), "..", "..", "rank_config.json"),
-    )
-    config: dict[str, Any]
-    try:
-        with open(os.path.abspath(config_path), "r", encoding="utf-8") as handle:
-            loaded = json.load(handle)
-        config = loaded if isinstance(loaded, dict) else {}
-    except Exception:
-        # Minimal safe fallback when config cannot be loaded.
-        config = {
-            "common": {"min_daily_bars": 80},
-            "weekly": {
-                "weights": {"ma_alignment": 10},
-                "thresholds": {"volume_ratio": 1.5},
-            },
-        }
-    
-    # Process
-    for code in codes:
-        d_rows = daily_map.get(code, [])
-        d_rows_sliced = [r[1:] for r in d_rows]
-        d_rows_sliced = merge_daily_rows_with_provisional(d_rows_sliced, provisional_map.get(code))
-        
-        name = meta_map.get(code, code)
-        
-        up, down, err = ranking.score_weekly_candidate(
-            code, name, d_rows_sliced, config, None
+        up_payload = rankings_cache.get_rankings(
+            "W",
+            "latest",
+            "up",
+            safe_limit,
+            mode="rule",
+            risk_mode="balanced",
         )
-        
-        if up: up_items.append(up)
-        if down: down_items.append(down)
-        
-    up_items.sort(key=lambda x: x["total_score"], reverse=True)
-    down_items.sort(key=lambda x: x["total_score"], reverse=True)
-    
+        down_payload = rankings_cache.get_rankings(
+            "W",
+            "latest",
+            "down",
+            safe_limit,
+            mode="rule",
+            risk_mode="balanced",
+        )
+    except Exception as exc:
+        logger.warning("grid ranking fallback failed: %s", exc)
+        return {
+            "up": [],
+            "down": [],
+            "meta": {"count": 0, "source": "rankings_cache", "error": str(exc)},
+        }
+
+    up_items = _as_legacy_rows(up_payload.get("items", []) if isinstance(up_payload, dict) else [])
+    down_items = _as_legacy_rows(down_payload.get("items", []) if isinstance(down_payload, dict) else [])
     return {
-        "up": up_items[:limit],
-        "down": down_items[:limit],
-        "meta": {"count": len(codes)}
+        "up": up_items[:safe_limit],
+        "down": down_items[:safe_limit],
+        "meta": {
+            "count": max(len(up_items), len(down_items)),
+            "source": "rankings_cache",
+        },
     }

@@ -11,9 +11,9 @@ from app.backend.domain.screening.ranking import (
     check_short_prohibition_zones,
     calc_regression_slope,
     calc_range_bounds_with_mid,
-    _count_streak,
-    _format_daily_label,
-    _format_month_label
+    count_streak,
+    format_daily_label,
+    format_month_label
 )
 
 def _parse_month_value(value: int | str | None) -> datetime | None:
@@ -200,8 +200,8 @@ def _build_box_metrics(
 
     base = max(abs(body_low), 1e-9)
     range_pct = (body_high - body_low) / base
-    start_label = _format_month_label(active_box["startTime"])
-    end_label = _format_month_label(active_box["endTime"])
+    start_label = format_month_label(active_box["startTime"])
+    end_label = format_month_label(active_box["endTime"])
 
     box_state = "NONE"
     if end_index == latest_index:
@@ -211,7 +211,7 @@ def _build_box_metrics(
 
     breakout_month = None
     if box_state == "JUST_BREAKOUT" and latest_index >= 0:
-        breakout_month = _format_month_label(bars[latest_index]["month"])
+        breakout_month = format_month_label(bars[latest_index]["month"])
 
     direction_state = "NONE"
     if box_state != "NONE" and last_close is not None:
@@ -427,10 +427,10 @@ def _calc_short_scores(
     # Assuming caller passes up20 or I calc it? 
     # Let's assume up20 is passed or calc local.
     # Using helper.
-    up20 = _count_streak(closes, ma20_series, "up")
+    up20 = count_streak(closes, ma20_series, "up")
     if up20 and up20 >= 10: env_score += 10
     
-    up60 = _count_streak(closes, ma60_series, "up")
+    up60 = count_streak(closes, ma60_series, "up")
     if up60 and up60 >= 22: env_score += 10
     
     # Volume
@@ -494,7 +494,7 @@ def _calc_short_scores(
     
     # 7MA cross down 2nd bar?
     # Simplified: down7 == 2
-    down7 = _count_streak(closes, ma7_series, "down")
+    down7 = count_streak(closes, ma7_series, "down")
     if down7 == 2: a_timing += 10
     
     if prohibit_reason == "late_stage": a_timing -= 20
@@ -647,12 +647,12 @@ def compute_screener_metrics(
 
     atr14 = _compute_atr(highs, lows, closes, 14)
     
-    up7 = _count_streak(closes, ma7_series, "up")
-    down7 = _count_streak(closes, ma7_series, "down")
-    up20 = _count_streak(closes, ma20_series, "up")
-    down20 = _count_streak(closes, ma20_series, "down")
-    up60 = _count_streak(closes, ma60_series, "up")
-    down60 = _count_streak(closes, ma60_series, "down")
+    up7 = count_streak(closes, ma7_series, "up")
+    down7 = count_streak(closes, ma7_series, "down")
+    up20 = count_streak(closes, ma20_series, "up")
+    down20 = count_streak(closes, ma20_series, "down")
+    up60 = count_streak(closes, ma60_series, "up")
+    down60 = count_streak(closes, ma60_series, "down")
 
     if ma20 is None: reasons.append("missing_ma20")
 
@@ -664,7 +664,7 @@ def compute_screener_metrics(
 
     # Monthly Bottom Zone (Simple check for now)
     monthly_ma20_series = _build_ma_series(monthly_closes, 20)
-    monthly_down20 = _count_streak(monthly_closes, monthly_ma20_series, "down")
+    monthly_down20 = count_streak(monthly_closes, monthly_ma20_series, "down")
     bottom_zone = bool(monthly_down20 is not None and monthly_down20 >= 6)
     
     # Monthly Regime C check (Simple PPP check for now)

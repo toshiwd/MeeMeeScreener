@@ -24,12 +24,6 @@ export default function TopNav() {
         市場概況
       </NavLink>
       <NavLink
-        to="/toredex-sim"
-        className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
-      >
-        資産シミュ
-      </NavLink>
-      <NavLink
         to="/favorites"
         className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
       >

@@ -266,6 +266,8 @@ export default function PositionOverlay({
   }, [chart]);
 
   const activeBar = activeIndex != null ? bars[activeIndex] : null;
+  const lastBar = bars.length ? bars[bars.length - 1] : null;
+  const isLatestBarActive = activeBar != null && lastBar != null && activeBar.time === lastBar.time;
   const showPositionInfo = showOverlay || showPnL;
   const activePositionTime = useMemo(
     () => (showPositionInfo && activeBar ? findClosestTime(positionTimes, activeBar.time) : null),
@@ -428,11 +430,8 @@ export default function PositionOverlay({
   }, [positionsByTime, activePositionTime]);
   const currentPositionEntries = useMemo(() => {
     if (!currentPositions || currentPositions.length === 0) return [];
-    if (!bars.length) return [];
-    const lastBar = bars[bars.length - 1];
     if (!lastBar) return [];
-    // Only show current positions if we're viewing the latest bar
-    if (activePositionTime !== lastBar.time) return [];
+    if (!isLatestBarActive) return [];
     const close = lastBar.close;
     return currentPositions.map((pos) => {
       const avgLongPrice = pos.longLots > 0 ? pos.avgLongPrice : 0;
@@ -459,7 +458,11 @@ export default function PositionOverlay({
         brokerGroupKey: pos.brokerKey
       };
     });
-  }, [currentPositions, bars, activePositionTime]);
+  }, [currentPositions, lastBar, isLatestBarActive]);
+  const displayedPositions = useMemo(() => {
+    if (isLatestBarActive && currentPositionEntries.length > 0) return currentPositionEntries;
+    return activePositions;
+  }, [isLatestBarActive, currentPositionEntries, activePositions]);
   const activeTradeMarkers = useMemo(() => {
     if (!showOverlay || !showMarkers || activePositionTime == null) return [];
     return tradeMarkers.filter((trade) => trade.time === activePositionTime);
@@ -472,68 +475,66 @@ export default function PositionOverlay({
     if (typeof candleSeries.priceToCoordinate !== "function") return [];
 
     const barsByTime = new Map(bars.map((bar) => [bar.time, bar]));
-    const groups = new Map<string, { brokerKey: string; entries: DailyPosition[] }>();
-    dailyPositions.forEach((pos) => {
-      const groupKey = pos.brokerGroupKey ?? pos.brokerKey ?? "unknown";
-      const brokerKey = pos.brokerKey ?? "unknown";
-      const list = groups.get(groupKey);
-      if (list) {
-        list.entries.push(pos);
-      } else {
-        groups.set(groupKey, { brokerKey, entries: [pos] });
-      }
-    });
-
-    const changes: {
+    let markers: {
       time: number;
       longText: string;
       shortText: string;
       brokerKey: string;
+      brokerGroupKey: string;
     }[] = [];
-    groups.forEach((group) => {
-      const sorted = [...group.entries].sort((a, b) => a.time - b.time);
-      let prevKey = "";
-      sorted.forEach((pos) => {
-        const longText = formatLots(pos.longLots);
-        const shortText = formatLots(pos.shortLots);
-        const nextKey = `${longText}:${shortText}`;
-        if (prevKey === "" && nextKey === "0:0") {
-          prevKey = nextKey;
-          return;
-        }
-        if (nextKey !== prevKey) {
-          changes.push({ time: pos.time, longText, shortText, brokerKey: group.brokerKey });
-          prevKey = nextKey;
-        }
+    tradeMarkers.forEach((marker) => {
+      if (!Number.isFinite(marker.time)) return;
+      const fallbackMeta = resolveBrokerMeta(marker.trades[0]?.broker);
+      const brokerKey = marker.brokerKey ?? fallbackMeta.key;
+      const brokerGroupKey = marker.brokerGroupKey ?? `${brokerKey}|`;
+      markers.push({
+        time: marker.time,
+        longText: formatLots(marker.buyLots),
+        shortText: formatLots(marker.sellLots),
+        brokerKey,
+        brokerGroupKey
       });
     });
-    changes.sort((a, b) => a.time - b.time);
+    const lastBarTime = bars.length ? bars[bars.length - 1].time : null;
+    if (lastBarTime != null && currentPositions && currentPositions.length > 0) {
+      markers = markers.filter((entry) => entry.time !== lastBarTime);
+      currentPositions.forEach((pos) => {
+        markers.push({
+          time: lastBarTime,
+          longText: formatLots(pos.longLots),
+          shortText: formatLots(pos.shortLots),
+          brokerKey: pos.brokerKey,
+          brokerGroupKey: `${pos.brokerKey}|${pos.account ?? ""}`
+        });
+      });
+    }
+    markers.sort((a, b) => a.time - b.time);
 
     const visibleRange = timeScale.getVisibleRange?.();
     const visibleFrom = normalizeTimeValue(visibleRange?.from ?? null);
     const visibleTo = normalizeTimeValue(visibleRange?.to ?? null);
-    const lastBarTime = bars.length ? bars[bars.length - 1].time : null;
     const twoYearsSec = 60 * 60 * 24 * 365 * 2;
     const baseFrom = lastBarTime != null ? lastBarTime - twoYearsSec : null;
     const rangeFrom =
       baseFrom != null && visibleFrom != null ? Math.min(baseFrom, visibleFrom) : baseFrom ?? visibleFrom;
     const rangeTo =
       lastBarTime != null && visibleTo != null ? Math.max(lastBarTime, visibleTo) : lastBarTime ?? visibleTo;
-    const limited = changes.filter((entry) => {
+    const limited = markers.filter((entry) => {
       if (rangeFrom != null && entry.time < rangeFrom) return false;
       if (rangeTo != null && entry.time > rangeTo) return false;
       return true;
     });
     const byTime = new Map<
       number,
-      { longText: string; shortText: string; brokerKey: string }[]
+      { longText: string; shortText: string; brokerKey: string; brokerGroupKey: string }[]
     >();
     limited.forEach((entry) => {
       const list = byTime.get(entry.time) ?? [];
       list.push({
         longText: entry.longText,
         shortText: entry.shortText,
-        brokerKey: entry.brokerKey
+        brokerKey: entry.brokerKey,
+        brokerGroupKey: entry.brokerGroupKey
       });
       byTime.set(entry.time, list);
     });
@@ -570,7 +571,7 @@ export default function PositionOverlay({
         if (hasCollision(x, y)) return;
         placed.push({ x, y });
         output.push({
-          key: `${time}-${entry.brokerKey}`,
+          key: `${time}-${entry.brokerGroupKey}`,
           longText: entry.longText,
           shortText: entry.shortText,
           brokerKey: entry.brokerKey,
@@ -581,7 +582,7 @@ export default function PositionOverlay({
       });
     });
     return output;
-  }, [showMarkers, markerSuffix, chart, candleSeries, bars, dailyPositions, rangeTick]);
+  }, [showMarkers, markerSuffix, chart, candleSeries, bars, tradeMarkers, currentPositions, rangeTick]);
 
   if (!activeBar) return null;
 
@@ -668,9 +669,9 @@ export default function PositionOverlay({
             ))}
           </div>
         )}
-        {showPositionInfo && (activePositions.length > 0 || currentPositionEntries.length > 0) && (
+        {showPositionInfo && displayedPositions.length > 0 && (
           <div className="position-overlay-block">
-            {(activePositions.length > 0 ? activePositions : currentPositionEntries).map((position) => {
+            {displayedPositions.map((position) => {
               const brokerKey = position.brokerKey ?? "unknown";
               const brokerLabel = position.brokerLabel ?? "N/A";
               return (

@@ -14,7 +14,7 @@ if ROOT not in sys.path:
 from app.backend.services import swing_expectancy_service
 
 
-def _prepare_db(path: Path) -> None:
+def _prepare_db(path: Path, *, include_p_down: bool = True) -> None:
     with duckdb.connect(str(path)) as conn:
         conn.execute(
             """
@@ -29,22 +29,37 @@ def _prepare_db(path: Path) -> None:
             )
             """
         )
-        conn.execute(
-            """
-            CREATE TABLE ml_pred_20d (
-                code TEXT,
-                dt INTEGER,
-                p_up DOUBLE,
-                p_down DOUBLE,
-                p_turn_up DOUBLE,
-                p_turn_down DOUBLE,
-                ev20_net DOUBLE
+        if include_p_down:
+            conn.execute(
+                """
+                CREATE TABLE ml_pred_20d (
+                    code TEXT,
+                    dt INTEGER,
+                    p_up DOUBLE,
+                    p_down DOUBLE,
+                    p_turn_up DOUBLE,
+                    p_turn_down DOUBLE,
+                    ev20_net DOUBLE
+                )
+                """
             )
-            """
-        )
+        else:
+            conn.execute(
+                """
+                CREATE TABLE ml_pred_20d (
+                    code TEXT,
+                    dt INTEGER,
+                    p_up DOUBLE,
+                    p_turn_up DOUBLE,
+                    p_turn_down DOUBLE,
+                    ev20_net DOUBLE
+                )
+                """
+            )
 
         bars_rows: list[tuple] = []
-        pred_rows: list[tuple] = []
+        pred_rows_with_down: list[tuple] = []
+        pred_rows_without_down: list[tuple] = []
         start = date(2024, 1, 1)
         close = 100.0
         for idx in range(90):
@@ -55,17 +70,24 @@ def _prepare_db(path: Path) -> None:
             h = max(o, c) + 1.0
             l = min(o, c) - 1.0
             bars_rows.append(("1301", ymd, o, h, l, c, 150_000))
-            pred_rows.append(("1301", ymd, 0.66, 0.34, 0.60, 0.40, 0.012))
+            pred_rows_with_down.append(("1301", ymd, 0.66, 0.34, 0.60, 0.40, 0.012))
+            pred_rows_without_down.append(("1301", ymd, 0.66, 0.60, 0.40, 0.012))
             close = c
 
         conn.executemany(
             "INSERT INTO daily_bars (code, date, o, h, l, c, v) VALUES (?, ?, ?, ?, ?, ?, ?)",
             bars_rows,
         )
-        conn.executemany(
-            "INSERT INTO ml_pred_20d (code, dt, p_up, p_down, p_turn_up, p_turn_down, ev20_net) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            pred_rows,
-        )
+        if include_p_down:
+            conn.executemany(
+                "INSERT INTO ml_pred_20d (code, dt, p_up, p_down, p_turn_up, p_turn_down, ev20_net) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                pred_rows_with_down,
+            )
+        else:
+            conn.executemany(
+                "INSERT INTO ml_pred_20d (code, dt, p_up, p_turn_up, p_turn_down, ev20_net) VALUES (?, ?, ?, ?, ?, ?)",
+                pred_rows_without_down,
+            )
 
 
 def test_refresh_and_resolve_expectancy(monkeypatch, tmp_path) -> None:
@@ -97,3 +119,16 @@ def test_refresh_and_resolve_expectancy(monkeypatch, tmp_path) -> None:
     expected_shrunk = alpha * float(expectancy["meanRet"]) + (1.0 - alpha) * float(expectancy["sideMeanRet"])
     assert abs(float(expectancy["shrunkMeanRet"]) - expected_shrunk) < 1e-12
 
+
+def test_refresh_works_without_p_down_column(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "swing_expectancy_without_p_down.duckdb"
+    _prepare_db(db_path, include_p_down=False)
+    monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    swing_expectancy_service._load_snapshot_cached.cache_clear()  # type: ignore[attr-defined]
+
+    refreshed = swing_expectancy_service.refresh_swing_setup_stats(
+        as_of_ymd=20240330,
+        horizons=(20,),
+    )
+    assert refreshed["ok"] is True
+    assert int(refreshed["rows"]) > 0

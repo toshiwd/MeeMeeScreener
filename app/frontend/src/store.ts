@@ -1705,7 +1705,7 @@ export const useStore = create<StoreState>((set, get) => ({
           timeframes: [timeframe],
           codes: requestCodes,
           limit,
-          includeProvisional: timeframe === "daily"
+          includeProvisional: true
         };
         let res: { status: number; data?: any } | null = null;
         let attempt = 0;

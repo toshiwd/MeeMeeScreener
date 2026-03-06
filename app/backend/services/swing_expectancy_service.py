@@ -12,6 +12,14 @@ _DEFAULT_HORIZONS: tuple[int, ...] = (10, 15, 20, 25)
 _DEFAULT_LOOKBACK_DAYS = 720
 _SHRINK_K = 120.0
 _REFRESH_LOCK = Lock()
+_REFRESH_RUN_LOCK = Lock()
+_LATEST_ENSURE_LOCK = Lock()
+_LATEST_ENSURE_CACHE: dict[str, Any] = {
+    "checked_at": 0.0,
+    "source_asof_ymd": None,
+    "stats_asof_ymd": None,
+}
+_LATEST_ENSURE_MIN_INTERVAL_SEC = 30.0
 
 
 def _to_ymd_expr(column: str) -> str:
@@ -31,6 +39,22 @@ def _table_exists(conn, table_name: str) -> bool:
         [table_name],
     ).fetchone()
     return bool(row and row[0])
+
+
+def _table_column_names(conn, table_name: str) -> set[str]:
+    try:
+        rows = conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+    except Exception:
+        return set()
+    out: set[str] = set()
+    for row in rows:
+        if len(row) < 2:
+            continue
+        name = row[1]
+        if name is None:
+            continue
+        out.add(str(name).lower())
+    return out
 
 
 def ensure_swing_setup_stats_schema(conn) -> None:
@@ -75,13 +99,15 @@ def _resolve_start_ymd(as_of_ymd: int, lookback_days: int) -> int:
 def _insert_horizon_rows(conn, *, as_of_ymd: int, start_ymd: int, horizon_days: int) -> None:
     pred_ymd_expr = _to_ymd_expr("m.dt")
     bar_ymd_expr = _to_ymd_expr("b.date")
+    pred_cols = _table_column_names(conn, "ml_pred_20d")
+    p_down_source_expr = "m.p_down" if "p_down" in pred_cols else "NULL"
     sql = f"""
         WITH pred AS (
             SELECT
                 m.code AS code,
                 {pred_ymd_expr} AS ymd,
                 m.p_up AS p_up,
-                COALESCE(m.p_down, CASE WHEN m.p_up IS NOT NULL THEN 1.0 - m.p_up ELSE NULL END) AS p_down,
+                COALESCE({p_down_source_expr}, CASE WHEN m.p_up IS NOT NULL THEN 1.0 - m.p_up ELSE NULL END) AS p_down,
                 m.p_turn_up AS p_turn_up,
                 m.p_turn_down AS p_turn_down,
                 m.ev20_net AS ev20_net
@@ -194,31 +220,93 @@ def refresh_swing_setup_stats(
     lookback_days: int = _DEFAULT_LOOKBACK_DAYS,
     horizons: tuple[int, ...] = _DEFAULT_HORIZONS,
 ) -> dict[str, Any]:
-    with get_conn() as conn:
-        ensure_swing_setup_stats_schema(conn)
-        if not (_table_exists(conn, "daily_bars") and _table_exists(conn, "ml_pred_20d")):
-            return {"ok": False, "reason": "source_tables_missing", "as_of_ymd": None, "rows": 0}
-        resolved_as_of = _resolve_latest_asof_ymd(conn, as_of_ymd)
-        if resolved_as_of is None:
-            return {"ok": False, "reason": "no_asof", "as_of_ymd": None, "rows": 0}
-        start_ymd = _resolve_start_ymd(resolved_as_of, lookback_days)
-        conn.execute(f"DELETE FROM {_TABLE_NAME} WHERE as_of_ymd = ?", [int(resolved_as_of)])
-        for horizon in horizons:
-            if int(horizon) <= 0:
-                continue
-            _insert_horizon_rows(
-                conn,
-                as_of_ymd=int(resolved_as_of),
-                start_ymd=int(start_ymd),
-                horizon_days=int(horizon),
-            )
-        row = conn.execute(
-            f"SELECT COUNT(*) FROM {_TABLE_NAME} WHERE as_of_ymd = ?",
-            [int(resolved_as_of)],
-        ).fetchone()
-        inserted = int(row[0] or 0) if row else 0
-    _load_snapshot_cached.cache_clear()
-    return {"ok": True, "as_of_ymd": int(resolved_as_of), "rows": int(inserted)}
+    with _REFRESH_RUN_LOCK:
+        with get_conn() as conn:
+            ensure_swing_setup_stats_schema(conn)
+            if not (_table_exists(conn, "daily_bars") and _table_exists(conn, "ml_pred_20d")):
+                return {"ok": False, "reason": "source_tables_missing", "as_of_ymd": None, "rows": 0}
+            resolved_as_of = _resolve_latest_asof_ymd(conn, as_of_ymd)
+            if resolved_as_of is None:
+                return {"ok": False, "reason": "no_asof", "as_of_ymd": None, "rows": 0}
+            start_ymd = _resolve_start_ymd(resolved_as_of, lookback_days)
+            conn.execute(f"DELETE FROM {_TABLE_NAME} WHERE as_of_ymd = ?", [int(resolved_as_of)])
+            for horizon in horizons:
+                if int(horizon) <= 0:
+                    continue
+                _insert_horizon_rows(
+                    conn,
+                    as_of_ymd=int(resolved_as_of),
+                    start_ymd=int(start_ymd),
+                    horizon_days=int(horizon),
+                )
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM {_TABLE_NAME} WHERE as_of_ymd = ?",
+                [int(resolved_as_of)],
+            ).fetchone()
+            inserted = int(row[0] or 0) if row else 0
+        _load_snapshot_cached.cache_clear()
+        return {"ok": True, "as_of_ymd": int(resolved_as_of), "rows": int(inserted)}
+
+
+def ensure_latest_swing_setup_stats(
+    *,
+    min_interval_sec: float = _LATEST_ENSURE_MIN_INTERVAL_SEC,
+) -> dict[str, Any]:
+    interval = float(max(1.0, min_interval_sec))
+    now_ts = datetime.now(timezone.utc).timestamp()
+    with _LATEST_ENSURE_LOCK:
+        checked_at = float(_LATEST_ENSURE_CACHE.get("checked_at") or 0.0)
+        if now_ts - checked_at < interval:
+            return {
+                "ok": True,
+                "reason": "throttled",
+                "as_of_ymd": _LATEST_ENSURE_CACHE.get("stats_asof_ymd"),
+                "rows": None,
+            }
+
+        with get_conn() as conn:
+            ensure_swing_setup_stats_schema(conn)
+            if not (_table_exists(conn, "daily_bars") and _table_exists(conn, "ml_pred_20d")):
+                _LATEST_ENSURE_CACHE.update(
+                    {"checked_at": now_ts, "source_asof_ymd": None, "stats_asof_ymd": None}
+                )
+                return {"ok": False, "reason": "source_tables_missing", "as_of_ymd": None, "rows": 0}
+
+            source_asof_ymd = _resolve_latest_asof_ymd(conn, None)
+            if source_asof_ymd is None:
+                _LATEST_ENSURE_CACHE.update(
+                    {"checked_at": now_ts, "source_asof_ymd": None, "stats_asof_ymd": None}
+                )
+                return {"ok": False, "reason": "no_asof", "as_of_ymd": None, "rows": 0}
+
+            row = conn.execute(f"SELECT MAX(as_of_ymd) FROM {_TABLE_NAME}").fetchone()
+            stats_asof_ymd = int(row[0]) if row and row[0] is not None else None
+
+        _LATEST_ENSURE_CACHE.update(
+            {
+                "checked_at": now_ts,
+                "source_asof_ymd": int(source_asof_ymd),
+                "stats_asof_ymd": stats_asof_ymd,
+            }
+        )
+
+        if stats_asof_ymd is not None and int(stats_asof_ymd) >= int(source_asof_ymd):
+            return {
+                "ok": True,
+                "reason": "up_to_date",
+                "as_of_ymd": int(stats_asof_ymd),
+                "rows": None,
+            }
+
+        refreshed = refresh_swing_setup_stats(as_of_ymd=int(source_asof_ymd))
+        _LATEST_ENSURE_CACHE.update(
+            {
+                "checked_at": datetime.now(timezone.utc).timestamp(),
+                "source_asof_ymd": int(source_asof_ymd),
+                "stats_asof_ymd": refreshed.get("as_of_ymd"),
+            }
+        )
+        return refreshed
 
 
 @lru_cache(maxsize=24)

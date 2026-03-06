@@ -61,7 +61,9 @@ const useBackendReadyInternal = (): BackendReadyState => {
   const attemptRef = useRef(0);
   const failureRef = useRef(0);
   const timerRef = useRef<number | null>(null);
-  const inFlightRef = useRef(false);
+  // Separate in-flight flags so probe and keepalive never block each other.
+  const probeInFlightRef = useRef(false);
+  const keepaliveInFlightRef = useRef(false);
   const readyRef = useRef(false);
   const startRef = useRef(Date.now());
   const keepaliveFailRef = useRef(0);
@@ -92,8 +94,8 @@ const useBackendReadyInternal = (): BackendReadyState => {
   };
 
   const probe = async () => {
-    if (readyRef.current || inFlightRef.current) return;
-    inFlightRef.current = true;
+    if (readyRef.current || probeInFlightRef.current) return;
+    probeInFlightRef.current = true;
     attemptRef.current += 1;
     setAttemptCount(attemptRef.current);
     try {
@@ -165,13 +167,13 @@ const useBackendReadyInternal = (): BackendReadyState => {
       }
       scheduleNext();
     } finally {
-      inFlightRef.current = false;
+      probeInFlightRef.current = false;
     }
   };
 
   const keepalive = async () => {
-    if (!readyRef.current || inFlightRef.current) return;
-    inFlightRef.current = true;
+    if (!readyRef.current || keepaliveInFlightRef.current) return;
+    keepaliveInFlightRef.current = true;
     try {
       const res = await api.get("/health", {
         timeout: 2000,
@@ -189,7 +191,7 @@ const useBackendReadyInternal = (): BackendReadyState => {
     } catch {
       keepaliveFailRef.current += 1;
     } finally {
-      inFlightRef.current = false;
+      keepaliveInFlightRef.current = false;
     }
 
     if (keepaliveFailRef.current >= KEEPALIVE_FAIL_THRESHOLD) {

@@ -9,11 +9,22 @@ BACKEND_STATIC_DIR = os.path.abspath(os.path.join(BACKEND_DIR, "static"))
 
 
 def _candidate_static_dirs() -> list[str]:
+    candidates: list[str] = []
     configured = os.getenv("STATIC_DIR")
     if configured:
-        return [os.path.abspath(configured)]
+        candidates.append(os.path.abspath(configured))
     # Prefer freshly built frontend assets, keep backend/static as fallback for packaged runs.
-    return [FRONTEND_DIST_DIR, BACKEND_STATIC_DIR]
+    candidates.extend([FRONTEND_DIST_DIR, BACKEND_STATIC_DIR])
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for path in candidates:
+        norm = os.path.normcase(path)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        deduped.append(path)
+    return deduped
 
 
 def resolve_static_file(request_path: str) -> str | None:

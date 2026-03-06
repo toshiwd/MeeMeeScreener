@@ -26,6 +26,8 @@ class StockRepository:
         self._table_exists_cache: dict[str, tuple[float, bool]] = {}
         self._column_exists_cache: dict[tuple[str, str], tuple[float, bool]] = {}
         self._column_type_cache: dict[tuple[str, str], tuple[float, str | None]] = {}
+        # Cache: table_name -> (monotonic_ts, frozenset of lowercase column names)
+        self._schema_columns_cache: dict[str, tuple[float, frozenset[str]]] = {}
 
     def _get_conn(self):
         # Use the shared retry/connect policy from app.db.session.
@@ -484,6 +486,33 @@ class StockRepository:
             self._column_type_cache[key] = (now, column_type)
         return column_type
 
+    def _get_schema_columns(
+        self, conn: duckdb.DuckDBPyConnection, table_name: str
+    ) -> frozenset[str]:
+        """Return frozenset of lowercase column names for table_name.
+
+        Uses a TTL cache so repeated calls within the same request window cost
+        only one PRAGMA query instead of one information_schema query per column.
+        """
+        now = time.monotonic()
+        with self._schema_cache_lock:
+            cached = self._schema_columns_cache.get(table_name)
+        if cached and now - cached[0] <= self._schema_cache_ttl_sec:
+            return cached[1]
+        try:
+            rows = conn.execute(
+                f"PRAGMA table_info('{table_name}')"
+            ).fetchall()
+            # PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
+            names: frozenset[str] = frozenset(
+                str(row[1]).lower() for row in rows if row[1] is not None
+            )
+        except Exception:
+            names = frozenset()
+        with self._schema_cache_lock:
+            self._schema_columns_cache[table_name] = (now, names)
+        return names
+
     def _normalize_dt_key(self, value: Any) -> int | None:
         if value is None:
             return None
@@ -511,49 +540,30 @@ class StockRepository:
         with self._get_conn() as conn:
             if not self._table_exists(conn, "ml_pred_20d"):
                 return None
-            if not self._column_exists(conn, "ml_pred_20d", "code"):
-                return None
-            if not self._column_exists(conn, "ml_pred_20d", "dt"):
+            names = self._get_schema_columns(conn, "ml_pred_20d")
+            if "code" not in names or "dt" not in names:
                 return None
 
-            has_p_up = self._column_exists(conn, "ml_pred_20d", "p_up")
-            has_p_down = self._column_exists(conn, "ml_pred_20d", "p_down")
-            has_p_up_5 = self._column_exists(conn, "ml_pred_20d", "p_up_5")
-            has_p_up_10 = self._column_exists(conn, "ml_pred_20d", "p_up_10")
-            has_p_turn_up = self._column_exists(conn, "ml_pred_20d", "p_turn_up")
-            has_p_turn_down = self._column_exists(conn, "ml_pred_20d", "p_turn_down")
-            has_p_turn_down_5 = self._column_exists(conn, "ml_pred_20d", "p_turn_down_5")
-            has_p_turn_down_10 = self._column_exists(conn, "ml_pred_20d", "p_turn_down_10")
-            has_p_turn_down_20 = self._column_exists(conn, "ml_pred_20d", "p_turn_down_20")
-            has_ret_pred5 = self._column_exists(conn, "ml_pred_20d", "ret_pred5")
-            has_ret_pred10 = self._column_exists(conn, "ml_pred_20d", "ret_pred10")
-            has_ret_pred20 = self._column_exists(conn, "ml_pred_20d", "ret_pred20")
-            has_ev20 = self._column_exists(conn, "ml_pred_20d", "ev20")
-            has_ev20_net = self._column_exists(conn, "ml_pred_20d", "ev20_net")
-            has_ev5_net = self._column_exists(conn, "ml_pred_20d", "ev5_net")
-            has_ev10_net = self._column_exists(conn, "ml_pred_20d", "ev10_net")
-            has_model_version = self._column_exists(conn, "ml_pred_20d", "model_version")
             dt_type = self._column_type(conn, "ml_pred_20d", "dt")
-
             select_parts = [
                 "dt",
-                "p_up" if has_p_up else "NULL::DOUBLE AS p_up",
-                "p_down" if has_p_down else "NULL::DOUBLE AS p_down",
-                "p_up_5" if has_p_up_5 else "NULL::DOUBLE AS p_up_5",
-                "p_up_10" if has_p_up_10 else "NULL::DOUBLE AS p_up_10",
-                "p_turn_up" if has_p_turn_up else "NULL::DOUBLE AS p_turn_up",
-                "p_turn_down" if has_p_turn_down else "NULL::DOUBLE AS p_turn_down",
-                "p_turn_down_5" if has_p_turn_down_5 else "NULL::DOUBLE AS p_turn_down_5",
-                "p_turn_down_10" if has_p_turn_down_10 else "NULL::DOUBLE AS p_turn_down_10",
-                "p_turn_down_20" if has_p_turn_down_20 else "NULL::DOUBLE AS p_turn_down_20",
-                "ret_pred5" if has_ret_pred5 else "NULL::DOUBLE AS ret_pred5",
-                "ret_pred10" if has_ret_pred10 else "NULL::DOUBLE AS ret_pred10",
-                "ret_pred20" if has_ret_pred20 else "NULL::DOUBLE AS ret_pred20",
-                "ev20" if has_ev20 else "NULL::DOUBLE AS ev20",
-                "ev20_net" if has_ev20_net else "NULL::DOUBLE AS ev20_net",
-                "ev5_net" if has_ev5_net else "NULL::DOUBLE AS ev5_net",
-                "ev10_net" if has_ev10_net else "NULL::DOUBLE AS ev10_net",
-                "model_version" if has_model_version else "NULL::VARCHAR AS model_version",
+                "p_up" if "p_up" in names else "NULL::DOUBLE AS p_up",
+                "p_down" if "p_down" in names else "NULL::DOUBLE AS p_down",
+                "p_up_5" if "p_up_5" in names else "NULL::DOUBLE AS p_up_5",
+                "p_up_10" if "p_up_10" in names else "NULL::DOUBLE AS p_up_10",
+                "p_turn_up" if "p_turn_up" in names else "NULL::DOUBLE AS p_turn_up",
+                "p_turn_down" if "p_turn_down" in names else "NULL::DOUBLE AS p_turn_down",
+                "p_turn_down_5" if "p_turn_down_5" in names else "NULL::DOUBLE AS p_turn_down_5",
+                "p_turn_down_10" if "p_turn_down_10" in names else "NULL::DOUBLE AS p_turn_down_10",
+                "p_turn_down_20" if "p_turn_down_20" in names else "NULL::DOUBLE AS p_turn_down_20",
+                "ret_pred5" if "ret_pred5" in names else "NULL::DOUBLE AS ret_pred5",
+                "ret_pred10" if "ret_pred10" in names else "NULL::DOUBLE AS ret_pred10",
+                "ret_pred20" if "ret_pred20" in names else "NULL::DOUBLE AS ret_pred20",
+                "ev20" if "ev20" in names else "NULL::DOUBLE AS ev20",
+                "ev20_net" if "ev20_net" in names else "NULL::DOUBLE AS ev20_net",
+                "ev5_net" if "ev5_net" in names else "NULL::DOUBLE AS ev5_net",
+                "ev10_net" if "ev10_net" in names else "NULL::DOUBLE AS ev10_net",
+                "model_version" if "model_version" in names else "NULL::VARCHAR AS model_version",
             ]
             query = f"""
                 SELECT {", ".join(select_parts)}
@@ -561,8 +571,8 @@ class StockRepository:
                 WHERE code = ?
             """
             params: List[Any] = [code]
-            if asof_dt is not None and dt_type:
-                normalized_type = dt_type.upper()
+            if asof_dt is not None:
+                normalized_type = str(dt_type or "").upper()
                 if any(
                     token in normalized_type
                     for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
@@ -570,10 +580,14 @@ class StockRepository:
                     asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
                     query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
                     params.extend([asof_dt, asof_ymd])
-                else:
+                elif normalized_type:
                     asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
                     query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
                     params.append(asof_date)
+                else:
+                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                    query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                    params.extend([asof_dt, asof_ymd])
             query += " ORDER BY dt DESC LIMIT 1"
             row = conn.execute(query, params).fetchone()
         return row
@@ -596,32 +610,25 @@ class StockRepository:
         ml_rows_desc: List[Tuple[Any, ...]] = []
         sell_rows_desc: List[Tuple[Any, ...]] = []
         with self._get_conn() as conn:
-            if (
-                self._table_exists(conn, "ml_pred_20d")
-                and self._column_exists(conn, "ml_pred_20d", "code")
-                and self._column_exists(conn, "ml_pred_20d", "dt")
-            ):
-                has_p_up = self._column_exists(conn, "ml_pred_20d", "p_up")
-                has_p_down = self._column_exists(conn, "ml_pred_20d", "p_down")
-                has_p_turn_up = self._column_exists(conn, "ml_pred_20d", "p_turn_up")
-                has_p_turn_down = self._column_exists(conn, "ml_pred_20d", "p_turn_down")
-                has_ev20_net = self._column_exists(conn, "ml_pred_20d", "ev20_net")
+            ml_names: frozenset[str] = frozenset()
+            if self._table_exists(conn, "ml_pred_20d"):
+                ml_names = self._get_schema_columns(conn, "ml_pred_20d")
+            if "code" in ml_names and "dt" in ml_names:
                 dt_type = self._column_type(conn, "ml_pred_20d", "dt")
-
                 query = f"""
                     SELECT
                         dt,
-                        {"p_up" if has_p_up else "NULL::DOUBLE AS p_up"},
-                        {"p_down" if has_p_down else "NULL::DOUBLE AS p_down"},
-                        {"p_turn_up" if has_p_turn_up else "NULL::DOUBLE AS p_turn_up"},
-                        {"p_turn_down" if has_p_turn_down else "NULL::DOUBLE AS p_turn_down"},
-                        {"ev20_net" if has_ev20_net else "NULL::DOUBLE AS ev20_net"}
+                        {"p_up" if "p_up" in ml_names else "NULL::DOUBLE AS p_up"},
+                        {"p_down" if "p_down" in ml_names else "NULL::DOUBLE AS p_down"},
+                        {"p_turn_up" if "p_turn_up" in ml_names else "NULL::DOUBLE AS p_turn_up"},
+                        {"p_turn_down" if "p_turn_down" in ml_names else "NULL::DOUBLE AS p_turn_down"},
+                        {"ev20_net" if "ev20_net" in ml_names else "NULL::DOUBLE AS ev20_net"}
                     FROM ml_pred_20d
                     WHERE code = ?
                 """
                 params: List[Any] = [code]
-                if asof_dt is not None and dt_type:
-                    normalized_type = dt_type.upper()
+                if asof_dt is not None:
+                    normalized_type = str(dt_type or "").upper()
                     if any(
                         token in normalized_type
                         for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
@@ -629,51 +636,58 @@ class StockRepository:
                         asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
                         query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
                         params.extend([asof_dt, asof_ymd])
-                    else:
+                    elif normalized_type:
                         asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
                         query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
                         params.append(asof_date)
+                    else:
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
                 query += " ORDER BY dt DESC LIMIT ?"
                 params.append(resolved_limit)
                 ml_rows_desc = conn.execute(query, params).fetchall()
 
-            if (
-                self._table_exists(conn, "sell_analysis_daily")
-                and self._column_exists(conn, "sell_analysis_daily", "code")
-                and self._column_exists(conn, "sell_analysis_daily", "dt")
-            ):
-                has_p_down = self._column_exists(conn, "sell_analysis_daily", "p_down")
-                has_p_turn_down = self._column_exists(conn, "sell_analysis_daily", "p_turn_down")
-                has_trend_down = self._column_exists(conn, "sell_analysis_daily", "trend_down")
-                has_trend_down_strict = self._column_exists(conn, "sell_analysis_daily", "trend_down_strict")
-                has_short_ret_5 = self._column_exists(conn, "sell_analysis_daily", "short_ret_5")
-                has_short_ret_10 = self._column_exists(conn, "sell_analysis_daily", "short_ret_10")
-                has_short_ret_20 = self._column_exists(conn, "sell_analysis_daily", "short_ret_20")
-                has_short_win_5 = self._column_exists(conn, "sell_analysis_daily", "short_win_5")
-                has_short_win_10 = self._column_exists(conn, "sell_analysis_daily", "short_win_10")
-                has_short_win_20 = self._column_exists(conn, "sell_analysis_daily", "short_win_20")
+            sell_names: frozenset[str] = frozenset()
+            if self._table_exists(conn, "sell_analysis_daily"):
+                sell_names = self._get_schema_columns(conn, "sell_analysis_daily")
+            if "code" in sell_names and "dt" in sell_names:
+                sell_dt_type = self._column_type(conn, "sell_analysis_daily", "dt")
 
                 query = f"""
                     SELECT
                         dt,
-                        {"p_down" if has_p_down else "NULL::DOUBLE AS p_down"},
-                        {"p_turn_down" if has_p_turn_down else "NULL::DOUBLE AS p_turn_down"},
-                        {"trend_down" if has_trend_down else "NULL::BOOLEAN AS trend_down"},
-                        {"trend_down_strict" if has_trend_down_strict else "NULL::BOOLEAN AS trend_down_strict"},
-                        {"short_ret_5" if has_short_ret_5 else "NULL::DOUBLE AS short_ret_5"},
-                        {"short_ret_10" if has_short_ret_10 else "NULL::DOUBLE AS short_ret_10"},
-                        {"short_ret_20" if has_short_ret_20 else "NULL::DOUBLE AS short_ret_20"},
-                        {"short_win_5" if has_short_win_5 else "NULL::BOOLEAN AS short_win_5"},
-                        {"short_win_10" if has_short_win_10 else "NULL::BOOLEAN AS short_win_10"},
-                        {"short_win_20" if has_short_win_20 else "NULL::BOOLEAN AS short_win_20"}
+                        {"p_down" if "p_down" in sell_names else "NULL::DOUBLE AS p_down"},
+                        {"p_turn_down" if "p_turn_down" in sell_names else "NULL::DOUBLE AS p_turn_down"},
+                        {"trend_down" if "trend_down" in sell_names else "NULL::BOOLEAN AS trend_down"},
+                        {"trend_down_strict" if "trend_down_strict" in sell_names else "NULL::BOOLEAN AS trend_down_strict"},
+                        {"short_ret_5" if "short_ret_5" in sell_names else "NULL::DOUBLE AS short_ret_5"},
+                        {"short_ret_10" if "short_ret_10" in sell_names else "NULL::DOUBLE AS short_ret_10"},
+                        {"short_ret_20" if "short_ret_20" in sell_names else "NULL::DOUBLE AS short_ret_20"},
+                        {"short_win_5" if "short_win_5" in sell_names else "NULL::BOOLEAN AS short_win_5"},
+                        {"short_win_10" if "short_win_10" in sell_names else "NULL::BOOLEAN AS short_win_10"},
+                        {"short_win_20" if "short_win_20" in sell_names else "NULL::BOOLEAN AS short_win_20"}
                     FROM sell_analysis_daily
                     WHERE code = ?
                 """
                 params = [code]
                 if asof_dt is not None:
-                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
-                    query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
-                    params.extend([asof_dt, asof_ymd])
+                    normalized_type = str(sell_dt_type or "").upper()
+                    if any(
+                        token in normalized_type
+                        for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
+                    ):
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
+                    elif normalized_type:
+                        asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
+                        query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
+                        params.append(asof_date)
+                    else:
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
                 query += " ORDER BY dt DESC LIMIT ?"
                 params.append(max(resolved_limit * 2, resolved_limit))
                 sell_rows_desc = conn.execute(query, params).fetchall()
@@ -764,22 +778,16 @@ class StockRepository:
                 return None
             if not self._table_exists(conn, "daily_bars"):
                 return None
-            if not self._column_exists(conn, "ml_pred_20d", "code"):
+            pred_names = self._get_schema_columns(conn, "ml_pred_20d")
+            daily_bar_names = self._get_schema_columns(conn, "daily_bars")
+            if not {"code", "dt", "p_up"}.issubset(pred_names):
                 return None
-            if not self._column_exists(conn, "ml_pred_20d", "dt"):
-                return None
-            if not self._column_exists(conn, "ml_pred_20d", "p_up"):
-                return None
-            if not self._column_exists(conn, "daily_bars", "code"):
-                return None
-            if not self._column_exists(conn, "daily_bars", "date"):
-                return None
-            if not self._column_exists(conn, "daily_bars", "c"):
+            if not {"code", "date", "c"}.issubset(daily_bar_names):
                 return None
 
-            has_p_turn_up = self._column_exists(conn, "ml_pred_20d", "p_turn_up")
-            has_p_turn_down = self._column_exists(conn, "ml_pred_20d", "p_turn_down")
             dt_type = self._column_type(conn, "ml_pred_20d", "dt")
+            has_p_turn_up = "p_turn_up" in pred_names
+            has_p_turn_down = "p_turn_down" in pred_names
 
             pred_query = f"""
                 SELECT
@@ -791,8 +799,8 @@ class StockRepository:
                 WHERE code = ?
             """
             pred_params: List[Any] = [code]
-            if asof_dt is not None and dt_type:
-                normalized_type = dt_type.upper()
+            if asof_dt is not None:
+                normalized_type = str(dt_type or "").upper()
                 if any(
                     token in normalized_type
                     for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
@@ -800,10 +808,14 @@ class StockRepository:
                     asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
                     pred_query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
                     pred_params.extend([asof_dt, asof_ymd])
-                else:
+                elif normalized_type:
                     asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
                     pred_query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
                     pred_params.append(asof_date)
+                else:
+                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                    pred_query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                    pred_params.extend([asof_dt, asof_ymd])
             pred_query += " ORDER BY dt DESC LIMIT ?"
             pred_params.append(limit_bars)
             pred_rows_desc = conn.execute(pred_query, pred_params).fetchall()
@@ -1045,6 +1057,7 @@ class StockRepository:
             has_short_win_5 = self._column_exists(conn, "sell_analysis_daily", "short_win_5")
             has_short_win_10 = self._column_exists(conn, "sell_analysis_daily", "short_win_10")
             has_short_win_20 = self._column_exists(conn, "sell_analysis_daily", "short_win_20")
+            dt_type = self._column_type(conn, "sell_analysis_daily", "dt")
 
             query = f"""
                 SELECT
@@ -1084,9 +1097,22 @@ class StockRepository:
             """
             params: List[Any] = [code]
             if asof_dt is not None:
-                asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
-                query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
-                params.extend([asof_dt, asof_ymd])
+                normalized_type = str(dt_type or "").upper()
+                if any(
+                    token in normalized_type
+                    for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
+                ):
+                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                    query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                    params.extend([asof_dt, asof_ymd])
+                elif normalized_type:
+                    asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
+                    query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
+                    params.append(asof_date)
+                else:
+                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                    query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                    params.extend([asof_dt, asof_ymd])
             query += " ORDER BY dt DESC LIMIT 1"
             row = conn.execute(query, params).fetchone()
         return row
@@ -1112,13 +1138,9 @@ class StockRepository:
         with self._get_conn() as conn:
             if not self._table_exists(conn, "ml_pred_20d"):
                 return {}
-            if not self._column_exists(conn, "ml_pred_20d", "code"):
+            names = self._get_schema_columns(conn, "ml_pred_20d")
+            if not {"code", "dt"}.issubset(names):
                 return {}
-            if not self._column_exists(conn, "ml_pred_20d", "dt"):
-                return {}
-
-            cols = conn.execute("PRAGMA table_info('ml_pred_20d')").fetchall()
-            names = {str(row[1]).lower() for row in cols}
 
             p_up_expr = "p_up" if "p_up" in names else "NULL::DOUBLE AS p_up"
             p_up_5_expr = "p_up_5" if "p_up_5" in names else "NULL::DOUBLE AS p_up_5"

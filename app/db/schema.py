@@ -10,6 +10,15 @@ from app.core.config import FAVORITES_DB_PATH, PRACTICE_DB_PATH, config
 _SCHEMA_INIT_LOCK = threading.Lock()
 
 
+def _try_alter_table(conn: duckdb.DuckDBPyConnection, sql: str) -> None:
+    """Execute an ALTER TABLE statement, silently ignoring errors (e.g. column already exists)."""
+    try:
+        conn.execute(sql)
+    except Exception:
+        pass
+
+
+
 def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
         """
@@ -29,7 +38,22 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
             l DOUBLE,
             c DOUBLE,
             v BIGINT,
+            source TEXT DEFAULT 'pan',
             PRIMARY KEY(code, date)
+        );
+        """
+    )
+    _try_alter_table(conn, "ALTER TABLE daily_bars ADD COLUMN source TEXT DEFAULT 'pan'")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_bar_source_revision_log (
+            run_id TEXT,
+            code TEXT,
+            date INTEGER,
+            old_source TEXT,
+            new_source TEXT,
+            detected_at TIMESTAMP,
+            PRIMARY KEY(run_id, code, date, old_source, new_source)
         );
         """
     )
@@ -262,10 +286,7 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
         "ALTER TABLE toredex_trades ADD COLUMN slippage_cost DOUBLE",
         "ALTER TABLE toredex_trades ADD COLUMN borrow_cost DOUBLE",
     ):
-        try:
-            conn.execute(sql)
-        except Exception:
-            pass
+        _try_alter_table(conn, sql)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS toredex_positions (
@@ -349,10 +370,7 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
         "ALTER TABLE toredex_daily_metrics ADD COLUMN risk_gate_reason TEXT",
         "ALTER TABLE toredex_daily_metrics ADD COLUMN cost_sensitivity_json TEXT",
     ):
-        try:
-            conn.execute(sql)
-        except Exception:
-            pass
+        _try_alter_table(conn, sql)
 
     conn.execute(
         """
@@ -412,10 +430,7 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
-    try:
-        conn.execute("ALTER TABLE monthly_bars ADD COLUMN v BIGINT")
-    except Exception:
-        pass
+    _try_alter_table(conn, "ALTER TABLE monthly_bars ADD COLUMN v BIGINT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS monthly_ma (

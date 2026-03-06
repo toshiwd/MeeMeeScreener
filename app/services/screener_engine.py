@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -15,15 +16,18 @@ from app.utils.math_utils import _build_ma_series, _calc_slope, _compute_atr, _p
 _rank_cache = {"mtime": None, "config_mtime": None, "weekly": {}, "monthly": {}}
 _rank_config_cache = {"mtime": None, "config": None}
 _screener_cache = {"mtime": None, "rows": []}
+_rank_config_lock = threading.Lock()
+_screener_cache_lock = threading.Lock()
 
 RANK_CONFIG_PATH = os.getenv("RANK_CONFIG_PATH", os.path.join(os.path.dirname(__file__), "..", "backend", "rank_config.json"))
 
 def _load_rank_config() -> dict:
     path = RANK_CONFIG_PATH
     mtime = os.path.getmtime(path) if os.path.isfile(path) else None
-    cached = _rank_config_cache.get("config")
-    if _rank_config_cache.get("mtime") == mtime and cached is not None:
-        return cached
+    with _rank_config_lock:
+        cached = _rank_config_cache.get("config")
+        if _rank_config_cache.get("mtime") == mtime and cached is not None:
+            return cached
     config: dict = {}
     if mtime is not None:
         try:
@@ -31,8 +35,9 @@ def _load_rank_config() -> dict:
                 config = json.load(handle) or {}
         except (OSError, json.JSONDecodeError):
             config = {}
-    _rank_config_cache["mtime"] = mtime
-    _rank_config_cache["config"] = config
+    with _rank_config_lock:
+        _rank_config_cache["mtime"] = mtime
+        _rank_config_cache["config"] = config
     return config
 
 def _load_universe_codes(universe: str | None) -> tuple[list[str], str | None, float | None]:
@@ -915,21 +920,25 @@ def _get_screener_rows() -> list[dict]:
     mtime = None
     if os.path.isfile(DEFAULT_DB_PATH):
         mtime = os.path.getmtime(DEFAULT_DB_PATH)
-    if _screener_cache["mtime"] == mtime and _screener_cache["rows"]:
-        return _screener_cache["rows"]
+    with _screener_cache_lock:
+        if _screener_cache["mtime"] == mtime and _screener_cache["rows"]:
+            return _screener_cache["rows"]
 
     rows = _build_screener_rows()
-    _screener_cache["mtime"] = mtime
-    _screener_cache["rows"] = rows
+    with _screener_cache_lock:
+        _screener_cache["mtime"] = mtime
+        _screener_cache["rows"] = rows
     return rows
 
 def _invalidate_screener_cache() -> None:
-    _screener_cache["mtime"] = None
-    _screener_cache["rows"] = []
+    with _screener_cache_lock:
+        _screener_cache["mtime"] = None
+        _screener_cache["rows"] = []
     _rank_cache["weekly"] = {}
     _rank_cache["monthly"] = {}
     _rank_cache["mtime"] = None
-    _rank_cache["config_mtime"] = _rank_config_cache.get("mtime")
+    with _rank_config_lock:
+        _rank_cache["config_mtime"] = _rank_config_cache.get("mtime")
 
 
 def _get_config_value(config: dict, keys: list[str], default):

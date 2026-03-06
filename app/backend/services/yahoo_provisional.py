@@ -6,6 +6,7 @@ import os
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from threading import Lock
 from typing import Any, Dict, Iterable, Sequence
@@ -17,7 +18,7 @@ _DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
-_SPARK_MAX_SYMBOLS_PER_REQUEST = 20
+_BATCH_MAX_SYMBOLS_PER_REQUEST = 50
 _SPLIT_FACTOR_CANDIDATES = (1.5, *tuple(float(v) for v in range(2, 31)))
 _SPLIT_GAP_MIN = 0.28
 _SPLIT_RATIO_TOLERANCE = 0.08
@@ -67,6 +68,10 @@ def _cache_ttl_sec() -> float:
 
 def _spark_chunk_size() -> int:
     return _env_int("MEEMEE_YF_SPARK_CHUNK_SIZE", 50, minimum=1)
+
+
+def _chart_max_workers() -> int:
+    return _env_int("MEEMEE_YF_CHART_MAX_WORKERS", 8, minimum=1)
 
 
 def _user_agent() -> str:
@@ -139,17 +144,29 @@ def merge_daily_rows_with_provisional(
         return base_rows
 
     last_key: int | None = None
-    for row in reversed(base_rows):
+    last_idx: int | None = None
+    for idx in range(len(base_rows) - 1, -1, -1):
+        row = base_rows[idx]
         if not row:
             continue
         last_key = normalize_date_key(row[0])
         if last_key is not None:
+            last_idx = idx
             break
-    if last_key is not None and next_key <= last_key:
-        return base_rows
 
     normalized = _normalize_ohlcv_row(provisional_row)
     if normalized is None:
+        return base_rows
+    provisional_is_close_only = is_close_only_zero_volume_row(normalized)
+
+    if last_key is not None and next_key < last_key:
+        return base_rows
+    if last_key is not None and next_key == last_key:
+        if provisional_is_close_only:
+            # Keep current same-day row; close-only payload has no extra OHLC/volume detail.
+            return base_rows
+        if last_idx is not None and is_close_only_zero_volume_row(base_rows[last_idx]):
+            base_rows[last_idx] = normalized
         return base_rows
 
     base_rows.append(normalized)
@@ -239,6 +256,8 @@ def get_provisional_daily_row_from_chart(code: str) -> tuple[int, float, float, 
 
 def get_provisional_daily_rows_from_spark(
     codes: Sequence[str],
+    *,
+    prefer_chart_ohlc: bool = False,
 ) -> dict[str, tuple[int, float, float, float, float, float]]:
     if not _enabled():
         return {}
@@ -254,6 +273,9 @@ def get_provisional_daily_rows_from_spark(
     if not code_by_symbol:
         return {}
 
+    if prefer_chart_ohlc:
+        return _get_provisional_daily_rows_from_chart_symbols(code_by_symbol)
+
     resolved: dict[str, tuple[int, float, float, float, float, float]] = {}
     missing_symbols: list[str] = []
     for symbol, code in code_by_symbol.items():
@@ -265,13 +287,46 @@ def get_provisional_daily_rows_from_spark(
             resolved[code] = cached
 
     if missing_symbols:
-        chunk_size = min(_spark_chunk_size(), _SPARK_MAX_SYMBOLS_PER_REQUEST)
+        chunk_size = min(_spark_chunk_size(), _BATCH_MAX_SYMBOLS_PER_REQUEST)
         for start in range(0, len(missing_symbols), chunk_size):
             chunk = missing_symbols[start : start + chunk_size]
             parsed = _fetch_spark_chunk(chunk)
             for symbol in chunk:
                 row = parsed.get(symbol)
                 _cache_set(_spark_cache, symbol, row)
+                if row is not None:
+                    resolved[code_by_symbol[symbol]] = row
+
+    return resolved
+
+
+def _get_provisional_daily_rows_from_chart_symbols(
+    code_by_symbol: dict[str, str],
+) -> dict[str, tuple[int, float, float, float, float, float]]:
+    resolved: dict[str, tuple[int, float, float, float, float, float]] = {}
+    missing_symbols: list[str] = []
+    for symbol, code in code_by_symbol.items():
+        cached = _cache_get(_chart_cache, symbol)
+        if cached is _CACHE_MISS:
+            missing_symbols.append(symbol)
+            continue
+        if cached is not None:
+            resolved[code] = cached
+
+    if missing_symbols:
+        workers = min(_chart_max_workers(), len(missing_symbols))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_map = {
+                executor.submit(_fetch_chart_row_for_symbol, symbol): symbol for symbol in missing_symbols
+            }
+            for future in as_completed(future_map):
+                symbol = future_map[future]
+                try:
+                    row = future.result()
+                except Exception as exc:
+                    logger.debug("Yahoo chart batch provisional fetch failed for %s: %s", symbol, exc)
+                    row = None
+                _cache_set(_chart_cache, symbol, row)
                 if row is not None:
                     resolved[code_by_symbol[symbol]] = row
 
@@ -292,6 +347,30 @@ def _normalize_ohlcv_row(row: Sequence[Any]) -> tuple[int, float, float, float, 
     if volume is None:
         volume = 0.0
     return (ts, open_, high, low, close, volume)
+
+
+def is_close_only_zero_volume_row(row: Sequence[Any]) -> bool:
+    if len(row) < 6:
+        return False
+    open_ = _to_float(row[1])
+    high = _to_float(row[2])
+    low = _to_float(row[3])
+    close = _to_float(row[4])
+    volume = _to_float(row[5])
+    if open_ is None or high is None or low is None or close is None or volume is None:
+        return False
+    eps = 1e-9
+    return (
+        abs(open_ - high) <= eps
+        and abs(high - low) <= eps
+        and abs(low - close) <= eps
+        and abs(volume) <= eps
+    )
+
+
+# Backward-compatible private alias.
+def _is_close_only_zero_volume_row(row: Sequence[Any]) -> bool:
+    return is_close_only_zero_volume_row(row)
 
 
 def _cache_get(
@@ -351,6 +430,24 @@ def _fetch_spark_chunk(
     return rows
 
 
+def _fetch_chart_row_for_symbol(symbol: str) -> tuple[int, float, float, float, float, float] | None:
+    params = urllib.parse.urlencode(
+        {
+            "interval": "1d",
+            "range": "10d",
+            "includePrePost": "false",
+            "events": "div,splits",
+        }
+    )
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?{params}"
+    try:
+        payload = _fetch_json(url, timeout_sec=_timeout_sec())
+        return _extract_row_from_chart_payload(payload)
+    except Exception as exc:
+        logger.debug("Yahoo chart fallback provisional fetch failed for %s: %s", symbol, exc)
+        return None
+
+
 def _extract_row_from_chart_payload(payload: dict[str, Any] | None) -> tuple[int, float, float, float, float, float] | None:
     if not isinstance(payload, dict):
         return None
@@ -391,6 +488,7 @@ def _extract_row_from_spark_item(item: dict[str, Any]) -> tuple[int, float, floa
             continue
         return (ts, close, close, close, close, 0.0)
     return None
+
 
 
 def _fetch_json(url: str, *, timeout_sec: float) -> dict[str, Any] | None:

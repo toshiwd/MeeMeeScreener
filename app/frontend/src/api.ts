@@ -38,20 +38,24 @@ const formatResponseBody = (value: unknown) => {
   }
 };
 
+const extractRequestId = (
+  headers: Record<string, unknown> | undefined,
+  data: unknown
+): string | null =>
+  (headers?.["x-request-id"] as string | undefined) ||
+  (headers?.["x-trace-id"] as string | undefined) ||
+  (data as { trace_id?: string } | undefined)?.trace_id ||
+  null;
+
 api.interceptors.response.use(
   (response) => {
     if (response.status >= 400) {
-      const requestId =
-        (response.headers?.["x-request-id"] as string | undefined) ||
-        (response.headers?.["x-trace-id"] as string | undefined) ||
-        (response.data as { trace_id?: string } | undefined)?.trace_id ||
-        null;
       const info: ApiErrorInfo = {
         url: resolveUrl(response.config ?? {}),
         method: (response.config?.method ?? "get").toUpperCase(),
         status: response.status ?? null,
         response: formatResponseBody(response.data),
-        requestId,
+        requestId: extractRequestId(response.headers, response.data),
         time: new Date().toISOString()
       };
       if (apiErrorReporter) {
@@ -63,17 +67,12 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     const config = error.config ?? {};
     const response = error.response;
-    const requestId =
-      (response?.headers?.["x-request-id"] as string | undefined) ||
-      (response?.headers?.["x-trace-id"] as string | undefined) ||
-      (response?.data as { trace_id?: string } | undefined)?.trace_id ||
-      null;
     const info: ApiErrorInfo = {
       url: resolveUrl(config),
       method: (config.method ?? "get").toUpperCase(),
       status: response?.status ?? null,
       response: response ? formatResponseBody(response.data) : error.message,
-      requestId,
+      requestId: extractRequestId(response?.headers, response?.data),
       time: new Date().toISOString()
     };
     if (apiErrorReporter) {

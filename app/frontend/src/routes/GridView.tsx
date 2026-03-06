@@ -166,7 +166,30 @@ type WalkforwardWindow = {
 
 type WalkforwardReport = {
   summary?: WalkforwardSummary;
+  attribution?: {
+    code?: WalkforwardAttributionBucket;
+    sector33_code?: WalkforwardAttributionBucket;
+    setup_id?: WalkforwardAttributionBucket;
+    setup?: WalkforwardAttributionBucket;
+    side?: WalkforwardAttributionBucket;
+    hedge?: WalkforwardAttributionBucket;
+  };
   windows?: WalkforwardWindow[];
+};
+
+type WalkforwardAttributionRow = {
+  key?: string;
+  trades?: number;
+  win_rate?: number | null;
+  ret_net_sum?: number;
+  avg_ret_net?: number | null;
+  profit_factor?: number | null;
+};
+
+type WalkforwardAttributionBucket = {
+  rows?: WalkforwardAttributionRow[];
+  top?: WalkforwardAttributionRow[];
+  bottom?: WalkforwardAttributionRow[];
 };
 
 type WalkforwardLatest = {
@@ -175,6 +198,41 @@ type WalkforwardLatest = {
   status?: string;
   config?: Record<string, unknown>;
   report?: WalkforwardReport;
+};
+
+type WalkforwardResearchSetupRow = {
+  setup_id?: string;
+  trades?: number;
+  ret_net_sum?: number;
+  win_rate?: number | null;
+  profit_factor?: number | null;
+};
+
+type WalkforwardResearchRejectedRow = {
+  reason?: string;
+  count?: number;
+};
+
+type WalkforwardResearchHedgeContribution = {
+  core_ret_net_sum?: number;
+  hedge_ret_net_sum?: number;
+  total_ret_net_sum?: number;
+  hedge_share?: number | null;
+};
+
+type WalkforwardResearchReport = {
+  summary?: WalkforwardSummary;
+  adopted_setups?: WalkforwardResearchSetupRow[];
+  rejected_reasons?: WalkforwardResearchRejectedRow[];
+  hedge_contribution?: WalkforwardResearchHedgeContribution;
+};
+
+type WalkforwardResearchLatest = {
+  snapshot_date?: number;
+  created_at?: string;
+  source_run_id?: string;
+  source_finished_at?: string;
+  report?: WalkforwardResearchReport;
 };
 
 type WalkforwardParams = {
@@ -431,6 +489,8 @@ export default function GridView() {
   const [walkforwardSubmitting, setWalkforwardSubmitting] = useState(false);
   const [walkforwardLoading, setWalkforwardLoading] = useState(false);
   const [walkforwardLatest, setWalkforwardLatest] = useState<WalkforwardLatest | null>(null);
+  const [walkforwardResearchLatest, setWalkforwardResearchLatest] =
+    useState<WalkforwardResearchLatest | null>(null);
   const [walkforwardParams, setWalkforwardParams] = useState<WalkforwardParams>(
     createDefaultWalkforwardParams
   );
@@ -502,6 +562,22 @@ export default function GridView() {
     const sign = value > 0 ? "+" : "";
     return `${sign}${value.toFixed(3)}`;
   }, []);
+
+  const formatCompactDate = useCallback((value: number | null | undefined) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return "--";
+    const text = String(Math.trunc(value));
+    if (!/^\d{8}$/.test(text)) return text;
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
+  }, []);
+
+  const formatAttributionRows = useCallback(
+    (bucket: WalkforwardAttributionBucket | undefined, limit = 3) => {
+      const top = Array.isArray(bucket?.top) ? bucket?.top?.slice(0, limit) : [];
+      const bottom = Array.isArray(bucket?.bottom) ? bucket?.bottom?.slice(0, limit) : [];
+      return { top, bottom };
+    },
+    []
+  );
 
   const parseOptionalNumber = useCallback((value: string) => {
     const trimmed = value.trim();
@@ -2145,6 +2221,24 @@ export default function GridView() {
       } else {
         setWalkforwardLatest(null);
       }
+      try {
+        const researchRes = await api.get("/jobs/strategy/walkforward/research/latest");
+        const researchPayload = (researchRes.data ?? {}) as {
+          has_snapshot?: boolean;
+          latest?: WalkforwardResearchLatest | null;
+        };
+        if (researchPayload.has_snapshot && researchPayload.latest) {
+          setWalkforwardResearchLatest(researchPayload.latest);
+        } else {
+          setWalkforwardResearchLatest(null);
+        }
+      } catch (researchErr) {
+        setWalkforwardResearchLatest(null);
+        if (!silent) {
+          const detail = extractErrorDetail(researchErr);
+          showToast(`ウォークフォワード研究結果の取得に失敗しました。(${detail})`);
+        }
+      }
     } catch (err) {
       if (!silent) {
         const detail = extractErrorDetail(err);
@@ -2237,6 +2331,36 @@ export default function GridView() {
     const successRows = windows.filter((row) => row?.status === "success");
     return successRows.slice(0, 5);
   }, [walkforwardLatest]);
+  const walkforwardAttributionCode = useMemo(
+    () => formatAttributionRows(walkforwardLatest?.report?.attribution?.code),
+    [formatAttributionRows, walkforwardLatest]
+  );
+  const walkforwardAttributionSetup = useMemo(
+    () =>
+      formatAttributionRows(
+        walkforwardLatest?.report?.attribution?.setup_id ??
+          walkforwardLatest?.report?.attribution?.setup
+      ),
+    [formatAttributionRows, walkforwardLatest]
+  );
+  const walkforwardAttributionSector = useMemo(
+    () => formatAttributionRows(walkforwardLatest?.report?.attribution?.sector33_code),
+    [formatAttributionRows, walkforwardLatest]
+  );
+  const walkforwardResearchReport = walkforwardResearchLatest?.report ?? null;
+  const walkforwardResearchAdoptedSetups = useMemo(() => {
+    const rows = Array.isArray(walkforwardResearchReport?.adopted_setups)
+      ? walkforwardResearchReport?.adopted_setups
+      : [];
+    return rows.slice(0, 5);
+  }, [walkforwardResearchReport]);
+  const walkforwardResearchRejectedReasons = useMemo(() => {
+    const rows = Array.isArray(walkforwardResearchReport?.rejected_reasons)
+      ? walkforwardResearchReport?.rejected_reasons
+      : [];
+    return rows.slice(0, 5);
+  }, [walkforwardResearchReport]);
+  const walkforwardResearchHedgeContribution = walkforwardResearchReport?.hedge_contribution ?? null;
   const normalizedWalkforwardPresetName = useMemo(
     () => normalizeWalkforwardPresetName(walkforwardPresetName),
     [normalizeWalkforwardPresetName, walkforwardPresetName]
@@ -3323,6 +3447,91 @@ export default function GridView() {
                                   </div>
                                 );
                               })}
+                            </div>
+                          )}
+                          {(walkforwardAttributionCode.top.length > 0 || walkforwardAttributionCode.bottom.length > 0) && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              銘柄寄与:
+                              {walkforwardAttributionCode.top.map((row) => (
+                                <div key={`code-top-${row.key}`} style={{ marginTop: 2 }}>
+                                  上位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                              {walkforwardAttributionCode.bottom.map((row) => (
+                                <div key={`code-bottom-${row.key}`} style={{ marginTop: 2 }}>
+                                  下位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {(walkforwardAttributionSetup.top.length > 0 || walkforwardAttributionSetup.bottom.length > 0) && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              セットアップ寄与:
+                              {walkforwardAttributionSetup.top.map((row) => (
+                                <div key={`setup-top-${row.key}`} style={{ marginTop: 2 }}>
+                                  上位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                              {walkforwardAttributionSetup.bottom.map((row) => (
+                                <div key={`setup-bottom-${row.key}`} style={{ marginTop: 2 }}>
+                                  下位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {(walkforwardAttributionSector.top.length > 0 || walkforwardAttributionSector.bottom.length > 0) && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              業種寄与:
+                              {walkforwardAttributionSector.top.map((row) => (
+                                <div key={`sector-top-${row.key}`} style={{ marginTop: 2 }}>
+                                  上位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                              {walkforwardAttributionSector.bottom.map((row) => (
+                                <div key={`sector-bottom-${row.key}`} style={{ marginTop: 2 }}>
+                                  下位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {walkforwardResearchLatest && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              研究スナップショット: {formatCompactDate(walkforwardResearchLatest.snapshot_date)} / run{" "}
+                              {walkforwardResearchLatest.source_run_id ?? "--"}
+                            </div>
+                          )}
+                          {walkforwardResearchAdoptedSetups.length > 0 && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              採用セットアップ:
+                              {walkforwardResearchAdoptedSetups.map((row) => (
+                                <div key={`research-setup-${row.setup_id}`} style={{ marginTop: 2 }}>
+                                  {row.setup_id ?? "--"} / 取引 {row.trades ?? 0} / 勝率{" "}
+                                  {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {walkforwardResearchRejectedReasons.length > 0 && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              非採用理由:
+                              {walkforwardResearchRejectedReasons.map((row) => (
+                                <div key={`research-reason-${row.reason}`} style={{ marginTop: 2 }}>
+                                  {row.reason ?? "--"} / 件数 {row.count ?? 0}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {walkforwardResearchHedgeContribution && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              ヘッジ寄与:
+                              <div style={{ marginTop: 2 }}>
+                                core {formatSigned(walkforwardResearchHedgeContribution.core_ret_net_sum)} / hedge{" "}
+                                {formatSigned(walkforwardResearchHedgeContribution.hedge_ret_net_sum)} / total{" "}
+                                {formatSigned(walkforwardResearchHedgeContribution.total_ret_net_sum)}
+                              </div>
+                              <div style={{ marginTop: 2 }}>
+                                hedge share {formatRate(walkforwardResearchHedgeContribution.hedge_share)}
+                              </div>
                             </div>
                           )}
                         </div>

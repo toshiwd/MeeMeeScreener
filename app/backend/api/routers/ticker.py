@@ -7,7 +7,7 @@ import time
 from typing import Dict, Iterable, List, Sequence, Any
 from threading import Lock
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -15,13 +15,16 @@ from app.backend.api.dependencies import get_stock_repo
 from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.domain.screening import ranking
 from app.backend.services import rankings_cache
+from app.backend.services.bar_aggregation import merge_monthly_rows_with_daily
 from app.backend.services.edinet_rank_features import load_edinet_rank_features
+from app.backend.services.jpx_calendar import get_jpx_session_info, should_pan_be_finalized_for_date
 from app.backend.services.analysis_decision import build_analysis_decision
 from app.backend.services import swing_expectancy_service, swing_plan_service
 from app.backend.services.yahoo_provisional import (
     apply_split_gap_adjustment,
     get_provisional_daily_row_from_chart,
     merge_daily_rows_with_provisional,
+    normalize_date_key,
 )
 from app.db.session import get_conn
 from app.services.box_detector import detect_boxes
@@ -33,6 +36,7 @@ SYNC_BACKFILL_MAX_AGE_DAYS = max(0, int(os.getenv("MEEMEE_SYNC_BACKFILL_MAX_AGE_
 _VALID_RISK_MODES = {"defensive", "balanced", "aggressive"}
 _BACKFILL_ATTEMPTS: set[tuple[str, int, bool, bool]] = set()
 _BACKFILL_ATTEMPTS_LOCK = Lock()
+_BACKFILL_ATTEMPTS_MAX = 10_000  # Clear set when it grows beyond this to prevent unbounded growth
 _EDINET_SUMMARY_CACHE: dict[tuple[str, int | None], tuple[float, Dict[str, Any] | None]] = {}
 _EDINET_SUMMARY_CACHE_LOCK = Lock()
 try:
@@ -71,24 +75,165 @@ def _normalize_rows(rows: Iterable[Sequence], *, fill_volume: bool) -> List[List
     return normalized
 
 
+def _today_jst_key() -> int:
+    return int((datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y%m%d"))
+
+
+def _date_key_sql_expr(column: str) -> str:
+    return (
+        f"CASE WHEN {column} >= 1000000000 "
+        f"THEN CAST(strftime(to_timestamp({column}), '%Y%m%d') AS BIGINT) "
+        f"ELSE CAST({column} AS BIGINT) END"
+    )
+
+
+def _format_date_key(date_key: int | None) -> str | None:
+    if date_key is None:
+        return None
+    text = str(int(date_key))
+    if len(text) != 8 or not text.isdigit():
+        return None
+    return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+
+
+def _load_market_data_meta(
+    code: str,
+    *,
+    intraday_provisional_key: int | None,
+    asof_dt: int | None,
+) -> dict[str, Any] | None:
+    if asof_dt is not None or not code:
+        return None
+
+    date_key_expr = _date_key_sql_expr("date")
+    with get_conn() as conn:
+        row = conn.execute(
+            f"""
+            SELECT
+                MAX(CASE WHEN COALESCE(source, 'pan') <> 'yahoo' THEN {date_key_expr} END) AS latest_pan_date,
+                MAX(CASE WHEN COALESCE(source, 'pan') = 'yahoo' THEN {date_key_expr} END) AS latest_yahoo_date
+            FROM daily_bars
+            WHERE code = ?
+            """,
+            [code],
+        ).fetchone()
+        pending_rows = conn.execute(
+            f"""
+            SELECT DISTINCT {date_key_expr} AS yahoo_date
+            FROM daily_bars
+            WHERE code = ?
+              AND COALESCE(source, 'pan') = 'yahoo'
+            ORDER BY yahoo_date DESC
+            LIMIT 16
+            """,
+            [code],
+        ).fetchall()
+
+    latest_pan_date = normalize_date_key(row[0]) if row and row[0] is not None else None
+    latest_yahoo_date = normalize_date_key(row[1]) if row and row[1] is not None else None
+    pending_yahoo_dates = [
+        value
+        for value in (normalize_date_key(item[0]) for item in pending_rows)
+        if value is not None and (latest_pan_date is None or value > latest_pan_date)
+    ]
+    latest_resolved_date = max(
+        [value for value in (latest_pan_date, latest_yahoo_date, intraday_provisional_key) if value is not None],
+        default=None,
+    )
+    if intraday_provisional_key is not None and (
+        latest_pan_date is None or intraday_provisional_key > latest_pan_date
+    ):
+        pending_yahoo_dates.append(intraday_provisional_key)
+    pending_yahoo_date = max(pending_yahoo_dates, default=None)
+
+    session = get_jpx_session_info()
+    delayed_pending_date = max(
+        [value for value in pending_yahoo_dates if should_pan_be_finalized_for_date(value)],
+        default=None,
+    )
+    pan_delayed = delayed_pending_date is not None
+    has_provisional = pending_yahoo_date is not None
+    message: str | None = None
+    delayed_date_text = _format_date_key(delayed_pending_date)
+    pending_date_text = _format_date_key(pending_yahoo_date)
+    if has_provisional and pan_delayed and delayed_date_text:
+        message = f"PAN取込遅延中: {delayed_date_text} は Yahoo 仮データを表示しています。"
+    elif has_provisional:
+        suffix = "（半日立会）" if session.day_type == "half_day" else ""
+        message = (
+            f"Yahoo 仮データを表示しています{suffix}。"
+            f" PAN 取込完了後に正式データへ切り替わります。"
+        )
+
+    return {
+        "hasProvisional": has_provisional,
+        "panDelayed": pan_delayed,
+        "latestPanDate": latest_pan_date,
+        "latestYahooDate": latest_yahoo_date,
+        "latestResolvedDate": latest_resolved_date,
+        "pendingYahooDate": pending_yahoo_date,
+        "delayedPendingDate": delayed_pending_date,
+        "todayDayType": session.day_type,
+        "todayIsTradingDay": session.is_trading_day,
+        "closeTimeJst": session.close_time_jst,
+        "panFinalizeAfterJst": session.pan_finalize_after_jst,
+        "message": message,
+    }
+
+
+def _load_monthly_rows_with_provisional(
+    repo: StockRepository,
+    code: str,
+    *,
+    limit: int,
+    asof_dt: int | None,
+) -> tuple[List[tuple], int | None]:
+    rows = repo.get_monthly_bars(code, limit, asof_dt)
+    patch_daily_rows = repo.get_daily_bars(code, 62, asof_dt)
+    intraday_provisional_key: int | None = None
+    if asof_dt is None:
+        try:
+            provisional_row = get_provisional_daily_row_from_chart(code)
+            provisional_key = normalize_date_key(provisional_row[0]) if provisional_row else None
+            if provisional_key == _today_jst_key():
+                patch_daily_rows = merge_daily_rows_with_provisional(patch_daily_rows, provisional_row)
+                intraday_provisional_key = provisional_key
+        except Exception as exc:
+            logger.debug("Yahoo provisional monthly merge skipped for code=%s: %s", code, exc)
+    patch_daily_rows = apply_split_gap_adjustment(patch_daily_rows)
+    rows = merge_monthly_rows_with_daily(rows, patch_daily_rows)
+    rows = apply_split_gap_adjustment(rows)
+    return rows, intraday_provisional_key
+
+
 @router.get("/daily", response_model=None)
 def get_daily_bars(
     code: str,
     limit: int = 400,
     asof: str | int | None = None,
     repo: StockRepository = Depends(get_stock_repo),
-) -> Dict[str, List[List[float]]]:
+) -> Dict[str, Any]:
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
     asof_dt = _parse_dt(asof)
     rows = repo.get_daily_bars(code, limit, asof_dt)
+    intraday_provisional_key: int | None = None
     try:
         provisional_row = get_provisional_daily_row_from_chart(code)
-        rows = merge_daily_rows_with_provisional(rows, provisional_row, asof_dt=asof_dt)
+        today_key_jst = _today_jst_key()
+        provisional_key = normalize_date_key(provisional_row[0]) if provisional_row else None
+        if provisional_key == today_key_jst:
+            rows = merge_daily_rows_with_provisional(rows, provisional_row, asof_dt=asof_dt)
+            intraday_provisional_key = provisional_key
     except Exception as exc:
         logger.debug("Yahoo provisional merge skipped for code=%s: %s", code, exc)
     rows = apply_split_gap_adjustment(rows)
-    return {"data": _normalize_rows(rows, fill_volume=True), "errors": []}
+    meta = _load_market_data_meta(
+        code,
+        intraday_provisional_key=intraday_provisional_key,
+        asof_dt=asof_dt,
+    )
+    return {"data": _normalize_rows(rows, fill_volume=True), "errors": [], "meta": meta}
 
 
 @router.get("/monthly", response_model=None)
@@ -97,13 +242,22 @@ def get_monthly_bars(
     limit: int = 120,
     asof: str | int | None = None,
     repo: StockRepository = Depends(get_stock_repo),
-) -> Dict[str, List[List[float]]]:
+) -> Dict[str, Any]:
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
     asof_dt = _parse_dt(asof)
-    rows = repo.get_monthly_bars(code, limit, asof_dt)
-    rows = apply_split_gap_adjustment(rows)
-    return {"data": _normalize_rows(rows, fill_volume=True), "errors": []}
+    rows, intraday_provisional_key = _load_monthly_rows_with_provisional(
+        repo,
+        code,
+        limit=limit,
+        asof_dt=asof_dt,
+    )
+    meta = _load_market_data_meta(
+        code,
+        intraday_provisional_key=intraday_provisional_key,
+        asof_dt=asof_dt,
+    )
+    return {"data": _normalize_rows(rows, fill_volume=True), "errors": [], "meta": meta}
 
 
 @router.get("/boxes", response_model=None)
@@ -116,7 +270,12 @@ def get_boxes(
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
     asof_dt = _parse_dt(asof)
-    rows = repo.get_monthly_bars(code, limit, asof_dt)
+    rows, _ = _load_monthly_rows_with_provisional(
+        repo,
+        code,
+        limit=limit,
+        asof_dt=asof_dt,
+    )
     return detect_boxes(rows, range_basis="body", max_range_pct=0.2)
 
 
@@ -543,6 +702,9 @@ def _maybe_backfill_for_analysis(
     with _BACKFILL_ATTEMPTS_LOCK:
         if attempt_key in _BACKFILL_ATTEMPTS:
             return
+        # Clear the set if it grows beyond the limit to prevent unbounded memory usage.
+        if len(_BACKFILL_ATTEMPTS) >= _BACKFILL_ATTEMPTS_MAX:
+            _BACKFILL_ATTEMPTS.clear()
         _BACKFILL_ATTEMPTS.add(attempt_key)
     if ensure_ml:
         try:
@@ -942,12 +1104,12 @@ def get_analysis_pred(
     as_of_ymd = _asof_dt_to_ymd(asof_dt)
     if as_of_ymd is None:
         as_of_ymd = _to_int_or_none(row[0])
-    if as_of_ymd is not None:
-        try:
-            swing_expectancy_service.refresh_swing_setup_stats(as_of_ymd=int(as_of_ymd))
-        except Exception:
-            # Keep analysis endpoint resilient when expectancy refresh fails.
-            pass
+    try:
+        # Expectancy statistics are shared across days; keep one latest snapshot warm.
+        swing_expectancy_service.ensure_latest_swing_setup_stats()
+    except Exception:
+        # Keep analysis endpoint resilient when expectancy refresh fails.
+        pass
     decision = build_analysis_decision(
         analysis_p_up=p_up,
         analysis_p_down=p_down,
@@ -965,7 +1127,8 @@ def get_analysis_pred(
     )
     swing_eval = swing_plan_service.build_swing_plan(
         code=code,
-        as_of_ymd=as_of_ymd,
+        # Avoid per-cursor-day recompute; swing expectancy uses latest maintained snapshot.
+        as_of_ymd=None,
         close=_to_float_or_none(daily_rows[-1][4]) if daily_rows else None,
         p_up=p_up,
         p_down=p_down,

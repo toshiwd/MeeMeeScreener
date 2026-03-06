@@ -280,7 +280,11 @@ def submit_txt_update_job(
         )
 
     cleanup_stale_jobs()
-    active_count, error_detail = _count_active_jobs(TXT_UPDATE_JOB_TYPE)
+    active_info = _count_active_jobs(TXT_UPDATE_JOB_TYPE)
+    if isinstance(active_info, tuple):
+        active_count, error_detail = active_info
+    else:
+        active_count, error_detail = int(active_info), None
     if active_count > 0:
         return _maybe_apply_legacy_headers(
             _txt_update_conflict_response(
@@ -313,6 +317,7 @@ def submit_txt_update_job(
 def submit_txt_update(
     auto_ml_predict: bool = True,
     auto_ml_train: bool = True,
+    force_recompute_on_pan_finalize: bool = True,
     auto_fill_missing_history: bool = False,
     backfill_lookback_days: int = 130,
     backfill_max_missing_days: int = 260,
@@ -354,6 +359,7 @@ def submit_txt_update(
         request_payload = {
             "auto_ml_predict": bool(auto_ml_predict),
             "auto_ml_train": bool(auto_ml_train),
+            "force_recompute_on_pan_finalize": bool(force_recompute_on_pan_finalize),
             "auto_fill_missing_history": bool(auto_fill_missing_history),
             "backfill_lookback_days": int(backfill_lookback_days),
             "backfill_max_missing_days": int(backfill_max_missing_days),
@@ -865,6 +871,15 @@ def get_strategy_walkforward_latest():
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@router.get("/api/jobs/strategy/walkforward/research/latest")
+def get_strategy_walkforward_research_latest():
+    try:
+        return strategy_backtest_service.get_latest_strategy_walkforward_research_snapshot()
+    except Exception as exc:
+        logger.exception("Error fetching strategy walkforward research status: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
 @router.post("/api/jobs/strategy/walkforward/gate")
 def submit_strategy_walkforward_gate(
     dry_run: bool = False,
@@ -914,6 +929,9 @@ def get_current_job():
     try:
         with try_get_conn(timeout_sec=0.4) as conn:
             if conn is None:
+                cached = job_manager.get_cached_current()
+                if cached is not None:
+                    return cached
                 return _db_retryable_response(message="Database is temporarily unavailable")
             row = conn.execute(
                 "SELECT id, type, status, created_at, started_at, progress, message "
@@ -933,6 +951,9 @@ def get_current_job():
             }
     except Exception as exc:
         if _is_transient_db_lock_error(exc):
+            cached = job_manager.get_cached_current()
+            if cached is not None:
+                return cached
             return _db_retryable_response(message="Database is temporarily unavailable", error_detail=str(exc))
         logger.exception("Error current job: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
@@ -944,6 +965,9 @@ def get_job_history(limit: int = Query(20, ge=1, le=100)):
     try:
         with try_get_conn(timeout_sec=0.4) as conn:
             if conn is None:
+                cached_rows = job_manager.get_cached_history(limit=safe_limit)
+                if cached_rows:
+                    return cached_rows
                 return _db_retryable_response(message="Database is temporarily unavailable")
             rows = conn.execute(
                 "SELECT id, type, status, created_at, finished_at, message "
@@ -963,6 +987,9 @@ def get_job_history(limit: int = Query(20, ge=1, le=100)):
         ]
     except Exception as exc:
         if _is_transient_db_lock_error(exc):
+            cached_rows = job_manager.get_cached_history(limit=safe_limit)
+            if cached_rows:
+                return cached_rows
             return _db_retryable_response(message="Database is temporarily unavailable", error_detail=str(exc))
         logger.exception("Error fetching job history: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
@@ -973,6 +1000,9 @@ def get_job_status(job_id: str):
     try:
         with try_get_conn(timeout_sec=0.4) as conn:
             if conn is None:
+                cached = job_manager.get_cached_status(job_id)
+                if cached is not None:
+                    return cached
                 return _db_retryable_response(message="Database is temporarily unavailable")
             row = conn.execute(
                 "SELECT id, type, status, created_at, started_at, finished_at, progress, message, error "
@@ -994,6 +1024,9 @@ def get_job_status(job_id: str):
         }
     except Exception as exc:
         if _is_transient_db_lock_error(exc):
+            cached = job_manager.get_cached_status(job_id)
+            if cached is not None:
+                return cached
             return _db_retryable_response(message="Database is temporarily unavailable", error_detail=str(exc))
         logger.exception("Error fetching job status: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})

@@ -6,7 +6,7 @@ import UnifiedListHeader from "../components/UnifiedListHeader";
 import ChartListCard from "../components/ChartListCard";
 import Toast from "../components/Toast";
 import { useStore } from "../store";
-import { computeSignalMetrics } from "../utils/signals";
+import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
 import { IconRefresh, IconUpload } from "@tabler/icons-react";
 import {
   buildConsultationPack,
@@ -103,6 +103,8 @@ export default function PositionsView() {
   const [sortKey, setSortKey] = useState<PositionSortKey>("code");
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
   const [filterDataOnly, setFilterDataOnly] = useState(false);
+  const [filterBuySignalsOnly, setFilterBuySignalsOnly] = useState(false);
+  const [filterSellSignalsOnly, setFilterSellSignalsOnly] = useState(false);
   const [consultVisible, setConsultVisible] = useState(false);
   const [consultExpanded, setConsultExpanded] = useState(false);
   const [consultTab, setConsultTab] = useState<"selection" | "position">("selection");
@@ -136,6 +138,8 @@ export default function PositionsView() {
         sortKey?: PositionSortKey;
         filterSignalsOnly?: boolean;
         filterDataOnly?: boolean;
+        filterBuySignalsOnly?: boolean;
+        filterSellSignalsOnly?: boolean;
       };
       if (parsed.tab === "held" || parsed.tab === "history") {
         setTab(parsed.tab);
@@ -154,6 +158,12 @@ export default function PositionsView() {
       if (typeof parsed.filterDataOnly === "boolean") {
         setFilterDataOnly(parsed.filterDataOnly);
       }
+      if (typeof parsed.filterBuySignalsOnly === "boolean") {
+        setFilterBuySignalsOnly(parsed.filterBuySignalsOnly);
+      }
+      if (typeof parsed.filterSellSignalsOnly === "boolean") {
+        setFilterSellSignalsOnly(parsed.filterSellSignalsOnly);
+      }
     } catch {
       // ignore storage failures
     }
@@ -166,13 +176,15 @@ export default function PositionsView() {
         tab,
         sortKey,
         filterSignalsOnly,
-        filterDataOnly
+        filterDataOnly,
+        filterBuySignalsOnly,
+        filterSellSignalsOnly
       };
       window.sessionStorage.setItem(POSITIONS_VIEW_STATE_KEY, JSON.stringify(payload));
     } catch {
       // ignore storage failures
     }
-  }, [tab, sortKey, filterSignalsOnly, filterDataOnly]);
+  }, [tab, sortKey, filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -217,34 +229,60 @@ export default function PositionsView() {
     load();
   }, [backendReady, tab]);
 
-  const signalMap = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
+  const signalMetricsMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeSignalMetrics>>();
     heldItems.forEach((item) => {
       if (!item?.symbol) return;
       const timeline = barsCache[listTimeframe];
       const payload = timeline ? timeline[item.symbol] : null;
       if (!payload?.bars?.length) return;
-      const signals = computeSignalMetrics(payload.bars, 4).signals;
-      if (signals.length) {
-        map.set(item.symbol, signals);
-      }
+      map.set(item.symbol, computeSignalMetrics(payload.bars, 4));
     });
     return map;
   }, [heldItems, barsCache, listTimeframe]);
 
+  const signalMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
+    signalMetricsMap.forEach((metrics, code) => {
+      if (metrics.signals.length) {
+        map.set(code, metrics.signals);
+      }
+    });
+    return map;
+  }, [signalMetricsMap]);
+
   const filteredHeldItems = useMemo(() => {
+    const hasDirectionalFilter = filterBuySignalsOnly || filterSellSignalsOnly;
     if (tab !== "held") return heldItems;
-    if (!filterSignalsOnly && !filterDataOnly) return heldItems;
+    if (!filterSignalsOnly && !filterDataOnly && !hasDirectionalFilter) return heldItems;
     return heldItems.filter((item) => {
       if (!item?.symbol) return false;
       const timeline = barsCache[listTimeframe];
       const payload = timeline ? timeline[item.symbol] : null;
       const hasData = Boolean(payload?.bars?.length);
+      const metrics = signalMetricsMap.get(item.symbol);
+      const summary = metrics ? getSignalDirectionSummary(metrics) : null;
       if (filterDataOnly && !hasData) return false;
       if (filterSignalsOnly && !signalMap.has(item.symbol)) return false;
+      if (hasDirectionalFilter) {
+        const matchesBuy = filterBuySignalsOnly && Boolean(summary?.hasBuySignal);
+        const matchesSell = filterSellSignalsOnly && Boolean(summary?.hasSellSignal);
+        if (!(matchesBuy || matchesSell)) return false;
+      }
       return true;
     });
-  }, [tab, heldItems, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
+  }, [
+    tab,
+    heldItems,
+    filterSignalsOnly,
+    filterDataOnly,
+    filterBuySignalsOnly,
+    filterSellSignalsOnly,
+    barsCache,
+    listTimeframe,
+    signalMap,
+    signalMetricsMap
+  ]);
 
   const heldMetricsMap = useMemo(() => {
     const map = new Map<string, { change: number; score: number }>();
@@ -567,14 +605,33 @@ export default function PositionsView() {
             label: "\u30c7\u30fc\u30bf\u53d6\u5f97\u6e08\u307f",
             checked: filterDataOnly,
             onToggle: () => setFilterDataOnly((prev) => !prev)
+          },
+          {
+            key: "buy-signal",
+            label: "\u8cb7\u3044\u5224\u5b9a\u3042\u308a",
+            checked: filterBuySignalsOnly,
+            onToggle: () => setFilterBuySignalsOnly((prev) => !prev)
+          },
+          {
+            key: "sell-signal",
+            label: "\u58f2\u308a\u5224\u5b9a\u3042\u308a",
+            checked: filterSellSignalsOnly,
+            onToggle: () => setFilterSellSignalsOnly((prev) => !prev)
           }
         ]
         : [],
-    [tab, filterSignalsOnly, filterDataOnly]
+    [tab, filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]
   );
 
   const isSingleDensity = listColumns === 1 && listRows === 1;
-  const emptyLabel = tab === "held" ? "保有銘柄はありません" : "履歴はまだありません";
+  const emptyLabel =
+    tab === "held"
+      ? heldItems.length > 0 &&
+        (filterSignalsOnly || filterDataOnly || filterBuySignalsOnly || filterSellSignalsOnly) &&
+        sortedHeldItems.length === 0
+        ? "該当する銘柄がありません。"
+        : "保有銘柄はありません"
+      : "履歴はまだありません";
 
   const renderItem = (item: HeldItem | HistoryItem) => {
     if ("buy_qty" in item && !(item.buy_qty > 0 || item.sell_qty > 0)) {

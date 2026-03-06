@@ -81,9 +81,16 @@ type ApiWarnings = {
   unrecognized_labels?: { count: number; samples: string[] };
 };
 
+type BarsMeta = {
+  hasProvisional?: boolean;
+  panDelayed?: boolean;
+  message?: string | null;
+};
+
 type BarsResponse = {
   data?: number[][];
   errors?: string[];
+  meta?: BarsMeta | null;
 };
 
 type CompareListItem = {
@@ -376,7 +383,31 @@ type EnvironmentScenario = {
 type EnvironmentSummary = {
   environmentLabel: string;
   environmentTone: EnvironmentTone;
+  markerTone: "up" | "down" | null;
+  markerIsSetup: boolean;
   scenarios: EnvironmentScenario[];
+};
+type MarkerPrecisionSummary = {
+  signalCount: number;
+  evaluatedCount: number;
+  wins: number;
+  precision: number | null;
+  avgRet20: number | null;
+};
+
+const formatMarkerPrecisionMeta = (
+  sideLabel: "買い" | "売り",
+  summary: MarkerPrecisionSummary | null
+) => {
+  if (!summary) return null;
+  if (summary.evaluatedCount === 0 || summary.precision == null) {
+    return `${sideLabel}マーカー精度(20日) 検証待ち ${summary.signalCount}件`;
+  }
+  const avgRetLabel =
+    summary.avgRet20 == null
+      ? ""
+      : ` / 平均 ${formatSignedPercentLabel(summary.avgRet20)}`;
+  return `${sideLabel}マーカー精度(20日) ${formatPercentLabel(summary.precision)} (${summary.wins}/${summary.evaluatedCount})${avgRetLabel}`;
 };
 
 type EnvironmentComputationInput = {
@@ -507,6 +538,17 @@ const formatEdinetStatus = (value: string | null | undefined) => {
   if (value === "unmapped") return "未マップ";
   if (value === "no_payload") return "データなし";
   return value;
+};
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.length > 0;
+
+const joinMetaSegments = (segments: Array<string | null | undefined>) =>
+  segments.filter(isNonEmptyString).join(" / ");
+
+const normalizeTickerName = (value: string | null | undefined) => {
+  const cleaned = (value ?? "").replace(/\s*\?\s*$/, "").trim();
+  return cleaned === "?" ? "" : cleaned;
 };
 
 const toFiniteNumber = (value: unknown): number | null => {
@@ -761,25 +803,25 @@ const normalizeAnalysisDecision = (value: unknown): AnalysisDecision | null => {
     scenarios.length > 0
       ? scenarios
       : [
-          {
-            key: "up",
-            label: "上昇継続（押し目再開）",
-            tone: "up",
-            score: clamp(toFiniteNumber(payload.buyProb) ?? 0, 0, 1)
-          },
-          {
-            key: "down",
-            label: "下落継続（戻り売り優位）",
-            tone: "down",
-            score: clamp(toFiniteNumber(payload.sellProb) ?? 0, 0, 1)
-          },
-          {
-            key: "range",
-            label: "往復レンジ（上下振れ）",
-            tone: "neutral",
-            score: clamp(toFiniteNumber(payload.neutralProb) ?? 0, 0, 1)
-          }
-        ];
+        {
+          key: "up",
+          label: "上昇継続（押し目再開）",
+          tone: "up",
+          score: clamp(toFiniteNumber(payload.buyProb) ?? 0, 0, 1)
+        },
+        {
+          key: "down",
+          label: "下落継続（戻り売り優位）",
+          tone: "down",
+          score: clamp(toFiniteNumber(payload.sellProb) ?? 0, 0, 1)
+        },
+        {
+          key: "range",
+          label: "往復レンジ（上下振れ）",
+          tone: "neutral",
+          score: clamp(toFiniteNumber(payload.neutralProb) ?? 0, 0, 1)
+        }
+      ];
   return {
     tone,
     sideLabel: typeof payload.sideLabel === "string" ? payload.sideLabel : null,
@@ -1150,10 +1192,16 @@ const computeEnvironmentTone = (input: EnvironmentComputationInput): Environment
     (input.sellAnalysis?.ma20Slope ?? 0) >= 0 &&
     (input.sellAnalysis?.ma60Slope ?? 0) >= 0
   );
+  const probabilisticShortSignal = Boolean(
+    downProb >= 0.60 &&
+    turnDown >= 0.60 &&
+    (input.analysisEvNet ?? 0) <= 0.01
+  );
   const shortSignalConfirmed =
     trendDownFlag ||
     trendDownStrictFlag ||
-    shortScoreNorm >= 0.34;
+    shortScoreNorm >= 0.34 ||
+    probabilisticShortSignal;
   const strongUpContext = Boolean(
     input.additiveSignals?.trendUpStrict &&
     (input.additiveSignals?.monthlyBreakoutUpProb ?? 0) >= 0.8
@@ -1306,9 +1354,51 @@ const computeEnvironmentTone = (input: EnvironmentComputationInput): Environment
     environmentTone = "neutral";
   }
 
+  let markerTone: "up" | "down" | null =
+    environmentTone === "up" || environmentTone === "down" ? environmentTone : null;
+  let markerIsSetup = false;
+  if (markerTone == null) {
+    const setupBuySignal = Boolean(
+      preSurgeLongCandidate &&
+      !trendDownFlag &&
+      upProb >= 0.58 &&
+      downProb <= 0.50 &&
+      turnUp >= Math.max(0.58, turnDown + 0.02) &&
+      upScore >= downScore - 0.04
+    );
+    const setupSellSignal = Boolean(
+      preSurgeShortCandidate &&
+      downProb >= 0.58 &&
+      turnDown >= Math.max(0.60, turnUp) &&
+      downScore >= upScore - 0.06
+    );
+    const trendAssistedSellSetup = Boolean(
+      trendDownFlag &&
+      upProb <= 0.56 &&
+      downProb >= 0.32 &&
+      turnUp <= 0.40 &&
+      turnDown >= 0.24
+    );
+    if (setupBuySignal || setupSellSignal) {
+      markerTone = setupBuySignal && !setupSellSignal
+        ? "up"
+        : setupSellSignal && !setupBuySignal
+          ? "down"
+          : upScore >= downScore
+            ? "up"
+            : "down";
+      markerIsSetup = true;
+    } else if (trendAssistedSellSetup) {
+      markerTone = "down";
+      markerIsSetup = true;
+    }
+  }
+
   return {
     environmentLabel,
     environmentTone,
+    markerTone,
+    markerIsSetup,
     scenarios
   };
 };
@@ -1405,25 +1495,32 @@ const filterVolumeByAsOf = (volume: VolumePoint[], asOf: number | null) => {
   return volume.filter((point) => point.time <= asOf);
 };
 
-const findNearestCandleTime = (candles: Candle[], time: number) => {
+const findNearestCandleIndex = (candles: Candle[], time: number): number | null => {
   if (!candles.length) return null;
   let left = 0;
   let right = candles.length - 1;
   while (left <= right) {
     const mid = Math.floor((left + right) / 2);
     const midTime = candles[mid].time;
-    if (midTime === time) return midTime;
+    if (midTime === time) return mid;
     if (midTime < time) {
       left = mid + 1;
     } else {
       right = mid - 1;
     }
   }
-  const lower = candles[Math.max(0, Math.min(candles.length - 1, right))];
-  const upper = candles[Math.max(0, Math.min(candles.length - 1, left))];
-  if (!lower) return upper?.time ?? null;
-  if (!upper) return lower.time;
-  return Math.abs(time - lower.time) <= Math.abs(upper.time - time) ? lower.time : upper.time;
+  const lowerIndex = Math.max(0, Math.min(candles.length - 1, right));
+  const upperIndex = Math.max(0, Math.min(candles.length - 1, left));
+  const lower = candles[lowerIndex];
+  const upper = candles[upperIndex];
+  if (!lower) return upper ? upperIndex : null;
+  if (!upper) return lowerIndex;
+  return Math.abs(time - lower.time) <= Math.abs(upper.time - time) ? lowerIndex : upperIndex;
+};
+
+const findNearestCandleTime = (candles: Candle[], time: number) => {
+  const index = findNearestCandleIndex(candles, time);
+  return index == null ? null : candles[index]?.time ?? null;
 };
 
 export default function DetailView() {
@@ -1446,6 +1543,8 @@ export default function DetailView() {
   const manualMonthlyRangeRef = useRef<{ from: number; to: number } | null>(null);
   const manualCompareDailyRangeRef = useRef<{ from: number; to: number } | null>(null);
   const analysisBaseAsOfRef = useRef<number | null>(null);
+  // Guard: suppress programmatic visible-range events from resetting rangeMonths
+  const rangeSettleRef = useRef(0);
 
   const tickers = useStore((state) => state.tickers);
   const loadList = useStore((state) => state.loadList);
@@ -1476,6 +1575,7 @@ export default function DetailView() {
   const [showGapBands, setShowGapBands] = useState(true);
   const [showVolumeEnabled, setShowVolumeEnabled] = useState(true);
   const [showDecisionMarkers, setShowDecisionMarkers] = useState(true);
+  const [showTradeMarkers, setShowTradeMarkers] = useState(true);
   const [activeDrawTool, setActiveDrawTool] = useState<DrawTool | null>(null);
   const [, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
   const COLOR_PALETTE = ["#ef4444", "#22c55e", "#0ea5e9", "#f59e0b", "#64748b"];
@@ -1493,6 +1593,8 @@ export default function DetailView() {
   const [currentPositionsFromApi, setCurrentPositionsFromApi] = useState<CurrentPosition[] | null>(null);
   const [dailyErrors, setDailyErrors] = useState<string[]>([]);
   const [monthlyErrors, setMonthlyErrors] = useState<string[]>([]);
+  const [dailyBarsMeta, setDailyBarsMeta] = useState<BarsMeta | null>(null);
+  const [monthlyBarsMeta, setMonthlyBarsMeta] = useState<BarsMeta | null>(null);
   const [dailyFetch, setDailyFetch] = useState<FetchState>({
     status: "idle",
     responseCount: 0,
@@ -1536,6 +1638,7 @@ export default function DetailView() {
   const [selectedBarIndex, setSelectedBarIndex] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedBarData, setSelectedBarData] = useState<Candle | null>(null);
+  const [analysisCursorTime, setAnalysisCursorTime] = useState<number | null>(null);
 
   const syncRangesRef = useRef(syncRanges);
   const pendingRangeRef = useRef<{ from: number; to: number } | null>(null);
@@ -1641,16 +1744,13 @@ export default function DetailView() {
   }, []);
 
   useEffect(() => {
-    if (headerMode !== "draw" && activeDrawTool !== null) {
+    if (headerMode !== "draw") {
       setActiveDrawTool(null);
+    } else {
+      // entering draw mode: default to timeZone if nothing selected
+      setActiveDrawTool((prev) => prev ?? "timeZone");
     }
-  }, [headerMode, activeDrawTool]);
-
-  useEffect(() => {
-    if (headerMode === "draw" && activeDrawTool == null) {
-      setActiveDrawTool("timeZone");
-    }
-  }, [headerMode, activeDrawTool]);
+  }, [headerMode]);
 
   useEffect(() => {
     if (headerMode !== "draw") {
@@ -1693,7 +1793,17 @@ export default function DetailView() {
     setAnalysisAsOfTime(null);
     analysisBaseAsOfRef.current = null;
     setDailyData([]);
+    // Reset cursor selection – will be re-initialized once dailyCandles load
+    setSelectedBarIndex(null);
+    setSelectedBarData(null);
+    setAnalysisCursorTime(null);
+    // Keep selectedDate so we can restore cursor position in new candle data
   }, [code]);
+
+  useEffect(() => {
+    if (cursorMode) return;
+    setAnalysisCursorTime(null);
+  }, [cursorMode]);
 
   useEffect(() => {
     setRangeMonths(12);
@@ -1701,15 +1811,18 @@ export default function DetailView() {
     manualWeeklyRangeRef.current = null;
     manualMonthlyRangeRef.current = null;
     manualCompareDailyRangeRef.current = null;
+    // Suppress programmatic range events after code change
+    rangeSettleRef.current = Date.now() + 500;
   }, [code]);
 
+  const tickerByCode = useMemo(() => {
+    return new Map(tickers.map((item) => [item.code, item]));
+  }, [tickers]);
   const tickerName = useMemo(() => {
     if (!code) return "";
-    const raw = tickers.find((item) => item.code === code)?.name ?? "";
-    const cleaned = raw.replace(/\s*\?\s*$/, "").trim();
-    return cleaned === "?" ? "" : cleaned;
-  }, [tickers, code]);
-  const activeTicker = useMemo(() => tickers.find((item) => item.code === code) ?? null, [tickers, code]);
+    return normalizeTickerName(tickerByCode.get(code)?.name);
+  }, [tickerByCode, code]);
+  const activeTicker = useMemo(() => (code ? tickerByCode.get(code) ?? null : null), [tickerByCode, code]);
   const earningsLabel = useMemo(
     () => formatEventBadgeDate(activeTicker?.eventEarningsDate),
     [activeTicker?.eventEarningsDate]
@@ -1729,10 +1842,8 @@ export default function DetailView() {
   }, [eventsMeta]);
   const compareTickerName = useMemo(() => {
     if (!compareCode) return "";
-    const raw = tickers.find((item) => item.code === compareCode)?.name ?? "";
-    const cleaned = raw.replace(/\s*\?\s*$/, "").trim();
-    return cleaned === "?" ? "" : cleaned;
-  }, [tickers, compareCode]);
+    return normalizeTickerName(tickerByCode.get(compareCode)?.name);
+  }, [tickerByCode, compareCode]);
 
   const {
     item: phaseFallback,
@@ -1922,25 +2033,34 @@ export default function DetailView() {
     if (latestDailyAsOfTime == null) return;
     analysisBaseAsOfRef.current = latestDailyAsOfTime;
   }, [mainAsOfTime, latestDailyAsOfTime]);
+  const resolvedCursorAsOfTime = useMemo(() => {
+    if (!cursorMode) return null;
+    if (analysisCursorTime != null) return analysisCursorTime;
+    return selectedBarData?.time ?? null;
+  }, [cursorMode, analysisCursorTime, selectedBarData?.time]);
   const detailAsOfTime = useMemo(() => {
-    if (cursorMode && selectedBarData?.time != null) {
-      return selectedBarData.time;
+    if (resolvedCursorAsOfTime != null) {
+      return resolvedCursorAsOfTime;
     }
     if (mainAsOfTime != null) return mainAsOfTime;
     return analysisBaseAsOfRef.current ?? latestDailyAsOfTime;
-  }, [cursorMode, selectedBarData?.time, mainAsOfTime, latestDailyAsOfTime]);
+  }, [resolvedCursorAsOfTime, mainAsOfTime, latestDailyAsOfTime]);
+  const analysisCursorDateLabel = useMemo(() => {
+    if (!cursorMode) return "";
+    const label = formatDateLabel(resolvedCursorAsOfTime);
+    return label ? label.replace(/\//g, "-") : "";
+  }, [cursorMode, resolvedCursorAsOfTime]);
   useEffect(() => {
     if (detailAsOfTime == null) {
       setAnalysisAsOfTime(null);
       return;
     }
-    if (!cursorMode) {
-      setAnalysisAsOfTime(detailAsOfTime);
-      return;
-    }
+    // Debounce analysis fetch: cursor mode uses shorter delay, normal mode
+    // uses 300ms to absorb rapid changes from data loading / range init.
+    const delay = cursorMode ? 160 : 300;
     const timerId = window.setTimeout(() => {
       setAnalysisAsOfTime(detailAsOfTime);
-    }, 160);
+    }, delay);
     return () => {
       window.clearTimeout(timerId);
     };
@@ -1982,45 +2102,48 @@ export default function DetailView() {
     if (analysisDecisionFromBackend) {
       const scenarios = analysisDecisionFromBackend.scenarios.length
         ? analysisDecisionFromBackend.scenarios.map((scenario) => ({
-            key: scenario.key,
-            label: scenario.label,
-            tone: scenario.tone,
-            score: clamp(scenario.score, 0, 1),
-            reasons: [] as string[],
-          }))
+          key: scenario.key,
+          label: scenario.label,
+          tone: scenario.tone,
+          score: clamp(scenario.score, 0, 1),
+          reasons: [] as string[],
+        }))
         : [
-            {
-              key: "up" as const,
-              label: "上昇継続（押し目再開）",
-              tone: "up" as const,
-              score: clamp(analysisDecisionFromBackend.buyProb ?? 0, 0, 1),
-              reasons: [] as string[],
-            },
-            {
-              key: "down" as const,
-              label: "下落継続（戻り売り優位）",
-              tone: "down" as const,
-              score: clamp(analysisDecisionFromBackend.sellProb ?? 0, 0, 1),
-              reasons: [] as string[],
-            },
-            {
-              key: "range" as const,
-              label: "往復レンジ（上下振れ）",
-              tone: "neutral" as const,
-              score: clamp(analysisDecisionFromBackend.neutralProb ?? 0, 0, 1),
-              reasons: [] as string[],
-            },
-          ];
+          {
+            key: "up" as const,
+            label: "上昇継続（押し目再開）",
+            tone: "up" as const,
+            score: clamp(analysisDecisionFromBackend.buyProb ?? 0, 0, 1),
+            reasons: [] as string[],
+          },
+          {
+            key: "down" as const,
+            label: "下落継続（戻り売り優位）",
+            tone: "down" as const,
+            score: clamp(analysisDecisionFromBackend.sellProb ?? 0, 0, 1),
+            reasons: [] as string[],
+          },
+          {
+            key: "range" as const,
+            label: "往復レンジ（上下振れ）",
+            tone: "neutral" as const,
+            score: clamp(analysisDecisionFromBackend.neutralProb ?? 0, 0, 1),
+            reasons: [] as string[],
+          },
+        ];
       scenarios.sort((a, b) => b.score - a.score);
+      const tone = analysisDecisionFromBackend.tone;
       return {
         environmentLabel:
           analysisDecisionFromBackend.environmentLabel ??
-          (analysisDecisionFromBackend.tone === "up"
+          (tone === "up"
             ? "上昇優位"
-            : analysisDecisionFromBackend.tone === "down"
+            : tone === "down"
               ? "下落優位"
               : "方向感拮抗"),
-        environmentTone: analysisDecisionFromBackend.tone,
+        environmentTone: tone,
+        markerTone: tone === "up" || tone === "down" ? tone : null,
+        markerIsSetup: false,
         scenarios
       };
     }
@@ -2109,8 +2232,9 @@ export default function DetailView() {
     const stagePrecision = analysisFallback?.buyStagePrecision ?? null;
     const strategyBacktest = stagePrecision?.strategy ?? null;
     const strategySamples = strategyBacktest?.samples ?? 0;
-    const coreSamples = stagePrecision?.core.samples ?? 0;
+    const coreSamples = stagePrecision?.core?.samples ?? 0;
     const confidence = clamp(analysisDecision.confidence ?? 0, 0, 1);
+    const tone = analysisDecision.tone;
     const spread = Math.abs(buyProb - sellProb);
     const turnUp = clamp(analysisPTurnUp ?? 0.5, 0, 1);
     const turnDown = clamp(analysisPTurnDown ?? 0.5, 0, 1);
@@ -2120,7 +2244,7 @@ export default function DetailView() {
     let action = "中立";
     let watchpoint = "優勢側の仕込み確率が上がるまで監視。";
 
-    const tonePenalty = analysisDecision.tone === "down" ? 0.08 : analysisDecision.tone === "neutral" ? 0.03 : 0;
+    const tonePenalty = tone === "down" ? 0.08 : tone === "neutral" ? 0.03 : 0;
     const baseLongPrecision = clamp(
       0.5 * buyProb +
       0.2 * (1 - sellProb) +
@@ -2136,7 +2260,7 @@ export default function DetailView() {
       0,
       1
     );
-    const corePrecisionResolved = stagePrecision?.core.precision ?? corePrecision;
+    const corePrecisionResolved = stagePrecision?.core?.precision ?? corePrecision;
     const strategyPrecisionResolved = strategyBacktest?.precision ?? corePrecisionResolved;
     const strategyPrecisionLabel = (() => {
       if (strategySamples > 0) {
@@ -2150,16 +2274,16 @@ export default function DetailView() {
     const coreReady = buyProb >= 0.58 && spread >= 0.1 && turnUp >= turnDown;
     const currentStageLabel = coreReady
       ? "本玉成立"
-      : analysisDecision.tone === "up"
+      : tone === "up"
         ? "買い監視"
-        : analysisDecision.tone === "down"
+        : tone === "down"
           ? "売り監視"
           : "中立監視";
     let buyTimingTitle = "仕込み状態";
-    if (analysisDecision.tone === "up") {
+    if (tone === "up") {
       action = "買い寄り";
       watchpoint = "買い仕込みを優先監視。";
-    } else if (analysisDecision.tone === "down") {
+    } else if (tone === "down") {
       action = "売り寄り";
       watchpoint = "売り仕込みを優先監視。";
     } else {
@@ -2291,13 +2415,15 @@ export default function DetailView() {
     );
     const buySetupState = buySetupReady ? "実行" : buySetupWatch ? "監視" : "待機";
     const sellSetupState = sellSetupReady ? "実行" : sellSetupWatch ? "監視" : "待機";
-    if (analysisDecision.tone === "neutral") {
+    if (tone === "neutral") {
       action = buySetupProb >= sellSetupProb ? "中立（買い仕込み監視）" : "中立（売り仕込み監視）";
       watchpoint = `買い ${buySetupState} / 売り ${sellSetupState} を監視。`;
     }
+    const buySetupLabel = `${buySetupState} ${formatPercentLabel(buySetupProb)}`;
+    const sellSetupLabel = `${sellSetupState} ${formatPercentLabel(sellSetupProb)}`;
     const setupTimingLines = [
-      `買い仕込み: ${buySetupState} ${formatPercentLabel(buySetupProb)}`,
-      `売り仕込み: ${sellSetupState} ${formatPercentLabel(sellSetupProb)}`
+      `買い仕込み: ${buySetupLabel}`,
+      `売り仕込み: ${sellSetupLabel}`
     ];
 
     const buyTimingPlan = [
@@ -2308,11 +2434,11 @@ export default function DetailView() {
     const shortScoreLabel = resolvedShortScore == null ? "--" : resolvedShortScore.toFixed(1);
     const reasonLines = [
       `方向確率 上昇 ${formatPercentLabel(buyProb)} / 下落 ${formatPercentLabel(sellProb)} / 中立 ${formatPercentLabel(neutralProb)}`,
-      `仕込み 買い ${buySetupState} ${formatPercentLabel(buySetupProb)} / 売り ${sellSetupState} ${formatPercentLabel(sellSetupProb)}`,
+      `仕込み 買い ${buySetupLabel} / 売り ${sellSetupLabel}`,
       `売り品質 ${formatPercentLabel(sellSetupQuality)} / shortScore ${shortScoreLabel}`,
       `下降圧力 ${formatPercentLabel(bearishPressure)}`,
       analysisEvNet == null ? null : `期待値 ${formatSignedPercentLabel(analysisEvNet)}`
-    ].filter((value): value is string => typeof value === "string" && value.length > 0);
+    ].filter(isNonEmptyString);
 
     return {
       confidenceRank,
@@ -2337,8 +2463,12 @@ export default function DetailView() {
     analysisDecision.neutralProb,
     analysisDecision.confidence,
     analysisDecision.tone,
-    analysisFallback?.entryPolicy,
-    analysisFallback?.buyStagePrecision,
+    analysisFallback?.entryPolicy?.up?.playbookScoreBonus,
+    analysisFallback?.entryPolicy?.down?.playbookScoreBonus,
+    analysisFallback?.buyStagePrecision?.strategy?.samples,
+    analysisFallback?.buyStagePrecision?.strategy?.precision,
+    analysisFallback?.buyStagePrecision?.core?.samples,
+    analysisFallback?.buyStagePrecision?.core?.precision,
     analysisPTurnUp,
     analysisPTurnDown,
     analysisEvNet,
@@ -2378,62 +2508,56 @@ export default function DetailView() {
   const researchPriorDownMeta = formatResearchPriorMetaLine("研究連携 下", analysisResearchPrior?.down ?? null);
   const analysisEdinetSummary = analysisFallback?.edinetSummary ?? null;
   const edinetStatusMeta = analysisEdinetSummary
-    ? `EDI状態 ${formatEdinetStatus(analysisEdinetSummary.status)}${
-        analysisEdinetSummary.mapped == null
-          ? ""
-          : analysisEdinetSummary.mapped
-            ? " / マップ済み"
-            : " / 未マップ"
-      }`
+    ? `EDI状態 ${formatEdinetStatus(analysisEdinetSummary.status)}${analysisEdinetSummary.mapped == null
+      ? ""
+      : analysisEdinetSummary.mapped
+        ? " / マップ済み"
+        : " / 未マップ"
+    }`
     : null;
   const edinetQualityMeta = analysisEdinetSummary
-    ? [
-        Number.isFinite(analysisEdinetSummary.freshnessDays ?? NaN)
-          ? `鮮度 ${Math.max(0, Math.round(analysisEdinetSummary.freshnessDays ?? 0))}日`
-          : null,
-        Number.isFinite(analysisEdinetSummary.metricCount ?? NaN)
-          ? `指標 ${Math.max(0, Math.round(analysisEdinetSummary.metricCount ?? 0))}件`
-          : null,
-        Number.isFinite(analysisEdinetSummary.qualityScore ?? NaN)
-          ? `品質 ${formatPercentLabel(analysisEdinetSummary.qualityScore)}`
-          : null,
-        Number.isFinite(analysisEdinetSummary.dataScore ?? NaN)
-          ? `データ ${formatPercentLabel(analysisEdinetSummary.dataScore)}`
-          : null,
-      ]
-        .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
-        .join(" / ")
+    ? joinMetaSegments([
+      Number.isFinite(analysisEdinetSummary.freshnessDays ?? NaN)
+        ? `鮮度 ${Math.max(0, Math.round(analysisEdinetSummary.freshnessDays ?? 0))}日`
+        : null,
+      Number.isFinite(analysisEdinetSummary.metricCount ?? NaN)
+        ? `指標 ${Math.max(0, Math.round(analysisEdinetSummary.metricCount ?? 0))}件`
+        : null,
+      Number.isFinite(analysisEdinetSummary.qualityScore ?? NaN)
+        ? `品質 ${formatPercentLabel(analysisEdinetSummary.qualityScore)}`
+        : null,
+      Number.isFinite(analysisEdinetSummary.dataScore ?? NaN)
+        ? `データ ${formatPercentLabel(analysisEdinetSummary.dataScore)}`
+        : null,
+    ])
     : null;
   const edinetMetricsMeta = analysisEdinetSummary
-    ? [
-        Number.isFinite(analysisEdinetSummary.roe ?? NaN)
-          ? `ROE ${formatPercentLabel(analysisEdinetSummary.roe)}`
-          : null,
-        Number.isFinite(analysisEdinetSummary.equityRatio ?? NaN)
-          ? `自己資本比率 ${formatPercentLabel(analysisEdinetSummary.equityRatio)}`
-          : null,
-        Number.isFinite(analysisEdinetSummary.debtRatio ?? NaN)
-          ? `D/E ${formatNumber(analysisEdinetSummary.debtRatio, 2)}`
-          : null,
-        Number.isFinite(analysisEdinetSummary.operatingCfMargin ?? NaN)
-          ? `営業CF率 ${formatPercentLabel(analysisEdinetSummary.operatingCfMargin)}`
-          : null,
-        Number.isFinite(analysisEdinetSummary.revenueGrowthYoy ?? NaN)
-          ? `売上成長率 ${formatPercentLabel(analysisEdinetSummary.revenueGrowthYoy)}`
-          : null,
-      ]
-        .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
-        .join(" / ")
+    ? joinMetaSegments([
+      Number.isFinite(analysisEdinetSummary.roe ?? NaN)
+        ? `ROE ${formatPercentLabel(analysisEdinetSummary.roe)}`
+        : null,
+      Number.isFinite(analysisEdinetSummary.equityRatio ?? NaN)
+        ? `自己資本比率 ${formatPercentLabel(analysisEdinetSummary.equityRatio)}`
+        : null,
+      Number.isFinite(analysisEdinetSummary.debtRatio ?? NaN)
+        ? `D/E ${formatNumber(analysisEdinetSummary.debtRatio, 2)}`
+        : null,
+      Number.isFinite(analysisEdinetSummary.operatingCfMargin ?? NaN)
+        ? `営業CF率 ${formatPercentLabel(analysisEdinetSummary.operatingCfMargin)}`
+        : null,
+      Number.isFinite(analysisEdinetSummary.revenueGrowthYoy ?? NaN)
+        ? `売上成長率 ${formatPercentLabel(analysisEdinetSummary.revenueGrowthYoy)}`
+        : null,
+    ])
     : null;
   const edinetBonusMeta =
     analysisEdinetSummary && Number.isFinite(analysisEdinetSummary.scoreBonus ?? NaN)
-      ? `EDI補正 ${formatSignedPercentLabel(analysisEdinetSummary.scoreBonus)}${
-          analysisEdinetSummary.featureFlagApplied == null
-            ? ""
-            : analysisEdinetSummary.featureFlagApplied
-              ? " (適用ON)"
-              : " (適用OFF)"
-        }`
+      ? `EDI補正 ${formatSignedPercentLabel(analysisEdinetSummary.scoreBonus)}${analysisEdinetSummary.featureFlagApplied == null
+        ? ""
+        : analysisEdinetSummary.featureFlagApplied
+          ? " (適用ON)"
+          : " (適用OFF)"
+      }`
       : null;
   const swingPlan = analysisFallback?.swingPlan ?? null;
   const swingDiagnostics = analysisFallback?.swingDiagnostics ?? null;
@@ -2444,8 +2568,9 @@ export default function DetailView() {
       : swingPlan?.side === "short"
         ? "売り"
         : "--";
-  const swingReasonsLabel =
-    swingPlan?.reasons?.filter((entry) => typeof entry === "string" && entry.length > 0).join(" / ") ?? "";
+  const swingReasonsLabel = joinMetaSegments(
+    Array.isArray(swingPlan?.reasons) ? (swingPlan.reasons as Array<string | null | undefined>) : []
+  );
   const hasSwingData = Boolean(swingPlan || swingDiagnostics);
   const showAnalysisPanel = headerMode === "analysis" && !compareCode;
   const showMemoPanel = cursorMode && !compareCode && !showAnalysisPanel;
@@ -2473,6 +2598,7 @@ export default function DetailView() {
     if (!code) return;
     setLoadingDaily(true);
     setDailyErrors([]);
+    setDailyBarsMeta(null);
     setDailyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
     const params: Record<string, string | number> = { code, limit: dailyLimit };
     if (mainAsOf) {
@@ -2481,22 +2607,28 @@ export default function DetailView() {
     api
       .get("/ticker/daily", { params })
       .then((res) => {
-        const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "daily");
+        const { rows, errors, meta } = parseBarsResponse(res.data as BarsResponse | number[][], "daily");
         setDailyData(rows);
         setDailyErrors(errors);
+        setDailyBarsMeta(meta);
         setHasMoreDaily(rows.length >= dailyLimit);
         setDailyFetch({ status: "success", responseCount: rows.length, errorMessage: null });
       })
       .catch((error) => {
         const message = error?.message || "Daily fetch failed";
         setDailyErrors([message]);
+        setDailyBarsMeta(null);
         setDailyFetch((prev) => ({
           status: "error",
           responseCount: prev.responseCount,
           errorMessage: message
         }));
       })
-      .finally(() => setLoadingDaily(false));
+      .finally(() => {
+        setLoadingDaily(false);
+        // Suppress programmatic range events after new data arrives
+        rangeSettleRef.current = Date.now() + 500;
+      });
   }, [backendReady, code, dailyLimit, mainAsOf]);
 
   useEffect(() => {
@@ -2504,6 +2636,7 @@ export default function DetailView() {
     if (!code) return;
     setLoadingMonthly(true);
     setMonthlyErrors([]);
+    setMonthlyBarsMeta(null);
     setMonthlyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
     const params: Record<string, string | number> = { code, limit: monthlyLimit };
     if (mainAsOf) {
@@ -2512,15 +2645,17 @@ export default function DetailView() {
     api
       .get("/ticker/monthly", { params })
       .then((res) => {
-        const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "monthly");
+        const { rows, errors, meta } = parseBarsResponse(res.data as BarsResponse | number[][], "monthly");
         setMonthlyData(rows);
         setMonthlyErrors(errors);
+        setMonthlyBarsMeta(meta);
         setHasMoreMonthly(rows.length >= monthlyLimit);
         setMonthlyFetch({ status: "success", responseCount: rows.length, errorMessage: null });
       })
       .catch((error) => {
         const message = error?.message || "Monthly fetch failed";
         setMonthlyErrors([message]);
+        setMonthlyBarsMeta(null);
         setMonthlyFetch((prev) => ({
           status: "error",
           responseCount: prev.responseCount,
@@ -2727,6 +2862,16 @@ export default function DetailView() {
     normalizePoint: normalizeAnalysisTimelinePoint,
     getSortTime: (point) => normalizeTime(point.dt),
   });
+  const analysisTimelineByDate = useMemo(() => {
+    if (!analysisTimeline.length) return new Map<number, AnalysisTimelinePoint>();
+    const map = new Map<number, AnalysisTimelinePoint>();
+    analysisTimeline.forEach((point) => {
+      const normalized = normalizeTime(point.dt);
+      if (normalized == null) return;
+      map.set(toDateKey(normalized), point);
+    });
+    return map;
+  }, [analysisTimeline]);
   const analysisSummaryLoading =
     analysisLoadingText != null || sellAnalysisLoadingText != null || analysisTimelineLoading;
 
@@ -2739,168 +2884,151 @@ export default function DetailView() {
     if (Math.abs(nearestTime - eventTime) > MAX_EVENT_OFFSET_SEC) return [];
     return [{ time: nearestTime, kind: "earnings", label: "E" }];
   }, [activeTicker?.eventEarningsDate, dailyCandles]);
-  const dailyDecisionMarkers = useMemo(() => {
+  const dailyDecisionMarkers = useMemo<{
+    time: number;
+    kind: "decision-buy" | "decision-sell";
+    label?: string;
+  }[]>(() => {
     if (!showDecisionMarkers) return [];
-    if (!dailyCandles.length || !analysisTimeline.length) return [];
+    if (!dailyCandles.length || !analysisTimelineByDate.size) return [];
 
-    const timelineMap = new Map<number, AnalysisTimelinePoint>();
-    analysisTimeline.forEach((point) => {
-      const normalized = normalizeTime(point.dt);
-      if (normalized == null) return;
-      timelineMap.set(toDateKey(normalized), point);
-    });
-    if (!timelineMap.size) return [];
-
-    let prevTone: EnvironmentTone | null = null;
-    let latestTone: EnvironmentTone | null = null;
-    let latestTime: number | null = null;
-    const markers: { time: number; kind: "decision-buy" | "decision-sell"; label?: string }[] = [];
+    const markers: {
+      time: number;
+      kind: "decision-buy" | "decision-sell";
+      label?: string;
+    }[] = [];
     const toMarkerKind = (tone: EnvironmentTone): "decision-buy" | "decision-sell" | null => {
       if (tone === "up") return "decision-buy";
       if (tone === "down") return "decision-sell";
       return null;
     };
 
+    // Cache computeEnvironmentTone results by input key to avoid re-computing
+    // the ~200-line function for each of ~2000 candles
+    const toneCache = new Map<string, EnvironmentSummary>();
+    let prevMarkerKind: "decision-buy" | "decision-sell" | null = null;
+    let prevMarkerIsSetup = false;
     dailyCandles.forEach((candle) => {
-      const timelinePoint = timelineMap.get(toDateKey(candle.time));
+      const timelinePoint = analysisTimelineByDate.get(toDateKey(candle.time));
       if (!timelinePoint) return;
-      const summary = computeEnvironmentTone({
-        analysisPUp: timelinePoint.pUp,
-        analysisPDown: timelinePoint.pDown,
-        analysisPTurnUp: timelinePoint.pTurnUp,
-        analysisPTurnDown: timelinePoint.pTurnDown,
-        analysisEvNet: timelinePoint.ev20Net,
-        playbookUpScoreBonus: null,
-        playbookDownScoreBonus: null,
-        additiveSignals: null,
-        sellAnalysis: {
-          pDown: timelinePoint.sellPDown,
-          pTurnDown: timelinePoint.sellPTurnDown,
-          shortScore: null,
-          distMa20Signed: null,
-          ma20Slope: null,
-          ma60Slope: null,
-          trendDown: timelinePoint.trendDown,
-          trendDownStrict: timelinePoint.trendDownStrict
-        },
-        includeReasons: false
-      });
-      const tone = summary.environmentTone;
+      const cacheKey = [
+        timelinePoint.pUp, timelinePoint.pDown,
+        timelinePoint.pTurnUp, timelinePoint.pTurnDown,
+        timelinePoint.ev20Net, timelinePoint.sellPDown,
+        timelinePoint.sellPTurnDown, timelinePoint.trendDown,
+        timelinePoint.trendDownStrict
+      ].join("|");
+      let summary = toneCache.get(cacheKey);
+      if (!summary) {
+        summary = computeEnvironmentTone({
+          analysisPUp: timelinePoint.pUp,
+          analysisPDown: timelinePoint.pDown,
+          analysisPTurnUp: timelinePoint.pTurnUp,
+          analysisPTurnDown: timelinePoint.pTurnDown,
+          analysisEvNet: timelinePoint.ev20Net,
+          playbookUpScoreBonus: null,
+          playbookDownScoreBonus: null,
+          additiveSignals: null,
+          sellAnalysis: {
+            pDown: timelinePoint.sellPDown,
+            pTurnDown: timelinePoint.sellPTurnDown,
+            shortScore: null,
+            distMa20Signed: null,
+            ma20Slope: null,
+            ma60Slope: null,
+            trendDown: timelinePoint.trendDown,
+            trendDownStrict: timelinePoint.trendDownStrict
+          },
+          includeReasons: false
+        });
+        toneCache.set(cacheKey, summary);
+      }
+      const tone = summary.markerTone ?? summary.environmentTone;
       const kind = toMarkerKind(tone);
       if (kind) {
-        if (kind === "decision-buy") {
-          const rankingScore = timelinePoint.rankingScore;
-          if (rankingScore == null || rankingScore <= 0) {
-            return; // Skip adding a buy marker if ranking score is zero or absent
-          }
+        const isSetup = summary.markerIsSetup && summary.environmentTone === "neutral";
+        if (kind !== prevMarkerKind || isSetup !== prevMarkerIsSetup) {
+          markers.push({
+            time: candle.time,
+            kind,
+            label: tone === "up" ? (isSetup ? "b" : "B") : (isSetup ? "s" : "S")
+          });
+          prevMarkerKind = kind;
+          prevMarkerIsSetup = isSetup;
         }
-        markers.push({
-          time: candle.time,
-          kind,
-          label: tone === "up" ? "B" : "S"
-        });
+      } else {
+        prevMarkerKind = null;
+        prevMarkerIsSetup = false;
       }
     });
 
     return markers;
-  }, [showDecisionMarkers, dailyCandles, analysisTimeline]);
-  const sellMarkerPrecision20 = useMemo(() => {
-    if (!dailyDecisionMarkers.length || !analysisTimeline.length) return null;
-    const timelineMap = new Map<number, AnalysisTimelinePoint>();
-    analysisTimeline.forEach((point) => {
-      const normalized = normalizeTime(point.dt);
-      if (normalized == null) return;
-      timelineMap.set(toDateKey(normalized), point);
-    });
-    if (!timelineMap.size) return null;
+  }, [showDecisionMarkers, dailyCandles, analysisTimelineByDate]);
+  const markerPrecision20 = useMemo(() => {
+    if (!dailyDecisionMarkers.length || !analysisTimelineByDate.size) {
+      return { buy: null, sell: null } as {
+        buy: MarkerPrecisionSummary | null;
+        sell: MarkerPrecisionSummary | null;
+      };
+    }
 
-    let signalCount = 0;
-    let evaluatedCount = 0;
-    let wins = 0;
-    let retCount = 0;
-    let retSum = 0;
+    const sell = { signalCount: 0, evaluatedCount: 0, wins: 0, retCount: 0, retSum: 0.0 };
+    const buy = { signalCount: 0, evaluatedCount: 0, wins: 0, retCount: 0, retSum: 0.0 };
 
     dailyDecisionMarkers.forEach((marker) => {
-      if (marker.kind !== "decision-sell") return;
-      signalCount += 1;
-      const point = timelineMap.get(toDateKey(marker.time));
+      const point = analysisTimelineByDate.get(toDateKey(marker.time));
       if (!point) return;
-      if (point.shortWin20 == null) return;
-      evaluatedCount += 1;
-      if (point.shortWin20) wins += 1;
-      if (point.shortRet20 != null && Number.isFinite(point.shortRet20)) {
-        retCount += 1;
-        retSum += point.shortRet20;
+
+      if (marker.kind === "decision-sell") {
+        sell.signalCount += 1;
+        if (point.shortWin20 == null) return;
+        sell.evaluatedCount += 1;
+        if (point.shortWin20) sell.wins += 1;
+        if (point.shortRet20 != null && Number.isFinite(point.shortRet20)) {
+          sell.retCount += 1;
+          sell.retSum += point.shortRet20;
+        }
+        return;
       }
-    });
-
-    if (signalCount === 0) return null;
-    return {
-      signalCount,
-      evaluatedCount,
-      wins,
-      precision: evaluatedCount > 0 ? clamp(wins / evaluatedCount, 0, 1) : null,
-      avgRet20: retCount > 0 ? retSum / retCount : null,
-    };
-  }, [dailyDecisionMarkers, analysisTimeline]);
-  const sellMarkerPrecisionMeta = useMemo(() => {
-    if (!sellMarkerPrecision20) return null;
-    if (sellMarkerPrecision20.evaluatedCount === 0 || sellMarkerPrecision20.precision == null) {
-      return `売りマーカー精度(20日) 検証待ち ${sellMarkerPrecision20.signalCount}件`;
-    }
-    const avgRetLabel =
-      sellMarkerPrecision20.avgRet20 == null
-        ? ""
-        : ` / 平均 ${formatSignedPercentLabel(sellMarkerPrecision20.avgRet20)}`;
-    return `売りマーカー精度(20日) ${formatPercentLabel(sellMarkerPrecision20.precision)} (${sellMarkerPrecision20.wins}/${sellMarkerPrecision20.evaluatedCount})${avgRetLabel}`;
-  }, [sellMarkerPrecision20]);
-  const buyMarkerPrecision20 = useMemo(() => {
-    if (!dailyDecisionMarkers.length || !analysisTimeline.length) return null;
-    const timelineMap = new Map<number, AnalysisTimelinePoint>();
-    analysisTimeline.forEach((point) => {
-      const normalized = normalizeTime(point.dt);
-      if (normalized == null) return;
-      timelineMap.set(toDateKey(normalized), point);
-    });
-    if (!timelineMap.size) return null;
-
-    let signalCount = 0;
-    let evaluatedCount = 0;
-    let wins = 0;
-    let retCount = 0;
-    let retSum = 0;
-
-    dailyDecisionMarkers.forEach((marker) => {
       if (marker.kind !== "decision-buy") return;
-      signalCount += 1;
-      const point = timelineMap.get(toDateKey(marker.time));
-      if (!point || point.shortRet20 == null || !Number.isFinite(point.shortRet20)) return;
+      buy.signalCount += 1;
+      if (point.shortRet20 == null || !Number.isFinite(point.shortRet20)) return;
       const longRet20 = -point.shortRet20;
-      evaluatedCount += 1;
-      if (longRet20 > 0) wins += 1;
-      retCount += 1;
-      retSum += longRet20;
+      buy.evaluatedCount += 1;
+      if (longRet20 > 0) buy.wins += 1;
+      buy.retCount += 1;
+      buy.retSum += longRet20;
     });
 
-    if (signalCount === 0) return null;
-    return {
-      signalCount,
-      evaluatedCount,
-      wins,
-      precision: evaluatedCount > 0 ? clamp(wins / evaluatedCount, 0, 1) : null,
-      avgRet20: retCount > 0 ? retSum / retCount : null,
+    const toSummary = (stats: {
+      signalCount: number;
+      evaluatedCount: number;
+      wins: number;
+      retCount: number;
+      retSum: number;
+    }): MarkerPrecisionSummary | null => {
+      if (stats.signalCount === 0) return null;
+      return {
+        signalCount: stats.signalCount,
+        evaluatedCount: stats.evaluatedCount,
+        wins: stats.wins,
+        precision: stats.evaluatedCount > 0 ? clamp(stats.wins / stats.evaluatedCount, 0, 1) : null,
+        avgRet20: stats.retCount > 0 ? stats.retSum / stats.retCount : null,
+      };
     };
-  }, [dailyDecisionMarkers, analysisTimeline]);
+
+    return {
+      buy: toSummary(buy),
+      sell: toSummary(sell),
+    };
+  }, [dailyDecisionMarkers, analysisTimelineByDate]);
+  const sellMarkerPrecision20 = markerPrecision20.sell;
+  const sellMarkerPrecisionMeta = useMemo(() => {
+    return formatMarkerPrecisionMeta("売り", sellMarkerPrecision20);
+  }, [sellMarkerPrecision20]);
+  const buyMarkerPrecision20 = markerPrecision20.buy;
   const buyMarkerPrecisionMeta = useMemo(() => {
-    if (!buyMarkerPrecision20) return null;
-    if (buyMarkerPrecision20.evaluatedCount === 0 || buyMarkerPrecision20.precision == null) {
-      return `買いマーカー精度(20日) 検証待ち ${buyMarkerPrecision20.signalCount}件`;
-    }
-    const avgRetLabel =
-      buyMarkerPrecision20.avgRet20 == null
-        ? ""
-        : ` / 平均 ${formatSignedPercentLabel(buyMarkerPrecision20.avgRet20)}`;
-    return `買いマーカー精度(20日) ${formatPercentLabel(buyMarkerPrecision20.precision)} (${buyMarkerPrecision20.wins}/${buyMarkerPrecision20.evaluatedCount})${avgRetLabel}`;
+    return formatMarkerPrecisionMeta("買い", buyMarkerPrecision20);
   }, [buyMarkerPrecision20]);
   const currentDecisionMarker = useMemo<{ time: number; kind: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral"; label?: string }[]>(() => {
     if (!showDecisionMarkers) return [];
@@ -3221,6 +3349,15 @@ export default function DetailView() {
 
   const weeklyHasEmpty = weeklyCandles.length === 0 && dailyCandles.length > 0;
   const tradeWarningItems = tradeWarnings.items ?? [];
+  const marketDataStatusMeta =
+    mainAsOf
+      ? null
+      : (dailyBarsMeta?.panDelayed ? dailyBarsMeta : null) ??
+        (monthlyBarsMeta?.panDelayed ? monthlyBarsMeta : null) ??
+        dailyBarsMeta ??
+        monthlyBarsMeta;
+  const marketDataStatusMessage = marketDataStatusMeta?.message ?? null;
+  const marketDataStatusDelayed = Boolean(marketDataStatusMeta?.panDelayed);
   const tradeInfoItems = tradeWarnings.info ?? [];
   const unrecognizedCount = tradeWarnings.unrecognized_labels?.count ?? 0;
   const errors = [...dailyErrors, ...monthlyErrors, ...tradeErrors];
@@ -3371,8 +3508,28 @@ export default function DetailView() {
     // Check if time is outside visible range
     if (time < from + margin || time > to - margin) {
       // Pan to center the selected bar
-      const newFrom = time - rangeSize / 2;
-      const newTo = time + rangeSize / 2;
+      let newFrom = time - rangeSize / 2;
+      let newTo = time + rangeSize / 2;
+      const minTime = dailyCandles[0]?.time ?? null;
+      const maxTime = dailyCandles[dailyCandles.length - 1]?.time ?? null;
+      if (minTime != null && maxTime != null) {
+        if (newFrom < minTime) {
+          const overflow = minTime - newFrom;
+          newFrom += overflow;
+          newTo += overflow;
+        }
+        if (newTo > maxTime) {
+          const overflow = newTo - maxTime;
+          newFrom -= overflow;
+          newTo -= overflow;
+        }
+        if (newFrom < minTime) {
+          newFrom = minTime;
+        }
+        if (newTo > maxTime) {
+          newTo = maxTime;
+        }
+      }
       dailyChartRef.current.setVisibleRange({ from: newFrom, to: newTo });
     }
   };
@@ -3387,22 +3544,37 @@ export default function DetailView() {
     updateSelectedBar(selectedBarIndex + 1);
   };
 
-  const handleDailyChartClick = (time: number | null) => {
-    if (!cursorMode || time === null) return;
-
-    // Find nearest bar index
-    let nearestIndex = -1;
-    let minDiff = Infinity;
-
-    for (let i = 0; i < dailyCandles.length; i++) {
-      const diff = Math.abs(dailyCandles[i].time - time);
-      if (diff < minDiff) {
-        minDiff = diff;
-        nearestIndex = i;
+  // Re-initialize cursor when dailyCandles change (e.g. after stock navigation)
+  useEffect(() => {
+    if (!cursorMode || dailyCandles.length === 0) return;
+    // Already valid selection in current candles?
+    if (
+      selectedBarIndex != null &&
+      selectedBarIndex < dailyCandles.length &&
+      selectedBarData != null
+    ) {
+      const bar = dailyCandles[selectedBarIndex];
+      if (bar && bar.time === selectedBarData.time) return; // still valid
+    }
+    // Try to find the same date in new candles
+    if (selectedDate) {
+      const targetTime = normalizeTime(selectedDate);
+      if (targetTime != null) {
+        const idx = findNearestCandleIndex(dailyCandles, targetTime);
+        if (idx != null && dailyCandles[idx]?.time === targetTime) {
+          updateSelectedBar(idx);
+          return;
+        }
       }
     }
+    // Fallback: select last bar
+    updateSelectedBar(dailyCandles.length - 1);
+  }, [cursorMode, dailyCandles]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    if (nearestIndex >= 0) {
+  const handleDailyChartClick = (time: number | null) => {
+    if (!cursorMode || time === null) return;
+    const nearestIndex = findNearestCandleIndex(dailyCandles, time);
+    if (nearestIndex != null) {
       updateSelectedBar(nearestIndex);
     }
   };
@@ -3448,7 +3620,7 @@ export default function DetailView() {
       return "FLAT";
     };
 
-    const barIndex = dailyCandles.findIndex(c => c.time === selectedTime);
+    const barIndex = findNearestCandleIndex(dailyCandles, selectedTime);
 
     if (ma7Line?.visible) {
       const value = ma7Line.data.find(d => d.time === selectedTime)?.value;
@@ -3882,7 +4054,13 @@ export default function DetailView() {
 
   const handleDailyVisibleRangeChange = (range: { from: number; to: number } | null) => {
     if (rangeMonths && range) {
-      const shouldSwitchToManual = hasSignificantRangeChange(resolvedDailyVisibleRange, range);
+      // Suppress programmatic range events (chart init, data load, setVisibleRange)
+      // for a short settling window after data/range changes.
+      if (Date.now() < rangeSettleRef.current) {
+        mainSync.handleDailyVisibleRangeChange(range);
+        return;
+      }
+      const shouldSwitchToManual = hasSignificantRangeChange(dailyVisibleRange, range);
       if (!shouldSwitchToManual) {
         return;
       }
@@ -3943,21 +4121,24 @@ export default function DetailView() {
 
   const toggleRange = (months: number) => {
     setRangeMonths((prev) => (prev === months ? null : months));
+    // Suppress programmatic visible-range events after preset change
+    rangeSettleRef.current = Date.now() + 500;
   };
 
   // Visible range sync is handled by hook; wrapper keeps manual range for load-more.
 
   const parseBarsResponse = (payload: BarsResponse | number[][], label: string) => {
     if (Array.isArray(payload)) {
-      return { rows: payload, errors: [] as string[] };
+      return { rows: payload, errors: [] as string[], meta: null as BarsMeta | null };
     }
     if (payload && Array.isArray(payload.data)) {
       return {
         rows: payload.data,
-        errors: Array.isArray(payload.errors) ? payload.errors : []
+        errors: Array.isArray(payload.errors) ? payload.errors : [],
+        meta: payload.meta && typeof payload.meta === "object" ? payload.meta : null
       };
     }
-    return { rows: [], errors: [`${label}_response_invalid`] };
+    return { rows: [], errors: [`${label}_response_invalid`], meta: null as BarsMeta | null };
   };
 
   const normalizeWarnings = (value: unknown): ApiWarnings => {
@@ -4088,9 +4269,40 @@ export default function DetailView() {
   };
 
   /* Handlers replaced by hooks */
-  const handleDailyCrosshair = mainSync.handleDailyCrosshair;
-  const handleWeeklyCrosshair = mainSync.handleWeeklyCrosshair;
-  const handleMonthlyCrosshair = mainSync.handleMonthlyCrosshair;
+  const syncAnalysisCursorTime = (time: number | null) => {
+    if (!cursorMode) return;
+    if (time == null) {
+      if (analysisCursorTime != null) {
+        setAnalysisCursorTime(null);
+      }
+      return;
+    }
+    const nearestTime = findNearestCandleTime(dailyCandles, time);
+    if (nearestTime == null || nearestTime === analysisCursorTime) return;
+    setAnalysisCursorTime(nearestTime);
+  };
+
+  const handleDailyCrosshair = (
+    time: number | null,
+    point?: { x: number; y: number } | null
+  ) => {
+    mainSync.handleDailyCrosshair(time, point ?? null);
+    syncAnalysisCursorTime(time);
+  };
+  const handleWeeklyCrosshair = (
+    time: number | null,
+    point?: { x: number; y: number } | null
+  ) => {
+    mainSync.handleWeeklyCrosshair(time, point ?? null);
+    syncAnalysisCursorTime(time);
+  };
+  const handleMonthlyCrosshair = (
+    time: number | null,
+    point?: { x: number; y: number } | null
+  ) => {
+    mainSync.handleMonthlyCrosshair(time, point ?? null);
+    syncAnalysisCursorTime(time);
+  };
 
   const handleCompareMonthlyCrosshair = (
     time: number | null,
@@ -4099,7 +4311,7 @@ export default function DetailView() {
   ) => {
     if (source === "left") {
       // Main chart (Left)
-      mainSync.handleMonthlyCrosshair(time, point ?? null);
+      handleMonthlyCrosshair(time, point ?? null);
     } else {
       // Compare chart (Right)
       compareSync.handleMonthlyCrosshair(time, point ?? null);
@@ -4112,7 +4324,7 @@ export default function DetailView() {
     point?: { x: number; y: number } | null
   ) => {
     if (source === "left") {
-      mainSync.handleDailyCrosshair(time, point ?? null);
+      handleDailyCrosshair(time, point ?? null);
     } else {
       compareSync.handleDailyCrosshair(time, point ?? null);
     }
@@ -4502,6 +4714,14 @@ export default function DetailView() {
                 </button>
                 <button
                   type="button"
+                  className={`popover-item ${showTradeMarkers ? "active" : ""}`}
+                  onClick={() => setShowTradeMarkers((prev) => !prev)}
+                >
+                  <span className="popover-item-label">売買マーカー</span>
+                  {showTradeMarkers && <span className="popover-check">ON</span>}
+                </button>
+                <button
+                  type="button"
                   className={`popover-item ${syncRanges ? "active" : ""}`}
                   onClick={() => setSyncRanges((prev) => !prev)}
                 >
@@ -4874,6 +5094,14 @@ export default function DetailView() {
                       </button>
                       <button
                         type="button"
+                        className={`popover-item ${showTradeMarkers ? "active" : ""}`}
+                        onClick={() => setShowTradeMarkers((prev) => !prev)}
+                      >
+                        <span className="popover-item-label">売買マーカー</span>
+                        {showTradeMarkers && <span className="popover-check">ON</span>}
+                      </button>
+                      <button
+                        type="button"
                         className={`popover-item ${syncRanges ? "active" : ""}`}
                         onClick={() => setSyncRanges((prev) => !prev)}
                       >
@@ -4949,6 +5177,11 @@ export default function DetailView() {
           </div>
         )}
       </div>
+      {marketDataStatusMessage && (
+        <div className={`detail-market-data-status ${marketDataStatusDelayed ? "is-delayed" : ""}`}>
+          {marketDataStatusMessage}
+        </div>
+      )}
       <div className="detail-content">
         <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""} ${showRightPanel ? "with-memo-panel" : ""}`}>
           {compareCode && (
@@ -5142,7 +5375,7 @@ export default function DetailView() {
                         dailyPositions,
                         tradeMarkers,
                         showOverlay: showTradesOverlay,
-                        showMarkers: true,
+                        showMarkers: showTradeMarkers,
                         showPnL: showPnLPanel,
                         hoverTime: mainSync.hoverTime,
                         currentPositions,
@@ -5201,7 +5434,7 @@ export default function DetailView() {
                         dailyPositions: compareDailyPositions,
                         tradeMarkers: compareTradeMarkers,
                         showOverlay: showTradesOverlay,
-                        showMarkers: true,
+                        showMarkers: showTradeMarkers,
                         showPnL: showPnLPanel,
                         hoverTime: compareSync.hoverTime
                       }}
@@ -5271,7 +5504,7 @@ export default function DetailView() {
                       dailyPositions,
                       tradeMarkers,
                       showOverlay: showTradesOverlay,
-                      showMarkers: true,
+                      showMarkers: showTradeMarkers,
                       showPnL: showPnLPanel,
                       hoverTime: mainSync.hoverTime,
                       currentPositions,
@@ -5444,7 +5677,7 @@ export default function DetailView() {
                       dailyPositions,
                       tradeMarkers,
                       showOverlay: showTradesOverlay,
-                      showMarkers: true,
+                      showMarkers: showTradeMarkers,
                       showPnL: showPnLPanel,
                       hoverTime: mainSync.hoverTime,
                       currentPositions,
@@ -5592,8 +5825,8 @@ export default function DetailView() {
               {analysisDtLabel && (
                 <div className="detail-analysis-meta">基準日 {analysisDtLabel}</div>
               )}
-              {cursorMode && selectedDate && (
-                <div className="detail-analysis-meta">カーソル日 {selectedDate}</div>
+              {cursorMode && analysisCursorDateLabel && (
+                <div className="detail-analysis-meta">カーソル日 {analysisCursorDateLabel}</div>
               )}
               {canShowPhase && phaseReasons[0] && (
                 <div className="detail-analysis-meta">局面メモ {phaseReasons[0]}</div>

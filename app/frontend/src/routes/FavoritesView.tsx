@@ -8,7 +8,7 @@ import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import { IconHeartFilled } from "@tabler/icons-react";
 import { useStore } from "../store";
-import { computeSignalMetrics } from "../utils/signals";
+import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
 import {
   buildConsultationPack,
   ConsultationSort,
@@ -60,6 +60,8 @@ export default function FavoritesView() {
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
   const [filterDataOnly, setFilterDataOnly] = useState(false);
+  const [filterBuySignalsOnly, setFilterBuySignalsOnly] = useState(false);
+  const [filterSellSignalsOnly, setFilterSellSignalsOnly] = useState(false);
   const [consultVisible, setConsultVisible] = useState(false);
   const [consultExpanded, setConsultExpanded] = useState(false);
   const [consultTab, setConsultTab] = useState<"selection" | "position">("selection");
@@ -86,6 +88,8 @@ export default function FavoritesView() {
         sortKey?: FavoriteSortKey;
         filterSignalsOnly?: boolean;
         filterDataOnly?: boolean;
+        filterBuySignalsOnly?: boolean;
+        filterSellSignalsOnly?: boolean;
       };
       if (typeof parsed.search === "string") {
         setSearch(parsed.search);
@@ -104,6 +108,12 @@ export default function FavoritesView() {
       if (typeof parsed.filterDataOnly === "boolean") {
         setFilterDataOnly(parsed.filterDataOnly);
       }
+      if (typeof parsed.filterBuySignalsOnly === "boolean") {
+        setFilterBuySignalsOnly(parsed.filterBuySignalsOnly);
+      }
+      if (typeof parsed.filterSellSignalsOnly === "boolean") {
+        setFilterSellSignalsOnly(parsed.filterSellSignalsOnly);
+      }
     } catch {
       // ignore storage failures
     }
@@ -116,13 +126,15 @@ export default function FavoritesView() {
         search,
         sortKey,
         filterSignalsOnly,
-        filterDataOnly
+        filterDataOnly,
+        filterBuySignalsOnly,
+        filterSellSignalsOnly
       };
       window.sessionStorage.setItem(FAVORITES_VIEW_STATE_KEY, JSON.stringify(payload));
     } catch {
       // ignore storage failures
     }
-  }, [search, sortKey, filterSignalsOnly, filterDataOnly]);
+  }, [search, sortKey, filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]);
 
   const listStyles = useMemo(
     () =>
@@ -157,9 +169,21 @@ export default function FavoritesView() {
         label: "\u30c7\u30fc\u30bf\u53d6\u5f97\u6e08\u307f",
         checked: filterDataOnly,
         onToggle: () => setFilterDataOnly((prev) => !prev)
+      },
+      {
+        key: "buy-signal",
+        label: "\u8cb7\u3044\u5224\u5b9a\u3042\u308a",
+        checked: filterBuySignalsOnly,
+        onToggle: () => setFilterBuySignalsOnly((prev) => !prev)
+      },
+      {
+        key: "sell-signal",
+        label: "\u58f2\u308a\u5224\u5b9a\u3042\u308a",
+        checked: filterSellSignalsOnly,
+        onToggle: () => setFilterSellSignalsOnly((prev) => !prev)
       }
     ],
-    [filterSignalsOnly, filterDataOnly]
+    [filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]
   );
 
   useEffect(() => {
@@ -218,29 +242,54 @@ export default function FavoritesView() {
     });
   }, [items, search, resolveName]);
 
-  const signalMap = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
+  const signalMetricsMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeSignalMetrics>>();
     searchResults.forEach((item) => {
       const payload = barsCache[listTimeframe]?.[item.code];
       if (!payload?.bars?.length) return;
-      const signals = computeSignalMetrics(payload.bars, 4).signals;
-      if (signals.length) {
-        map.set(item.code, signals);
-      }
+      map.set(item.code, computeSignalMetrics(payload.bars, 4));
     });
     return map;
   }, [searchResults, barsCache, listTimeframe]);
 
+  const signalMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
+    signalMetricsMap.forEach((metrics, code) => {
+      if (metrics.signals.length) {
+        map.set(code, metrics.signals);
+      }
+    });
+    return map;
+  }, [signalMetricsMap]);
+
   const filteredItems = useMemo(() => {
-    if (!filterSignalsOnly && !filterDataOnly) return searchResults;
+    const hasDirectionalFilter = filterBuySignalsOnly || filterSellSignalsOnly;
+    if (!filterSignalsOnly && !filterDataOnly && !hasDirectionalFilter) return searchResults;
     return searchResults.filter((item) => {
       const payload = barsCache[listTimeframe]?.[item.code];
       const hasData = Boolean(payload?.bars?.length);
+      const metrics = signalMetricsMap.get(item.code);
+      const summary = metrics ? getSignalDirectionSummary(metrics) : null;
       if (filterDataOnly && !hasData) return false;
       if (filterSignalsOnly && !signalMap.has(item.code)) return false;
+      if (hasDirectionalFilter) {
+        const matchesBuy = filterBuySignalsOnly && Boolean(summary?.hasBuySignal);
+        const matchesSell = filterSellSignalsOnly && Boolean(summary?.hasSellSignal);
+        if (!(matchesBuy || matchesSell)) return false;
+      }
       return true;
     });
-  }, [searchResults, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
+  }, [
+    searchResults,
+    filterSignalsOnly,
+    filterDataOnly,
+    filterBuySignalsOnly,
+    filterSellSignalsOnly,
+    barsCache,
+    listTimeframe,
+    signalMap,
+    signalMetricsMap
+  ]);
 
   const metricsMap = useMemo(() => {
     const map = new Map<string, { change: number; score: number }>();
@@ -442,7 +491,7 @@ export default function FavoritesView() {
 
   const emptyLabel =
     !loading && backendReady && sortedItems.length === 0
-      ? search.trim() || filterSignalsOnly || filterDataOnly
+      ? search.trim() || filterSignalsOnly || filterDataOnly || filterBuySignalsOnly || filterSellSignalsOnly
         ? "該当する銘柄がありません。"
         : "お気に入りがありません。"
       : null;

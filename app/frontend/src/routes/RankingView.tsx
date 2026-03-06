@@ -9,7 +9,7 @@ import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import { MaSetting, useStore } from "../store";
 import { formatEventBadgeDate } from "../utils/events";
-import { computeSignalMetrics } from "../utils/signals";
+import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
 import {
   buildConsultationPack,
   ConsultationSort,
@@ -130,8 +130,11 @@ type RankItem = {
   patternD1ShortBreakdown?: boolean | null;
   patternD2ShortMixedFar?: boolean | null;
   patternD3ShortNaBelow?: boolean | null;
+  patternD4ShortDoubleTop?: boolean | null;
+  patternD5ShortHeadShoulders?: boolean | null;
   patternDTrapStackDownFar?: boolean | null;
   patternDTrapOverheatMomentum?: boolean | null;
+  patternDTrapTopFakeout?: boolean | null;
   mtfStrictResolved?: MtfStrictnessResolved | null;
   mtfLiquidity20d?: number | null;
   qualityFlags?: string[] | null;
@@ -141,40 +144,9 @@ type RankTimeframe = "D" | "W" | "M";
 type RankWhich = "latest" | "prev";
 type RankMode = "hybrid" | "turn";
 type RankRiskMode = "defensive" | "balanced" | "aggressive";
-type RankScope = "single" | "multi";
 type MtfStrictness = "auto" | "loose" | "normal" | "tight";
 type MtfStrictnessResolved = "loose" | "normal" | "tight";
 type RankMetricsView = "compact" | "full";
-type RankTraceRecentHit = {
-  date?: number | null;
-  date_iso?: string | null;
-  qualified_count?: number | null;
-  codes?: string[] | null;
-};
-type RankLastQualifiedTrace = {
-  inspected_days?: number | null;
-  zero_streak_days?: number | null;
-  last_non_zero_date?: number | null;
-  last_non_zero_date_iso?: string | null;
-  last_non_zero_count?: number | null;
-  last_non_zero_codes?: string[] | null;
-  recent_hits?: RankTraceRecentHit[] | null;
-};
-type EdinetMonitorGroup = {
-  count?: number | null;
-  realized_count?: number | null;
-  avg_ret20?: number | null;
-  win_rate20?: number | null;
-};
-type EdinetMonitorPayload = {
-  groups?: Record<"positive" | "negative" | "zero", EdinetMonitorGroup> | null;
-  comparison?: {
-    delta_avg_ret20?: number | null;
-    delta_win_rate20?: number | null;
-  } | null;
-  insufficient_samples?: boolean | null;
-  min_samples?: number | null;
-};
 
 const RANK_VIEW_STATE_KEY = "rankingViewState";
 const RANK_VIEW_STATE_VERSION = 5;
@@ -424,25 +396,21 @@ export default function RankingView() {
   const favorites = useStore((state) => state.favorites);
 
   const [dir, setDir] = useState<"up" | "down">("up");
-  // Keep only high-confidence unified mode to reduce UI complexity.
-  const rankScope: RankScope = "multi";
   const rankWhich: RankWhich = "latest";
   const rankMode: RankMode = "hybrid";
   const riskMode: RankRiskMode = "balanced";
   const [items, setItems] = useState<RankItem[]>([]);
   const [search, setSearch] = useState("");
-  const filterSignalsOnly = false;
-  const filterDataOnly = false;
+  const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
+  const [filterDataOnly, setFilterDataOnly] = useState(false);
+  const [filterBuySignalsOnly, setFilterBuySignalsOnly] = useState(false);
+  const [filterSellSignalsOnly, setFilterSellSignalsOnly] = useState(false);
   const filterQualifiedOnly = true;
   const filterMtfStrictOnly = true;
   const mtfStrictness: MtfStrictness = "auto";
   const [metricsView, setMetricsView] = useState<RankMetricsView>("compact");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [qualificationTrace, setQualificationTrace] = useState<RankLastQualifiedTrace | null>(null);
-  const [qualificationTraceLoading, setQualificationTraceLoading] = useState(false);
-  const [edinetMonitor, setEdinetMonitor] = useState<EdinetMonitorPayload | null>(null);
-  const [edinetMonitorLoading, setEdinetMonitorLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
@@ -476,6 +444,10 @@ export default function RankingView() {
         listTimeframe?: "daily" | "weekly" | "monthly";
         dir?: "up" | "down";
         metricsView?: RankMetricsView;
+        filterSignalsOnly?: boolean;
+        filterDataOnly?: boolean;
+        filterBuySignalsOnly?: boolean;
+        filterSellSignalsOnly?: boolean;
       };
       if (parsed.listTimeframe) {
         setListTimeframe(parsed.listTimeframe);
@@ -485,6 +457,18 @@ export default function RankingView() {
       }
       if (parsed.metricsView === "compact" || parsed.metricsView === "full") {
         setMetricsView(parsed.metricsView);
+      }
+      if (typeof parsed.filterSignalsOnly === "boolean") {
+        setFilterSignalsOnly(parsed.filterSignalsOnly);
+      }
+      if (typeof parsed.filterDataOnly === "boolean") {
+        setFilterDataOnly(parsed.filterDataOnly);
+      }
+      if (typeof parsed.filterBuySignalsOnly === "boolean") {
+        setFilterBuySignalsOnly(parsed.filterBuySignalsOnly);
+      }
+      if (typeof parsed.filterSellSignalsOnly === "boolean") {
+        setFilterSellSignalsOnly(parsed.filterSellSignalsOnly);
       }
     } catch {
       // ignore storage failures
@@ -498,13 +482,17 @@ export default function RankingView() {
         stateVersion: RANK_VIEW_STATE_VERSION,
         listTimeframe,
         dir,
-        metricsView
+        metricsView,
+        filterSignalsOnly,
+        filterDataOnly,
+        filterBuySignalsOnly,
+        filterSellSignalsOnly
       };
       window.sessionStorage.setItem(RANK_VIEW_STATE_KEY, JSON.stringify(payload));
     } catch {
       // ignore storage failures
     }
-  }, [listTimeframe, dir, metricsView]);
+  }, [listTimeframe, dir, metricsView, filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]);
 
   const listStyles = useMemo(
     () =>
@@ -522,16 +510,6 @@ export default function RankingView() {
         : maSettings.monthly;
 
   const resolvedMaSettings = listMaSettings ?? RANK_MA_SETTINGS;
-
-  // Map generic timeframe to single char for API and labels
-  const tfChar = useMemo(() => {
-    switch (listTimeframe) {
-      case "weekly": return "W";
-      case "monthly": return "M";
-      default: return "D";
-    }
-  }, [listTimeframe]);
-  const showEdinetMonitor = rankScope === "single" && tfChar === "M" && rankMode === "hybrid" && !useFallback;
 
   /*
   const timeframeButtons = useMemo(
@@ -552,7 +530,35 @@ export default function RankingView() {
     []
   );
 
-  const filterItems = useMemo(() => [], []);
+  const filterItems = useMemo(
+    () => [
+      {
+        key: "signals",
+        label: "\u30b7\u30b0\u30ca\u30eb\u3042\u308a",
+        checked: filterSignalsOnly,
+        onToggle: () => setFilterSignalsOnly((prev) => !prev)
+      },
+      {
+        key: "data",
+        label: "\u30c7\u30fc\u30bf\u53d6\u5f97\u6e08\u307f",
+        checked: filterDataOnly,
+        onToggle: () => setFilterDataOnly((prev) => !prev)
+      },
+      {
+        key: "buy-signal",
+        label: "\u8cb7\u3044\u5224\u5b9a\u3042\u308a",
+        checked: filterBuySignalsOnly,
+        onToggle: () => setFilterBuySignalsOnly((prev) => !prev)
+      },
+      {
+        key: "sell-signal",
+        label: "\u58f2\u308a\u5224\u5b9a\u3042\u308a",
+        checked: filterSellSignalsOnly,
+        onToggle: () => setFilterSellSignalsOnly((prev) => !prev)
+      }
+    ],
+    [filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]
+  );
 
   const fallbackItems = useMemo(() => {
     const normalizeBars = (bars: number[][]) => {
@@ -598,31 +604,56 @@ export default function RankingView() {
     });
   }, [items, search]);
 
-  const signalMap = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
+  const signalMetricsMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeSignalMetrics>>();
     searchResults.forEach((item) => {
       const payload = barsCache[listTimeframe]?.[item.code] ?? null;
       const series = payload && payload.bars?.length ? payload.bars : item.series ?? [];
       if (!series.length) return;
-      const signals = computeSignalMetrics(series, 4).signals;
-      if (signals.length) {
-        map.set(item.code, signals);
-      }
+      map.set(item.code, computeSignalMetrics(series, 4));
     });
     return map;
   }, [searchResults, barsCache, listTimeframe]);
 
+  const signalMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
+    signalMetricsMap.forEach((metrics, code) => {
+      if (metrics.signals.length) {
+        map.set(code, metrics.signals);
+      }
+    });
+    return map;
+  }, [signalMetricsMap]);
+
   const baseFilteredItems = useMemo(() => {
-    if (!filterSignalsOnly && !filterDataOnly) return searchResults;
+    const hasDirectionalFilter = filterBuySignalsOnly || filterSellSignalsOnly;
+    if (!filterSignalsOnly && !filterDataOnly && !hasDirectionalFilter) return searchResults;
     return searchResults.filter((item) => {
       const payload = barsCache[listTimeframe]?.[item.code] ?? null;
       const series = payload && payload.bars?.length ? payload.bars : item.series ?? [];
       const hasData = series.length > 0;
+      const metrics = signalMetricsMap.get(item.code);
+      const summary = metrics ? getSignalDirectionSummary(metrics) : null;
       if (filterDataOnly && !hasData) return false;
       if (filterSignalsOnly && !signalMap.has(item.code)) return false;
+      if (hasDirectionalFilter) {
+        const matchesBuy = filterBuySignalsOnly && Boolean(summary?.hasBuySignal);
+        const matchesSell = filterSellSignalsOnly && Boolean(summary?.hasSellSignal);
+        if (!(matchesBuy || matchesSell)) return false;
+      }
       return true;
     });
-  }, [searchResults, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
+  }, [
+    searchResults,
+    filterSignalsOnly,
+    filterDataOnly,
+    filterBuySignalsOnly,
+    filterSellSignalsOnly,
+    barsCache,
+    listTimeframe,
+    signalMap,
+    signalMetricsMap
+  ]);
 
   const qualifiedFilteredItems = useMemo(() => {
     const hasQualificationSignal = baseFilteredItems.some(
@@ -659,7 +690,6 @@ export default function RankingView() {
   );
 
   const mtfStrictGate = useMemo(() => {
-    if (rankScope !== "multi") return MTF_STRICT_GATE_BASE;
     const wins = filteredItems
       .map((item) => firstFinite(item.winNowScore))
       .filter((value): value is number => value != null)
@@ -668,10 +698,9 @@ export default function RankingView() {
     const idx = Math.max(0, Math.min(wins.length - 1, mtfStrictTarget - 1));
     const quantGate = wins[idx];
     return Math.max(MTF_STRICT_GATE_FLOOR, Math.min(MTF_STRICT_GATE_CEIL, quantGate));
-  }, [rankScope, filteredItems, mtfStrictTarget]);
+  }, [filteredItems, mtfStrictTarget]);
   const mtfStrictResolved = useMemo<MtfStrictnessResolved>(() => {
     if (mtfStrictness !== "auto") return mtfStrictness;
-    if (rankScope !== "multi") return "normal";
     const evaluated = MTF_STRICT_ORDER.map((key) => {
       const profile = MTF_STRICT_PROFILES[key];
       const gate = Math.max(MTF_STRICT_GATE_FLOOR, Math.min(MTF_STRICT_GATE_CEIL, mtfStrictGate + profile.gateBias));
@@ -691,27 +720,26 @@ export default function RankingView() {
       return MTF_STRICT_ORDER.indexOf(a.key) - MTF_STRICT_ORDER.indexOf(b.key);
     });
     return pool[0]?.key ?? "normal";
-  }, [mtfStrictness, rankScope, filteredItems, mtfStrictGate, mtfStrictTarget]);
+  }, [mtfStrictness, filteredItems, mtfStrictGate, mtfStrictTarget]);
   const mtfStrictRule = useMemo(() => MTF_STRICT_PROFILES[mtfStrictResolved], [mtfStrictResolved]);
   const mtfStrictGateApplied = useMemo(
     () => Math.max(MTF_STRICT_GATE_FLOOR, Math.min(MTF_STRICT_GATE_CEIL, mtfStrictGate + mtfStrictRule.gateBias)),
     [mtfStrictGate, mtfStrictRule]
   );
   const mtfStrictFilteredItems = useMemo(() => {
-    if (rankScope !== "multi" || !filterMtfStrictOnly || useFallback) return filteredItems;
+    if (!filterMtfStrictOnly || useFallback) return filteredItems;
     return filteredItems.filter((item) => matchesMtfStrictRule(item, mtfStrictRule.minQualified, mtfStrictGateApplied));
-  }, [rankScope, filterMtfStrictOnly, useFallback, filteredItems, mtfStrictRule, mtfStrictGateApplied]);
+  }, [filterMtfStrictOnly, useFallback, filteredItems, mtfStrictRule, mtfStrictGateApplied]);
 
   const mtfStrictFilterRelaxed = useMemo(() => {
-    if (rankScope !== "multi" || !filterMtfStrictOnly || useFallback) return false;
+    if (!filterMtfStrictOnly || useFallback) return false;
     return filteredItems.length > 0 && mtfStrictFilteredItems.length === 0;
-  }, [rankScope, filterMtfStrictOnly, useFallback, filteredItems, mtfStrictFilteredItems]);
+  }, [filterMtfStrictOnly, useFallback, filteredItems, mtfStrictFilteredItems]);
 
   const effectiveItems = useMemo(() => {
     const base = mtfStrictFilterRelaxed ? filteredItems : mtfStrictFilteredItems;
-    if (rankScope !== "multi") return base;
     return base.map((item) => ({ ...item, mtfStrictResolved }));
-  }, [mtfStrictFilterRelaxed, filteredItems, mtfStrictFilteredItems, rankScope, mtfStrictResolved]);
+  }, [mtfStrictFilterRelaxed, filteredItems, mtfStrictFilteredItems, mtfStrictResolved]);
   const mtfStrictCount = mtfStrictFilteredItems.length;
 
   const sortedItems = useMemo(() => {
@@ -741,28 +769,6 @@ export default function RankingView() {
   }, [effectiveItems, dir, useFallback]);
   const listCodes = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
   const densityKey = `${listColumns}x${listRows}`;
-  const qualificationTraceLabel = useMemo(() => {
-    if (!qualificationFilterRelaxed) return "";
-    if (qualificationTraceLoading) return "直近適格を確認中...";
-    if (!qualificationTrace) return "";
-    const lastIso = qualificationTrace.last_non_zero_date_iso;
-    const streak = Number(qualificationTrace.zero_streak_days ?? 0);
-    const inspectedDays = Number(qualificationTrace.inspected_days ?? 0);
-    const codes = (qualificationTrace.last_non_zero_codes ?? []).filter(Boolean);
-    if (lastIso) {
-      const shown = codes.slice(0, 4);
-      const extra = Math.max(0, codes.length - shown.length);
-      const codeLabel = shown.length
-        ? ` (${shown.join(", ")}${extra > 0 ? ` +${extra}` : ""})`
-        : "";
-      return `前回適格: ${lastIso}${codeLabel} / 連続0件: ${streak}営業日`;
-    }
-    if (inspectedDays > 0) {
-      return `直近${inspectedDays}営業日で適格なし`;
-    }
-    return "";
-  }, [qualificationFilterRelaxed, qualificationTraceLoading, qualificationTrace]);
-
   useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
@@ -772,6 +778,10 @@ export default function RankingView() {
   const tickerMap = useMemo(() => {
     return new Map(tickers.map((ticker) => [ticker.code, ticker]));
   }, [tickers]);
+  const itemByCode = useMemo(() => {
+    return new Map(items.map((item) => [item.code, item]));
+  }, [items]);
+  const itemCodeSet = useMemo(() => new Set(items.map((item) => item.code)), [items]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -781,61 +791,34 @@ export default function RankingView() {
     setUseFallback(false);
     (async () => {
       try {
-        if (rankScope === "multi") {
-          const baseParams = { which: rankWhich, dir, mode: rankMode, risk_mode: riskMode, limit: 50 };
-          const [dailyRes, weeklyRes, monthlyRes] = await Promise.allSettled([
-            api.get("/rankings", { params: { ...baseParams, tf: "D" } }),
-            api.get("/rankings", { params: { ...baseParams, tf: "W" } }),
-            api.get("/rankings", { params: { ...baseParams, tf: "M" } })
-          ]);
-          if (cancelled) return;
-          const dailyPayload = (dailyRes.status === "fulfilled" ? dailyRes.value.data : {}) as {
-            items?: RankItem[];
-            errors?: string[];
-          };
-          const weeklyPayload = (weeklyRes.status === "fulfilled" ? weeklyRes.value.data : {}) as {
-            items?: RankItem[];
-            errors?: string[];
-          };
-          const monthlyPayload = (monthlyRes.status === "fulfilled" ? monthlyRes.value.data : {}) as {
-            items?: RankItem[];
-            errors?: string[];
-          };
-          const hasAnyList =
-            Array.isArray(dailyPayload.items) ||
-            Array.isArray(weeklyPayload.items) ||
-            Array.isArray(monthlyPayload.items);
-          if (!hasAnyList) {
-            throw new Error("rankings fetch failed");
-          }
-          const merged = mergeMultiTimeframeRankings(
-            {
-              D: Array.isArray(dailyPayload.items) ? dailyPayload.items : [],
-              W: Array.isArray(weeklyPayload.items) ? weeklyPayload.items : [],
-              M: Array.isArray(monthlyPayload.items) ? monthlyPayload.items : []
-            },
-            { dir, limit: 50 }
-          );
-          setItems(merged);
-          setUseFallback(false);
-          const errors = [
-            ...(dailyPayload.errors ?? []),
-            ...(weeklyPayload.errors ?? []),
-            ...(monthlyPayload.errors ?? [])
-          ];
-          if (errors.length > 0) {
-            setErrorMessage(errors[0]);
-          }
-          return;
-        }
-        const res = await api.get("/rankings", { params: { tf: tfChar, which: rankWhich, dir, mode: rankMode, risk_mode: riskMode, limit: 50 } });
+        const res = await api.get("/rankings/multi", {
+          params: { which: rankWhich, dir, mode: rankMode, risk_mode: riskMode, limit: 50 }
+        });
         if (cancelled) return;
-        const payload = res.data as { items?: RankItem[]; errors?: string[] };
-        const list = Array.isArray(payload.items) ? payload.items : [];
-        setItems(list);
+        const payload = (res.data ?? {}) as {
+          itemsByTf?: Partial<Record<RankTimeframe, RankItem[]>>;
+          errors?: string[];
+        };
+        const itemsByTf = payload.itemsByTf ?? {};
+        const dailyItems = Array.isArray(itemsByTf.D) ? itemsByTf.D : [];
+        const weeklyItems = Array.isArray(itemsByTf.W) ? itemsByTf.W : [];
+        const monthlyItems = Array.isArray(itemsByTf.M) ? itemsByTf.M : [];
+        if (!dailyItems.length && !weeklyItems.length && !monthlyItems.length) {
+          throw new Error("rankings fetch failed");
+        }
+        const merged = mergeMultiTimeframeRankings(
+          {
+            D: dailyItems,
+            W: weeklyItems,
+            M: monthlyItems
+          },
+          { dir, limit: 50 }
+        );
+        setItems(merged);
         setUseFallback(false);
-        if (payload.errors?.length) {
-          setErrorMessage(payload.errors[0]);
+        const errors = payload.errors ?? [];
+        if (errors.length > 0) {
+          setErrorMessage(errors[0]);
         }
       } catch {
         if (cancelled) return;
@@ -848,78 +831,7 @@ export default function RankingView() {
     return () => {
       cancelled = true;
     };
-  }, [backendReady, dir, tfChar, rankWhich, rankMode, riskMode, rankScope]);
-
-  useEffect(() => {
-    if (!backendReady || useFallback || rankScope === "multi" || !qualificationFilterRelaxed) {
-      setQualificationTrace(null);
-      setQualificationTraceLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setQualificationTraceLoading(true);
-    api
-      .get("/rankings/trace/last-qualified", {
-        params: {
-          tf: tfChar,
-          which: rankWhich,
-          dir,
-          mode: rankMode,
-          risk_mode: riskMode,
-          limit: 50,
-          lookback_days: 260,
-          recent_hits: 8
-        }
-      })
-      .then((res) => {
-        if (cancelled) return;
-        const payload = (res.data ?? null) as RankLastQualifiedTrace | null;
-        setQualificationTrace(payload);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setQualificationTrace(null);
-      })
-      .finally(() => {
-        if (!cancelled) setQualificationTraceLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [backendReady, useFallback, rankScope, qualificationFilterRelaxed, tfChar, rankWhich, dir, rankMode, riskMode]);
-
-  useEffect(() => {
-    if (!backendReady || !showEdinetMonitor) {
-      setEdinetMonitor(null);
-      setEdinetMonitorLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setEdinetMonitorLoading(true);
-    api
-      .get("/rankings/edinet/monitor", {
-        params: {
-          lookback_days: 365,
-          dir,
-          risk_mode: riskMode,
-          which: rankWhich
-        }
-      })
-      .then((res) => {
-        if (cancelled) return;
-        setEdinetMonitor((res.data ?? null) as EdinetMonitorPayload | null);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setEdinetMonitor(null);
-      })
-      .finally(() => {
-        if (!cancelled) setEdinetMonitorLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [backendReady, showEdinetMonitor, dir, riskMode, rankWhich]);
+  }, [backendReady, dir, rankWhich, rankMode, riskMode]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -941,8 +853,11 @@ export default function RankingView() {
       setSelectedCodes([]);
       return;
     }
-    setSelectedCodes((prev) => prev.filter((code) => items.some((item) => item.code === code)));
-  }, [items]);
+    setSelectedCodes((prev) => {
+      const next = prev.filter((code) => itemCodeSet.has(code));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [items.length, itemCodeSet]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1013,7 +928,7 @@ export default function RankingView() {
         // Use available cache even if fetch fails.
       }
       const itemsForPack = selectedCodes.map((code) => {
-        const rankItem = items.find((item) => item.code === code);
+        const rankItem = itemByCode.get(code);
         const payload = barsCache[consultTimeframe]?.[code];
         const boxes = boxesCache[consultTimeframe][code] ?? [];
         const monthlyP20 = Number.isFinite(rankItem?.mlP20Side1M ?? NaN)
@@ -1031,23 +946,19 @@ export default function RankingView() {
           `${dir === "up" ? "1M上昇" : "1M下落"}=${formatPct(dir === "up" ? rankItem?.mlPUpBig : rankItem?.mlPDownBig)}`,
           `1M変動=${formatPct(rankItem?.mlPAbsBig)}`
         ];
-        if (rankScope === "multi") {
-          reasonChunks.push(`勝ちやすさ=${formatPct(rankItem?.winNowScore)}`);
-          if (rankItem?.mtfStrictResolved) {
-            reasonChunks.push(`厳選=${MTF_STRICTNESS_LABEL[rankItem.mtfStrictResolved]}`);
-          }
-          reasonChunks.push(`目標=${mtfStrictTarget}件`);
-          reasonChunks.push(`ゲート=${(mtfStrictGateApplied * 100).toFixed(1)}%`);
-          if (Number.isFinite(rankItem?.mtfLiquidity20d ?? NaN)) {
-            reasonChunks.push(`流動=${(rankItem?.mtfLiquidity20d ?? 0).toFixed(0)}`);
-          }
-          if (rankItem?.mtfSignalBits) {
-            reasonChunks.push(`MTF=${rankItem.mtfSignalBits}`);
-          }
+        reasonChunks.push(`勝ちやすさ=${formatPct(rankItem?.winNowScore)}`);
+        if (rankItem?.mtfStrictResolved) {
+          reasonChunks.push(`厳選=${MTF_STRICTNESS_LABEL[rankItem.mtfStrictResolved]}`);
         }
-        const consultationScore = rankScope === "multi"
-          ? firstFinite(rankItem?.winNowScore, rankItem?.entryScore, rankItem?.hybridScore)
-          : firstFinite(rankItem?.entryScore, rankItem?.hybridScore);
+        reasonChunks.push(`目標=${mtfStrictTarget}件`);
+        reasonChunks.push(`ゲート=${(mtfStrictGateApplied * 100).toFixed(1)}%`);
+        if (Number.isFinite(rankItem?.mtfLiquidity20d ?? NaN)) {
+          reasonChunks.push(`流動=${(rankItem?.mtfLiquidity20d ?? 0).toFixed(0)}`);
+        }
+        if (rankItem?.mtfSignalBits) {
+          reasonChunks.push(`MTF=${rankItem.mtfSignalBits}`);
+        }
+        const consultationScore = firstFinite(rankItem?.winNowScore, rankItem?.entryScore, rankItem?.hybridScore);
         return {
           code,
           name: rankItem?.name ?? null,
@@ -1089,10 +1000,9 @@ export default function RankingView() {
     ensureBarsForVisible,
     consultTimeframe,
     dir,
-    rankScope,
     mtfStrictTarget,
     mtfStrictGateApplied,
-    items,
+    itemByCode,
     barsCache,
     boxesCache,
     consultSort
@@ -1149,7 +1059,13 @@ export default function RankingView() {
   const showSkeleton = backendReady && loading && items.length === 0;
   const emptyLabel =
     !loading && backendReady && sortedItems.length === 0 && !errorMessage
-      ? search.trim() || filterSignalsOnly || filterDataOnly || filterQualifiedOnly || (rankScope === "multi" && filterMtfStrictOnly)
+      ? search.trim() ||
+        filterSignalsOnly ||
+        filterDataOnly ||
+        filterBuySignalsOnly ||
+        filterSellSignalsOnly ||
+        filterQualifiedOnly ||
+        filterMtfStrictOnly
         ? "該当する銘柄がありません。"
         : "ランキングがありません。"
       : null;
@@ -1183,10 +1099,8 @@ export default function RankingView() {
   const formatAsOf = (value?: string | null) => value ?? "--";
   const formatQualification = (item: RankItem) => {
     if (item.entryQualified === true) {
-      if (rankScope === "multi") {
-        const cnt = Number.isFinite(item.mtfQualifiedCount ?? NaN) ? Number(item.mtfQualifiedCount) : null;
-        if (cnt != null) return `適格 ${cnt}/3`;
-      }
+      const cnt = Number.isFinite(item.mtfQualifiedCount ?? NaN) ? Number(item.mtfQualifiedCount) : null;
+      if (cnt != null) return `適格 ${cnt}/3`;
       return "適格 OK";
     }
     if (item.entryQualifiedByFallback === true) {
@@ -1194,6 +1108,7 @@ export default function RankingView() {
       if (item.entryQualifiedFallbackStage === "hybrid_relaxed_score") return "適格 段階1";
       if (item.entryQualifiedFallbackStage === "turn_strict_recovery") return "適格 段階2";
       if (item.entryQualifiedFallbackStage === "short_pattern_recovery") return "適格 売り補完";
+      if (item.entryQualifiedFallbackStage === "short_turn_recovery") return "適格 売り再同調";
       return "適格 補完";
     }
     if (item.entryQualified === false) return "適格 要確認";
@@ -1230,20 +1145,6 @@ export default function RankingView() {
     if (value === "no_payload") return "補正未適用: 財務ペイロード未取得";
     return `補正未適用: ${value}`;
   };
-  const edinetMonitorLabel = useMemo(() => {
-    if (!showEdinetMonitor) return null;
-    if (edinetMonitorLoading) return "EDINET20D 集計中...";
-    const positive = edinetMonitor?.groups?.positive;
-    const negative = edinetMonitor?.groups?.negative;
-    const posN = Number.isFinite(positive?.realized_count ?? NaN) ? Number(positive?.realized_count ?? 0) : 0;
-    const negN = Number.isFinite(negative?.realized_count ?? NaN) ? Number(negative?.realized_count ?? 0) : 0;
-    const minSamples = Number.isFinite(edinetMonitor?.min_samples ?? NaN) ? Number(edinetMonitor?.min_samples ?? 0) : 0;
-    const suffix =
-      edinetMonitor?.insufficient_samples === true
-        ? ` (要サンプル>=${minSamples})`
-        : "";
-    return `EDI20D +補正 ret${formatPct(positive?.avg_ret20)} / 勝率${formatPct(positive?.win_rate20)} (${posN}) | -補正 ret${formatPct(negative?.avg_ret20)} / 勝率${formatPct(negative?.win_rate20)} (${negN})${suffix}`;
-  }, [showEdinetMonitor, edinetMonitorLoading, edinetMonitor, formatPct]);
   const formatInvalidationTrigger = (value?: string | null) => {
     if (!value) return "--";
     if (value === "box_break") return "Box下限割れ";
@@ -1328,18 +1229,12 @@ export default function RankingView() {
         <span className="rank-score-badge">
           運用: 継続 x 中立
         </span>
-        {showEdinetMonitor && edinetMonitorLabel && (
-          <div className={`rank-top-summary${edinetMonitor?.insufficient_samples ? " is-warn" : ""}`}>
-            {edinetMonitorLabel}
-          </div>
-        )}
         <span className="rank-score-badge">
           厳選: {mtfStrictRule.label} / 合意{mtfStrictRule.minQualified}/3+ or 勝ちやすさ{(mtfStrictGateApplied * 100).toFixed(1)}% / 候補{mtfStrictCount}件
         </span>
         {qualificationFilterRelaxed && (
           <div className="rank-top-summary is-warn">
             適格銘柄が0件のため、条件未達を含む候補を表示しています。
-            {qualificationTraceLabel ? ` ${qualificationTraceLabel}` : ""}
           </div>
         )}
         {mtfStrictFilterRelaxed && (
@@ -1510,22 +1405,22 @@ export default function RankingView() {
                               : ""}
                           </span>
                         )}
-                        {rankScope === "multi" && Number.isFinite(item.winNowScore ?? NaN) && (
+                        {Number.isFinite(item.winNowScore ?? NaN) && (
                           <span className="rank-score-badge">
                             勝ちやすさ {((item.winNowScore ?? 0) * 100).toFixed(1)}%
                           </span>
                         )}
-                        {rankScope === "multi" && Number.isFinite(item.mtfQualifiedCount ?? NaN) && (
+                        {Number.isFinite(item.mtfQualifiedCount ?? NaN) && (
                           <span className="rank-score-badge">
                             MTF適格 {Math.max(0, Math.min(3, Math.round(item.mtfQualifiedCount ?? 0)))}/3
                           </span>
                         )}
-                        {rankScope === "multi" && Number.isFinite(item.mtfFallbackCount ?? NaN) && (
+                        {Number.isFinite(item.mtfFallbackCount ?? NaN) && (
                           <span className="rank-score-badge">
                             MTF補完 {Math.max(0, Math.min(3, Math.round(item.mtfFallbackCount ?? 0)))}/3
                           </span>
                         )}
-                        {rankScope === "multi" && item.mtfSignalBits && (
+                        {item.mtfSignalBits && (
                           <span className="rank-score-badge">
                             {item.mtfSignalBits}
                           </span>
@@ -1579,19 +1474,19 @@ export default function RankingView() {
                                 保有根拠 {item.recommendedHoldReason}
                               </span>
                             )}
-                            {rankScope === "multi" && Number.isFinite(item.mtfWinD ?? NaN) && (
+                            {Number.isFinite(item.mtfWinD ?? NaN) && (
                               <span className="rank-score-badge">D勝 {formatPct(item.mtfWinD)}</span>
                             )}
-                            {rankScope === "multi" && Number.isFinite(item.mtfWinW ?? NaN) && (
+                            {Number.isFinite(item.mtfWinW ?? NaN) && (
                               <span className="rank-score-badge">W勝 {formatPct(item.mtfWinW)}</span>
                             )}
-                            {rankScope === "multi" && Number.isFinite(item.mtfWinM ?? NaN) && (
+                            {Number.isFinite(item.mtfWinM ?? NaN) && (
                               <span className="rank-score-badge">M勝 {formatPct(item.mtfWinM)}</span>
                             )}
-                            {rankScope === "multi" && Number.isFinite(item.mtfCoverage ?? NaN) && (
+                            {Number.isFinite(item.mtfCoverage ?? NaN) && (
                               <span className="rank-score-badge">MTF充足 {formatPct(item.mtfCoverage)}</span>
                             )}
-                            {rankScope === "multi" && Number.isFinite(item.mtfLiquidity20d ?? NaN) && (
+                            {Number.isFinite(item.mtfLiquidity20d ?? NaN) && (
                               <span className="rank-score-badge">MTF流動 {(item.mtfLiquidity20d ?? 0).toFixed(0)}</span>
                             )}
                             <span className="rank-score-badge">RankUp {formatRankScore(item.mlRankUp)}</span>
@@ -1649,11 +1544,20 @@ export default function RankingView() {
                             {item.patternD3ShortNaBelow === true && (
                               <span className="rank-score-badge">D3 初期弱含み 売り</span>
                             )}
+                            {item.patternD4ShortDoubleTop === true && (
+                              <span className="rank-score-badge">D4 ダブルトップ 売り</span>
+                            )}
+                            {item.patternD5ShortHeadShoulders === true && (
+                              <span className="rank-score-badge">D5 三尊天井 売り</span>
+                            )}
                             {item.patternDTrapStackDownFar === true && (
                               <span className="rank-score-badge">D罠 売られ過ぎ 警戒</span>
                             )}
                             {item.patternDTrapOverheatMomentum === true && (
                               <span className="rank-score-badge">D罠 過熱順行 警戒</span>
+                            )}
+                            {item.patternDTrapTopFakeout === true && (
+                              <span className="rank-score-badge">D罠 天井だまし 警戒</span>
                             )}
                             <span className="rank-score-badge">
                               確率カーブ {item.probCurveAligned === false ? "NG" : item.probCurveAligned === true ? "OK" : "--"}

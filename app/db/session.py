@@ -305,16 +305,24 @@ def _acquire_lock() -> tuple[object | None, Any]:
     try:
         if lock_path.exists():
             try:
-                old_pid_str = lock_path.read_text().strip()
+                old_pid_str = lock_path.read_text(errors="replace").strip()
                 if old_pid_str.isdigit():
                     old_pid = int(old_pid_str)
-                    cmd = f'tasklist /fi "PID eq {old_pid}" /fo csv /nh'
-                    output = subprocess.check_output(cmd, shell=True).decode("cp932", errors="ignore")
-                    if str(old_pid) in output:
-                        raise RuntimeError(f"Another instance (PID {old_pid}) is running.")
-                    lock_path.unlink(missing_ok=True)
-                else:
-                    lock_path.unlink(missing_ok=True)
+                    try:
+                        cmd = f'tasklist /fi "PID eq {old_pid}" /fo csv /nh'
+                        # Use errors='replace' to handle any Windows locale (cp932, cp1252, etc.)
+                        output = subprocess.check_output(
+                            cmd, shell=True, stderr=subprocess.DEVNULL
+                        ).decode(errors="replace")
+                        if str(old_pid) in output:
+                            raise RuntimeError(f"Another instance (PID {old_pid}) is running.")
+                    except RuntimeError:
+                        raise  # Propagate the "already running" error
+                    except Exception:
+                        pass  # tasklist unavailable or failed — allow startup
+                lock_path.unlink(missing_ok=True)
+            except RuntimeError:
+                raise
             except Exception:
                 pass
 

@@ -308,7 +308,7 @@ def run_vbs_export(
                 logger.debug("Failed to close VBS stdout pipe: %s", exc)
 
 
-def run_ingest(incremental: bool = True) -> tuple[str, str, dict]:
+def run_ingest(incremental: bool = True, run_id: str | None = None) -> tuple[str, str, dict]:
     print(f"[txt_update_job] run_ingest called incremental={incremental}")
     if not ingest_txt:
         error = "ingest_txt module not found"
@@ -319,20 +319,25 @@ def run_ingest(incremental: bool = True) -> tuple[str, str, dict]:
     stats: dict[str, int | str] = {}
     try:
         with redirect_stdout(buffer), redirect_stderr(buffer):
-            ingest_txt.ingest(incremental=incremental)
+            result = ingest_txt.ingest(incremental=incremental, run_id=run_id)
         output = buffer.getvalue()
-        for line in output.splitlines():
-            if "Incremental Mode: Found" in line:
-                parts = line.split()
-                for idx, token in enumerate(parts):
-                    if token == "Found" and idx + 1 < len(parts):
-                        stats["changed"] = parts[idx + 1]
-                    if token == "skipped" and idx + 1 < len(parts):
-                        stats["skipped"] = parts[idx + 1].rstrip(".")
-            if "Inserted" in line and "daily rows" in line:
-                pieces = line.split()
-                if len(pieces) >= 2:
-                    stats["rows"] = pieces[1]
+        if isinstance(result, dict):
+            for key in ("changed_files", "changed", "skipped_files", "skipped", "rows", "pan_finalized_rows"):
+                if key in result:
+                    stats[key] = result[key]  # type: ignore[index]
+        if not stats:
+            for line in output.splitlines():
+                if "Incremental Mode: Found" in line:
+                    parts = line.split()
+                    for idx, token in enumerate(parts):
+                        if token == "Found" and idx + 1 < len(parts):
+                            stats["changed"] = parts[idx + 1]
+                        if token == "skipped" and idx + 1 < len(parts):
+                            stats["skipped"] = parts[idx + 1].rstrip(".")
+                if "Inserted" in line and "daily rows" in line:
+                    pieces = line.split()
+                    if len(pieces) >= 2:
+                        stats["rows"] = pieces[1]
         print(f"[txt_update_job] run_ingest completed, stats={stats}")
         return output, "", stats
     except Exception as exc:
@@ -560,13 +565,14 @@ def _run_ingest_with_retry(
     sleep_seconds: float,
     state: dict | None = None,
     stage: str = "ingest",
+    run_id: str | None = None,
 ) -> tuple[str, str, dict, int, str]:
     last_output = ""
     last_stats: dict = {}
 
     def _run_once() -> tuple[str, dict]:
         nonlocal last_output, last_stats
-        out, err, stats = run_ingest(incremental=incremental)
+        out, err, stats = run_ingest(incremental=incremental, run_id=run_id)
         last_output = out
         last_stats = stats
         if err:
@@ -623,6 +629,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     auto_ml_predict = _to_bool(payload.get("auto_ml_predict"), True)
     auto_ml_train = _to_bool(payload.get("auto_ml_train"), True)
     force_ml_train = _to_bool(payload.get("force_ml_train"), False)
+    force_recompute_on_pan_finalize = _to_bool(payload.get("force_recompute_on_pan_finalize"), True)
     skip_ml_train_if_no_change = _to_bool(
         payload.get("skip_ml_train_if_no_change"),
         _to_bool(os.getenv("MEEMEE_TXT_UPDATE_SKIP_ML_TRAIN_IF_NO_CHANGE"), True),
@@ -973,7 +980,8 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled during Pan import"):
             return
         try:
-            pan_import_ok = run_pan_import(str(config.PAN_DTMGR_PATH))
+            pan_dt_path = getattr(config, "PAN_DTMGR_PATH", None)
+            pan_import_ok = run_pan_import(str(pan_dt_path) if pan_dt_path else None)
             if pan_import_ok:
                 break
             pan_import_error = "Pan import returned False"
@@ -1167,6 +1175,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         sleep_seconds=ingest_retry_sleep,
         state=state,
         stage="ingest",
+        run_id=job_id,
     )
     state["last_ingest_attempts"] = int(ingest_attempts)
     state["last_ingest_retry_sleep_sec"] = float(ingest_retry_sleep)
@@ -1190,7 +1199,24 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     state["last_ingest_stats"] = ingest_stats
     state.pop("last_ingest_error", None)
     state.pop("last_ingest_failed_at", None)
-    changed_files = _to_int(ingest_stats.get("changed"), 0, minimum=0)
+    changed_files = _to_int(
+        ingest_stats.get("changed_files"),
+        _to_int(ingest_stats.get("changed"), 0, minimum=0),
+        minimum=0,
+    )
+    pan_finalized_rows = _to_int(ingest_stats.get("pan_finalized_rows"), 0, minimum=0)
+    state["last_pan_finalize_rows"] = int(pan_finalized_rows)
+    state["last_force_recompute_on_pan_finalize"] = bool(force_recompute_on_pan_finalize)
+    if pan_finalized_rows > 0:
+        state["last_pan_finalize_at"] = datetime.now().isoformat()
+
+    force_recompute_due_to_pan_finalize = bool(force_recompute_on_pan_finalize and pan_finalized_rows > 0)
+    effective_auto_ml_train = bool(auto_ml_train or force_recompute_due_to_pan_finalize)
+    effective_auto_ml_predict = bool(auto_ml_predict or force_recompute_due_to_pan_finalize)
+    effective_auto_walkforward_run = bool(auto_walkforward_run or force_recompute_due_to_pan_finalize)
+    effective_auto_walkforward_gate = bool(auto_walkforward_gate or force_recompute_due_to_pan_finalize)
+    if force_recompute_due_to_pan_finalize:
+        state["last_forced_recompute_at"] = datetime.now().isoformat()
 
     if _exit_if_canceled(job_id, state, stage="phase", message="Canceled before phase update"):
         return
@@ -1232,7 +1258,10 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     try:
         from app.backend.services import ml_service
 
-        if auto_ml_train:
+        if force_recompute_due_to_pan_finalize:
+            ml_note_parts.append(f"pan_finalize_force_recompute(rows={int(pan_finalized_rows)})")
+
+        if effective_auto_ml_train:
             if _exit_if_canceled(job_id, state, stage="ml_train", message="Canceled before ML training"):
                 return
             latest_pred_dt = _to_optional_int(state.get("last_ml_predict_dt"))
@@ -1240,6 +1269,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             skip_train = (
                 (not force_ml_train)
                 and bool(skip_ml_train_if_no_change)
+                and (not force_recompute_due_to_pan_finalize)
                 and int(changed_files) == 0
                 and has_prior_ml
             )
@@ -1299,8 +1329,10 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 if model_version:
                     state["last_ml_model_version"] = str(model_version)
                 ml_note_parts.append("ml_train=ok")
+        else:
+            ml_note_parts.append("ml_train=skip(disabled)")
 
-        if auto_ml_predict:
+        if effective_auto_ml_predict:
             if _exit_if_canceled(job_id, state, stage="ml_predict", message="Canceled before ML prediction"):
                 return
             _set_pipeline_stage(state, "ml_predict", message="Refreshing ML prediction...")
@@ -1506,13 +1538,17 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             return
         run_now = datetime.now()
         run_month_key = run_now.strftime("%Y-%m")
-        if not auto_walkforward_run:
+        if not effective_auto_walkforward_run:
             state["last_walkforward_run_skipped_at"] = run_now.isoformat()
             state["last_walkforward_run_skipped_reason"] = "disabled"
             state.pop("last_walkforward_run_error", None)
             state.pop("last_walkforward_run_error_at", None)
             ml_note_parts.append("walkforward_run=skip(disabled)")
-        elif walkforward_run_monthly_only and str(state.get("last_walkforward_run_month_key") or "") == run_month_key:
+        elif (
+            (not force_recompute_due_to_pan_finalize)
+            and walkforward_run_monthly_only
+            and str(state.get("last_walkforward_run_month_key") or "") == run_month_key
+        ):
             state["last_walkforward_run_skipped_at"] = run_now.isoformat()
             state["last_walkforward_run_skipped_reason"] = f"already_ran_month:{run_month_key}"
             state.pop("last_walkforward_run_error", None)
@@ -1613,13 +1649,15 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             state.pop("last_walkforward_gate_error", None)
             state.pop("last_walkforward_gate_error_at", None)
             ml_note_parts.append("walkforward_gate=skip(run_failed)")
-        elif not auto_walkforward_gate:
+        elif not effective_auto_walkforward_gate:
             state["last_walkforward_gate_skipped_at"] = gate_now.isoformat()
             state["last_walkforward_gate_skipped_reason"] = "disabled"
             state.pop("last_walkforward_gate_error", None)
             state.pop("last_walkforward_gate_error_at", None)
             ml_note_parts.append("walkforward_gate=skip(disabled)")
         elif (
+            (not force_recompute_due_to_pan_finalize)
+            and
             walkforward_gate_monthly_only
             and str(state.get("last_walkforward_gate_month_key") or "") == gate_month_key
             and ((not latest_run_id) or latest_run_id == last_gate_source_run_id)
@@ -1705,6 +1743,21 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 finished_at=datetime.now(),
             )
             return
+
+    try:
+        from app.backend.services import strategy_backtest_service
+
+        research_snapshot = strategy_backtest_service.save_daily_walkforward_research_snapshot()
+        if bool(research_snapshot.get("saved")):
+            state["last_walkforward_research_snapshot_at"] = datetime.now().isoformat()
+            state["last_walkforward_research_source_run_id"] = str(research_snapshot.get("source_run_id") or "")
+            state["last_walkforward_research_snapshot_date"] = research_snapshot.get("snapshot_date")
+            ml_note_parts.append(
+                f"walkforward_research_snapshot=ok(date={research_snapshot.get('snapshot_date')})"
+            )
+    except Exception as exc:
+        logger.warning("Walkforward research snapshot skipped: %s", exc)
+        ml_note_parts.append(f"walkforward_research_snapshot=skip({exc})")
 
     if _exit_if_canceled(job_id, state, stage="finalize", message="Canceled before finalize"):
         return

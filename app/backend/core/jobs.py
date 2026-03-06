@@ -69,9 +69,100 @@ class JobManager:
         self._active_job_id = None
         self._cancel_lock = threading.Lock()
         self._cancel_requested_ids: set[str] = set()
+        self._status_cache_lock = threading.Lock()
+        self._status_cache: dict[str, dict[str, Any]] = {}
         
         # Start worker
         self._start_worker()
+
+    def _to_sort_ts(self, value: Any) -> float:
+        if isinstance(value, datetime):
+            return value.timestamp()
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return 0.0
+            try:
+                return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                return 0.0
+        return 0.0
+
+    def _update_status_cache(
+        self,
+        *,
+        job_id: str,
+        job_type: str | None,
+        status: str | None = None,
+        created_at: Any = None,
+        started_at: Any = None,
+        finished_at: Any = None,
+        progress: Any = None,
+        message: Any = None,
+        error: Any = None,
+    ) -> None:
+        if not job_id:
+            return
+        with self._status_cache_lock:
+            current = dict(self._status_cache.get(job_id, {}))
+            current["id"] = job_id
+            if job_type is not None:
+                current["type"] = job_type
+            if status is not None:
+                current["status"] = status
+            if created_at is not None:
+                current["created_at"] = created_at
+            elif status == "queued" and "created_at" not in current:
+                current["created_at"] = datetime.now()
+            if started_at is not None:
+                current["started_at"] = started_at
+            if finished_at is not None:
+                current["finished_at"] = finished_at
+            if progress is not None:
+                current["progress"] = progress
+            if message is not None:
+                current["message"] = message
+            if error is not None:
+                current["error"] = error
+            self._status_cache[job_id] = current
+            if len(self._status_cache) > 5000:
+                oldest = min(
+                    self._status_cache.keys(),
+                    key=lambda key: self._to_sort_ts(
+                        self._status_cache.get(key, {}).get("created_at")
+                    ),
+                )
+                self._status_cache.pop(oldest, None)
+
+    def get_cached_status(self, job_id: str) -> dict | None:
+        with self._status_cache_lock:
+            row = self._status_cache.get(job_id)
+            return dict(row) if row else None
+
+    def get_cached_current(self) -> dict | None:
+        with self._status_cache_lock:
+            active = [
+                dict(value)
+                for value in self._status_cache.values()
+                if value.get("status") in ("queued", "running", "cancel_requested")
+            ]
+        if not active:
+            return None
+        active.sort(
+            key=lambda row: (
+                self._to_sort_ts(row.get("started_at")),
+                self._to_sort_ts(row.get("created_at")),
+            ),
+            reverse=True,
+        )
+        return active[0]
+
+    def get_cached_history(self, limit: int = 20) -> list[dict]:
+        resolved_limit = max(1, int(limit or 20))
+        with self._status_cache_lock:
+            rows = [dict(value) for value in self._status_cache.values()]
+        rows.sort(key=lambda row: self._to_sort_ts(row.get("created_at")), reverse=True)
+        return rows[:resolved_limit]
 
     def _mark_cancel_requested(self, job_id: str) -> None:
         with self._cancel_lock:
@@ -153,6 +244,15 @@ class JobManager:
         job_id = str(uuid.uuid4())
         print(f"[JobManager] Created job_id: {job_id}")
         payload = payload or {}
+        self._update_status_cache(
+            job_id=job_id,
+            job_type=job_type,
+            status="queued",
+            created_at=datetime.now(),
+            progress=progress or 0,
+            message=message,
+            error=None,
+        )
         # Persist initial status
         self._update_db(job_id, job_type, "queued", progress=progress, message=message)
         
@@ -211,6 +311,17 @@ class JobManager:
                 ).fetchone()
                 if not row:
                     return None
+                self._update_status_cache(
+                    job_id=str(row[0]),
+                    job_type=str(row[1]) if row[1] is not None else None,
+                    status=str(row[2]) if row[2] is not None else None,
+                    created_at=row[3],
+                    started_at=row[4],
+                    finished_at=row[5],
+                    progress=row[6],
+                    message=row[7],
+                    error=row[8],
+                )
                 # col mapping depends on select order
                 return {
                     "id": row[0],
@@ -225,7 +336,8 @@ class JobManager:
                 }
         except Exception as e:
             logger.error(f"Error fetching status for {job_id}: {e}")
-            return None
+            cached = self.get_cached_status(job_id)
+            return cached if cached is not None else None
 
     def get_history(self, limit: int = 20) -> list[dict]:
         try:
@@ -235,18 +347,27 @@ class JobManager:
                 ).fetchall()
                 result = []
                 for r in rows:
-                    result.append({
+                    row_payload = {
                         "id": r[0],
                         "type": r[1],
                         "status": r[2],
                         "created_at": r[3],
                         "finished_at": r[4],
                         "message": r[5]
-                    })
+                    }
+                    result.append(row_payload)
+                    self._update_status_cache(
+                        job_id=str(r[0]),
+                        job_type=str(r[1]) if r[1] is not None else None,
+                        status=str(r[2]) if r[2] is not None else None,
+                        created_at=r[3],
+                        finished_at=r[4],
+                        message=r[5],
+                    )
                 return result
         except Exception as e:
             logger.error(f"Error fetching history: {e}")
-            return []
+            return self.get_cached_history(limit=limit)
 
     def _worker_loop(self):
         logger.info("JobManager Worker Started")
@@ -340,6 +461,17 @@ class JobManager:
             self._active_job_id = None
 
     def _update_db(self, job_id, job_type, status, created_at=None, started_at=None, finished_at=None, progress=None, message=None, error=None):
+        self._update_status_cache(
+            job_id=str(job_id),
+            job_type=str(job_type) if job_type is not None else None,
+            status=str(status) if status is not None else None,
+            created_at=created_at,
+            started_at=started_at,
+            finished_at=finished_at,
+            progress=progress,
+            message=message,
+            error=error,
+        )
         try:
              with get_conn() as conn:
                 if status == "running" and self._is_cancel_requested(job_id):

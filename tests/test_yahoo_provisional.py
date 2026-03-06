@@ -31,6 +31,31 @@ def test_merge_respects_asof_limit() -> None:
     assert merged == base
 
 
+def test_merge_skips_close_only_zero_volume_provisional() -> None:
+    base = [(1772150400, 3900.0, 3950.0, 3890.0, 3940.0, 1000.0)]
+    close_only = (1772433000, 3980.0, 3980.0, 3980.0, 3980.0, 0.0)
+    merged = yp.merge_daily_rows_with_provisional(base, close_only)
+    assert len(merged) == 2
+    assert merged[-1] == close_only
+
+
+def test_merge_replaces_same_day_close_only_row() -> None:
+    base = [(1772433000, 3980.0, 3980.0, 3980.0, 3980.0, 0.0)]
+    chart_row = (1772433000, 3944.0, 3990.0, 3930.0, 3980.0, 1500.0)
+    merged = yp.merge_daily_rows_with_provisional(base, chart_row)
+    assert merged == [chart_row]
+
+
+def test_merge_keeps_same_day_close_only_when_provisional_is_close_only() -> None:
+    base = [
+        (1772150400, 3900.0, 3950.0, 3890.0, 3940.0, 1000.0),
+        (1772433000, 3980.0, 3980.0, 3980.0, 3980.0, 0.0),
+    ]
+    close_only = (1772433000, 3981.0, 3981.0, 3981.0, 3981.0, 0.0)
+    merged = yp.merge_daily_rows_with_provisional(base, close_only)
+    assert merged == base
+
+
 def test_split_gap_adjustment_scales_forward_split_rows() -> None:
     rows = [
         (1, 100.0, 110.0, 95.0, 100.0, 10.0),

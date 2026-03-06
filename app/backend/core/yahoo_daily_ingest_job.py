@@ -6,8 +6,8 @@ import threading
 from datetime import datetime
 
 from app.backend.core.jobs import job_manager
+from app.backend.services.jpx_calendar import get_jpx_session_info, jst_now
 from app.backend.services.yahoo_daily_ingest import ingest_latest_provisional_daily_rows
-from app.utils.date_utils import jst_now
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +50,11 @@ def _daily_ingest_max_codes() -> int | None:
     return value if value > 0 else None
 
 
-def _daily_ingest_time_jst() -> tuple[int, int]:
-    raw = str(os.getenv("MEEMEE_YF_DAILY_INGEST_TIME_JST") or "12:20").strip()
+def _daily_ingest_time_jst(now: datetime | None = None) -> tuple[int, int]:
+    raw = str(os.getenv("MEEMEE_YF_DAILY_INGEST_TIME_JST") or "").strip()
+    if not raw:
+        session = get_jpx_session_info(now or jst_now())
+        raw = session.yahoo_persist_after_jst
     try:
         hour_text, minute_text = raw.split(":", 1)
         hour = max(0, min(23, int(hour_text)))
@@ -141,9 +144,10 @@ def _scheduler_loop() -> None:
     while not _SCHEDULER_STOP_EVENT.is_set():
         try:
             now = jst_now()
-            run_hour, run_minute = _daily_ingest_time_jst()
+            session = get_jpx_session_info(now)
+            run_hour, run_minute = _daily_ingest_time_jst(now)
             today_key = int(now.strftime("%Y%m%d"))
-            due = (now.hour, now.minute) >= (run_hour, run_minute)
+            due = session.is_trading_day and (now.hour, now.minute) >= (run_hour, run_minute)
             if due and today_key not in submitted_dates:
                 job_id = job_manager.submit(
                     YF_DAILY_INGEST_JOB_TYPE,

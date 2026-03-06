@@ -35,7 +35,7 @@ def _compute_volume_ratio(volumes: list[float], period: int, include_latest: boo
     latest = volumes[-1]
     return latest / avg
 
-def _count_streak(values: list[float], averages: list[float | None], direction: str) -> int | None:
+def count_streak(values: list[float], averages: list[float | None], direction: str) -> int | None:
     count = 0
     opposite = 0
     has_values = False
@@ -102,7 +102,7 @@ def _normalize_monthly_rows(rows: list[tuple], as_of_month: int | None) -> list[
         by_month[month_int] = row
     return [by_month[key] for key in sorted(by_month.keys())]
 
-def _format_month_label(value: int | str | None) -> str | None:
+def format_month_label(value: int | str | None) -> str | None:
     if value is None:
         return None
     try:
@@ -113,7 +113,7 @@ def _format_month_label(value: int | str | None) -> str | None:
     except (ValueError, TypeError):
         return None
 
-def _format_daily_label(value: int | None) -> str | None:
+def format_daily_label(value: int | None) -> str | None:
     if value is None:
         return None
     raw = str(int(value)).zfill(8)
@@ -225,8 +225,8 @@ def score_weekly_candidate(code: str, name: str, rows: list[tuple], config: dict
     include_latest = common.get("volume_ratio_mode", "exclude_latest") == "include_latest"
     volume_ratio = _compute_volume_ratio(volumes, volume_period, include_latest)
 
-    up7 = _count_streak(closes, ma7_series, "up")
-    down7 = _count_streak(closes, ma7_series, "down")
+    up7 = count_streak(closes, ma7_series, "up")
+    down7 = count_streak(closes, ma7_series, "down")
 
     trigger_lookback = int(common.get("trigger_lookback", 20))
     recent_high, recent_low = _calc_recent_bounds(highs, lows, trigger_lookback)
@@ -478,7 +478,7 @@ def score_weekly_candidate(code: str, name: str, rows: list[tuple], config: dict
         }
     }
 
-    as_of_label = _format_daily_label(dates[-1])
+    as_of_label = format_daily_label(dates[-1])
     series_bars = int(common.get("rank_series_bars", 60))
     series_rows = rows[-series_bars:] if series_bars > 0 else rows
     series = [
@@ -607,7 +607,7 @@ def score_monthly_candidate(code: str, name: str, rows: list[tuple], config: dic
     return {
         "code": code,
         "name": name or code,
-        "as_of": _format_month_label(box["end"]),
+        "as_of": format_month_label(box["end"]),
         "total_score": round(score, 3),
         "reasons": [label for _, label in reasons[:max_reasons]],
         "levels": levels,
@@ -616,16 +616,16 @@ def score_monthly_candidate(code: str, name: str, rows: list[tuple], config: dic
             "break_down_pct": break_down_pct
         },
         "box_info": {
-            "box_start": _format_month_label(box["start"]),
-            "box_end": _format_month_label(box["end"]),
+            "box_start": format_month_label(box["start"]),
+            "box_end": format_month_label(box["end"]),
             "box_upper_body": upper,
             "box_lower_body": lower,
             "box_months": months,
             "wild_box_flag": box["wild"],
             "range_pct": box["range_pct"]
         },
-        "box_start": _format_month_label(box["start"]),
-        "box_end": _format_month_label(box["end"]),
+        "box_start": format_month_label(box["start"]),
+        "box_end": format_month_label(box["end"]),
         "box_upper_body": upper,
         "box_lower_body": lower,
         "box_months": months,

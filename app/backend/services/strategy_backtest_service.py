@@ -207,6 +207,8 @@ def _close_units(
         "code": position.code,
         "side": position.side,
         "qty": int(quantity),
+        "sector33_code": position.sector33_code,
+        "is_hedge": bool(position.is_hedge),
         "entry_dt": int(position.entry_dt),
         "exit_dt": int(dt),
         "entry_date": _dt_to_date(position.entry_dt).isoformat() if _dt_to_date(position.entry_dt) else None,
@@ -219,6 +221,44 @@ def _close_units(
         "setup_id": str(position.setup_id),
     }
     return event, float(net) * float(quantity)
+
+
+def _build_trade_group_breakdown(
+    trades_df: pd.DataFrame,
+    *,
+    group_col: str,
+    unknown_label: str = "unknown",
+) -> dict[str, dict[str, Any]]:
+    if trades_df.empty or group_col not in trades_df.columns:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for group_key, group in trades_df.groupby(group_col, dropna=False):
+        label = str(group_key).strip() if group_key is not None and str(group_key).strip() else unknown_label
+        trades = int(len(group))
+        wins = int((group["ret_net"] > 0).sum()) if "ret_net" in group.columns else 0
+        avg_ret = float(group["ret_net"].mean()) if "ret_net" in group.columns and trades > 0 else 0.0
+        ret_net_sum = (
+            float((group["ret_net"] * group["qty"]).sum())
+            if {"ret_net", "qty"}.issubset(group.columns)
+            else 0.0
+        )
+        pos_ret_sum = float(group.loc[group["ret_net"] > 0, "ret_net"].sum()) if "ret_net" in group.columns else 0.0
+        neg_ret_sum = float(group.loc[group["ret_net"] < 0, "ret_net"].sum()) if "ret_net" in group.columns else 0.0
+        profit_factor = (pos_ret_sum / abs(neg_ret_sum)) if neg_ret_sum < 0 else None
+        out[label] = {
+            "count": int(trades),
+            "trades": int(trades),
+            "wins": int(wins),
+            "losses": int(max(0, trades - wins)),
+            "win_rate": float(wins / trades) if trades > 0 else 0.0,
+            "avg_ret_net": float(avg_ret),
+            "ret_net_sum": float(ret_net_sum),
+            "sum_ret_net": float(ret_net_sum),
+            "pos_ret_sum": float(pos_ret_sum),
+            "neg_ret_sum": float(neg_ret_sum),
+            "profit_factor": float(profit_factor) if profit_factor is not None else None,
+        }
+    return out
 
 
 def _entry_setup_id(row: dict[str, Any], side: str) -> str:
@@ -1202,10 +1242,15 @@ def _simulate(
         total_realized = float(cum_realized)
         side_breakdown: dict[str, dict[str, Any]] = {}
         setup_breakdown: dict[str, dict[str, Any]] = {}
+        code_breakdown: dict[str, dict[str, Any]] = {}
+        sector_breakdown: dict[str, dict[str, Any]] = {}
+        hedge_breakdown: dict[str, dict[str, Any]] = {}
         yearly_trade_payload: list[dict[str, Any]] = []
     else:
         trades_df["ret_net"] = trades_df["ret_net"].astype(float)
         trades_df["qty"] = trades_df["qty"].astype(float)
+        trades_df["is_hedge"] = trades_df["is_hedge"].astype(bool)
+        trades_df["hedge_bucket"] = trades_df["is_hedge"].map(lambda v: "hedge" if bool(v) else "core")
         trade_count = int(len(trades_df))
         win_rate = float((trades_df["ret_net"] > 0).mean())
         avg_ret = float(trades_df["ret_net"].mean())
@@ -1213,23 +1258,19 @@ def _simulate(
         neg_sum = float(trades_df.loc[trades_df["ret_net"] < 0, "ret_net"].sum())
         unit_turnover = float(trades_df["qty"].sum())
         total_realized = float((trades_df["ret_net"] * trades_df["qty"]).sum())
-        side_breakdown = {}
-        for side, g in trades_df.groupby("side"):
-            side_breakdown[str(side)] = {
-                "count": int(len(g)),
-                "win_rate": float((g["ret_net"] > 0).mean()),
-                "avg_ret_net": float(g["ret_net"].mean()),
-                "sum_ret_net": float((g["ret_net"] * g["qty"]).sum()),
-            }
-        setup_breakdown = {}
-        if "setup_id" in trades_df.columns:
-            for setup_id, g in trades_df.groupby("setup_id"):
-                setup_breakdown[str(setup_id)] = {
-                    "count": int(len(g)),
-                    "win_rate": float((g["ret_net"] > 0).mean()),
-                    "avg_ret_net": float(g["ret_net"].mean()),
-                    "sum_ret_net": float((g["ret_net"] * g["qty"]).sum()),
-                }
+        side_breakdown = _build_trade_group_breakdown(trades_df, group_col="side", unknown_label="unknown")
+        setup_breakdown = _build_trade_group_breakdown(trades_df, group_col="setup_id", unknown_label="unknown")
+        code_breakdown = _build_trade_group_breakdown(trades_df, group_col="code", unknown_label="unknown")
+        sector_breakdown = _build_trade_group_breakdown(
+            trades_df,
+            group_col="sector33_code",
+            unknown_label="unknown",
+        )
+        hedge_breakdown = _build_trade_group_breakdown(
+            trades_df,
+            group_col="hedge_bucket",
+            unknown_label="unknown",
+        )
         yearly_trade_payload = []
         if "exit_date" in trades_df.columns:
             trade_year_df = trades_df.copy()
@@ -1273,6 +1314,9 @@ def _simulate(
                 "final_equity_unit": float(daily_rows[-1]["equity_unit"]) if daily_rows else 0.0,
                 "side_breakdown": side_breakdown,
                 "setup_breakdown": setup_breakdown,
+                "code_breakdown": code_breakdown,
+                "sector_breakdown": sector_breakdown,
+                "hedge_breakdown": hedge_breakdown,
             },
         "monthly": monthly_payload,
         "yearly_daily": yearly_daily_payload,
@@ -1499,6 +1543,20 @@ def _ensure_walkforward_gate_schema(conn) -> None:
     )
 
 
+def _ensure_walkforward_research_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS strategy_walkforward_research_daily (
+            snapshot_date INTEGER PRIMARY KEY,
+            created_at TIMESTAMP,
+            source_run_id TEXT,
+            source_finished_at TIMESTAMP,
+            report_json TEXT
+        );
+        """
+    )
+
+
 def _save_walkforward_gate_report(
     conn,
     *,
@@ -1705,6 +1763,11 @@ def _build_month_segments(frame: pd.DataFrame) -> list[dict[str, Any]]:
 
 def _compact_metrics(payload: dict[str, Any]) -> dict[str, Any]:
     metrics = payload.get("metrics") or {}
+    side_breakdown = metrics.get("side_breakdown") if isinstance(metrics.get("side_breakdown"), dict) else {}
+    setup_breakdown = metrics.get("setup_breakdown") if isinstance(metrics.get("setup_breakdown"), dict) else {}
+    code_breakdown = metrics.get("code_breakdown") if isinstance(metrics.get("code_breakdown"), dict) else {}
+    sector_breakdown = metrics.get("sector_breakdown") if isinstance(metrics.get("sector_breakdown"), dict) else {}
+    hedge_breakdown = metrics.get("hedge_breakdown") if isinstance(metrics.get("hedge_breakdown"), dict) else {}
     return {
         "days": int(metrics.get("days") or 0),
         "trade_events": int(metrics.get("trade_events") or 0),
@@ -1714,6 +1777,104 @@ def _compact_metrics(payload: dict[str, Any]) -> dict[str, Any]:
         "max_drawdown_unit": _safe_float(metrics.get("max_drawdown_unit")),
         "total_realized_unit_pnl": _safe_float(metrics.get("total_realized_unit_pnl")),
         "final_equity_unit": _safe_float(metrics.get("final_equity_unit")),
+        "side_breakdown": side_breakdown,
+        "setup_breakdown": setup_breakdown,
+        "code_breakdown": code_breakdown,
+        "sector_breakdown": sector_breakdown,
+        "hedge_breakdown": hedge_breakdown,
+    }
+
+
+def _aggregate_attribution_dimension(
+    windows: list[dict[str, Any]],
+    *,
+    breakdown_key: str,
+) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, float]] = {}
+    for row in windows:
+        if str(row.get("status")) != "success":
+            continue
+        metrics = (row.get("test") or {}).get("metrics") or {}
+        breakdown = metrics.get(breakdown_key) if isinstance(metrics, dict) else None
+        if not isinstance(breakdown, dict):
+            continue
+        for raw_key, raw_stats in breakdown.items():
+            if not isinstance(raw_stats, dict):
+                continue
+            key = str(raw_key).strip() or "unknown"
+            trades = int(raw_stats.get("trades") or raw_stats.get("count") or 0)
+            if trades <= 0:
+                continue
+            wins_raw = raw_stats.get("wins")
+            wins = int(wins_raw) if wins_raw is not None else int(round(float(raw_stats.get("win_rate") or 0.0) * trades))
+            avg_ret = _safe_float(raw_stats.get("avg_ret_net")) or 0.0
+            ret_net_sum = _safe_float(raw_stats.get("ret_net_sum"))
+            if ret_net_sum is None:
+                ret_net_sum = _safe_float(raw_stats.get("sum_ret_net")) or 0.0
+            pos_ret_sum = _safe_float(raw_stats.get("pos_ret_sum")) or 0.0
+            neg_ret_sum = _safe_float(raw_stats.get("neg_ret_sum")) or 0.0
+            slot = grouped.setdefault(
+                key,
+                {
+                    "trades": 0.0,
+                    "wins": 0.0,
+                    "ret_net_sum": 0.0,
+                    "avg_ret_numer": 0.0,
+                    "pos_ret_sum": 0.0,
+                    "neg_ret_sum": 0.0,
+                },
+            )
+            slot["trades"] += float(trades)
+            slot["wins"] += float(max(0, min(trades, wins)))
+            slot["ret_net_sum"] += float(ret_net_sum)
+            slot["avg_ret_numer"] += float(avg_ret) * float(trades)
+            slot["pos_ret_sum"] += float(pos_ret_sum)
+            slot["neg_ret_sum"] += float(neg_ret_sum)
+
+    rows: list[dict[str, Any]] = []
+    for key, slot in grouped.items():
+        trades = int(slot["trades"])
+        wins = int(slot["wins"])
+        avg_ret = (slot["avg_ret_numer"] / slot["trades"]) if slot["trades"] > 0 else 0.0
+        neg_ret_sum = float(slot["neg_ret_sum"])
+        pos_ret_sum = float(slot["pos_ret_sum"])
+        profit_factor = (pos_ret_sum / abs(neg_ret_sum)) if neg_ret_sum < 0 else None
+        rows.append(
+            {
+                "key": str(key),
+                "trades": int(trades),
+                "wins": int(wins),
+                "win_rate": float(wins / trades) if trades > 0 else None,
+                "ret_net_sum": float(slot["ret_net_sum"]),
+                "avg_ret_net": float(avg_ret),
+                "profit_factor": float(profit_factor) if profit_factor is not None else None,
+            }
+        )
+    rows.sort(key=lambda item: (float(item.get("ret_net_sum") or 0.0), str(item.get("key") or "")), reverse=True)
+    return rows
+
+
+def _slice_top_bottom(rows: list[dict[str, Any]], *, limit: int = 8) -> dict[str, list[dict[str, Any]]]:
+    safe_limit = max(1, int(limit))
+    top = rows[:safe_limit]
+    bottom_sorted = sorted(rows, key=lambda item: (float(item.get("ret_net_sum") or 0.0), str(item.get("key") or "")))
+    bottom = bottom_sorted[:safe_limit]
+    return {"top": top, "bottom": bottom}
+
+
+def _build_walkforward_attribution(windows: list[dict[str, Any]]) -> dict[str, Any]:
+    code_rows = _aggregate_attribution_dimension(windows, breakdown_key="code_breakdown")
+    sector_rows = _aggregate_attribution_dimension(windows, breakdown_key="sector_breakdown")
+    setup_rows = _aggregate_attribution_dimension(windows, breakdown_key="setup_breakdown")
+    side_rows = _aggregate_attribution_dimension(windows, breakdown_key="side_breakdown")
+    hedge_rows = _aggregate_attribution_dimension(windows, breakdown_key="hedge_breakdown")
+    return {
+        "code": {**_slice_top_bottom(code_rows), "rows": code_rows},
+        "sector33_code": {**_slice_top_bottom(sector_rows), "rows": sector_rows},
+        "setup_id": {**_slice_top_bottom(setup_rows), "rows": setup_rows},
+        "setup": {**_slice_top_bottom(setup_rows), "rows": setup_rows},
+        "side": {**_slice_top_bottom(side_rows), "rows": side_rows},
+        "hedge": {**_slice_top_bottom(hedge_rows), "rows": hedge_rows},
     }
 
 
@@ -1902,6 +2063,7 @@ def run_strategy_walkforward(
         windows_payload.append(payload)
 
     summary = _summarize_walkforward_windows(windows_payload)
+    attribution = _build_walkforward_attribution(windows_payload)
     finished_at = datetime.now(tz=timezone.utc)
     report = {
         "run_id": run_id,
@@ -1930,6 +2092,7 @@ def run_strategy_walkforward(
         },
         "config": asdict(cfg),
         "summary": summary,
+        "attribution": attribution,
         "windows": windows_payload,
     }
     report["dry_run"] = bool(dry_run)
@@ -2119,5 +2282,184 @@ def get_latest_strategy_walkforward_gate() -> dict[str, Any]:
             "thresholds": thresholds_json,
             "report": report_json,
             "note": row[7],
+        },
+    }
+
+
+def _extract_attribution_rows(report: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    attribution = report.get("attribution") if isinstance(report.get("attribution"), dict) else {}
+    section = attribution.get(key) if isinstance(attribution, dict) else {}
+    rows = section.get("rows") if isinstance(section, dict) else None
+    if not isinstance(rows, list):
+        return []
+    return [item for item in rows if isinstance(item, dict)]
+
+
+def _build_walkforward_research_snapshot(
+    *,
+    snapshot_date: int,
+    source_run_id: str,
+    source_finished_at: datetime | None,
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    setup_rows = _extract_attribution_rows(report, "setup")
+    hedge_rows = _extract_attribution_rows(report, "hedge")
+    window_rows = report.get("windows") if isinstance(report.get("windows"), list) else []
+
+    rejected: dict[str, int] = {}
+    for row in window_rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("status")) == "success":
+            continue
+        reason = str(row.get("error") or row.get("status") or "unknown")
+        rejected[reason] = int(rejected.get(reason, 0) + 1)
+
+    core_ret = 0.0
+    hedge_ret = 0.0
+    for row in hedge_rows:
+        key = str(row.get("key") or "").lower()
+        ret_sum = _safe_float(row.get("ret_net_sum")) or 0.0
+        if key == "hedge":
+            hedge_ret += float(ret_sum)
+        elif key == "core":
+            core_ret += float(ret_sum)
+    total_ret = float(core_ret + hedge_ret)
+    hedge_ratio = (float(hedge_ret / total_ret) if total_ret != 0 else None)
+
+    adopted_setups = [
+        {
+            "setup_id": str(row.get("key") or ""),
+            "trades": int(row.get("trades") or 0),
+            "ret_net_sum": float(_safe_float(row.get("ret_net_sum")) or 0.0),
+            "win_rate": _safe_float(row.get("win_rate")),
+            "profit_factor": _safe_float(row.get("profit_factor")),
+        }
+        for row in sorted(
+            setup_rows,
+            key=lambda item: float(_safe_float(item.get("ret_net_sum")) or 0.0),
+            reverse=True,
+        )[:8]
+    ]
+
+    rejected_reasons = [
+        {"reason": reason, "count": int(count)}
+        for reason, count in sorted(rejected.items(), key=lambda item: (-int(item[1]), str(item[0])))
+    ]
+
+    return {
+        "snapshot_date": int(snapshot_date),
+        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+        "source_run_id": str(source_run_id),
+        "source_finished_at": source_finished_at.isoformat() if isinstance(source_finished_at, datetime) else None,
+        "summary": report.get("summary") if isinstance(report.get("summary"), dict) else {},
+        "adopted_setups": adopted_setups,
+        "rejected_reasons": rejected_reasons,
+        "hedge_contribution": {
+            "core_ret_net_sum": float(core_ret),
+            "hedge_ret_net_sum": float(hedge_ret),
+            "total_ret_net_sum": float(total_ret),
+            "hedge_share": float(hedge_ratio) if hedge_ratio is not None else None,
+        },
+    }
+
+
+def save_daily_walkforward_research_snapshot(*, snapshot_date: int | None = None) -> dict[str, Any]:
+    snap_date = int(snapshot_date) if snapshot_date is not None else int(datetime.now(tz=timezone.utc).strftime("%Y%m%d"))
+    with get_conn() as conn:
+        _ensure_walkforward_schema(conn)
+        _ensure_walkforward_research_schema(conn)
+        row = conn.execute(
+            """
+            SELECT
+                run_id,
+                finished_at,
+                report_json
+            FROM strategy_walkforward_runs
+            ORDER BY finished_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if not row:
+            return {
+                "saved": False,
+                "snapshot_date": int(snap_date),
+                "source_run_id": None,
+                "reason": "no_walkforward_run",
+            }
+        source_run_id = str(row[0] or "")
+        source_finished_at = row[1] if isinstance(row[1], datetime) else None
+        try:
+            report_json = json.loads(row[2]) if row[2] else {}
+        except Exception:
+            report_json = {}
+        snapshot = _build_walkforward_research_snapshot(
+            snapshot_date=int(snap_date),
+            source_run_id=source_run_id,
+            source_finished_at=source_finished_at,
+            report=report_json if isinstance(report_json, dict) else {},
+        )
+        conn.execute(
+            """
+            INSERT INTO strategy_walkforward_research_daily (
+                snapshot_date,
+                created_at,
+                source_run_id,
+                source_finished_at,
+                report_json
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(snapshot_date) DO UPDATE SET
+                created_at = excluded.created_at,
+                source_run_id = excluded.source_run_id,
+                source_finished_at = excluded.source_finished_at,
+                report_json = excluded.report_json
+            """,
+            [
+                int(snap_date),
+                datetime.now(tz=timezone.utc),
+                source_run_id,
+                source_finished_at,
+                json.dumps(snapshot, ensure_ascii=False),
+            ],
+        )
+    return {
+        "saved": True,
+        "snapshot_date": int(snap_date),
+        "source_run_id": source_run_id,
+        "report": snapshot,
+    }
+
+
+def get_latest_strategy_walkforward_research_snapshot() -> dict[str, Any]:
+    with get_conn() as conn:
+        _ensure_walkforward_research_schema(conn)
+        row = conn.execute(
+            """
+            SELECT
+                snapshot_date,
+                created_at,
+                source_run_id,
+                source_finished_at,
+                report_json
+            FROM strategy_walkforward_research_daily
+            ORDER BY snapshot_date DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    if not row:
+        return {"has_snapshot": False, "latest": None}
+    try:
+        report_json = json.loads(row[4]) if row[4] else {}
+    except Exception:
+        report_json = {}
+    return {
+        "has_snapshot": True,
+        "latest": {
+            "snapshot_date": int(row[0]) if row[0] is not None else None,
+            "created_at": row[1],
+            "source_run_id": row[2],
+            "source_finished_at": row[3],
+            "report": report_json,
         },
     }

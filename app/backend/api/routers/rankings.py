@@ -32,6 +32,54 @@ def get_rankings(
     return rankings_cache.get_rankings(tf, which, dir, limit, mode=mode, risk_mode=risk_mode)
 
 
+@router.get("/rankings/multi")
+def get_rankings_multi(
+    which: str = Query("latest"),
+    dir: str = Query("up"),
+    mode: str = Query("hybrid"),
+    risk_mode: str = Query("balanced"),
+    limit: int = Query(50, ge=1, le=200),
+):
+    mode = mode.lower()
+    risk_mode = risk_mode.lower()
+    if which not in ("latest", "prev"):
+        raise HTTPException(status_code=400, detail="which must be latest/prev")
+    if dir not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="dir must be up/down")
+    if mode not in ("rule", "ml", "hybrid", "turn"):
+        raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid/turn")
+    if risk_mode not in ("defensive", "balanced", "aggressive"):
+        raise HTTPException(status_code=400, detail="risk_mode must be defensive/balanced/aggressive")
+
+    items_by_tf: dict[str, list[dict]] = {"D": [], "W": [], "M": []}
+    meta_by_tf: dict[str, dict[str, str | int | None]] = {}
+    errors: list[str] = []
+    for tf in ("D", "W", "M"):
+        try:
+            payload = rankings_cache.get_rankings(tf, which, dir, limit, mode=mode, risk_mode=risk_mode)
+            items_by_tf[tf] = payload.get("items", []) if isinstance(payload, dict) else []
+            if isinstance(payload, dict):
+                meta_by_tf[tf] = {
+                    "pred_dt": payload.get("pred_dt"),
+                    "model_version": payload.get("model_version"),
+                    "last_updated": payload.get("last_updated"),
+                }
+        except Exception as exc:
+            errors.append(f"{tf}:{exc}")
+            items_by_tf[tf] = []
+
+    return {
+        "which": which,
+        "dir": dir,
+        "mode": mode,
+        "risk_mode": risk_mode,
+        "limit": limit,
+        "itemsByTf": items_by_tf,
+        "metaByTf": meta_by_tf,
+        "errors": errors,
+    }
+
+
 @router.get("/rankings/trace/last-qualified")
 def get_rankings_last_qualified_trace(
     tf: str = Query("D"),

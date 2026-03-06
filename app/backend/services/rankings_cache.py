@@ -7,9 +7,11 @@ import json
 import math
 import logging
 import os
+import time
 from pathlib import Path
-from threading import Lock
+from threading import Condition, Lock
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import duckdb
 
@@ -18,6 +20,8 @@ from app.db.session import get_conn, is_transient_duckdb_error
 from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.domain.screening.metrics import _calc_liquidity_20d
 from app.backend.services.edinet_rank_features import load_edinet_rank_features
+from app.backend.services.bar_aggregation import merge_monthly_rows_with_daily
+from app.backend.services.jpx_calendar import get_intraday_refresh_end_minute, get_jpx_session_info
 from app.backend.services.ml_config import load_ml_config
 from app.backend.services.ml_service import select_top_n_ml
 from app.backend.services.ranking_analysis_quality import get_latest_prob_up_gates
@@ -25,6 +29,7 @@ from app.backend.services import swing_plan_service
 from app.backend.services.yahoo_provisional import (
     get_provisional_daily_rows_from_spark,
     merge_daily_rows_with_provisional,
+    normalize_date_key,
 )
 
 RankTimeframe = Literal["D", "W", "M"]
@@ -36,16 +41,25 @@ RankRiskMode = Literal["defensive", "balanced", "aggressive"]
 _CACHE: dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]] = {}
 _LAST_UPDATED: datetime | None = None
 _LAST_DB_MTIME: float | None = None
+_LAST_CACHE_DAILY_ASOF_INT: int | None = None
+_LAST_CACHE_PAN_DAILY_ASOF_INT: int | None = None
 _LOCK = Lock()
+_REFRESH_COND = Condition(_LOCK)
+_REFRESH_IN_PROGRESS = False
+_REFRESH_LAST_ERROR: Exception | None = None
 logger = logging.getLogger(__name__)
 _DAILY_PROB_CALIB_CACHE: dict[tuple[int, RankDir], dict[str, Any]] = {}
+_DAILY_PROB_CALIB_CACHE_LOCK = Lock()
 _ASOF_BASE_CACHE_LOCK = Lock()
 _ASOF_BASE_CACHE: OrderedDict[int, dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]] = OrderedDict()
-_ASOF_BASE_CACHE_MAX = 4
+_ASOF_BASE_CACHE_MAX = max(8, int(os.getenv("MEEMEE_RANK_ASOF_BASE_CACHE_MAX", "32")))
 _TRACE_CACHE_LOCK = Lock()
 _TRACE_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
 _TRACE_CACHE_MAX = 16
 _YF_PROVISIONAL_RANK_REFRESH_SEC = max(30, int(os.getenv("MEEMEE_YF_PROVISIONAL_RANK_REFRESH_SEC", "300")))
+_JST = ZoneInfo("Asia/Tokyo")
+_INTRADAY_REFRESH_START_MIN = 9 * 60
+_INTRADAY_REFRESH_END_MIN = 15 * 60 + 40
 
 _DAILY_LIMIT = 1260
 _MONTHLY_LIMIT = 60
@@ -90,8 +104,11 @@ _ENTRY_PENALTY_PATTERN_S3_LATE_BREAKOUT = 0.02
 _ENTRY_BONUS_PATTERN_D1_SHORT_BREAKDOWN = 0.02
 _ENTRY_BONUS_PATTERN_D2_SHORT_MIXED_FAR = 0.015
 _ENTRY_BONUS_PATTERN_D3_SHORT_NA_BELOW = 0.01
+_ENTRY_BONUS_PATTERN_D4_SHORT_DOUBLE_TOP = 0.018
+_ENTRY_BONUS_PATTERN_D5_SHORT_HEAD_SHOULDERS = 0.02
 _ENTRY_PENALTY_PATTERN_DTRAP_STACKDOWN_FAR = 0.025
 _ENTRY_PENALTY_PATTERN_DTRAP_OVERHEAT_MOMENTUM = 0.03
+_ENTRY_PENALTY_PATTERN_DTRAP_TOP_FAKEOUT = 0.025
 _MONTHLY_ABS_GATE_DEFAULT = 0.30
 _MONTHLY_SIDE_GATE_DEFAULT = 0.30
 _MONTHLY_ABS_GATE_MIN = 0.15
@@ -117,6 +134,7 @@ _DAILY_ENTRY_SCORE_GATE_STRICT = 0.85
 _DAILY_FALLBACK_HYBRID_SCORE_GATE_UP = 0.79
 _DAILY_FALLBACK_HYBRID_SCORE_GATE_DOWN = 0.80
 _DAILY_FALLBACK_TURN_SCORE_GATE_UP = 0.76
+_DAILY_FALLBACK_TURN_SCORE_GATE_DOWN = 0.78
 _DAILY_RULE_GATE_MIN_PROB = 0.53
 _DAILY_RULE_GATE_MIN_BREAKOUT = 0.52
 _DAILY_RULE_GATE_MIN_ENTRY_SCORE = 0.48
@@ -152,6 +170,17 @@ _EDINET_SCORE_BONUS_SCALE = 0.06
 _EDINET_MONITOR_MIN_SAMPLES = 20
 _RESEARCH_PRIOR_CACHE_LOCK = Lock()
 _RESEARCH_PRIOR_CACHE: dict[str, Any] = {"loaded_at": None, "payload": None}
+_MONTHLY_EDINET_AUDIT_PERSIST_COOLDOWN_SEC = max(
+    30,
+    int(os.getenv("MEEMEE_EDINET_AUDIT_PERSIST_COOLDOWN_SEC", "300")),
+)
+_MONTHLY_EDINET_AUDIT_REALIZED_REFRESH_COOLDOWN_SEC = max(
+    60,
+    int(os.getenv("MEEMEE_EDINET_AUDIT_REALIZED_REFRESH_COOLDOWN_SEC", "900")),
+)
+_MONTHLY_EDINET_AUDIT_LOCK = Lock()
+_MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO: dict[tuple[int, str, str, str, str, str], float] = {}
+_MONTHLY_EDINET_AUDIT_LAST_REALIZED_REFRESH_MONO = 0.0
 _EDINET_ITEM_DEFAULTS: dict[str, Any] = {
     "edinetStatus": None,
     "edinetMapped": None,
@@ -296,18 +325,78 @@ def _as_of_int_to_utc_epoch(value: int) -> int:
     return int(dt.timestamp())
 
 
-def _as_of_month_int_to_utc_epoch(value: int) -> int:
-    year = value // 10_000
-    month = (value // 100) % 100
-    day = value % 100
-    dt = datetime(year, month, day, tzinfo=timezone.utc)
-    return int(dt.timestamp())
+# Alias: identical implementation to _as_of_int_to_utc_epoch.
+_as_of_month_int_to_utc_epoch = _as_of_int_to_utc_epoch
 
 
 def _db_mtime() -> float | None:
     try:
         return os.path.getmtime(str(core_config.DB_PATH))
     except OSError:
+        return None
+
+
+def _is_jpx_intraday_window(now_utc: datetime | None = None) -> bool:
+    now = now_utc if isinstance(now_utc, datetime) else datetime.now(timezone.utc)
+    now_jst = now.astimezone(_JST)
+    session = get_jpx_session_info(now_jst)
+    if not session.is_trading_day:
+        return False
+    now_minutes = now_jst.hour * 60 + now_jst.minute
+    refresh_end_min = min(_INTRADAY_REFRESH_END_MIN, get_intraday_refresh_end_minute(now_jst))
+    return _INTRADAY_REFRESH_START_MIN <= now_minutes <= refresh_end_min
+
+
+def _should_intraday_provisional_timer_refresh() -> bool:
+    if not _is_jpx_intraday_window():
+        return False
+    today_jst = int(datetime.now(_JST).strftime("%Y%m%d"))
+    latest_pan_cached = _LAST_CACHE_PAN_DAILY_ASOF_INT
+    # Once PAN close data for today is in cache, age-based provisional refresh is unnecessary.
+    if latest_pan_cached is not None and latest_pan_cached >= today_jst:
+        return False
+    return True
+
+
+def _resolve_latest_daily_asof_int(cache: dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]) -> int | None:
+    latest: int | None = None
+    for which in ("latest", "prev"):
+        for direction in ("up", "down"):
+            candidates = cache.get(("D", which, direction)) or []
+            for item in candidates:
+                as_of_int = _iso_date_to_int(str(item.get("asOf") or ""))
+                if as_of_int is None:
+                    continue
+                if latest is None or as_of_int > latest:
+                    latest = as_of_int
+    return latest
+
+
+def _resolve_latest_pan_daily_asof_int(conn: duckdb.DuckDBPyConnection) -> int | None:
+    try:
+        row = conn.execute(
+            """
+            SELECT
+                MAX(
+                    CASE
+                        WHEN date BETWEEN 19000101 AND 20991231 THEN date
+                        WHEN date >= 1000000000000 THEN CAST(strftime(to_timestamp(date / 1000), '%Y%m%d') AS INTEGER)
+                        WHEN date >= 1000000000 THEN CAST(strftime(to_timestamp(date), '%Y%m%d') AS INTEGER)
+                        ELSE NULL
+                    END
+                ) AS max_pan_ymd
+            FROM daily_bars
+            WHERE COALESCE(source, 'pan') <> 'yahoo'
+            """
+        ).fetchone()
+    except Exception as exc:
+        logger.debug("failed to resolve latest PAN asOf from daily_bars: %s", exc)
+        return None
+    if not row or row[0] is None:
+        return None
+    try:
+        return int(row[0])
+    except Exception:
         return None
 
 
@@ -322,7 +411,7 @@ def _cache_needs_refresh(db_mtime: float | None) -> bool:
     }
     if yf_enabled and _LAST_UPDATED is not None:
         age_sec = (datetime.now(timezone.utc) - _LAST_UPDATED).total_seconds()
-        if age_sec >= float(_YF_PROVISIONAL_RANK_REFRESH_SEC):
+        if age_sec >= float(_YF_PROVISIONAL_RANK_REFRESH_SEC) and _should_intraday_provisional_timer_refresh():
             return True
     if db_mtime is None:
         return False
@@ -331,12 +420,66 @@ def _cache_needs_refresh(db_mtime: float | None) -> bool:
     return db_mtime > (_LAST_DB_MTIME + 1e-6)
 
 
-def _ensure_cache_fresh() -> None:
+def _store_built_cache(
+    cache: dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]],
+    *,
+    refreshed_at: datetime,
+    db_mtime: float | None,
+    latest_pan_daily_asof_int: int | None,
+) -> None:
+    global _CACHE, _LAST_UPDATED, _LAST_DB_MTIME, _LAST_CACHE_DAILY_ASOF_INT, _LAST_CACHE_PAN_DAILY_ASOF_INT
+    latest_daily_asof_int = _resolve_latest_daily_asof_int(cache)
+    with _LOCK:
+        _CACHE = cache
+        _LAST_UPDATED = refreshed_at
+        _LAST_DB_MTIME = db_mtime
+        _LAST_CACHE_DAILY_ASOF_INT = latest_daily_asof_int
+        _LAST_CACHE_PAN_DAILY_ASOF_INT = latest_pan_daily_asof_int
+    with _ASOF_BASE_CACHE_LOCK:
+        _ASOF_BASE_CACHE.clear()
+    with _TRACE_CACHE_LOCK:
+        _TRACE_CACHE.clear()
+
+
+def _refresh_cache_singleflight(*, force: bool) -> None:
+    global _REFRESH_IN_PROGRESS, _REFRESH_LAST_ERROR
     db_mtime = _db_mtime()
     with _LOCK:
-        needs_refresh = _cache_needs_refresh(db_mtime)
-    if needs_refresh:
-        refresh_cache()
+        if not force and not _cache_needs_refresh(db_mtime):
+            return
+        while _REFRESH_IN_PROGRESS:
+            _REFRESH_COND.wait()
+            # Propagate leader failure to concurrent waiters.
+            if _REFRESH_LAST_ERROR is not None:
+                raise _REFRESH_LAST_ERROR
+            db_mtime = _db_mtime()
+            if not force and not _cache_needs_refresh(db_mtime):
+                return
+        _REFRESH_IN_PROGRESS = True
+        _REFRESH_LAST_ERROR = None
+    try:
+        cache, latest_pan_daily_asof_int = _build_cache()
+        refreshed_at = datetime.now(timezone.utc)
+        _store_built_cache(
+            cache,
+            refreshed_at=refreshed_at,
+            db_mtime=_db_mtime(),
+            latest_pan_daily_asof_int=latest_pan_daily_asof_int,
+        )
+        with _LOCK:
+            _REFRESH_LAST_ERROR = None
+    except Exception as exc:
+        with _LOCK:
+            _REFRESH_LAST_ERROR = exc
+        raise
+    finally:
+        with _LOCK:
+            _REFRESH_IN_PROGRESS = False
+            _REFRESH_COND.notify_all()
+
+
+def _ensure_cache_fresh() -> None:
+    _refresh_cache_singleflight(force=False)
 
 
 def _ensure_cache_fresh_stale_ok(*, key: tuple[RankTimeframe, RankWhich, RankDir] | None = None) -> None:
@@ -397,9 +540,10 @@ def _load_daily_prob_lookup(
     direction: RankDir,
 ) -> dict[str, Any]:
     cache_key = (int(pred_dt), direction)
-    cached = _DAILY_PROB_CALIB_CACHE.get(cache_key)
-    if isinstance(cached, dict):
-        return cached
+    with _DAILY_PROB_CALIB_CACHE_LOCK:
+        cached = _DAILY_PROB_CALIB_CACHE.get(cache_key)
+        if isinstance(cached, dict):
+            return cached
 
     pred_dt_ymd = _to_yyyymmdd_int(int(pred_dt))
     min_dt = _shift_yyyymmdd(int(pred_dt_ymd), days=-_DAILY_PROB_CALIB_LOOKBACK_DAYS)
@@ -487,7 +631,8 @@ def _load_daily_prob_lookup(
             "samples": len(samples),
             "source": "insufficient_samples",
         }
-        _DAILY_PROB_CALIB_CACHE[cache_key] = lookup
+        with _DAILY_PROB_CALIB_CACHE_LOCK:
+            _DAILY_PROB_CALIB_CACHE[cache_key] = lookup
         return lookup
 
     samples.sort(key=lambda item: item[0])
@@ -530,7 +675,8 @@ def _load_daily_prob_lookup(
         "samples": int(n),
         "source": "daily_bin_calibration",
     }
-    _DAILY_PROB_CALIB_CACHE[cache_key] = lookup
+    with _DAILY_PROB_CALIB_CACHE_LOCK:
+        _DAILY_PROB_CALIB_CACHE[cache_key] = lookup
     return lookup
 
 
@@ -812,6 +958,64 @@ def _ensure_ranking_edinet_audit_table(conn: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def _build_monthly_edinet_audit_signature(
+    *,
+    tf: RankTimeframe,
+    which: RankWhich,
+    direction: RankDir,
+    mode: RankMode,
+    risk_mode: RankRiskMode,
+    items: list[dict],
+) -> tuple[int, str, str, str, str, str] | None:
+    as_of_values = [_iso_date_to_int(str(item.get("asOf") or "")) for item in items]
+    as_of_ymd = max((value for value in as_of_values if isinstance(value, int)), default=None)
+    if as_of_ymd is None:
+        return None
+    return (
+        int(as_of_ymd),
+        str(tf),
+        str(which),
+        str(direction),
+        str(mode),
+        str(risk_mode),
+    )
+
+
+def _acquire_monthly_edinet_audit_persist_window(signature: tuple[int, str, str, str, str, str]) -> bool:
+    now_mono = time.monotonic()
+    with _MONTHLY_EDINET_AUDIT_LOCK:
+        prev = _MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO.get(signature)
+        if isinstance(prev, float) and (now_mono - prev) < float(_MONTHLY_EDINET_AUDIT_PERSIST_COOLDOWN_SEC):
+            return False
+        _MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO[signature] = now_mono
+        if len(_MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO) > 256:
+            threshold = now_mono - float(_MONTHLY_EDINET_AUDIT_PERSIST_COOLDOWN_SEC) * 2.0
+            stale_keys = [
+                key
+                for key, seen_mono in _MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO.items()
+                if seen_mono < threshold
+            ]
+            for key in stale_keys:
+                _MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO.pop(key, None)
+    return True
+
+
+def _release_monthly_edinet_audit_persist_window(signature: tuple[int, str, str, str, str, str]) -> None:
+    with _MONTHLY_EDINET_AUDIT_LOCK:
+        _MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO.pop(signature, None)
+
+
+def _acquire_monthly_edinet_realized_refresh_window() -> bool:
+    global _MONTHLY_EDINET_AUDIT_LAST_REALIZED_REFRESH_MONO
+    now_mono = time.monotonic()
+    with _MONTHLY_EDINET_AUDIT_LOCK:
+        elapsed = now_mono - float(_MONTHLY_EDINET_AUDIT_LAST_REALIZED_REFRESH_MONO)
+        if elapsed < float(_MONTHLY_EDINET_AUDIT_REALIZED_REFRESH_COOLDOWN_SEC):
+            return False
+        _MONTHLY_EDINET_AUDIT_LAST_REALIZED_REFRESH_MONO = now_mono
+    return True
+
+
 def _persist_monthly_edinet_audit(
     *,
     tf: RankTimeframe,
@@ -822,6 +1026,18 @@ def _persist_monthly_edinet_audit(
     items: list[dict],
 ) -> None:
     if tf != "M" or mode != "hybrid" or not items:
+        return
+    signature = _build_monthly_edinet_audit_signature(
+        tf=tf,
+        which=which,
+        direction=direction,
+        mode=mode,
+        risk_mode=risk_mode,
+        items=items,
+    )
+    if signature is None:
+        return
+    if not _acquire_monthly_edinet_audit_persist_window(signature):
         return
     try:
         with get_conn() as conn:
@@ -930,10 +1146,13 @@ def _persist_monthly_edinet_audit(
                 )
             _refresh_monthly_edinet_audit_realized_20(conn)
     except Exception as exc:
+        _release_monthly_edinet_audit_persist_window(signature)
         logger.debug("ranking_edinet_audit persist skipped: %s", exc)
 
 
 def _refresh_monthly_edinet_audit_realized_20(conn: duckdb.DuckDBPyConnection) -> None:
+    if not _acquire_monthly_edinet_realized_refresh_window():
+        return
     if not _table_exists(conn, "ranking_edinet_audit_daily") or not _table_exists(conn, "daily_bars"):
         return
     conn.execute(
@@ -1725,12 +1944,29 @@ def _calc_shape_pattern_flags(
     dist_ma20_signed: float | None,
     cnt60_up: float | None,
     cnt100_up: float | None,
+    monthly_range_pos: float | None = None,
+    monthly_range_prob: float | None = None,
+    monthly_breakout_down_prob: float | None = None,
+    shooting_star_like: float | None = None,
+    bear_marubozu: float | None = None,
+    three_black_crows: float | None = None,
 ) -> dict[str, bool]:
     box_state = str(monthly_box_state or "")
     months = _first_finite(monthly_box_months)
     cnt60 = _first_finite(cnt60_up)
     cnt100 = _first_finite(cnt100_up)
     dist = _first_finite(dist_ma20_signed)
+    range_pos = _first_finite(monthly_range_pos)
+    range_prob = _first_finite(monthly_range_prob)
+    breakout_down_prob = _first_finite(monthly_breakout_down_prob)
+    shooting_star = _first_finite(shooting_star_like)
+    bear_marubozu_signal = _first_finite(bear_marubozu)
+    three_black_crows_signal = _first_finite(three_black_crows)
+    bearish_reversal_candle = bool(
+        (shooting_star is not None and shooting_star >= 0.5)
+        or (bear_marubozu_signal is not None and bear_marubozu_signal >= 0.5)
+        or (three_black_crows_signal is not None and three_black_crows_signal >= 0.5)
+    )
     is_matured_box = bool(months is not None and months >= 5.0)
     a1_matured_breakout = False
     a2_box_trend = False
@@ -1741,8 +1977,11 @@ def _calc_shape_pattern_flags(
     d1_short_breakdown = False
     d2_short_mixed_far = False
     d3_short_na_below = False
+    d4_short_double_top = False
+    d5_short_head_shoulders = False
     dtrap_stackdown_far = False
     dtrap_overheat_momentum = False
+    dtrap_top_fakeout = False
     if direction == "up":
         a1_matured_breakout = bool(
             is_matured_box
@@ -1822,6 +2061,39 @@ def _calc_shape_pattern_flags(
             and cnt100 is not None
             and cnt100 < 20.0
         )
+        d4_short_double_top = bool(
+            is_matured_box
+            and box_state in {"box_upper", "breakout_up"}
+            and range_pos is not None
+            and range_pos >= 0.68
+            and cnt60 is not None
+            and cnt60 >= 45.0
+            and cnt100 is not None
+            and cnt100 >= 100.0
+            and dist is not None
+            and -0.02 <= dist <= 0.08
+            and (
+                bearish_reversal_candle
+                or (breakout_down_prob is not None and breakout_down_prob >= 0.57)
+            )
+        )
+        d5_short_head_shoulders = bool(
+            is_matured_box
+            and box_state in {"box_mid", "box_upper", "breakout_up"}
+            and (not trend_down_strict)
+            and range_pos is not None
+            and 0.45 <= range_pos <= 0.78
+            and cnt60 is not None
+            and 20.0 <= cnt60 <= 70.0
+            and cnt100 is not None
+            and cnt100 >= 80.0
+            and dist is not None
+            and -0.03 <= dist <= 0.04
+            and (
+                (breakout_down_prob is not None and breakout_down_prob >= 0.55)
+                or bearish_reversal_candle
+            )
+        )
         dtrap_stackdown_far = bool(
             trend_down_strict
             and dist is not None
@@ -1831,6 +2103,22 @@ def _calc_shape_pattern_flags(
             trend_up_strict
             and dist is not None
             and dist >= 0.12
+        )
+        dtrap_top_fakeout = bool(
+            (d4_short_double_top or d5_short_head_shoulders)
+            and (
+                (
+                    range_prob is not None
+                    and range_prob >= 0.70
+                    and (breakout_down_prob is None or breakout_down_prob < 0.55)
+                )
+                or (
+                    trend_up_strict
+                    and dist is not None
+                    and dist >= 0.03
+                    and (not bearish_reversal_candle)
+                )
+            )
         )
     return {
         "a1MaturedBreakout": a1_matured_breakout,
@@ -1842,8 +2130,11 @@ def _calc_shape_pattern_flags(
         "d1ShortBreakdown": d1_short_breakdown,
         "d2ShortMixedFar": d2_short_mixed_far,
         "d3ShortNaBelow": d3_short_na_below,
+        "d4ShortDoubleTop": d4_short_double_top,
+        "d5ShortHeadShoulders": d5_short_head_shoulders,
         "dTrapStackDownFar": dtrap_stackdown_far,
         "dTrapOverheatMomentum": dtrap_overheat_momentum,
+        "dTrapTopFakeout": dtrap_top_fakeout,
     }
 
 
@@ -1902,7 +2193,11 @@ def _recommend_invalidation_policy(
 ) -> dict[str, Any]:
     setup = str(setup_type or "")
     if direction == "down":
-        if bool(shape_patterns.get("dTrapStackDownFar")) or bool(shape_patterns.get("dTrapOverheatMomentum")):
+        if (
+            bool(shape_patterns.get("dTrapStackDownFar"))
+            or bool(shape_patterns.get("dTrapOverheatMomentum"))
+            or bool(shape_patterns.get("dTrapTopFakeout"))
+        ):
             return {
                 "invalidationTrigger": "stop3",
                 "invalidationConservativeAction": "exit",
@@ -1917,6 +2212,8 @@ def _recommend_invalidation_policy(
             or bool(shape_patterns.get("d1ShortBreakdown"))
             or bool(shape_patterns.get("d2ShortMixedFar"))
             or bool(shape_patterns.get("d3ShortNaBelow"))
+            or bool(shape_patterns.get("d4ShortDoubleTop"))
+            or bool(shape_patterns.get("d5ShortHeadShoulders"))
         ):
             return {
                 "invalidationTrigger": "box_reclaim",
@@ -1965,12 +2262,18 @@ def _calc_playbook_entry_bonus(
     shape_patterns: dict[str, bool],
 ) -> float:
     if direction == "down":
-        if bool(shape_patterns.get("dTrapStackDownFar")) or bool(shape_patterns.get("dTrapOverheatMomentum")):
+        if (
+            bool(shape_patterns.get("dTrapStackDownFar"))
+            or bool(shape_patterns.get("dTrapOverheatMomentum"))
+            or bool(shape_patterns.get("dTrapTopFakeout"))
+        ):
             return -_ENTRY_PENALTY_PLAYBOOK_TRAP
         if (
             bool(shape_patterns.get("d1ShortBreakdown"))
             or bool(shape_patterns.get("d2ShortMixedFar"))
             or bool(shape_patterns.get("d3ShortNaBelow"))
+            or bool(shape_patterns.get("d4ShortDoubleTop"))
+            or bool(shape_patterns.get("d5ShortHeadShoulders"))
         ):
             return _ENTRY_BONUS_PLAYBOOK_SHORT_STRONG
         return 0.0
@@ -2246,34 +2549,7 @@ def _attach_swing_fields(
             if a_score is not None or b_score is not None:
                 short_score = float((a_score or 0.0) + (b_score or 0.0))
         setup_type = str(item.get("setupType") or "watch")
-        swing_eval = swing_plan_service.evaluate_swing_candidates(
-            as_of_ymd=as_of_ymd,
-            p_up=p_up,
-            p_down=p_down,
-            p_turn_up=p_turn_up,
-            p_turn_down=p_turn_down,
-            ev20_net=ev20_net,
-            long_setup_type=setup_type,
-            short_setup_type=setup_type,
-            playbook_bonus_long=playbook_bonus,
-            playbook_bonus_short=playbook_bonus,
-            short_score=short_score,
-            atr_pct=atr_pct,
-            liquidity20d=liquidity20d,
-        )
-        side_key = "long" if direction == "up" else "short"
-        side_eval = swing_eval.get(side_key) if isinstance(swing_eval, dict) else {}
-        score = _first_finite((side_eval or {}).get("score"))
-        qualified = bool((side_eval or {}).get("qualified"))
-        reasons = (side_eval or {}).get("reasons")
-        item["swingScore"] = float(score) if score is not None else None
-        item["swingQualified"] = bool(qualified)
-        item["swingSide"] = side_key if qualified else "none"
-        item["swingReasons"] = [str(v) for v in reasons] if isinstance(reasons, list) else []
-        # Preserve quick view for consumers that need best side context.
-        item["swingLongScore"] = _first_finite(((swing_eval or {}).get("long") or {}).get("score"))
-        item["swingShortScore"] = _first_finite(((swing_eval or {}).get("short") or {}).get("score"))
-        item["swingPlanPreview"] = swing_plan_service.build_swing_plan(
+        swing_payload = swing_plan_service.build_swing_plan(
             code=str(item.get("code") or ""),
             as_of_ymd=as_of_ymd,
             close=close,
@@ -2292,7 +2568,27 @@ def _attach_swing_fields(
             decision_tone="up" if direction == "up" else "down",
             hold_days_long=_first_finite(item.get("recommendedHoldDays")),
             hold_days_short=_first_finite(item.get("recommendedHoldDays")),
-        ).get("plan")
+        )
+        diagnostics = (
+            swing_payload.get("diagnostics")
+            if isinstance(swing_payload, dict) and isinstance(swing_payload.get("diagnostics"), dict)
+            else {}
+        )
+        side_key = "long" if direction == "up" else "short"
+        side_eval = diagnostics.get(side_key) if isinstance(diagnostics, dict) else {}
+        long_eval = diagnostics.get("long") if isinstance(diagnostics, dict) else {}
+        short_eval = diagnostics.get("short") if isinstance(diagnostics, dict) else {}
+        score = _first_finite((side_eval or {}).get("score"))
+        qualified = bool((side_eval or {}).get("qualified"))
+        reasons = (side_eval or {}).get("reasons")
+        item["swingScore"] = float(score) if score is not None else None
+        item["swingQualified"] = bool(qualified)
+        item["swingSide"] = side_key if qualified else "none"
+        item["swingReasons"] = [str(v) for v in reasons] if isinstance(reasons, list) else []
+        # Preserve quick view for consumers that need best side context.
+        item["swingLongScore"] = _first_finite((long_eval or {}).get("score"))
+        item["swingShortScore"] = _first_finite((short_eval or {}).get("score"))
+        item["swingPlanPreview"] = swing_payload.get("plan") if isinstance(swing_payload, dict) else None
         enriched.append(item)
     return enriched
 
@@ -2399,8 +2695,9 @@ def _fetch_names(conn: duckdb.DuckDBPyConnection) -> dict[str, str]:
     return {row[0]: repair_cp932_mojibake(str(row[1] or row[0])) for row in rows}
 
 
-def _build_cache() -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]:
+def _build_cache() -> tuple[dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]], int | None]:
     with get_conn() as conn:
+        latest_pan_daily_asof_int = _resolve_latest_pan_daily_asof_int(conn)
         codes = [row[0] for row in conn.execute("SELECT DISTINCT code FROM daily_bars ORDER BY code").fetchall()]
         names = _fetch_names(conn)
         daily_rows = _fetch_daily_rows(conn)
@@ -2412,7 +2709,10 @@ def _build_cache() -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]
     try:
         provisional_map = get_provisional_daily_rows_from_spark(codes)
         if provisional_map:
+            today_key_jst = int((datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y%m%d"))
             for code, provisional_row in provisional_map.items():
+                if not provisional_row or normalize_date_key(provisional_row[0]) != today_key_jst:
+                    continue
                 daily_map[code] = merge_daily_rows_with_provisional(
                     daily_map.get(code, []),
                     provisional_row,
@@ -2424,6 +2724,11 @@ def _build_cache() -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]
     monthly_map: dict[str, list[tuple]] = {}
     for row in monthly_rows:
         monthly_map.setdefault(row[0], []).append(row[1:])
+    for code in codes:
+        monthly_map[code] = merge_monthly_rows_with_daily(
+            monthly_map.get(code, []),
+            daily_map.get(code, []),
+        )
 
     items_by_tf: dict[tuple[RankTimeframe, RankWhich], list[dict]] = {
         ("D", "latest"): [],
@@ -2584,7 +2889,7 @@ def _build_cache() -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]
             items = items_by_tf[(tf, which)]
             for direction in ("up", "down"):
                 cache[(tf, which, direction)] = _sort_items(items, direction)
-    return cache
+    return cache, latest_pan_daily_asof_int
 
 
 def _build_cache_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]:
@@ -2611,6 +2916,11 @@ def _build_cache_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> dict[t
     monthly_map: dict[str, list[tuple]] = {}
     for row in monthly_rows:
         monthly_map.setdefault(row[0], []).append(row[1:])
+    for code in codes:
+        monthly_map[code] = merge_monthly_rows_with_daily(
+            monthly_map.get(code, []),
+            daily_map.get(code, []),
+        )
 
     items_by_tf: dict[tuple[RankTimeframe, RankWhich], list[dict]] = {
         ("D", "latest"): [],
@@ -3326,23 +3636,31 @@ def _apply_monthly_ml_mode(
                 gate_recommendation, ret20_lookup = _load_monthly_gate_recommendation(conn, model_version)
             if target_codes:
                 edinet_feature_map = load_edinet_rank_features(conn, target_codes, anchor_asof_ymd)
-    except Exception:
-        return items[:limit], None, None
+    except Exception as exc:
+        logger.debug("monthly ml bootstrap skipped due to DB error: %s", exc)
 
     if pred_dt is None or not pred_map:
         _try_repair_monthly_prediction(pred_dt=pred_dt, items=items)
         try:
             with get_conn() as conn:
                 pred_dt = _resolve_monthly_prediction_dt(conn, items)
-                if pred_dt is None:
-                    return items[:limit], None, None
-                pred_map, model_version = _load_monthly_pred_map(conn, pred_dt)
-                gate_recommendation, ret20_lookup = _load_monthly_gate_recommendation(conn, model_version)
-                if target_codes:
+                if pred_dt is not None:
+                    pred_map, model_version = _load_monthly_pred_map(conn, pred_dt)
+                    gate_recommendation, ret20_lookup = _load_monthly_gate_recommendation(conn, model_version)
+                if target_codes and not edinet_feature_map:
                     edinet_feature_map = load_edinet_rank_features(conn, target_codes, anchor_asof_ymd)
-        except Exception:
-            return items[:limit], None, None
+        except Exception as exc:
+            logger.debug("monthly ml repair reload skipped due to DB error: %s", exc)
     if not pred_map:
+        for item in items:
+            code = str(item.get("code") or "")
+            _apply_edinet_defaults(item, flag_applied=edinet_flag_applied)
+            edinet_features = edinet_feature_map.get(code) if isinstance(edinet_feature_map.get(code), dict) else None
+            if edinet_features:
+                for key in _EDINET_ITEM_DEFAULTS.keys():
+                    if key in edinet_features:
+                        item[key] = edinet_features.get(key)
+            item["edinetFeatureFlagApplied"] = bool(edinet_flag_applied)
         return items[:limit], pred_dt, model_version
 
     enriched = _decorate_items_with_monthly_ml(items, pred_map)
@@ -3419,6 +3737,12 @@ def _apply_monthly_ml_mode(
             dist_ma20_signed=dist_ma20_signed,
             cnt60_up=cnt60_up,
             cnt100_up=cnt100_up,
+            monthly_range_pos=monthly_range_pos,
+            monthly_range_prob=monthly_range_prob,
+            monthly_breakout_down_prob=monthly_breakout_prob if direction == "down" else None,
+            shooting_star_like=_first_finite(item.get("shootingStarLike")),
+            bear_marubozu=_first_finite(item.get("bearMarubozu")),
+            three_black_crows=_first_finite(item.get("threeBlackCrows")),
         )
         range_trap_penalty = 0.0
         if (
@@ -3505,10 +3829,16 @@ def _apply_monthly_ml_mode(
                 pattern_bonus += _ENTRY_BONUS_PATTERN_D2_SHORT_MIXED_FAR
             if shape_patterns.get("d3ShortNaBelow"):
                 pattern_bonus += _ENTRY_BONUS_PATTERN_D3_SHORT_NA_BELOW
+            if shape_patterns.get("d4ShortDoubleTop"):
+                pattern_bonus += _ENTRY_BONUS_PATTERN_D4_SHORT_DOUBLE_TOP
+            if shape_patterns.get("d5ShortHeadShoulders"):
+                pattern_bonus += _ENTRY_BONUS_PATTERN_D5_SHORT_HEAD_SHOULDERS
             if shape_patterns.get("dTrapStackDownFar"):
                 pattern_bonus -= _ENTRY_PENALTY_PATTERN_DTRAP_STACKDOWN_FAR
             if shape_patterns.get("dTrapOverheatMomentum"):
                 pattern_bonus -= _ENTRY_PENALTY_PATTERN_DTRAP_OVERHEAT_MOMENTUM
+            if shape_patterns.get("dTrapTopFakeout"):
+                pattern_bonus -= _ENTRY_PENALTY_PATTERN_DTRAP_TOP_FAKEOUT
         if box_bottom_ok:
             pattern_bonus += 0.02
             if weak_early_pattern:
@@ -3534,8 +3864,11 @@ def _apply_monthly_ml_mode(
         item["patternD1ShortBreakdown"] = bool(shape_patterns.get("d1ShortBreakdown"))
         item["patternD2ShortMixedFar"] = bool(shape_patterns.get("d2ShortMixedFar"))
         item["patternD3ShortNaBelow"] = bool(shape_patterns.get("d3ShortNaBelow"))
+        item["patternD4ShortDoubleTop"] = bool(shape_patterns.get("d4ShortDoubleTop"))
+        item["patternD5ShortHeadShoulders"] = bool(shape_patterns.get("d5ShortHeadShoulders"))
         item["patternDTrapStackDownFar"] = bool(shape_patterns.get("dTrapStackDownFar"))
         item["patternDTrapOverheatMomentum"] = bool(shape_patterns.get("dTrapOverheatMomentum"))
+        item["patternDTrapTopFakeout"] = bool(shape_patterns.get("dTrapTopFakeout"))
         item["candlestickPatternBonus"] = float(pattern_bonus)
         item["candlestickPatternBonusDetails"] = candlestick_pattern_bonus_details
         item["v60StrongPenalty"] = bool(direction == "up" and v60_strong is not None and v60_strong >= 0.5)
@@ -3594,6 +3927,8 @@ def _apply_monthly_ml_mode(
                 shape_patterns.get("d1ShortBreakdown")
                 or shape_patterns.get("d2ShortMixedFar")
                 or shape_patterns.get("d3ShortNaBelow")
+                or shape_patterns.get("d4ShortDoubleTop")
+                or shape_patterns.get("d5ShortHeadShoulders")
             )
             and prob_side is not None
             and prob_side >= max(0.20, float(side_gate) * 0.88)
@@ -3618,6 +3953,7 @@ def _apply_monthly_ml_mode(
                 and (
                     shape_patterns.get("dTrapStackDownFar")
                     or shape_patterns.get("dTrapOverheatMomentum")
+                    or shape_patterns.get("dTrapTopFakeout")
                 )
             )
         )
@@ -4329,6 +4665,12 @@ def _apply_ml_mode(
             dist_ma20_signed=dist_ma20_signed,
             cnt60_up=cnt60_up,
             cnt100_up=cnt100_up,
+            monthly_range_pos=monthly_range_pos,
+            monthly_range_prob=monthly_range_prob,
+            monthly_breakout_down_prob=monthly_breakout_prob if direction == "down" else None,
+            shooting_star_like=_first_finite(item.get("shootingStarLike")),
+            bear_marubozu=_first_finite(item.get("bearMarubozu")),
+            three_black_crows=_first_finite(item.get("threeBlackCrows")),
         )
         short_pattern_strong = bool(
             direction == "down"
@@ -4336,6 +4678,8 @@ def _apply_ml_mode(
                 shape_patterns.get("d1ShortBreakdown")
                 or shape_patterns.get("d2ShortMixedFar")
                 or shape_patterns.get("d3ShortNaBelow")
+                or shape_patterns.get("d4ShortDoubleTop")
+                or shape_patterns.get("d5ShortHeadShoulders")
             )
         )
         short_overheat_block = bool(
@@ -4474,10 +4818,16 @@ def _apply_ml_mode(
                 bonus += _ENTRY_BONUS_PATTERN_D2_SHORT_MIXED_FAR
             if shape_patterns.get("d3ShortNaBelow"):
                 bonus += _ENTRY_BONUS_PATTERN_D3_SHORT_NA_BELOW
+            if shape_patterns.get("d4ShortDoubleTop"):
+                bonus += _ENTRY_BONUS_PATTERN_D4_SHORT_DOUBLE_TOP
+            if shape_patterns.get("d5ShortHeadShoulders"):
+                bonus += _ENTRY_BONUS_PATTERN_D5_SHORT_HEAD_SHOULDERS
             if shape_patterns.get("dTrapStackDownFar"):
                 bonus -= _ENTRY_PENALTY_PATTERN_DTRAP_STACKDOWN_FAR
             if shape_patterns.get("dTrapOverheatMomentum"):
                 bonus -= _ENTRY_PENALTY_PATTERN_DTRAP_OVERHEAT_MOMENTUM
+            if shape_patterns.get("dTrapTopFakeout"):
+                bonus -= _ENTRY_PENALTY_PATTERN_DTRAP_TOP_FAKEOUT
         if direction == "up" and v60_strong is not None and v60_strong >= 0.5:
             bonus -= _ENTRY_PENALTY_60V_STRONG
         if (
@@ -4553,8 +4903,11 @@ def _apply_ml_mode(
         item["patternD1ShortBreakdown"] = bool(shape_patterns.get("d1ShortBreakdown"))
         item["patternD2ShortMixedFar"] = bool(shape_patterns.get("d2ShortMixedFar"))
         item["patternD3ShortNaBelow"] = bool(shape_patterns.get("d3ShortNaBelow"))
+        item["patternD4ShortDoubleTop"] = bool(shape_patterns.get("d4ShortDoubleTop"))
+        item["patternD5ShortHeadShoulders"] = bool(shape_patterns.get("d5ShortHeadShoulders"))
         item["patternDTrapStackDownFar"] = bool(shape_patterns.get("dTrapStackDownFar"))
         item["patternDTrapOverheatMomentum"] = bool(shape_patterns.get("dTrapOverheatMomentum"))
+        item["patternDTrapTopFakeout"] = bool(shape_patterns.get("dTrapTopFakeout"))
         item["candlestickPatternBonus"] = float(candle_shape_bonus)
         item["candlestickPatternBonusDetails"] = candle_shape_bonus_details
         item["v60StrongPenalty"] = bool(direction == "up" and v60_strong is not None and v60_strong >= 0.5)
@@ -4612,6 +4965,7 @@ def _apply_ml_mode(
                 and (
                     shape_patterns.get("dTrapStackDownFar")
                     or shape_patterns.get("dTrapOverheatMomentum")
+                    or shape_patterns.get("dTrapTopFakeout")
                 )
             )
         )
@@ -4622,6 +4976,8 @@ def _apply_ml_mode(
                 shape_patterns.get("d1ShortBreakdown")
                 or shape_patterns.get("d2ShortMixedFar")
                 or shape_patterns.get("d3ShortNaBelow")
+                or shape_patterns.get("d4ShortDoubleTop")
+                or shape_patterns.get("d5ShortHeadShoulders")
             )
             and turn_ok
             and strict_prob_ok
@@ -4818,18 +5174,48 @@ def _apply_ml_mode(
                 bool(item.get("patternD1ShortBreakdown"))
                 or bool(item.get("patternD2ShortMixedFar"))
                 or bool(item.get("patternD3ShortNaBelow"))
+                or bool(item.get("patternD4ShortDoubleTop"))
+                or bool(item.get("patternD5ShortHeadShoulders"))
             )
             and (not bool(item.get("patternDTrapStackDownFar")))
             and (not bool(item.get("patternDTrapOverheatMomentum")))
+            and (not bool(item.get("patternDTrapTopFakeout")))
             and isinstance(item.get("entryScore"), (int, float))
             and math.isfinite(float(item.get("entryScore")))
             and float(item.get("entryScore")) >= _DAILY_FALLBACK_HYBRID_SCORE_GATE_DOWN
         ]
         stage_short_candidates.sort(key=_base_entry_sort_key)
-        promoted_fallback = stage_short_candidates
-        for item in promoted_fallback:
-            item["entryQualifiedByFallback"] = True
-            item["entryQualifiedFallbackStage"] = "short_pattern_recovery"
+        if stage_short_candidates:
+            promoted_fallback = stage_short_candidates
+            for item in promoted_fallback:
+                item["entryQualifiedByFallback"] = True
+                item["entryQualifiedFallbackStage"] = "short_pattern_recovery"
+        else:
+            recovery_candidates = [
+                item
+                for item in fallback
+                if (
+                    bool(item.get("patternD4ShortDoubleTop"))
+                    or bool(item.get("patternD5ShortHeadShoulders"))
+                )
+                and (not bool(item.get("patternDTrapStackDownFar")))
+                and (not bool(item.get("patternDTrapOverheatMomentum")))
+                and (not bool(item.get("patternDTrapTopFakeout")))
+                and bool(item.get("turnAligned"))
+                and bool(item.get("counterMoveOk"))
+                and bool(item.get("horizonAligned"))
+                and isinstance(item.get("downsideRisk"), (int, float))
+                and math.isfinite(float(item.get("downsideRisk")))
+                and float(item.get("downsideRisk")) <= 0.60
+                and isinstance(item.get("entryScore"), (int, float))
+                and math.isfinite(float(item.get("entryScore")))
+                and float(item.get("entryScore")) >= _DAILY_FALLBACK_TURN_SCORE_GATE_DOWN
+            ]
+            recovery_candidates.sort(key=_base_entry_sort_key)
+            promoted_fallback = recovery_candidates
+            for item in promoted_fallback:
+                item["entryQualifiedByFallback"] = True
+                item["entryQualifiedFallbackStage"] = "short_turn_recovery"
 
     min_return = min(limit, 12 if direction == "up" else 8)
     if len(qualified) < min_return:
@@ -4960,18 +5346,7 @@ def _fallback_down_ml_items_when_empty(
 
 
 def refresh_cache() -> None:
-    global _CACHE, _LAST_UPDATED, _LAST_DB_MTIME
-    cache = _build_cache()
-    refreshed_at = datetime.now(timezone.utc)
-    db_mtime = _db_mtime()
-    with _LOCK:
-        _CACHE = cache
-        _LAST_UPDATED = refreshed_at
-        _LAST_DB_MTIME = db_mtime
-    with _ASOF_BASE_CACHE_LOCK:
-        _ASOF_BASE_CACHE.clear()
-    with _TRACE_CACHE_LOCK:
-        _TRACE_CACHE.clear()
+    _refresh_cache_singleflight(force=True)
 
 
 def get_rankings(
@@ -5085,7 +5460,7 @@ def get_rankings(
                 for item in top_items
             ],
         }
-        print(json.dumps(log_payload, ensure_ascii=False))
+        logger.debug("rank_request %s", json.dumps(log_payload, ensure_ascii=False))
     except Exception as exc:
         logger.debug("rank_request debug logging failed: %s", exc)
     return {
@@ -5201,6 +5576,13 @@ def get_rankings_asof(
                 mode="rule",
                 direction=direction,
                 now_ymd=as_of_int,
+            )
+            if tf == "M" and mode == "hybrid":
+                flag_applied = _is_edinet_bonus_enabled()
+                out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
+            out_items = _attach_swing_fields(
+                out_items,
+                direction=direction,
             )
 
     filtered: list[dict] = []

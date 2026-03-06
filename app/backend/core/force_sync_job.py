@@ -154,6 +154,59 @@ def _run_ingest_with_retry(
     return last_output, last_error, last_stats, attempt
 
 
+def _run_post_pan_recalc() -> dict:
+    summary: dict[str, object] = {
+        "phase_dt": None,
+        "scoring_rows": None,
+        "cache_refreshed": False,
+        "warnings": [],
+    }
+    warnings: list[str] = []
+
+    try:
+        try:
+            from app.backend.db import get_conn
+        except ModuleNotFoundError:  # pragma: no cover
+            from db import get_conn  # type: ignore
+        try:
+            from app.backend.jobs.phase_batch import run_batch
+        except ModuleNotFoundError:  # pragma: no cover
+            from jobs.phase_batch import run_batch  # type: ignore
+
+        with get_conn() as conn:
+            row = conn.execute("SELECT MAX(dt) FROM feature_snapshot_daily").fetchone()
+        if row and row[0] is not None:
+            max_dt = int(row[0])
+            run_batch(max_dt, max_dt, dry_run=False)
+            summary["phase_dt"] = max_dt
+    except Exception as exc:
+        logger.exception("force_sync post-recalc phase failed: %s", exc)
+        warnings.append(f"phase:{exc}")
+
+    try:
+        from app.backend.infra.duckdb.stock_repo import StockRepository
+        from app.backend.jobs.scoring_job import ScoringJob
+
+        score_repo = StockRepository()
+        scoring_results = ScoringJob(score_repo).run()
+        summary["scoring_rows"] = int(len(scoring_results))
+    except Exception as exc:
+        logger.exception("force_sync post-recalc scoring failed: %s", exc)
+        warnings.append(f"scoring:{exc}")
+
+    try:
+        from app.backend.services import rankings_cache
+
+        rankings_cache.refresh_cache()
+        summary["cache_refreshed"] = True
+    except Exception as exc:
+        logger.exception("force_sync post-recalc cache refresh failed: %s", exc)
+        warnings.append(f"cache:{exc}")
+
+    summary["warnings"] = warnings
+    return summary
+
+
 def handle_force_sync(job_id: str, payload: dict):
     """
     Job Handler for 'force_sync'.
@@ -240,9 +293,29 @@ def handle_force_sync(job_id: str, payload: dict):
         job_manager._update_db(
             job_id,
             "force_sync",
+            "running",
+            message="Recalculating derived metrics...",
+            progress=90,
+        )
+        recalc = _run_post_pan_recalc()
+        phase_dt = recalc.get("phase_dt")
+        scoring_rows = recalc.get("scoring_rows")
+        cache_refreshed = bool(recalc.get("cache_refreshed"))
+        recalc_msg = (
+            f" Recalc: phase_dt={phase_dt if phase_dt is not None else 'n/a'}"
+            f", scoring_rows={scoring_rows if scoring_rows is not None else 'n/a'}"
+            f", cache={'ok' if cache_refreshed else 'skip'}."
+        )
+        recalc_warnings = recalc.get("warnings") if isinstance(recalc.get("warnings"), list) else []
+        if recalc_warnings:
+            recalc_msg += " WARN: " + "; ".join(str(item) for item in recalc_warnings[:3])
+
+        job_manager._update_db(
+            job_id,
+            "force_sync",
             "success",
             progress=100,
-            message=f"Complete. {csv_msg}",
+            message=f"Complete. {csv_msg}{recalc_msg}",
             finished_at=datetime.now(),
         )
 

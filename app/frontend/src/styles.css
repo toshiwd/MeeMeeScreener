@@ -1446,20 +1446,29 @@ body {
 .app-brand {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 4px;
   white-space: nowrap;
+  user-select: none;
 }
 
 .app-brand-title {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b, #eab308);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.35));
 }
 
 .app-brand-sub {
-  font-size: 11px;
-  color: #94a3b8;
-  letter-spacing: 0.3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fcd34d;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  opacity: 0.85;
 }
 
 .top-bar-heading {
@@ -5141,6 +5150,14 @@ body {
   color: var(--theme-text-primary);
 }
 
+:root[data-theme="light"] .position-overlay-change.up {
+  color: #ef4444;
+}
+
+:root[data-theme="light"] .position-overlay-change.down {
+  color: #22c55e;
+}
+
 :root[data-theme="light"] .broker-badge,
 :root[data-theme="light"] .position-overlay-broker .broker-badge,
 :root[data-theme="light"] .broker-sbi .broker-badge,
@@ -7668,6 +7685,22 @@ body {
 .detail-analysis-meta {
   font-size: 12px;
   color: var(--theme-text-secondary);
+}
+
+.detail-market-data-status {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--theme-text-secondary);
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.detail-market-data-status.is-delayed {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.28);
 }
 
 .detail-analysis-empty {

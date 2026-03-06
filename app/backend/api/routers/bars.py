@@ -9,10 +9,12 @@ from pydantic import BaseModel, Field
 
 from app.backend.api.dependencies import get_stock_repo
 from app.backend.infra.duckdb.stock_repo import StockRepository
+from app.backend.services.bar_aggregation import merge_monthly_rows_with_daily
 from app.backend.services.yahoo_provisional import (
     apply_split_gap_adjustment,
     get_provisional_daily_rows_from_spark,
     merge_daily_rows_with_provisional,
+    normalize_date_key,
 )
 from app.services.box_detector import detect_boxes
 
@@ -143,9 +145,20 @@ def _fetch_multi_timeframe_items(
         return items
 
     provisional_map: Dict[str, tuple] = {}
-    if include_provisional and ("daily" in requested_frames or "weekly" in requested_frames):
+    if include_provisional and (
+        "daily" in requested_frames or "weekly" in requested_frames or "monthly" in requested_frames
+    ):
         try:
-            provisional_map = get_provisional_daily_rows_from_spark(codes)
+            provisional_map_raw = get_provisional_daily_rows_from_spark(
+                codes,
+                prefer_chart_ohlc=True,
+            )
+            today_key_jst = int((datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y%m%d"))
+            provisional_map = {
+                code: row
+                for code, row in provisional_map_raw.items()
+                if row and normalize_date_key(row[0]) == today_key_jst
+            }
         except Exception as exc:
             logger.debug("Yahoo provisional fetch skipped in batch bars: %s", exc)
 
@@ -163,6 +176,18 @@ def _fetch_multi_timeframe_items(
             if "daily" in requested_frames:
                 items[code]["daily"] = _to_payload_rows(merged, boxes_enabled=False)
 
+    monthly_patch_daily_rows: Dict[str, List[tuple]] | None = None
+    if "monthly" in requested_frames:
+        patch_limit = max(62, min(200, limit))
+        raw_monthly_daily = repo.get_daily_bars_batch(codes, patch_limit)
+        monthly_patch_daily_rows = {}
+        for code in codes:
+            merged = merge_daily_rows_with_provisional(
+                raw_monthly_daily.get(code, []),
+                provisional_map.get(code) if include_provisional else None,
+            )
+            monthly_patch_daily_rows[code] = apply_split_gap_adjustment(merged)
+
     if "weekly" in requested_frames:
         if daily_rows_by_code is None:
             daily_rows_by_code = {code: [] for code in codes}
@@ -176,6 +201,10 @@ def _fetch_multi_timeframe_items(
         monthly_rows_by_code = repo.get_monthly_bars_batch(codes, limit)
         for code in codes:
             monthly_rows = monthly_rows_by_code.get(code, [])
+            monthly_rows = merge_monthly_rows_with_daily(
+                monthly_rows,
+                (monthly_patch_daily_rows or {}).get(code, []),
+            )
             monthly_rows = apply_split_gap_adjustment(monthly_rows)
             items[code]["monthly"] = _to_payload_rows(monthly_rows, boxes_enabled=True)
 

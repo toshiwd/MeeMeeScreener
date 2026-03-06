@@ -156,3 +156,73 @@ def test_system_update_data_uses_common_submitter():
         source="/api/system/update_data",
         legacy_endpoint="/api/system/update_data",
     )
+
+
+def test_submit_txt_update_includes_force_recompute_on_pan_finalize_flag():
+    with patch("app.backend.api.routers.jobs.submit_txt_update_job", return_value={"ok": True}) as mock_submit:
+        response = jobs.submit_txt_update(
+            auto_ml_predict=False,
+            auto_ml_train=False,
+            force_recompute_on_pan_finalize=False,
+        )
+
+    assert response == {"ok": True}
+    submitted_payload = mock_submit.call_args.args[0]
+    assert submitted_payload["auto_ml_predict"] is False
+    assert submitted_payload["auto_ml_train"] is False
+    assert submitted_payload["force_recompute_on_pan_finalize"] is False
+
+
+def test_walkforward_latest_response_keeps_summary_and_adds_attribution():
+    latest_payload = {
+        "has_run": True,
+        "latest": {
+            "run_id": "swf_20260306010101",
+            "finished_at": "2026-03-06T01:01:01+00:00",
+            "status": "success",
+            "report": {
+                "summary": {
+                    "windows_total": 3,
+                    "executed_windows": 3,
+                },
+                "attribution": {
+                    "code": {"rows": [{"key": "1301", "trades": 5}]},
+                    "sector33_code": {"rows": [{"key": "16", "trades": 12}]},
+                    "setup_id": {"rows": [{"key": "long_breakout_p2", "trades": 8}]},
+                    "side": {"rows": [{"key": "long", "trades": 20}]},
+                },
+            },
+        },
+    }
+    with patch(
+        "app.backend.api.routers.jobs.strategy_backtest_service.get_latest_strategy_walkforward",
+        return_value=latest_payload,
+    ):
+        response = jobs.get_strategy_walkforward_latest()
+
+    assert isinstance(response, dict)
+    assert response["has_run"] is True
+    assert response["latest"]["report"]["summary"]["windows_total"] == 3
+    assert response["latest"]["report"]["attribution"]["code"]["rows"][0]["key"] == "1301"
+
+
+def test_walkforward_research_latest_route_forwards_payload():
+    research_payload = {
+        "has_snapshot": True,
+        "latest": {
+            "snapshot_date": 20260306,
+            "source_run_id": "swf_20260306010101",
+            "report": {
+                "adopted_setups": [{"setup_id": "long_breakout_p2", "trades": 8}],
+                "rejected_reasons": [{"reason": "insufficient_window_rows", "count": 2}],
+                "hedge_contribution": {"hedge_share": 0.27},
+            },
+        },
+    }
+    with patch(
+        "app.backend.api.routers.jobs.strategy_backtest_service.get_latest_strategy_walkforward_research_snapshot",
+        return_value=research_payload,
+    ):
+        response = jobs.get_strategy_walkforward_research_latest()
+
+    assert response == research_payload
