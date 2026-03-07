@@ -5,6 +5,7 @@ type Params<T> = {
   backendReady: boolean;
   code: string | null | undefined;
   asof: number | null;
+  prefetchAsofs?: number[];
   enabled?: boolean;
   endpoint: string;
   timeoutMs?: number;
@@ -26,6 +27,7 @@ export function useAsOfItemFetch<T>({
   backendReady,
   code,
   asof,
+  prefetchAsofs,
   enabled = true,
   endpoint,
   timeoutMs = 30000,
@@ -175,6 +177,59 @@ export function useAsOfItemFetch<T>({
     retryOnNull,
     negativeCacheTtlMs,
     retryToken,
+  ]);
+
+  useEffect(() => {
+    if (!enabled || !backendReady || !code) return;
+    if (!prefetchAsofs || prefetchAsofs.length === 0) return;
+    let cancelled = false;
+    const prefetchKeys = new Set<string>();
+    prefetchAsofs.forEach((candidate) => {
+      if (candidate == null) return;
+      const requestKey = requestKeyExtra
+        ? `${code}|${candidate}|${requestKeyExtra}`
+        : `${code}|${candidate}`;
+      if (prefetchKeys.has(requestKey)) return;
+      prefetchKeys.add(requestKey);
+      const cached = cacheRef.current.get(requestKey);
+      if (cached) {
+        const isNegative = cached.value == null;
+        const negativeFresh =
+          isNegative &&
+          negativeCacheTtlMs > 0 &&
+          Date.now() - cached.fetchedAt <= negativeCacheTtlMs;
+        if (!isNegative || negativeFresh) {
+          return;
+        }
+        cacheRef.current.delete(requestKey);
+      }
+      const params = buildParamsRef.current
+        ? buildParamsRef.current(code, candidate)
+        : { code, asof: candidate };
+      api
+        .get(endpoint, { params, timeout: timeoutMs })
+        .then((res) => {
+          if (cancelled) return;
+          const parsed = parseItemRef.current(res.data?.item ?? null);
+          cacheRef.current.set(requestKey, { value: parsed ?? null, fetchedAt: Date.now() });
+        })
+        .catch(() => {
+          if (cancelled) return;
+          cacheRef.current.set(requestKey, { value: null, fetchedAt: Date.now() });
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    enabled,
+    backendReady,
+    code,
+    endpoint,
+    timeoutMs,
+    requestKeyExtra,
+    negativeCacheTtlMs,
+    prefetchAsofs,
   ]);
 
   return { item, loading };

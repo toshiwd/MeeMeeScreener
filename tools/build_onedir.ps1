@@ -186,7 +186,6 @@ $pyInstallerArgs += @(
     "--hidden-import", "clr",
     "--hidden-import", "clr_loader",
     "--hidden-import", "System",
-    "--hidden-import", "System.Windows.Forms",
     "--hidden-import", "webview.platforms.winforms",
     "--collect-submodules", "multipart",
     "--collect-all", "uvicorn",

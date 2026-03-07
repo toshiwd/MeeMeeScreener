@@ -9,6 +9,7 @@ from app.db.session import get_conn
 
 
 logger = logging.getLogger(__name__)
+SELL_ANALYSIS_CALC_VERSION = "1"
 
 
 def _ensure_table(conn: duckdb.DuckDBPyConnection) -> None:
@@ -47,6 +48,7 @@ def _ensure_table(conn: duckdb.DuckDBPyConnection) -> None:
             short_win_5 BOOLEAN,
             short_win_10 BOOLEAN,
             short_win_20 BOOLEAN,
+            calc_version TEXT,
             created_at TIMESTAMP,
             updated_at TIMESTAMP,
             PRIMARY KEY(code, dt)
@@ -62,6 +64,7 @@ def _ensure_table(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("ALTER TABLE sell_analysis_daily ADD COLUMN IF NOT EXISTS short_win_5 BOOLEAN")
     conn.execute("ALTER TABLE sell_analysis_daily ADD COLUMN IF NOT EXISTS short_win_10 BOOLEAN")
     conn.execute("ALTER TABLE sell_analysis_daily ADD COLUMN IF NOT EXISTS short_win_20 BOOLEAN")
+    conn.execute("ALTER TABLE sell_analysis_daily ADD COLUMN IF NOT EXISTS calc_version TEXT")
 
 
 def _refresh_future_outcomes(conn: duckdb.DuckDBPyConnection) -> None:
@@ -205,6 +208,7 @@ def _upsert_snapshot_for_date(conn: duckdb.DuckDBPyConnection, dt: int) -> int:
             dist_ma60_signed,
             trend_down,
             trend_down_strict,
+            calc_version,
             created_at,
             updated_at
         )
@@ -355,6 +359,7 @@ def _upsert_snapshot_for_date(conn: duckdb.DuckDBPyConnection, dt: int) -> int:
                 THEN TRUE
                 ELSE FALSE
             END AS trend_down_strict,
+            ? AS calc_version,
             CURRENT_TIMESTAMP AS created_at,
             CURRENT_TIMESTAMP AS updated_at
         FROM snap s
@@ -369,7 +374,7 @@ def _upsert_snapshot_for_date(conn: duckdb.DuckDBPyConnection, dt: int) -> int:
         LEFT JOIN score_curr sc
             ON sc.code = s.code
         """,
-        [int(dt), int(dt), int(dt), int(dt)],
+        [int(dt), int(dt), int(dt), int(dt), SELL_ANALYSIS_CALC_VERSION],
     )
     row = conn.execute(
         "SELECT COUNT(*) FROM sell_analysis_daily WHERE dt = ?",

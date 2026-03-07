@@ -34,7 +34,7 @@ def _env_int(name: str, default: int, minimum: int = 0) -> int:
 
 
 def _quality_enabled() -> bool:
-    return _env_bool("MEEMEE_RANK_QUALITY_ENABLED", True)
+    return _env_bool("MEEMEE_RANK_QUALITY_ENABLED", False)
 
 
 def _quality_poll_sec() -> int:
@@ -170,4 +170,3 @@ def stop_ranking_analysis_quality_scheduler(timeout_sec: float = 1.0) -> None:
         thread.join(timeout=max(0.0, float(timeout_sec)))
     with _SCHEDULER_LOCK:
         _SCHEDULER_THREAD = None
-

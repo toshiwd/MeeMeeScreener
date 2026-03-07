@@ -1,5 +1,6 @@
-﻿﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import type { AxiosError } from "axios";
 import { useLocation, useNavigate } from "react-router-dom";
 import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
 import { api } from "../api";
@@ -147,9 +148,35 @@ type RankRiskMode = "defensive" | "balanced" | "aggressive";
 type MtfStrictness = "auto" | "loose" | "normal" | "tight";
 type MtfStrictnessResolved = "loose" | "normal" | "tight";
 type RankMetricsView = "compact" | "full";
+type StoredRankViewState = {
+  stateVersion?: number;
+  listTimeframe?: "daily" | "weekly" | "monthly";
+  dir?: "up" | "down";
+  metricsView?: RankMetricsView;
+  filterSignalsOnly?: boolean;
+  filterDataOnly?: boolean;
+  filterBuySignalsOnly?: boolean;
+  filterSellSignalsOnly?: boolean;
+};
+type RankingFetchCacheEntry = {
+  cacheVersion: number;
+  items: RankItem[];
+  errorMessage: string | null;
+  useFallback: boolean;
+};
 
 const RANK_VIEW_STATE_KEY = "rankingViewState";
 const RANK_VIEW_STATE_VERSION = 5;
+const RANK_FETCH_CACHE_VERSION = 1;
+const RANK_FETCH_CACHE_PREFIX = "rankingFetchCache";
+const RANK_LIMIT = 50;
+const RANK_FETCH_TIMEOUT_MS = 60000;
+const TIMEFRAME_LABELS: Record<RankTimeframe, string> = {
+  D: "日足",
+  W: "週足",
+  M: "月足"
+};
+const rankingFetchMemoryCache = new Map<string, RankingFetchCacheEntry>();
 
 const RANK_MA_SETTINGS: MaSetting[] = [
   { key: "ma1", label: "MA1", period: 7, visible: true, color: "#ef4444", lineWidth: 1 },
@@ -179,6 +206,110 @@ const MTF_STRICTNESS_LABEL: Record<MtfStrictness, string> = {
   tight: "強"
 };
 const MTF_STRICT_ORDER: MtfStrictnessResolved[] = ["normal", "tight", "loose"];
+
+const readStoredRankViewState = (): StoredRankViewState | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.sessionStorage.getItem(RANK_VIEW_STATE_KEY);
+    if (!stored) return null;
+    return JSON.parse(stored) as StoredRankViewState;
+  } catch {
+    return null;
+  }
+};
+
+const buildRankingFetchCacheKey = (params: {
+  which: RankWhich;
+  dir: "up" | "down";
+  mode: RankMode;
+  riskMode: RankRiskMode;
+}) => `${RANK_FETCH_CACHE_PREFIX}:${params.which}:${params.dir}:${params.mode}:${params.riskMode}:${RANK_LIMIT}`;
+
+const readRankingFetchCache = (cacheKey: string): RankingFetchCacheEntry | null => {
+  const cached = rankingFetchMemoryCache.get(cacheKey);
+  if (cached) return cached;
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.sessionStorage.getItem(cacheKey);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as Partial<RankingFetchCacheEntry>;
+    if (parsed.cacheVersion !== RANK_FETCH_CACHE_VERSION || !Array.isArray(parsed.items) || typeof parsed.useFallback !== "boolean") {
+      return null;
+    }
+    const entry: RankingFetchCacheEntry = {
+      cacheVersion: RANK_FETCH_CACHE_VERSION,
+      items: parsed.items as RankItem[],
+      errorMessage: typeof parsed.errorMessage === "string" ? parsed.errorMessage : null,
+      useFallback: parsed.useFallback
+    };
+    rankingFetchMemoryCache.set(cacheKey, entry);
+    return entry;
+  } catch {
+    return null;
+  }
+};
+
+const clearRankingFetchCache = (cacheKey: string) => {
+  rankingFetchMemoryCache.delete(cacheKey);
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(cacheKey);
+  } catch {
+    // ignore storage failures
+  }
+};
+
+const writeRankingFetchCache = (cacheKey: string, entry: RankingFetchCacheEntry) => {
+  rankingFetchMemoryCache.set(cacheKey, entry);
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(cacheKey, JSON.stringify(entry));
+  } catch {
+    // ignore storage failures
+  }
+};
+
+const formatRankingBackendErrors = (errors?: string[] | null) => {
+  const messages = (errors ?? [])
+    .map((entry) => {
+      const text = String(entry ?? "").trim();
+      if (!text) return null;
+      const match = text.match(/^([DWM]):\s*(.+)$/);
+      if (!match) return text;
+      const tf = match[1] as RankTimeframe;
+      return `${TIMEFRAME_LABELS[tf]}: ${match[2]}`;
+    })
+    .filter((value): value is string => Boolean(value));
+  if (!messages.length) return null;
+  return messages.join(" / ");
+};
+
+const extractRankingFailureReason = (error: unknown) => {
+  const axiosError = error as AxiosError<{
+    detail?: string | { message?: string } | null;
+    error?: string | null;
+    errors?: string[] | null;
+  }> | undefined;
+  const responseData = axiosError?.response?.data;
+  const errorList = Array.isArray(responseData?.errors) ? formatRankingBackendErrors(responseData.errors) : null;
+  if (errorList) return errorList;
+  if (typeof responseData?.detail === "string" && responseData.detail.trim()) return responseData.detail.trim();
+  if (responseData?.detail && typeof responseData.detail === "object" && typeof responseData.detail.message === "string" && responseData.detail.message.trim()) {
+    return responseData.detail.message.trim();
+  }
+  if (typeof responseData?.error === "string" && responseData.error.trim()) return responseData.error.trim();
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  if (typeof axiosError?.message === "string" && axiosError.message.trim()) return axiosError.message.trim();
+  return null;
+};
+
+const buildRankingFallbackMessage = (reason: string | null) =>
+  reason
+    ? `ランキングの取得に失敗しました。簡易データを表示しています。理由: ${reason}`
+    : "ランキングの取得に失敗しました。簡易データを表示しています。";
+
+const isUsableRankingFetchCache = (entry: RankingFetchCacheEntry | null): entry is RankingFetchCacheEntry =>
+  Boolean(entry && !entry.useFallback && entry.items.length > 0);
 
 const finiteNum = (value?: number | null) => {
   if (!Number.isFinite(value ?? NaN)) return null;
@@ -394,23 +525,34 @@ export default function RankingView() {
   const setListColumns = useStore((state) => state.setListColumns);
   const setListRows = useStore((state) => state.setListRows);
   const favorites = useStore((state) => state.favorites);
-
-  const [dir, setDir] = useState<"up" | "down">("up");
   const rankWhich: RankWhich = "latest";
   const rankMode: RankMode = "hybrid";
   const riskMode: RankRiskMode = "balanced";
-  const [items, setItems] = useState<RankItem[]>([]);
+  const storedViewState = useMemo(() => readStoredRankViewState(), []);
+  const initialDir: "up" | "down" = storedViewState?.dir === "down" ? "down" : "up";
+  const initialFetchCache = useMemo(
+    () => {
+      const cached = readRankingFetchCache(
+        buildRankingFetchCacheKey({ which: rankWhich, dir: initialDir, mode: rankMode, riskMode })
+      );
+      return isUsableRankingFetchCache(cached) ? cached : null;
+    },
+    [initialDir, rankMode, rankWhich, riskMode]
+  );
+
+  const [dir, setDir] = useState<"up" | "down">(initialDir);
+  const [items, setItems] = useState<RankItem[]>(() => initialFetchCache?.items ?? []);
   const [search, setSearch] = useState("");
-  const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
-  const [filterDataOnly, setFilterDataOnly] = useState(false);
-  const [filterBuySignalsOnly, setFilterBuySignalsOnly] = useState(false);
-  const [filterSellSignalsOnly, setFilterSellSignalsOnly] = useState(false);
+  const [filterSignalsOnly, setFilterSignalsOnly] = useState(Boolean(storedViewState?.filterSignalsOnly));
+  const [filterDataOnly, setFilterDataOnly] = useState(Boolean(storedViewState?.filterDataOnly));
+  const [filterBuySignalsOnly, setFilterBuySignalsOnly] = useState(Boolean(storedViewState?.filterBuySignalsOnly));
+  const [filterSellSignalsOnly, setFilterSellSignalsOnly] = useState(Boolean(storedViewState?.filterSellSignalsOnly));
   const filterQualifiedOnly = true;
   const filterMtfStrictOnly = true;
   const mtfStrictness: MtfStrictness = "auto";
-  const [metricsView, setMetricsView] = useState<RankMetricsView>("compact");
-  const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [metricsView, setMetricsView] = useState<RankMetricsView>(storedViewState?.metricsView === "full" ? "full" : "compact");
+  const [loading, setLoading] = useState(() => initialFetchCache == null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(() => initialFetchCache?.errorMessage ?? null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
@@ -429,51 +571,16 @@ export default function RankingView() {
       ? "consult-padding-expanded"
       : "consult-padding-mini"
     : "";
-  const [useFallback, setUseFallback] = useState(false);
+  const [useFallback, setUseFallback] = useState(() => initialFetchCache?.useFallback ?? false);
 
   // Use the screenshot hook
   const { generateScreenshots } = useConsultScreenshot();
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = window.sessionStorage.getItem(RANK_VIEW_STATE_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as {
-        stateVersion?: number;
-        listTimeframe?: "daily" | "weekly" | "monthly";
-        dir?: "up" | "down";
-        metricsView?: RankMetricsView;
-        filterSignalsOnly?: boolean;
-        filterDataOnly?: boolean;
-        filterBuySignalsOnly?: boolean;
-        filterSellSignalsOnly?: boolean;
-      };
-      if (parsed.listTimeframe) {
-        setListTimeframe(parsed.listTimeframe);
-      }
-      if (parsed.dir === "up" || parsed.dir === "down") {
-        setDir(parsed.dir);
-      }
-      if (parsed.metricsView === "compact" || parsed.metricsView === "full") {
-        setMetricsView(parsed.metricsView);
-      }
-      if (typeof parsed.filterSignalsOnly === "boolean") {
-        setFilterSignalsOnly(parsed.filterSignalsOnly);
-      }
-      if (typeof parsed.filterDataOnly === "boolean") {
-        setFilterDataOnly(parsed.filterDataOnly);
-      }
-      if (typeof parsed.filterBuySignalsOnly === "boolean") {
-        setFilterBuySignalsOnly(parsed.filterBuySignalsOnly);
-      }
-      if (typeof parsed.filterSellSignalsOnly === "boolean") {
-        setFilterSellSignalsOnly(parsed.filterSellSignalsOnly);
-      }
-    } catch {
-      // ignore storage failures
+    if (storedViewState?.listTimeframe) {
+      setListTimeframe(storedViewState.listTimeframe);
     }
-  }, [setListTimeframe]);
+  }, [setListTimeframe, storedViewState]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -769,6 +876,17 @@ export default function RankingView() {
   }, [effectiveItems, dir, useFallback]);
   const listCodes = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
   const densityKey = `${listColumns}x${listRows}`;
+  const rankingCacheKey = useMemo(
+    () =>
+      buildRankingFetchCacheKey({
+        which: rankWhich,
+        dir,
+        mode: rankMode,
+        riskMode
+      }),
+    [dir, rankMode, rankWhich, riskMode]
+  );
+
   useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
@@ -784,7 +902,32 @@ export default function RankingView() {
   const itemCodeSet = useMemo(() => new Set(items.map((item) => item.code)), [items]);
 
   useEffect(() => {
+    const cached = readRankingFetchCache(rankingCacheKey);
+    if (isUsableRankingFetchCache(cached)) {
+      setItems(cached.items);
+      setUseFallback(cached.useFallback);
+      setErrorMessage(cached.errorMessage);
+      setLoading(false);
+      return;
+    }
+    if (cached) {
+      clearRankingFetchCache(rankingCacheKey);
+    }
+    setItems([]);
+    setUseFallback(false);
+    setErrorMessage(null);
+  }, [rankingCacheKey]);
+
+  useEffect(() => {
     if (!backendReady) return;
+    const cached = readRankingFetchCache(rankingCacheKey);
+    if (isUsableRankingFetchCache(cached)) {
+      setLoading(false);
+      return;
+    }
+    if (cached) {
+      clearRankingFetchCache(rankingCacheKey);
+    }
     let cancelled = false;
     setLoading(true);
     setErrorMessage(null);
@@ -792,7 +935,8 @@ export default function RankingView() {
     (async () => {
       try {
         const res = await api.get("/rankings/multi", {
-          params: { which: rankWhich, dir, mode: rankMode, risk_mode: riskMode, limit: 50 }
+          params: { which: rankWhich, dir, mode: rankMode, risk_mode: riskMode, limit: RANK_LIMIT },
+          timeout: RANK_FETCH_TIMEOUT_MS
         });
         if (cancelled) return;
         const payload = (res.data ?? {}) as {
@@ -803,8 +947,9 @@ export default function RankingView() {
         const dailyItems = Array.isArray(itemsByTf.D) ? itemsByTf.D : [];
         const weeklyItems = Array.isArray(itemsByTf.W) ? itemsByTf.W : [];
         const monthlyItems = Array.isArray(itemsByTf.M) ? itemsByTf.M : [];
+        const backendErrors = formatRankingBackendErrors(payload.errors);
         if (!dailyItems.length && !weeklyItems.length && !monthlyItems.length) {
-          throw new Error("rankings fetch failed");
+          throw new Error(backendErrors ?? "ランキング計算結果が空でした。");
         }
         const merged = mergeMultiTimeframeRankings(
           {
@@ -812,18 +957,24 @@ export default function RankingView() {
             W: weeklyItems,
             M: monthlyItems
           },
-          { dir, limit: 50 }
+          { dir, limit: RANK_LIMIT }
         );
+        if (!merged.length) {
+          throw new Error(backendErrors ?? "統合ランキングの生成結果が空でした。");
+        }
         setItems(merged);
         setUseFallback(false);
-        const errors = payload.errors ?? [];
-        if (errors.length > 0) {
-          setErrorMessage(errors[0]);
-        }
-      } catch {
+        setErrorMessage(backendErrors);
+        writeRankingFetchCache(rankingCacheKey, {
+          cacheVersion: RANK_FETCH_CACHE_VERSION,
+          items: merged,
+          errorMessage: backendErrors,
+          useFallback: false
+        });
+      } catch (error) {
         if (cancelled) return;
         setUseFallback(true);
-        setErrorMessage("ランキングの取得に失敗しました。簡易データを表示しています。");
+        setErrorMessage(buildRankingFallbackMessage(extractRankingFailureReason(error)));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -831,7 +982,7 @@ export default function RankingView() {
     return () => {
       cancelled = true;
     };
-  }, [backendReady, dir, rankWhich, rankMode, riskMode]);
+  }, [backendReady, dir, rankWhich, rankMode, rankingCacheKey, riskMode]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -846,7 +997,8 @@ export default function RankingView() {
   useEffect(() => {
     if (!useFallback) return;
     setItems(fallbackItems);
-  }, [fallbackItems, useFallback]);
+    clearRankingFetchCache(rankingCacheKey);
+  }, [fallbackItems, rankingCacheKey, useFallback]);
 
   useEffect(() => {
     if (!items.length) {

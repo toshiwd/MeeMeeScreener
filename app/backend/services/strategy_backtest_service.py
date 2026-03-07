@@ -327,7 +327,14 @@ def _load_market_frame(
     max_codes: int | None,
 ) -> pd.DataFrame:
     has_sector = _table_exists(conn, "industry_master")
+    has_daily_ma = _table_exists(conn, "daily_ma")
     has_ml_pred = _table_exists(conn, "ml_pred_20d")
+    ma_select = (
+        "m.ma7 AS ma7, m.ma20 AS ma20, m.ma60 AS ma60"
+        if has_daily_ma
+        else "NULL AS ma7, NULL AS ma20, NULL AS ma60"
+    )
+    ma_join = "LEFT JOIN daily_ma m ON m.code = b.code AND m.date = b.date" if has_daily_ma else ""
     sector_select = "im.sector33_code AS sector33_code" if has_sector else "NULL AS sector33_code"
     sector_join = "LEFT JOIN industry_master im ON im.code = b.code" if has_sector else ""
     ml_select = "mp.p_up AS ml_p_up" if has_ml_pred else "NULL AS ml_p_up"
@@ -365,13 +372,11 @@ def _load_market_frame(
                 b.l AS l,
                 b.c AS c,
                 b.v AS v,
-                m.ma7 AS ma7,
-                m.ma20 AS ma20,
-                m.ma60 AS ma60,
+                {ma_select},
                 {ml_select},
                 {sector_select}
             FROM daily_bars b
-            LEFT JOIN daily_ma m ON m.code = b.code AND m.date = b.date
+            {ma_join}
             {ml_join}
             {sector_join}
             WHERE b.code IN (SELECT code FROM universe)
@@ -389,13 +394,11 @@ def _load_market_frame(
             b.l AS l,
             b.c AS c,
             b.v AS v,
-            m.ma7 AS ma7,
-            m.ma20 AS ma20,
-            m.ma60 AS ma60,
+            {ma_select},
             {ml_select},
             {sector_select}
         FROM daily_bars b
-        LEFT JOIN daily_ma m ON m.code = b.code AND m.date = b.date
+        {ma_join}
         {ml_join}
         {sector_join}
         {where_sql}
@@ -1936,12 +1939,15 @@ def run_strategy_walkforward(
     test_months: int = 3,
     step_months: int = 1,
     min_windows: int = 1,
+    max_windows: int | None = None,
+    stop_on_oos_worst_max_drawdown_below: float | None = None,
 ) -> dict[str, Any]:
     cfg = config or StrategyBacktestConfig()
     train_months = max(1, int(train_months))
     test_months = max(1, int(test_months))
     step_months = max(1, int(step_months))
     min_windows = max(1, int(min_windows))
+    max_windows = max(1, int(max_windows)) if max_windows is not None else None
 
     run_id = datetime.now(tz=timezone.utc).strftime("swf_%Y%m%d%H%M%S_%f")
     started_at = datetime.now(tz=timezone.utc)
@@ -1997,7 +2003,13 @@ def run_strategy_walkforward(
         event_rows, event_notes = _load_event_rows(conn)
 
     windows_payload: list[dict[str, Any]] = []
+    truncated = False
+    truncated_reason: str | None = None
     for window in windows:
+        if max_windows is not None and len(windows_payload) >= int(max_windows):
+            truncated = True
+            truncated_reason = "max_windows_reached"
+            break
         train_start = int(window["train_start_dt"])
         train_end = int(window["train_end_dt"])
         test_start = int(window["test_start_dt"])
@@ -2061,6 +2073,16 @@ def run_strategy_walkforward(
             payload["status"] = "failed"
             payload["error"] = str(exc)
         windows_payload.append(payload)
+        if stop_on_oos_worst_max_drawdown_below is not None and str(payload.get("status")) == "success":
+            test_metrics = (payload.get("test") or {}).get("metrics") or {}
+            current_dd = _safe_float(test_metrics.get("max_drawdown_unit"))
+            if (
+                current_dd is not None
+                and float(current_dd) < float(stop_on_oos_worst_max_drawdown_below)
+            ):
+                truncated = True
+                truncated_reason = "oos_worst_max_drawdown_below_threshold"
+                break
 
     summary = _summarize_walkforward_windows(windows_payload)
     attribution = _build_walkforward_attribution(windows_payload)
@@ -2089,6 +2111,17 @@ def run_strategy_walkforward(
         "event_filter": {
             "event_rows": int(len(event_rows)),
             "notes": event_notes,
+        },
+        "execution": {
+            "requested_max_windows": int(max_windows) if max_windows is not None else None,
+            "executed_windows": int(len(windows_payload)),
+            "truncated": bool(truncated),
+            "truncated_reason": truncated_reason,
+            "stop_on_oos_worst_max_drawdown_below": (
+                float(stop_on_oos_worst_max_drawdown_below)
+                if stop_on_oos_worst_max_drawdown_below is not None
+                else None
+            ),
         },
         "config": asdict(cfg),
         "summary": summary,

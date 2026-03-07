@@ -32,11 +32,7 @@ from app.services.box_detector import detect_boxes
 
 router = APIRouter(prefix="/api/ticker", tags=["ticker"])
 logger = logging.getLogger(__name__)
-SYNC_BACKFILL_MAX_AGE_DAYS = max(0, int(os.getenv("MEEMEE_SYNC_BACKFILL_MAX_AGE_DAYS", "7")))
 _VALID_RISK_MODES = {"defensive", "balanced", "aggressive"}
-_BACKFILL_ATTEMPTS: set[tuple[str, int, bool, bool]] = set()
-_BACKFILL_ATTEMPTS_LOCK = Lock()
-_BACKFILL_ATTEMPTS_MAX = 10_000  # Clear set when it grows beyond this to prevent unbounded growth
 _EDINET_SUMMARY_CACHE: dict[tuple[str, int | None], tuple[float, Dict[str, Any] | None]] = {}
 _EDINET_SUMMARY_CACHE_LOCK = Lock()
 try:
@@ -385,6 +381,103 @@ def _asof_dt_to_ymd(asof_dt: int | None) -> int | None:
         return None
 
 
+def _normalize_date_key(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        iv = int(value)
+        if iv >= 1_000_000_000:
+            try:
+                return int(datetime.fromtimestamp(iv, tz=timezone.utc).strftime("%Y%m%d"))
+            except Exception:
+                return None
+        if 19_000_101 <= iv <= 21_001_231:
+            return iv
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
+        try:
+            return int(datetime.strptime(text, fmt).strftime("%Y%m%d"))
+        except ValueError:
+            continue
+    return None
+
+
+def _normalize_month_key(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        iv = int(value)
+        if iv >= 1_000_000_000:
+            try:
+                return int(datetime.fromtimestamp(iv, tz=timezone.utc).strftime("%Y%m"))
+            except Exception:
+                return None
+        if 190001 <= iv <= 210012:
+            return iv
+        if 19_000_101 <= iv <= 21_001_231:
+            return int(iv / 100)
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d", "%Y%m"):
+        try:
+            return int(datetime.strptime(text, fmt).strftime("%Y%m"))
+        except ValueError:
+            continue
+    return None
+
+
+def _build_exact_analysis_decision(
+    *,
+    analysis_point: Dict[str, Any],
+    daily_rows: list[tuple],
+    monthly_rows: list[tuple],
+    sell_row: tuple[Any, ...] | None,
+    risk_mode: str,
+) -> Dict[str, Any]:
+    p_up = _to_float_or_none(analysis_point.get("pUp"))
+    p_down = _to_float_or_none(analysis_point.get("pDown"))
+    if p_down is None and p_up is not None:
+        p_down = 1.0 - p_up
+    p_turn_up = _to_float_or_none(analysis_point.get("pTurnUp"))
+    p_turn_down = _to_float_or_none(analysis_point.get("pTurnDown"))
+    ev20_net = _to_float_or_none(analysis_point.get("ev20Net"))
+
+    additive_signals = None
+    entry_policy = None
+    try:
+        additive_signals = _build_additive_signal_summary(daily_rows, monthly_rows)
+        entry_policy = _build_entry_policy_summary(
+            daily_rows=daily_rows,
+            monthly_rows=monthly_rows,
+            risk_mode=risk_mode,
+        )
+    except Exception:
+        additive_signals = None
+        entry_policy = None
+
+    sell_context = _build_sell_context_from_row(sell_row)
+    return build_analysis_decision(
+        analysis_p_up=p_up,
+        analysis_p_down=p_down,
+        analysis_p_turn_up=p_turn_up,
+        analysis_p_turn_down=p_turn_down,
+        analysis_ev_net=ev20_net,
+        playbook_up_score_bonus=_to_float_or_none((entry_policy or {}).get("up", {}).get("playbookScoreBonus"))
+        if isinstance(entry_policy, dict)
+        else None,
+        playbook_down_score_bonus=_to_float_or_none((entry_policy or {}).get("down", {}).get("playbookScoreBonus"))
+        if isinstance(entry_policy, dict)
+        else None,
+        additive_signals=additive_signals if isinstance(additive_signals, dict) else None,
+        sell_analysis=sell_context if isinstance(sell_context, dict) else None,
+    )
+
+
 def _build_edinet_summary(code: str, asof_dt: int | None) -> Dict[str, Any] | None:
     code_key = str(code or "").strip()
     if not code_key:
@@ -644,80 +737,6 @@ def _build_entry_policy_summary(
         "up": up_side,
         "down": down_side,
     }
-
-
-def _resolve_effective_trade_dt(
-    repo: StockRepository,
-    code: str,
-    asof_dt: int | None,
-) -> int | None:
-    if asof_dt is None:
-        return None
-    try:
-        rows = repo.get_daily_bars(code, limit=1, asof_dt=asof_dt)
-    except Exception:
-        rows = []
-    if not rows:
-        return asof_dt
-    raw_dt = rows[-1][0] if rows[-1] else asof_dt
-    if isinstance(raw_dt, float) and math.isfinite(raw_dt):
-        raw_dt = int(raw_dt)
-    normalized = _parse_dt(raw_dt)
-    return normalized if normalized is not None else asof_dt
-
-
-def _latest_trade_dt(repo: StockRepository, code: str) -> int | None:
-    try:
-        rows = repo.get_daily_bars(code, limit=1, asof_dt=None)
-    except Exception:
-        rows = []
-    if not rows:
-        return None
-    raw_dt = rows[-1][0] if rows[-1] else None
-    normalized = _parse_dt(raw_dt)
-    return normalized
-
-
-def _maybe_backfill_for_analysis(
-    *,
-    repo: StockRepository,
-    code: str,
-    asof_dt: int | None,
-    ensure_ml: bool,
-    ensure_sell: bool,
-) -> None:
-    effective_dt = _resolve_effective_trade_dt(repo, code, asof_dt)
-    if effective_dt is None:
-        return
-    latest_dt = _latest_trade_dt(repo, code)
-    if latest_dt is not None:
-        try:
-            latest_date = datetime.fromtimestamp(int(latest_dt), tz=timezone.utc).date()
-            target_date = datetime.fromtimestamp(int(effective_dt), tz=timezone.utc).date()
-            if (latest_date - target_date).days > SYNC_BACKFILL_MAX_AGE_DAYS:
-                return
-        except Exception:
-            return
-    attempt_key = (str(code), int(effective_dt), bool(ensure_ml), bool(ensure_sell))
-    with _BACKFILL_ATTEMPTS_LOCK:
-        if attempt_key in _BACKFILL_ATTEMPTS:
-            return
-        # Clear the set if it grows beyond the limit to prevent unbounded memory usage.
-        if len(_BACKFILL_ATTEMPTS) >= _BACKFILL_ATTEMPTS_MAX:
-            _BACKFILL_ATTEMPTS.clear()
-        _BACKFILL_ATTEMPTS.add(attempt_key)
-    if ensure_ml:
-        try:
-            from app.backend.services import ml_service
-            ml_service.predict_for_dt(dt=int(effective_dt))
-        except Exception as exc:
-            logger.warning("ml backfill skipped code=%s dt=%s reason=%s", code, effective_dt, exc)
-    if ensure_sell:
-        try:
-            from app.backend.services.sell_analysis_accumulator import accumulate_sell_analysis
-            accumulate_sell_analysis(lookback_days=1, anchor_dt=int(effective_dt))
-        except Exception as exc:
-            logger.warning("sell backfill skipped code=%s dt=%s reason=%s", code, effective_dt, exc)
 
 
 def _clip_probability(value: float | None) -> float | None:
@@ -1032,15 +1051,6 @@ def get_analysis_pred(
     resolved_risk_mode = _normalize_risk_mode(risk_mode)
     asof_dt = _parse_dt(asof)
     row = repo.get_ml_analysis_pred(code, asof_dt)
-    if not row and asof_dt is not None:
-        _maybe_backfill_for_analysis(
-            repo=repo,
-            code=code,
-            asof_dt=asof_dt,
-            ensure_ml=True,
-            ensure_sell=False,
-        )
-        row = repo.get_ml_analysis_pred(code, asof_dt)
     if not row:
         return {"item": None}
     p_up = _to_float_or_none(row[1])
@@ -1197,16 +1207,7 @@ def get_analysis_timeline(
         raise HTTPException(status_code=400, detail="code is required")
     asof_dt = _parse_dt(asof)
     items = repo.get_analysis_timeline(code, asof_dt, limit=limit)
-    if not items and asof_dt is not None:
-        _maybe_backfill_for_analysis(
-            repo=repo,
-            code=code,
-            asof_dt=asof_dt,
-            ensure_ml=True,
-            ensure_sell=True,
-        )
-        items = repo.get_analysis_timeline(code, asof_dt, limit=limit)
-        
+
     if items:
         try:
             # Compute ranking score once for the latest date only (O(1) instead of O(N))
@@ -1232,6 +1233,83 @@ def get_analysis_timeline(
     return {"items": items}
 
 
+@router.get("/analysis/decisions", response_model=None)
+def get_exact_analysis_decisions(
+    code: str,
+    start_dt: str | int,
+    end_dt: str | int,
+    risk_mode: str = Query("balanced"),
+    repo: StockRepository = Depends(get_stock_repo),
+) -> Dict[str, Any]:
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+    start_asof = _parse_dt(start_dt)
+    end_asof = _parse_dt(end_dt)
+    if start_asof is None or end_asof is None:
+        raise HTTPException(status_code=400, detail="start_dt and end_dt are required")
+    if start_asof > end_asof:
+        start_asof, end_asof = end_asof, start_asof
+
+    resolved_risk_mode = _normalize_risk_mode(risk_mode)
+    start_key = _asof_dt_to_ymd(start_asof)
+    end_key = _asof_dt_to_ymd(end_asof)
+    if start_key is None or end_key is None:
+        return {"items": []}
+
+    daily_rows_all = repo.get_daily_bars(code, limit=2000, asof_dt=end_asof)
+    if not daily_rows_all:
+        return {"items": []}
+    monthly_rows_all = repo.get_monthly_bars(code, limit=120, asof_dt=end_asof)
+    timeline_limit = min(2000, max(400, len(daily_rows_all) + 32))
+    timeline_items = repo.get_analysis_timeline(code, end_asof, limit=timeline_limit)
+    analysis_by_key: Dict[int, Dict[str, Any]] = {}
+    for item in timeline_items:
+        dt_key = _normalize_date_key(item.get("dt"))
+        if dt_key is None:
+            continue
+        analysis_by_key[dt_key] = item
+
+    candidate_daily_rows: list[tuple[int, int, int]] = []
+    for index, row in enumerate(daily_rows_all):
+        asof_row = _parse_dt(row[0] if row else None)
+        dt_key = _normalize_date_key(row[0] if row else None)
+        if asof_row is None or dt_key is None:
+            continue
+        if dt_key < start_key or dt_key > end_key:
+            continue
+        candidate_daily_rows.append((index, asof_row, dt_key))
+
+    if not candidate_daily_rows:
+        return {"items": []}
+
+    monthly_prefix_end = 0
+    items: list[Dict[str, Any]] = []
+    for index, asof_row, dt_key in candidate_daily_rows:
+        analysis_point = analysis_by_key.get(dt_key)
+        if not isinstance(analysis_point, dict):
+            continue
+        asof_month_key = int(datetime.fromtimestamp(asof_row, tz=timezone.utc).strftime("%Y%m"))
+        while monthly_prefix_end < len(monthly_rows_all):
+            month_key = _normalize_month_key(monthly_rows_all[monthly_prefix_end][0])
+            if month_key is None:
+                monthly_prefix_end += 1
+                continue
+            if month_key > asof_month_key:
+                break
+            monthly_prefix_end += 1
+        sell_row = repo.get_sell_analysis_snapshot(code, asof_row)
+        decision = _build_exact_analysis_decision(
+            analysis_point=analysis_point,
+            daily_rows=daily_rows_all[: index + 1],
+            monthly_rows=monthly_rows_all[:monthly_prefix_end],
+            sell_row=sell_row,
+            risk_mode=resolved_risk_mode,
+        )
+        items.append({"dt": dt_key, "decision": decision})
+
+    return {"items": items}
+
+
 @router.get("/analysis/sell", response_model=None)
 def get_sell_analysis_snapshot(
     code: str,
@@ -1242,15 +1320,6 @@ def get_sell_analysis_snapshot(
         raise HTTPException(status_code=400, detail="code is required")
     asof_dt = _parse_dt(asof)
     row = repo.get_sell_analysis_snapshot(code, asof_dt)
-    if not row and asof_dt is not None:
-        _maybe_backfill_for_analysis(
-            repo=repo,
-            code=code,
-            asof_dt=asof_dt,
-            ensure_ml=True,
-            ensure_sell=True,
-        )
-        row = repo.get_sell_analysis_snapshot(code, asof_dt)
     if not row:
         return {"item": None}
     return {

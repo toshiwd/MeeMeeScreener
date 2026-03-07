@@ -37,15 +37,18 @@ def _to_bool(value: object, default: bool) -> bool:
 def handle_analysis_backfill(job_id: str, payload: dict) -> None:
     lookback_days = _to_int(payload.get("lookback_days"), 130, minimum=1) or 130
     anchor_dt = _to_int(payload.get("anchor_dt"), None, minimum=1)
+    start_dt = _to_int(payload.get("start_dt"), None, minimum=1)
+    end_dt = _to_int(payload.get("end_dt"), None, minimum=1)
     max_missing_days = _to_int(payload.get("max_missing_days"), None, minimum=1)
     include_sell = _to_bool(payload.get("include_sell"), True)
     include_phase = _to_bool(payload.get("include_phase"), False)
+    force_recompute = _to_bool(payload.get("force_recompute"), False)
 
     def _progress(progress: int, message: str) -> None:
-        job_manager._update_db(
-            job_id,
-            "analysis_backfill",
-            "running",
+        job_manager.update_status_cache_only(
+            job_id=job_id,
+            job_type="analysis_backfill",
+            status="running",
             progress=max(0, min(99, int(progress))),
             message=message,
         )
@@ -54,9 +57,12 @@ def handle_analysis_backfill(job_id: str, payload: dict) -> None:
     result = backfill_missing_analysis_history(
         lookback_days=lookback_days,
         anchor_dt=anchor_dt,
+        start_dt=start_dt,
+        end_dt=end_dt,
         max_missing_days=max_missing_days,
         include_sell=include_sell,
         include_phase=include_phase,
+        force_recompute=force_recompute,
         progress_cb=_progress,
     )
 
@@ -64,6 +70,7 @@ def handle_analysis_backfill(job_id: str, payload: dict) -> None:
     status = "success" if not errors else "failed"
     message = (
         f"Backfill completed: missing_ml={result.get('missing_ml_total')} "
+        f"target={len(result.get('target_dates') or [])} "
         f"selected={result.get('missing_ml_selected')} "
         f"predicted={len(result.get('predicted_dates') or [])} "
         f"sell={len(result.get('sell_refreshed_dates') or [])}"

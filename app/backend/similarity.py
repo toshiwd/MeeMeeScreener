@@ -10,6 +10,7 @@ import pickle
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Literal, Any, TYPE_CHECKING
 from dataclasses import dataclass
+from app.core.config import config
 from app.db.session import get_conn_for_path
 
 try:
@@ -29,7 +30,7 @@ if _data_store_env:
 elif _data_dir_env:
     DATA_STORE_DIR = os.path.join(_data_dir_env, "data_store")
 else:
-    DATA_STORE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data_store")
+    DATA_STORE_DIR = str(config.DATA_DIR / "data_store")
 
 from pydantic import BaseModel
 
@@ -49,7 +50,7 @@ class SearchResult(BaseModel):
 
 class SimilarityService:
     def __init__(self, db_path: str = None):
-        self.db_path = db_path or os.getenv("STOCKS_DB_PATH", os.path.join(os.path.dirname(__file__), "stocks.duckdb"))
+        self.db_path = os.path.abspath(str(db_path or os.getenv("STOCKS_DB_PATH") or config.DB_PATH))
         self.data_dir = os.path.abspath(DATA_STORE_DIR)
         os.makedirs(self.data_dir, exist_ok=True)
         
@@ -244,12 +245,14 @@ class SimilarityService:
             except Exception as exc:
                 missing_list = ", ".join(missing)
                 raise FileNotFoundError(
-                    f"Similarity artifacts not found: {missing_list}"
+                    f"Similarity artifacts not found: {missing_list}. refresh_data failed: {exc}"
                 ) from exc
             missing = [path for path in required_paths if not os.path.exists(path)]
             if missing:
                 missing_list = ", ".join(missing)
-                raise FileNotFoundError(f"Similarity artifacts not found: {missing_list}")
+                raise FileNotFoundError(
+                    f"Similarity artifacts not found after refresh_data(): {missing_list}"
+                )
 
         try:
             self.df_vec60 = pd.read_parquet(self.df_vec60_path)
@@ -290,8 +293,9 @@ class SimilarityService:
                     "SELECT code, MAX(month) AS max_month FROM monthly_bars GROUP BY code"
                 ).df()
                 if db_max.empty:
-                    print("No monthly data found.")
-                    return
+                    raise RuntimeError(
+                        "monthly_bars table is empty. Import monthly data before building similarity artifacts."
+                    )
 
                 use_epoch = db_max["max_month"].max() >= 1_000_000_000
                 existing = self.df_env.copy()
@@ -314,8 +318,9 @@ class SimilarityService:
 
                 df_monthly = self._load_monthly_bars(conn, codes_to_update)
                 if df_monthly.empty:
-                    print("No monthly data found for updates.")
-                    return
+                    raise RuntimeError(
+                        "monthly_bars returned no rows for incremental similarity refresh."
+                    )
 
                 counts = df_monthly["code"].value_counts()
                 valid_codes = set(counts[counts >= 120].index)
@@ -351,12 +356,17 @@ class SimilarityService:
             df_monthly = self._load_monthly_bars(conn)
 
         if df_monthly.empty:
-            print("No monthly data found.")
-            return
+            raise RuntimeError(
+                "monthly_bars table is empty. Import monthly data before building similarity artifacts."
+            )
 
         counts = df_monthly["code"].value_counts()
         valid_codes = counts[counts >= 120].index
         df_monthly = df_monthly[df_monthly["code"].isin(valid_codes)].copy()
+        if df_monthly.empty:
+            raise RuntimeError(
+                "No tickers have the 120 months of history required for similarity search."
+            )
 
         print(f"Monthly Bars loaded: {len(df_monthly)} rows, {len(valid_codes)} tickers.")
         print("Generating vectors and tags...")

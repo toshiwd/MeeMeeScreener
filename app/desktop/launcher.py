@@ -42,6 +42,14 @@ def _is_selftest_mode() -> bool:
     return os.getenv("MEEMEE_SELFTEST", "").lower() in ("1", "true", "yes", "on")
 
 
+def _storage_app_name() -> str:
+    if _is_selftest_mode():
+        return f"{APP_NAME}-selftest"
+    if _is_dev_mode():
+        return f"{APP_NAME}-dev"
+    return APP_NAME
+
+
 def _check_webview2_runtime() -> bool:
     """Check if Microsoft Edge WebView2 Runtime is installed."""
     import winreg
@@ -171,6 +179,10 @@ def _list_pids_by_image(image_name: str) -> list[int]:
     return pids
 
 
+def _pid_exists(pid: int) -> bool:
+    return bool(_tasklist_rows(pid=int(pid)))
+
+
 def _get_process_commandline(pid: int) -> str:
     script = (
         f"$p = Get-CimInstance Win32_Process -Filter \"ProcessId = {int(pid)}\"; "
@@ -194,7 +206,11 @@ def _is_backend_process(pid: int) -> bool:
     cmdline = _get_process_commandline(pid).lower()
     if not cmdline:
         return False
-    return "--backend" in cmdline or "meemee_backend_only" in cmdline
+    return (
+        "--backend" in cmdline
+        or "meemee_backend_only" in cmdline
+        or ("uvicorn" in cmdline and ("app.main:app" in cmdline or " main:app" in cmdline))
+    )
 
 
 def _terminate_pid(pid: int) -> bool:
@@ -260,6 +276,72 @@ def _list_listening_pids_on_port(port: int) -> list[int]:
     return sorted(pids)
 
 
+def _list_listening_ports_for_pid(pid: int) -> list[int]:
+    try:
+        raw = subprocess.check_output(
+            ["netstat", "-ano", "-p", "tcp"],
+            stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            text=True,
+            encoding="cp932",
+            errors="ignore",
+        )
+    except Exception:
+        return []
+    ports: set[int] = set()
+    target_pid = str(int(pid))
+    for line in raw.splitlines():
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        if parts[3].upper() != "LISTENING":
+            continue
+        if parts[4] != target_pid:
+            continue
+        local_addr = parts[1]
+        try:
+            port = int(local_addr.rsplit(":", 1)[1])
+        except Exception:
+            continue
+        ports.add(port)
+    return sorted(ports)
+
+
+def _read_locked_backend_pid(data_dir: str) -> int | None:
+    lock_path = os.path.join(data_dir, "app.lock")
+    try:
+        with open(lock_path, "r", encoding="utf-8") as handle:
+            text = handle.read().strip()
+    except Exception:
+        return None
+    if not text.isdigit():
+        return None
+    pid = int(text)
+    if pid <= 0 or pid == os.getpid():
+        return None
+    if not _pid_exists(pid):
+        return None
+    return pid
+
+
+def _detect_reusable_locked_backend(data_dir: str, preferred_port: int) -> tuple[int | None, str | None]:
+    pid = _read_locked_backend_pid(data_dir)
+    if pid is None:
+        return None, None
+    ports = _list_listening_ports_for_pid(pid)
+    if not ports:
+        return None, f"locked_by_pid={pid}"
+    candidates = [preferred_port] if preferred_port in ports else []
+    candidates.extend(port for port in ports if port != preferred_port)
+    last_err: str | None = None
+    for port in candidates:
+        ok, err = _wait_for_health_detail(port, 3)
+        if ok or (err and "status=503" in err):
+            return port, f"pid={pid} port={port}"
+        last_err = err
+    return candidates[0], f"pid={pid} port={candidates[0]} pending_health err={last_err}"
+
+
 def _terminate_unhealthy_backend_on_port(port: int) -> int:
     killed = 0
     current_pid = os.getpid()
@@ -285,8 +367,35 @@ def _get_health_timeout_seconds() -> int:
     return max(5, min(120, value))
 
 
-def _wait_for_health_detail(port: int, timeout_seconds: int) -> tuple[bool, str | None]:
+_RETRYABLE_DB_LOCK_KEYWORDS = (
+    "another backend process is running",
+    "already open",
+    "cannot open file",
+    "database is locked",
+    "used by",
+    "unique file handle conflict",
+    "cannot attach",
+)
+
+
+def _is_retryable_db_lock_detail(payload: dict[str, object]) -> bool:
+    if not bool(payload.get("db_retryable")):
+        return False
+    errors = payload.get("errors")
+    if not isinstance(errors, list):
+        return False
+    text = " ".join(str(item or "") for item in errors).lower()
+    return bool(text) and any(keyword in text for keyword in _RETRYABLE_DB_LOCK_KEYWORDS)
+
+
+def _wait_for_health_detail(
+    port: int,
+    timeout_seconds: int,
+    *,
+    proc: subprocess.Popen | None = None,
+) -> tuple[bool, str | None]:
     deadline = time.monotonic() + timeout_seconds
+    started_at = time.monotonic()
     url = f"http://127.0.0.1:{port}/api/health"
     # Ensure localhost health checks are not routed through system proxy settings
     # (common on corporate Windows setups), otherwise we can mistakenly think the
@@ -294,7 +403,12 @@ def _wait_for_health_detail(port: int, timeout_seconds: int) -> tuple[bool, str 
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     last_err: Exception | None = None
     last_detail: str | None = None
+    retryable_lock_hits = 0
     while time.monotonic() < deadline:
+        if proc is not None:
+            rc = proc.poll()
+            if rc is not None:
+                return False, f"backend_exit={rc}"
         try:
             with opener.open(url, timeout=1) as response:
                 body = response.read()
@@ -311,6 +425,12 @@ def _wait_for_health_detail(port: int, timeout_seconds: int) -> tuple[bool, str 
                 phase = str(payload.get("phase") or "")
                 message = str(payload.get("message") or "")
                 last_detail = f"status={response.status} phase={phase} message={message}".strip()
+                if _is_retryable_db_lock_detail(payload):
+                    retryable_lock_hits += 1
+                    if retryable_lock_hits >= 4 and (time.monotonic() - started_at) >= 2.0:
+                        return False, f"{last_detail} cause=db_lock"
+                else:
+                    retryable_lock_hits = 0
         except urllib.error.HTTPError as exc:
             last_err = exc
             detail = f"status={exc.code}"
@@ -321,12 +441,19 @@ def _wait_for_health_detail(port: int, timeout_seconds: int) -> tuple[bool, str 
                     phase = str(payload.get("phase") or "")
                     message = str(payload.get("message") or "")
                     detail = f"status={exc.code} phase={phase} message={message}".strip()
+                    if _is_retryable_db_lock_detail(payload):
+                        retryable_lock_hits += 1
+                        if retryable_lock_hits >= 4 and (time.monotonic() - started_at) >= 2.0:
+                            return False, f"{detail} cause=db_lock"
+                    else:
+                        retryable_lock_hits = 0
             except Exception:
                 pass
             last_detail = detail
         except Exception as exc:
             last_err = exc
             last_detail = str(exc)
+            retryable_lock_hits = 0
         time.sleep(0.2)
     if last_err is not None:
         print(f"[launcher] Health check failed for {url}: {last_err}")
@@ -396,6 +523,12 @@ def _build_error_html(
     elif not log_tail:
         log_display = f"(backend.log is empty)\n{backend_log_path}"
     health_block = f"<p><strong>health:</strong> {_escape_html(health_error)}</p>" if health_error else ""
+    extra_hint = ""
+    if health_error and "cause=db_lock" in health_error:
+        extra_hint = (
+            "<p class=\"message\"><strong>hint:</strong> stocks.duckdb is locked by another process. "
+            "Close other MeeMee/backend or long-running jobs using the same data directory, then relaunch.</p>"
+        )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -471,6 +604,7 @@ def _build_error_html(
       <h1>{_escape_html(title)}</h1>
       <p class="message">{_escape_html(message)}</p>
       {health_block}
+      {extra_hint}
       <p class="message">backend.log: {_escape_html(backend_log_path)}</p>
     </div>
     <div class="card">
@@ -1031,7 +1165,7 @@ def _maximize_window(window) -> None:
 
 def _prepare_appdata() -> dict[str, str]:
     # Use config for data_dir resolution logic
-    data_root = local_app_dir(APP_NAME)
+    data_root = local_app_dir(_storage_app_name())
     data_dir = data_root if data_root.name == "data" else data_root / "data"
     
     # We still use local_app for other non-data stuff? Or just unify?
@@ -1204,7 +1338,7 @@ def _configure_logging(logs_dir: str) -> Path:
 
 
 def _write_app_lock(data_dir: str) -> str | None:
-    lock_path = os.path.join(data_dir, "app.lock")
+    lock_path = os.path.join(data_dir, "launcher_ui.lock")
     payload = {
         "pid": os.getpid(),
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -1327,7 +1461,11 @@ def _run_selftest() -> int:
     try:
         log("Starting backend...")
         proc, proc_log_handle = _start_backend_process(28888, backend_log_path)
-        ok, err = _wait_for_health_detail(28888, int(os.getenv("MEEMEE_SELFTEST_HEALTH_TIMEOUT", "20")))
+        ok, err = _wait_for_health_detail(
+            28888,
+            int(os.getenv("MEEMEE_SELFTEST_HEALTH_TIMEOUT", "20")),
+            proc=proc,
+        )
         if not ok:
             log(f"FAIL: backend health timeout: {err}")
             _write_text(os.path.join(artifacts_dir, "health_error.txt"), str(err))
@@ -1649,6 +1787,7 @@ def main() -> None:
             # Start backend in background immediately
             backend_log_path = os.path.join(paths["logs_dir"], "backend.log")
             server_state["backend_log"] = backend_log_path
+            proc = None
             _update_loading(win, "Starting backend...")
             cleaned = _cleanup_stale_backend_processes()
             if cleaned > 0:
@@ -1657,6 +1796,16 @@ def main() -> None:
             # Check port availability / existing backend health
             final_port = port
             reuse_existing_backend = False
+            locked_backend_pid = _read_locked_backend_pid(paths["data_dir"])
+            locked_backend_port, locked_backend_detail = _detect_reusable_locked_backend(paths["data_dir"], final_port)
+            if locked_backend_port is not None:
+                final_port = int(locked_backend_port)
+                reuse_existing_backend = True
+                print(f"[launcher] Reusing locked backend {locked_backend_detail}")
+            elif locked_backend_pid is not None and _is_backend_process(locked_backend_pid):
+                if _terminate_pid(locked_backend_pid):
+                    print(f"[launcher] Terminated stale locked backend PID={locked_backend_pid}")
+                    time.sleep(0.4)
             if not _can_bind_port(final_port):
                 existing_ok, existing_err = _wait_for_health_detail(final_port, 3)
                 if existing_ok:
@@ -1692,27 +1841,52 @@ def main() -> None:
 
             _update_loading(win, "Waiting for backend health...")
             health_timeout = _get_health_timeout_seconds()
-            ok, health_err = _wait_for_health_detail(final_port, health_timeout)
+            ok, health_err = _wait_for_health_detail(
+                final_port,
+                health_timeout,
+                proc=proc if isinstance(proc, subprocess.Popen) else None,
+            )
             if not ok:
+                locked_backend_port, locked_backend_detail = _detect_reusable_locked_backend(
+                    paths["data_dir"],
+                    final_port,
+                )
+                if locked_backend_port is not None and int(locked_backend_port) != int(final_port):
+                    fallback_ok, fallback_err = _wait_for_health_detail(int(locked_backend_port), 5)
+                    if fallback_ok or (fallback_err and "status=503" in fallback_err):
+                        print(
+                            "[launcher] Backend startup failed; "
+                            f"falling back to locked backend {locked_backend_detail}"
+                        )
+                        _stop_backend_process(
+                            proc if isinstance(proc, subprocess.Popen) else None,
+                            server_state.get("log_handle"),
+                        )
+                        server_state["proc"] = None
+                        server_state["log_handle"] = None
+                        final_port = int(locked_backend_port)
+                        ok = True
+                        health_err = None
                 proc = server_state.get("proc")
                 log_handle = server_state.get("log_handle")
-                exit_note = ""
-                if isinstance(proc, subprocess.Popen):
-                    rc = proc.poll()
-                    if rc is not None:
-                        exit_note = f" backend_exit={rc}"
-                _stop_backend_process(proc if isinstance(proc, subprocess.Popen) else None, log_handle)
-                server_state["proc"] = None
-                server_state["log_handle"] = None
-                error_html = _build_error_html(
-                    "Backend failed to start",
-                    "Backend did not become ready on /api/health.",
-                    paths,
-                    backend_log_path,
-                    health_error=f"{health_err or 'health_check_timeout'} (timeout={health_timeout}s){exit_note}",
-                )
-                _show_error_page(win, error_html)
-                return
+                if not ok:
+                    exit_note = ""
+                    if isinstance(proc, subprocess.Popen):
+                        rc = proc.poll()
+                        if rc is not None:
+                            exit_note = f" backend_exit={rc}"
+                    _stop_backend_process(proc if isinstance(proc, subprocess.Popen) else None, log_handle)
+                    server_state["proc"] = None
+                    server_state["log_handle"] = None
+                    error_html = _build_error_html(
+                        "Backend failed to start",
+                        "Backend did not become ready on /api/health.",
+                        paths,
+                        backend_log_path,
+                        health_error=f"{health_err or 'health_check_timeout'} (timeout={health_timeout}s){exit_note}",
+                    )
+                    _show_error_page(win, error_html)
+                    return
 
             server_state["port"] = final_port
             _maximize_window(win)

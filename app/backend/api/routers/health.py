@@ -10,6 +10,7 @@ from app.backend.services.system_status import (
     _collect_db_readiness,
     _collect_db_stats,
     _get_last_updated_timestamp,
+    get_readiness_state,
 )
 from app.backend.services.txt_update import get_txt_status
 from app.core.config import (
@@ -82,7 +83,14 @@ def health():
     readiness = _collect_db_readiness()
     missing_tables = list(readiness.get("missing_tables") or [])
     errors = list(readiness.get("errors") or [])
-    ready = not missing_tables and not errors
+    readiness_state = dict(readiness.get("readiness_state") or get_readiness_state() or {})
+    transient_db_busy = (
+        bool(readiness.get("db_retryable"))
+        and not missing_tables
+        and bool(errors)
+        and bool(readiness_state.get("boot_ready") or readiness_state.get("db_ready"))
+    )
+    ready = (not missing_tables and not errors) or transient_db_busy
 
     detail_errors = list(errors)
     if missing_tables:
@@ -90,16 +98,17 @@ def health():
 
     payload = _health_payload(
         ok=ready,
-        status="ok" if ready else "starting",
+        status="degraded" if transient_db_busy else "ok" if ready else "starting",
         ready=ready,
         phase="ready" if ready else "starting",
-        message="ready" if ready else "backend is starting",
-        errors=detail_errors if not ready else [],
+        message="backend ready (database busy)" if transient_db_busy else "ready" if ready else "backend is starting",
+        errors=detail_errors if (not ready or transient_db_busy) else [],
         retry_after_ms=None if ready else 1000,
         extra={
             "missing_tables": missing_tables,
             "db_retryable": bool(readiness.get("db_retryable")),
             "db_connect_stats": readiness.get("db_connect_stats"),
+            "readiness_state": readiness_state,
             "txt_count": txt_status.get("txt_count"),
             "last_updated": txt_status.get("last_updated"),
             "code_txt_missing": txt_status.get("code_txt_missing"),

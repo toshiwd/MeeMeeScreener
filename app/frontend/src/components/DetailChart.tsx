@@ -1853,7 +1853,8 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         width,
         layout: {
           background: { color: baseColors.bg },
-          textColor: baseColors.text
+          textColor: baseColors.text,
+          attributionLogo: false
         },
         localization: {
           locale: "ja-JP",

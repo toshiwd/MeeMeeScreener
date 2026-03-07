@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import logging
+import threading
 from datetime import datetime
 
 from app.core.config import UPDATE_STATE_PATH
@@ -24,6 +25,30 @@ _REQUIRED_TABLES = [
     "position_rounds",
     "initial_positions_seed",
 ]
+_READINESS_STATE_LOCK = threading.Lock()
+_READINESS_STATE = {
+    "boot_ready": False,
+    "boot_ready_at": None,
+    "db_ready": False,
+    "db_ready_at": None,
+}
+
+
+def mark_backend_boot_ready() -> None:
+    with _READINESS_STATE_LOCK:
+        _READINESS_STATE["boot_ready"] = True
+        _READINESS_STATE["boot_ready_at"] = datetime.now().isoformat()
+
+
+def mark_db_ready() -> None:
+    with _READINESS_STATE_LOCK:
+        _READINESS_STATE["db_ready"] = True
+        _READINESS_STATE["db_ready_at"] = datetime.now().isoformat()
+
+
+def get_readiness_state() -> dict:
+    with _READINESS_STATE_LOCK:
+        return dict(_READINESS_STATE)
 
 
 def _list_tables(conn) -> set[str]:
@@ -52,6 +77,8 @@ def _collect_db_stats() -> dict:
                 return stats
             tables = _list_tables(conn)
             stats["missing_tables"] = [name for name in _REQUIRED_TABLES if name not in tables]
+            if not stats["missing_tables"]:
+                mark_db_ready()
             if "tickers" in tables:
                 stats["tickers"] = conn.execute("SELECT COUNT(*) FROM tickers").fetchone()[0]
             if "daily_bars" in tables:
@@ -87,11 +114,14 @@ def _collect_db_readiness() -> dict:
                 return state
             tables = _list_tables(conn)
             state["missing_tables"] = [name for name in _REQUIRED_TABLES if name not in tables]
+            if not state["missing_tables"]:
+                mark_db_ready()
     except Exception as exc:
         if is_transient_duckdb_error(exc):
             state["db_retryable"] = True
         state["errors"].append(str(exc))
     state["db_connect_stats"] = get_connect_stats()
+    state["readiness_state"] = get_readiness_state()
     return state
 
 

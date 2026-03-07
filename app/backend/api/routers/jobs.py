@@ -522,6 +522,9 @@ def submit_analysis_backfill(
     include_sell: bool = True,
     include_phase: bool = False,
     anchor_dt: int | None = None,
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+    force_recompute: bool = False,
 ):
     try:
         return _submit_job(
@@ -532,6 +535,9 @@ def submit_analysis_backfill(
                 "include_sell": bool(include_sell),
                 "include_phase": bool(include_phase),
                 "anchor_dt": int(anchor_dt) if anchor_dt is not None else None,
+                "start_dt": int(start_dt) if start_dt is not None else None,
+                "end_dt": int(end_dt) if end_dt is not None else None,
+                "force_recompute": bool(force_recompute),
             },
         )
     except Exception as exc:
@@ -927,11 +933,11 @@ def run_txt_update_legacy():
 @router.get("/api/jobs/current")
 def get_current_job():
     try:
+        cached = job_manager.get_cached_current()
+        if cached is not None:
+            return cached
         with try_get_conn(timeout_sec=0.4) as conn:
             if conn is None:
-                cached = job_manager.get_cached_current()
-                if cached is not None:
-                    return cached
                 return _db_retryable_response(message="Database is temporarily unavailable")
             row = conn.execute(
                 "SELECT id, type, status, created_at, started_at, progress, message "

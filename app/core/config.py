@@ -22,13 +22,26 @@ def _get_exe_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _default_app_storage_name() -> str:
+    if os.getenv("MEEMEE_SELFTEST", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return f"{APP_NAME}-selftest"
+    if os.getenv("MEEMEE_DEV", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return f"{APP_NAME}-dev"
+    if os.getenv("MEEMEE_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return f"{APP_NAME}-dev"
+    app_env = (os.getenv("APP_ENV") or os.getenv("ENV") or "dev").strip().lower()
+    if app_env in {"dev", "development", "test"}:
+        return f"{APP_NAME}-dev"
+    return APP_NAME
+
+
 def _resolve_data_dir() -> Path:
     """
     Resolves the data directory based on priority:
     1. Environment Variable: MEEMEE_DATA_DIR
     2. Config File: meemee.config.json (next to exe)
     3. Portable Flag: portable.flag (next to exe) -> <exe_dir>/data
-    4. Default: %LOCALAPPDATA%/MeeMeeScreener/data
+    4. Default: %LOCALAPPDATA%/<env-specific-app>/data
     """
     exe_dir = _get_exe_dir()
 
@@ -57,7 +70,7 @@ def _resolve_data_dir() -> Path:
         return path
 
     local_app_data = os.getenv("LOCALAPPDATA") or str(Path.home())
-    path = Path(local_app_data) / APP_NAME / DEFAULT_DATA_DIR_NAME
+    path = Path(local_app_data) / _default_app_storage_name() / DEFAULT_DATA_DIR_NAME
     logger.info("DataDir resolved via default: %s", path)
     return path
 

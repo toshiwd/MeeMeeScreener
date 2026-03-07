@@ -5847,6 +5847,13 @@ def _replace_ml_predictions_for_dates(conn, target_dates: list[int], rows: list[
             [int(value) for value in target_dates],
         )
     if rows:
+        deduped_rows_by_key: dict[tuple[Any, Any], tuple[Any, ...]] = {}
+        for row in rows:
+            if len(row) < 2:
+                continue
+            dt_value = row[0]
+            code_value = row[1]
+            deduped_rows_by_key[(code_value, dt_value)] = row
         conn.executemany(
             """
             INSERT INTO ml_pred_20d (
@@ -5878,7 +5885,7 @@ def _replace_ml_predictions_for_dates(conn, target_dates: list[int], rows: list[
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
-            rows,
+            list(deduped_rows_by_key.values()),
         )
 
 

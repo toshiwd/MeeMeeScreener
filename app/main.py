@@ -152,6 +152,10 @@ from app.backend.core.force_sync_job import handle_force_sync
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
 from app.backend.core.ml_job import handle_ml_live_guard, handle_ml_predict, handle_ml_train
 from app.backend.core.analysis_backfill_job import handle_analysis_backfill
+from app.backend.core.analysis_prewarm_job import (
+    start_analysis_prewarm_scheduler,
+    stop_analysis_prewarm_scheduler,
+)
 from app.backend.core.phase_batch_job import handle_phase_rebuild
 from app.backend.core.strategy_backtest_job import (
     handle_strategy_backtest,
@@ -227,6 +231,9 @@ async def lifespan(app: FastAPI):
         init_resources(data_dir)
         # Ensure jobs left by a previous backend process are finalized on boot.
         cleanup_stale_jobs()
+        from app.backend.services.system_status import mark_backend_boot_ready
+
+        mark_backend_boot_ready()
         print("[Main] Resources Initialized.")
         # Warm cache in background so /health is not blocked by heavy or locked DB work.
         threading.Thread(
@@ -236,9 +243,11 @@ async def lifespan(app: FastAPI):
         ).start()
         start_yf_daily_ingest_scheduler()
         start_ranking_analysis_quality_scheduler()
+        start_analysis_prewarm_scheduler()
         yield
     finally:
         # Shutdown
+        stop_analysis_prewarm_scheduler(timeout_sec=1.0)
         stop_ranking_analysis_quality_scheduler(timeout_sec=1.0)
         stop_yf_daily_ingest_scheduler(timeout_sec=1.0)
         _release_process_lock(lock_path, lock_acquired)

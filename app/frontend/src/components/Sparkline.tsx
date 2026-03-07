@@ -55,7 +55,8 @@ export default function Sparkline({ code }: { code: string }) {
         width,
         layout: {
           background: { color: "transparent" },
-          textColor: "#7c8698"
+          textColor: "#7c8698",
+          attributionLogo: false
         },
         grid: {
           vertLines: { color: "rgba(255,255,255,0.04)" },

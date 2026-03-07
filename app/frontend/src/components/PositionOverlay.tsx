@@ -172,6 +172,22 @@ const compareBrokerKey = (a?: string, b?: string) => {
   return keyA.localeCompare(keyB);
 };
 
+const normalizeBrokerKey = (brokerKey?: string, brokerLabel?: string) => {
+  const rawKey = brokerKey ?? brokerLabel ?? "unknown";
+  const normalizedKey = rawKey
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return normalizedKey || "unknown";
+};
+
+const resolveDisplayBrokerLabel = (brokerKey: string, brokerLabel?: string) => {
+  if (brokerKey === "rakuten") return "RAKUTEN";
+  if (brokerKey === "sbi") return "SBI";
+  return brokerLabel ?? "N/A";
+};
+
 export default function PositionOverlay({
   candleSeries,
   chart,
@@ -222,6 +238,107 @@ export default function PositionOverlay({
     times.sort((a, b) => a - b);
     return times;
   }, [positionsByTime]);
+  const aggregatedPositionsByTime = useMemo(() => {
+    const map = new Map<
+      number,
+      Map<
+        string,
+        {
+          brokerKey: string;
+          brokerLabel: string;
+          time: number;
+          date: string;
+          close: number;
+          longLots: number;
+          shortLots: number;
+          longCost: number;
+          shortCost: number;
+          realizedPnL: number;
+          unrealizedPnL: number;
+          totalPnL: number;
+        }
+      >
+    >();
+    positionsByTime.forEach((positions, time) => {
+      const aggregated = new Map<
+        string,
+        {
+          brokerKey: string;
+          brokerLabel: string;
+          time: number;
+          date: string;
+          close: number;
+          longLots: number;
+          shortLots: number;
+          longCost: number;
+          shortCost: number;
+          realizedPnL: number;
+          unrealizedPnL: number;
+          totalPnL: number;
+        }
+      >();
+      positions.forEach((pos) => {
+        const brokerKey = normalizeBrokerKey(pos.brokerKey, pos.brokerLabel);
+        const brokerLabel = resolveDisplayBrokerLabel(brokerKey, pos.brokerLabel);
+        const entry = aggregated.get(brokerKey);
+        if (entry) {
+          entry.longLots += pos.longLots;
+          entry.shortLots += pos.shortLots;
+          entry.longCost += pos.avgLongPrice * pos.longLots;
+          entry.shortCost += pos.avgShortPrice * pos.shortLots;
+          entry.realizedPnL += pos.realizedPnL;
+          entry.unrealizedPnL += pos.unrealizedPnL;
+          entry.totalPnL += pos.totalPnL;
+          return;
+        }
+        aggregated.set(brokerKey, {
+          brokerKey,
+          brokerLabel,
+          time,
+          date: pos.date,
+          close: pos.close,
+          longLots: pos.longLots,
+          shortLots: pos.shortLots,
+          longCost: pos.avgLongPrice * pos.longLots,
+          shortCost: pos.avgShortPrice * pos.shortLots,
+          realizedPnL: pos.realizedPnL,
+          unrealizedPnL: pos.unrealizedPnL,
+          totalPnL: pos.totalPnL
+        });
+      });
+      map.set(time, aggregated);
+    });
+    return map;
+  }, [positionsByTime]);
+  const displayablePositionKeys = useMemo(() => {
+    const tradeMarkerKeys = new Set<string>();
+    tradeMarkers.forEach((marker) => {
+      const fallbackMeta = resolveBrokerMeta(marker.trades[0]?.broker);
+      const brokerKey = normalizeBrokerKey(
+        marker.brokerKey ?? fallbackMeta.key,
+        marker.brokerLabel ?? fallbackMeta.label
+      );
+      tradeMarkerKeys.add(`${marker.time}:${brokerKey}`);
+    });
+    const visible = new Set<string>();
+    positionTimes.forEach((time, index) => {
+      const currentEntries = aggregatedPositionsByTime.get(time) ?? new Map();
+      const previousEntries =
+        index > 0 ? aggregatedPositionsByTime.get(positionTimes[index - 1]) ?? new Map() : new Map();
+      const brokerKeys = new Set<string>([...currentEntries.keys(), ...previousEntries.keys()]);
+      brokerKeys.forEach((brokerKey) => {
+        const current = currentEntries.get(brokerKey);
+        const previous = previousEntries.get(brokerKey);
+        const hasOpenLots = (current?.longLots ?? 0) > 0 || (current?.shortLots ?? 0) > 0;
+        const hadOpenLots = (previous?.longLots ?? 0) > 0 || (previous?.shortLots ?? 0) > 0;
+        const hasTrade = tradeMarkerKeys.has(`${time}:${brokerKey}`);
+        if (hasOpenLots || hasTrade || (!hasOpenLots && hadOpenLots)) {
+          visible.add(`${time}:${brokerKey}`);
+        }
+      });
+    });
+    return visible;
+  }, [aggregatedPositionsByTime, positionTimes, tradeMarkers]);
 
   const normalizeTimeValue = (value: unknown) => {
     if (typeof value === "number") return value;
@@ -343,66 +460,10 @@ export default function PositionOverlay({
   }, [maCounts, activeIndex]);
   const activePositions = useMemo(() => {
     if (activePositionTime == null) return [];
-    const positions = positionsByTime.get(activePositionTime) ?? [];
-    if (!positions.length) return [];
-    const map = new Map<
-      string,
-      {
-        brokerKey: string;
-        brokerLabel: string;
-        time: number;
-        date: string;
-        close: number;
-        longLots: number;
-        shortLots: number;
-        longCost: number;
-        shortCost: number;
-        realizedPnL: number;
-        unrealizedPnL: number;
-        totalPnL: number;
-      }
-    >();
-    positions.forEach((pos) => {
-      const rawKey = pos.brokerKey ?? pos.brokerLabel ?? "unknown";
-      const normalizedKey = rawKey
-        .toString()
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "");
-      const brokerKey = normalizedKey || "unknown";
-      const brokerLabel =
-        brokerKey === "rakuten"
-          ? "RAKUTEN"
-          : brokerKey === "sbi"
-            ? "SBI"
-            : pos.brokerLabel ?? "N/A";
-      const entry = map.get(brokerKey);
-      if (entry) {
-        entry.longLots += pos.longLots;
-        entry.shortLots += pos.shortLots;
-        entry.longCost += pos.avgLongPrice * pos.longLots;
-        entry.shortCost += pos.avgShortPrice * pos.shortLots;
-        entry.realizedPnL += pos.realizedPnL;
-        entry.unrealizedPnL += pos.unrealizedPnL;
-        entry.totalPnL += pos.totalPnL;
-      } else {
-        map.set(brokerKey, {
-          brokerKey,
-          brokerLabel,
-          time: pos.time,
-          date: pos.date,
-          close: pos.close,
-          longLots: pos.longLots,
-          shortLots: pos.shortLots,
-          longCost: pos.avgLongPrice * pos.longLots,
-          shortCost: pos.avgShortPrice * pos.shortLots,
-          realizedPnL: pos.realizedPnL,
-          unrealizedPnL: pos.unrealizedPnL,
-          totalPnL: pos.totalPnL
-        });
-      }
-    });
-    return Array.from(map.values())
+    const positions = aggregatedPositionsByTime.get(activePositionTime);
+    if (!positions || positions.size === 0) return [];
+    return Array.from(positions.values())
+      .filter((entry) => displayablePositionKeys.has(`${activePositionTime}:${entry.brokerKey}`))
       .map((entry) => {
         const avgLongPrice = entry.longLots > 0 ? entry.longCost / entry.longLots : 0;
         const avgShortPrice = entry.shortLots > 0 ? entry.shortCost / entry.shortLots : 0;
@@ -427,37 +488,39 @@ export default function PositionOverlay({
         };
       })
       .sort((a, b) => compareBrokerKey(a.brokerKey, b.brokerKey));
-  }, [positionsByTime, activePositionTime]);
+  }, [aggregatedPositionsByTime, activePositionTime, displayablePositionKeys]);
   const currentPositionEntries = useMemo(() => {
     if (!currentPositions || currentPositions.length === 0) return [];
     if (!lastBar) return [];
     if (!isLatestBarActive) return [];
     const close = lastBar.close;
-    return currentPositions.map((pos) => {
-      const avgLongPrice = pos.longLots > 0 ? pos.avgLongPrice : 0;
-      const avgShortPrice = pos.shortLots > 0 ? pos.avgShortPrice : 0;
-      const unrealizedLong = pos.longLots > 0 ? (close - avgLongPrice) * pos.longLots * 100 : 0;
-      const unrealizedShort = pos.shortLots > 0 ? (avgShortPrice - close) * pos.shortLots * 100 : 0;
-      const unrealizedPnL = unrealizedLong + unrealizedShort;
-      const totalPnL = pos.realizedPnL + unrealizedPnL;
-      return {
-        time: lastBar.time,
-        date: formatDate(lastBar.time),
-        shortLots: pos.shortLots,
-        longLots: pos.longLots,
-        longText: formatLots(pos.longLots),
-        shortText: formatLots(pos.shortLots),
-        avgLongPrice,
-        avgShortPrice,
-        realizedPnL: pos.realizedPnL,
-        unrealizedPnL,
-        totalPnL,
-        close,
-        brokerKey: pos.brokerKey,
-        brokerLabel: pos.brokerLabel,
-        brokerGroupKey: pos.brokerKey
-      };
-    });
+    return currentPositions
+      .filter((pos) => pos.longLots > 0 || pos.shortLots > 0)
+      .map((pos) => {
+        const avgLongPrice = pos.longLots > 0 ? pos.avgLongPrice : 0;
+        const avgShortPrice = pos.shortLots > 0 ? pos.avgShortPrice : 0;
+        const unrealizedLong = pos.longLots > 0 ? (close - avgLongPrice) * pos.longLots * 100 : 0;
+        const unrealizedShort = pos.shortLots > 0 ? (avgShortPrice - close) * pos.shortLots * 100 : 0;
+        const unrealizedPnL = unrealizedLong + unrealizedShort;
+        const totalPnL = pos.realizedPnL + unrealizedPnL;
+        return {
+          time: lastBar.time,
+          date: formatDate(lastBar.time),
+          shortLots: pos.shortLots,
+          longLots: pos.longLots,
+          longText: formatLots(pos.longLots),
+          shortText: formatLots(pos.shortLots),
+          avgLongPrice,
+          avgShortPrice,
+          realizedPnL: pos.realizedPnL,
+          unrealizedPnL,
+          totalPnL,
+          close,
+          brokerKey: pos.brokerKey,
+          brokerLabel: pos.brokerLabel,
+          brokerGroupKey: pos.brokerKey
+        };
+      });
   }, [currentPositions, lastBar, isLatestBarActive]);
   const displayedPositions = useMemo(() => {
     if (isLatestBarActive && currentPositionEntries.length > 0) return currentPositionEntries;
@@ -498,7 +561,9 @@ export default function PositionOverlay({
     const lastBarTime = bars.length ? bars[bars.length - 1].time : null;
     if (lastBarTime != null && currentPositions && currentPositions.length > 0) {
       markers = markers.filter((entry) => entry.time !== lastBarTime);
-      currentPositions.forEach((pos) => {
+      currentPositions
+        .filter((pos) => pos.longLots > 0 || pos.shortLots > 0)
+        .forEach((pos) => {
         markers.push({
           time: lastBarTime,
           longText: formatLots(pos.longLots),
@@ -506,7 +571,7 @@ export default function PositionOverlay({
           brokerKey: pos.brokerKey,
           brokerGroupKey: `${pos.brokerKey}|${pos.account ?? ""}`
         });
-      });
+        });
     }
     markers.sort((a, b) => a.time - b.time);
 

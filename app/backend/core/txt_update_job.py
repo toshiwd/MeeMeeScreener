@@ -1495,6 +1495,21 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             ml_note_parts.append(f"analysis_backfill=failed({exc})")
 
     try:
+        from app.backend.core.analysis_prewarm_job import schedule_analysis_prewarm_if_needed
+
+        prewarm_job_id = schedule_analysis_prewarm_if_needed(source=f"txt_update:{job_id}")
+        state["last_analysis_prewarm_submit_at"] = datetime.now().isoformat()
+        state["last_analysis_prewarm_job_id"] = prewarm_job_id
+        if prewarm_job_id:
+            ml_note_parts.append(f"analysis_prewarm=queued({prewarm_job_id})")
+        else:
+            ml_note_parts.append("analysis_prewarm=skip(covered_or_active)")
+    except Exception as exc:
+        logger.warning("Analysis prewarm submit skipped: %s", exc)
+        state["last_analysis_prewarm_error"] = str(exc)
+        ml_note_parts.append(f"analysis_prewarm=failed({exc})")
+
+    try:
         if _exit_if_canceled(job_id, state, stage="cache_refresh", message="Canceled before cache refresh"):
             return
         _set_pipeline_stage(state, "cache_refresh", message="Refreshing rankings cache...")

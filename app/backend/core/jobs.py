@@ -164,6 +164,31 @@ class JobManager:
         rows.sort(key=lambda row: self._to_sort_ts(row.get("created_at")), reverse=True)
         return rows[:resolved_limit]
 
+    def update_status_cache_only(
+        self,
+        *,
+        job_id: str,
+        job_type: str | None,
+        status: str | None = None,
+        created_at: Any = None,
+        started_at: Any = None,
+        finished_at: Any = None,
+        progress: Any = None,
+        message: Any = None,
+        error: Any = None,
+    ) -> None:
+        self._update_status_cache(
+            job_id=job_id,
+            job_type=job_type,
+            status=status,
+            created_at=created_at,
+            started_at=started_at,
+            finished_at=finished_at,
+            progress=progress,
+            message=message,
+            error=error,
+        )
+
     def _mark_cancel_requested(self, job_id: str) -> None:
         with self._cancel_lock:
             self._cancel_requested_ids.add(job_id)
