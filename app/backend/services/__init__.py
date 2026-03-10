@@ -1,106 +1,95 @@
+"""Backward-compatible re-exports for app.backend.services sub-packages.
+
+After reorganisation the service modules live under sub-packages
+(toredex/, ml/, analysis/, data/) but callers still import from
+``app.backend.services.<module>``.  This __init__ registers every moved
+module in sys.modules so that the old import paths keep working.
+
+Static imports are used (instead of importlib.import_module) so that
+PyInstaller can trace all dependencies at build time.
+"""
 from __future__ import annotations
 
-import importlib as _importlib
 import sys as _sys
-from types import ModuleType as _ModuleType
 
-_MOVED_MODULES = {
-    "analysis_backfill_service": "analysis.analysis_backfill_service",
-    "analysis_decision": "analysis.analysis_decision",
-    "bar_aggregation": "data.bar_aggregation",
-    "edinet_rank_features": "ml.edinet_rank_features",
-    "events": "data.events",
-    "ml_config": "ml.ml_config",
-    "ml_service": "ml.ml_service",
-    "ranking_analysis_quality": "ml.ranking_analysis_quality",
-    "rankings_cache": "ml.rankings_cache",
-    "sell_analysis_accumulator": "analysis.sell_analysis_accumulator",
-    "strategy_backtest_service": "analysis.strategy_backtest_service",
-    "swing_expectancy_service": "analysis.swing_expectancy_service",
-    "swing_plan_service": "analysis.swing_plan_service",
-    "tdnet_mcp_import": "data.tdnet_mcp_import",
-    "toredex_config": "toredex.toredex_config",
-    "toredex_execution": "toredex.toredex_execution",
-    "toredex_hash": "toredex.toredex_hash",
-    "toredex_models": "toredex.toredex_models",
-    "toredex_paths": "toredex.toredex_paths",
-    "toredex_policy": "toredex.toredex_policy",
-    "toredex_replay": "toredex.toredex_replay",
-    "toredex_repository": "toredex.toredex_repository",
-    "toredex_runner": "toredex.toredex_runner",
-    "toredex_self_improve": "toredex.toredex_self_improve",
-    "toredex_simulation_service": "toredex.toredex_simulation_service",
-    "toredex_snapshot_service": "toredex.toredex_snapshot_service",
-    "txt_update": "data.txt_update",
-    "yahoo_daily_ingest": "data.yahoo_daily_ingest",
-    "yahoo_provisional": "data.yahoo_provisional",
+# ── sub-package imports (static, so PyInstaller can trace them) ──────
+from app.backend.services.toredex import (  # noqa: F401
+    toredex_config,
+    toredex_execution,
+    toredex_hash,
+    toredex_models,
+    toredex_paths,
+    toredex_policy,
+    toredex_replay,
+    toredex_repository,
+    toredex_runner,
+    toredex_self_improve,
+    toredex_simulation_service,
+    toredex_snapshot_service,
+)
+
+from app.backend.services.ml import (  # noqa: F401
+    ml_config,
+    ml_service,
+    rankings_cache,
+    ranking_analysis_quality,
+    edinet_rank_features,
+)
+
+from app.backend.services.analysis import (  # noqa: F401
+    analysis_backfill_service,
+    analysis_decision,
+    sell_analysis_accumulator,
+    strategy_backtest_service,
+    swing_expectancy_service,
+    swing_plan_service,
+)
+
+from app.backend.services.data import (  # noqa: F401
+    bar_aggregation,
+    events,
+    tdnet_mcp_import,
+    txt_update,
+    yahoo_daily_ingest,
+    yahoo_provisional,
+)
+
+# ── register old-style module paths in sys.modules ───────────────────
+_PKG = __name__  # "app.backend.services"
+
+_MOVED = {
+    "toredex_config": toredex_config,
+    "toredex_execution": toredex_execution,
+    "toredex_hash": toredex_hash,
+    "toredex_models": toredex_models,
+    "toredex_paths": toredex_paths,
+    "toredex_policy": toredex_policy,
+    "toredex_replay": toredex_replay,
+    "toredex_repository": toredex_repository,
+    "toredex_runner": toredex_runner,
+    "toredex_self_improve": toredex_self_improve,
+    "toredex_simulation_service": toredex_simulation_service,
+    "toredex_snapshot_service": toredex_snapshot_service,
+    "ml_config": ml_config,
+    "ml_service": ml_service,
+    "rankings_cache": rankings_cache,
+    "ranking_analysis_quality": ranking_analysis_quality,
+    "edinet_rank_features": edinet_rank_features,
+    "analysis_backfill_service": analysis_backfill_service,
+    "analysis_decision": analysis_decision,
+    "sell_analysis_accumulator": sell_analysis_accumulator,
+    "strategy_backtest_service": strategy_backtest_service,
+    "swing_expectancy_service": swing_expectancy_service,
+    "swing_plan_service": swing_plan_service,
+    "bar_aggregation": bar_aggregation,
+    "events": events,
+    "tdnet_mcp_import": tdnet_mcp_import,
+    "txt_update": txt_update,
+    "yahoo_daily_ingest": yahoo_daily_ingest,
+    "yahoo_provisional": yahoo_provisional,
 }
-_ROOT_MODULES = ("jpx_calendar", "static_assets", "system_status", "watchlist")
-_EXPORT_SOURCES = ("analysis", "data", "ml", "toredex", *_ROOT_MODULES)
 
+for _name, _mod in _MOVED.items():
+    _sys.modules.setdefault(f"{_PKG}.{_name}", _mod)
 
-class _MovedModuleAlias(_ModuleType):
-    def __init__(self, alias_key: str, target_key: str, export_name: str) -> None:
-        super().__init__(alias_key)
-        self.__dict__["_alias_key"] = alias_key
-        self.__dict__["_target_key"] = target_key
-        self.__dict__["_export_name"] = export_name
-        self.__dict__["_loaded_module"] = None
-
-    def _load(self) -> _ModuleType:
-        module = self.__dict__["_loaded_module"]
-        if module is None:
-            module = _importlib.import_module(self.__dict__["_target_key"])
-            self.__dict__["_loaded_module"] = module
-            self.__dict__.update(module.__dict__)
-            globals()[self.__dict__["_export_name"]] = module
-            _sys.modules[self.__dict__["_alias_key"]] = module
-        return module
-
-    def __getattr__(self, name: str):
-        return getattr(self._load(), name)
-
-    def __dir__(self) -> list[str]:
-        return sorted(set(super().__dir__()) | set(dir(self._load())))
-
-
-def _load_export_source(name: str) -> _ModuleType:
-    return _importlib.import_module(f"{__name__}.{name}")
-
-
-for _name, _target in _MOVED_MODULES.items():
-    _alias_key = f"{__name__}.{_name}"
-    _alias = _MovedModuleAlias(_alias_key, f"{__name__}.{_target}", _name)
-    globals()[_name] = _alias
-    _sys.modules.setdefault(_alias_key, _alias)
-
-
-def __getattr__(name: str):
-    if name in _ROOT_MODULES:
-        module = _load_export_source(name)
-        globals()[name] = module
-        return module
-
-    for source_name in _EXPORT_SOURCES:
-        source = _load_export_source(source_name)
-        if hasattr(source, name):
-            value = getattr(source, name)
-            globals()[name] = value
-            return value
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def __dir__() -> list[str]:
-    names = set(globals())
-    for source_name in _EXPORT_SOURCES:
-        try:
-            names.update(dir(_load_export_source(source_name)))
-        except Exception:
-            continue
-    return sorted(name for name in names if not name.startswith("_"))
-
-
-del _name
-del _target
-del _alias
-del _alias_key
+del _name, _mod
