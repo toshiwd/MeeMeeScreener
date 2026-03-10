@@ -17,18 +17,6 @@ import {
   IconChartArrows,
   IconRefresh,
 } from "@tabler/icons-react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import DetailChart, {
@@ -52,6 +40,9 @@ import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
 import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/useExactDecisionRange";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
+import { DetailAnalysisPanel } from "./detail/DetailAnalysisPanel";
+import { DetailFinancialPanel } from "./detail/DetailFinancialPanel";
+import { DetailTdnetCard } from "./detail/DetailTdnetCard";
 import DetailDebugBanner from "./detail/components/DetailDebugBanner";
 import DetailIndicatorOverlay from "./detail/components/DetailIndicatorOverlay";
 import DetailPositionLedgerSheet from "./detail/components/DetailPositionLedgerSheet";
@@ -4916,383 +4907,71 @@ export default function DetailView() {
           />
         )}
         {showAnalysisPanel && (
-          <div className="daily-memo-panel detail-analysis-panel">
-            <div className="memo-panel-header">
-              <h3>解析結果</h3>
-            </div>
-            <div className="detail-analysis-actions">
-              <button
-                type="button"
-                className="nav-btn"
-                disabled={analysisAsOfTime == null || analysisBackfillActive || analysisRecalcSubmitting != null}
-                onClick={() => {
-                  void submitAnalysisRecalc();
-                }}
-              >
-                基準日を中心に130本を再計算
-              </button>
-            </div>
-            <div className="detail-analysis-body">
-              {analysisDtLabel && (
-                <div className="detail-analysis-meta">基準日 {analysisDtLabel}</div>
-              )}
-              {cursorMode && analysisCursorDateLabel && (
-                <div className="detail-analysis-meta">カーソル日 {analysisCursorDateLabel}</div>
-              )}
-              {canShowPhase && phaseReasons[0] && (
-                <div className="detail-analysis-meta">局面メモ {phaseReasons[0]}</div>
-              )}
-              {canShowAnalysis ? (
-                <>
-                  <div className="detail-analysis-section">
-                    <div className="detail-analysis-section-title">売買サマリー</div>
-                    <div className={`detail-analysis-regime detail-analysis-regime--${analysisDecision.tone}`}>
-                      <div className="detail-analysis-call-head">
-                        <span className={`detail-analysis-call-badge detail-analysis-call-badge--${analysisDecision.tone}`}>
-                          判定 {analysisDecision.sideLabel}
-                        </span>
-                        <span className="detail-analysis-call-confidence">
-                          確信度 {analysisSummaryLoading ? "読込中..." : analysisGuidance.confidenceRank}
-                        </span>
-                      </div>
-                      <div className="detail-analysis-regime-title">{patternSummary.environmentLabel}</div>
-                      <div className="detail-analysis-prob-meter-list">
-                        <div className="detail-analysis-prob-meter-row tone-up">
-                          <div className="detail-analysis-prob-meter-label">
-                            上昇確率 {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.buyProb)}
-                          </div>
-                          <div className="detail-analysis-prob-meter-track">
-                            <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.buyWidth}%` }} />
-                          </div>
-                        </div>
-                        <div className="detail-analysis-prob-meter-row tone-down">
-                          <div className="detail-analysis-prob-meter-label">
-                            下落確率 {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.sellProb)}
-                          </div>
-                          <div className="detail-analysis-prob-meter-track">
-                            <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.sellWidth}%` }} />
-                          </div>
-                        </div>
-                        <div className="detail-analysis-prob-meter-row tone-neutral">
-                          <div className="detail-analysis-prob-meter-label">
-                            中立確率 {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.neutralProb)}
-                          </div>
-                          <div className="detail-analysis-prob-meter-track">
-                            <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.neutralWidth}%` }} />
-                          </div>
-                        </div>
-                        <div className="detail-analysis-prob-meter-row tone-up">
-                          <div className="detail-analysis-prob-meter-label">
-                            買い仕込み {analysisSummaryLoading ? "読込中..." : `${analysisGuidance.buySetupState} ${formatPercentLabel(analysisGuidance.buySetupProb)}`}
-                          </div>
-                          <div className="detail-analysis-prob-meter-track">
-                            <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.buySetupWidth}%` }} />
-                          </div>
-                        </div>
-                        <div className="detail-analysis-prob-meter-row tone-down">
-                          <div className="detail-analysis-prob-meter-label">
-                            売り仕込み {analysisSummaryLoading ? "読込中..." : `${analysisGuidance.sellSetupState} ${formatPercentLabel(analysisGuidance.sellSetupProb)}`}
-                          </div>
-                          <div className="detail-analysis-prob-meter-track">
-                            <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.sellSetupWidth}%` }} />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    {analysisSummaryLoading && (
-                      <div className="detail-analysis-meta">一部データ読込中のため、確率は暫定表示です。</div>
-                    )}
-                    {analysisPreparationVisible && analysisBackfillProgressLabel && (
-                      <div className="detail-analysis-meta">{analysisBackfillProgressLabel}</div>
-                    )}
-                    {analysisPreparationVisible &&
-                      analysisBackfillMessage &&
-                      analysisBackfillMessage !== analysisBackfillProgressLabel && (
-                        <div className="detail-analysis-meta">{analysisBackfillMessage}</div>
-                      )}
-                    {analysisDtLabel && (
-                      <div className="detail-analysis-meta">買い基準日 {analysisDtLabel}</div>
-                    )}
-                    {sellAnalysisDtLabel && (
-                      <div className="detail-analysis-meta">売り基準日 {sellAnalysisDtLabel}</div>
-                    )}
-                    {sellPredDtLabel && (
-                      <div className="detail-analysis-meta">予測スナップショット {sellPredDtLabel}</div>
-                    )}
-                    {researchPriorRunId && (
-                      <div className="detail-analysis-meta">研究連携 Run {researchPriorRunId}</div>
-                    )}
-                    {analysisResearchPrior && (
-                      <div className="detail-analysis-meta">{researchPriorUpMeta}</div>
-                    )}
-                    {analysisResearchPrior && (
-                      <div className="detail-analysis-meta">{researchPriorDownMeta}</div>
-                    )}
-                    {edinetStatusMeta && (
-                      <div className="detail-analysis-meta">{edinetStatusMeta}</div>
-                    )}
-                    {edinetQualityMeta && (
-                      <div className="detail-analysis-meta">EDI品質 {edinetQualityMeta}</div>
-                    )}
-                    {edinetMetricsMeta && (
-                      <div className="detail-analysis-meta">{edinetMetricsMeta}</div>
-                    )}
-                    {edinetBonusMeta && (
-                      <div className="detail-analysis-meta">{edinetBonusMeta}</div>
-                    )}
-                  </div>
-                  {hasSwingData && (
-                    <div className="detail-analysis-section">
-                      <div className="detail-analysis-section-title">Swing Plan (10-25営業日)</div>
-                      {swingPlan ? (
-                        <>
-                          <div className="detail-analysis-meta">
-                            提案 {swingSideLabel} / Score {formatPercentLabel(swingPlan.score)} / Horizon {formatNumber(swingPlan.horizonDays, 0)}日
-                          </div>
-                          <div className="detail-analysis-meta">
-                            Entry {formatNumber(swingPlan.entry, 2)} / Stop {formatNumber(swingPlan.stop, 2)}
-                          </div>
-                          <div className="detail-analysis-meta">
-                            TP1 {formatNumber(swingPlan.tp1, 2)} / TP2 {formatNumber(swingPlan.tp2, 2)} / TimeStop {formatNumber(swingPlan.timeStopDays, 0)}日
-                          </div>
-                          {swingReasonsLabel && (
-                            <div className="detail-analysis-meta">理由 {swingReasonsLabel}</div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="detail-analysis-meta">現在条件では swing 提案なし</div>
-                      )}
-                      {swingDiagnostics && (
-                        <div className="detail-analysis-meta">
-                          Edge {formatPercentLabel(swingDiagnostics.edge)} / Risk {formatPercentLabel(swingDiagnostics.risk)} / RegimeFit {formatPercentLabel(swingDiagnostics.regimeFit)}
-                        </div>
-                      )}
-                      {swingDiagnostics && (
-                        <div className="detail-analysis-meta">
-                          ATR {formatPercentLabel(swingDiagnostics.atrPct)} / 流動性20d {formatNumber(swingDiagnostics.liquidity20d, 0)}
-                        </div>
-                      )}
-                      {swingSetupExpectancy && (
-                        <div className="detail-analysis-meta">
-                          Setup {swingSetupExpectancy.setupType ?? "--"} / n {formatNumber(swingSetupExpectancy.samples, 0)} / 勝率 {formatPercentLabel(swingSetupExpectancy.winRate)} / 平均 {formatSignedPercentLabel(swingSetupExpectancy.meanRet)} / 縮小平均 {formatSignedPercentLabel(swingSetupExpectancy.shrunkMeanRet)}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="detail-analysis-empty">
-                    {analysisPreparationVisible
-                      ? "解析準備中です。"
-                      : analysisMissingDataVisible
-                        ? "分析データが未計算のため、自動で準備しています。"
-                        : "分析データがありません。"}
-                  </div>
-                  {analysisPreparationVisible && analysisBackfillProgressLabel && (
-                    <div className="detail-analysis-meta">{analysisBackfillProgressLabel}</div>
-                  )}
-                  {analysisPreparationVisible &&
-                    analysisBackfillMessage &&
-                    analysisBackfillMessage !== analysisBackfillProgressLabel && (
-                      <div className="detail-analysis-meta">{analysisBackfillMessage}</div>
-                    )}
-                  {analysisPreparationVisible && (
-                    <div className="detail-analysis-meta">準備完了後に自動で再取得します。</div>
-                  )}
-                  {analysisMissingDataVisible && (
-                    <div className="detail-analysis-meta">初回だけ基準日を中心に130本分の未計算を自動で計算します。保存済みデータがあれば再計算しません。</div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
+          <DetailAnalysisPanel
+            analysisAsOfTime={analysisAsOfTime}
+            analysisBackfillActive={analysisBackfillActive}
+            analysisRecalcSubmitting={analysisRecalcSubmitting}
+            submitAnalysisRecalc={submitAnalysisRecalc}
+            analysisDtLabel={analysisDtLabel}
+            cursorMode={cursorMode}
+            analysisCursorDateLabel={analysisCursorDateLabel}
+            canShowPhase={canShowPhase}
+            phaseReasons={phaseReasons}
+            canShowAnalysis={canShowAnalysis}
+            analysisDecision={analysisDecision}
+            analysisSummaryLoading={analysisSummaryLoading}
+            analysisGuidance={analysisGuidance}
+            patternSummary={patternSummary}
+            analysisPreparationVisible={analysisPreparationVisible}
+            analysisBackfillProgressLabel={analysisBackfillProgressLabel}
+            analysisBackfillMessage={analysisBackfillMessage}
+            sellAnalysisDtLabel={sellAnalysisDtLabel}
+            sellPredDtLabel={sellPredDtLabel}
+            researchPriorRunId={researchPriorRunId}
+            analysisResearchPrior={analysisResearchPrior}
+            researchPriorUpMeta={researchPriorUpMeta}
+            researchPriorDownMeta={researchPriorDownMeta}
+            edinetStatusMeta={edinetStatusMeta}
+            edinetQualityMeta={edinetQualityMeta}
+            edinetMetricsMeta={edinetMetricsMeta}
+            edinetBonusMeta={edinetBonusMeta}
+            hasSwingData={hasSwingData}
+            swingPlan={swingPlan}
+            swingSideLabel={swingSideLabel}
+            swingReasonsLabel={swingReasonsLabel}
+            swingDiagnostics={swingDiagnostics}
+            swingSetupExpectancy={swingSetupExpectancy}
+            analysisMissingDataVisible={analysisMissingDataVisible}
+            formatPercentLabel={formatPercentLabel}
+            formatNumber={formatNumber}
+            formatSignedPercentLabel={formatSignedPercentLabel}
+          />
         )}
         {showFinancialPanel && (
-          <div ref={financialPanelRef} className="daily-memo-panel detail-analysis-panel detail-financial-panel">
-            <div className="memo-panel-header">
-              <h3>EDINET財務</h3>
-            </div>
-            <div className="detail-analysis-body">
-              {(financialPanel?.summary?.latestFiscalYear != null || financialFetchedLabel) && (
-                <div className="detail-financial-meta-row">
-                  {financialPanel?.summary?.latestFiscalYear != null && (
-                    <div className="detail-financial-meta-pill">最新年度 {financialPanel.summary.latestFiscalYear}</div>
-                  )}
-                  {financialFetchedLabel && (
-                    <div className="detail-financial-meta-pill">取得日 {financialFetchedLabel}</div>
-                  )}
-                </div>
-              )}
-              {financialLoading ? (
-                <div className="detail-analysis-empty">財務データを読込中です。</div>
-              ) : financialSeries.length > 0 ? (
-                <>
-                  <div className="detail-financial-card-grid">
-                    {financialCards.map((card) => (
-                      <div key={card.label} className="detail-financial-card">
-                        <div className="detail-financial-card-label">{card.label}</div>
-                        <div className={`detail-financial-card-value detail-analysis-value--${card.tone}`}>{card.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="detail-analysis-section detail-financial-section">
-                    <div className="detail-analysis-section-title">売上・利益の推移</div>
-                    <div className="detail-financial-chart">
-                      <ResponsiveContainer width="100%" height={256}>
-                        <BarChart data={financialSeries}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(100, 116, 139, 0.18)" />
-                          <XAxis dataKey="label" stroke="#64748b" tickLine={false} axisLine={false} />
-                          <YAxis
-                            stroke="#64748b"
-                            tickLine={false}
-                            axisLine={false}
-                            tickFormatter={(value) => `${formatNumber(Number(value) / 100_000_000, 0)}億`}
-                          />
-                          <Tooltip formatter={(value) => formatFinancialAmountLabel(Number(value))} />
-                          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: "#475569" }} iconSize={10} />
-                          <Bar dataKey="revenue" name="売上高" fill="#38bdf8" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="operatingIncome" name="営業利益" fill="#4ade80" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="netIncome" name="純利益" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                  <div className="detail-analysis-section detail-financial-section">
-                    <div className="detail-analysis-section-title">利益率・ROEの推移</div>
-                    <div className="detail-financial-chart">
-                      <ResponsiveContainer width="100%" height={256}>
-                        <LineChart data={financialSeries}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(100, 116, 139, 0.18)" />
-                          <XAxis dataKey="label" stroke="#64748b" tickLine={false} axisLine={false} />
-                          <YAxis
-                            stroke="#64748b"
-                            tickLine={false}
-                            axisLine={false}
-                            tickFormatter={(value) => `${formatNumber(Number(value) * 100, 0)}%`}
-                          />
-                          <Tooltip formatter={(value) => formatPercentLabel(Number(value))} />
-                          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: "#475569" }} iconSize={10} />
-                          <Line type="monotone" dataKey="grossMargin" name="粗利率" stroke="#38bdf8" strokeWidth={2} dot={false} />
-                          <Line type="monotone" dataKey="operatingMargin" name="営業利益率" stroke="#4ade80" strokeWidth={2} dot={false} />
-                          <Line type="monotone" dataKey="netMargin" name="純利益率" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                          <Line type="monotone" dataKey="roe" name="ROE" stroke="#f87171" strokeWidth={2} strokeDasharray="6 4" />
-                          <Line type="monotone" dataKey="roa" name="ROA" stroke="#c084fc" strokeWidth={2} strokeDasharray="6 4" />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="detail-analysis-empty">
-                  {financialPanel?.mapped === false ? "EDINETコード未対応です。" : "財務データがありません。"}
-                </div>
-              )}
-            </div>
-          </div>
+          <DetailFinancialPanel
+            financialPanelRef={financialPanelRef}
+            financialPanel={financialPanel}
+            financialFetchedLabel={financialFetchedLabel}
+            financialLoading={financialLoading}
+            financialSeries={financialSeries}
+            financialCards={financialCards}
+            formatNumber={formatNumber}
+            formatPercentLabel={formatPercentLabel}
+            formatFinancialAmountLabel={formatFinancialAmountLabel}
+          />
         )}
       </div>
       {activeTdnetDisclosure && !compareCode && (
-        <div className="detail-tdnet-card">
-          <div className="detail-tdnet-card-header">
-            <div className="detail-tdnet-card-title">TDNET開示</div>
-            <div className="detail-tdnet-card-actions">
-              {selectedTdnetDisclosures.length > 1 && (
-                <div className="detail-tdnet-card-pager">
-                  <button
-                    type="button"
-                    className="detail-tdnet-card-nav"
-                    onClick={() => setSelectedTdnetDisclosureIndex((prev) => Math.max(0, prev - 1))}
-                    disabled={selectedTdnetDisclosureIndex <= 0}
-                  >
-                    前
-                  </button>
-                  <span className="detail-tdnet-card-page">
-                    {selectedTdnetDisclosureIndex + 1}/{selectedTdnetDisclosures.length}
-                  </span>
-                  <button
-                    type="button"
-                    className="detail-tdnet-card-nav"
-                    onClick={() =>
-                      setSelectedTdnetDisclosureIndex((prev) => Math.min(selectedTdnetDisclosures.length - 1, prev + 1))
-                    }
-                    disabled={selectedTdnetDisclosureIndex >= selectedTdnetDisclosures.length - 1}
-                  >
-                    次
-                  </button>
-                </div>
-              )}
-              <button
-                type="button"
-                className="detail-tdnet-card-close"
-                onClick={() => {
-                  setSelectedTdnetDisclosures([]);
-                  setSelectedTdnetDisclosureIndex(0);
-                }}
-              >
-                閉じる
-              </button>
-            </div>
-          </div>
-          <div className="detail-tdnet-card-body">
-            <div className="detail-tdnet-card-headline">{activeTdnetDisclosure.title ?? "--"}</div>
-            <div className="detail-analysis-meta">
-              {[
-                activeTdnetDisclosure.eventType ? `種別 ${activeTdnetDisclosure.eventType}` : null,
-                activeTdnetDisclosure.sentiment ? `方向 ${activeTdnetDisclosure.sentiment}` : null,
-                activeTdnetDisclosure.publishedAt
-                  ? `開示 ${new Date(activeTdnetDisclosure.publishedAt).toLocaleString("ja-JP")}`
-                  : null,
-              ].filter(Boolean).join(" / ")}
-            </div>
-            {activeTdnetDisclosure.summaryText && (
-              <div className="detail-tdnet-card-summary">{activeTdnetDisclosure.summaryText}</div>
-            )}
-            {activeTdnetReaction && (
-              <div className="detail-tdnet-reaction">
-                <div className="detail-tdnet-reaction-header">株価反応</div>
-                <div className="detail-tdnet-reaction-meta">
-                  {[
-                    activeTdnetReaction.baseDate ? `基準日 ${activeTdnetReaction.baseDate}` : null,
-                    activeTdnetReaction.baseClose != null ? `終値 ${formatNumber(activeTdnetReaction.baseClose, 2)}` : null,
-                    activeTdnetReaction.volumeRatio != null
-                      ? `出来高 ${formatNumber(activeTdnetReaction.volumeRatio, 2)}x`
-                      : null,
-                  ].filter(Boolean).join(" / ")}
-                </div>
-                <div className="detail-tdnet-reaction-grid">
-                  {activeTdnetReaction.reactions.map((reaction) => (
-                    <div key={reaction.bars} className="detail-tdnet-reaction-item">
-                      <div className="detail-tdnet-reaction-label">{reaction.label}</div>
-                      <div className="detail-tdnet-reaction-value">
-                        {formatSignedPercentLabel(reaction.returnRatio, 1)}
-                      </div>
-                      <div className="detail-tdnet-reaction-date">{reaction.targetDate ?? "--"}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {activeTdnetDisclosure.tags.length > 0 && (
-              <div className="detail-tdnet-card-tags">
-                {activeTdnetDisclosure.tags.map((tag) => (
-                  <span key={tag} className="detail-tdnet-card-tag">{tag}</span>
-                ))}
-              </div>
-            )}
-            <div className="detail-tdnet-card-links">
-              {activeTdnetDisclosure.tdnetUrl && (
-                <a href={activeTdnetDisclosure.tdnetUrl} target="_blank" rel="noreferrer">TDNET</a>
-              )}
-              {activeTdnetDisclosure.pdfUrl && (
-                <a href={activeTdnetDisclosure.pdfUrl} target="_blank" rel="noreferrer">PDF</a>
-              )}
-              {activeTdnetDisclosure.xbrlUrl && (
-                <a href={activeTdnetDisclosure.xbrlUrl} target="_blank" rel="noreferrer">XBRL</a>
-              )}
-            </div>
-          </div>
-        </div>
+        <DetailTdnetCard
+          activeTdnetDisclosure={activeTdnetDisclosure}
+          activeTdnetReaction={activeTdnetReaction}
+          selectedTdnetDisclosures={selectedTdnetDisclosures}
+          selectedTdnetDisclosureIndex={selectedTdnetDisclosureIndex}
+          setSelectedTdnetDisclosures={setSelectedTdnetDisclosures}
+          setSelectedTdnetDisclosureIndex={setSelectedTdnetDisclosureIndex}
+          formatNumber={formatNumber}
+          formatSignedPercentLabel={formatSignedPercentLabel}
+        />
       )}
       {!focusPanel && (
         <div className="detail-footer">
