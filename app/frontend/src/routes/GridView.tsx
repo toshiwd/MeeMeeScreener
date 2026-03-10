@@ -11,7 +11,7 @@ import {
   type HealthDeepResponse,
   type HealthReadyResponse
 } from "../backendReady";
-import type { MaSetting, SortDir, SortKey } from "../store";
+import type { MaSetting, SortDir } from "../store";
 import { useStore } from "../store";
 import StockTile from "../components/StockTile";
 import Toast from "../components/Toast";
@@ -33,7 +33,7 @@ import {
   IconBuildingArch // Added IconBuildingArch for Sector Sort
 } from "@tabler/icons-react";
 import TechnicalFilterDrawer from "../components/TechnicalFilterDrawer";
-import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
+import { computeSignalMetrics } from "../utils/signals";
 import {
   buildConsultationPack,
   ConsultationSort,
@@ -62,345 +62,51 @@ import {
 import { useResizeObserver } from "./grid/hooks/useResizeObserver";
 import GridIndicatorOverlay from "./grid/components/GridIndicatorOverlay";
 import { useTerminalJobPolling } from "./grid/hooks/useTerminalJobPolling";
-
-const GRID_GAP = 12;
-const KP_LIMIT = 24;
-const BARS_ERROR_RETRY_INTERVAL_MS = 4000;
-const BARS_ERROR_RETRY_COOLDOWN_MS = 8000;
-type Timeframe = "monthly" | "weekly" | "daily";
-type SortOption = { key: SortKey; label: string; fixedDirection?: SortDir };
-type SortSection = { title: string; options: SortOption[] };
-type BuyStateFilter = "all" | "initial" | "base";
-
-const rangeOptions = [
-  { label: "60本", count: 60 },
-  { label: "120本", count: 120 },
-  { label: "240本", count: 240 },
-  { label: "360本", count: 360 }
-];
-const gridRowOptions: Array<1 | 2 | 3 | 4 | 5 | 6> = [1, 2, 3, 4, 5, 6];
-const gridColumnOptions: Array<1 | 2 | 3 | 4> = [1, 2, 3, 4];
-const APP_VERSION_LABEL = `MeeMee v${__APP_VERSION__}`;
-const GRID_REFACTOR_FLAG_RAW = String(import.meta.env.VITE_GRID_REFACTOR ?? "1")
-  .trim()
-  .toLowerCase();
-const GRID_REFACTOR_ENABLED = ["1", "true", "yes", "on"].includes(GRID_REFACTOR_FLAG_RAW);
-
-const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalFilterState => ({
-  defaultTimeframe,
-  anchorMode: "latest",
-  anchorDate: null,
-  conditions: [],
-  boxThisMonth: false
-});
-
-type HealthStatus = {
-  txt_count: number;
-  code_count?: number;
-  last_updated: string | null;
-  code_txt_missing: boolean;
-  pan_out_txt_dir?: string | null;
-};
-
-type JobStatusPayload = {
-  id?: string;
-  type?: string;
-  status?: string;
-  progress?: number | null;
-  message?: string;
-  error?: string | null;
-};
-
-type TxtUpdateJobState = {
-  id: string;
-  status: string;
-  progress?: number | null;
-  message: string | null;
-};
-
-const normalizeHealthStatus = (
-  payload: HealthReadyResponse | HealthDeepResponse | null | undefined
-): HealthStatus => ({
-  txt_count: typeof payload?.txt_count === "number" ? payload.txt_count : 0,
-  code_count: typeof payload?.code_count === "number" ? payload.code_count : undefined,
-  last_updated: typeof payload?.last_updated === "string" ? payload.last_updated : null,
-  code_txt_missing: payload?.code_txt_missing === true,
-  pan_out_txt_dir: typeof payload?.pan_out_txt_dir === "string" ? payload.pan_out_txt_dir : null
-});
-
-type ToastAction = {
-  label: string;
-  onClick: () => void;
-};
-
-type JobHistoryItem = {
-  id?: string;
-  type?: string;
-  status?: string;
-  message?: string | null;
-};
-
-type WalkforwardSummary = {
-  windows_total?: number;
-  executed_windows?: number;
-  failed_windows?: number;
-  oos_trade_events?: number;
-  oos_weighted_win_rate?: number | null;
-  oos_total_realized_unit_pnl?: number;
-  oos_worst_max_drawdown_unit?: number | null;
-  oos_mean_profit_factor?: number | null;
-  oos_positive_window_ratio?: number | null;
-};
-
-type WalkforwardWindow = {
-  index?: number;
-  label?: string;
-  status?: string;
-  test?: {
-    metrics?: {
-      trade_events?: number;
-      win_rate?: number | null;
-      total_realized_unit_pnl?: number;
-      max_drawdown_unit?: number | null;
-      profit_factor?: number | null;
-    };
-  };
-};
-
-type WalkforwardReport = {
-  summary?: WalkforwardSummary;
-  attribution?: {
-    code?: WalkforwardAttributionBucket;
-    sector33_code?: WalkforwardAttributionBucket;
-    setup_id?: WalkforwardAttributionBucket;
-    setup?: WalkforwardAttributionBucket;
-    side?: WalkforwardAttributionBucket;
-    hedge?: WalkforwardAttributionBucket;
-  };
-  windows?: WalkforwardWindow[];
-};
-
-type WalkforwardAttributionRow = {
-  key?: string;
-  trades?: number;
-  win_rate?: number | null;
-  ret_net_sum?: number;
-  avg_ret_net?: number | null;
-  profit_factor?: number | null;
-};
-
-type WalkforwardAttributionBucket = {
-  rows?: WalkforwardAttributionRow[];
-  top?: WalkforwardAttributionRow[];
-  bottom?: WalkforwardAttributionRow[];
-};
-
-type WalkforwardLatest = {
-  run_id?: string;
-  finished_at?: string;
-  status?: string;
-  config?: Record<string, unknown>;
-  report?: WalkforwardReport;
-};
-
-type WalkforwardResearchSetupRow = {
-  setup_id?: string;
-  trades?: number;
-  ret_net_sum?: number;
-  win_rate?: number | null;
-  profit_factor?: number | null;
-};
-
-type WalkforwardResearchRejectedRow = {
-  reason?: string;
-  count?: number;
-};
-
-type WalkforwardResearchHedgeContribution = {
-  core_ret_net_sum?: number;
-  hedge_ret_net_sum?: number;
-  total_ret_net_sum?: number;
-  hedge_share?: number | null;
-};
-
-type WalkforwardResearchReport = {
-  summary?: WalkforwardSummary;
-  adopted_setups?: WalkforwardResearchSetupRow[];
-  rejected_reasons?: WalkforwardResearchRejectedRow[];
-  hedge_contribution?: WalkforwardResearchHedgeContribution;
-};
-
-type WalkforwardResearchLatest = {
-  snapshot_date?: number;
-  created_at?: string;
-  source_run_id?: string;
-  source_finished_at?: string;
-  report?: WalkforwardResearchReport;
-};
-
-type WalkforwardParams = {
-  trainMonths: number;
-  testMonths: number;
-  stepMonths: number;
-  minWindows: number;
-  maxCodes: number;
-  allowedSides: "both" | "long" | "short";
-  minLongScore: number;
-  minShortScore: number;
-  maxNewEntriesPerDay: number;
-  maxNewEntriesPerMonth: string;
-  minMlPUpLong: string;
-  useRegimeFilter: boolean;
-  regimeBreadthLookbackDays: number;
-  regimeLongMinBreadthAbove60: string;
-  regimeShortMaxBreadthAbove60: string;
-  allowedLongSetups: string;
-  allowedShortSetups: string;
-};
-
-type WalkforwardPreset = {
-  name: string;
-  params: WalkforwardParams;
-  createdAt: string;
-  updatedAt: string;
-};
-
-const resolveGridSignalSortScore = (
-  metrics: ReturnType<typeof computeSignalMetrics> | null,
-  liquidity20d: number | null | undefined,
-  direction: "up" | "down"
-) => {
-  if (!metrics) return Number.NEGATIVE_INFINITY;
-  const summary = getSignalDirectionSummary(metrics);
-  const directionalTrend = direction === "up" ? metrics.trendStrength : -metrics.trendStrength;
-  const signalCount = metrics.signals.length;
-  const directionMatched = direction === "up" ? summary.hasBuySignal : summary.hasSellSignal;
-  const oppositeMatched = direction === "up" ? summary.hasSellSignal : summary.hasBuySignal;
-  return (
-    (directionMatched ? 10_000 : 0)
-    - (oppositeMatched ? 2_000 : 0)
-    + directionalTrend * 10
-    + signalCount * 20
-    + ((Number.isFinite(liquidity20d ?? NaN) ? Number(liquidity20d) : 0) / 1_000_000)
-  );
-};
-
-const WALKFORWARD_PRESETS_STORAGE_KEY = "walkforwardPresetsV1";
-const WALKFORWARD_PRESETS_LIMIT = 20;
-
-const createDefaultWalkforwardParams = (): WalkforwardParams => ({
-  trainMonths: 24,
-  testMonths: 3,
-  stepMonths: 1,
-  minWindows: 1,
-  maxCodes: 500,
-  allowedSides: "both",
-  minLongScore: 1.0,
-  minShortScore: 1.0,
-  maxNewEntriesPerDay: 3,
-  maxNewEntriesPerMonth: "",
-  minMlPUpLong: "",
-  useRegimeFilter: false,
-  regimeBreadthLookbackDays: 20,
-  regimeLongMinBreadthAbove60: "0.52",
-  regimeShortMaxBreadthAbove60: "0.48",
-  allowedLongSetups: "",
-  allowedShortSetups: ""
-});
-
-const toWalkforwardParams = (value: unknown): WalkforwardParams => {
-  const defaults = createDefaultWalkforwardParams();
-  if (!value || typeof value !== "object") return defaults;
-  const raw = value as Partial<WalkforwardParams>;
-  const allowedSides = raw.allowedSides;
-  return {
-    trainMonths:
-      typeof raw.trainMonths === "number" && Number.isFinite(raw.trainMonths)
-        ? Math.max(1, Math.floor(raw.trainMonths))
-        : defaults.trainMonths,
-    testMonths:
-      typeof raw.testMonths === "number" && Number.isFinite(raw.testMonths)
-        ? Math.max(1, Math.floor(raw.testMonths))
-        : defaults.testMonths,
-    stepMonths:
-      typeof raw.stepMonths === "number" && Number.isFinite(raw.stepMonths)
-        ? Math.max(1, Math.floor(raw.stepMonths))
-        : defaults.stepMonths,
-    minWindows:
-      typeof raw.minWindows === "number" && Number.isFinite(raw.minWindows)
-        ? Math.max(1, Math.floor(raw.minWindows))
-        : defaults.minWindows,
-    maxCodes:
-      typeof raw.maxCodes === "number" && Number.isFinite(raw.maxCodes)
-        ? Math.max(20, Math.floor(raw.maxCodes))
-        : defaults.maxCodes,
-    allowedSides:
-      allowedSides === "both" || allowedSides === "long" || allowedSides === "short"
-        ? allowedSides
-        : defaults.allowedSides,
-    minLongScore:
-      typeof raw.minLongScore === "number" && Number.isFinite(raw.minLongScore)
-        ? raw.minLongScore
-        : defaults.minLongScore,
-    minShortScore:
-      typeof raw.minShortScore === "number" && Number.isFinite(raw.minShortScore)
-        ? raw.minShortScore
-        : defaults.minShortScore,
-    maxNewEntriesPerDay:
-      typeof raw.maxNewEntriesPerDay === "number" && Number.isFinite(raw.maxNewEntriesPerDay)
-        ? Math.max(1, Math.floor(raw.maxNewEntriesPerDay))
-        : defaults.maxNewEntriesPerDay,
-    maxNewEntriesPerMonth:
-      typeof raw.maxNewEntriesPerMonth === "string"
-        ? raw.maxNewEntriesPerMonth
-        : defaults.maxNewEntriesPerMonth,
-    minMlPUpLong:
-      typeof raw.minMlPUpLong === "string" ? raw.minMlPUpLong : defaults.minMlPUpLong,
-    useRegimeFilter:
-      typeof raw.useRegimeFilter === "boolean" ? raw.useRegimeFilter : defaults.useRegimeFilter,
-    regimeBreadthLookbackDays:
-      typeof raw.regimeBreadthLookbackDays === "number" && Number.isFinite(raw.regimeBreadthLookbackDays)
-        ? Math.max(1, Math.floor(raw.regimeBreadthLookbackDays))
-        : defaults.regimeBreadthLookbackDays,
-    regimeLongMinBreadthAbove60:
-      typeof raw.regimeLongMinBreadthAbove60 === "string"
-        ? raw.regimeLongMinBreadthAbove60
-        : defaults.regimeLongMinBreadthAbove60,
-    regimeShortMaxBreadthAbove60:
-      typeof raw.regimeShortMaxBreadthAbove60 === "string"
-        ? raw.regimeShortMaxBreadthAbove60
-        : defaults.regimeShortMaxBreadthAbove60,
-    allowedLongSetups:
-      typeof raw.allowedLongSetups === "string" ? raw.allowedLongSetups : defaults.allowedLongSetups,
-    allowedShortSetups:
-      typeof raw.allowedShortSetups === "string"
-        ? raw.allowedShortSetups
-        : defaults.allowedShortSetups,
-  };
-};
-
-const TERMINAL_JOB_STATUS = new Set(["success", "failed", "canceled"]);
-const ACTIVE_JOB_STATUS = new Set(["queued", "running", "cancel_requested"]);
-
-const extractErrorDetail = (err: unknown, fallback = "不明なエラー"): string => {
-  if (!err || typeof err !== "object") return fallback;
-  const maybeErr = err as {
-    message?: unknown;
-    response?: {
-      data?: {
-        error?: unknown;
-        detail?: unknown;
-        message?: unknown;
-      };
-    };
-  };
-  const responseData = maybeErr.response?.data;
-  if (typeof responseData?.error === "string" && responseData.error.trim()) return responseData.error;
-  if (typeof responseData?.detail === "string" && responseData.detail.trim()) return responseData.detail;
-  if (typeof responseData?.message === "string" && responseData.message.trim()) return responseData.message;
-  if (typeof maybeErr.message === "string" && maybeErr.message.trim()) return maybeErr.message;
-  return fallback;
-};
+import type {
+  BuyStateFilter,
+  HealthStatus,
+  JobHistoryItem,
+  JobStatusPayload,
+  SortOption,
+  SortSection,
+  Timeframe,
+  ToastAction,
+  TxtUpdateJobState,
+  WalkforwardAttributionBucket,
+  WalkforwardAttributionRow,
+  WalkforwardLatest,
+  WalkforwardParams,
+  WalkforwardPreset,
+  WalkforwardReport,
+  WalkforwardResearchHedgeContribution,
+  WalkforwardResearchLatest,
+  WalkforwardResearchRejectedRow,
+  WalkforwardResearchReport,
+  WalkforwardResearchSetupRow,
+  WalkforwardSummary,
+  WalkforwardWindow
+} from "./grid/gridTypes";
+import {
+  ACTIVE_JOB_STATUS,
+  APP_VERSION_LABEL,
+  BARS_ERROR_RETRY_COOLDOWN_MS,
+  BARS_ERROR_RETRY_INTERVAL_MS,
+  GRID_GAP,
+  GRID_REFACTOR_ENABLED,
+  KP_LIMIT,
+  TERMINAL_JOB_STATUS,
+  WALKFORWARD_PRESETS_LIMIT,
+  WALKFORWARD_PRESETS_STORAGE_KEY,
+  createDefaultTechFilter,
+  createDefaultWalkforwardParams,
+  extractErrorDetail,
+  gridColumnOptions,
+  gridRowOptions,
+  normalizeHealthStatus,
+  rangeOptions,
+  resolveGridSignalSortScore,
+  toWalkforwardParams
+} from "./grid/gridHelpers";
 
 export default function GridView() {
   const location = useLocation();
