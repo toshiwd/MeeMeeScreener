@@ -4,8 +4,8 @@ from functools import lru_cache
 import math
 from typing import Any
 
-from app.backend.services.toredex_config import ToredexConfig
-from app.backend.services.toredex_models import ALLOWED_UNIT_SET
+from .toredex_config import ToredexConfig
+from .toredex_models import ALLOWED_UNIT_SET
 
 
 def _float_or_none(value: Any) -> float | None:

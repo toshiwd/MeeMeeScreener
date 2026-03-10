@@ -4,7 +4,7 @@ import math
 import os
 from typing import Any
 
-from app.backend.services import swing_expectancy_service
+from . import swing_expectancy_service
 
 _MIN_LIQUIDITY_20D = 50_000_000.0
 _MIN_SETUP_SAMPLES = max(0, int(os.getenv("MEEMEE_SWING_MIN_SETUP_SAMPLES", "80")))

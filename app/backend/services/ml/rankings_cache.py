@@ -18,17 +18,17 @@ from app.core.config import config as core_config
 from app.db.session import get_conn, is_transient_duckdb_error
 from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.domain.screening.metrics import _calc_liquidity_20d
-from app.backend.services.edinet_rank_features import load_edinet_rank_features
-from app.backend.services.bar_aggregation import merge_monthly_rows_with_daily
-from app.backend.services.ml_config import load_ml_config
-from app.backend.services.ml_service import select_top_n_ml
-from app.backend.services.ranking_analysis_quality import get_latest_prob_up_gates
-from app.backend.services import swing_plan_service
-from app.backend.services.yahoo_provisional import (
+from ..analysis import swing_plan_service
+from ..data.bar_aggregation import merge_monthly_rows_with_daily
+from ..data.yahoo_provisional import (
     get_provisional_daily_rows_from_spark,
     merge_daily_rows_with_provisional,
     normalize_date_key,
 )
+from .edinet_rank_features import load_edinet_rank_features
+from .ml_config import load_ml_config
+from .ml_service import select_top_n_ml
+from .ranking_analysis_quality import get_latest_prob_up_gates
 
 RankTimeframe = Literal["D", "W", "M"]
 RankWhich = Literal["latest", "prev"]
@@ -3532,7 +3532,7 @@ def _try_repair_monthly_prediction(*, pred_dt: int | None, items: list[dict]) ->
     if target_dt is None:
         return
     try:
-        from app.backend.services import ml_service
+        from . import ml_service
 
         result = ml_service.predict_monthly_for_dt(dt=int(target_dt))
         logger.info(

@@ -4,9 +4,9 @@ from datetime import date
 import math
 from typing import Any
 
-from app.backend.services.toredex_config import ToredexConfig
-from app.backend.services.toredex_hash import hash_payload
-from app.backend.services.toredex_repository import ToredexRepository
+from .toredex_config import ToredexConfig
+from .toredex_hash import hash_payload
+from .toredex_repository import ToredexRepository
 
 
 def _build_price_map(snapshot: dict[str, Any]) -> dict[str, float]:

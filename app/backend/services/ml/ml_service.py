@@ -13,7 +13,7 @@ import pandas as pd
 
 from app.core.config import config as core_config
 from app.db.session import get_conn
-from app.backend.services.ml_config import MLConfig, load_ml_config
+from .ml_config import MLConfig, load_ml_config
 
 FEATURE_VERSION = 4
 LABEL_VERSION = 4

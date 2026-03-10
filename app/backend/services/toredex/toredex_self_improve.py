@@ -15,9 +15,9 @@ import time
 import uuid
 from typing import Any
 
-from app.backend.services.toredex_config import load_toredex_config
-from app.backend.services.toredex_repository import ToredexRepository
-from app.backend.services.toredex_runner import run_backtest
+from .toredex_config import load_toredex_config
+from .toredex_repository import ToredexRepository
+from .toredex_runner import run_backtest
 
 
 @dataclass(frozen=True)

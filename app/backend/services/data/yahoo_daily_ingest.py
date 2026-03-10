@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
 
-from app.backend.services.yahoo_provisional import (
+from .yahoo_provisional import (
     get_provisional_daily_rows_from_spark,
     is_close_only_zero_volume_row,
     normalize_date_key,

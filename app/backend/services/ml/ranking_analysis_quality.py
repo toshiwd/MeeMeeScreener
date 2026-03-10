@@ -441,7 +441,7 @@ def _compute_decision_alignment(
     up_prob_gate: float | None,
 ) -> dict[str, Any]:
     try:
-        from app.backend.services.analysis_decision import build_analysis_decision
+        from ..analysis.analysis_decision import build_analysis_decision
     except Exception:
         return {
             "matchRate": None,

@@ -4,8 +4,8 @@ from datetime import date
 import math
 from typing import Any
 
-from app.backend.services import rankings_cache
-from app.backend.services.toredex_config import ToredexConfig
+from ..ml import rankings_cache
+from .toredex_config import ToredexConfig
 
 
 def _first_finite(*values: Any) -> float | None:

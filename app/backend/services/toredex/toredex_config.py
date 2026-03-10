@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 import json
 
-from app.backend.services.toredex_hash import hash_payload
+from .toredex_hash import hash_payload
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]

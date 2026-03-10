@@ -6,14 +6,14 @@ from pathlib import Path
 import json
 from typing import Any
 
-from app.backend.services.toredex_config import ToredexConfig, load_toredex_config
-from app.backend.services.toredex_execution import execute_live_decision
-from app.backend.services.toredex_hash import hash_payload
-from app.backend.services.toredex_models import ALLOWED_UNIT_SET, REASON_ID_SET
-from app.backend.services.toredex_paths import ensure_daily_paths, ensure_monthly_paths, resolve_runs_root
-from app.backend.services.toredex_policy import build_decision
-from app.backend.services.toredex_repository import ToredexRepository
-from app.backend.services.toredex_snapshot_service import build_snapshot, snapshot_has_minimum_fields
+from .toredex_config import ToredexConfig, load_toredex_config
+from .toredex_execution import execute_live_decision
+from .toredex_hash import hash_payload
+from .toredex_models import ALLOWED_UNIT_SET, REASON_ID_SET
+from .toredex_paths import ensure_daily_paths, ensure_monthly_paths, resolve_runs_root
+from .toredex_policy import build_decision
+from .toredex_repository import ToredexRepository
+from .toredex_snapshot_service import build_snapshot, snapshot_has_minimum_fields
 from app.db.session import get_conn
 
 _JST = timezone(timedelta(hours=9))
@@ -108,7 +108,7 @@ def _clear_rankings_caches_periodically(day_index: int) -> None:
     if day_index <= 0 or (day_index % 20) != 0:
         return
     try:
-        from app.backend.services import rankings_cache
+        from ..ml import rankings_cache
 
         asof_cache = getattr(rankings_cache, "_ASOF_BASE_CACHE", None)
         if hasattr(asof_cache, "clear"):

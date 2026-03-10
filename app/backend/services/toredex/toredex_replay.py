@@ -3,10 +3,10 @@
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from app.backend.services.toredex_config import load_toredex_config
-from app.backend.services.toredex_hash import hash_payload
-from app.backend.services.toredex_policy import build_decision
-from app.backend.services.toredex_repository import ToredexRepository
+from .toredex_config import load_toredex_config
+from .toredex_hash import hash_payload
+from .toredex_policy import build_decision
+from .toredex_repository import ToredexRepository
 
 
 def _parse_as_of(value: str) -> date:

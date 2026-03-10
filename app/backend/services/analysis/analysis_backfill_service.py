@@ -5,8 +5,8 @@ import logging
 from typing import Any, Callable
 
 from app.db.session import get_conn
-from app.backend.services import ml_service
-from app.backend.services.sell_analysis_accumulator import (
+from ..ml import ml_service
+from .sell_analysis_accumulator import (
     SELL_ANALYSIS_CALC_VERSION,
     accumulate_sell_analysis_for_dates,
 )
