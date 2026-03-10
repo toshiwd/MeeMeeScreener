@@ -234,8 +234,6 @@ type Settings = {
   basicSortKey: BasicSortKey;
   basicSortDir: SortDir;
   performancePeriod: PerformancePeriod;
-  sectorSortEnabled: boolean;
-  sectorSortInnerKey: BasicSortKey;
 };
 
 type StoreState = {
@@ -272,8 +270,6 @@ type StoreState = {
   setBasicSortKey: (key: BasicSortKey) => void;
   setBasicSortDir: (dir: SortDir) => void;
   setPerformancePeriod: (period: PerformancePeriod) => void;
-  setSectorSortEnabled: (enabled: boolean) => void;
-  setSectorSortInnerKey: (key: BasicSortKey) => void;
 
   updateMaSetting: (
     timeframe: MaTimeframe,
@@ -349,6 +345,8 @@ export type SortKey =
   | "buyCandidate"
   | "buyInitial"
   | "buyBase"
+  | "buySignalLatest"
+  | "sellSignalLatest"
   | "ma20Dev"
   | "ma60Dev"
   | "ma20Slope"
@@ -805,8 +803,8 @@ const getInitialSortKey = (): SortKey => {
     "name",
     "entryPriority",
     "buyCandidate",
-    "buyInitial",
-    "buyBase",
+    "buySignalLatest",
+    "sellSignalLatest",
     "ma20Dev",
     "ma60Dev",
     "ma20Slope",
@@ -871,40 +869,6 @@ const persistKeepList = (list: string[]) => {
   window.localStorage.setItem(KEEP_STORAGE_KEY, JSON.stringify(list));
 };
 
-const getInitialSectorSortEnabled = (): boolean => {
-  if (typeof window === "undefined") return false;
-  const saved = window.localStorage.getItem("sectorSortEnabled");
-  return saved === "true";
-};
-
-const getInitialSectorSortInnerKey = (): BasicSortKey => {
-  if (typeof window === "undefined") return "code";
-  const saved = window.localStorage.getItem("sectorSortInnerKey");
-  const options: BasicSortKey[] = [
-    "code",
-    "name",
-    "sector",
-    "ma20Dev",
-    "ma60Dev",
-    "ma20Slope",
-    "ma60Slope",
-    "performance",
-    "upScore",
-    "downScore",
-    "overheatUp",
-    "overheatDown",
-    "swingScore",
-    "mlEv20Net",
-    "mlPUpShort",
-    "mlPDownShort",
-    "boxState"
-  ];
-  if (saved && options.includes(saved as BasicSortKey)) {
-    return saved as BasicSortKey;
-  }
-  return "code";
-};
-
 export const useStore = create<StoreState>((set, get) => ({
   tickers: [],
   favorites: [],
@@ -954,9 +918,7 @@ export const useStore = create<StoreState>((set, get) => ({
     candidateSortKey: "entryPriority",
     basicSortKey: "code",
     basicSortDir: "asc",
-    performancePeriod: "1M",
-    sectorSortEnabled: false,
-    sectorSortInnerKey: "code"
+    performancePeriod: "1M"
   },
   setLastApiError: (info) => set({ lastApiError: info }),
   loadFavorites: async () => {
@@ -1980,18 +1942,6 @@ export const useStore = create<StoreState>((set, get) => ({
       window.localStorage.setItem("performancePeriod", value);
     }
     set((state) => ({ settings: { ...state.settings, performancePeriod: value } }));
-  },
-  setSectorSortEnabled: (value) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("sectorSortEnabled", String(value));
-    }
-    set((state) => ({ settings: { ...state.settings, sectorSortEnabled: value } }));
-  },
-  setSectorSortInnerKey: (value) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("sectorSortInnerKey", value);
-    }
-    set((state) => ({ settings: { ...state.settings, sectorSortInnerKey: value } }));
   },
   updateMaSetting: (timeframe, index, patch) => {
     set((state) => {

@@ -33,7 +33,7 @@ import {
   IconBuildingArch // Added IconBuildingArch for Sector Sort
 } from "@tabler/icons-react";
 import TechnicalFilterDrawer from "../components/TechnicalFilterDrawer";
-import { computeSignalMetrics } from "../utils/signals";
+import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
 import {
   buildConsultationPack,
   ConsultationSort,
@@ -70,6 +70,7 @@ const BARS_ERROR_RETRY_COOLDOWN_MS = 8000;
 type Timeframe = "monthly" | "weekly" | "daily";
 type SortOption = { key: SortKey; label: string; fixedDirection?: SortDir };
 type SortSection = { title: string; options: SortOption[] };
+type BuyStateFilter = "all" | "initial" | "base";
 
 const rangeOptions = [
   { label: "60本", count: 60 },
@@ -105,6 +106,7 @@ type JobStatusPayload = {
   id?: string;
   type?: string;
   status?: string;
+  progress?: number | null;
   message?: string;
   error?: string | null;
 };
@@ -112,6 +114,7 @@ type JobStatusPayload = {
 type TxtUpdateJobState = {
   id: string;
   status: string;
+  progress?: number | null;
   message: string | null;
 };
 
@@ -260,6 +263,26 @@ type WalkforwardPreset = {
   params: WalkforwardParams;
   createdAt: string;
   updatedAt: string;
+};
+
+const resolveGridSignalSortScore = (
+  metrics: ReturnType<typeof computeSignalMetrics> | null,
+  liquidity20d: number | null | undefined,
+  direction: "up" | "down"
+) => {
+  if (!metrics) return Number.NEGATIVE_INFINITY;
+  const summary = getSignalDirectionSummary(metrics);
+  const directionalTrend = direction === "up" ? metrics.trendStrength : -metrics.trendStrength;
+  const signalCount = metrics.signals.length;
+  const directionMatched = direction === "up" ? summary.hasBuySignal : summary.hasSellSignal;
+  const oppositeMatched = direction === "up" ? summary.hasSellSignal : summary.hasBuySignal;
+  return (
+    (directionMatched ? 10_000 : 0)
+    - (oppositeMatched ? 2_000 : 0)
+    + directionalTrend * 10
+    + signalCount * 20
+    + ((Number.isFinite(liquidity20d ?? NaN) ? Number(liquidity20d) : 0) / 1_000_000)
+  );
 };
 
 const WALKFORWARD_PRESETS_STORAGE_KEY = "walkforwardPresetsV1";
@@ -425,10 +448,6 @@ export default function GridView() {
   const eventsMeta = useStore((state) => state.eventsMeta);
   const refreshEvents = useStore((state) => state.refreshEvents);
 
-  // Sector Sort Settings
-  const sectorSortEnabled = useStore((state) => state.settings.sectorSortEnabled);
-  const sectorSortInnerKey = useStore((state) => state.settings.sectorSortInnerKey);
-
   const eventsAttemptLabel = useMemo(
     () => formatEventDateYmd(eventsMeta?.lastAttemptAt),
     [eventsMeta?.lastAttemptAt]
@@ -505,6 +524,8 @@ export default function GridView() {
   const [techFilterActive, setTechFilterActive] = useState<TechnicalFilterState>(() =>
     createDefaultTechFilter(gridTimeframe)
   );
+  const [buyStateFilter, setBuyStateFilter] = useState<BuyStateFilter>("all");
+  const [buyStateFilterDraft, setBuyStateFilterDraft] = useState<BuyStateFilter>("all");
   const [shortTierAbOnly, setShortTierAbOnly] = useState(false);
   const [shortTierAbOnlyDraft, setShortTierAbOnlyDraft] = useState(false);
   const [sectorSortOpen, setSectorSortOpen] = useState(false); // Popover state for Sector Sort
@@ -844,7 +865,7 @@ export default function GridView() {
     setIsSorting(true);
     const timer = window.setTimeout(() => setIsSorting(false), 120);
     return () => window.clearTimeout(timer);
-  }, [sortKey, sortDir, sectorSortEnabled, sectorSortInnerKey]);
+  }, [sortKey, sortDir]);
 
   // Candidate sort sections (shown only on candidate screens)
   const candidateSortSections = useMemo<SortSection[]>(
@@ -854,8 +875,7 @@ export default function GridView() {
         options: [
           { key: "entryPriority", label: "仕込み優先度(A/B/C)" },
           { key: "buyCandidate", label: "買い候補(総合)" },
-          { key: "buyInitial", label: "買い候補(初動)" },
-          { key: "buyBase", label: "買い候補(底がため)" },
+          { key: "buySignalLatest", label: "最新買い判定", fixedDirection: "desc" },
           { key: "swingScore", label: "スイング候補(総合)" },
         ]
       },
@@ -866,6 +886,7 @@ export default function GridView() {
           { key: "shortScore", label: "売り候補(総合)" },
           { key: "aScore", label: "売り候補(反転確実)" },
           { key: "bScore", label: "売り候補(戻り売り)" },
+          { key: "sellSignalLatest", label: "最新売り判定", fixedDirection: "desc" },
         ]
       },
       {
@@ -894,6 +915,8 @@ export default function GridView() {
       {
         title: "テクニカル",
         options: [
+          { key: "buySignalLatest", label: "最新買い判定", fixedDirection: "desc" },
+          { key: "sellSignalLatest", label: "最新売り判定", fixedDirection: "desc" },
           { key: "ma20Dev", label: "乖離率(MA20)" },
           { key: "ma60Dev", label: "乖離率(MA60)" },
           { key: "ma20Slope", label: "MA20傾き" },
@@ -903,7 +926,12 @@ export default function GridView() {
       {
         title: "パフォーマンス",
         options: [
-          { key: "performance", label: "騰落率" }  // Period selected via dropdown
+          { key: "chg1D", label: "単純騰落(1D)", fixedDirection: "desc" },
+          { key: "chg1W", label: "単純騰落(1W)", fixedDirection: "desc" },
+          { key: "chg1M", label: "単純騰落(1M)", fixedDirection: "desc" },
+          { key: "chg1Q", label: "単純騰落(1Q)", fixedDirection: "desc" },
+          { key: "chg1Y", label: "単純騰落(1Y)", fixedDirection: "desc" },
+          { key: "performance", label: "騰落率(期間選択)" }
         ]
       },
       {
@@ -948,16 +976,34 @@ export default function GridView() {
     const candidateKeys = [
       "entryPriority",
       "buyCandidate",
-      "buyInitial",
-      "buyBase",
+      "buySignalLatest",
       "swingScore",
       "shortPriority",
       "shortScore",
       "aScore",
-      "bScore"
+      "bScore",
+      "sellSignalLatest"
     ];
     return candidateKeys.includes(sortKey);
   }, [sortKey]);
+  const visibleSortSections = useMemo(
+    () => (isCandidateView ? candidateSortSections : basicSortSections),
+    [isCandidateView, candidateSortSections, basicSortSections]
+  );
+  const [openSortSections, setOpenSortSections] = useState<string[]>([]);
+  useEffect(() => {
+    if (!sortOpen) return;
+    if (!visibleSortSections.length) {
+      setOpenSortSections([]);
+      return;
+    }
+    const activeSectionTitle =
+      visibleSortSections.find((section) => section.options.some((opt) => opt.key === sortKey))?.title ?? null;
+    const next = new Set<string>();
+    next.add(visibleSortSections[0]?.title ?? "");
+    if (activeSectionTitle) next.add(activeSectionTitle);
+    setOpenSortSections(Array.from(next).filter(Boolean));
+  }, [sortOpen, visibleSortSections, sortKey]);
 
   const defaultSortLabel = "コード";
   const sortLabel = useMemo(
@@ -975,6 +1021,39 @@ export default function GridView() {
     if (!txtUpdateJob) return null;
     return formatTxtUpdateStatusLabel(txtUpdateJob.status);
   }, [txtUpdateJob]);
+  const txtUpdateStatusTone = useMemo(() => {
+    if (!txtUpdateJob) return "is-idle";
+    if (txtUpdateJob.status === "success") return "is-done";
+    if (txtUpdateJob.status === "failed" || txtUpdateJob.status === "canceled") return "is-error";
+    return "is-running";
+  }, [txtUpdateJob]);
+  const txtUpdateProgressValue = useMemo(() => {
+    const raw = txtUpdateJob?.progress;
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
+    return Math.max(0, Math.min(100, Math.round(raw)));
+  }, [txtUpdateJob?.progress]);
+  const txtUpdateStageLabel = useMemo(() => {
+    const message = txtUpdateJob?.message?.toLowerCase() ?? "";
+    if (!message) return txtUpdateStatusLabel ?? "待機中";
+    if (message.includes("pan import") || message.includes("launching pan")) return "PAN取込";
+    if (message.includes("pan rolling export") || message.includes("vbs export") || message.includes("export completed")) {
+      return "TXT出力";
+    }
+    if (message.includes("ingesting")) return "TXT取込";
+    if (message.includes("phase")) return "Phase更新";
+    if (message.includes("ml")) return "ML更新";
+    if (message.includes("score")) return "スコア更新";
+    if (message.includes("cache")) return "キャッシュ更新";
+    if (message.includes("walkforward")) return "検証";
+    if (message.includes("final")) return "仕上げ";
+    if (message.includes("queue")) return "待機";
+    return txtUpdateStatusLabel ?? "更新中";
+  }, [txtUpdateJob?.message, txtUpdateStatusLabel]);
+  const txtUpdateShortDetail = useMemo(() => {
+    const message = txtUpdateJob?.message?.trim();
+    if (!message) return null;
+    return message.length > 72 ? `${message.slice(0, 72)}...` : message;
+  }, [txtUpdateJob?.message]);
 
   const normalizeWatchCode = useCallback((value: string) => {
     const trimmed = value.trim();
@@ -1240,7 +1319,7 @@ export default function GridView() {
     () => techFilterActive.conditions.length > 0 || techFilterActive.boxThisMonth,
     [techFilterActive.conditions.length, techFilterActive.boxThisMonth]
   );
-  const hasActiveFilterChips = hasActiveFilters || shortTierAbOnly;
+  const hasActiveFilterChips = hasActiveFilters || buyStateFilter !== "all" || shortTierAbOnly;
   const activeTimeframeLabel = useMemo(() => {
     if (activeConditionTimeframes.size === 0) return "未設定";
     if (activeConditionTimeframes.size === 1) {
@@ -1277,15 +1356,9 @@ export default function GridView() {
       NON: 0
     };
 
-    // Determine the active sort configuration
-    const activeKey = sectorSortEnabled ? sectorSortInnerKey : sortKey;
-    // For inner sort, we might want to respect `sortDir` only if it makes sense?
-    // Actually, let's use `sortDir` for the inner sort direction.
-    // The Sector Grouping itself is always Sector Code ASC. 
-    // (Or should we allow reversing sectors? Standard is usually ASC).
+    const activeKey = sortKey;
 
-    const isBuyStateSort =
-      activeKey === "buyCandidate" || activeKey === "buyInitial" || activeKey === "buyBase";
+    const isBuyStateSort = activeKey === "buyCandidate";
 
     const resolveDeviation = (bars: number[][] | undefined, anchor: AnchorInfo | undefined, period: number) => {
       if (!bars || !anchor) return null;
@@ -1315,7 +1388,7 @@ export default function GridView() {
         sortValue = ticker.code;
       } else if (activeKey === "name") {
         sortValue = ticker.name ?? "";
-      } else if (activeKey === "sector" && !sectorSortEnabled) { // Avoid using 'sector' as sort value if it's the grouping key, though it doesn't hurt.
+      } else if (activeKey === "sector") {
         sortValue = ticker.sector33Code ?? null;
       } else if (activeKey === "ma20Dev") {
         sortValue = resolveDeviation(bars, anchor, 20);
@@ -1372,6 +1445,10 @@ export default function GridView() {
         sortValue = ticker.shortPriorityScore ?? null;
       } else if (activeKey === "entryPriority") {
         sortValue = ticker.entryPriorityScore ?? null;
+      } else if (activeKey === "buySignalLatest") {
+        sortValue = resolveGridSignalSortScore(item.metrics, ticker.liquidity20d, "up");
+      } else if (activeKey === "sellSignalLatest") {
+        sortValue = resolveGridSignalSortScore(item.metrics, ticker.liquidity20d, "down");
       } else if (activeKey === "performance") {
         // Use selected performance period
         switch (performancePeriod) {
@@ -1409,19 +1486,6 @@ export default function GridView() {
       const aRisk = Number.isFinite(a.ticker.buyRiskDistance) ? (a.ticker.buyRiskDistance as number) : null;
       const bRisk = Number.isFinite(b.ticker.buyRiskDistance) ? (b.ticker.buyRiskDistance as number) : null;
 
-      if (activeKey === "buyInitial" || activeKey === "buyBase") {
-        const target = activeKey === "buyInitial" ? "初動" : "底がため";
-        const aligible = aState === target;
-        const bligible = bState === target;
-        if (aligible !== bligible) return aligible ? -1 : 1;
-        if (!aligible && !bligible) return a.ticker.code.localeCompare(b.ticker.code);
-        const scoreResult = compareNumeric(aScore, bScore, sortDir);
-        if (scoreResult !== 0) return scoreResult;
-        const riskResult = compareNumeric(aRisk, bRisk, "asc");
-        if (riskResult !== 0) return riskResult;
-        return a.ticker.code.localeCompare(b.ticker.code);
-      }
-
       if (aRank !== bRank) return bRank - aRank;
       const scoreResult = compareNumeric(aScore, bScore, sortDir);
       if (scoreResult !== 0) return scoreResult;
@@ -1433,22 +1497,7 @@ export default function GridView() {
     };
 
     const compare = (a: typeof items[number], b: typeof items[number]) => {
-      // 1. Sector Sort (Grouping) if enabled
-      if (sectorSortEnabled) {
-        const sA = a.ticker.sector33Code;
-        const sB = b.ticker.sector33Code;
-        // Put null/empty sectors at the end
-        if (sA && !sB) return -1;
-        if (!sA && sB) return 1;
-        if (sA && sB && sA !== sB) {
-          // Compare sector codes (or names if code implies order? codes are usually ordered)
-          // `sector33Code` is usually text "0050", "1050" etc.
-          return sA.localeCompare(sB);
-        }
-        // If sectors are same or both missing, fall through to inner sort
-      }
-
-      // 2. Inner Sort (using activeKey)
+      // 1. Inner Sort (using activeKey)
       if (isBuyStateSort) {
         return compareBuyState(a, b);
       }
@@ -1478,6 +1527,11 @@ export default function GridView() {
     };
 
     let filteredItems = items;
+    if (buyStateFilter === "initial") {
+      filteredItems = filteredItems.filter((item) => item.ticker.buyState === "初動");
+    } else if (buyStateFilter === "base") {
+      filteredItems = filteredItems.filter((item) => item.ticker.buyState === "底がため");
+    }
     if (shortTierAbOnly) {
       filteredItems = filteredItems.filter((item) => {
         const tier = item.ticker.shortPriorityTier;
@@ -1495,8 +1549,7 @@ export default function GridView() {
     gridTimeframe,
     listAnchorInfoByCode,
     performancePeriod,
-    sectorSortEnabled,
-    sectorSortInnerKey,
+    buyStateFilter,
     shortTierAbOnly
   ]);
   const sortedCodes = useMemo(
@@ -1892,6 +1945,7 @@ export default function GridView() {
 
   const handleOpenTechFilter = () => {
     setTechFilterDraft(sanitizeTechFilterState(techFilterActive, gridTimeframe));
+    setBuyStateFilterDraft(buyStateFilter);
     setShortTierAbOnlyDraft(shortTierAbOnly);
     setTechFilterOpen(true);
   };
@@ -1900,18 +1954,21 @@ export default function GridView() {
     const normalized = sanitizeTechFilterState(techFilterDraft, gridTimeframe);
     setTechFilterActive(normalized);
     setTechFilterDraft(normalized);
+    setBuyStateFilter(buyStateFilterDraft);
     setShortTierAbOnly(shortTierAbOnlyDraft);
     setTechFilterOpen(false);
   };
 
   const handleCancelTechFilter = () => {
     setTechFilterDraft(techFilterActive);
+    setBuyStateFilterDraft(buyStateFilter);
     setShortTierAbOnlyDraft(shortTierAbOnly);
     setTechFilterOpen(false);
   };
 
   const handleResetTechFilterDraft = () => {
     setTechFilterDraft(createDefaultTechFilter(techFilterDraft.defaultTimeframe));
+    setBuyStateFilterDraft("all");
     setShortTierAbOnlyDraft(false);
   };
 
@@ -1924,6 +1981,8 @@ export default function GridView() {
 
   const handleClearAllActiveFilters = () => {
     handleClearActiveFilters();
+    setBuyStateFilter("all");
+    setBuyStateFilterDraft("all");
     setShortTierAbOnly(false);
     setShortTierAbOnlyDraft(false);
   };
@@ -1949,7 +2008,11 @@ export default function GridView() {
     if (!payload || typeof payload.id !== "string" || !payload.id) return;
     const nextStatus = typeof payload.status === "string" ? payload.status : "running";
     const nextMessage = typeof payload.message === "string" ? payload.message : null;
-    setTxtUpdateJob({ id: payload.id, status: nextStatus, message: nextMessage });
+    const nextProgress =
+      typeof payload.progress === "number" && Number.isFinite(payload.progress)
+        ? payload.progress
+        : null;
+    setTxtUpdateJob({ id: payload.id, status: nextStatus, progress: nextProgress, message: nextMessage });
 
     if (!TERMINAL_JOB_STATUS.has(nextStatus)) {
       setTxtUpdatePolling(true);
@@ -2146,6 +2209,7 @@ export default function GridView() {
         setTxtUpdateJob({
           id: jobId,
           status: "queued",
+          progress: 0,
           message: "Waiting in queue..."
         });
         setTxtUpdatePolling(true);
@@ -2691,10 +2755,6 @@ export default function GridView() {
         <div className="list-header-row">
           <div className="header-row-top">
             <div className="header-row-left">
-              <div className="app-brand">
-                <div className="app-brand-title">MeeMee</div>
-                <div className="app-brand-sub">Screener</div>
-              </div>
               <TopNav />
             </div>
             <div className="list-header-actions-wrapper">
@@ -2727,38 +2787,57 @@ export default function GridView() {
                     }}
                   />
                   {sortOpen && (
-                    <div className="popover-panel">
-                      {(isCandidateView ? candidateSortSections : sortSections).map((section) => (
+                    <div className="popover-panel sort-popover-panel">
+                      {visibleSortSections.map((section) => {
+                        const expanded = openSortSections.includes(section.title);
+                        return (
                         <div className="popover-section" key={section.title}>
-                          <div className="popover-title">{section.title}</div>
-                          <div className="popover-grid">
-                            {section.options.map((opt) => (
-                              <button
-                                key={opt.key}
-                                type="button"
-                                className={`popover-item ${sortKey === opt.key ? "active" : ""}`}
-                                onClick={() => {
-                                  if (opt.fixedDirection) {
-                                    setSortKey(opt.key);
-                                    setSortDir(opt.fixedDirection); // Use fixed direction
-                                  } else if (sortKey === opt.key) {
-                                    setSortDir(sortDir === "asc" ? "desc" : "asc");
-                                  } else {
-                                    setSortKey(opt.key);
-                                    setSortDir("desc");
-                                  }
-                                  setSortOpen(false);
-                                }}
-                              >
-                                <span className="popover-item-label">{opt.label}</span>
-                                {sortKey === opt.key && (
-                                  <span className="popover-check">{sortDirLabel}</span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
+                          <button
+                            type="button"
+                            className={`popover-section-toggle ${expanded ? "active" : ""}`}
+                            onClick={() =>
+                              setOpenSortSections((current) =>
+                                current.includes(section.title)
+                                  ? current.filter((title) => title !== section.title)
+                                  : [...current, section.title]
+                              )
+                            }
+                          >
+                            <span className="popover-title">{section.title}</span>
+                            <span className="popover-section-meta">
+                              {section.options.length}件 {expanded ? "−" : "+"}
+                            </span>
+                          </button>
+                          {expanded && (
+                            <div className="popover-grid">
+                              {section.options.map((opt) => (
+                                <button
+                                  key={opt.key}
+                                  type="button"
+                                  className={`popover-item ${sortKey === opt.key ? "active" : ""}`}
+                                  onClick={() => {
+                                    if (opt.fixedDirection) {
+                                      setSortKey(opt.key);
+                                      setSortDir(opt.fixedDirection);
+                                    } else if (sortKey === opt.key) {
+                                      setSortDir(sortDir === "asc" ? "desc" : "asc");
+                                    } else {
+                                      setSortKey(opt.key);
+                                      setSortDir("desc");
+                                    }
+                                    setSortOpen(false);
+                                  }}
+                                >
+                                  <span className="popover-item-label">{opt.label}</span>
+                                  {sortKey === opt.key && (
+                                    <span className="popover-check">{sortDirLabel}</span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      ))}
+                      )})}
                     </div>
                   )}
                 </div>
@@ -2890,17 +2969,29 @@ export default function GridView() {
                     />
                   )}
                   {txtUpdateStatusLabel && (
-                    <span
-                      style={{
-                        marginLeft: 8,
-                        fontSize: 12,
-                        color: "var(--theme-text-secondary)",
-                        whiteSpace: "nowrap"
-                      }}
-                      title={txtUpdateJob?.message ?? undefined}
-                    >
-                      {txtUpdateStatusLabel}
-                    </span>
+                    <div className="txt-update-meta" title={txtUpdateJob?.message ?? undefined}>
+                      <div className={`txt-update-status ${txtUpdateStatusTone}`}>
+                        <span className="txt-update-dot" />
+                        <span>{txtUpdateStatusLabel}</span>
+                        {txtUpdateProgressValue != null && (
+                          <span className="txt-update-percent">{txtUpdateProgressValue}%</span>
+                        )}
+                      </div>
+                      <div className="txt-update-detail">{txtUpdateStageLabel}</div>
+                      {txtUpdateShortDetail && (
+                        <div className="txt-update-last">{txtUpdateShortDetail}</div>
+                      )}
+                      <div
+                        className={`txt-update-progress ${txtUpdateStatusTone} ${
+                          txtUpdateProgressValue == null ? "is-indeterminate" : ""
+                        }`}
+                      >
+                        <div
+                          className="txt-update-progress-bar"
+                          style={{ width: `${txtUpdateProgressValue ?? 42}%` }}
+                        />
+                      </div>
+                    </div>
                   )}
                 </div>
                 <div className="popover-anchor" ref={settingsRef}>
@@ -3672,7 +3763,7 @@ export default function GridView() {
                 label={sectorLabel ? sectorLabel : "業種"}
                 variant="iconLabel"
                 tooltip="業種で絞り込み / 並び替え"
-                selected={sectorSortOpen || !!sectorParam || sectorSortEnabled}
+                selected={sectorSortOpen || !!sectorParam}
                 onClick={() => {
                   setSectorSortOpen(!sectorSortOpen);
                   setSortOpen(false);
@@ -3778,6 +3869,34 @@ export default function GridView() {
             )}
             {techFilterActive.boxThisMonth && (
               <span className="tech-filter-chip">今月ボックス</span>
+            )}
+            {buyStateFilter === "initial" && (
+              <span className="tech-filter-chip">
+                初動のみ
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBuyStateFilter("all");
+                    setBuyStateFilterDraft("all");
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            )}
+            {buyStateFilter === "base" && (
+              <span className="tech-filter-chip">
+                底がためのみ
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBuyStateFilter("all");
+                    setBuyStateFilterDraft("all");
+                  }}
+                >
+                  ×
+                </button>
+              </span>
             )}
             {shortTierAbOnly && (
               <span className="tech-filter-chip">
@@ -4033,8 +4152,10 @@ export default function GridView() {
         anchorLabel={draftAnchorLabel}
         matchCount={draftFilterResult.items.length}
         value={techFilterDraft}
+        buyStateFilter={buyStateFilterDraft}
         shortTierAbOnly={shortTierAbOnlyDraft}
         onChange={setTechFilterDraft}
+        onBuyStateFilterChange={setBuyStateFilterDraft}
         onShortTierAbOnlyChange={setShortTierAbOnlyDraft}
         onApply={handleApplyTechFilter}
         onCancel={handleCancelTechFilter}

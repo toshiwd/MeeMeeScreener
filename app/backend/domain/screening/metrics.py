@@ -20,7 +20,12 @@ def _parse_month_value(value: int | str | None) -> datetime | None:
     if value is None:
         return None
     try:
-        raw = str(int(value)).zfill(6)
+        raw_int = int(value)
+        if raw_int >= 1_000_000_000:
+            timestamp = raw_int / 1000 if raw_int >= 1_000_000_000_000 else raw_int
+            dt = datetime.utcfromtimestamp(timestamp)
+            return datetime(dt.year, dt.month, 1)
+        raw = str(raw_int).zfill(6)
         year = int(raw[:4])
         month = int(raw[4:6])
         return datetime(year, month, 1)
@@ -149,6 +154,49 @@ def _build_yearly_bars(monthly_rows: list[tuple]) -> list[dict]:
             current["l"] = min(current["l"], float(low))
             current["c"] = float(close)
     return items
+
+def compute_period_change_metrics(daily_rows: list[tuple], monthly_rows: list[tuple]) -> Dict[str, Any]:
+    daily_rows = sorted(daily_rows, key=lambda item: item[0])
+    monthly_rows = sorted(monthly_rows, key=lambda item: item[0])
+
+    last_daily = _parse_daily_date(daily_rows[-1][0]) if daily_rows else None
+    closes = [float(row[4]) for row in daily_rows if len(row) >= 5 and row[4] is not None]
+    chg1d = _pct_change(closes[-1], closes[-2]) if len(closes) >= 2 else None
+
+    weekly = _build_weekly_bars(daily_rows)
+    weekly = _drop_incomplete_weekly(weekly, last_daily)
+    weekly_closes = [item["c"] for item in weekly]
+    chg1w = _pct_change(weekly_closes[-1], weekly_closes[-2]) if len(weekly_closes) >= 2 else None
+    prev_week_chg = _pct_change(weekly_closes[-2], weekly_closes[-3]) if len(weekly_closes) >= 3 else None
+
+    confirmed_monthly = _drop_incomplete_monthly(monthly_rows, last_daily)
+    monthly_closes = [float(row[4]) for row in confirmed_monthly if len(row) >= 5 and row[4] is not None]
+    chg1m = _pct_change(monthly_closes[-1], monthly_closes[-2]) if len(monthly_closes) >= 2 else None
+    prev_month_chg = _pct_change(monthly_closes[-2], monthly_closes[-3]) if len(monthly_closes) >= 3 else None
+
+    # `1Q` / `1Y` are trailing 3-month / 12-month changes.
+    chg1q = _pct_change(monthly_closes[-1], monthly_closes[-4]) if len(monthly_closes) >= 4 else None
+    prev_quarter_chg = _pct_change(monthly_closes[-4], monthly_closes[-7]) if len(monthly_closes) >= 7 else None
+    chg1y = _pct_change(monthly_closes[-1], monthly_closes[-13]) if len(monthly_closes) >= 13 else None
+    prev_year_chg = _pct_change(monthly_closes[-13], monthly_closes[-25]) if len(monthly_closes) >= 25 else None
+
+    return {
+        "last_daily": last_daily,
+        "weekly": weekly,
+        "confirmed_monthly": confirmed_monthly,
+        "closes": closes,
+        "weekly_closes": weekly_closes,
+        "monthly_closes": monthly_closes,
+        "chg1D": chg1d,
+        "chg1W": chg1w,
+        "chg1M": chg1m,
+        "chg1Q": chg1q,
+        "chg1Y": chg1y,
+        "prevWeekChg": prev_week_chg,
+        "prevMonthChg": prev_month_chg,
+        "prevQuarterChg": prev_quarter_chg,
+        "prevYearChg": prev_year_chg,
+    }
 
 def _build_box_metrics(
     monthly_rows: list[tuple],
@@ -604,8 +652,8 @@ def compute_screener_metrics(
     reasons: list[str] = []
     daily_rows = sorted(daily_rows, key=lambda item: item[0])
     monthly_rows = sorted(monthly_rows, key=lambda item: item[0])
-
-    last_daily = _parse_daily_date(daily_rows[-1][0]) if daily_rows else None
+    period_metrics = compute_period_change_metrics(daily_rows, monthly_rows)
+    last_daily = period_metrics["last_daily"]
     
     closes = [float(row[4]) for row in daily_rows if len(row) >= 5 and row[4] is not None]
     opens = [float(row[1]) for row in daily_rows if len(row) >= 5 and row[1] is not None]
@@ -618,17 +666,19 @@ def compute_screener_metrics(
         reasons.append("missing_last_close")
 
     liquidity_20d = _calc_liquidity_20d(daily_rows)
-    chg1d = _pct_change(closes[-1], closes[-2]) if len(closes) >= 2 else None
-
-    weekly = _build_weekly_bars(daily_rows)
-    weekly = _drop_incomplete_weekly(weekly, last_daily)
-    confirmed_monthly = _drop_incomplete_monthly(monthly_rows, last_daily)
-    
-    monthly_closes = [float(row[4]) for row in confirmed_monthly if len(row) >= 5 and row[4] is not None]
-    chg1m = _pct_change(monthly_closes[-1], monthly_closes[-2]) if len(monthly_closes) >= 2 else None
-    
-    weekly_closes = [item["c"] for item in weekly]
-    chg1w = _pct_change(weekly_closes[-1], weekly_closes[-2]) if len(weekly_closes) >= 2 else None
+    chg1d = period_metrics["chg1D"]
+    weekly = period_metrics["weekly"]
+    confirmed_monthly = period_metrics["confirmed_monthly"]
+    monthly_closes = period_metrics["monthly_closes"]
+    weekly_closes = period_metrics["weekly_closes"]
+    chg1w = period_metrics["chg1W"]
+    chg1m = period_metrics["chg1M"]
+    chg1q = period_metrics["chg1Q"]
+    chg1y = period_metrics["chg1Y"]
+    prev_week_chg = period_metrics["prevWeekChg"]
+    prev_month_chg = period_metrics["prevMonthChg"]
+    prev_quarter_chg = period_metrics["prevQuarterChg"]
+    prev_year_chg = period_metrics["prevYearChg"]
 
     # MAs
     ma5_series = _build_ma_series(closes, 5)
@@ -699,7 +749,7 @@ def compute_screener_metrics(
     
     # Simple buy timing
     daily_cross_ma20 = False
-    if len(closes) >= 2 and len(ma20_series) >= 2:
+    if len(closes) >= 2 and len(ma20_series) >= 2 and ma20_series[-1] is not None and ma20_series[-2] is not None:
         daily_cross_ma20 = closes[-1] > ma20_series[-1] and closes[-2] <= ma20_series[-2]
     buy_timing_score = 40 if daily_cross_ma20 else 0
     
@@ -765,7 +815,14 @@ def compute_screener_metrics(
         "liquidity20d": liquidity_20d,
         "atr14": atr14,
         "chg1D": chg1d,
+        "chg1W": chg1w,
         "chg1M": chg1m,
+        "chg1Q": chg1q,
+        "chg1Y": chg1y,
+        "prevWeekChg": prev_week_chg,
+        "prevMonthChg": prev_month_chg,
+        "prevQuarterChg": prev_quarter_chg,
+        "prevYearChg": prev_year_chg,
         "ma7": ma7,
         "ma20": ma20,
         "ma60": ma60,

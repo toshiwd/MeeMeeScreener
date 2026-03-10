@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timedelta
 
 from app.core.config import DATA_DIR, DEFAULT_DB_PATH, find_code_txt_path, resolve_pan_out_txt_dir
+from app.backend.domain.screening.metrics import compute_period_change_metrics
 from app.db.session import get_conn
 from app.services.box_detector import detect_boxes
 from app.utils.date_utils import _format_event_date, _parse_daily_date, jst_now
@@ -997,7 +998,12 @@ def _parse_month_value(value: int | str | None) -> datetime | None:
     if value is None:
         return None
     try:
-        raw = str(int(value)).zfill(6)
+        raw_int = int(value)
+        if raw_int >= 1_000_000_000:
+            timestamp = raw_int / 1000 if raw_int >= 1_000_000_000_000 else raw_int
+            dt = datetime.utcfromtimestamp(timestamp)
+            return datetime(dt.year, dt.month, 1)
+        raw = str(raw_int).zfill(6)
         year = int(raw[:4])
         month = int(raw[4:6])
         return datetime(year, month, 1)
@@ -1558,8 +1564,8 @@ def _compute_screener_metrics(
     reasons: list[str] = []
     daily_rows = sorted(daily_rows, key=lambda item: item[0])
     monthly_rows = sorted(monthly_rows, key=lambda item: item[0])
-
-    last_daily = _parse_daily_date(daily_rows[-1][0]) if daily_rows else None
+    period_metrics = compute_period_change_metrics(daily_rows, monthly_rows)
+    last_daily = period_metrics["last_daily"]
     closes = [float(row[4]) for row in daily_rows if len(row) >= 5 and row[4] is not None]
     opens = [float(row[1]) for row in daily_rows if len(row) >= 5 and row[1] is not None]
     highs = [float(row[2]) for row in daily_rows if len(row) >= 5 and row[2] is not None]
@@ -1569,28 +1575,19 @@ def _compute_screener_metrics(
     if last_close is None:
         reasons.append("missing_last_close")
 
-    chg1d = _pct_change(closes[-1], closes[-2]) if len(closes) >= 2 else None
-
-    weekly = _build_weekly_bars(daily_rows)
-    weekly = _drop_incomplete_weekly(weekly, last_daily)
-    weekly_closes = [item["c"] for item in weekly]
-    chg1w = _pct_change(weekly_closes[-1], weekly_closes[-2]) if len(weekly_closes) >= 2 else None
-    prev_week_chg = _pct_change(weekly_closes[-2], weekly_closes[-3]) if len(weekly_closes) >= 3 else None
-
-    confirmed_monthly = _drop_incomplete_monthly(monthly_rows, last_daily)
-    monthly_closes = [float(row[4]) for row in confirmed_monthly if len(row) >= 5 and row[4] is not None]
-    chg1m = _pct_change(monthly_closes[-1], monthly_closes[-2]) if len(monthly_closes) >= 2 else None
-    prev_month_chg = _pct_change(monthly_closes[-2], monthly_closes[-3]) if len(monthly_closes) >= 3 else None
-
-    quarterly = _build_quarterly_bars(confirmed_monthly)
-    quarterly_closes = [item["c"] for item in quarterly]
-    chg1q = _pct_change(quarterly_closes[-1], quarterly_closes[-2]) if len(quarterly_closes) >= 2 else None
-    prev_quarter_chg = _pct_change(quarterly_closes[-2], quarterly_closes[-3]) if len(quarterly_closes) >= 3 else None
-
-    yearly = _build_yearly_bars(confirmed_monthly)
-    yearly_closes = [item["c"] for item in yearly]
-    chg1y = _pct_change(yearly_closes[-1], yearly_closes[-2]) if len(yearly_closes) >= 2 else None
-    prev_year_chg = _pct_change(yearly_closes[-2], yearly_closes[-3]) if len(yearly_closes) >= 3 else None
+    chg1d = period_metrics["chg1D"]
+    weekly = period_metrics["weekly"]
+    weekly_closes = period_metrics["weekly_closes"]
+    confirmed_monthly = period_metrics["confirmed_monthly"]
+    monthly_closes = period_metrics["monthly_closes"]
+    chg1w = period_metrics["chg1W"]
+    prev_week_chg = period_metrics["prevWeekChg"]
+    chg1m = period_metrics["chg1M"]
+    prev_month_chg = period_metrics["prevMonthChg"]
+    chg1q = period_metrics["chg1Q"]
+    prev_quarter_chg = period_metrics["prevQuarterChg"]
+    chg1y = period_metrics["chg1Y"]
+    prev_year_chg = period_metrics["prevYearChg"]
 
     ma5_series = _build_ma_series(closes, 5)
     ma7_series = _build_ma_series(closes, 7)
@@ -1691,9 +1688,9 @@ def _compute_screener_metrics(
 
     daily_cross_ma7 = False
     daily_cross_ma20 = False
-    if len(closes) >= 2 and len(ma7_series) >= 2:
+    if len(closes) >= 2 and len(ma7_series) >= 2 and ma7_series[-1] is not None and ma7_series[-2] is not None:
         daily_cross_ma7 = closes[-1] > ma7_series[-1] and closes[-2] <= ma7_series[-2]
-    if len(closes) >= 2 and len(ma20_series) >= 2:
+    if len(closes) >= 2 and len(ma20_series) >= 2 and ma20_series[-1] is not None and ma20_series[-2] is not None:
         daily_cross_ma20 = closes[-1] > ma20_series[-1] and closes[-2] <= ma20_series[-2]
 
     daily_pre_signal = False
