@@ -33,13 +33,13 @@ class ModelConfig:
     ridge_alpha: float = 1.0
     risk_penalty: float = 0.35
     use_lightgbm: bool = True
-    lgbm_n_estimators: int = 1000      # early stoppingで自動調整されるため多めに設定
-    lgbm_learning_rate: float = 0.02   # 小さいlrで安定した汎化性能
+    lgbm_n_estimators: int = 1000
+    lgbm_learning_rate: float = 0.02
     lgbm_max_depth: int = 6
-    lgbm_use_dart: bool = False        # DART boosting (slower but better generalization)
-    lgbm_optuna_trials: int = 0        # 0=無効, >0でOptunaによるHPO実行
-    confidence_threshold: float = 0.0  # 信頼度フィルタ閾値 (0=無効, >0で閾値以下をスコア=0)
-    use_high_conf_labels: bool = False # label_high_confをメインラベルとして使用
+    lgbm_use_dart: bool = False
+    lgbm_optuna_trials: int = 0
+    confidence_threshold: float = 0.0
+    use_high_conf_labels: bool = False
     regime_strategy_enabled: bool = True
     regime_strategy_long_enabled: bool = True
     regime_strategy_short_enabled: bool = True
@@ -85,6 +85,78 @@ class LoopVariant:
 
 
 @dataclass(frozen=True)
+class StudyRetentionGates:
+    min_profit_factor: float = 1.05
+    min_positive_window_ratio: float = 0.52
+    max_worst_drawdown: float = 0.35
+    min_samples: int = 60
+    top_hypotheses_per_combo: int = 5
+
+
+@dataclass(frozen=True)
+class StudyAdoptionGates:
+    min_oos_return: float = 0.02
+    min_pf: float = 1.15
+    min_positive_window_ratio: float = 0.55
+    max_worst_drawdown: float = 0.25
+    min_stability: float = 0.45
+    min_cluster_consistency: float = 0.45
+    min_fold_months: int = 12
+
+
+def _default_study_seed_weights() -> dict[str, dict[str, float]]:
+    return {
+        "reversal": {
+            "Candle": 0.12,
+            "Pivot": 0.10,
+            "MA": 0.20,
+            "Volume": 0.16,
+            "WeeklyContext": 0.18,
+            "MonthlyContext": 0.10,
+            "Regime": 0.08,
+            "Cluster": 0.06,
+        },
+        "continuation": {
+            "MA": 0.24,
+            "BreakoutShape": 0.12,
+            "Pivot": 0.06,
+            "Volume": 0.18,
+            "WeeklyContext": 0.16,
+            "Regime": 0.12,
+            "MonthlyContext": 0.06,
+            "Cluster": 0.06,
+        },
+    }
+
+
+@dataclass(frozen=True)
+class StudyConfig:
+    timeframes: tuple[str, ...] = ("daily", "weekly", "monthly")
+    families: tuple[str, ...] = (
+        "bottom",
+        "top",
+        "bottom_negation",
+        "top_negation",
+        "up_cont",
+        "down_cont",
+    )
+    trials_per_family: dict[str, int] = field(
+        default_factory=lambda: {"daily": 256, "weekly": 192, "monthly": 96}
+    )
+    refinement_trials_per_family: dict[str, int] = field(
+        default_factory=lambda: {"daily": 640, "weekly": 480, "monthly": 240}
+    )
+    retention_gates: StudyRetentionGates = field(default_factory=StudyRetentionGates)
+    adoption_gates: StudyAdoptionGates = field(default_factory=StudyAdoptionGates)
+    seed_weights: dict[str, dict[str, float]] = field(default_factory=_default_study_seed_weights)
+    negation_penalties: tuple[float, ...] = (-0.20, -0.30, -0.45)
+    selection_cutoffs: tuple[float, ...] = (0.005, 0.01, 0.02, 0.05, 0.10)
+    top_refinement_parents: int = 10
+    random_seed: int = 42
+    resume: bool = True
+
+
+@dataclass(frozen=True)
 class ResearchConfig:
     tp_long: float = 0.10
     tp_short: float = 0.10
@@ -93,6 +165,7 @@ class ResearchConfig:
     split: SplitConfig = field(default_factory=SplitConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     publish_gate: PublishGateConfig = field(default_factory=PublishGateConfig)
+    study: StudyConfig = field(default_factory=StudyConfig)
     feature_version: str = "monthly_feature_v1"
     label_version: str = "tp_next_month_v1"
     model_version: str = "top20_ranker_v1"
@@ -122,13 +195,15 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 def config_to_dict(config: ResearchConfig) -> dict[str, Any]:
     payload = asdict(config)
     payload["loop_variants"] = [asdict(v) for v in config.loop_variants]
+    payload["study"]["timeframes"] = list(config.study.timeframes)
+    payload["study"]["families"] = list(config.study.families)
+    payload["study"]["negation_penalties"] = list(config.study.negation_penalties)
+    payload["study"]["selection_cutoffs"] = list(config.study.selection_cutoffs)
     return payload
 
 
 def params_hash(config: ResearchConfig) -> str:
     payload_obj = config_to_dict(config)
-    # Runtime-only knobs for post-ranking strategy should not invalidate
-    # historical feature/label cache hashes.
     model_obj = dict(payload_obj.get("model", {}))
     for key in (
         "regime_strategy_enabled",
@@ -159,8 +234,37 @@ def params_hash(config: ResearchConfig) -> str:
         model_obj.pop(key, None)
     payload_obj["model"] = model_obj
     payload_obj.pop("publish_gate", None)
+    payload_obj.pop("study", None)
     payload = json.dumps(payload_obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return sha1(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def _as_clean_str_list(raw: Any, default: tuple[str, ...]) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        return tuple(default)
+    values = [str(item).strip() for item in raw if str(item).strip()]
+    return tuple(values) if values else tuple(default)
+
+
+def _normalize_weight_groups(raw: Any, fallback: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
+    if not isinstance(raw, dict):
+        return fallback
+    out: dict[str, dict[str, float]] = {}
+    for key, group in raw.items():
+        if not isinstance(key, str) or not isinstance(group, dict):
+            continue
+        normalized: dict[str, float] = {}
+        for gk, gv in group.items():
+            try:
+                group_name = str(gk).strip()
+                if not group_name:
+                    continue
+                normalized[group_name] = float(gv)
+            except Exception:
+                continue
+        if normalized:
+            out[key.strip()] = normalized
+    return out or fallback
 
 
 def from_dict(payload: dict[str, Any]) -> ResearchConfig:
@@ -169,31 +273,33 @@ def from_dict(payload: dict[str, Any]) -> ResearchConfig:
     split_raw = payload.get("split") if isinstance(payload.get("split"), dict) else {}
     model_raw = payload.get("model") if isinstance(payload.get("model"), dict) else {}
     publish_gate_raw = payload.get("publish_gate") if isinstance(payload.get("publish_gate"), dict) else {}
+    study_raw = payload.get("study") if isinstance(payload.get("study"), dict) else {}
+
     regime_overrides_raw = (
         publish_gate_raw.get("regime_overrides")
         if isinstance(publish_gate_raw.get("regime_overrides"), dict)
         else {}
     )
     regime_overrides: dict[str, dict[str, float | int]] = {}
-    for k, v in regime_overrides_raw.items():
-        if not isinstance(k, str) or not isinstance(v, dict):
+    for key, value in regime_overrides_raw.items():
+        if not isinstance(key, str) or not isinstance(value, dict):
             continue
         normalized: dict[str, float | int] = {}
-        for kk, vv in v.items():
-            if not isinstance(kk, str):
+        for gate_key, gate_value in value.items():
+            if not isinstance(gate_key, str):
                 continue
-            if kk == "min_test_months":
+            if gate_key == "min_test_months":
                 try:
-                    normalized[kk] = int(vv)
+                    normalized[gate_key] = int(gate_value)
                 except Exception:
                     continue
             else:
                 try:
-                    normalized[kk] = float(vv)
+                    normalized[gate_key] = float(gate_value)
                 except Exception:
                     continue
         if normalized:
-            regime_overrides[k.strip()] = normalized
+            regime_overrides[key.strip()] = normalized
 
     loop_raw = payload.get("loop_variants")
     variants: list[LoopVariant] = []
@@ -224,6 +330,10 @@ def from_dict(payload: dict[str, Any]) -> ResearchConfig:
             return float(raw)
         except Exception:
             return None
+
+    default_study = StudyConfig()
+    retention_raw = study_raw.get("retention_gates") if isinstance(study_raw.get("retention_gates"), dict) else {}
+    adoption_raw = study_raw.get("adoption_gates") if isinstance(study_raw.get("adoption_gates"), dict) else {}
 
     config = ResearchConfig(
         tp_long=max(0.0001, float(payload.get("tp_long") or 0.10)),
@@ -271,9 +381,7 @@ def from_dict(payload: dict[str, Any]) -> ResearchConfig:
             short_regime_topk_caps=(
                 {
                     str(k).strip(): max(0, int(v))
-                    for k, v in (
-                        model_raw.get("short_regime_topk_caps", {}) or {}
-                    ).items()
+                    for k, v in (model_raw.get("short_regime_topk_caps", {}) or {}).items()
                     if str(k).strip()
                 }
                 if isinstance(model_raw.get("short_regime_topk_caps"), dict)
@@ -285,14 +393,8 @@ def from_dict(payload: dict[str, Any]) -> ResearchConfig:
             short_month_gate_prob_min=_opt_float(model_raw.get("short_month_gate_prob_min")),
             short_month_gate_risk_max=_opt_float(model_raw.get("short_month_gate_risk_max")),
             short_month_gate_auto=bool(model_raw.get("short_month_gate_auto", False)),
-            short_month_gate_auto_max_regimes=max(
-                1,
-                int(model_raw.get("short_month_gate_auto_max_regimes") or 4),
-            ),
-            short_month_gate_auto_min_months=max(
-                1,
-                int(model_raw.get("short_month_gate_auto_min_months") or 6),
-            ),
+            short_month_gate_auto_max_regimes=max(1, int(model_raw.get("short_month_gate_auto_max_regimes") or 4)),
+            short_month_gate_auto_min_months=max(1, int(model_raw.get("short_month_gate_auto_min_months") or 6)),
             short_month_gate_auto_min_improvement=max(
                 0.0,
                 float(model_raw.get("short_month_gate_auto_min_improvement") or 0.0002),
@@ -332,6 +434,108 @@ def from_dict(payload: dict[str, Any]) -> ResearchConfig:
             ),
             regime_overrides=regime_overrides,
         ),
+        study=StudyConfig(
+            timeframes=_as_clean_str_list(study_raw.get("timeframes"), default_study.timeframes),
+            families=_as_clean_str_list(study_raw.get("families"), default_study.families),
+            trials_per_family=(
+                {
+                    str(k).strip(): max(1, int(v))
+                    for k, v in (study_raw.get("trials_per_family", {}) or {}).items()
+                    if str(k).strip()
+                }
+                if isinstance(study_raw.get("trials_per_family"), dict)
+                else dict(default_study.trials_per_family)
+            ),
+            refinement_trials_per_family=(
+                {
+                    str(k).strip(): max(0, int(v))
+                    for k, v in (study_raw.get("refinement_trials_per_family", {}) or {}).items()
+                    if str(k).strip()
+                }
+                if isinstance(study_raw.get("refinement_trials_per_family"), dict)
+                else dict(default_study.refinement_trials_per_family)
+            ),
+            retention_gates=StudyRetentionGates(
+                min_profit_factor=max(
+                    0.0,
+                    float(retention_raw.get("min_profit_factor", default_study.retention_gates.min_profit_factor)),
+                ),
+                min_positive_window_ratio=max(
+                    0.0,
+                    float(
+                        retention_raw.get(
+                            "min_positive_window_ratio",
+                            default_study.retention_gates.min_positive_window_ratio,
+                        )
+                    ),
+                ),
+                max_worst_drawdown=max(
+                    0.0,
+                    float(
+                        retention_raw.get(
+                            "max_worst_drawdown",
+                            default_study.retention_gates.max_worst_drawdown,
+                        )
+                    ),
+                ),
+                min_samples=max(1, int(retention_raw.get("min_samples", default_study.retention_gates.min_samples))),
+                top_hypotheses_per_combo=max(
+                    1,
+                    int(
+                        retention_raw.get(
+                            "top_hypotheses_per_combo",
+                            default_study.retention_gates.top_hypotheses_per_combo,
+                        )
+                    ),
+                ),
+            ),
+            adoption_gates=StudyAdoptionGates(
+                min_oos_return=float(adoption_raw.get("min_oos_return", default_study.adoption_gates.min_oos_return)),
+                min_pf=max(0.0, float(adoption_raw.get("min_pf", default_study.adoption_gates.min_pf))),
+                min_positive_window_ratio=max(
+                    0.0,
+                    float(
+                        adoption_raw.get(
+                            "min_positive_window_ratio",
+                            default_study.adoption_gates.min_positive_window_ratio,
+                        )
+                    ),
+                ),
+                max_worst_drawdown=max(
+                    0.0,
+                    float(
+                        adoption_raw.get(
+                            "max_worst_drawdown",
+                            default_study.adoption_gates.max_worst_drawdown,
+                        )
+                    ),
+                ),
+                min_stability=float(adoption_raw.get("min_stability", default_study.adoption_gates.min_stability)),
+                min_cluster_consistency=float(
+                    adoption_raw.get(
+                        "min_cluster_consistency",
+                        default_study.adoption_gates.min_cluster_consistency,
+                    )
+                ),
+                min_fold_months=max(
+                    1,
+                    int(adoption_raw.get("min_fold_months", default_study.adoption_gates.min_fold_months)),
+                ),
+            ),
+            seed_weights=_normalize_weight_groups(study_raw.get("seed_weights"), _default_study_seed_weights()),
+            negation_penalties=tuple(
+                float(v) for v in (study_raw.get("negation_penalties") or list(default_study.negation_penalties))
+            ),
+            selection_cutoffs=tuple(
+                float(v) for v in (study_raw.get("selection_cutoffs") or list(default_study.selection_cutoffs))
+            ),
+            top_refinement_parents=max(
+                1,
+                int(study_raw.get("top_refinement_parents", default_study.top_refinement_parents)),
+            ),
+            random_seed=int(study_raw.get("random_seed", default_study.random_seed)),
+            resume=bool(study_raw.get("resume", default_study.resume)),
+        ),
         feature_version=str(payload.get("feature_version") or "monthly_feature_v1"),
         label_version=str(payload.get("label_version") or "tp_next_month_v1"),
         model_version=str(payload.get("model_version") or "top20_ranker_v1"),
@@ -357,11 +561,13 @@ def load_config(path: str | Path | None) -> ResearchConfig:
 def apply_variant(config: ResearchConfig, variant: LoopVariant) -> ResearchConfig:
     payload = config_to_dict(config)
     model_payload = dict(payload.get("model", {}))
-    model_payload.update({
-        "candidate_pool": variant.candidate_pool,
-        "top_k": config.model.top_k,
-        "ridge_alpha": variant.ridge_alpha,
-        "risk_penalty": variant.risk_penalty,
-    })
+    model_payload.update(
+        {
+            "candidate_pool": variant.candidate_pool,
+            "top_k": config.model.top_k,
+            "ridge_alpha": variant.ridge_alpha,
+            "risk_penalty": variant.risk_penalty,
+        }
+    )
     payload["model"] = model_payload
     return from_dict(payload)

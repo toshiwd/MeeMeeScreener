@@ -28,6 +28,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 _RETRY_TRACE_MAX = 200
 _RETRY_JITTER_RATIO = 0.20
+_VBS_PROGRESS_FILE_NAME = "vbs_progress.json"
 
 
 def _update_vbs_path() -> str:
@@ -36,6 +37,25 @@ def _update_vbs_path() -> str:
 
 def _pan_out_txt_dir() -> str:
     return os.path.abspath(str(config.PAN_OUT_TXT_DIR))
+
+
+def _scale_progress(progress: int, start: int, end: int) -> int:
+    progress_clamped = max(0, min(100, int(progress)))
+    if end <= start:
+        return int(start)
+    return int(start) + int(round((int(end) - int(start)) * progress_clamped / 100))
+
+
+def _read_vbs_progress(out_dir: str) -> dict[str, Any] | None:
+    progress_path = os.path.join(str(out_dir), _VBS_PROGRESS_FILE_NAME)
+    if not os.path.isfile(progress_path):
+        return None
+    try:
+        with open(progress_path, "r", encoding="utf-8-sig") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _pan_code_txt_path() -> str:
@@ -218,6 +238,7 @@ def run_vbs_export(
     out_dir: str,
     timeout: int = 1800,
     should_cancel: Callable[[], bool] | None = None,
+    progress_cb: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[int, list[str]]:
     sys_root = os.environ.get("SystemRoot") or "C:\\Windows"
     cscript = os.path.join(sys_root, "SysWOW64", "cscript.exe")
@@ -258,6 +279,7 @@ def run_vbs_export(
     reader_thread.start()
 
     start_ts = time.time()
+    last_progress_key: tuple[Any, ...] | None = None
     try:
         while True:
             if should_cancel and should_cancel():
@@ -274,6 +296,22 @@ def run_vbs_export(
             try:
                 line = line_queue.get(timeout=0.2)
             except queue.Empty:
+                if progress_cb is not None:
+                    snapshot = _read_vbs_progress(out_dir)
+                    if snapshot is not None:
+                        progress_key = (
+                            snapshot.get("phase"),
+                            snapshot.get("current"),
+                            snapshot.get("started"),
+                            snapshot.get("processed"),
+                            snapshot.get("ok"),
+                            snapshot.get("err"),
+                            snapshot.get("split"),
+                            snapshot.get("error"),
+                        )
+                        if progress_key != last_progress_key:
+                            last_progress_key = progress_key
+                            progress_cb(snapshot)
                 if process.poll() is not None:
                     break
                 continue
@@ -308,7 +346,11 @@ def run_vbs_export(
                 logger.debug("Failed to close VBS stdout pipe: %s", exc)
 
 
-def run_ingest(incremental: bool = True, run_id: str | None = None) -> tuple[str, str, dict]:
+def run_ingest(
+    incremental: bool = True,
+    run_id: str | None = None,
+    progress_cb: Callable[[int, str], None] | None = None,
+) -> tuple[str, str, dict]:
     print(f"[txt_update_job] run_ingest called incremental={incremental}")
     if not ingest_txt:
         error = "ingest_txt module not found"
@@ -319,7 +361,7 @@ def run_ingest(incremental: bool = True, run_id: str | None = None) -> tuple[str
     stats: dict[str, int | str] = {}
     try:
         with redirect_stdout(buffer), redirect_stderr(buffer):
-            result = ingest_txt.ingest(incremental=incremental, run_id=run_id)
+            result = ingest_txt.ingest(incremental=incremental, run_id=run_id, progress_cb=progress_cb)
         output = buffer.getvalue()
         if isinstance(result, dict):
             for key in ("changed_files", "changed", "skipped_files", "skipped", "rows", "pan_finalized_rows"):
@@ -566,13 +608,14 @@ def _run_ingest_with_retry(
     state: dict | None = None,
     stage: str = "ingest",
     run_id: str | None = None,
+    progress_cb: Callable[[int, str], None] | None = None,
 ) -> tuple[str, str, dict, int, str]:
     last_output = ""
     last_stats: dict = {}
 
     def _run_once() -> tuple[str, dict]:
         nonlocal last_output, last_stats
-        out, err, stats = run_ingest(incremental=incremental, run_id=run_id)
+        out, err, stats = run_ingest(incremental=incremental, run_id=run_id, progress_cb=progress_cb)
         last_output = out
         last_stats = stats
         if err:
@@ -944,6 +987,8 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         return
 
     os.makedirs(out_dir, exist_ok=True)
+    EXPORT_PROGRESS_START = 10
+    EXPORT_PROGRESS_END = 68
 
     # Step 0: Import latest data into Pan database (pandtmgr F5)
     if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled before Pan import"):
@@ -995,7 +1040,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 "txt_update",
                 "running",
                 message=f"Retrying Pan import ({attempt}/{pan_retry})...",
-                progress=3,
+                progress=min(4, 1 + attempt),
             )
             time.sleep(float(pan_retry_sleep))
 
@@ -1053,10 +1098,69 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
 
     # Step 1: VBS export (Pan -> TXT)
     _set_pipeline_stage(state, "export", message="Running Pan Rolling export...")
-    job_manager._update_db(job_id, "txt_update", "running", message="Running Pan Rolling export...", progress=10)
+    job_manager._update_db(
+        job_id,
+        "txt_update",
+        "running",
+        message="Running Pan Rolling export...",
+        progress=EXPORT_PROGRESS_START,
+    )
 
     output_lines: list[str] = []
     vbs_code = -1
+    vbs_progress_report = {"progress": -1, "message": ""}
+
+    def _on_vbs_export_progress(snapshot: dict[str, Any]) -> None:
+        phase = str(snapshot.get("phase") or "").strip().lower()
+        current = str(snapshot.get("current") or "").strip()
+        started = max(0, _to_int(snapshot.get("started"), 0, minimum=0))
+        processed = max(0, _to_int(snapshot.get("processed"), 0, minimum=0))
+        ok_count = max(0, _to_int(snapshot.get("ok"), 0, minimum=0))
+        err_count = max(0, _to_int(snapshot.get("err"), 0, minimum=0))
+        split_count = max(0, _to_int(snapshot.get("split"), 0, minimum=0))
+        if started > 0:
+            export_pct = int(round(100 * min(processed, started) / max(1, started)))
+        elif phase == "done":
+            export_pct = 100
+        elif phase in {"starting", "exporting"}:
+            export_pct = 5
+        else:
+            export_pct = 0
+        total_progress = _scale_progress(export_pct, EXPORT_PROGRESS_START, EXPORT_PROGRESS_END)
+        if phase == "done":
+            detail = f"Pan Rolling export completed ({ok_count}/{max(1, started)} ok, err={err_count})"
+        elif phase == "exporting":
+            code_label = f" code={current}" if current else ""
+            detail = (
+                "Pan Rolling export "
+                f"{processed}/{max(1, started)}{code_label} "
+                f"(ok={ok_count}, err={err_count}, split={split_count})"
+            )
+        elif phase == "starting":
+            detail = f"Preparing Pan Rolling export target list ({started} codes)..."
+        elif phase == "booting":
+            detail = "Starting Pan Rolling export..."
+        elif phase == "error":
+            error_text = str(snapshot.get("error") or "unknown error")
+            detail = f"Pan Rolling export progress failed: {error_text}"
+        else:
+            detail = "Running Pan Rolling export..."
+        if (
+            int(vbs_progress_report["progress"]) == int(total_progress)
+            and str(vbs_progress_report["message"]) == detail
+        ):
+            return
+        vbs_progress_report["progress"] = int(total_progress)
+        vbs_progress_report["message"] = detail
+        _set_pipeline_stage(state, "export", message=detail)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=detail,
+            progress=int(total_progress),
+        )
+
     for attempt in range(1, vbs_retry + 1):
         attempt_timeout = int(vbs_timeout + (attempt - 1) * vbs_timeout_backoff)
         vbs_code, output_lines = run_vbs_export(
@@ -1064,6 +1168,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             out_dir,
             timeout=attempt_timeout,
             should_cancel=lambda: _is_job_canceled(job_id),
+            progress_cb=_on_vbs_export_progress,
         )
         if vbs_code in (0, -2):
             break
@@ -1169,6 +1274,27 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
 
     _set_pipeline_stage(state, "ingest", message="Ingesting incremental TXT data...")
     job_manager._update_db(job_id, "txt_update", "running", message="Ingesting (Incremental)...", progress=85)
+    ingest_report = {"message": "", "progress": -1}
+
+    def _on_ingest_progress(progress: int, message: str) -> None:
+        total_progress = _scale_progress(progress, 85, 92)
+        detail = f"Ingesting incremental TXT data... {message}"
+        if (
+            int(ingest_report["progress"]) == int(total_progress)
+            and str(ingest_report["message"]) == detail
+        ):
+            return
+        ingest_report["progress"] = int(total_progress)
+        ingest_report["message"] = detail
+        _set_pipeline_stage(state, "ingest", message=detail)
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message=detail,
+            progress=int(total_progress),
+        )
+
     _ingest_out, ingest_err, ingest_stats, ingest_attempts, ingest_error_kind = _run_ingest_with_retry(
         incremental=True,
         max_attempts=ingest_retry,
@@ -1176,6 +1302,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         state=state,
         stage="ingest",
         run_id=job_id,
+        progress_cb=_on_ingest_progress,
     )
     state["last_ingest_attempts"] = int(ingest_attempts)
     state["last_ingest_retry_sleep_sec"] = float(ingest_retry_sleep)
@@ -1255,6 +1382,18 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         return
 
     ml_note_parts: list[str] = []
+    ML_TRAIN_PROGRESS_START = 93
+    ML_TRAIN_PROGRESS_DONE = 94
+    ML_PREDICT_PROGRESS = 95
+    ML_LIVE_GUARD_PROGRESS = 96
+    SCORING_PROGRESS = 97
+    SELL_ANALYSIS_PROGRESS = 97
+    ANALYSIS_BACKFILL_PROGRESS = 98
+    CACHE_REFRESH_PROGRESS = 98
+    WALKFORWARD_RUN_PROGRESS = 98
+    WALKFORWARD_GATE_PROGRESS = 98
+    FINALIZING_PROGRESS = 99
+
     try:
         from app.backend.services import ml_service
 
@@ -1287,13 +1426,17 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                     "txt_update",
                     "running",
                     message=skip_message,
-                    progress=97,
+                    progress=ML_TRAIN_PROGRESS_DONE,
                 )
                 ml_note_parts.append("ml_train=skip(no_change)")
             else:
                 _set_pipeline_stage(state, "ml_train", message="Refreshing ML training...")
                 job_manager._update_db(
-                    job_id, "txt_update", "running", message="Refreshing ML training...", progress=97
+                    job_id,
+                    "txt_update",
+                    "running",
+                    message="Refreshing ML training...",
+                    progress=ML_TRAIN_PROGRESS_START,
                 )
                 ml_report = {"progress": -1, "at": 0.0}
 
@@ -1311,8 +1454,8 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                         return
                     ml_report["progress"] = progress_clamped
                     ml_report["at"] = now_ts
-                    total_progress = 93 + int(round(progress_clamped * 5 / 100))
-                    total_progress = max(93, min(98, total_progress))
+                    total_progress = ML_TRAIN_PROGRESS_START + int(round(progress_clamped / 100))
+                    total_progress = max(ML_TRAIN_PROGRESS_START, min(ML_TRAIN_PROGRESS_DONE, total_progress))
                     detail = f"Refreshing ML training... {message} ({progress_clamped}%)"
                     _set_pipeline_stage(state, "ml_train", message=detail)
                     job_manager._update_db(
@@ -1337,7 +1480,11 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 return
             _set_pipeline_stage(state, "ml_predict", message="Refreshing ML prediction...")
             job_manager._update_db(
-                job_id, "txt_update", "running", message="Refreshing ML prediction...", progress=98
+                job_id,
+                "txt_update",
+                "running",
+                message="Refreshing ML prediction...",
+                progress=ML_PREDICT_PROGRESS,
             )
             pred_result = ml_service.predict_for_dt(dt=phase_dt)
             state["last_ml_predict_at"] = datetime.now().isoformat()
@@ -1349,7 +1496,11 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 return
             _set_pipeline_stage(state, "ml_live_guard", message="Evaluating live guard...")
             job_manager._update_db(
-                job_id, "txt_update", "running", message="Evaluating ML live guard...", progress=99
+                job_id,
+                "txt_update",
+                "running",
+                message="Evaluating ML live guard...",
+                progress=ML_LIVE_GUARD_PROGRESS,
             )
             guard_result = ml_service.enforce_live_guard()
             state["last_ml_live_guard_at"] = datetime.now().isoformat()
@@ -1379,7 +1530,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             "txt_update",
             "running",
             message="Refreshing short scores...",
-            progress=99,
+            progress=SCORING_PROGRESS,
         )
         from app.backend.api.dependencies import get_stock_repo, init_resources
         from app.backend.jobs.scoring_job import ScoringJob
@@ -1419,7 +1570,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             "txt_update",
             "running",
             message="Accumulating sell analysis data...",
-            progress=99,
+            progress=SELL_ANALYSIS_PROGRESS,
         )
         from app.backend.services.sell_analysis_accumulator import accumulate_sell_analysis
 
@@ -1463,15 +1614,32 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                     "Backfilling missing analysis history "
                     f"(lookback={backfill_lookback_days}, max_missing={backfill_max_missing_days})..."
                 ),
-                progress=99,
+                progress=ANALYSIS_BACKFILL_PROGRESS,
             )
             from app.backend.services.analysis_backfill_service import backfill_missing_analysis_history
+
+            analysis_backfill_report = {"message": ""}
+
+            def _on_analysis_backfill_progress(progress: int, message: str) -> None:
+                detail = f"Backfilling missing analysis history... {message}"
+                if str(analysis_backfill_report["message"]) == detail:
+                    return
+                analysis_backfill_report["message"] = detail
+                _set_pipeline_stage(state, "analysis_backfill", message=detail)
+                job_manager._update_db(
+                    job_id,
+                    "txt_update",
+                    "running",
+                    message=detail,
+                    progress=ANALYSIS_BACKFILL_PROGRESS,
+                )
 
             backfill_result = backfill_missing_analysis_history(
                 lookback_days=backfill_lookback_days,
                 max_missing_days=backfill_max_missing_days,
                 include_sell=True,
                 include_phase=False,
+                progress_cb=_on_analysis_backfill_progress,
             )
             state["last_analysis_backfill_at"] = datetime.now().isoformat()
             state["last_analysis_backfill_result"] = {
@@ -1518,7 +1686,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             "txt_update",
             "running",
             message="Refreshing rankings cache...",
-            progress=99,
+            progress=CACHE_REFRESH_PROGRESS,
         )
         from app.backend.services import rankings_cache
 
@@ -1576,9 +1744,30 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 "txt_update",
                 "running",
                 message="Running strategy walkforward...",
-                progress=99,
+                progress=WALKFORWARD_RUN_PROGRESS,
             )
             from app.backend.services import strategy_backtest_service
+
+            walkforward_report = {"message": "", "progress": -1}
+
+            def _on_walkforward_run_progress(progress: int, message: str) -> None:
+                total_progress = _scale_progress(progress, WALKFORWARD_RUN_PROGRESS - 1, WALKFORWARD_RUN_PROGRESS)
+                detail = f"Running strategy walkforward... {message}"
+                if (
+                    int(walkforward_report["progress"]) == int(total_progress)
+                    and str(walkforward_report["message"]) == detail
+                ):
+                    return
+                walkforward_report["progress"] = int(total_progress)
+                walkforward_report["message"] = detail
+                _set_pipeline_stage(state, "walkforward_run", message=detail)
+                job_manager._update_db(
+                    job_id,
+                    "txt_update",
+                    "running",
+                    message=detail,
+                    progress=int(total_progress),
+                )
 
             walkforward_cfg = strategy_backtest_service.StrategyBacktestConfig(
                 min_long_score=float(walkforward_run_min_long_score),
@@ -1605,6 +1794,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 test_months=int(walkforward_run_test_months),
                 step_months=int(walkforward_run_step_months),
                 min_windows=int(walkforward_run_min_windows),
+                progress_cb=_on_walkforward_run_progress,
             )
             run_id = str(run_result.get("run_id") or "")
             run_summary = run_result.get("summary") if isinstance(run_result.get("summary"), dict) else {}
@@ -1689,7 +1879,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 "txt_update",
                 "running",
                 message="Evaluating strategy walkforward gate...",
-                progress=99,
+                progress=WALKFORWARD_GATE_PROGRESS,
             )
             from app.backend.services import strategy_backtest_service
 
@@ -1778,6 +1968,14 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         return
 
     completion_ts = datetime.now()
+    _set_pipeline_stage(state, "finalize", message="Finalizing update status...")
+    job_manager._update_db(
+        job_id,
+        "txt_update",
+        "running",
+        message="Finalizing update status...",
+        progress=FINALIZING_PROGRESS,
+    )
     state.update(
         {
             "last_txt_update_at": completion_ts.isoformat(),

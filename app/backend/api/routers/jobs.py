@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
 from app.backend.core.yahoo_daily_ingest_job import YF_DAILY_INGEST_JOB_TYPE
 from app.backend.core.ranking_quality_job import RANKING_ANALYSIS_QUALITY_JOB_TYPE
+from app.backend.core.tdnet_import_job import TDNET_IMPORT_JOB_TYPE
 from app.backend.core.config import config
 from app.backend.services import ml_service, strategy_backtest_service
 from app.backend.services.yahoo_daily_ingest import get_daily_ingest_coverage
@@ -456,6 +457,22 @@ def submit_ranking_analysis_quality(
         return _submit_job(RANKING_ANALYSIS_QUALITY_JOB_TYPE, payload)
     except Exception as exc:
         logger.exception("Error submitting ranking analysis quality job: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/jobs/tdnet/import")
+def submit_tdnet_import(
+    code: str | None = None,
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    try:
+        payload = {
+            "code": str(code).strip() if code is not None and str(code).strip() else None,
+            "limit": int(limit),
+        }
+        return _submit_job(TDNET_IMPORT_JOB_TYPE, payload)
+    except Exception as exc:
+        logger.exception("Error submitting tdnet import job: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 

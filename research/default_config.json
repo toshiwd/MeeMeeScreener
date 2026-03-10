@@ -77,6 +77,84 @@
       }
     }
   },
+  "study": {
+    "timeframes": [
+      "daily",
+      "weekly",
+      "monthly"
+    ],
+    "families": [
+      "bottom",
+      "top",
+      "bottom_negation",
+      "top_negation",
+      "up_cont",
+      "down_cont"
+    ],
+    "trials_per_family": {
+      "daily": 256,
+      "weekly": 192,
+      "monthly": 96
+    },
+    "refinement_trials_per_family": {
+      "daily": 640,
+      "weekly": 480,
+      "monthly": 240
+    },
+    "retention_gates": {
+      "min_profit_factor": 1.05,
+      "min_positive_window_ratio": 0.52,
+      "max_worst_drawdown": 0.35,
+      "min_samples": 60,
+      "top_hypotheses_per_combo": 5
+    },
+    "adoption_gates": {
+      "min_oos_return": 0.02,
+      "min_pf": 1.15,
+      "min_positive_window_ratio": 0.55,
+      "max_worst_drawdown": 0.25,
+      "min_stability": 0.45,
+      "min_cluster_consistency": 0.45,
+      "min_fold_months": 12
+    },
+    "seed_weights": {
+      "reversal": {
+        "Candle": 0.12,
+        "Pivot": 0.1,
+        "MA": 0.2,
+        "Volume": 0.16,
+        "WeeklyContext": 0.18,
+        "MonthlyContext": 0.1,
+        "Regime": 0.08,
+        "Cluster": 0.06
+      },
+      "continuation": {
+        "MA": 0.24,
+        "BreakoutShape": 0.12,
+        "Pivot": 0.06,
+        "Volume": 0.18,
+        "WeeklyContext": 0.16,
+        "Regime": 0.12,
+        "MonthlyContext": 0.06,
+        "Cluster": 0.06
+      }
+    },
+    "negation_penalties": [
+      -0.2,
+      -0.3,
+      -0.45
+    ],
+    "selection_cutoffs": [
+      0.005,
+      0.01,
+      0.02,
+      0.05,
+      0.1
+    ],
+    "top_refinement_parents": 10,
+    "random_seed": 42,
+    "resume": true
+  },
   "feature_version": "v3_deep",
   "label_version": "v3_quality_sl8",
   "model_version": "two_stage_lgbm_v1",

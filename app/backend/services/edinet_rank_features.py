@@ -58,6 +58,18 @@ _ALIAS_REVENUE_GROWTH_YOY = (
     "増収率",
     "売上高前年比",
 )
+_AMOUNT_DISQUALIFIERS = (
+    "pershare",
+    "perstock",
+    "margin",
+    "ratio",
+    "rate",
+    "growth",
+    "yoy",
+    "forecast",
+    "estimate",
+    "plan",
+)
 
 
 def _normalize_key(text: object) -> str:
@@ -66,6 +78,11 @@ def _normalize_key(text: object) -> str:
         return ""
     merged = _ALIAS_SPLIT_RE.sub("", raw).lower()
     return merged
+
+
+def _normalize_segments(text: object) -> list[str]:
+    parts = re.split(r"[.\[\]]+", str(text or ""))
+    return [part for part in (_normalize_key(item) for item in parts) if part]
 
 
 def _parse_float(value: Any) -> float | None:
@@ -120,19 +137,55 @@ def _find_first_metric(
     pairs_primary: list[tuple[str, float]],
     pairs_secondary: list[tuple[str, float]],
     aliases: tuple[str, ...],
+    disqualifiers: tuple[str, ...] = (),
 ) -> float | None:
     alias_norm = [_normalize_key(alias) for alias in aliases if _normalize_key(alias)]
     if not alias_norm:
         return None
+    disqualifier_norm = [_normalize_key(alias) for alias in disqualifiers if _normalize_key(alias)]
+    best_score: int | None = None
+    best_value: float | None = None
     for pairs in (pairs_primary, pairs_secondary):
         for path, value in pairs:
             key_norm = _normalize_key(path)
             if not key_norm:
                 continue
+            segments = _normalize_segments(path)
+            terminal = segments[-1] if segments else key_norm
+            penalty = sum(35 for token in disqualifier_norm if token in terminal)
             for alias in alias_norm:
-                if alias in key_norm:
-                    return float(value)
-    return None
+                score: int | None = None
+                if terminal == alias:
+                    score = 120
+                elif key_norm.endswith(alias):
+                    score = 84
+                elif terminal.startswith(alias):
+                    score = 48
+                elif alias in terminal:
+                    score = 28
+                elif alias in key_norm:
+                    score = 12
+                if score is None:
+                    continue
+                score -= penalty
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_value = float(value)
+    return best_value
+
+
+def _normalize_ratio_metric(value: float | None, *, max_abs: float) -> float | None:
+    if value is None:
+        return None
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        return None
+    if abs(numeric) > max_abs:
+        if abs(numeric) <= max_abs * 100:
+            numeric = numeric / 100.0
+        else:
+            return None
+    return numeric if math.isfinite(numeric) and abs(numeric) <= max_abs else None
 
 
 def _json_load(raw: Any) -> Any:
@@ -298,12 +351,18 @@ def load_edinet_rank_features(
 
         ratio_pairs = _collect_numeric_pairs(ratio_payload)
         fin_pairs = _collect_numeric_pairs(fin_payload)
-        ebitda = _find_first_metric(fin_pairs, ratio_pairs, _ALIAS_EBITDA)
-        roe = _find_first_metric(ratio_pairs, fin_pairs, _ALIAS_ROE)
-        equity_ratio = _find_first_metric(ratio_pairs, fin_pairs, _ALIAS_EQUITY_RATIO)
-        debt_ratio = _find_first_metric(ratio_pairs, fin_pairs, _ALIAS_DEBT_RATIO)
-        operating_cf_margin = _find_first_metric(ratio_pairs, fin_pairs, _ALIAS_OPERATING_CF_MARGIN)
-        revenue_growth = _find_first_metric(fin_pairs, ratio_pairs, _ALIAS_REVENUE_GROWTH_YOY)
+        ebitda = _find_first_metric(fin_pairs, ratio_pairs, _ALIAS_EBITDA, disqualifiers=_AMOUNT_DISQUALIFIERS)
+        roe = _normalize_ratio_metric(_find_first_metric(ratio_pairs, fin_pairs, _ALIAS_ROE), max_abs=3.0)
+        equity_ratio = _normalize_ratio_metric(_find_first_metric(ratio_pairs, fin_pairs, _ALIAS_EQUITY_RATIO), max_abs=1.2)
+        debt_ratio = _normalize_ratio_metric(_find_first_metric(ratio_pairs, fin_pairs, _ALIAS_DEBT_RATIO), max_abs=10.0)
+        operating_cf_margin = _normalize_ratio_metric(
+            _find_first_metric(ratio_pairs, fin_pairs, _ALIAS_OPERATING_CF_MARGIN),
+            max_abs=2.5,
+        )
+        revenue_growth = _normalize_ratio_metric(
+            _find_first_metric(fin_pairs, ratio_pairs, _ALIAS_REVENUE_GROWTH_YOY),
+            max_abs=5.0,
+        )
         metrics = [
             ebitda,
             roe,

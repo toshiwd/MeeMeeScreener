@@ -11,7 +11,6 @@ import time
 from pathlib import Path
 from threading import Condition, Lock
 from typing import Any, Literal
-from zoneinfo import ZoneInfo
 
 import duckdb
 
@@ -21,7 +20,6 @@ from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.domain.screening.metrics import _calc_liquidity_20d
 from app.backend.services.edinet_rank_features import load_edinet_rank_features
 from app.backend.services.bar_aggregation import merge_monthly_rows_with_daily
-from app.backend.services.jpx_calendar import get_intraday_refresh_end_minute, get_jpx_session_info
 from app.backend.services.ml_config import load_ml_config
 from app.backend.services.ml_service import select_top_n_ml
 from app.backend.services.ranking_analysis_quality import get_latest_prob_up_gates
@@ -37,29 +35,34 @@ RankWhich = Literal["latest", "prev"]
 RankDir = Literal["up", "down"]
 RankMode = Literal["rule", "ml", "hybrid", "turn"]
 RankRiskMode = Literal["defensive", "balanced", "aggressive"]
+RankBaseCacheKey = tuple[RankTimeframe, RankWhich, RankDir]
+RankResultCacheKey = tuple[RankTimeframe, RankWhich, RankDir, RankMode, RankRiskMode, int]
+RefreshSignature = tuple[Any, ...]
 
-_CACHE: dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]] = {}
+_CACHE: dict[RankBaseCacheKey, list[dict]] = {}
 _LAST_UPDATED: datetime | None = None
 _LAST_DB_MTIME: float | None = None
 _LAST_CACHE_DAILY_ASOF_INT: int | None = None
 _LAST_CACHE_PAN_DAILY_ASOF_INT: int | None = None
+_LAST_REFRESH_SIGNATURE: RefreshSignature | None = None
 _LOCK = Lock()
 _REFRESH_COND = Condition(_LOCK)
 _REFRESH_IN_PROGRESS = False
 _REFRESH_LAST_ERROR: Exception | None = None
 logger = logging.getLogger(__name__)
+_RESULT_CACHE: dict[RankResultCacheKey, dict[str, Any]] = {}
+_RESULT_CACHE_GENERATION = 0
+_RESULT_REFRESH_COND = Condition(_LOCK)
+_RESULT_REFRESH_IN_PROGRESS: dict[RankResultCacheKey, int] = {}
+_RESULT_REFRESH_LAST_ERROR: dict[RankResultCacheKey, tuple[int, Exception]] = {}
 _DAILY_PROB_CALIB_CACHE: dict[tuple[int, RankDir], dict[str, Any]] = {}
 _DAILY_PROB_CALIB_CACHE_LOCK = Lock()
 _ASOF_BASE_CACHE_LOCK = Lock()
-_ASOF_BASE_CACHE: OrderedDict[int, dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]] = OrderedDict()
+_ASOF_BASE_CACHE: OrderedDict[int, dict[RankBaseCacheKey, list[dict]]] = OrderedDict()
 _ASOF_BASE_CACHE_MAX = max(8, int(os.getenv("MEEMEE_RANK_ASOF_BASE_CACHE_MAX", "32")))
 _TRACE_CACHE_LOCK = Lock()
 _TRACE_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
 _TRACE_CACHE_MAX = 16
-_YF_PROVISIONAL_RANK_REFRESH_SEC = max(30, int(os.getenv("MEEMEE_YF_PROVISIONAL_RANK_REFRESH_SEC", "300")))
-_JST = ZoneInfo("Asia/Tokyo")
-_INTRADAY_REFRESH_START_MIN = 9 * 60
-_INTRADAY_REFRESH_END_MIN = 15 * 60 + 40
 
 _DAILY_LIMIT = 1260
 _MONTHLY_LIMIT = 60
@@ -299,7 +302,7 @@ def _apply_edinet_defaults(item: dict, *, flag_applied: bool) -> dict:
     return item
 
 
-def _get_asof_base_cache(as_of_int: int) -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]:
+def _get_asof_base_cache(as_of_int: int) -> dict[RankBaseCacheKey, list[dict]]:
     with _ASOF_BASE_CACHE_LOCK:
         cached = _ASOF_BASE_CACHE.get(as_of_int)
         if cached is not None:
@@ -336,29 +339,7 @@ def _db_mtime() -> float | None:
         return None
 
 
-def _is_jpx_intraday_window(now_utc: datetime | None = None) -> bool:
-    now = now_utc if isinstance(now_utc, datetime) else datetime.now(timezone.utc)
-    now_jst = now.astimezone(_JST)
-    session = get_jpx_session_info(now_jst)
-    if not session.is_trading_day:
-        return False
-    now_minutes = now_jst.hour * 60 + now_jst.minute
-    refresh_end_min = min(_INTRADAY_REFRESH_END_MIN, get_intraday_refresh_end_minute(now_jst))
-    return _INTRADAY_REFRESH_START_MIN <= now_minutes <= refresh_end_min
-
-
-def _should_intraday_provisional_timer_refresh() -> bool:
-    if not _is_jpx_intraday_window():
-        return False
-    today_jst = int(datetime.now(_JST).strftime("%Y%m%d"))
-    latest_pan_cached = _LAST_CACHE_PAN_DAILY_ASOF_INT
-    # Once PAN close data for today is in cache, age-based provisional refresh is unnecessary.
-    if latest_pan_cached is not None and latest_pan_cached >= today_jst:
-        return False
-    return True
-
-
-def _resolve_latest_daily_asof_int(cache: dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]) -> int | None:
+def _resolve_latest_daily_asof_int(cache: dict[RankBaseCacheKey, list[dict]]) -> int | None:
     latest: int | None = None
     for which in ("latest", "prev"):
         for direction in ("up", "down"):
@@ -400,34 +381,121 @@ def _resolve_latest_pan_daily_asof_int(conn: duckdb.DuckDBPyConnection) -> int |
         return None
 
 
-def _cache_needs_refresh(db_mtime: float | None) -> bool:
-    if not _CACHE or _LAST_UPDATED is None:
-        return True
-    yf_enabled = str(os.getenv("MEEMEE_YF_PROVISIONAL_ENABLED", "1")).strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    if yf_enabled and _LAST_UPDATED is not None:
-        age_sec = (datetime.now(timezone.utc) - _LAST_UPDATED).total_seconds()
-        if age_sec >= float(_YF_PROVISIONAL_RANK_REFRESH_SEC) and _should_intraday_provisional_timer_refresh():
-            return True
-    if db_mtime is None:
-        return False
-    if _LAST_DB_MTIME is None:
-        return False
-    return db_mtime > (_LAST_DB_MTIME + 1e-6)
+def _resolve_latest_yahoo_daily_asof_int(conn: duckdb.DuckDBPyConnection) -> int | None:
+    try:
+        row = conn.execute(
+            """
+            SELECT
+                MAX(
+                    CASE
+                        WHEN date BETWEEN 19000101 AND 20991231 THEN date
+                        WHEN date >= 1000000000000 THEN CAST(strftime(to_timestamp(date / 1000), '%Y%m%d') AS INTEGER)
+                        WHEN date >= 1000000000 THEN CAST(strftime(to_timestamp(date), '%Y%m%d') AS INTEGER)
+                        ELSE NULL
+                    END
+                ) AS max_yahoo_ymd
+            FROM daily_bars
+            WHERE COALESCE(source, 'pan') = 'yahoo'
+            """
+        ).fetchone()
+    except Exception as exc:
+        logger.debug("failed to resolve latest Yahoo asOf from daily_bars: %s", exc)
+        return None
+    if not row or row[0] is None:
+        return None
+    try:
+        return int(row[0])
+    except Exception:
+        return None
+
+
+def _resolve_provisional_yahoo_row_count(
+    conn: duckdb.DuckDBPyConnection,
+    latest_pan_daily_asof_int: int | None,
+) -> int:
+    where_clause = ""
+    params: list[Any] = []
+    if latest_pan_daily_asof_int is not None:
+        where_clause = """
+          AND (
+                CASE
+                    WHEN date BETWEEN 19000101 AND 20991231 THEN date
+                    WHEN date >= 1000000000000 THEN CAST(strftime(to_timestamp(date / 1000), '%Y%m%d') AS INTEGER)
+                    WHEN date >= 1000000000 THEN CAST(strftime(to_timestamp(date), '%Y%m%d') AS INTEGER)
+                    ELSE NULL
+                END
+              ) > ?
+        """
+        params.append(latest_pan_daily_asof_int)
+    try:
+        row = conn.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM daily_bars
+            WHERE COALESCE(source, 'pan') = 'yahoo'
+            {where_clause}
+            """,
+            params,
+        ).fetchone()
+    except Exception as exc:
+        logger.debug("failed to resolve provisional Yahoo row count: %s", exc)
+        return 0
+    try:
+        return int(row[0] or 0) if row else 0
+    except Exception:
+        return 0
+
+
+def _build_refresh_signature(
+    *,
+    latest_pan_daily_asof_int: int | None,
+    latest_yahoo_daily_asof_int: int | None,
+    provisional_yahoo_row_count: int | None,
+) -> RefreshSignature:
+    yahoo_is_provisional = (
+        latest_yahoo_daily_asof_int is not None
+        and (
+            latest_pan_daily_asof_int is None
+            or latest_yahoo_daily_asof_int > latest_pan_daily_asof_int
+        )
+    )
+    if yahoo_is_provisional:
+        return ("yahoo", latest_yahoo_daily_asof_int, int(provisional_yahoo_row_count or 0))
+    if latest_pan_daily_asof_int is not None:
+        return ("pan", latest_pan_daily_asof_int)
+    if latest_yahoo_daily_asof_int is not None:
+        return ("yahoo", latest_yahoo_daily_asof_int, int(provisional_yahoo_row_count or 0))
+    return ("empty",)
+
+
+def _resolve_refresh_signature() -> tuple[RefreshSignature, float | None, int | None]:
+    db_mtime = _db_mtime()
+    with get_conn() as conn:
+        latest_pan_daily_asof_int = _resolve_latest_pan_daily_asof_int(conn)
+        latest_yahoo_daily_asof_int = _resolve_latest_yahoo_daily_asof_int(conn)
+        provisional_yahoo_row_count = _resolve_provisional_yahoo_row_count(conn, latest_pan_daily_asof_int)
+    signature = _build_refresh_signature(
+        latest_pan_daily_asof_int=latest_pan_daily_asof_int,
+        latest_yahoo_daily_asof_int=latest_yahoo_daily_asof_int,
+        provisional_yahoo_row_count=provisional_yahoo_row_count,
+    )
+    return signature, db_mtime, latest_pan_daily_asof_int
+
+
+def _cache_needs_refresh() -> bool:
+    return (not _CACHE) or _LAST_UPDATED is None or _LAST_REFRESH_SIGNATURE is None
 
 
 def _store_built_cache(
-    cache: dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]],
+    cache: dict[RankBaseCacheKey, list[dict]],
     *,
     refreshed_at: datetime,
     db_mtime: float | None,
     latest_pan_daily_asof_int: int | None,
+    refresh_signature: RefreshSignature,
 ) -> None:
     global _CACHE, _LAST_UPDATED, _LAST_DB_MTIME, _LAST_CACHE_DAILY_ASOF_INT, _LAST_CACHE_PAN_DAILY_ASOF_INT
+    global _LAST_REFRESH_SIGNATURE, _RESULT_CACHE_GENERATION
     latest_daily_asof_int = _resolve_latest_daily_asof_int(cache)
     with _LOCK:
         _CACHE = cache
@@ -435,36 +503,50 @@ def _store_built_cache(
         _LAST_DB_MTIME = db_mtime
         _LAST_CACHE_DAILY_ASOF_INT = latest_daily_asof_int
         _LAST_CACHE_PAN_DAILY_ASOF_INT = latest_pan_daily_asof_int
+        _LAST_REFRESH_SIGNATURE = refresh_signature
+        _RESULT_CACHE.clear()
+        _RESULT_REFRESH_LAST_ERROR.clear()
+        _RESULT_CACHE_GENERATION += 1
     with _ASOF_BASE_CACHE_LOCK:
         _ASOF_BASE_CACHE.clear()
     with _TRACE_CACHE_LOCK:
         _TRACE_CACHE.clear()
+    with _LOCK:
+        _RESULT_REFRESH_COND.notify_all()
 
 
 def _refresh_cache_singleflight(*, force: bool) -> None:
     global _REFRESH_IN_PROGRESS, _REFRESH_LAST_ERROR
-    db_mtime = _db_mtime()
+    refresh_signature: RefreshSignature | None = None
+    if force and _CACHE:
+        refresh_signature, _, _ = _resolve_refresh_signature()
     with _LOCK:
-        if not force and not _cache_needs_refresh(db_mtime):
+        if not force and not _cache_needs_refresh():
+            return
+        if force and _CACHE and _LAST_REFRESH_SIGNATURE == refresh_signature:
             return
         while _REFRESH_IN_PROGRESS:
             _REFRESH_COND.wait()
             # Propagate leader failure to concurrent waiters.
             if _REFRESH_LAST_ERROR is not None:
                 raise _REFRESH_LAST_ERROR
-            db_mtime = _db_mtime()
-            if not force and not _cache_needs_refresh(db_mtime):
+            if not force and not _cache_needs_refresh():
                 return
+            if force and _CACHE:
+                refresh_signature, _, _ = _resolve_refresh_signature()
+                if _LAST_REFRESH_SIGNATURE == refresh_signature:
+                    return
         _REFRESH_IN_PROGRESS = True
         _REFRESH_LAST_ERROR = None
     try:
-        cache, latest_pan_daily_asof_int = _build_cache()
+        cache, latest_pan_daily_asof_int, refresh_signature, refresh_db_mtime = _build_cache()
         refreshed_at = datetime.now(timezone.utc)
         _store_built_cache(
             cache,
             refreshed_at=refreshed_at,
-            db_mtime=_db_mtime(),
+            db_mtime=refresh_db_mtime,
             latest_pan_daily_asof_int=latest_pan_daily_asof_int,
+            refresh_signature=refresh_signature,
         )
         with _LOCK:
             _REFRESH_LAST_ERROR = None
@@ -482,7 +564,7 @@ def _ensure_cache_fresh() -> None:
     _refresh_cache_singleflight(force=False)
 
 
-def _ensure_cache_fresh_stale_ok(*, key: tuple[RankTimeframe, RankWhich, RankDir] | None = None) -> None:
+def _ensure_cache_fresh_stale_ok(*, key: RankBaseCacheKey | None = None) -> None:
     try:
         _ensure_cache_fresh()
     except Exception as exc:
@@ -2695,9 +2777,11 @@ def _fetch_names(conn: duckdb.DuckDBPyConnection) -> dict[str, str]:
     return {row[0]: repair_cp932_mojibake(str(row[1] or row[0])) for row in rows}
 
 
-def _build_cache() -> tuple[dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]], int | None]:
+def _build_cache() -> tuple[dict[RankBaseCacheKey, list[dict]], int | None, RefreshSignature, float | None]:
     with get_conn() as conn:
         latest_pan_daily_asof_int = _resolve_latest_pan_daily_asof_int(conn)
+        latest_yahoo_daily_asof_int = _resolve_latest_yahoo_daily_asof_int(conn)
+        provisional_yahoo_row_count = _resolve_provisional_yahoo_row_count(conn, latest_pan_daily_asof_int)
         codes = [row[0] for row in conn.execute("SELECT DISTINCT code FROM daily_bars ORDER BY code").fetchall()]
         names = _fetch_names(conn)
         daily_rows = _fetch_daily_rows(conn)
@@ -2883,16 +2967,22 @@ def _build_cache() -> tuple[dict[tuple[RankTimeframe, RankWhich, RankDir], list[
                 }
             )
 
-    cache: dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]] = {}
+    cache: dict[RankBaseCacheKey, list[dict]] = {}
     for tf in ("D", "W", "M"):
         for which in ("latest", "prev"):
             items = items_by_tf[(tf, which)]
             for direction in ("up", "down"):
                 cache[(tf, which, direction)] = _sort_items(items, direction)
-    return cache, latest_pan_daily_asof_int
+    db_mtime = _db_mtime()
+    refresh_signature = _build_refresh_signature(
+        latest_pan_daily_asof_int=latest_pan_daily_asof_int,
+        latest_yahoo_daily_asof_int=latest_yahoo_daily_asof_int,
+        provisional_yahoo_row_count=provisional_yahoo_row_count,
+    )
+    return cache, latest_pan_daily_asof_int, refresh_signature, db_mtime
 
 
-def _build_cache_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]]:
+def _build_cache_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> dict[RankBaseCacheKey, list[dict]]:
     codes = [
         row[0]
         for row in conn.execute(
@@ -3077,7 +3167,7 @@ def _build_cache_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> dict[t
                 }
             )
 
-    cache: dict[tuple[RankTimeframe, RankWhich, RankDir], list[dict]] = {}
+    cache: dict[RankBaseCacheKey, list[dict]] = {}
     for tf in ("D", "W", "M"):
         for which in ("latest", "prev"):
             items = items_by_tf[(tf, which)]
@@ -5345,54 +5435,58 @@ def _fallback_down_ml_items_when_empty(
     return promoted, next_pred_dt, next_model_version
 
 
-def refresh_cache() -> None:
-    _refresh_cache_singleflight(force=True)
+def _copy_rank_items(items: list[dict]) -> list[dict]:
+    return [dict(item) for item in items]
 
 
-def get_rankings(
+def _load_live_cache_items(cache_key: RankBaseCacheKey) -> tuple[list[dict], datetime | None]:
+    with _LOCK:
+        items = _CACHE.get(cache_key)
+        last_updated = _LAST_UPDATED
+    if items is not None:
+        return items, last_updated
+    try:
+        refresh_cache()
+    except Exception as exc:
+        if not is_transient_duckdb_error(exc):
+            raise
+        logger.warning("rankings refresh fallback to stale cache due to lock: %s", exc)
+    with _LOCK:
+        return list(_CACHE.get(cache_key, []) or []), _LAST_UPDATED
+
+
+def _build_rankings_response(
     tf: RankTimeframe,
     which: RankWhich,
     direction: RankDir,
     limit: int,
     *,
-    mode: RankMode = "hybrid",
-    risk_mode: RankRiskMode = "balanced",
-) -> dict:
-    cache_key = (tf, which, direction)
-    _ensure_cache_fresh_stale_ok(key=cache_key)
-    with _LOCK:
-        items = _CACHE.get(cache_key)
-        last_updated = _LAST_UPDATED
-    if items is None:
-        try:
-            refresh_cache()
-        except Exception as exc:
-            if not is_transient_duckdb_error(exc):
-                raise
-            logger.warning("rankings refresh fallback to stale cache due to lock: %s", exc)
-        with _LOCK:
-            items = _CACHE.get(cache_key, [])
-            last_updated = _LAST_UPDATED
+    mode: RankMode,
+    risk_mode: RankRiskMode,
+    cache_generation: int,
+) -> dict[str, Any]:
+    cache_key: RankBaseCacheKey = (tf, which, direction)
+    items, last_updated = _load_live_cache_items(cache_key)
+    source_items = _copy_rank_items(items)
 
-    limit = max(1, min(int(limit or 50), 200))
     pred_dt = None
     model_version = None
     if mode == "rule":
         out_items = _decorate_rule_items_with_entry_gate(
-            items[:limit],
+            source_items[:limit],
             direction=direction,
             risk_mode=risk_mode,
         )
     elif tf == "M" and mode == "hybrid":
         out_items, pred_dt, model_version = _call_apply_monthly_ml_mode(
-            items,
+            source_items,
             direction=direction,
             limit=limit,
             risk_mode=risk_mode,
         )
     else:
         out_items, pred_dt, model_version = _call_apply_ml_mode(
-            items,
+            source_items,
             direction=direction,
             mode=mode,
             limit=limit,
@@ -5404,7 +5498,7 @@ def get_rankings(
         mode=mode,
         limit=limit,
         risk_mode=risk_mode,
-        items=items,
+        items=source_items,
         out_items=out_items,
         pred_dt=pred_dt,
         model_version=model_version,
@@ -5443,6 +5537,7 @@ def get_rankings(
             "limit": limit,
             "pred_dt": pred_dt,
             "model_version": model_version,
+            "cache_generation": cache_generation,
             "anchor_date_list": [item.get("asOf") for item in top_items],
             "top": [
                 {
@@ -5471,9 +5566,107 @@ def get_rankings(
         "risk_mode": risk_mode,
         "pred_dt": pred_dt,
         "model_version": model_version,
+        "cache_generation": cache_generation,
         "last_updated": last_updated.isoformat() if last_updated else None,
         "items": out_items,
     }
+
+
+def _get_cached_rankings_response(
+    tf: RankTimeframe,
+    which: RankWhich,
+    direction: RankDir,
+    limit: int,
+    *,
+    mode: RankMode,
+    risk_mode: RankRiskMode,
+) -> dict[str, Any]:
+    result_key: RankResultCacheKey = (tf, which, direction, mode, risk_mode, limit)
+    base_cache_key: RankBaseCacheKey = (tf, which, direction)
+    while True:
+        _ensure_cache_fresh_stale_ok(key=base_cache_key)
+        with _LOCK:
+            cached = _RESULT_CACHE.get(result_key)
+            if cached is not None:
+                return cached
+            while result_key in _RESULT_REFRESH_IN_PROGRESS:
+                _RESULT_REFRESH_COND.wait()
+                cached = _RESULT_CACHE.get(result_key)
+                if cached is not None:
+                    return cached
+                error_entry = _RESULT_REFRESH_LAST_ERROR.get(result_key)
+                if (
+                    error_entry is not None
+                    and error_entry[0] == _RESULT_CACHE_GENERATION
+                    and result_key not in _RESULT_REFRESH_IN_PROGRESS
+                ):
+                    raise error_entry[1]
+            build_generation = _RESULT_CACHE_GENERATION
+            _RESULT_REFRESH_IN_PROGRESS[result_key] = build_generation
+            _RESULT_REFRESH_LAST_ERROR.pop(result_key, None)
+        try:
+            payload = _build_rankings_response(
+                tf,
+                which,
+                direction,
+                limit,
+                mode=mode,
+                risk_mode=risk_mode,
+                cache_generation=build_generation,
+            )
+        except Exception as exc:
+            with _LOCK:
+                _RESULT_REFRESH_IN_PROGRESS.pop(result_key, None)
+                if _RESULT_CACHE_GENERATION == build_generation:
+                    _RESULT_REFRESH_LAST_ERROR[result_key] = (build_generation, exc)
+                _RESULT_REFRESH_COND.notify_all()
+            raise
+        with _LOCK:
+            _RESULT_REFRESH_IN_PROGRESS.pop(result_key, None)
+            if _RESULT_CACHE_GENERATION == build_generation:
+                _RESULT_CACHE[result_key] = payload
+                _RESULT_REFRESH_LAST_ERROR.pop(result_key, None)
+                _RESULT_REFRESH_COND.notify_all()
+                return payload
+            _RESULT_REFRESH_COND.notify_all()
+        logger.debug("ranking result cache generation changed during build: key=%s", result_key)
+
+
+def refresh_cache() -> None:
+    _refresh_cache_singleflight(force=True)
+
+
+def get_rankings(
+    tf: RankTimeframe,
+    which: RankWhich,
+    direction: RankDir,
+    limit: int,
+    *,
+    mode: RankMode = "hybrid",
+    risk_mode: RankRiskMode = "balanced",
+) -> dict:
+    limit = max(1, min(int(limit or 50), 200))
+    return _get_cached_rankings_response(
+        tf,
+        which,
+        direction,
+        limit,
+        mode=mode,
+        risk_mode=risk_mode,
+    )
+
+
+def warm_default_result_cache() -> None:
+    for tf in ("D", "W", "M"):
+        for direction in ("up", "down"):
+            get_rankings(
+                tf,
+                "latest",
+                direction,
+                50,
+                mode="hybrid",
+                risk_mode="balanced",
+            )
 
 
 def get_rankings_asof(
@@ -5506,26 +5699,27 @@ def get_rankings_asof(
                 fallback_items = list(_CACHE.get(cache_key, []) or [])
             cache = {cache_key: fallback_items}
     items = cache.get((tf, which, direction), [])
+    source_items = _copy_rank_items(items)
     limit = max(1, min(int(limit or 50), 200))
 
     pred_dt = None
     model_version = None
-    if mode == "rule" or not items:
+    if mode == "rule" or not source_items:
         out_items = _decorate_rule_items_with_entry_gate(
-            items[:limit],
+            source_items[:limit],
             direction=direction,
             risk_mode=risk_mode,
         )
     elif tf == "M" and mode == "hybrid":
         out_items, pred_dt, model_version = _call_apply_monthly_ml_mode(
-            items,
+            source_items,
             direction=direction,
             limit=limit,
             risk_mode=risk_mode,
         )
     else:
         out_items, pred_dt, model_version = _call_apply_ml_mode(
-            items,
+            source_items,
             direction=direction,
             mode=mode,
             limit=limit,
@@ -5537,7 +5731,7 @@ def get_rankings_asof(
         mode=mode,
         limit=limit,
         risk_mode=risk_mode,
-        items=items,
+        items=source_items,
         out_items=out_items,
         pred_dt=pred_dt,
         model_version=model_version,
@@ -5567,7 +5761,7 @@ def get_rankings_asof(
             pred_dt = None
             model_version = None
             out_items = _decorate_rule_items_with_entry_gate(
-                items[:limit],
+                _copy_rank_items(items[:limit]),
                 direction=direction,
                 risk_mode=risk_mode,
             )

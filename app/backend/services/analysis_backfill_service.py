@@ -469,7 +469,14 @@ def backfill_missing_analysis_history(
         if sell_targets:
             _notify(progress_cb, 80, f"Refreshing sell analysis for {len(sell_targets)} dates...")
             try:
-                sell_result = accumulate_sell_analysis_for_dates(target_dates=sell_targets)
+                def _on_sell_progress(progress: int, message: str) -> None:
+                    mapped_progress = 80 + int(15 * max(0, min(100, int(progress))) / 100)
+                    _notify(progress_cb, mapped_progress, message)
+
+                sell_result = accumulate_sell_analysis_for_dates(
+                    target_dates=sell_targets,
+                    progress_cb=_on_sell_progress,
+                )
                 sell_refreshed_dates = [int(v) for v in sell_result.get("target_dates", [])]
             except Exception as exc:
                 logger.exception("Sell analysis backfill failed: %s", exc)

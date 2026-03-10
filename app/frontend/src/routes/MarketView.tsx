@@ -6,7 +6,9 @@ export default function MarketView() {
     <div className="app-shell market-view">
       <div className="dynamic-header">
         <div className="dynamic-header-row header-row-top">
-          <TopNav />
+          <div className="header-row-left">
+            <TopNav />
+          </div>
         </div>
         <div className="dynamic-header-row header-row-bottom">
           <div className="header-title-group">

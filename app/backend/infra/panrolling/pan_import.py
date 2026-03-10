@@ -59,6 +59,21 @@ RUNNING_TEXT_KEYWORDS = (
 )
 
 
+def _send_function_key(main_win: "object", key: str) -> bool:
+    """Send a function key without depending on backend/version-specific kwargs."""
+    try:
+        main_win.type_keys(key, set_foreground=True)
+        return True
+    except TypeError:
+        try:
+            main_win.type_keys(key)
+            return True
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
 def run_pan_import(
     pandtmgr_path: str | None = None,
     timeout: int = IMPORT_TIMEOUT,
@@ -112,13 +127,11 @@ def run_pan_import(
                 logger.debug("Failed to focus pandtmgr window (non-fatal): %s", exc)
             sent = False
             for key in ("{VK_F5}", "{F5}"):
-                try:
-                    main_win.type_keys(key, set_foreground=True, with_vk_packet=False)
+                if _send_function_key(main_win, key):
                     sent = True
                     logger.debug("Sent %s via main window", key)
                     break
-                except Exception as exc:
-                    logger.debug("Failed to send %s via main window: %s", key, exc)
+                logger.debug("Failed to send %s via main window", key)
             if not sent:
                 send_keys("{F5}")
                 logger.debug("Sent {F5} via global keyboard fallback")

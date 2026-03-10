@@ -6,6 +6,7 @@ import re
 import time
 import io
 from datetime import datetime, timezone
+from typing import Callable
 
 import pandas as pd
 
@@ -847,12 +848,27 @@ def parse_file(path: str, watchlist: set[str] | None, counts: dict) -> pd.DataFr
     return df
 
 
+ProgressCallback = Callable[[int, str], None]
+
+
+def _notify_progress(progress_cb: ProgressCallback | None, progress: int, message: str) -> None:
+    if progress_cb is None:
+        return
+    progress_cb(max(0, min(100, int(progress))), str(message))
+
+
 def read_daily_files(
-    files: list[str], watchlist: set[str] | None, counts: dict
+    files: list[str],
+    watchlist: set[str] | None,
+    counts: dict,
+    *,
+    progress_cb: ProgressCallback | None = None,
 ) -> tuple[pd.DataFrame, dict[str, str]]:
     latest_by_code: dict[str, tuple[float, pd.DataFrame]] = {}
     name_map: dict[str, str] = {}
-    for path in files:
+    total_files = max(1, len(files))
+    for index, path in enumerate(files, start=1):
+        _notify_progress(progress_cb, 5 + int(85 * index / total_files), f"Reading TXT files {index}/{total_files}")
         df = parse_file(path, watchlist, counts)
         if df.empty:
             continue
@@ -1230,7 +1246,11 @@ def _detect_and_log_pan_source_revisions(
             pass
 
 
-def ingest(incremental: bool = False, run_id: str | None = None) -> dict[str, int | bool | str]:
+def ingest(
+    incremental: bool = False,
+    run_id: str | None = None,
+    progress_cb: ProgressCallback | None = None,
+) -> dict[str, int | bool | str]:
     def step_start(label: str) -> float:
         print(f"[STEP_START] {label}")
         return time.perf_counter()
@@ -1248,10 +1268,12 @@ def ingest(incremental: bool = False, run_id: str | None = None) -> dict[str, in
     total_start = time.perf_counter()
     resolved_run_id = str(run_id).strip() if run_id else datetime.now(timezone.utc).strftime("ingest_%Y%m%d%H%M%S")
 
+    _notify_progress(progress_cb, 2, "Initializing ingest schema...")
     start = step_start("init_schema")
     init_schema()
     step_end("init_schema", start)
 
+    _notify_progress(progress_cb, 8, "Scanning TXT files...")
     start = step_start("list_txt_files")
     print(f"TXT_DIR={DATA_DIR}")
     files = list_txt_files(DATA_DIR)
@@ -1344,11 +1366,13 @@ def ingest(incremental: bool = False, run_id: str | None = None) -> dict[str, in
         }
 
     start = step_start("load_watchlist")
+    _notify_progress(progress_cb, 15, "Loading watchlist...")
     watchlist = load_watchlist(DATA_DIR)
     step_end("load_watchlist", start, watchlist_count=len(watchlist))
 
     start = step_start("read_daily_files")
-    daily, name_map = read_daily_files(files, watchlist, counts)
+    _notify_progress(progress_cb, 20, f"Reading {len(files)} TXT files...")
+    daily, name_map = read_daily_files(files, watchlist, counts, progress_cb=progress_cb)
     daily_rows = len(daily)
     daily_codes = int(daily["code"].nunique()) if not daily.empty else 0
     step_end("read_daily_files", start, daily_rows=daily_rows, daily_codes=daily_codes)
@@ -1376,22 +1400,27 @@ def ingest(incremental: bool = False, run_id: str | None = None) -> dict[str, in
         }
 
     start = step_start("build_monthly")
+    _notify_progress(progress_cb, 45, "Building monthly bars...")
     monthly = build_monthly(daily)
     step_end("build_monthly", start, monthly_rows=len(monthly))
 
     start = step_start("build_monthly_ma")
+    _notify_progress(progress_cb, 52, "Building monthly moving averages...")
     monthly_ma = build_monthly_ma(monthly)
     step_end("build_monthly_ma", start, monthly_ma_rows=len(monthly_ma))
 
     start = step_start("build_daily_ma")
+    _notify_progress(progress_cb, 58, "Building daily moving averages...")
     daily_ma = build_daily_ma(daily)
     step_end("build_daily_ma", start, daily_ma_rows=len(daily_ma))
 
     start = step_start("build_feature_snapshot_daily")
+    _notify_progress(progress_cb, 64, "Building feature snapshots...")
     feature_snapshot = build_feature_snapshot_daily(daily, daily_ma)
     step_end("build_feature_snapshot_daily", start, snapshot_rows=len(feature_snapshot))
 
     start = step_start("build_stock_meta")
+    _notify_progress(progress_cb, 72, "Building stock metadata...")
     meta, meta_summary = build_stock_meta(daily, monthly, name_map)
     step_end("build_stock_meta", start, meta_rows=len(meta), score_ok=meta_summary.get("score_ok"), score_insufficient=meta_summary.get("score_insufficient"))
     if meta_summary.get("stage_counts"):
@@ -1410,6 +1439,7 @@ def ingest(incremental: bool = False, run_id: str | None = None) -> dict[str, in
 
 
     start = step_start("db_replace")
+    _notify_progress(progress_cb, 82, "Writing ingest results to database...")
     log_volume_stats("pre_db", daily)
     
     pan_finalized_rows = 0
@@ -1594,6 +1624,7 @@ def ingest(incremental: bool = False, run_id: str | None = None) -> dict[str, in
     )
 
     _save_ingest_state(new_state)
+    _notify_progress(progress_cb, 100, "Ingest completed.")
 
     log_counts(counts, len(daily))
     print(f"Inserted {len(meta)} tickers")

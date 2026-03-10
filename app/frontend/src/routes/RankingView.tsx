@@ -636,7 +636,6 @@ export default function RankingView() {
     ],
     []
   );
-
   const filterItems = useMemo(
     () => [
       {

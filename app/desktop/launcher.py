@@ -320,6 +320,16 @@ def _read_locked_backend_pid(data_dir: str) -> int | None:
     if pid <= 0 or pid == os.getpid():
         return None
     if not _pid_exists(pid):
+        try:
+            os.remove(lock_path)
+        except Exception:
+            pass
+        return None
+    if not _is_backend_process(pid):
+        try:
+            os.remove(lock_path)
+        except Exception:
+            pass
         return None
     return pid
 

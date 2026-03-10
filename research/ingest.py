@@ -121,6 +121,60 @@ def _normalize_universe_frame(frame: pd.DataFrame, fallback_asof: pd.Timestamp |
     return out
 
 
+def _normalize_sector_frame(frame: pd.DataFrame, codes: pd.Series) -> pd.DataFrame:
+    c_code = _pick_column(frame, ("code", "ticker", "symbol"))
+    c_sector_code = _pick_column(
+        frame,
+        ("sector33_code", "sector_code", "industry_code", "sector"),
+        required=False,
+    )
+    c_sector_name = _pick_column(
+        frame,
+        ("sector33_name", "sector_name", "industry_name", "name"),
+        required=False,
+    )
+
+    out = pd.DataFrame(
+        {
+            "code": frame[c_code].astype(str).str.strip(),
+            "sector33_code": (
+                frame[c_sector_code].astype(str).str.strip()
+                if c_sector_code
+                else "__NA__"
+            ),
+            "sector33_name": (
+                frame[c_sector_name].astype(str).str.strip()
+                if c_sector_name
+                else "UNCLASSIFIED"
+            ),
+        }
+    )
+    out = out[out["code"] != ""].copy()
+    out["sector33_code"] = out["sector33_code"].replace("", "__NA__").fillna("__NA__")
+    out["sector33_name"] = out["sector33_name"].replace("", "UNCLASSIFIED").fillna("UNCLASSIFIED")
+    out = out.drop_duplicates(subset=["code"], keep="last").reset_index(drop=True)
+
+    base = pd.DataFrame({"code": codes.astype(str).str.strip().drop_duplicates().tolist()})
+    base = base[base["code"] != ""].copy()
+    base["sector33_code"] = "__NA__"
+    base["sector33_name"] = "UNCLASSIFIED"
+    merged = base.merge(out, on="code", how="left", suffixes=("_base", ""))
+    merged["sector33_code"] = merged["sector33_code"].fillna(merged["sector33_code_base"]).replace("", "__NA__")
+    merged["sector33_name"] = merged["sector33_name"].fillna(merged["sector33_name_base"]).replace("", "UNCLASSIFIED")
+    merged = merged[["code", "sector33_code", "sector33_name"]].copy()
+    return merged.sort_values("code").reset_index(drop=True)
+
+
+def _fallback_sector_frame(codes: pd.Series) -> pd.DataFrame:
+    return (
+        pd.DataFrame({"code": codes.astype(str).str.strip().drop_duplicates().tolist()})
+        .query("code != ''")
+        .assign(sector33_code="__NA__", sector33_name="UNCLASSIFIED")
+        .sort_values("code")
+        .reset_index(drop=True)
+    )
+
+
 def _load_universe(universe_dir: Path, trading_dates: pd.Series) -> pd.DataFrame:
     files = sorted(universe_dir.glob("*.csv"))
     if not files:
@@ -157,11 +211,13 @@ def run_ingest(
     daily_csv: str,
     universe_dir: str,
     calendar_csv: str | None = None,
+    sector_csv: str | None = None,
     snapshot_id: str | None = None,
 ) -> dict[str, object]:
     daily_path = Path(daily_csv).resolve()
     universe_path = Path(universe_dir).resolve()
     calendar_path = Path(calendar_csv).resolve() if calendar_csv else None
+    sector_path = Path(sector_csv).resolve() if sector_csv else None
 
     if not daily_path.exists():
         raise FileNotFoundError(f"daily csv not found: {daily_path}")
@@ -169,6 +225,8 @@ def run_ingest(
         raise FileNotFoundError(f"universe dir not found: {universe_path}")
     if calendar_path and not calendar_path.exists():
         raise FileNotFoundError(f"calendar csv not found: {calendar_path}")
+    if sector_path and not sector_path.exists():
+        raise FileNotFoundError(f"sector csv not found: {sector_path}")
 
     raw_daily = pd.read_csv(daily_path)
     daily = _normalize_daily_frame(raw_daily)
@@ -181,6 +239,11 @@ def run_ingest(
         calendar = _derive_month_ends(daily)
 
     universe = _load_universe(universe_path, trading_dates)
+    if sector_path:
+        raw_sector = pd.read_csv(sector_path)
+        industry_master = _normalize_sector_frame(raw_sector, daily["code"])
+    else:
+        industry_master = _fallback_sector_frame(daily["code"])
 
     resolved_snapshot = (
         snapshot_id.strip()
@@ -197,6 +260,7 @@ def run_ingest(
     write_csv(target_dir / "daily.csv", daily_out)
     write_csv(target_dir / "calendar_month_ends.csv", calendar)
     write_csv(target_dir / "universe_monthly.csv", universe)
+    write_csv(target_dir / "industry_master.csv", industry_master)
 
     universe_files = sorted(universe_path.glob("*.csv"))
     manifest = {
@@ -207,9 +271,11 @@ def run_ingest(
             "daily_csv": str(daily_path),
             "universe_dir": str(universe_path),
             "calendar_csv": str(calendar_path) if calendar_path else None,
+            "sector_csv": str(sector_path) if sector_path else None,
             "hashes": {
                 "daily_csv_sha1": _file_sha1(daily_path),
                 "calendar_csv_sha1": (_file_sha1(calendar_path) if calendar_path else None),
+                "sector_csv_sha1": (_file_sha1(sector_path) if sector_path else None),
                 "universe_csv_sha1": {str(p.name): _file_sha1(p) for p in universe_files},
             },
         },
@@ -220,6 +286,7 @@ def run_ingest(
         "calendar_months": int(len(calendar)),
         "universe_rows": int(len(universe)),
         "universe_months": int(universe["asof_date"].nunique()),
+        "industry_rows": int(len(industry_master)),
         "universe_files": [str(p.name) for p in universe_files],
     }
     write_json(target_dir / "manifest.json", manifest)
@@ -232,4 +299,5 @@ def run_ingest(
         "daily_rows": int(len(daily_out)),
         "universe_rows": int(len(universe)),
         "calendar_rows": int(len(calendar)),
+        "industry_rows": int(len(industry_master)),
     }

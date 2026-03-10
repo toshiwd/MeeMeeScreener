@@ -12,6 +12,9 @@ from research.ingest import run_ingest
 from research.labels import build_labels_for_asof
 from research.loop import run_loop, run_loop_all
 from research.publish import run_publish
+from research.study_build import build_study_dataset
+from research.study_report import run_study_report
+from research.study_search import run_study_loop, run_study_search
 from research.storage import ResearchPaths
 from research.train import run_train
 
@@ -31,6 +34,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--daily-csv", required=True)
     ingest.add_argument("--universe-dir", required=True)
     ingest.add_argument("--calendar-csv", default=None)
+    ingest.add_argument("--sector-csv", default=None)
     ingest.add_argument("--snapshot-id", default=None)
 
     feat = sub.add_parser("build_features", help="Build monthly features for one asof date")
@@ -75,6 +79,33 @@ def _build_parser() -> argparse.ArgumentParser:
     loop_all.add_argument("--workers", type=int, default=1)
     loop_all.add_argument("--chunk-size", type=int, default=120)
 
+    study_build = sub.add_parser("study_build", help="Build multi-timeframe study dataset")
+    study_build.add_argument("--snapshot-id", default=None)
+    study_build.add_argument("--timeframe", required=True, choices=["daily", "weekly", "monthly"])
+    study_build.add_argument("--start", required=True)
+    study_build.add_argument("--end", required=True)
+    study_build.add_argument("--study-id", default=None)
+
+    study_search = sub.add_parser("study_search", help="Run deterministic study search for one study")
+    study_search.add_argument("--study-id", default=None)
+    study_search.add_argument("--snapshot-id", default=None)
+    study_search.add_argument("--resume", action="store_true")
+    study_search.add_argument("--timeframes", default=None)
+    study_search.add_argument("--families", default=None)
+
+    study_report = sub.add_parser("study_report", help="Summarize one study result")
+    study_report.add_argument("--study-id", required=True)
+
+    study_loop = sub.add_parser("study_loop", help="Build datasets and search all study combinations")
+    study_loop.add_argument("--snapshot-id", default=None)
+    study_loop.add_argument("--timeframes", default="daily,weekly,monthly")
+    study_loop.add_argument(
+        "--families",
+        default="bottom,top,bottom_negation,top_negation,up_cont,down_cont",
+    )
+    study_loop.add_argument("--resume", action="store_true")
+    study_loop.add_argument("--study-id", default=None)
+
     return parser
 
 
@@ -102,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
                 daily_csv=str(args.daily_csv),
                 universe_dir=str(args.universe_dir),
                 calendar_csv=str(args.calendar_csv) if args.calendar_csv else None,
+                sector_csv=str(args.sector_csv) if args.sector_csv else None,
                 snapshot_id=str(args.snapshot_id) if args.snapshot_id else None,
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -192,6 +224,56 @@ def main(argv: list[str] | None = None) -> int:
                 snapshot_id=snapshot_id,
                 workers=int(args.workers),
                 chunk_size=int(args.chunk_size),
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "study_build":
+            snapshot_id = _resolve_snapshot_id(paths, args.snapshot_id)
+            result = build_study_dataset(
+                paths=paths,
+                config=config,
+                snapshot_id=snapshot_id,
+                timeframe=str(args.timeframe),
+                start_date=str(args.start),
+                end_date=str(args.end),
+                study_id=str(args.study_id) if args.study_id else None,
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "study_search":
+            timeframes = tuple([x.strip() for x in str(args.timeframes or "").split(",") if x.strip()]) or None
+            families = tuple([x.strip() for x in str(args.families or "").split(",") if x.strip()]) or None
+            result = run_study_search(
+                paths=paths,
+                config=config,
+                study_id=str(args.study_id) if args.study_id else None,
+                snapshot_id=str(args.snapshot_id) if args.snapshot_id else None,
+                resume=bool(args.resume),
+                timeframes=timeframes,
+                families=families,
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "study_report":
+            result = run_study_report(paths=paths, study_id=str(args.study_id))
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "study_loop":
+            snapshot_id = _resolve_snapshot_id(paths, args.snapshot_id)
+            timeframes = tuple([x.strip() for x in str(args.timeframes or "").split(",") if x.strip()])
+            families = tuple([x.strip() for x in str(args.families or "").split(",") if x.strip()])
+            result = run_study_loop(
+                paths=paths,
+                config=config,
+                snapshot_id=snapshot_id,
+                timeframes=timeframes,
+                families=families,
+                resume=bool(args.resume),
+                study_id=str(args.study_id) if args.study_id else None,
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0

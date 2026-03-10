@@ -97,6 +97,7 @@ class ResearchPaths:
         self.snapshots_root.mkdir(parents=True, exist_ok=True)
         self.cache_root.mkdir(parents=True, exist_ok=True)
         self.runs_root.mkdir(parents=True, exist_ok=True)
+        self.studies_root.mkdir(parents=True, exist_ok=True)
         self.evaluations_root.mkdir(parents=True, exist_ok=True)
         self.state_root.mkdir(parents=True, exist_ok=True)
         self.published_root.mkdir(parents=True, exist_ok=True)
@@ -114,6 +115,10 @@ class ResearchPaths:
         return self.workspace_root / "runs"
 
     @property
+    def studies_root(self) -> Path:
+        return self.workspace_root / "studies"
+
+    @property
     def evaluations_root(self) -> Path:
         return self.workspace_root / "evaluations"
 
@@ -127,6 +132,9 @@ class ResearchPaths:
     def run_dir(self, run_id: str) -> Path:
         return self.runs_root / str(run_id)
 
+    def study_dir(self, study_id: str) -> Path:
+        return self.studies_root / str(study_id)
+
     def cache_dir(
         self,
         data_snapshot_id: str,
@@ -136,6 +144,10 @@ class ResearchPaths:
     ) -> Path:
         key = f"{data_snapshot_id}__{feature_version}__{label_version}__{params_hash}"
         return self.cache_root / key
+
+    def next_study_id(self, snapshot_id: str | None = None) -> str:
+        prefix = f"study_{snapshot_id}_" if snapshot_id else "study_"
+        return datetime.now(timezone.utc).strftime(prefix + "%Y%m%d%H%M%S")
 
     @property
     def latest_snapshot_pointer(self) -> Path:
@@ -159,9 +171,8 @@ class ResearchPaths:
             if not child.is_dir():
                 continue
             suffix = child.name.replace("published_v", "").strip()
-            if not suffix.isdigit():
-                continue
-            max_id = max(max_id, int(suffix))
+            if suffix.isdigit():
+                max_id = max(max_id, int(suffix))
         return f"published_v{max_id + 1:03d}"
 
     @property
@@ -171,15 +182,15 @@ class ResearchPaths:
     def replace_latest_atomically(self, source_dir: Path) -> None:
         if not source_dir.exists() or not source_dir.is_dir():
             raise FileNotFoundError(f"source publish dir missing: {source_dir}")
-        stage = self.published_root / f".latest_stage_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
-        backup = self.published_root / f".latest_backup_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        stage = self.published_root / f".latest_stage_{stamp}"
+        backup = self.published_root / f".latest_backup_{stamp}"
         if stage.exists():
             shutil.rmtree(stage, ignore_errors=True)
         shutil.copytree(source_dir, stage)
 
         latest = self.latest_published_dir
-        had_latest = latest.exists()
-        if had_latest:
+        if latest.exists():
             if backup.exists():
                 shutil.rmtree(backup, ignore_errors=True)
             latest.replace(backup)

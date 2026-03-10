@@ -5,7 +5,7 @@ import json
 import math
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -42,6 +42,7 @@ class StrategyBacktestConfig:
     max_new_entries_per_month: int | None = None
     allowed_sides: str = "both"  # both | long | short
     require_decision_for_long: bool = False
+    allow_decision_only_long_entries: bool = False
     require_ma_bull_stack_long: bool = False
     max_dist_ma20_long: float | None = None
     min_volume_ratio_long: float = 0.0
@@ -735,6 +736,8 @@ def _simulate(
     frame: pd.DataFrame,
     cfg: StrategyBacktestConfig,
     event_block_set: set[tuple[str, date]],
+    *,
+    include_trade_events: bool = False,
 ) -> dict[str, Any]:
     open_positions: dict[str, OpenPosition] = {}
     trade_events: list[dict[str, Any]] = []
@@ -979,7 +982,13 @@ def _simulate(
 
             if (
                 allow_long
-                and bool(row.get("entry_long"))
+                and (
+                    bool(row.get("entry_long"))
+                    or (
+                        bool(cfg.allow_decision_only_long_entries)
+                        and bool(row.get("decision_up"))
+                    )
+                )
                 and long_score >= float(cfg.min_long_score)
                 and (not cfg.require_decision_for_long or bool(row.get("decision_up")))
                 and long_extra_ok
@@ -1327,6 +1336,7 @@ def _simulate(
         "entry_monthly": monthly_entry_payload,
         "daily": daily_rows[-400:] if len(daily_rows) > 400 else daily_rows,
         "sample_trades": sample_trades,
+        "trade_events": trade_events if include_trade_events else None,
     }
 
 
@@ -1941,7 +1951,13 @@ def run_strategy_walkforward(
     min_windows: int = 1,
     max_windows: int | None = None,
     stop_on_oos_worst_max_drawdown_below: float | None = None,
+    progress_cb: Callable[[int, str], None] | None = None,
 ) -> dict[str, Any]:
+    def _notify(progress: int, message: str) -> None:
+        if progress_cb is None:
+            return
+        progress_cb(max(0, min(100, int(progress))), str(message))
+
     cfg = config or StrategyBacktestConfig()
     train_months = max(1, int(train_months))
     test_months = max(1, int(test_months))
@@ -1955,10 +1971,12 @@ def run_strategy_walkforward(
     with get_conn() as conn:
         _ensure_backtest_schema(conn)
         market = _load_market_frame(conn, start_dt=start_dt, end_dt=end_dt, max_codes=max_codes)
+    _notify(5, "Loading market data...")
     if market.empty:
         raise RuntimeError("No daily_bars rows for walkforward range")
 
     features = _prepare_feature_frame(market, cfg)
+    _notify(15, "Preparing feature frame...")
     features["bar_index"] = features.groupby("code", sort=False).cumcount() + 1
     features = features[
         (features["signal_ready"])
@@ -2001,6 +2019,7 @@ def run_strategy_walkforward(
 
     with get_conn() as conn:
         event_rows, event_notes = _load_event_rows(conn)
+    _notify(20, f"Loaded event filters ({len(event_rows)} rows)...")
 
     windows_payload: list[dict[str, Any]] = []
     truncated = False
@@ -2045,6 +2064,11 @@ def run_strategy_walkforward(
             payload["status"] = "skipped"
             payload["error"] = "insufficient_window_rows"
             windows_payload.append(payload)
+            window_progress = 25 + int(65 * len(windows_payload) / max(1, len(windows)))
+            _notify(
+                window_progress,
+                f"Walk-forward window {len(windows_payload)}/{len(windows)} skipped",
+            )
             continue
 
         try:
@@ -2073,6 +2097,11 @@ def run_strategy_walkforward(
             payload["status"] = "failed"
             payload["error"] = str(exc)
         windows_payload.append(payload)
+        window_progress = 25 + int(65 * len(windows_payload) / max(1, len(windows)))
+        _notify(
+            window_progress,
+            f"Walk-forward window {len(windows_payload)}/{len(windows)}",
+        )
         if stop_on_oos_worst_max_drawdown_below is not None and str(payload.get("status")) == "success":
             test_metrics = (payload.get("test") or {}).get("metrics") or {}
             current_dd = _safe_float(test_metrics.get("max_drawdown_unit"))
@@ -2085,6 +2114,7 @@ def run_strategy_walkforward(
                 break
 
     summary = _summarize_walkforward_windows(windows_payload)
+    _notify(94, "Summarizing walk-forward results...")
     attribution = _build_walkforward_attribution(windows_payload)
     finished_at = datetime.now(tz=timezone.utc)
     report = {
@@ -2131,6 +2161,7 @@ def run_strategy_walkforward(
     report["dry_run"] = bool(dry_run)
 
     if not dry_run:
+        _notify(98, "Saving walk-forward report...")
         with get_conn() as conn:
             _save_walkforward_run(
                 conn,
@@ -2148,6 +2179,7 @@ def run_strategy_walkforward(
                 report=report,
                 note=None,
             )
+    _notify(100, "Walk-forward completed.")
     return report
 
 
@@ -2495,4 +2527,2326 @@ def get_latest_strategy_walkforward_research_snapshot() -> dict[str, Any]:
             "source_finished_at": row[3],
             "report": report_json,
         },
+    }
+
+
+def _count_rows(conn, table_name: str) -> int:
+    row = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+    return int(row[0]) if row else 0
+
+
+def _prune_table_to_latest(
+    conn,
+    *,
+    table_name: str,
+    pk_column: str,
+    order_column: str,
+    keep_latest: int,
+) -> dict[str, int]:
+    keep = max(0, int(keep_latest))
+    before = _count_rows(conn, table_name)
+    if before <= keep:
+        return {"before": int(before), "after": int(before), "deleted": 0}
+    conn.execute(
+        f"""
+        DELETE FROM {table_name}
+        WHERE {pk_column} IN (
+            SELECT {pk_column}
+            FROM (
+                SELECT
+                    {pk_column},
+                    ROW_NUMBER() OVER (
+                        ORDER BY {order_column} DESC, {pk_column} DESC
+                    ) AS rn
+                FROM {table_name}
+            ) ranked
+            WHERE rn > ?
+        )
+        """,
+        [keep],
+    )
+    after = _count_rows(conn, table_name)
+    return {
+        "before": int(before),
+        "after": int(after),
+        "deleted": int(max(0, before - after)),
+    }
+
+
+def prune_strategy_walkforward_history(
+    *,
+    keep_latest_runs: int = 160,
+    keep_latest_gates: int = 160,
+    keep_latest_snapshots: int = 45,
+    reclaim_space: bool = False,
+) -> dict[str, Any]:
+    with get_conn() as conn:
+        _ensure_walkforward_schema(conn)
+        _ensure_walkforward_gate_schema(conn)
+        _ensure_walkforward_research_schema(conn)
+        result = {
+            "runs": _prune_table_to_latest(
+                conn,
+                table_name="strategy_walkforward_runs",
+                pk_column="run_id",
+                order_column="finished_at",
+                keep_latest=int(keep_latest_runs),
+            ),
+            "gates": _prune_table_to_latest(
+                conn,
+                table_name="strategy_walkforward_gate_reports",
+                pk_column="gate_id",
+                order_column="created_at",
+                keep_latest=int(keep_latest_gates),
+            ),
+            "snapshots": _prune_table_to_latest(
+                conn,
+                table_name="strategy_walkforward_research_daily",
+                pk_column="snapshot_date",
+                order_column="snapshot_date",
+                keep_latest=int(keep_latest_snapshots),
+            ),
+        }
+        deleted_total = int(
+            (result["runs"]["deleted"])
+            + (result["gates"]["deleted"])
+            + (result["snapshots"]["deleted"])
+        )
+        result["deleted_total"] = deleted_total
+        result["reclaim_space_requested"] = bool(reclaim_space)
+        result["space_reclaimed"] = False
+        if deleted_total > 0:
+            try:
+                conn.execute("CHECKPOINT")
+            except Exception:
+                pass
+            if reclaim_space:
+                try:
+                    conn.execute("VACUUM")
+                    result["space_reclaimed"] = True
+                except Exception:
+                    result["space_reclaimed"] = False
+        return result
+
+
+def _ensure_market_regime_daily_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS market_regime_daily (
+            dt INTEGER PRIMARY KEY,
+            regime_id TEXT NOT NULL,
+            breadth_above_ma20 DOUBLE,
+            breadth_above_ma60 DOUBLE,
+            advancers_ratio DOUBLE,
+            index_close_vs_ma20 DOUBLE,
+            index_close_vs_ma60 DOUBLE,
+            market_atr_pct DOUBLE,
+            sector_dispersion DOUBLE,
+            regime_score DOUBLE,
+            label_version TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL
+        );
+        """
+    )
+
+
+def _ensure_future_pattern_daily_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS future_pattern_daily (
+            code TEXT NOT NULL,
+            dt INTEGER NOT NULL,
+            horizon INTEGER NOT NULL,
+            pattern_id TEXT NOT NULL,
+            ret_5_atr DOUBLE,
+            ret_10_atr DOUBLE,
+            ret_20_atr DOUBLE,
+            mfe_20_atr DOUBLE,
+            mae_20_atr DOUBLE,
+            max_dd_20_atr DOUBLE,
+            realized_vol_20 DOUBLE,
+            label_version TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL,
+            PRIMARY KEY (code, dt, horizon)
+        );
+        """
+    )
+
+
+def _delete_dt_range(
+    conn,
+    *,
+    table_name: str,
+    dt_column: str,
+    start_dt: int | None,
+    end_dt: int | None,
+    extra_where_sql: str = "",
+    extra_params: list[object] | None = None,
+) -> None:
+    clauses: list[str] = []
+    params: list[object] = []
+    if start_dt is not None:
+        clauses.append(f"{dt_column} >= ?")
+        params.append(int(start_dt))
+    if end_dt is not None:
+        clauses.append(f"{dt_column} <= ?")
+        params.append(int(end_dt))
+    if extra_where_sql:
+        clauses.append(str(extra_where_sql))
+        params.extend(list(extra_params or []))
+    if not clauses:
+        conn.execute(f"DELETE FROM {table_name}")
+        return
+    conn.execute(f"DELETE FROM {table_name} WHERE {' AND '.join(clauses)}", params)
+
+
+def _classify_market_regime_row(
+    row: pd.Series,
+    *,
+    high_vol_threshold: float,
+    high_dispersion_threshold: float,
+) -> tuple[str, float]:
+    breadth20 = _safe_float(row.get("breadth_above_ma20"))
+    breadth60 = _safe_float(row.get("breadth_above_ma60"))
+    advancers = _safe_float(row.get("advancers_ratio"))
+    idx20 = _safe_float(row.get("index_close_vs_ma20"))
+    idx60 = _safe_float(row.get("index_close_vs_ma60"))
+    atr_pct = _safe_float(row.get("market_atr_pct"))
+    dispersion = _safe_float(row.get("sector_dispersion"))
+    breadth_delta5 = _safe_float(row.get("breadth_delta5"))
+
+    score = 0.0
+    if breadth20 is not None:
+        score += (float(breadth20) - 0.50) * 3.0
+    if breadth60 is not None:
+        score += (float(breadth60) - 0.50) * 3.5
+    if advancers is not None:
+        score += (float(advancers) - 0.50) * 2.0
+    if idx20 is not None:
+        score += float(idx20) * 8.0
+    if idx60 is not None:
+        score += float(idx60) * 6.0
+    if atr_pct is not None:
+        score -= max(0.0, float(atr_pct) - 0.03) * 18.0
+    if breadth_delta5 is not None:
+        score += float(breadth_delta5) * 2.5
+
+    is_risk_on_trend = bool(
+        breadth20 is not None
+        and breadth60 is not None
+        and idx20 is not None
+        and idx60 is not None
+        and atr_pct is not None
+        and float(breadth20) >= 0.60
+        and float(breadth60) >= 0.55
+        and float(idx20) > 0.0
+        and float(idx60) > 0.0
+        and float(atr_pct) < float(high_vol_threshold)
+    )
+    is_risk_off_trend = bool(
+        breadth20 is not None
+        and breadth60 is not None
+        and idx20 is not None
+        and idx60 is not None
+        and float(breadth20) <= 0.40
+        and float(breadth60) <= 0.45
+        and float(idx20) < 0.0
+        and float(idx60) < 0.0
+    )
+    is_capitulation_rebound = bool(
+        is_risk_off_trend
+        and breadth_delta5 is not None
+        and advancers is not None
+        and float(breadth_delta5) >= 0.08
+        and float(advancers) >= 0.55
+    )
+    is_high_vol_chaos = bool(
+        atr_pct is not None
+        and dispersion is not None
+        and float(atr_pct) >= float(high_vol_threshold)
+        and float(dispersion) >= float(high_dispersion_threshold)
+    )
+    is_risk_on_range = bool(
+        breadth20 is not None
+        and idx20 is not None
+        and float(breadth20) >= 0.55
+        and float(idx20) > 0.0
+    )
+
+    if is_capitulation_rebound:
+        return "capitulation_rebound", float(score)
+    if is_high_vol_chaos:
+        return "high_vol_chaos", float(score)
+    if is_risk_on_trend:
+        return "risk_on_trend", float(score)
+    if is_risk_on_range:
+        return "risk_on_range", float(score)
+    if is_risk_off_trend:
+        return "risk_off_trend", float(score)
+    return "neutral_range", float(score)
+
+
+def build_market_regime_daily(
+    *,
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+    label_version: str = "v1",
+) -> dict[str, Any]:
+    with get_conn() as conn:
+        _ensure_market_regime_daily_schema(conn)
+        has_sector = _table_exists(conn, "industry_master")
+        sector_join = "LEFT JOIN industry_master im ON im.code = b.code" if has_sector else ""
+        sector_select = "COALESCE(im.sector33_code, '__NA__') AS sector33_code" if has_sector else "'__NA__' AS sector33_code"
+        params: list[object] = []
+        where_sql = ""
+        if start_dt is not None:
+            where_sql += " AND d.dt >= ?"
+            params.append(int(start_dt))
+        if end_dt is not None:
+            where_sql += " AND d.dt <= ?"
+            params.append(int(end_dt))
+
+        metrics_df = conn.execute(
+            f"""
+            WITH base0 AS (
+                SELECT
+                    b.date AS dt,
+                    b.code AS code,
+                    b.c AS close,
+                    b.h AS h,
+                    b.l AS l,
+                    {sector_select},
+                    LAG(b.c, 1) OVER (PARTITION BY b.code ORDER BY b.date) AS prev_close
+                FROM daily_bars b
+                {sector_join}
+                WHERE b.c IS NOT NULL
+            ),
+            base1 AS (
+                SELECT
+                    dt,
+                    code,
+                    close,
+                    sector33_code,
+                    prev_close,
+                    AVG(close) OVER (
+                        PARTITION BY code
+                        ORDER BY dt
+                        ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                    ) AS ma20,
+                    AVG(close) OVER (
+                        PARTITION BY code
+                        ORDER BY dt
+                        ROWS BETWEEN 59 PRECEDING AND CURRENT ROW
+                    ) AS ma60,
+                    GREATEST(
+                        h - l,
+                        ABS(h - COALESCE(prev_close, close)),
+                        ABS(l - COALESCE(prev_close, close))
+                    ) AS tr
+                FROM base0
+            ),
+            base2 AS (
+                SELECT
+                    *,
+                    AVG(tr) OVER (
+                        PARTITION BY code
+                        ORDER BY dt
+                        ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                    ) AS atr20
+                FROM base1
+            ),
+            daily_cross AS (
+                SELECT
+                    dt,
+                    AVG(
+                        CASE
+                            WHEN ma20 IS NOT NULL AND ABS(ma20) > 1e-12 AND close > ma20 THEN 1.0
+                            ELSE 0.0
+                        END
+                    ) AS breadth_above_ma20,
+                    AVG(
+                        CASE
+                            WHEN ma60 IS NOT NULL AND ABS(ma60) > 1e-12 AND close > ma60 THEN 1.0
+                            ELSE 0.0
+                        END
+                    ) AS breadth_above_ma60,
+                    AVG(
+                        CASE
+                            WHEN prev_close IS NOT NULL AND ABS(prev_close) > 1e-12 AND close > prev_close THEN 1.0
+                            ELSE 0.0
+                        END
+                    ) AS advancers_ratio,
+                    AVG(
+                        CASE
+                            WHEN ma20 IS NOT NULL AND ABS(ma20) > 1e-12 THEN (close - ma20) / ma20
+                            ELSE NULL
+                        END
+                    ) AS proxy_close_vs_ma20,
+                    AVG(
+                        CASE
+                            WHEN ma60 IS NOT NULL AND ABS(ma60) > 1e-12 THEN (close - ma60) / ma60
+                            ELSE NULL
+                        END
+                    ) AS proxy_close_vs_ma60,
+                    AVG(
+                        CASE
+                            WHEN atr20 IS NOT NULL AND close > 0 THEN atr20 / close
+                            ELSE NULL
+                        END
+                    ) AS fallback_atr_pct
+                FROM base2
+                GROUP BY dt
+            ),
+            sector_daily AS (
+                SELECT
+                    dt,
+                    sector33_code,
+                    AVG(
+                        CASE
+                            WHEN prev_close IS NOT NULL AND ABS(prev_close) > 1e-12 THEN (close - prev_close) / prev_close
+                            ELSE NULL
+                        END
+                    ) AS sector_ret1
+                FROM base2
+                GROUP BY dt, sector33_code
+            ),
+            sector_disp AS (
+                SELECT
+                    dt,
+                    STDDEV_SAMP(sector_ret1) AS sector_dispersion
+                FROM sector_daily
+                GROUP BY dt
+            ),
+            index_base0 AS (
+                SELECT
+                    b.date AS dt,
+                    b.c AS close,
+                    b.h AS h,
+                    b.l AS l,
+                    LAG(b.c, 1) OVER (ORDER BY b.date) AS prev_close
+                FROM daily_bars b
+                WHERE b.code = '1001' AND b.c IS NOT NULL
+            ),
+            index_base1 AS (
+                SELECT
+                    dt,
+                    close,
+                    AVG(close) OVER (
+                        ORDER BY dt
+                        ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                    ) AS ma20,
+                    AVG(close) OVER (
+                        ORDER BY dt
+                        ROWS BETWEEN 59 PRECEDING AND CURRENT ROW
+                    ) AS ma60,
+                    GREATEST(
+                        h - l,
+                        ABS(h - COALESCE(prev_close, close)),
+                        ABS(l - COALESCE(prev_close, close))
+                    ) AS tr
+                FROM index_base0
+            ),
+            index_metrics AS (
+                SELECT
+                    dt,
+                    CASE
+                        WHEN ma20 IS NOT NULL AND ABS(ma20) > 1e-12 THEN (close - ma20) / ma20
+                        ELSE NULL
+                    END AS index_close_vs_ma20,
+                    CASE
+                        WHEN ma60 IS NOT NULL AND ABS(ma60) > 1e-12 THEN (close - ma60) / ma60
+                        ELSE NULL
+                    END AS index_close_vs_ma60,
+                    CASE
+                        WHEN close > 0 THEN
+                            AVG(tr) OVER (
+                                ORDER BY dt
+                                ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                            ) / close
+                        ELSE NULL
+                    END AS market_atr_pct
+                FROM index_base1
+            )
+            SELECT
+                d.dt,
+                d.breadth_above_ma20,
+                d.breadth_above_ma60,
+                d.advancers_ratio,
+                COALESCE(i.index_close_vs_ma20, d.proxy_close_vs_ma20) AS index_close_vs_ma20,
+                COALESCE(i.index_close_vs_ma60, d.proxy_close_vs_ma60) AS index_close_vs_ma60,
+                COALESCE(i.market_atr_pct, d.fallback_atr_pct) AS market_atr_pct,
+                s.sector_dispersion
+            FROM daily_cross d
+            LEFT JOIN sector_disp s ON s.dt = d.dt
+            LEFT JOIN index_metrics i ON i.dt = d.dt
+            WHERE 1 = 1
+            {where_sql}
+            ORDER BY d.dt ASC
+            """,
+            params,
+        ).df()
+
+        if metrics_df.empty:
+            return {
+                "table": "market_regime_daily",
+                "rows": 0,
+                "label_version": str(label_version),
+                "counts_by_regime": {},
+            }
+
+        metrics_df["breadth_delta5"] = metrics_df["breadth_above_ma20"].astype(float).diff(5)
+        atr_series = metrics_df["market_atr_pct"].dropna()
+        dispersion_series = metrics_df["sector_dispersion"].dropna()
+        high_vol_threshold = float(max(0.035, atr_series.quantile(0.75))) if not atr_series.empty else 0.035
+        high_dispersion_threshold = (
+            float(max(0.012, dispersion_series.quantile(0.75)))
+            if not dispersion_series.empty
+            else 0.012
+        )
+        classifications = metrics_df.apply(
+            lambda row: _classify_market_regime_row(
+                row,
+                high_vol_threshold=high_vol_threshold,
+                high_dispersion_threshold=high_dispersion_threshold,
+            ),
+            axis=1,
+        ).tolist()
+        metrics_df["regime_id"] = [str(item[0]) for item in classifications]
+        metrics_df["regime_score"] = [float(item[1]) for item in classifications]
+
+        _delete_dt_range(
+            conn,
+            table_name="market_regime_daily",
+            dt_column="dt",
+            start_dt=start_dt,
+            end_dt=end_dt,
+        )
+        created_at = datetime.now(tz=timezone.utc)
+        rows = [
+            [
+                int(row.dt),
+                str(row.regime_id),
+                _safe_float(row.breadth_above_ma20),
+                _safe_float(row.breadth_above_ma60),
+                _safe_float(row.advancers_ratio),
+                _safe_float(row.index_close_vs_ma20),
+                _safe_float(row.index_close_vs_ma60),
+                _safe_float(row.market_atr_pct),
+                _safe_float(row.sector_dispersion),
+                _safe_float(row.regime_score),
+                str(label_version),
+                created_at,
+            ]
+            for row in metrics_df.itertuples(index=False)
+        ]
+        conn.executemany(
+            """
+            INSERT INTO market_regime_daily (
+                dt,
+                regime_id,
+                breadth_above_ma20,
+                breadth_above_ma60,
+                advancers_ratio,
+                index_close_vs_ma20,
+                index_close_vs_ma60,
+                market_atr_pct,
+                sector_dispersion,
+                regime_score,
+                label_version,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        counts_df = conn.execute(
+            """
+            SELECT regime_id, COUNT(*) AS n
+            FROM market_regime_daily
+            WHERE label_version = ?
+              AND (? IS NULL OR dt >= ?)
+              AND (? IS NULL OR dt <= ?)
+            GROUP BY regime_id
+            ORDER BY n DESC, regime_id ASC
+            """,
+            [str(label_version), start_dt, start_dt, end_dt, end_dt],
+        ).df()
+        return {
+            "table": "market_regime_daily",
+            "rows": int(len(rows)),
+            "label_version": str(label_version),
+            "dt_min": int(metrics_df["dt"].min()),
+            "dt_max": int(metrics_df["dt"].max()),
+            "high_vol_threshold": float(high_vol_threshold),
+            "high_dispersion_threshold": float(high_dispersion_threshold),
+            "counts_by_regime": {
+                str(row["regime_id"]): int(row["n"])
+                for _, row in counts_df.iterrows()
+            },
+        }
+
+
+def build_future_pattern_daily(
+    *,
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+    horizon: int = 20,
+    label_version: str = "v1",
+) -> dict[str, Any]:
+    horizon_n = max(5, int(horizon))
+    with get_conn() as conn:
+        _ensure_future_pattern_daily_schema(conn)
+        _delete_dt_range(
+            conn,
+            table_name="future_pattern_daily",
+            dt_column="dt",
+            start_dt=start_dt,
+            end_dt=end_dt,
+            extra_where_sql="horizon = ?",
+            extra_params=[int(horizon_n)],
+        )
+        params: list[object] = [
+            int(horizon_n),
+            str(label_version),
+        ]
+        dt_where = ""
+        if start_dt is not None:
+            dt_where += " AND dt >= ?"
+            params.append(int(start_dt))
+        if end_dt is not None:
+            dt_where += " AND dt <= ?"
+            params.append(int(end_dt))
+
+        conn.execute(
+            f"""
+            INSERT INTO future_pattern_daily (
+                code,
+                dt,
+                horizon,
+                pattern_id,
+                ret_5_atr,
+                ret_10_atr,
+                ret_20_atr,
+                mfe_20_atr,
+                mae_20_atr,
+                max_dd_20_atr,
+                realized_vol_20,
+                label_version,
+                created_at
+            )
+            WITH base0 AS (
+                SELECT
+                    b.code AS code,
+                    b.date AS dt,
+                    b.o AS o,
+                    b.h AS h,
+                    b.l AS l,
+                    b.c AS c,
+                    LAG(b.c, 1) OVER (PARTITION BY b.code ORDER BY b.date) AS prev_close
+                FROM daily_bars b
+                WHERE b.c IS NOT NULL
+            ),
+            base1 AS (
+                SELECT
+                    *,
+                    GREATEST(
+                        h - l,
+                        ABS(h - COALESCE(prev_close, c)),
+                        ABS(l - COALESCE(prev_close, c))
+                    ) AS tr,
+                    CASE
+                        WHEN prev_close IS NULL OR ABS(prev_close) <= 1e-12 OR c <= 0 THEN NULL
+                        ELSE LN(c / prev_close)
+                    END AS log_ret1
+                FROM base0
+            ),
+            feature_base AS (
+                SELECT
+                    *,
+                    AVG(tr) OVER (
+                        PARTITION BY code
+                        ORDER BY dt
+                        ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                    ) AS atr20,
+                    LEAD(c, 5) OVER (PARTITION BY code ORDER BY dt) AS close_f5,
+                    LEAD(c, 10) OVER (PARTITION BY code ORDER BY dt) AS close_f10,
+                    LEAD(c, 20) OVER (PARTITION BY code ORDER BY dt) AS close_f20,
+                    MAX(h) OVER (
+                        PARTITION BY code
+                        ORDER BY dt
+                        ROWS BETWEEN 1 FOLLOWING AND 20 FOLLOWING
+                    ) AS future_high20,
+                    MIN(l) OVER (
+                        PARTITION BY code
+                        ORDER BY dt
+                        ROWS BETWEEN 1 FOLLOWING AND 20 FOLLOWING
+                    ) AS future_low20,
+                    MIN(c) OVER (
+                        PARTITION BY code
+                        ORDER BY dt
+                        ROWS BETWEEN 1 FOLLOWING AND 20 FOLLOWING
+                    ) AS future_close_min20,
+                    STDDEV_SAMP(log_ret1) OVER (
+                        PARTITION BY code
+                        ORDER BY dt
+                        ROWS BETWEEN 1 FOLLOWING AND 20 FOLLOWING
+                    ) AS realized_vol_20
+                FROM base1
+            ),
+            scored AS (
+                SELECT
+                    code,
+                    dt,
+                    c,
+                    atr20,
+                    CASE
+                        WHEN close_f5 IS NULL OR atr20 IS NULL OR ABS(atr20) <= 1e-12 THEN NULL
+                        ELSE (close_f5 - c) / atr20
+                    END AS ret_5_atr,
+                    CASE
+                        WHEN close_f10 IS NULL OR atr20 IS NULL OR ABS(atr20) <= 1e-12 THEN NULL
+                        ELSE (close_f10 - c) / atr20
+                    END AS ret_10_atr,
+                    CASE
+                        WHEN close_f20 IS NULL OR atr20 IS NULL OR ABS(atr20) <= 1e-12 THEN NULL
+                        ELSE (close_f20 - c) / atr20
+                    END AS ret_20_atr,
+                    CASE
+                        WHEN future_high20 IS NULL OR atr20 IS NULL OR ABS(atr20) <= 1e-12 THEN NULL
+                        ELSE (future_high20 - c) / atr20
+                    END AS mfe_20_atr,
+                    CASE
+                        WHEN future_low20 IS NULL OR atr20 IS NULL OR ABS(atr20) <= 1e-12 THEN NULL
+                        ELSE (future_low20 - c) / atr20
+                    END AS mae_20_atr,
+                    CASE
+                        WHEN future_close_min20 IS NULL OR atr20 IS NULL OR ABS(atr20) <= 1e-12 THEN NULL
+                        ELSE (future_close_min20 - c) / atr20
+                    END AS max_dd_20_atr,
+                    realized_vol_20
+                FROM feature_base
+            )
+            SELECT
+                code,
+                dt,
+                ? AS horizon,
+                CASE
+                    WHEN mae_20_atr IS NOT NULL AND mae_20_atr <= -2.5 THEN 'panic_down'
+                    WHEN ret_5_atr IS NOT NULL AND ret_20_atr IS NOT NULL
+                        AND ret_5_atr < -0.5 AND ret_20_atr >= 1.0 THEN 'mean_revert_up'
+                    WHEN ret_20_atr IS NOT NULL AND mae_20_atr IS NOT NULL
+                        AND ret_20_atr >= 1.5 AND mae_20_atr > -0.8 THEN 'trend_up'
+                    WHEN mfe_20_atr IS NOT NULL AND ret_20_atr IS NOT NULL
+                        AND mfe_20_atr >= 1.5 AND ret_20_atr >= 0.0 AND ret_20_atr < 0.7 THEN 'trend_up_then_fade'
+                    WHEN mfe_20_atr IS NOT NULL AND ret_20_atr IS NOT NULL
+                        AND mfe_20_atr >= 1.0 AND ret_20_atr <= -0.5 THEN 'breakout_fail'
+                    WHEN ret_20_atr IS NOT NULL AND ret_20_atr <= -1.5 THEN 'trend_down'
+                    WHEN ret_20_atr IS NOT NULL AND ABS(ret_20_atr) <= 0.5
+                        AND COALESCE(realized_vol_20, 0.0) <= 0.018 THEN 'range_flat'
+                    WHEN ret_20_atr IS NOT NULL AND ABS(ret_20_atr) <= 0.5 THEN 'range_volatile'
+                    ELSE 'mixed'
+                END AS pattern_id,
+                ret_5_atr,
+                ret_10_atr,
+                ret_20_atr,
+                mfe_20_atr,
+                mae_20_atr,
+                max_dd_20_atr,
+                realized_vol_20,
+                ? AS label_version,
+                CURRENT_TIMESTAMP AS created_at
+            FROM scored
+            WHERE atr20 IS NOT NULL
+              AND ABS(atr20) > 1e-12
+              AND ret_20_atr IS NOT NULL
+              {dt_where}
+            """,
+            params,
+        )
+        counts_df = conn.execute(
+            """
+            SELECT pattern_id, COUNT(*) AS n
+            FROM future_pattern_daily
+            WHERE horizon = ?
+              AND label_version = ?
+              AND (? IS NULL OR dt >= ?)
+              AND (? IS NULL OR dt <= ?)
+            GROUP BY pattern_id
+            ORDER BY n DESC, pattern_id ASC
+            """,
+            [int(horizon_n), str(label_version), start_dt, start_dt, end_dt, end_dt],
+        ).df()
+        row = conn.execute(
+            """
+            SELECT COUNT(*), MIN(dt), MAX(dt)
+            FROM future_pattern_daily
+            WHERE horizon = ?
+              AND label_version = ?
+              AND (? IS NULL OR dt >= ?)
+              AND (? IS NULL OR dt <= ?)
+            """,
+            [int(horizon_n), str(label_version), start_dt, start_dt, end_dt, end_dt],
+        ).fetchone()
+        return {
+            "table": "future_pattern_daily",
+            "rows": int(row[0]) if row and row[0] is not None else 0,
+            "dt_min": int(row[1]) if row and row[1] is not None else None,
+            "dt_max": int(row[2]) if row and row[2] is not None else None,
+            "horizon": int(horizon_n),
+            "label_version": str(label_version),
+            "counts_by_pattern": {
+                str(r["pattern_id"]): int(r["n"])
+                for _, r in counts_df.iterrows()
+            },
+        }
+
+
+def get_regime_router_foundation_summary(
+    *,
+    label_version: str = "v1",
+    horizon: int = 20,
+) -> dict[str, Any]:
+    with get_conn() as conn:
+        _ensure_market_regime_daily_schema(conn)
+        _ensure_future_pattern_daily_schema(conn)
+        regime_counts = conn.execute(
+            """
+            SELECT regime_id, COUNT(*) AS n
+            FROM market_regime_daily
+            WHERE label_version = ?
+            GROUP BY regime_id
+            ORDER BY n DESC, regime_id ASC
+            """,
+            [str(label_version)],
+        ).df()
+        pattern_counts = conn.execute(
+            """
+            SELECT pattern_id, COUNT(*) AS n
+            FROM future_pattern_daily
+            WHERE label_version = ?
+              AND horizon = ?
+            GROUP BY pattern_id
+            ORDER BY n DESC, pattern_id ASC
+            """,
+            [str(label_version), int(horizon)],
+        ).df()
+        return {
+            "label_version": str(label_version),
+            "horizon": int(horizon),
+            "market_regime_daily": {
+                "counts_by_regime": {
+                    str(row["regime_id"]): int(row["n"])
+                    for _, row in regime_counts.iterrows()
+                }
+            },
+            "future_pattern_daily": {
+                "counts_by_pattern": {
+                    str(row["pattern_id"]): int(row["n"])
+                    for _, row in pattern_counts.iterrows()
+                }
+            },
+        }
+
+
+def _ensure_strategy_registry_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS strategy_registry (
+            strategy_id TEXT PRIMARY KEY,
+            family TEXT NOT NULL,
+            side TEXT NOT NULL,
+            status TEXT NOT NULL,
+            config_json TEXT NOT NULL,
+            note TEXT,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL
+        );
+        """
+    )
+
+
+def _ensure_strategy_conditional_stats_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS strategy_conditional_stats (
+            strategy_id TEXT NOT NULL,
+            regime_id TEXT NOT NULL,
+            pattern_id TEXT NOT NULL,
+            side TEXT NOT NULL,
+            horizon INTEGER NOT NULL,
+            scope_key TEXT NOT NULL,
+            trades INTEGER NOT NULL,
+            wins INTEGER NOT NULL,
+            win_rate DOUBLE,
+            ret_net_sum DOUBLE,
+            avg_ret_net DOUBLE,
+            profit_factor DOUBLE,
+            avg_mfe DOUBLE,
+            avg_mae DOUBLE,
+            worst_dd DOUBLE,
+            stability_score DOUBLE,
+            label_version TEXT NOT NULL,
+            updated_at TIMESTAMP NOT NULL,
+            PRIMARY KEY (
+                strategy_id,
+                regime_id,
+                pattern_id,
+                side,
+                horizon,
+                scope_key,
+                label_version
+            )
+        );
+        """
+    )
+
+
+def _strategy_config_from_payload(payload: dict[str, Any]) -> StrategyBacktestConfig:
+    data = dict(payload or {})
+    if "allowed_long_setups" in data and data["allowed_long_setups"] is not None:
+        data["allowed_long_setups"] = tuple(str(v) for v in data["allowed_long_setups"])
+    if "allowed_short_setups" in data and data["allowed_short_setups"] is not None:
+        data["allowed_short_setups"] = tuple(str(v) for v in data["allowed_short_setups"])
+    return StrategyBacktestConfig(**data)
+
+
+def _default_strategy_registry_entries() -> list[dict[str, Any]]:
+    return [
+        {
+            "strategy_id": "lb_p2_regime_loose_v1",
+            "family": "long_breakout",
+            "side": "long",
+            "status": "challenger",
+            "note": "Long breakout core with regime filter, loose entry gate.",
+            "config": StrategyBacktestConfig(
+                max_positions=1,
+                initial_units=1,
+                add1_units=0,
+                add2_units=0,
+                hedge_units=0,
+                min_hedge_ratio=0.0,
+                cost_bps=20.0,
+                min_history_bars=220,
+                prefer_net_short_ratio=2.0,
+                event_lookback_days=2,
+                event_lookahead_days=1,
+                min_long_score=1.0,
+                min_short_score=99.0,
+                max_new_entries_per_day=1,
+                max_new_entries_per_month=None,
+                allowed_sides="long",
+                require_decision_for_long=False,
+                require_ma_bull_stack_long=False,
+                max_dist_ma20_long=None,
+                min_volume_ratio_long=0.0,
+                max_atr_pct_long=None,
+                min_ml_p_up_long=None,
+                allowed_long_setups=("long_breakout_p2",),
+                allowed_short_setups=None,
+                use_regime_filter=True,
+                regime_breadth_lookback_days=20,
+                regime_long_min_breadth_above60=0.52,
+                regime_short_max_breadth_above60=0.48,
+                range_bias_width_min=0.08,
+                range_bias_long_pos_min=0.60,
+                range_bias_short_pos_max=0.40,
+                ma20_count20_min_long=15,
+                ma20_count20_min_short=12,
+                ma60_count60_min_long=24,
+                ma60_count60_min_short=30,
+            ),
+        },
+        {
+            "strategy_id": "lb_p2_regime_strict_v1",
+            "family": "long_breakout",
+            "side": "long",
+            "status": "challenger",
+            "note": "Long breakout strict decision + MA stack + volume filter.",
+            "config": StrategyBacktestConfig(
+                max_positions=1,
+                initial_units=1,
+                add1_units=0,
+                add2_units=0,
+                hedge_units=0,
+                min_hedge_ratio=0.0,
+                cost_bps=20.0,
+                min_history_bars=220,
+                prefer_net_short_ratio=2.0,
+                event_lookback_days=2,
+                event_lookahead_days=1,
+                min_long_score=1.5,
+                min_short_score=99.0,
+                max_new_entries_per_day=1,
+                max_new_entries_per_month=None,
+                allowed_sides="long",
+                require_decision_for_long=True,
+                require_ma_bull_stack_long=True,
+                max_dist_ma20_long=0.10,
+                min_volume_ratio_long=1.1,
+                max_atr_pct_long=0.08,
+                min_ml_p_up_long=None,
+                allowed_long_setups=("long_breakout_p2",),
+                allowed_short_setups=None,
+                use_regime_filter=True,
+                regime_breadth_lookback_days=20,
+                regime_long_min_breadth_above60=0.52,
+                regime_short_max_breadth_above60=0.48,
+                range_bias_width_min=0.08,
+                range_bias_long_pos_min=0.60,
+                range_bias_short_pos_max=0.40,
+                ma20_count20_min_long=15,
+                ma20_count20_min_short=12,
+                ma60_count60_min_long=24,
+                ma60_count60_min_short=30,
+            ),
+        },
+        {
+            "strategy_id": "lb_p2_regime_two_pos_v1",
+            "family": "long_breakout",
+            "side": "long",
+            "status": "challenger",
+            "note": "Long breakout strict regime variant with two simultaneous positions.",
+            "config": StrategyBacktestConfig(
+                max_positions=2,
+                initial_units=1,
+                add1_units=0,
+                add2_units=0,
+                hedge_units=0,
+                min_hedge_ratio=0.0,
+                cost_bps=20.0,
+                min_history_bars=220,
+                prefer_net_short_ratio=2.0,
+                event_lookback_days=2,
+                event_lookahead_days=1,
+                min_long_score=1.0,
+                min_short_score=99.0,
+                max_new_entries_per_day=1,
+                max_new_entries_per_month=None,
+                allowed_sides="long",
+                require_decision_for_long=True,
+                require_ma_bull_stack_long=True,
+                max_dist_ma20_long=0.12,
+                min_volume_ratio_long=0.0,
+                max_atr_pct_long=0.10,
+                min_ml_p_up_long=None,
+                allowed_long_setups=("long_breakout_p2",),
+                allowed_short_setups=None,
+                use_regime_filter=True,
+                regime_breadth_lookback_days=20,
+                regime_long_min_breadth_above60=0.52,
+                regime_short_max_breadth_above60=0.48,
+                range_bias_width_min=0.08,
+                range_bias_long_pos_min=0.60,
+                range_bias_short_pos_max=0.40,
+                ma20_count20_min_long=15,
+                ma20_count20_min_short=12,
+                ma60_count60_min_long=24,
+                ma60_count60_min_short=30,
+            ),
+        },
+        {
+            "strategy_id": "lb_p2_no_regime_v1",
+            "family": "long_breakout",
+            "side": "long",
+            "status": "challenger",
+            "note": "Long breakout without regime filter, broad universe behavior check.",
+            "config": StrategyBacktestConfig(
+                max_positions=1,
+                initial_units=1,
+                add1_units=0,
+                add2_units=0,
+                hedge_units=0,
+                min_hedge_ratio=0.0,
+                cost_bps=20.0,
+                min_history_bars=220,
+                prefer_net_short_ratio=2.0,
+                event_lookback_days=2,
+                event_lookahead_days=1,
+                min_long_score=1.0,
+                min_short_score=99.0,
+                max_new_entries_per_day=1,
+                max_new_entries_per_month=None,
+                allowed_sides="long",
+                require_decision_for_long=False,
+                require_ma_bull_stack_long=False,
+                max_dist_ma20_long=None,
+                min_volume_ratio_long=0.0,
+                max_atr_pct_long=None,
+                min_ml_p_up_long=None,
+                allowed_long_setups=("long_breakout_p2",),
+                allowed_short_setups=None,
+                use_regime_filter=False,
+                regime_breadth_lookback_days=20,
+                regime_long_min_breadth_above60=0.52,
+                regime_short_max_breadth_above60=0.48,
+                range_bias_width_min=0.08,
+                range_bias_long_pos_min=0.55,
+                range_bias_short_pos_max=0.40,
+                ma20_count20_min_long=10,
+                ma20_count20_min_short=12,
+                ma60_count60_min_long=36,
+                ma60_count60_min_short=30,
+            ),
+        },
+        {
+            "strategy_id": "lb_p2_decision_only_v1",
+            "family": "long_breakout",
+            "side": "long",
+            "status": "challenger",
+            "note": "Long breakout requiring decision confirmation but looser MA stack rules.",
+            "config": StrategyBacktestConfig(
+                max_positions=1,
+                initial_units=1,
+                add1_units=0,
+                add2_units=0,
+                hedge_units=0,
+                min_hedge_ratio=0.0,
+                cost_bps=20.0,
+                min_history_bars=220,
+                prefer_net_short_ratio=2.0,
+                event_lookback_days=2,
+                event_lookahead_days=1,
+                min_long_score=1.5,
+                min_short_score=99.0,
+                max_new_entries_per_day=1,
+                max_new_entries_per_month=None,
+                allowed_sides="long",
+                require_decision_for_long=True,
+                require_ma_bull_stack_long=False,
+                max_dist_ma20_long=0.10,
+                min_volume_ratio_long=0.0,
+                max_atr_pct_long=0.08,
+                min_ml_p_up_long=None,
+                allowed_long_setups=("long_breakout_p2",),
+                allowed_short_setups=None,
+                use_regime_filter=True,
+                regime_breadth_lookback_days=20,
+                regime_long_min_breadth_above60=0.52,
+                regime_short_max_breadth_above60=0.48,
+                range_bias_width_min=0.06,
+                range_bias_long_pos_min=0.55,
+                range_bias_short_pos_max=0.40,
+                ma20_count20_min_long=10,
+                ma20_count20_min_short=12,
+                ma60_count60_min_long=36,
+                ma60_count60_min_short=30,
+            ),
+        },
+        {
+            "strategy_id": "lr_p1_reversal_v1",
+            "family": "long_reversal",
+            "side": "long",
+            "status": "challenger",
+            "note": "Support reversal near major MA bands, intended for rebound regimes.",
+            "config": StrategyBacktestConfig(
+                max_positions=1,
+                initial_units=1,
+                add1_units=0,
+                add2_units=0,
+                hedge_units=0,
+                min_hedge_ratio=0.0,
+                cost_bps=20.0,
+                min_history_bars=220,
+                prefer_net_short_ratio=2.0,
+                event_lookback_days=2,
+                event_lookahead_days=1,
+                min_long_score=1.0,
+                min_short_score=99.0,
+                max_new_entries_per_day=1,
+                max_new_entries_per_month=None,
+                allowed_sides="long",
+                require_decision_for_long=False,
+                require_ma_bull_stack_long=False,
+                max_dist_ma20_long=0.10,
+                min_volume_ratio_long=0.0,
+                max_atr_pct_long=0.10,
+                min_ml_p_up_long=None,
+                allowed_long_setups=("long_reversal_p1",),
+                allowed_short_setups=None,
+                use_regime_filter=True,
+                regime_breadth_lookback_days=20,
+                regime_long_min_breadth_above60=0.46,
+                regime_short_max_breadth_above60=0.48,
+                range_bias_width_min=0.05,
+                range_bias_long_pos_min=0.45,
+                range_bias_short_pos_max=0.40,
+                ma20_count20_min_long=8,
+                ma20_count20_min_short=12,
+                ma60_count60_min_long=18,
+                ma60_count60_min_short=30,
+            ),
+        },
+        {
+            "strategy_id": "lp_p3_pullback_v1",
+            "family": "long_pullback",
+            "side": "long",
+            "status": "challenger",
+            "note": "Trend pullback continuation with decision confirmation and tighter ATR cap.",
+            "config": StrategyBacktestConfig(
+                max_positions=1,
+                initial_units=1,
+                add1_units=0,
+                add2_units=0,
+                hedge_units=0,
+                min_hedge_ratio=0.0,
+                cost_bps=20.0,
+                min_history_bars=220,
+                prefer_net_short_ratio=2.0,
+                event_lookback_days=2,
+                event_lookahead_days=1,
+                min_long_score=1.0,
+                min_short_score=99.0,
+                max_new_entries_per_day=1,
+                max_new_entries_per_month=None,
+                allowed_sides="long",
+                require_decision_for_long=True,
+                require_ma_bull_stack_long=True,
+                max_dist_ma20_long=0.08,
+                min_volume_ratio_long=0.0,
+                max_atr_pct_long=0.06,
+                min_ml_p_up_long=None,
+                allowed_long_setups=("long_pullback_p3",),
+                allowed_short_setups=None,
+                use_regime_filter=True,
+                regime_breadth_lookback_days=20,
+                regime_long_min_breadth_above60=0.50,
+                regime_short_max_breadth_above60=0.48,
+                range_bias_width_min=0.06,
+                range_bias_long_pos_min=0.55,
+                range_bias_short_pos_max=0.40,
+                ma20_count20_min_long=12,
+                ma20_count20_min_short=12,
+                ma60_count60_min_long=24,
+                ma60_count60_min_short=30,
+            ),
+        },
+        {
+            "strategy_id": "ld_decision_up_v1",
+            "family": "long_decision",
+            "side": "long",
+            "status": "challenger",
+            "note": "Decision-up event confirmation without breakout requirement.",
+            "config": StrategyBacktestConfig(
+                max_positions=1,
+                initial_units=1,
+                add1_units=0,
+                add2_units=0,
+                hedge_units=0,
+                min_hedge_ratio=0.0,
+                cost_bps=20.0,
+                min_history_bars=220,
+                prefer_net_short_ratio=2.0,
+                event_lookback_days=2,
+                event_lookahead_days=1,
+                min_long_score=1.0,
+                min_short_score=99.0,
+                max_new_entries_per_day=1,
+                max_new_entries_per_month=None,
+                allowed_sides="long",
+                require_decision_for_long=True,
+                allow_decision_only_long_entries=True,
+                require_ma_bull_stack_long=False,
+                max_dist_ma20_long=0.12,
+                min_volume_ratio_long=0.0,
+                max_atr_pct_long=0.09,
+                min_ml_p_up_long=None,
+                allowed_long_setups=("long_decision_up",),
+                allowed_short_setups=None,
+                use_regime_filter=True,
+                regime_breadth_lookback_days=20,
+                regime_long_min_breadth_above60=0.48,
+                regime_short_max_breadth_above60=0.48,
+                range_bias_width_min=0.05,
+                range_bias_long_pos_min=0.50,
+                range_bias_short_pos_max=0.40,
+                ma20_count20_min_long=8,
+                ma20_count20_min_short=12,
+                ma60_count60_min_long=18,
+                ma60_count60_min_short=30,
+            ),
+        },
+    ]
+
+
+def seed_strategy_registry_defaults() -> dict[str, Any]:
+    created_at = datetime.now(tz=timezone.utc)
+    rows = _default_strategy_registry_entries()
+    with get_conn() as conn:
+        _ensure_strategy_registry_schema(conn)
+        before = _count_rows(conn, "strategy_registry")
+        for row in rows:
+            conn.execute(
+                """
+                INSERT INTO strategy_registry (
+                    strategy_id,
+                    family,
+                    side,
+                    status,
+                    config_json,
+                    note,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(strategy_id) DO UPDATE SET
+                    family = excluded.family,
+                    side = excluded.side,
+                    status = excluded.status,
+                    config_json = excluded.config_json,
+                    note = excluded.note,
+                    updated_at = excluded.updated_at
+                """,
+                [
+                    str(row["strategy_id"]),
+                    str(row["family"]),
+                    str(row["side"]),
+                    str(row["status"]),
+                    json.dumps(asdict(row["config"]), ensure_ascii=False),
+                    row.get("note"),
+                    created_at,
+                    created_at,
+                ],
+            )
+        after = _count_rows(conn, "strategy_registry")
+    return {
+        "table": "strategy_registry",
+        "seeded": int(len(rows)),
+        "rows_before": int(before),
+        "rows_after": int(after),
+    }
+
+
+def _compute_stability_score(
+    *,
+    trades: int,
+    win_rate: float | None,
+    profit_factor: float | None,
+    avg_ret_net: float | None,
+    worst_dd: float | None,
+) -> float:
+    support = min(1.0, math.log1p(max(0, int(trades))) / math.log(51.0))
+    pf_term = math.log(max(0.5, float(profit_factor or 0.5)))
+    win_term = float((float(win_rate or 0.0) - 0.5) * 1.5)
+    avg_term = float(avg_ret_net or 0.0) * 2.0
+    dd_term = float(worst_dd or 0.0) * 0.5
+    return float((pf_term + win_term + avg_term + dd_term) * support)
+
+
+def build_strategy_conditional_stats(
+    *,
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+    max_codes: int | None = 500,
+    horizon: int = 20,
+    label_version: str = "v1",
+    scope_key: str | None = None,
+    strategy_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    horizon_n = max(5, int(horizon))
+    scope = str(scope_key or f"top{int(max_codes) if max_codes is not None else 'all'}")
+    seed_summary = seed_strategy_registry_defaults()
+
+    with get_conn() as conn:
+        _ensure_strategy_registry_schema(conn)
+        _ensure_strategy_conditional_stats_schema(conn)
+        _ensure_market_regime_daily_schema(conn)
+        _ensure_future_pattern_daily_schema(conn)
+        regime_row = conn.execute("SELECT COUNT(*) FROM market_regime_daily WHERE label_version = ?", [str(label_version)]).fetchone()
+        pattern_row = conn.execute(
+            "SELECT COUNT(*) FROM future_pattern_daily WHERE label_version = ? AND horizon = ?",
+            [str(label_version), int(horizon_n)],
+        ).fetchone()
+        if not regime_row or int(regime_row[0] or 0) <= 0:
+            raise RuntimeError("market_regime_daily is empty for the requested label_version")
+        if not pattern_row or int(pattern_row[0] or 0) <= 0:
+            raise RuntimeError("future_pattern_daily is empty for the requested label_version/horizon")
+
+        select_sql = """
+            SELECT strategy_id, family, side, status, config_json, note
+            FROM strategy_registry
+            WHERE status <> 'deprecated'
+        """
+        params: list[object] = []
+        if strategy_ids:
+            placeholders = ", ".join(["?"] * len(strategy_ids))
+            select_sql += f" AND strategy_id IN ({placeholders})"
+            params.extend([str(v) for v in strategy_ids])
+        select_sql += " ORDER BY strategy_id ASC"
+        strategy_rows = conn.execute(select_sql, params).fetchall()
+        if not strategy_rows:
+            raise RuntimeError("No active strategies found in strategy_registry")
+
+        _delete_dt_range(
+            conn,
+            table_name="strategy_conditional_stats",
+            dt_column="horizon",
+            start_dt=None,
+            end_dt=None,
+            extra_where_sql="scope_key = ? AND label_version = ? AND horizon = ?",
+            extra_params=[scope, str(label_version), int(horizon_n)],
+        )
+
+        market = _load_market_frame(conn, start_dt=start_dt, end_dt=end_dt, max_codes=max_codes)
+        if market.empty:
+            raise RuntimeError("No daily_bars rows for strategy conditional stats range")
+        event_rows, _event_notes = _load_event_rows(conn)
+        regime_df = conn.execute(
+            """
+            SELECT dt, regime_id
+            FROM market_regime_daily
+            WHERE label_version = ?
+            """,
+            [str(label_version)],
+        ).df()
+        pattern_df = conn.execute(
+            """
+            SELECT code, dt, pattern_id, mfe_20_atr, mae_20_atr, max_dd_20_atr
+            FROM future_pattern_daily
+            WHERE label_version = ?
+              AND horizon = ?
+            """,
+            [str(label_version), int(horizon_n)],
+        ).df()
+
+    regime_lookup = regime_df.rename(columns={"dt": "entry_dt"})
+    pattern_lookup = pattern_df.rename(columns={"dt": "entry_dt"})
+    inserted_rows: list[list[object]] = []
+    per_strategy_summary: list[dict[str, Any]] = []
+    built_at = datetime.now(tz=timezone.utc)
+
+    for strategy_row in strategy_rows:
+        strategy_id = str(strategy_row[0])
+        try:
+            config_payload = json.loads(strategy_row[4]) if strategy_row[4] else {}
+        except Exception:
+            config_payload = {}
+        cfg = _strategy_config_from_payload(config_payload if isinstance(config_payload, dict) else {})
+        features = _prepare_feature_frame(market, cfg)
+        features["bar_index"] = features.groupby("code", sort=False).cumcount() + 1
+        features = features[
+            (features["signal_ready"])
+            & (features["bar_index"] >= int(max(1, cfg.min_history_bars)))
+        ].copy()
+        if features.empty:
+            per_strategy_summary.append(
+                {
+                    "strategy_id": strategy_id,
+                    "trade_events": 0,
+                    "aggregate_rows": 0,
+                    "status": "no_features",
+                }
+            )
+            continue
+        event_block = _build_event_block_set(
+            features,
+            event_rows,
+            lookback_days=cfg.event_lookback_days,
+            lookahead_days=cfg.event_lookahead_days,
+        )
+        result = _simulate(features, cfg, event_block, include_trade_events=True)
+        trade_events = result.get("trade_events") if isinstance(result.get("trade_events"), list) else []
+        if not trade_events:
+            per_strategy_summary.append(
+                {
+                    "strategy_id": strategy_id,
+                    "trade_events": 0,
+                    "aggregate_rows": 0,
+                    "status": "no_trades",
+                }
+            )
+            continue
+        trades_df = pd.DataFrame(trade_events)
+        trades_df["entry_dt"] = trades_df["entry_dt"].astype(int)
+        trades_df["ret_net"] = trades_df["ret_net"].astype(float)
+        trades_df["qty"] = trades_df["qty"].astype(float)
+        merged = trades_df.merge(regime_lookup, how="left", on="entry_dt")
+        merged = merged.merge(pattern_lookup, how="left", on=["code", "entry_dt"])
+        merged["regime_id"] = merged["regime_id"].fillna("unknown_regime")
+        merged["pattern_id"] = merged["pattern_id"].fillna("unknown_pattern")
+
+        aggregate_rows = 0
+        for (regime_id, pattern_id, side), group in merged.groupby(
+            ["regime_id", "pattern_id", "side"],
+            dropna=False,
+        ):
+            trades = int(len(group))
+            if trades <= 0:
+                continue
+            wins = int((group["ret_net"] > 0).sum())
+            win_rate = float(wins / trades) if trades > 0 else None
+            avg_ret_net = float(group["ret_net"].mean()) if trades > 0 else None
+            ret_net_sum = float((group["ret_net"] * group["qty"]).sum()) if {"ret_net", "qty"}.issubset(group.columns) else 0.0
+            pos_sum = float(group.loc[group["ret_net"] > 0, "ret_net"].sum())
+            neg_sum = float(group.loc[group["ret_net"] < 0, "ret_net"].sum())
+            profit_factor = (pos_sum / abs(neg_sum)) if neg_sum < 0 else None
+            avg_mfe = float(group["mfe_20_atr"].mean()) if "mfe_20_atr" in group.columns and group["mfe_20_atr"].notna().any() else None
+            avg_mae = float(group["mae_20_atr"].mean()) if "mae_20_atr" in group.columns and group["mae_20_atr"].notna().any() else None
+            worst_dd = float(group["max_dd_20_atr"].min()) if "max_dd_20_atr" in group.columns and group["max_dd_20_atr"].notna().any() else None
+            stability_score = _compute_stability_score(
+                trades=trades,
+                win_rate=win_rate,
+                profit_factor=profit_factor,
+                avg_ret_net=avg_ret_net,
+                worst_dd=worst_dd,
+            )
+            inserted_rows.append(
+                [
+                    strategy_id,
+                    str(regime_id),
+                    str(pattern_id),
+                    str(side),
+                    int(horizon_n),
+                    scope,
+                    int(trades),
+                    int(wins),
+                    float(win_rate) if win_rate is not None else None,
+                    float(ret_net_sum),
+                    float(avg_ret_net) if avg_ret_net is not None else None,
+                    float(profit_factor) if profit_factor is not None else None,
+                    float(avg_mfe) if avg_mfe is not None else None,
+                    float(avg_mae) if avg_mae is not None else None,
+                    float(worst_dd) if worst_dd is not None else None,
+                    float(stability_score),
+                    str(label_version),
+                    built_at,
+                ]
+            )
+            aggregate_rows += 1
+        per_strategy_summary.append(
+            {
+                "strategy_id": strategy_id,
+                "trade_events": int(len(trades_df)),
+                "aggregate_rows": int(aggregate_rows),
+                "status": "ok",
+            }
+        )
+
+    with get_conn() as conn:
+        _ensure_strategy_conditional_stats_schema(conn)
+        if inserted_rows:
+            conn.executemany(
+                """
+                INSERT INTO strategy_conditional_stats (
+                    strategy_id,
+                    regime_id,
+                    pattern_id,
+                    side,
+                    horizon,
+                    scope_key,
+                    trades,
+                    wins,
+                    win_rate,
+                    ret_net_sum,
+                    avg_ret_net,
+                    profit_factor,
+                    avg_mfe,
+                    avg_mae,
+                    worst_dd,
+                    stability_score,
+                    label_version,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                inserted_rows,
+            )
+        top_rows = conn.execute(
+            """
+            SELECT strategy_id, COUNT(*) AS row_count, SUM(trades) AS trade_count
+            FROM strategy_conditional_stats
+            WHERE scope_key = ?
+              AND label_version = ?
+              AND horizon = ?
+            GROUP BY strategy_id
+            ORDER BY trade_count DESC, strategy_id ASC
+            """,
+            [scope, str(label_version), int(horizon_n)],
+        ).df()
+    return {
+        "seed_strategy_registry": seed_summary,
+        "table": "strategy_conditional_stats",
+        "rows": int(len(inserted_rows)),
+        "scope_key": scope,
+        "label_version": str(label_version),
+        "horizon": int(horizon_n),
+        "max_codes": int(max_codes) if max_codes is not None else None,
+        "per_strategy": per_strategy_summary,
+        "summary_by_strategy": [
+            {
+                "strategy_id": str(row["strategy_id"]),
+                "row_count": int(row["row_count"]),
+                "trade_count": int(row["trade_count"]),
+            }
+            for _, row in top_rows.iterrows()
+        ],
+    }
+
+
+def _ensure_router_daily_candidates_schema(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS router_daily_candidates (
+            dt INTEGER NOT NULL,
+            code TEXT NOT NULL,
+            sector33_code TEXT,
+            regime_id TEXT NOT NULL,
+            state_bucket TEXT NOT NULL,
+            dominant_pattern_id TEXT,
+            recommended_strategy_id TEXT,
+            recommended_side TEXT NOT NULL,
+            action TEXT NOT NULL,
+            expected_return DOUBLE,
+            expected_profit_factor DOUBLE,
+            expected_win_rate DOUBLE,
+            expected_worst_dd DOUBLE,
+            expected_stability DOUBLE,
+            router_score DOUBLE,
+            confidence DOUBLE,
+            trades_support INTEGER,
+            rank_in_day INTEGER,
+            scope_key TEXT NOT NULL,
+            label_version TEXT NOT NULL,
+            updated_at TIMESTAMP NOT NULL,
+            reason_json TEXT,
+            PRIMARY KEY (dt, code, scope_key, label_version)
+        );
+        """
+    )
+
+
+def _router_feature_config() -> StrategyBacktestConfig:
+    return StrategyBacktestConfig(
+        max_positions=1,
+        initial_units=1,
+        add1_units=0,
+        add2_units=0,
+        hedge_units=0,
+        min_hedge_ratio=0.0,
+        cost_bps=20.0,
+        min_history_bars=220,
+        prefer_net_short_ratio=2.0,
+        event_lookback_days=2,
+        event_lookahead_days=1,
+        min_long_score=1.0,
+        min_short_score=99.0,
+        max_new_entries_per_day=1,
+        max_new_entries_per_month=None,
+        allowed_sides="long",
+        require_decision_for_long=False,
+        require_ma_bull_stack_long=False,
+        max_dist_ma20_long=None,
+        min_volume_ratio_long=0.0,
+        max_atr_pct_long=None,
+        min_ml_p_up_long=None,
+        allowed_long_setups=("long_breakout_p2",),
+        allowed_short_setups=None,
+        use_regime_filter=False,
+        regime_breadth_lookback_days=20,
+        regime_long_min_breadth_above60=0.52,
+        regime_short_max_breadth_above60=0.48,
+        range_bias_width_min=0.06,
+        range_bias_long_pos_min=0.55,
+        range_bias_short_pos_max=0.40,
+        ma20_count20_min_long=10,
+        ma20_count20_min_short=12,
+        ma60_count60_min_long=24,
+        ma60_count60_min_short=30,
+    )
+
+
+def _weighted_metric_or_none(group: pd.DataFrame, value_col: str, weight_col: str = "trades") -> float | None:
+    if value_col not in group.columns or weight_col not in group.columns:
+        return None
+    values = pd.to_numeric(group[value_col], errors="coerce")
+    weights = pd.to_numeric(group[weight_col], errors="coerce").fillna(0.0)
+    mask = values.notna() & weights.gt(0)
+    if not bool(mask.any()):
+        return None
+    return float(np.average(values[mask], weights=weights[mask]))
+
+
+def _aggregate_router_stats_frame(df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                *group_cols,
+                "trades",
+                "wins",
+                "win_rate",
+                "ret_net_sum",
+                "avg_ret_net",
+                "profit_factor",
+                "avg_mfe",
+                "avg_mae",
+                "worst_dd",
+                "stability_score",
+            ]
+        )
+    rows: list[dict[str, Any]] = []
+    for keys, group in df.groupby(group_cols, dropna=False):
+        keys_tuple = keys if isinstance(keys, tuple) else (keys,)
+        trades = int(pd.to_numeric(group["trades"], errors="coerce").fillna(0).sum())
+        wins = int(pd.to_numeric(group["wins"], errors="coerce").fillna(0).sum()) if "wins" in group.columns else 0
+        dd_values = pd.to_numeric(group["worst_dd"], errors="coerce").dropna() if "worst_dd" in group.columns else pd.Series(dtype=float)
+        row = {
+            **{col: keys_tuple[idx] for idx, col in enumerate(group_cols)},
+            "trades": trades,
+            "wins": wins,
+            "win_rate": float(wins / trades) if trades > 0 else None,
+            "ret_net_sum": float(pd.to_numeric(group["ret_net_sum"], errors="coerce").fillna(0.0).sum()),
+            "avg_ret_net": _weighted_metric_or_none(group, "avg_ret_net"),
+            "profit_factor": _weighted_metric_or_none(group, "profit_factor"),
+            "avg_mfe": _weighted_metric_or_none(group, "avg_mfe"),
+            "avg_mae": _weighted_metric_or_none(group, "avg_mae"),
+            "worst_dd": float(dd_values.min()) if not dd_values.empty else None,
+            "stability_score": _weighted_metric_or_none(group, "stability_score"),
+        }
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _build_pattern_prob_lookup(base_counts: pd.DataFrame, key_cols: list[str]) -> dict[tuple[str, ...], dict[str, Any]]:
+    lookup: dict[tuple[str, ...], dict[str, Any]] = {}
+    if base_counts.empty:
+        return lookup
+    for keys, group in base_counts.groupby(key_cols, dropna=False):
+        keys_tuple = keys if isinstance(keys, tuple) else (keys,)
+        total = int(pd.to_numeric(group["count"], errors="coerce").fillna(0).sum())
+        if total <= 0:
+            continue
+        lookup[tuple("" if v is None else str(v) for v in keys_tuple)] = {
+            "support": total,
+            "probs": {
+                str(row["pattern_id"]): float(float(row["count"]) / float(total))
+                for _, row in group.iterrows()
+                if pd.notna(row["pattern_id"]) and float(row["count"]) > 0
+            },
+        }
+    return lookup
+
+
+def _resolve_pattern_probs(
+    *,
+    regime_id: str,
+    state_bucket: str,
+    exact_lookup: dict[tuple[str, ...], dict[str, Any]],
+    regime_lookup: dict[tuple[str, ...], dict[str, Any]],
+    state_lookup: dict[tuple[str, ...], dict[str, Any]],
+    global_entry: dict[str, Any] | None,
+    min_support: int,
+) -> tuple[dict[str, float], str, int]:
+    exact = exact_lookup.get((str(regime_id), str(state_bucket)))
+    if exact and int(exact.get("support") or 0) >= int(min_support):
+        return dict(exact.get("probs") or {}), "regime_state", int(exact.get("support") or 0)
+    regime_only = regime_lookup.get((str(regime_id),))
+    if regime_only and int(regime_only.get("support") or 0) >= int(min_support):
+        return dict(regime_only.get("probs") or {}), "regime", int(regime_only.get("support") or 0)
+    state_only = state_lookup.get((str(state_bucket),))
+    if state_only and int(state_only.get("support") or 0) >= int(min_support):
+        return dict(state_only.get("probs") or {}), "state", int(state_only.get("support") or 0)
+    if global_entry:
+        return dict(global_entry.get("probs") or {}), "global", int(global_entry.get("support") or 0)
+    return {}, "empty", 0
+
+
+def _resolve_strategy_stat(
+    *,
+    strategy_id: str,
+    side: str,
+    regime_id: str,
+    pattern_id: str,
+    exact_lookup: dict[tuple[str, ...], dict[str, Any]],
+    regime_lookup: dict[tuple[str, ...], dict[str, Any]],
+    strategy_lookup: dict[tuple[str, ...], dict[str, Any]],
+) -> tuple[dict[str, Any] | None, str]:
+    exact = exact_lookup.get((str(strategy_id), str(regime_id), str(pattern_id), str(side)))
+    if exact and int(exact.get("trades") or 0) >= 5:
+        return exact, "exact"
+    regime_only = regime_lookup.get((str(strategy_id), str(regime_id), str(side)))
+    if regime_only and int(regime_only.get("trades") or 0) >= 15:
+        return regime_only, "regime"
+    strategy_only = strategy_lookup.get((str(strategy_id), str(side)))
+    if strategy_only and int(strategy_only.get("trades") or 0) >= 40:
+        return strategy_only, "strategy"
+    return None, "missing"
+
+
+def _score_router_strategy(
+    *,
+    strategy_id: str,
+    side: str,
+    regime_id: str,
+    pattern_probs: dict[str, float],
+    candidate_bias: float,
+    setup_bonus: float,
+    exact_lookup: dict[tuple[str, ...], dict[str, Any]],
+    regime_lookup: dict[tuple[str, ...], dict[str, Any]],
+    strategy_lookup: dict[tuple[str, ...], dict[str, Any]],
+) -> dict[str, Any]:
+    expected_return = 0.0
+    expected_pf_log = 0.0
+    expected_win_rate = 0.0
+    expected_worst_dd = 0.0
+    expected_stability = 0.0
+    weighted_support = 0.0
+    source_hits = {"exact": 0, "regime": 0, "strategy": 0, "missing": 0}
+    for pattern_id, prob in pattern_probs.items():
+        weight = float(prob)
+        if weight <= 0:
+            continue
+        stat_row, source_level = _resolve_strategy_stat(
+            strategy_id=strategy_id,
+            side=side,
+            regime_id=regime_id,
+            pattern_id=pattern_id,
+            exact_lookup=exact_lookup,
+            regime_lookup=regime_lookup,
+            strategy_lookup=strategy_lookup,
+        )
+        source_hits[source_level] = source_hits.get(source_level, 0) + 1
+        if not stat_row:
+            continue
+        expected_return += weight * float(stat_row.get("avg_ret_net") or 0.0)
+        expected_pf_log += weight * math.log(max(0.5, float(stat_row.get("profit_factor") or 0.5)))
+        expected_win_rate += weight * float(stat_row.get("win_rate") or 0.0)
+        expected_worst_dd += weight * float(stat_row.get("worst_dd") or -1.5)
+        expected_stability += weight * float(stat_row.get("stability_score") or 0.0)
+        weighted_support += weight * float(stat_row.get("trades") or 0.0)
+    support_term = min(1.0, math.log1p(max(0.0, weighted_support)) / math.log(101.0))
+    raw_score = (
+        (expected_return * 9.0)
+        + (expected_pf_log * 0.9)
+        + ((expected_win_rate - 0.5) * 1.6)
+        + (expected_stability * 0.65)
+        + (expected_worst_dd * 0.35)
+    )
+    dominant_source = max(source_hits.items(), key=lambda kv: kv[1])[0] if source_hits else "missing"
+    fallback_penalty = {
+        "exact": 0.0,
+        "regime": 0.08,
+        "strategy": 0.15,
+        "missing": 0.20,
+    }.get(dominant_source, 0.10)
+    dd_penalty = max(0.0, (-1.2 - float(expected_worst_dd))) * 0.8 if expected_worst_dd < -1.2 else 0.0
+    router_score = float(
+        (raw_score * (0.55 + 0.45 * support_term))
+        + float(candidate_bias)
+        + float(setup_bonus)
+        - float(fallback_penalty)
+        - float(dd_penalty)
+    )
+    confidence = float(min(1.0, (0.5 * support_term) + (0.5 * max(pattern_probs.values(), default=0.0))))
+    return {
+        "strategy_id": str(strategy_id),
+        "side": str(side),
+        "expected_return": float(expected_return),
+        "expected_profit_factor": float(math.exp(expected_pf_log)) if pattern_probs else 0.0,
+        "expected_win_rate": float(expected_win_rate),
+        "expected_worst_dd": float(expected_worst_dd),
+        "expected_stability": float(expected_stability),
+        "trades_support": int(round(weighted_support)),
+        "router_score": float(router_score),
+        "confidence": confidence,
+        "dominant_source": dominant_source,
+        "setup_bonus": float(setup_bonus),
+    }
+
+
+def build_router_daily_candidates(
+    *,
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+    max_codes: int | None = 500,
+    horizon: int = 20,
+    label_version: str = "v1",
+    scope_key: str | None = None,
+    top_n_per_day: int = 25,
+    min_pattern_support: int = 40,
+    min_router_score: float = -0.25,
+    candidate_long_score_min: float = 2.0,
+) -> dict[str, Any]:
+    horizon_n = max(5, int(horizon))
+    scope = str(scope_key or f"top{int(max_codes) if max_codes is not None else 'all'}")
+
+    with get_conn() as conn:
+        _ensure_router_daily_candidates_schema(conn)
+        _ensure_strategy_registry_schema(conn)
+        _ensure_strategy_conditional_stats_schema(conn)
+        _ensure_market_regime_daily_schema(conn)
+        _ensure_future_pattern_daily_schema(conn)
+        cond_count = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM strategy_conditional_stats
+            WHERE scope_key = ?
+              AND label_version = ?
+              AND horizon = ?
+            """,
+            [scope, str(label_version), int(horizon_n)],
+        ).fetchone()
+        if not cond_count or int(cond_count[0] or 0) <= 0:
+            raise RuntimeError("strategy_conditional_stats is empty for the requested scope/label_version/horizon")
+        market = _load_market_frame(conn, start_dt=None, end_dt=end_dt, max_codes=max_codes)
+        if market.empty:
+            raise RuntimeError("No daily_bars rows for router candidate build")
+        regime_df = conn.execute(
+            """
+            SELECT dt, regime_id
+            FROM market_regime_daily
+            WHERE label_version = ?
+            """,
+            [str(label_version)],
+        ).df()
+        pattern_df = conn.execute(
+            """
+            SELECT code, dt, pattern_id
+            FROM future_pattern_daily
+            WHERE label_version = ?
+              AND horizon = ?
+            """,
+            [str(label_version), int(horizon_n)],
+        ).df()
+        cond_df = conn.execute(
+            """
+            SELECT
+                strategy_id,
+                regime_id,
+                pattern_id,
+                side,
+                trades,
+                wins,
+                win_rate,
+                ret_net_sum,
+                avg_ret_net,
+                profit_factor,
+                avg_mfe,
+                avg_mae,
+                worst_dd,
+                stability_score
+            FROM strategy_conditional_stats
+            WHERE scope_key = ?
+              AND label_version = ?
+              AND horizon = ?
+            ORDER BY strategy_id ASC, regime_id ASC, pattern_id ASC
+            """,
+            [scope, str(label_version), int(horizon_n)],
+        ).df()
+        strategy_meta_df = conn.execute(
+            """
+            SELECT strategy_id, family, side, status, config_json
+            FROM strategy_registry
+            WHERE status <> 'deprecated'
+            ORDER BY strategy_id ASC
+            """
+        ).df()
+
+    cfg = _router_feature_config()
+    features = _prepare_feature_frame(market, cfg)
+    if features.empty:
+        raise RuntimeError("No features available for router candidate build")
+    features = features[(features["signal_ready"])].copy()
+    if features.empty:
+        raise RuntimeError("signal_ready features are empty for router candidate build")
+
+    latest_dt = int(features["dt"].max())
+    target_start = int(start_dt) if start_dt is not None else latest_dt
+    target_end = int(end_dt) if end_dt is not None else target_start
+    if target_end < target_start:
+        raise ValueError("end_dt must be greater than or equal to start_dt")
+
+    close_series = pd.to_numeric(features["c"], errors="coerce")
+    atr_series = pd.to_numeric(features["atr14"], errors="coerce")
+    vol_ma20_series = pd.to_numeric(features["vol_ma20"], errors="coerce")
+    volume_series = pd.to_numeric(features["v"], errors="coerce")
+    features["atr_pct_router"] = np.where(close_series.abs() > 1e-12, atr_series / close_series, np.nan)
+    features["vol_ratio_router"] = np.where(vol_ma20_series.abs() > 1e-12, volume_series / vol_ma20_series, np.nan)
+
+    setup_conditions = [
+        features["buy_p2"].fillna(False),
+        features["buy_p1"].fillna(False),
+        features["buy_p3"].fillna(False),
+        features["decision_up"].fillna(False) & features["ma_up_persist_long"].fillna(False),
+        features["decision_up"].fillna(False),
+    ]
+    setup_choices = ["breakout", "support_reversal", "pullback_resume", "decision_trend", "decision_only"]
+    features["setup_bucket"] = np.select(setup_conditions, setup_choices, default="neutral")
+    features["current_setup_id"] = np.select(
+        setup_conditions,
+        ["long_breakout_p2", "long_reversal_p1", "long_pullback_p3", "long_decision_up", "long_decision_up"],
+        default="long_entry",
+    )
+    trend_conditions = [
+        features["above20"].fillna(False) & features["above60"].fillna(False) & (pd.to_numeric(features["ma20_slope5"], errors="coerce") > 0),
+        features["above20"].fillna(False) & (pd.to_numeric(features["ma20_slope5"], errors="coerce") >= 0),
+        features["range_bias_long"].fillna(False) | features["sideways_10_20"].fillna(False),
+    ]
+    trend_choices = ["trend", "transition", "range"]
+    features["trend_bucket"] = np.select(trend_conditions, trend_choices, default="weak")
+    vol_conditions = [
+        features["atr_pct_router"].notna() & (features["atr_pct_router"] <= 0.025),
+        features["atr_pct_router"].notna() & (features["atr_pct_router"] <= 0.05),
+    ]
+    vol_choices = ["lowvol", "midvol"]
+    features["vol_bucket"] = np.select(vol_conditions, vol_choices, default="highvol")
+    features.loc[features["atr_pct_router"].isna(), "vol_bucket"] = "unkvol"
+    features["state_bucket"] = (
+        features["setup_bucket"].astype(str)
+        + "|"
+        + features["trend_bucket"].astype(str)
+        + "|"
+        + features["vol_bucket"].astype(str)
+    )
+    features["router_candidate"] = (
+        features["entry_long"].fillna(False)
+        | features["decision_up"].fillna(False)
+        | (pd.to_numeric(features["long_score"], errors="coerce").fillna(0.0) >= float(candidate_long_score_min))
+    ) & features["above20"].fillna(False)
+    features["candidate_bias"] = (
+        features["buy_p2"].fillna(False).astype(float) * 0.35
+        + features["buy_p1"].fillna(False).astype(float) * 0.18
+        + features["buy_p3"].fillna(False).astype(float) * 0.14
+        + features["decision_up"].fillna(False).astype(float) * 0.12
+        + features["ma_up_persist_long"].fillna(False).astype(float) * 0.08
+        + features["range_bias_long"].fillna(False).astype(float) * 0.05
+        + (features["vol_ratio_router"].fillna(0.0) >= 1.2).astype(float) * 0.05
+        - (features["atr_pct_router"].fillna(0.0) > 0.09).astype(float) * 0.10
+        - (~features["above60"].fillna(False)).astype(float) * 0.08
+    )
+
+    regime_lookup_df = regime_df.copy()
+    pattern_lookup_df = pattern_df.copy()
+    hist = features[features["dt"] < int(target_start)].copy()
+    hist = hist.merge(regime_lookup_df, how="left", on="dt")
+    hist = hist.merge(pattern_lookup_df, how="left", on=["code", "dt"])
+    hist["regime_id"] = hist["regime_id"].fillna("unknown_regime")
+    hist = hist[hist["pattern_id"].notna()].copy()
+    if hist.empty:
+        raise RuntimeError("No historical labeled rows available before target_start for router priors")
+
+    hist_counts = (
+        hist.groupby(["regime_id", "state_bucket", "pattern_id"], dropna=False)
+        .size()
+        .reset_index(name="count")
+    )
+    regime_counts = (
+        hist.groupby(["regime_id", "pattern_id"], dropna=False)
+        .size()
+        .reset_index(name="count")
+    )
+    state_counts = (
+        hist.groupby(["state_bucket", "pattern_id"], dropna=False)
+        .size()
+        .reset_index(name="count")
+    )
+    global_counts = hist.groupby(["pattern_id"], dropna=False).size().reset_index(name="count")
+    exact_pattern_lookup = _build_pattern_prob_lookup(hist_counts, ["regime_id", "state_bucket"])
+    regime_pattern_lookup = _build_pattern_prob_lookup(regime_counts, ["regime_id"])
+    state_pattern_lookup = _build_pattern_prob_lookup(state_counts, ["state_bucket"])
+    global_pattern_lookup = _build_pattern_prob_lookup(global_counts.assign(bucket="global"), ["bucket"])
+    global_entry = global_pattern_lookup.get(("global",))
+
+    cond_long = cond_df[cond_df["side"].astype(str) == "long"].copy()
+    if cond_long.empty:
+        raise RuntimeError("No long-side rows found in strategy_conditional_stats")
+    exact_stats_lookup = {
+        (
+            str(row["strategy_id"]),
+            str(row["regime_id"]),
+            str(row["pattern_id"]),
+            str(row["side"]),
+        ): row.to_dict()
+        for _, row in cond_long.iterrows()
+    }
+    regime_stats_df = _aggregate_router_stats_frame(cond_long, ["strategy_id", "regime_id", "side"])
+    strategy_stats_df = _aggregate_router_stats_frame(cond_long, ["strategy_id", "side"])
+    regime_stats_lookup = {
+        (str(row["strategy_id"]), str(row["regime_id"]), str(row["side"])): row.to_dict()
+        for _, row in regime_stats_df.iterrows()
+    }
+    strategy_stats_lookup = {
+        (str(row["strategy_id"]), str(row["side"])): row.to_dict()
+        for _, row in strategy_stats_df.iterrows()
+    }
+    strategy_ids = sorted({str(v) for v in cond_long["strategy_id"].astype(str).tolist()})
+    strategy_meta_by_id: dict[str, dict[str, Any]] = {}
+    if not strategy_meta_df.empty:
+        for _, row in strategy_meta_df.iterrows():
+            payload_raw = row.get("config_json")
+            try:
+                payload = json.loads(payload_raw) if payload_raw else {}
+            except Exception:
+                payload = {}
+            cfg_payload = payload if isinstance(payload, dict) else {}
+            allowed_long_setups = cfg_payload.get("allowed_long_setups")
+            strategy_meta_by_id[str(row["strategy_id"])] = {
+                "family": str(row.get("family") or ""),
+                "side": str(row.get("side") or ""),
+                "allowed_long_setups": {
+                    str(v) for v in (allowed_long_setups or []) if v is not None
+                },
+            }
+
+    target = features[(features["dt"] >= int(target_start)) & (features["dt"] <= int(target_end)) & (features["router_candidate"])].copy()
+    target = target.merge(regime_lookup_df, how="left", on="dt")
+    target["regime_id"] = target["regime_id"].fillna("unknown_regime")
+    if target.empty:
+        with get_conn() as conn:
+            _ensure_router_daily_candidates_schema(conn)
+            _delete_dt_range(
+                conn,
+                table_name="router_daily_candidates",
+                dt_column="dt",
+                start_dt=int(target_start),
+                end_dt=int(target_end),
+                extra_where_sql="scope_key = ? AND label_version = ?",
+                extra_params=[scope, str(label_version)],
+            )
+        return {
+            "table": "router_daily_candidates",
+            "rows": 0,
+            "target_start_dt": int(target_start),
+            "target_end_dt": int(target_end),
+            "target_dates": 0,
+            "scope_key": scope,
+            "label_version": str(label_version),
+            "horizon": int(horizon_n),
+            "message": "No router candidates matched the current filters.",
+        }
+
+    inserted_rows: list[list[object]] = []
+    rendered_rows: list[dict[str, Any]] = []
+    built_at = datetime.now(tz=timezone.utc)
+    keep_n = max(1, int(top_n_per_day))
+    fallback_watch_n = min(5, keep_n)
+    min_score = float(min_router_score)
+
+    for dt_value, day_group in target.groupby("dt", sort=True):
+        ranked_candidates: list[dict[str, Any]] = []
+        for row in day_group.to_dict("records"):
+            current_setup_id = str(row.get("current_setup_id") or "long_entry")
+            pattern_probs, lookup_level, lookup_support = _resolve_pattern_probs(
+                regime_id=str(row.get("regime_id") or "unknown_regime"),
+                state_bucket=str(row.get("state_bucket") or "unknown_state"),
+                exact_lookup=exact_pattern_lookup,
+                regime_lookup=regime_pattern_lookup,
+                state_lookup=state_pattern_lookup,
+                global_entry=global_entry,
+                min_support=int(min_pattern_support),
+            )
+            if not pattern_probs:
+                continue
+            scored = [
+                _score_router_strategy(
+                    strategy_id=strategy_id,
+                    side="long",
+                    regime_id=str(row.get("regime_id") or "unknown_regime"),
+                    pattern_probs=pattern_probs,
+                    candidate_bias=float(row.get("candidate_bias") or 0.0),
+                    setup_bonus=(
+                        0.18
+                        if current_setup_id in strategy_meta_by_id.get(strategy_id, {}).get("allowed_long_setups", set())
+                        else (
+                            -0.12
+                            if (
+                                current_setup_id != "long_entry"
+                                and bool(strategy_meta_by_id.get(strategy_id, {}).get("allowed_long_setups"))
+                            )
+                            else 0.0
+                        )
+                    ),
+                    exact_lookup=exact_stats_lookup,
+                    regime_lookup=regime_stats_lookup,
+                    strategy_lookup=strategy_stats_lookup,
+                )
+                for strategy_id in strategy_ids
+            ]
+            scored = [entry for entry in scored if math.isfinite(float(entry.get("router_score") or 0.0))]
+            if not scored:
+                continue
+            scored.sort(key=lambda item: (float(item["router_score"]), float(item["expected_return"])), reverse=True)
+            best = scored[0]
+            dominant_pattern_id = max(pattern_probs.items(), key=lambda kv: kv[1])[0]
+            action = "watch"
+            if (
+                float(best["expected_return"]) > 0
+                and float(best["expected_profit_factor"]) >= 1.02
+                and float(best["expected_worst_dd"]) >= -1.2
+                and float(best["confidence"]) >= 0.45
+            ):
+                action = "long"
+            feature_flags = [
+                name
+                for name, enabled in [
+                    ("buy_p2", bool(row.get("buy_p2"))),
+                    ("buy_p1", bool(row.get("buy_p1"))),
+                    ("buy_p3", bool(row.get("buy_p3"))),
+                    ("decision_up", bool(row.get("decision_up"))),
+                    ("ma_up_persist_long", bool(row.get("ma_up_persist_long"))),
+                    ("range_bias_long", bool(row.get("range_bias_long"))),
+                ]
+                if enabled
+            ]
+            reason_payload = {
+                "lookup_level": lookup_level,
+                "lookup_support": int(lookup_support),
+                "current_setup_id": current_setup_id,
+                "threshold_passed": bool(float(best["router_score"]) >= min_score),
+                "top_patterns": [
+                    {"pattern_id": str(pattern_id), "prob": round(float(prob), 4)}
+                    for pattern_id, prob in sorted(pattern_probs.items(), key=lambda kv: kv[1], reverse=True)[:3]
+                ],
+                "top_strategies": [
+                    {
+                        "strategy_id": str(item["strategy_id"]),
+                        "router_score": round(float(item["router_score"]), 4),
+                        "expected_return": round(float(item["expected_return"]), 4),
+                        "setup_bonus": round(float(item.get("setup_bonus") or 0.0), 4),
+                    }
+                    for item in scored[:3]
+                ],
+                "feature_flags": feature_flags,
+            }
+            ranked_candidates.append(
+                {
+                    "dt": int(dt_value),
+                    "code": str(row.get("code") or ""),
+                    "sector33_code": row.get("sector33_code"),
+                    "regime_id": str(row.get("regime_id") or "unknown_regime"),
+                    "state_bucket": str(row.get("state_bucket") or "unknown_state"),
+                    "dominant_pattern_id": str(dominant_pattern_id),
+                    "recommended_strategy_id": str(best["strategy_id"]),
+                    "recommended_side": "long",
+                    "action": str(action),
+                    "expected_return": float(best["expected_return"]),
+                    "expected_profit_factor": float(best["expected_profit_factor"]),
+                    "expected_win_rate": float(best["expected_win_rate"]),
+                    "expected_worst_dd": float(best["expected_worst_dd"]),
+                    "expected_stability": float(best["expected_stability"]),
+                    "router_score": float(best["router_score"]),
+                    "confidence": float(best["confidence"]),
+                    "trades_support": int(best["trades_support"]),
+                    "reason_json": json.dumps(reason_payload, ensure_ascii=False),
+                    "threshold_passed": bool(float(best["router_score"]) >= min_score),
+                }
+            )
+        ranked_candidates.sort(
+            key=lambda item: (float(item["router_score"]), float(item["expected_return"]), float(item["confidence"])),
+            reverse=True,
+        )
+        selected_candidates = [item for item in ranked_candidates if bool(item.get("threshold_passed"))]
+        if not selected_candidates:
+            selected_candidates = ranked_candidates[:fallback_watch_n]
+        else:
+            selected_candidates = selected_candidates[:keep_n]
+        for rank_idx, item in enumerate(selected_candidates, start=1):
+            item["rank_in_day"] = int(rank_idx)
+            inserted_rows.append(
+                [
+                    int(item["dt"]),
+                    str(item["code"]),
+                    item.get("sector33_code"),
+                    str(item["regime_id"]),
+                    str(item["state_bucket"]),
+                    str(item["dominant_pattern_id"]),
+                    str(item["recommended_strategy_id"]),
+                    str(item["recommended_side"]),
+                    str(item["action"]),
+                    float(item["expected_return"]),
+                    float(item["expected_profit_factor"]),
+                    float(item["expected_win_rate"]),
+                    float(item["expected_worst_dd"]),
+                    float(item["expected_stability"]),
+                    float(item["router_score"]),
+                    float(item["confidence"]),
+                    int(item["trades_support"]),
+                    int(item["rank_in_day"]),
+                    scope,
+                    str(label_version),
+                    built_at,
+                    str(item["reason_json"]),
+                ]
+            )
+            rendered_rows.append(item)
+
+    with get_conn() as conn:
+        _ensure_router_daily_candidates_schema(conn)
+        _delete_dt_range(
+            conn,
+            table_name="router_daily_candidates",
+            dt_column="dt",
+            start_dt=int(target_start),
+            end_dt=int(target_end),
+            extra_where_sql="scope_key = ? AND label_version = ?",
+            extra_params=[scope, str(label_version)],
+        )
+        if inserted_rows:
+            conn.executemany(
+                """
+                INSERT INTO router_daily_candidates (
+                    dt,
+                    code,
+                    sector33_code,
+                    regime_id,
+                    state_bucket,
+                    dominant_pattern_id,
+                    recommended_strategy_id,
+                    recommended_side,
+                    action,
+                    expected_return,
+                    expected_profit_factor,
+                    expected_win_rate,
+                    expected_worst_dd,
+                    expected_stability,
+                    router_score,
+                    confidence,
+                    trades_support,
+                    rank_in_day,
+                    scope_key,
+                    label_version,
+                    updated_at,
+                    reason_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                inserted_rows,
+            )
+
+    summary_rows = (
+        pd.DataFrame(rendered_rows)
+        if rendered_rows
+        else pd.DataFrame(columns=["dt", "action", "code", "recommended_strategy_id", "router_score"])
+    )
+    action_breakdown = []
+    top_by_dt = []
+    if not summary_rows.empty:
+        action_counts = summary_rows.groupby("action").size().sort_values(ascending=False)
+        action_breakdown = [
+            {"action": str(action), "rows": int(count)}
+            for action, count in action_counts.items()
+        ]
+        for dt_value, group in summary_rows.groupby("dt", sort=True):
+            best = group.sort_values(["router_score", "expected_return"], ascending=False).iloc[0]
+            top_by_dt.append(
+                {
+                    "dt": int(dt_value),
+                    "rows": int(len(group)),
+                    "best_code": str(best["code"]),
+                    "best_strategy_id": str(best["recommended_strategy_id"]),
+                    "best_score": float(best["router_score"]),
+                }
+            )
+    return {
+        "table": "router_daily_candidates",
+        "rows": int(len(inserted_rows)),
+        "target_start_dt": int(target_start),
+        "target_end_dt": int(target_end),
+        "target_dates": int(summary_rows["dt"].nunique()) if not summary_rows.empty else 0,
+        "scope_key": scope,
+        "label_version": str(label_version),
+        "horizon": int(horizon_n),
+        "max_codes": int(max_codes) if max_codes is not None else None,
+        "top_n_per_day": int(keep_n),
+        "min_pattern_support": int(min_pattern_support),
+        "action_breakdown": action_breakdown,
+        "top_by_dt": top_by_dt[:10],
     }

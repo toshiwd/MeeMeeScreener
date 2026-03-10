@@ -63,6 +63,7 @@ def get_rankings_multi(
                     "pred_dt": payload.get("pred_dt"),
                     "model_version": payload.get("model_version"),
                     "last_updated": payload.get("last_updated"),
+                    "cache_generation": payload.get("cache_generation"),
                 }
         except Exception as exc:
             errors.append(f"{tf}:{exc}")

@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+import json
 import math
 import logging
 import os
+import re
 import time
 from typing import Dict, Iterable, List, Sequence, Any
 from threading import Lock
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from app.backend.api.dependencies import get_stock_repo
 from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.domain.screening import ranking
+from app.backend.tdnetdb.repository import TdnetdbRepository
 from app.backend.services import rankings_cache
 from app.backend.services.bar_aggregation import merge_monthly_rows_with_daily
 from app.backend.services.edinet_rank_features import load_edinet_rank_features
@@ -27,6 +30,7 @@ from app.backend.services.yahoo_provisional import (
     normalize_date_key,
 )
 from app.db.session import get_conn
+from app.core.config import config as app_config
 from app.services.box_detector import detect_boxes
 
 
@@ -35,6 +39,9 @@ logger = logging.getLogger(__name__)
 _VALID_RISK_MODES = {"defensive", "balanced", "aggressive"}
 _EDINET_SUMMARY_CACHE: dict[tuple[str, int | None], tuple[float, Dict[str, Any] | None]] = {}
 _EDINET_SUMMARY_CACHE_LOCK = Lock()
+_EDINET_FINANCIALS_CACHE: dict[str, tuple[float, Dict[str, Any] | None]] = {}
+_EDINET_FINANCIALS_CACHE_LOCK = Lock()
+_TDNET_REPO: TdnetdbRepository | None = None
 try:
     _EDINET_SUMMARY_CACHE_TTL_SEC = max(
         30.0,
@@ -42,6 +49,13 @@ try:
     )
 except (TypeError, ValueError):
     _EDINET_SUMMARY_CACHE_TTL_SEC = 300.0
+
+
+def _get_tdnet_repo() -> TdnetdbRepository:
+    global _TDNET_REPO
+    if _TDNET_REPO is None:
+        _TDNET_REPO = TdnetdbRepository(app_config.DB_PATH)
+    return _TDNET_REPO
 
 
 def _normalize_rows(rows: Iterable[Sequence], *, fill_volume: bool) -> List[List[float]]:
@@ -77,8 +91,10 @@ def _today_jst_key() -> int:
 
 def _date_key_sql_expr(column: str) -> str:
     return (
-        f"CASE WHEN {column} >= 1000000000 "
-        f"THEN CAST(strftime(to_timestamp({column}), '%Y%m%d') AS BIGINT) "
+        f"CASE "
+        f"WHEN {column} >= 1000000000000 THEN CAST(strftime(to_timestamp({column} / 1000.0), '%Y%m%d') AS BIGINT) "
+        f"WHEN {column} BETWEEN 19000101 AND 29991231 THEN CAST({column} AS BIGINT) "
+        f"WHEN {column} > 0 THEN CAST(strftime(to_timestamp({column}), '%Y%m%d') AS BIGINT) "
         f"ELSE CAST({column} AS BIGINT) END"
     )
 
@@ -534,6 +550,447 @@ def _build_edinet_summary(code: str, asof_dt: int | None) -> Dict[str, Any] | No
             oldest_key = min(_EDINET_SUMMARY_CACHE, key=lambda key: _EDINET_SUMMARY_CACHE[key][0])
             _EDINET_SUMMARY_CACHE.pop(oldest_key, None)
     return summary
+
+
+_EDINET_ALIAS_SPLIT_RE = re.compile(r"[\s_\-./()%\[\]{}:%・,+]")
+_EDINET_ALIAS_REVENUE = (
+    "revenue",
+    "sales",
+    "netsales",
+    "netsales",
+    "売上高",
+    "売上収益",
+    "営業収益",
+)
+_EDINET_ALIAS_GROSS_PROFIT = (
+    "grossprofit",
+    "売上総利益",
+    "売総益",
+)
+_EDINET_ALIAS_OPERATING_INCOME = (
+    "operatingincome",
+    "operatingprofit",
+    "営業利益",
+    "事業利益",
+)
+_EDINET_ALIAS_NET_INCOME = (
+    "netincome",
+    "profitattributabletoownersofparent",
+    "profitattributabletoownersofparent",
+    "当期純利益",
+    "純利益",
+    "親会社株主に帰属する当期純利益",
+)
+_EDINET_ALIAS_EPS = (
+    "eps",
+    "earningspershare",
+    "basiceps",
+    "1株当たり当期純利益",
+    "1株当たり純利益",
+)
+_EDINET_ALIAS_BPS = (
+    "bps",
+    "bookvaluepershare",
+    "netassetvaluepershare",
+    "1株当たり純資産",
+    "1株純資産",
+)
+_EDINET_ALIAS_DIVIDEND = (
+    "dividendpershare",
+    "annualdividendpershare",
+    "cashdividendpershare",
+    "1株当たり配当",
+    "年間配当金",
+)
+_EDINET_ALIAS_EQUITY_RATIO_DETAIL = (
+    "equityratio",
+    "自己資本比率",
+    "自己資本率",
+)
+_EDINET_ALIAS_ROE_DETAIL = (
+    "roe",
+    "returnonequity",
+    "自己資本利益率",
+)
+_EDINET_ALIAS_ROA_DETAIL = (
+    "roa",
+    "returnonassets",
+    "総資産利益率",
+    "総資産経常利益率",
+)
+_EDINET_ALIAS_NET_INTEREST_BEARING_DEBT = (
+    "netinterestbearingdebt",
+    "netdebt",
+    "純有利子負債",
+)
+
+
+_EDINET_ALIAS_SPLIT_RE = re.compile(r"[\s_\-./()%\[\]{}:,+]")
+_EDINET_ALIAS_REVENUE = ("revenue", "sales", "netsales", "operatingrevenue")
+_EDINET_ALIAS_GROSS_PROFIT = ("grossprofit",)
+_EDINET_ALIAS_OPERATING_INCOME = ("operatingincome", "operatingprofit")
+_EDINET_ALIAS_NET_INCOME = ("netincome", "profitattributabletoownersofparent", "profitloss")
+_EDINET_ALIAS_EPS = ("eps", "earningspershare", "basiceps")
+_EDINET_ALIAS_BPS = ("bps", "bookvaluepershare", "netassetvaluepershare")
+_EDINET_ALIAS_DIVIDEND = ("dividendpershare", "annualdividendpershare", "cashdividendpershare")
+_EDINET_ALIAS_EQUITY_RATIO_DETAIL = ("equityratio", "equitycapitalratio")
+_EDINET_ALIAS_ROE_DETAIL = ("roe", "returnonequity")
+_EDINET_ALIAS_ROA_DETAIL = ("roa", "returnonassets")
+_EDINET_ALIAS_NET_INTEREST_BEARING_DEBT = ("netinterestbearingdebt", "netdebt")
+_EDINET_AMOUNT_DISQUALIFIERS = (
+    "pershare",
+    "perstock",
+    "margin",
+    "ratio",
+    "rate",
+    "growth",
+    "yoy",
+    "forecast",
+    "estimate",
+    "plan",
+)
+
+def _edinet_normalize_key(text: object) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    return _EDINET_ALIAS_SPLIT_RE.sub("", raw).lower()
+
+
+def _edinet_normalize_segments(text: object) -> list[str]:
+    parts = re.split(r"[.\[\]]+", str(text or ""))
+    return [part for part in (_edinet_normalize_key(item) for item in parts) if part]
+
+
+def _edinet_json_load(raw: Any) -> Any:
+    if raw is None:
+        return None
+    if isinstance(raw, (dict, list)):
+        return raw
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        return None
+
+
+def _edinet_parse_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) else None
+    text = str(value).strip()
+    if not text:
+        return None
+    cleaned = (
+        text.replace(",", "")
+        .replace("△", "-")
+        .replace("▲", "-")
+        .replace("%", "")
+        .replace("倍", "")
+        .replace("円", "")
+    )
+    cleaned = cleaned.replace("△", "-").replace("▲", "-").replace("倍", "").replace("円", "")
+    try:
+        numeric = float(cleaned)
+    except ValueError:
+        return None
+    return numeric if math.isfinite(numeric) else None
+
+
+def _edinet_collect_numeric_pairs(payload: Any) -> list[tuple[str, float]]:
+    out: list[tuple[str, float]] = []
+    stack: list[tuple[str, Any]] = [("", payload)]
+    while stack:
+        prefix, node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in reversed(list(node.items())):
+                path = f"{prefix}.{key}" if prefix else str(key)
+                stack.append((path, value))
+            continue
+        if isinstance(node, list):
+            for idx, value in reversed(list(enumerate(node))):
+                path = f"{prefix}[{idx}]"
+                stack.append((path, value))
+            continue
+        numeric = _edinet_parse_float(node)
+        if numeric is None or not prefix:
+            continue
+        out.append((prefix, numeric))
+    return out
+
+
+def _edinet_find_first_metric(
+    *pairs_groups: list[tuple[str, float]],
+    aliases: Sequence[str],
+    disqualifiers: Sequence[str] = (),
+) -> float | None:
+    alias_norm = [_edinet_normalize_key(alias) for alias in aliases if _edinet_normalize_key(alias)]
+    if not alias_norm:
+        return None
+    disqualifier_norm = [
+        _edinet_normalize_key(alias)
+        for alias in disqualifiers
+        if _edinet_normalize_key(alias)
+    ]
+    best_score: int | None = None
+    best_value: float | None = None
+    for pairs in pairs_groups:
+        for path, value in pairs:
+            normalized = _edinet_normalize_key(path)
+            if not normalized:
+                continue
+            segments = _edinet_normalize_segments(path)
+            terminal = segments[-1] if segments else normalized
+            penalty = sum(35 for token in disqualifier_norm if token in terminal)
+            for alias in alias_norm:
+                score: int | None = None
+                if terminal == alias:
+                    score = 120
+                elif normalized.endswith(alias):
+                    score = 84
+                elif terminal.startswith(alias):
+                    score = 48
+                elif alias in terminal:
+                    score = 28
+                elif alias in normalized:
+                    score = 12
+                if score is None:
+                    continue
+                score -= penalty
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_value = float(value)
+    return best_value
+
+
+def _edinet_normalize_ratio_metric(value: float | None, *, max_abs: float) -> float | None:
+    if value is None:
+        return None
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        return None
+    if abs(numeric) > max_abs:
+        if abs(numeric) <= max_abs * 100:
+            numeric = numeric / 100.0
+        else:
+            return None
+    return numeric if math.isfinite(numeric) and abs(numeric) <= max_abs else None
+
+
+def _edinet_resolve_margin(
+    numerator: float | None,
+    denominator: float | None,
+    fallback_ratio: float | None,
+    *,
+    max_abs: float,
+) -> float | None:
+    if numerator is not None and denominator not in (None, 0):
+        try:
+            computed = float(numerator) / float(denominator)
+        except (TypeError, ValueError, ZeroDivisionError):
+            computed = None
+        normalized = _edinet_normalize_ratio_metric(computed, max_abs=max_abs)
+        if normalized is not None:
+            return normalized
+    return _edinet_normalize_ratio_metric(fallback_ratio, max_abs=max_abs)
+
+
+def _edinet_parse_fiscal_year(value: Any) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = re.search(r"(19|20)\d{2}", text)
+    if not match:
+        return None
+    try:
+        year = int(match.group(0))
+    except ValueError:
+        return None
+    return year if 1900 <= year <= 2100 else None
+
+
+def _build_edinet_financials_payload(code: str) -> Dict[str, Any] | None:
+    code_key = str(code or "").strip()
+    if not code_key:
+        return None
+    now_ts = time.time()
+    with _EDINET_FINANCIALS_CACHE_LOCK:
+        cached = _EDINET_FINANCIALS_CACHE.get(code_key)
+        if cached and now_ts - cached[0] <= _EDINET_SUMMARY_CACHE_TTL_SEC:
+            payload = cached[1]
+            return dict(payload) if isinstance(payload, dict) else None
+
+    try:
+        with get_conn() as conn:
+            map_row = conn.execute(
+                """
+                SELECT edinet_code
+                FROM edinetdb_company_map
+                WHERE sec_code = ?
+                LIMIT 1
+                """,
+                [code_key],
+            ).fetchone()
+            if not map_row or not map_row[0]:
+                result = {"status": "unmapped", "mapped": False, "summary": None, "series": []}
+            else:
+                edinet_code = str(map_row[0]).strip()
+                fin_rows = conn.execute(
+                    """
+                    SELECT fiscal_year, payload_json, fetched_at
+                    FROM edinetdb_financials
+                    WHERE edinet_code = ?
+                    ORDER BY fetched_at DESC NULLS LAST, fiscal_year DESC NULLS LAST
+                    """,
+                    [edinet_code],
+                ).fetchall()
+                ratio_rows = conn.execute(
+                    """
+                    SELECT fiscal_year, payload_json, fetched_at
+                    FROM edinetdb_ratios
+                    WHERE edinet_code = ?
+                    ORDER BY fetched_at DESC NULLS LAST, fiscal_year DESC NULLS LAST
+                    """,
+                    [edinet_code],
+                ).fetchall()
+                by_year: dict[int, dict[str, Any]] = {}
+                latest_fetched: datetime | None = None
+                for fiscal_year, payload_json, fetched_at in fin_rows:
+                    year = _edinet_parse_fiscal_year(fiscal_year)
+                    if year is None or year in by_year and by_year[year].get("financial") is not None:
+                        continue
+                    bucket = by_year.setdefault(year, {"financial": None, "ratio": None})
+                    bucket["financial"] = _edinet_json_load(payload_json)
+                    if isinstance(fetched_at, datetime) and (latest_fetched is None or fetched_at > latest_fetched):
+                        latest_fetched = fetched_at
+                for fiscal_year, payload_json, fetched_at in ratio_rows:
+                    year = _edinet_parse_fiscal_year(fiscal_year)
+                    if year is None or year in by_year and by_year[year].get("ratio") is not None:
+                        continue
+                    bucket = by_year.setdefault(year, {"financial": None, "ratio": None})
+                    bucket["ratio"] = _edinet_json_load(payload_json)
+                    if isinstance(fetched_at, datetime) and (latest_fetched is None or fetched_at > latest_fetched):
+                        latest_fetched = fetched_at
+
+                series: list[dict[str, Any]] = []
+                for year in sorted(by_year):
+                    financial_payload = by_year[year].get("financial")
+                    ratio_payload = by_year[year].get("ratio")
+                    fin_pairs = _edinet_collect_numeric_pairs(financial_payload)
+                    ratio_pairs = _edinet_collect_numeric_pairs(ratio_payload)
+                    revenue = _edinet_find_first_metric(
+                        fin_pairs,
+                        ratio_pairs,
+                        aliases=_EDINET_ALIAS_REVENUE,
+                        disqualifiers=_EDINET_AMOUNT_DISQUALIFIERS,
+                    )
+                    gross_profit = _edinet_find_first_metric(
+                        fin_pairs,
+                        ratio_pairs,
+                        aliases=_EDINET_ALIAS_GROSS_PROFIT,
+                        disqualifiers=_EDINET_AMOUNT_DISQUALIFIERS,
+                    )
+                    operating_income = _edinet_find_first_metric(
+                        fin_pairs,
+                        ratio_pairs,
+                        aliases=_EDINET_ALIAS_OPERATING_INCOME,
+                        disqualifiers=_EDINET_AMOUNT_DISQUALIFIERS,
+                    )
+                    net_income = _edinet_find_first_metric(
+                        fin_pairs,
+                        ratio_pairs,
+                        aliases=_EDINET_ALIAS_NET_INCOME,
+                        disqualifiers=_EDINET_AMOUNT_DISQUALIFIERS,
+                    )
+                    gross_margin = _edinet_resolve_margin(
+                        gross_profit,
+                        revenue,
+                        _edinet_find_first_metric(ratio_pairs, fin_pairs, aliases=("grossmargin", "売上総利益率")),
+                        max_abs=1.5,
+                    )
+                    operating_margin = _edinet_resolve_margin(
+                        operating_income,
+                        revenue,
+                        _edinet_find_first_metric(ratio_pairs, fin_pairs, aliases=("operatingmargin", "営業利益率")),
+                        max_abs=1.5,
+                    )
+                    net_margin = _edinet_resolve_margin(
+                        net_income,
+                        revenue,
+                        _edinet_find_first_metric(ratio_pairs, fin_pairs, aliases=("netmargin", "純利益率")),
+                        max_abs=2.5,
+                    )
+                    roe = _edinet_normalize_ratio_metric(
+                        _edinet_find_first_metric(ratio_pairs, fin_pairs, aliases=_EDINET_ALIAS_ROE_DETAIL),
+                        max_abs=3.0,
+                    )
+                    roa = _edinet_normalize_ratio_metric(
+                        _edinet_find_first_metric(ratio_pairs, fin_pairs, aliases=_EDINET_ALIAS_ROA_DETAIL),
+                        max_abs=2.0,
+                    )
+                    eps = _edinet_find_first_metric(fin_pairs, ratio_pairs, aliases=_EDINET_ALIAS_EPS)
+                    bps = _edinet_find_first_metric(fin_pairs, ratio_pairs, aliases=_EDINET_ALIAS_BPS)
+                    dividend_per_share = _edinet_find_first_metric(fin_pairs, ratio_pairs, aliases=_EDINET_ALIAS_DIVIDEND)
+                    equity_ratio = _edinet_normalize_ratio_metric(
+                        _edinet_find_first_metric(ratio_pairs, fin_pairs, aliases=_EDINET_ALIAS_EQUITY_RATIO_DETAIL),
+                        max_abs=1.2,
+                    )
+                    net_interest_bearing_debt = _edinet_find_first_metric(
+                        fin_pairs,
+                        ratio_pairs,
+                        aliases=_EDINET_ALIAS_NET_INTEREST_BEARING_DEBT,
+                    )
+                    series.append(
+                        {
+                            "fiscalYear": year,
+                            "label": str(year),
+                            "revenue": revenue,
+                            "grossProfit": gross_profit,
+                            "operatingIncome": operating_income,
+                            "netIncome": net_income,
+                            "grossMargin": gross_margin,
+                            "operatingMargin": operating_margin,
+                            "netMargin": net_margin,
+                            "roe": roe,
+                            "roa": roa,
+                            "eps": eps,
+                            "bps": bps,
+                            "dividendPerShare": dividend_per_share,
+                            "equityRatio": equity_ratio,
+                            "netInterestBearingDebt": net_interest_bearing_debt,
+                        }
+                    )
+
+                latest = series[-1] if series else None
+                result = {
+                    "status": "ok" if series else "no_payload",
+                    "mapped": True,
+                    "fetchedAt": latest_fetched.isoformat() if latest_fetched else None,
+                    "summary": {
+                        "latestFiscalYear": latest.get("fiscalYear") if latest else None,
+                        "equityRatio": latest.get("equityRatio") if latest else None,
+                        "eps": latest.get("eps") if latest else None,
+                        "bps": latest.get("bps") if latest else None,
+                        "dividendPerShare": latest.get("dividendPerShare") if latest else None,
+                        "netInterestBearingDebt": latest.get("netInterestBearingDebt") if latest else None,
+                    } if latest else None,
+                    "series": series,
+                }
+    except Exception:
+        return None
+
+    with _EDINET_FINANCIALS_CACHE_LOCK:
+        _EDINET_FINANCIALS_CACHE[code_key] = (now_ts, dict(result))
+        if len(_EDINET_FINANCIALS_CACHE) > 1024:
+            oldest_key = min(_EDINET_FINANCIALS_CACHE, key=lambda key: _EDINET_FINANCIALS_CACHE[key][0])
+            _EDINET_FINANCIALS_CACHE.pop(oldest_key, None)
+    return result
 
 
 def _normalize_risk_mode(value: str | None) -> str:
@@ -1194,6 +1651,34 @@ def get_analysis_pred(
             "swingDiagnostics": swing_eval.get("diagnostics") if isinstance(swing_eval, dict) else None,
         }
     }
+
+
+@router.get("/edinet/financials", response_model=None)
+def get_edinet_financials(code: str) -> Dict[str, Any]:
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+    payload = _build_edinet_financials_payload(code)
+    return {"item": payload}
+
+
+@router.get("/tdnet/disclosures", response_model=None)
+def get_tdnet_disclosures(code: str, limit: int = Query(10, ge=1, le=100)) -> Dict[str, Any]:
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+    repo = _get_tdnet_repo()
+    return {"items": repo.list_disclosures_by_code(code, limit=limit)}
+
+
+@router.post("/tdnet/disclosures/import", response_model=None)
+def import_tdnet_disclosures(
+    payload: Dict[str, Any] | list[Dict[str, Any]] = Body(...),
+) -> Dict[str, Any]:
+    repo = _get_tdnet_repo()
+    items = payload.get("items") if isinstance(payload, dict) else payload
+    if not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="items must be a list")
+    saved = repo.upsert_disclosures([item for item in items if isinstance(item, dict)])
+    return {"ok": True, "saved": saved}
 
 
 @router.get("/analysis/timeline", response_model=None)

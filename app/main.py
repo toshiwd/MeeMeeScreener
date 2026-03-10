@@ -17,11 +17,11 @@ _PROCESS_LOCK_PATH: str | None = None
 
 
 def _rankings_warmup_delay_sec() -> float:
-    raw = os.getenv("MEEMEE_RANKINGS_WARMUP_DELAY_SEC", "5")
+    raw = os.getenv("MEEMEE_RANKINGS_WARMUP_DELAY_SEC", "0")
     try:
         return max(0.0, float(raw))
     except Exception:
-        return 5.0
+        return 0.0
 
 
 def _refresh_rankings_cache_async() -> None:
@@ -31,7 +31,8 @@ def _refresh_rankings_cache_async() -> None:
             time.sleep(delay_sec)
         from app.backend.services import rankings_cache
         rankings_cache.refresh_cache()
-        print("[main] Rankings cache refreshed.")
+        rankings_cache.warm_default_result_cache()
+        print("[main] Rankings cache refreshed and warmed.")
     except Exception as exc:
         print(f"[main] Rankings cache refresh failed: {exc}")
 
@@ -58,6 +59,41 @@ def _is_pid_running(pid: int) -> bool:
     return True
 
 
+def _get_process_commandline(pid: int) -> str:
+    if pid <= 0 or os.name != "nt":
+        return ""
+    script = (
+        f"$p = Get-CimInstance Win32_Process -Filter \"ProcessId = {int(pid)}\"; "
+        "if ($p) { $p.CommandLine }"
+    )
+    try:
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", script],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="cp932",
+            errors="ignore",
+        )
+        return out.strip()
+    except Exception:
+        return ""
+
+
+def _is_backend_process_pid(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name != "nt":
+        return _is_pid_running(pid)
+    cmdline = _get_process_commandline(pid).lower()
+    if not cmdline:
+        return False
+    return (
+        "--backend" in cmdline
+        or "meemee_backend_only" in cmdline
+        or ("uvicorn" in cmdline and ("app.main:app" in cmdline or " main:app" in cmdline))
+    )
+
+
 def _acquire_process_lock() -> tuple[str | None, bool]:
     from app.core.config import config as core_config
 
@@ -80,7 +116,12 @@ def _acquire_process_lock() -> tuple[str | None, bool]:
                 with open(lock_path, "r", encoding="utf-8") as handle:
                     text = handle.read().strip()
                 existing_pid = int(text) if text.isdigit() else -1
-                if existing_pid > 0 and existing_pid != current_pid and _is_pid_running(existing_pid):
+                if (
+                    existing_pid > 0
+                    and existing_pid != current_pid
+                    and _is_pid_running(existing_pid)
+                    and _is_backend_process_pid(existing_pid)
+                ):
                     raise RuntimeError(f"another backend process is running (PID={existing_pid})")
                 if existing_pid == current_pid:
                     stale = False
@@ -174,6 +215,7 @@ from app.backend.core.ranking_quality_job import (
     start_ranking_analysis_quality_scheduler,
     stop_ranking_analysis_quality_scheduler,
 )
+from app.backend.core.tdnet_import_job import TDNET_IMPORT_JOB_TYPE, handle_tdnet_import
 from app.backend.core.toredex_live_job import handle_toredex_live
 from app.backend.core.toredex_self_improve_job import handle_toredex_self_improve
 from app.backend.core.txt_update_job import handle_txt_update
@@ -191,6 +233,7 @@ job_manager.register_handler("strategy_walkforward", handle_strategy_walkforward
 job_manager.register_handler("strategy_walkforward_gate", handle_strategy_walkforward_gate)
 job_manager.register_handler(YF_DAILY_INGEST_JOB_TYPE, handle_yf_daily_ingest)
 job_manager.register_handler(RANKING_ANALYSIS_QUALITY_JOB_TYPE, handle_ranking_analysis_quality)
+job_manager.register_handler(TDNET_IMPORT_JOB_TYPE, handle_tdnet_import)
 job_manager.register_handler("toredex_live", handle_toredex_live)
 job_manager.register_handler("toredex_self_improve", handle_toredex_self_improve)
 

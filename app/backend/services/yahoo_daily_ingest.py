@@ -99,8 +99,10 @@ def _load_latest_date_key_map(conn, codes: Sequence[str]) -> dict[str, int | Non
 
 def _date_key_sql_expr(column: str) -> str:
     return (
-        f"CASE WHEN {column} >= 1000000000 "
-        f"THEN CAST(strftime(to_timestamp({column}), '%Y%m%d') AS BIGINT) "
+        f"CASE "
+        f"WHEN {column} >= 1000000000000 THEN CAST(strftime(to_timestamp({column} / 1000.0), '%Y%m%d') AS BIGINT) "
+        f"WHEN {column} BETWEEN 19000101 AND 29991231 THEN CAST({column} AS BIGINT) "
+        f"WHEN {column} > 0 THEN CAST(strftime(to_timestamp({column}), '%Y%m%d') AS BIGINT) "
         f"ELSE CAST({column} AS BIGINT) END"
     )
 

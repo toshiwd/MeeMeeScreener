@@ -40,7 +40,14 @@ type MaLine = {
 type EventMarker = {
   time: number;
   label?: string;
-  kind?: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral";
+  kind?:
+    | "earnings"
+    | "decision-buy"
+    | "decision-sell"
+    | "decision-neutral"
+    | "tdnet-positive"
+    | "tdnet-negative"
+    | "tdnet-neutral";
 };
 
 type ChartWithCrosshairApi = ReturnType<typeof createChart> & {
@@ -247,6 +254,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     cursorTime
   });
   const visibleRangeRef = useRef<DetailChartProps["visibleRange"]>(visibleRange);
+  const hasAppliedVisibleRangeRef = useRef(false);
   const candlesRef = useRef<Candle[]>(candles);
   const boxesRef = useRef<Box[]>(boxes);
   const showBoxesRef = useRef(showBoxes);
@@ -1314,6 +1322,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       if (typeof timeScale.timeToCoordinate === "function") {
         const colors = readChartColors();
         const markerRadius = 3;
+        const decisionMarkerRadius = 3;
         const markerBaseY = Math.max(10, height - 14);
         const earningsStackIndex = new Map<number, number>();
         const decisionStackIndex = new Map<number, number>();
@@ -1337,7 +1346,13 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
                 ? colors.decisionSell
                 : marker.kind === "decision-neutral"
                   ? colors.decisionNeutral
-                  : colors.earnings;
+                  : marker.kind === "tdnet-positive"
+                    ? "#22c55e"
+                    : marker.kind === "tdnet-negative"
+                      ? "#ef4444"
+                      : marker.kind === "tdnet-neutral"
+                        ? "#f59e0b"
+                        : colors.earnings;
           const isDecisionMarker =
             marker.kind === "decision-buy" ||
             marker.kind === "decision-sell" ||
@@ -1349,7 +1364,10 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
             if (highY != null && Number.isFinite(highY)) {
               const stackCount = decisionStackIndex.get(marker.time) ?? 0;
               decisionStackIndex.set(marker.time, stackCount + 1);
-              markerY = Math.max(8, highY - 10 - stackCount * 11);
+              markerY = Math.max(
+                8,
+                highY - (decisionMarkerRadius + 6) - stackCount * (decisionMarkerRadius * 2 + 3)
+              );
             } else {
               const stackCount = earningsStackIndex.get(marker.time) ?? 0;
               earningsStackIndex.set(marker.time, stackCount + 1);
@@ -1360,27 +1378,19 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
             earningsStackIndex.set(marker.time, stackCount + 1);
             markerY = Math.max(8, markerBaseY - stackCount * 8);
           }
+          const radius = isDecisionMarker ? decisionMarkerRadius : markerRadius;
           ctx.globalAlpha = 0.45;
           ctx.fillStyle = markerColor;
           ctx.strokeStyle = markerColor;
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(x, markerY, markerRadius, 0, Math.PI * 2);
+          ctx.arc(x, markerY, radius, 0, Math.PI * 2);
           ctx.fill();
           ctx.globalAlpha = 0.65;
           ctx.stroke();
-          ctx.globalAlpha = 0.6;
-          ctx.fillStyle = colors.muted;
-          if (isDecisionMarker) {
-            const decisionLabel =
-              marker.label ??
-              (marker.kind === "decision-buy"
-                ? "B"
-                : marker.kind === "decision-sell"
-                  ? "S"
-                  : "N");
-            ctx.fillText(decisionLabel, x + 6, markerY);
-          } else {
+          if (!isDecisionMarker) {
+            ctx.globalAlpha = 0.6;
+            ctx.fillStyle = colors.muted;
             ctx.fillText(marker.label ?? "E", x + 6, markerY);
           }
         });
@@ -1722,10 +1732,14 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     if (!chart) return;
     if (!candlesRef.current.length) return;
     if (!isValidVisibleRange(visibleRange)) {
+      if (hasAppliedVisibleRangeRef.current) {
+        return;
+      }
       suppressVisibleRangeEvents();
       chart.timeScale().fitContent();
       return;
     }
+    hasAppliedVisibleRangeRef.current = true;
     suppressVisibleRangeEvents();
     chart.timeScale().setVisibleRange(visibleRange);
   }, [visibleRange]);

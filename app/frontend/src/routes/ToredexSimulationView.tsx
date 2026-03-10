@@ -100,7 +100,9 @@ export default function ToredexSimulationView() {
     <div className="app-shell toredex-sim-view">
       <div className="dynamic-header">
         <div className="dynamic-header-row header-row-top">
-          <TopNav />
+          <div className="header-row-left">
+            <TopNav />
+          </div>
         </div>
         <div className="dynamic-header-row header-row-bottom">
           <div className="header-title-group">

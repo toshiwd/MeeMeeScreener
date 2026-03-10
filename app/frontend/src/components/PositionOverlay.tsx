@@ -538,43 +538,41 @@ export default function PositionOverlay({
     if (typeof candleSeries.priceToCoordinate !== "function") return [];
 
     const barsByTime = new Map(bars.map((bar) => [bar.time, bar]));
-    let markers: {
+    const markerKeys = new Set<string>();
+    tradeMarkers.forEach((marker) => {
+      if (!Number.isFinite(marker.time)) return;
+      const fallbackMeta = resolveBrokerMeta(marker.trades[0]?.broker);
+      const brokerKey = normalizeBrokerKey(
+        marker.brokerKey ?? fallbackMeta.key,
+        marker.brokerLabel ?? fallbackMeta.label
+      );
+      markerKeys.add(`${marker.time}:${brokerKey}`);
+    });
+
+    const markers: {
       time: number;
       longText: string;
       shortText: string;
       brokerKey: string;
       brokerGroupKey: string;
     }[] = [];
-    tradeMarkers.forEach((marker) => {
-      if (!Number.isFinite(marker.time)) return;
-      const fallbackMeta = resolveBrokerMeta(marker.trades[0]?.broker);
-      const brokerKey = marker.brokerKey ?? fallbackMeta.key;
-      const brokerGroupKey = marker.brokerGroupKey ?? `${brokerKey}|`;
+    markerKeys.forEach((key) => {
+      const [timeText, brokerKey] = key.split(":");
+      const time = Number(timeText);
+      if (!Number.isFinite(time) || !brokerKey) return;
+      const position = aggregatedPositionsByTime.get(time)?.get(brokerKey);
+      if (!position) return;
       markers.push({
-        time: marker.time,
-        longText: formatLots(marker.buyLots),
-        shortText: formatLots(marker.sellLots),
+        time,
+        longText: formatLots(position.longLots),
+        shortText: formatLots(position.shortLots),
         brokerKey,
-        brokerGroupKey
+        brokerGroupKey: brokerKey
       });
     });
-    const lastBarTime = bars.length ? bars[bars.length - 1].time : null;
-    if (lastBarTime != null && currentPositions && currentPositions.length > 0) {
-      markers = markers.filter((entry) => entry.time !== lastBarTime);
-      currentPositions
-        .filter((pos) => pos.longLots > 0 || pos.shortLots > 0)
-        .forEach((pos) => {
-        markers.push({
-          time: lastBarTime,
-          longText: formatLots(pos.longLots),
-          shortText: formatLots(pos.shortLots),
-          brokerKey: pos.brokerKey,
-          brokerGroupKey: `${pos.brokerKey}|${pos.account ?? ""}`
-        });
-        });
-    }
     markers.sort((a, b) => a.time - b.time);
 
+    const lastBarTime = bars.length ? bars[bars.length - 1].time : null;
     const visibleRange = timeScale.getVisibleRange?.();
     const visibleFrom = normalizeTimeValue(visibleRange?.from ?? null);
     const visibleTo = normalizeTimeValue(visibleRange?.to ?? null);
@@ -647,7 +645,7 @@ export default function PositionOverlay({
       });
     });
     return output;
-  }, [showMarkers, markerSuffix, chart, candleSeries, bars, tradeMarkers, currentPositions, rangeTick]);
+  }, [showMarkers, markerSuffix, chart, candleSeries, bars, tradeMarkers, aggregatedPositionsByTime, rangeTick]);
 
   if (!activeBar) return null;
 

@@ -4,12 +4,21 @@ import argparse
 import json
 import random
 import time
+from collections import deque
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from app.backend.services import strategy_backtest_service
+
+
+PROGRESS_MAX_BYTES = 8 * 1024 * 1024
+PROGRESS_KEEP_LAST_LINES = 4000
+RETENTION_EVERY_N_FULL_RUNS = 10
+KEEP_LATEST_WALKFORWARD_RUNS = 160
+KEEP_LATEST_WALKFORWARD_GATES = 160
+KEEP_LATEST_WALKFORWARD_SNAPSHOTS = 45
 
 
 def _utc_now_iso() -> str:
@@ -27,6 +36,25 @@ def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, ensure_ascii=False, default=_json_default))
         handle.write("\n")
+    _enforce_progress_retention(path)
+
+
+def _enforce_progress_retention(path: Path) -> None:
+    try:
+        if not path.exists() or path.stat().st_size <= int(PROGRESS_MAX_BYTES):
+            return
+    except OSError:
+        return
+    lines: deque[str] = deque(maxlen=int(PROGRESS_KEEP_LAST_LINES))
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for raw_line in handle:
+                if raw_line:
+                    lines.append(raw_line)
+        with path.open("w", encoding="utf-8") as handle:
+            handle.writelines(lines)
+    except OSError:
+        return
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -47,7 +75,7 @@ def _load_last_iteration(path: Path) -> int:
                 payload = json.loads(line)
             except Exception:
                 continue
-            if str(payload.get("event")) != "run_complete":
+            if str(payload.get("event")) not in {"run_complete", "run_pruned"}:
                 continue
             try:
                 last_iteration = max(last_iteration, int(payload.get("iteration") or 0))
@@ -69,77 +97,24 @@ def _load_best_score(path: Path) -> float | None:
         return None
 
 
-def _choose_optional_tuple(rng: random.Random, options: list[tuple[str, ...] | None]) -> tuple[str, ...] | None:
-    value = rng.choice(options)
-    return tuple(value) if value else None
+def _research_candidate_configs() -> tuple[strategy_backtest_service.StrategyBacktestConfig, ...]:
+    configs: list[strategy_backtest_service.StrategyBacktestConfig] = []
+    seen: set[str] = set()
+    for entry in strategy_backtest_service._default_strategy_registry_entries():
+        cfg = entry.get("config")
+        if not isinstance(cfg, strategy_backtest_service.StrategyBacktestConfig):
+            continue
+        key = json.dumps(asdict(cfg), ensure_ascii=False, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        configs.append(cfg)
+    return tuple(configs)
 
 
 def _sample_config(rng: random.Random) -> strategy_backtest_service.StrategyBacktestConfig:
-    allowed_sides = rng.choice(["both", "long", "short"])
-    long_setups = _choose_optional_tuple(
-        rng,
-        [
-            None,
-            ("long_breakout_p2",),
-            ("long_reversal_p1",),
-            ("long_breakout_p2", "long_reversal_p1"),
-        ],
-    )
-    short_setups = _choose_optional_tuple(
-        rng,
-        [
-            None,
-            ("short_crash_top_p3", "short_failed_high_p1", "short_box_fail_p2"),
-            ("short_box_fail_p2", "short_downtrend_p4"),
-            ("short_crash_top_p3",),
-            ("short_failed_high_p1",),
-        ],
-    )
-    min_long_score = rng.choice([1.0, 1.25, 1.5, 2.0])
-    min_short_score = rng.choice([1.0, 1.5, 2.0])
-    if allowed_sides == "long":
-        min_short_score = 99.0
-        short_setups = None
-    elif allowed_sides == "short":
-        min_long_score = 99.0
-        long_setups = None
-    return strategy_backtest_service.StrategyBacktestConfig(
-        max_positions=3,
-        initial_units=1,
-        add1_units=1,
-        add2_units=1,
-        hedge_units=1,
-        min_hedge_ratio=0.2,
-        cost_bps=20.0,
-        min_history_bars=220,
-        prefer_net_short_ratio=2.0,
-        event_lookback_days=2,
-        event_lookahead_days=1,
-        min_long_score=float(min_long_score),
-        min_short_score=float(min_short_score),
-        max_new_entries_per_day=int(rng.choice([1, 2, 3])),
-        max_new_entries_per_month=None,
-        allowed_sides=allowed_sides,
-        require_decision_for_long=False,
-        require_ma_bull_stack_long=False,
-        max_dist_ma20_long=None,
-        min_volume_ratio_long=0.0,
-        max_atr_pct_long=None,
-        min_ml_p_up_long=None,
-        allowed_long_setups=long_setups,
-        allowed_short_setups=short_setups,
-        use_regime_filter=bool(rng.choice([False, True])),
-        regime_breadth_lookback_days=20,
-        regime_long_min_breadth_above60=0.52,
-        regime_short_max_breadth_above60=0.48,
-        range_bias_width_min=float(rng.choice([0.06, 0.08, 0.10])),
-        range_bias_long_pos_min=float(rng.choice([0.55, 0.60, 0.65])),
-        range_bias_short_pos_max=float(rng.choice([0.35, 0.40, 0.45])),
-        ma20_count20_min_long=int(rng.choice([10, 12, 15])),
-        ma20_count20_min_short=12,
-        ma60_count60_min_long=int(rng.choice([24, 30, 36])),
-        ma60_count60_min_short=30,
-    )
+    candidates = _research_candidate_configs()
+    return rng.choices(candidates, weights=(2, 5, 2, 1, 1), k=1)[0]
 
 
 def _build_hedge_profile(report: dict[str, Any]) -> dict[str, float]:
@@ -251,7 +226,37 @@ def _should_prune_probe(
             return True, "oos_worst_max_drawdown_below_threshold"
     except Exception:
         pass
+    requested_max_windows = execution.get("requested_max_windows")
+    executed_windows = execution.get("executed_windows")
+    trade_events = summary.get("oos_trade_events")
+    try:
+        if (
+            requested_max_windows is not None
+            and executed_windows is not None
+            and int(executed_windows) >= int(requested_max_windows)
+            and int(trade_events or 0) <= 0
+        ):
+            return True, "probe_zero_trade_events"
+    except Exception:
+        pass
     return False, None
+
+
+def _run_retention_if_due(full_run_count: int, *, force: bool = False) -> dict[str, Any] | None:
+    if (
+        not force
+        and (int(full_run_count) <= 0 or int(full_run_count) % int(RETENTION_EVERY_N_FULL_RUNS) != 0)
+    ):
+        return None
+    try:
+        return strategy_backtest_service.prune_strategy_walkforward_history(
+            keep_latest_runs=int(KEEP_LATEST_WALKFORWARD_RUNS),
+            keep_latest_gates=int(KEEP_LATEST_WALKFORWARD_GATES),
+            keep_latest_snapshots=int(KEEP_LATEST_WALKFORWARD_SNAPSHOTS),
+            reclaim_space=False,
+        )
+    except Exception:
+        return None
 
 
 def _done_reached(
@@ -283,7 +288,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--done-file", required=True)
     parser.add_argument("--done-require-max-codes", type=int, default=500)
     parser.add_argument("--done-min-trades", type=int, default=1200)
-    parser.add_argument("--done-min-hedge-trades", type=int, default=80)
+    parser.add_argument("--done-min-hedge-trades", type=int, default=0)
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 
@@ -301,6 +306,7 @@ def main() -> int:
     rng = random.Random(args.seed)
     iteration = _load_last_iteration(progress_path)
     best_score = _load_best_score(best_path)
+    full_run_count = 0
 
     _append_jsonl(
         progress_path,
@@ -313,6 +319,17 @@ def main() -> int:
             "max_codes_choices": max_codes_choices,
         },
     )
+    retention_result = _run_retention_if_due(full_run_count, force=True)
+    if isinstance(retention_result, dict):
+        _append_jsonl(
+            progress_path,
+            {
+                "ts": _utc_now_iso(),
+                "event": "retention_applied",
+                "iteration": int(iteration),
+                "retention": retention_result,
+            },
+        )
 
     run_count = 0
     while True:
@@ -419,6 +436,8 @@ def main() -> int:
             if best_score is None or current_score > float(best_score):
                 _write_json(best_path, payload)
                 best_score = float(current_score)
+            full_run_count += 1
+            _run_retention_if_due(full_run_count)
 
             if _done_reached(
                 payload,

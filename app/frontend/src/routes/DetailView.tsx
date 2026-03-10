@@ -17,6 +17,18 @@ import {
   IconChartArrows,
   IconRefresh,
 } from "@tabler/icons-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import DetailChart, {
@@ -115,6 +127,8 @@ type CompareListPayload = {
 };
 
 const ANALYSIS_BACKFILL_ACTIVE_STATUSES = new Set(["queued", "running", "cancel_requested"]);
+const EMPTY_EXACT_DECISION_TONE_BY_DATE = new Map<number, ExactDecisionTone>();
+const EXACT_DECISION_TONE_CACHE_BY_SCOPE = new Map<string, Map<number, ExactDecisionTone>>();
 
 const isCanceledRequestError = (error: unknown) => {
   if (!error || typeof error !== "object") return false;
@@ -286,6 +300,70 @@ type AnalysisEdinetSummary = {
   debtRatio: number | null;
   operatingCfMargin: number | null;
   revenueGrowthYoy: number | null;
+};
+
+type EdinetFinancialSummary = {
+  latestFiscalYear: number | null;
+  equityRatio: number | null;
+  eps: number | null;
+  bps: number | null;
+  dividendPerShare: number | null;
+  netInterestBearingDebt: number | null;
+};
+
+type EdinetFinancialPoint = {
+  fiscalYear: number | null;
+  label: string;
+  revenue: number | null;
+  grossProfit: number | null;
+  operatingIncome: number | null;
+  netIncome: number | null;
+  grossMargin: number | null;
+  operatingMargin: number | null;
+  netMargin: number | null;
+  roe: number | null;
+  roa: number | null;
+  eps: number | null;
+  bps: number | null;
+  dividendPerShare: number | null;
+  equityRatio: number | null;
+  netInterestBearingDebt: number | null;
+};
+
+type EdinetFinancialPanel = {
+  status: string | null;
+  mapped: boolean | null;
+  fetchedAt: string | null;
+  summary: EdinetFinancialSummary | null;
+  series: EdinetFinancialPoint[];
+};
+
+type TdnetDisclosureItem = {
+  disclosureId: string | null;
+  title: string | null;
+  publishedAt: string | null;
+  tdnetUrl: string | null;
+  pdfUrl: string | null;
+  xbrlUrl: string | null;
+  summaryText: string | null;
+  eventType: string | null;
+  sentiment: string | null;
+  importanceScore: number | null;
+  tags: string[];
+};
+
+type TdnetReactionPoint = {
+  bars: number;
+  label: string;
+  targetDate: string | null;
+  returnRatio: number | null;
+};
+
+type TdnetReactionSummary = {
+  baseDate: string | null;
+  baseClose: number | null;
+  volumeRatio: number | null;
+  reactions: TdnetReactionPoint[];
 };
 
 type AnalysisSwingPlanSide = "long" | "short";
@@ -486,11 +564,73 @@ const formatPercentLabel = (value: number | null | undefined, digits = 1) => {
   return `${(value * 100).toFixed(digits)}%`;
 };
 
+const formatFinancialAmountLabel = (value: number | null | undefined) => {
+  if (value == null || !Number.isFinite(value)) return "--";
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000_000) return `${formatNumber(value / 1_000_000_000_000, 2)}兆円`;
+  if (abs >= 100_000_000) return `${formatNumber(value / 100_000_000, 1)}億円`;
+  if (abs >= 10_000) return `${formatNumber(value / 10_000, 1)}万円`;
+  return `${formatNumber(value, 0)}円`;
+};
+
+const formatPerLabel = (value: number | null | undefined) => {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return `${formatNumber(value, 1)}倍`;
+};
+
 const formatSignedPercentLabel = (value: number | null | undefined, digits = 1) => {
   if (value == null || !Number.isFinite(value)) return "--";
   const scaled = value * 100;
   const sign = scaled > 0 ? "+" : "";
   return `${sign}${scaled.toFixed(digits)}%`;
+};
+
+const formatBarDate = (time: number | null | undefined) => {
+  if (time == null || !Number.isFinite(time)) return "--";
+  return new Date(time * 1000).toLocaleDateString("ja-JP");
+};
+
+const buildTdnetReactionSummary = (
+  candles: Candle[],
+  volume: VolumePoint[],
+  disclosure: TdnetDisclosureItem | null
+): TdnetReactionSummary | null => {
+  if (!disclosure?.publishedAt || candles.length === 0) return null;
+  const publishedMs = Date.parse(disclosure.publishedAt);
+  if (!Number.isFinite(publishedMs)) return null;
+  const eventTime = Math.floor(publishedMs / 1000);
+  const eventIndex = findNearestCandleIndex(candles, eventTime);
+  if (eventIndex == null) return null;
+  const baseCandle = candles[eventIndex];
+  if (!baseCandle || Math.abs(baseCandle.time - eventTime) > 5 * 24 * 60 * 60) return null;
+  const volumeMap = new Map(volume.map((item) => [item.time, item.value]));
+  const currentVolume = volumeMap.get(baseCandle.time) ?? null;
+  const priorVolumes = candles
+    .slice(Math.max(0, eventIndex - 20), eventIndex)
+    .map((candle) => volumeMap.get(candle.time) ?? null)
+    .filter((value): value is number => value != null && Number.isFinite(value) && value > 0);
+  const averagePriorVolume =
+    priorVolumes.length > 0 ? priorVolumes.reduce((sum, value) => sum + value, 0) / priorVolumes.length : null;
+  return {
+    baseDate: formatBarDate(baseCandle.time),
+    baseClose: baseCandle.close,
+    volumeRatio:
+      currentVolume != null && averagePriorVolume != null && averagePriorVolume > 0
+        ? currentVolume / averagePriorVolume
+        : null,
+    reactions: [1, 5, 20].map((bars) => {
+      const targetCandle = candles[eventIndex + bars] ?? null;
+      return {
+        bars,
+        label: `+${bars}営業日`,
+        targetDate: targetCandle ? formatBarDate(targetCandle.time) : null,
+        returnRatio:
+          targetCandle && Number.isFinite(baseCandle.close) && baseCandle.close !== 0
+            ? (targetCandle.close - baseCandle.close) / baseCandle.close
+            : null,
+      };
+    }),
+  };
 };
 
 const formatResearchPriorRank = (rank: number | null | undefined, universe: number | null | undefined) => {
@@ -1356,6 +1496,73 @@ const computeEnvironmentTone = (input: EnvironmentComputationInput): Environment
   };
 };
 
+const normalizeEdinetFinancialSummary = (value: unknown): EdinetFinancialSummary | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    latestFiscalYear: toFiniteNumber(source.latestFiscalYear),
+    equityRatio: toFiniteNumber(source.equityRatio),
+    eps: toFiniteNumber(source.eps),
+    bps: toFiniteNumber(source.bps),
+    dividendPerShare: toFiniteNumber(source.dividendPerShare),
+    netInterestBearingDebt: toFiniteNumber(source.netInterestBearingDebt),
+  };
+};
+
+const normalizeEdinetFinancialPoint = (value: unknown): EdinetFinancialPoint | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    fiscalYear: toFiniteNumber(source.fiscalYear),
+    label: typeof source.label === "string" ? source.label : "--",
+    revenue: toFiniteNumber(source.revenue),
+    grossProfit: toFiniteNumber(source.grossProfit),
+    operatingIncome: toFiniteNumber(source.operatingIncome),
+    netIncome: toFiniteNumber(source.netIncome),
+    grossMargin: toFiniteNumber(source.grossMargin),
+    operatingMargin: toFiniteNumber(source.operatingMargin),
+    netMargin: toFiniteNumber(source.netMargin),
+    roe: toFiniteNumber(source.roe),
+    roa: toFiniteNumber(source.roa),
+    eps: toFiniteNumber(source.eps),
+    bps: toFiniteNumber(source.bps),
+    dividendPerShare: toFiniteNumber(source.dividendPerShare),
+    equityRatio: toFiniteNumber(source.equityRatio),
+    netInterestBearingDebt: toFiniteNumber(source.netInterestBearingDebt),
+  };
+};
+
+const normalizeEdinetFinancialPanel = (value: unknown): EdinetFinancialPanel | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  const rawSeries = Array.isArray(source.series) ? source.series : [];
+  return {
+    status: typeof source.status === "string" ? source.status : null,
+    mapped: source.mapped == null ? null : Boolean(source.mapped),
+    fetchedAt: typeof source.fetchedAt === "string" ? source.fetchedAt : null,
+    summary: normalizeEdinetFinancialSummary(source.summary),
+    series: rawSeries.map(normalizeEdinetFinancialPoint).filter((item): item is EdinetFinancialPoint => item !== null),
+  };
+};
+
+const normalizeTdnetDisclosureItem = (value: unknown): TdnetDisclosureItem | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    disclosureId: typeof source.disclosureId === "string" ? source.disclosureId : null,
+    title: typeof source.title === "string" ? source.title : null,
+    publishedAt: typeof source.publishedAt === "string" ? source.publishedAt : null,
+    tdnetUrl: typeof source.tdnetUrl === "string" ? source.tdnetUrl : null,
+    pdfUrl: typeof source.pdfUrl === "string" ? source.pdfUrl : null,
+    xbrlUrl: typeof source.xbrlUrl === "string" ? source.xbrlUrl : null,
+    summaryText: typeof source.summaryText === "string" ? source.summaryText : null,
+    eventType: typeof source.eventType === "string" ? source.eventType : null,
+    sentiment: typeof source.sentiment === "string" ? source.sentiment : null,
+    importanceScore: toFiniteNumber(source.importanceScore),
+    tags: Array.isArray(source.tags) ? source.tags.map((item) => String(item)) : [],
+  };
+};
+
 const buildRange = (candles: Candle[], months: number) => {
   if (!candles.length) return null;
   const end = candles[candles.length - 1].time;
@@ -1487,6 +1694,7 @@ export default function DetailView() {
   const compareDailyChartRef = useRef<DetailChartHandle | null>(null);
   const compareMonthlyChartRef = useRef<DetailChartHandle | null>(null);
   const bottomRowRef = useRef<HTMLDivElement | null>(null);
+  const financialPanelRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
   const hoverTimeRef = useRef<number | null>(null);
   const hoverTimePendingRef = useRef<number | null>(null);
@@ -1522,12 +1730,13 @@ export default function DetailView() {
   const [monthlyData, setMonthlyData] = useState<number[][]>([]);
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [compareBoxes, setCompareBoxes] = useState<Box[]>([]);
-  const [headerMode, setHeaderMode] = useState<"chart" | "draw" | "positions" | "analysis">("chart");
+  const [headerMode, setHeaderMode] = useState<"chart" | "draw" | "positions" | "analysis" | "financial">("chart");
   const [displayOpen, setDisplayOpen] = useState(false);
   const [signalsOpen, setSignalsOpen] = useState(false);
   const [showGapBands, setShowGapBands] = useState(true);
   const [showVolumeEnabled, setShowVolumeEnabled] = useState(true);
   const [showDecisionMarkers, setShowDecisionMarkers] = useState(true);
+  const [showTdnetMarkers, setShowTdnetMarkers] = useState(true);
   const [showTradeMarkers, setShowTradeMarkers] = useState(true);
   const [activeDrawTool, setActiveDrawTool] = useState<DrawTool | null>(null);
   const [, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
@@ -1576,6 +1785,11 @@ export default function DetailView() {
   const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [showPositionLedger, setShowPositionLedger] = useState(false);
+  const [financialPanel, setFinancialPanel] = useState<EdinetFinancialPanel | null>(null);
+  const [financialLoading, setFinancialLoading] = useState(false);
+  const [tdnetDisclosures, setTdnetDisclosures] = useState<TdnetDisclosureItem[]>([]);
+  const [selectedTdnetDisclosures, setSelectedTdnetDisclosures] = useState<TdnetDisclosureItem[]>([]);
+  const [selectedTdnetDisclosureIndex, setSelectedTdnetDisclosureIndex] = useState(0);
   const [positionLedgerExpanded, setPositionLedgerExpanded] = useState(false);
   const [ledgerViewMode, setLedgerViewMode] = useState<"iizuka" | "stock">(() => {
     try {
@@ -1595,9 +1809,12 @@ export default function DetailView() {
   const [analysisBackfillJob, setAnalysisBackfillJob] = useState<JobStatusPayload | null>(null);
   const [analysisFetchRefreshToken, setAnalysisFetchRefreshToken] = useState(0);
   const [analysisRecalcSubmitting, setAnalysisRecalcSubmitting] = useState<"current" | "auto" | null>(null);
-  const [exactDecisionToneCache, setExactDecisionToneCache] = useState<Map<number, ExactDecisionTone>>(() => new Map());
+  const [exactDecisionToneCacheByScope, setExactDecisionToneCacheByScope] = useState<
+    Map<string, Map<number, ExactDecisionTone>>
+  >(() => new Map(EXACT_DECISION_TONE_CACHE_BY_SCOPE));
   const analysisBackfillActiveRef = useRef(false);
   const analysisAutoBackfillRequestKeyRef = useRef<string | null>(null);
+  const prevShowAnalysisPanelRef = useRef(false);
 
   const syncRangesRef = useRef(syncRanges);
   const pendingRangeRef = useRef<{ from: number; to: number } | null>(null);
@@ -1611,6 +1828,7 @@ export default function DetailView() {
     if (!trimmed || trimmed === code) return null;
     return trimmed;
   }, [location.search, code]);
+  const analysisFetchEnabled = headerMode === "analysis" && !compareCode;
   const compareAsOf = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const raw = params.get("compareAsOf");
@@ -1819,13 +2037,9 @@ export default function DetailView() {
   useEffect(() => {
     setAnalysisBackfillJob(null);
     setAnalysisFetchRefreshToken(0);
-    setExactDecisionToneCache(new Map());
     analysisBackfillActiveRef.current = false;
     analysisAutoBackfillRequestKeyRef.current = null;
   }, [code]);
-  useEffect(() => {
-    setExactDecisionToneCache(new Map());
-  }, [analysisRiskMode]);
 
   const {
     item: phaseFallback,
@@ -1875,6 +2089,7 @@ export default function DetailView() {
     code,
     asof: analysisAsOfTime,
     prefetchAsofs: analysisPrefetchAsofs,
+    enabled: analysisFetchEnabled,
     endpoint: "/ticker/analysis",
     timeoutMs: 30000,
     maxRetries: 4,
@@ -1919,6 +2134,7 @@ export default function DetailView() {
     code,
     asof: analysisAsOfTime,
     prefetchAsofs: analysisPrefetchAsofs,
+    enabled: analysisFetchEnabled,
     endpoint: "/ticker/analysis/sell",
     timeoutMs: 30000,
     maxRetries: 4,
@@ -1964,6 +2180,64 @@ export default function DetailView() {
       };
     },
   });
+
+  useEffect(() => {
+    if (!backendReady || !code || headerMode !== "financial") return;
+    let cancelled = false;
+    setFinancialLoading(true);
+    void api
+      .get("/ticker/edinet/financials", { params: { code } })
+      .then((response) => {
+        if (cancelled) return;
+        const item = response.data && typeof response.data === "object"
+          ? (response.data as { item?: unknown }).item
+          : null;
+        setFinancialPanel(normalizeEdinetFinancialPanel(item));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFinancialPanel(null);
+      })
+      .finally(() => {
+        if (!cancelled) setFinancialLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backendReady, code, headerMode]);
+
+  useEffect(() => {
+    if (headerMode !== "financial" || compareCode) return;
+    financialPanelRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [code, compareCode, headerMode]);
+
+  useEffect(() => {
+    if (!backendReady || !code) return;
+    let cancelled = false;
+    void api
+      .get("/ticker/tdnet/disclosures", { params: { code, limit: 30 } })
+      .then((response) => {
+        if (cancelled) return;
+        const items = response.data && typeof response.data === "object"
+          ? (response.data as { items?: unknown }).items
+          : [];
+        const normalized = Array.isArray(items)
+          ? items.map(normalizeTdnetDisclosureItem).filter((item): item is TdnetDisclosureItem => item !== null)
+          : [];
+        setTdnetDisclosures(normalized);
+      })
+      .catch(() => {
+        if (!cancelled) setTdnetDisclosures([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backendReady, code]);
+
+  useEffect(() => {
+    setSelectedTdnetDisclosures([]);
+    setSelectedTdnetDisclosureIndex(0);
+  }, [code]);
 
   const formatPhaseScore = (value: number | null | undefined) => {
     if (phaseFallbackLoading) return "読込中...";
@@ -2037,7 +2311,7 @@ export default function DetailView() {
     return label ? label.replace(/\//g, "-") : "";
   }, [cursorMode, resolvedCursorAsOfTime]);
   useEffect(() => {
-    if (detailAsOfTime == null) {
+    if (!analysisFetchEnabled || detailAsOfTime == null) {
       setAnalysisAsOfTime(null);
       return;
     }
@@ -2050,7 +2324,7 @@ export default function DetailView() {
     return () => {
       window.clearTimeout(timerId);
     };
-  }, [detailAsOfTime, cursorMode]);
+  }, [analysisFetchEnabled, detailAsOfTime, cursorMode]);
   const analysisHorizonData =
     analysisFallback?.horizonAnalysis?.items?.[String(analysisHorizon) as `${AnalysisHorizonKey}`] ?? null;
   const analysisPUp =
@@ -2084,6 +2358,7 @@ export default function DetailView() {
     sellAnalysisFallback?.shortRet10 != null ||
     sellAnalysisFallback?.shortRet20 != null;
   const analysisCacheIncomplete =
+    analysisFetchEnabled &&
     analysisAsOfTime != null &&
     !analysisLoading &&
     !sellAnalysisLoading &&
@@ -2562,6 +2837,34 @@ export default function DetailView() {
           : " (適用OFF)"
       }`
       : null;
+  const financialSeries = financialPanel?.series ?? [];
+  const latestFinancialPoint = financialSeries.length > 0 ? financialSeries[financialSeries.length - 1] : null;
+  const latestPrice = activeTicker?.close ?? null;
+  const financialPer =
+    latestPrice != null &&
+    latestFinancialPoint?.eps != null &&
+    Math.abs(latestFinancialPoint.eps) > 0
+      ? latestPrice / latestFinancialPoint.eps
+      : null;
+  const financialFetchedLabel = financialPanel?.fetchedAt
+    ? new Date(financialPanel.fetchedAt).toLocaleDateString("ja-JP")
+    : null;
+  const financialCards = [
+    { label: "自己資本比率", value: formatPercentLabel(latestFinancialPoint?.equityRatio), tone: "neutral" },
+    { label: "1株利益(EPS)", value: formatNumber(latestFinancialPoint?.eps, 1), tone: "neutral" },
+    { label: "PER", value: formatPerLabel(financialPer), tone: "neutral" },
+    { label: "1株純資産(BPS)", value: formatNumber(latestFinancialPoint?.bps, 2), tone: "neutral" },
+    { label: "1株配当", value: latestFinancialPoint?.dividendPerShare == null ? "--" : `${formatNumber(latestFinancialPoint.dividendPerShare, 0)}円`, tone: "neutral" },
+    {
+      label: "純有利子負債",
+      value: formatFinancialAmountLabel(latestFinancialPoint?.netInterestBearingDebt),
+      tone:
+        latestFinancialPoint?.netInterestBearingDebt != null && latestFinancialPoint.netInterestBearingDebt < 0
+          ? "up"
+          : "neutral"
+    },
+  ] as const;
+  const showFinancialPanel = headerMode === "financial" && !compareCode;
   const swingPlan = analysisFallback?.swingPlan ?? null;
   const swingDiagnostics = analysisFallback?.swingDiagnostics ?? null;
   const swingSetupExpectancy = swingDiagnostics?.setupExpectancy ?? null;
@@ -2575,9 +2878,9 @@ export default function DetailView() {
     Array.isArray(swingPlan?.reasons) ? (swingPlan.reasons as Array<string | null | undefined>) : []
   );
   const hasSwingData = Boolean(swingPlan || swingDiagnostics);
-  const showAnalysisPanel = headerMode === "analysis" && !compareCode;
-  const showMemoPanel = cursorMode && !compareCode && !showAnalysisPanel;
-  const showRightPanel = showAnalysisPanel || showMemoPanel;
+  const showAnalysisPanel = analysisFetchEnabled;
+  const showMemoPanel = cursorMode && !compareCode && headerMode !== "analysis" && headerMode !== "financial";
+  const showRightPanel = showAnalysisPanel || showMemoPanel || showFinancialPanel;
 
   useEffect(() => {
     if (!backendReady || !showAnalysisPanel) {
@@ -2943,15 +3246,73 @@ export default function DetailView() {
     analysisLoadingText != null ||
     sellAnalysisLoadingText != null;
 
-  const dailyEventMarkers = useMemo<{ time: number; kind: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral"; label?: string }[]>(() => {
+  const dailyEventMarkers = useMemo<{ time: number; kind: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral" | "tdnet-positive" | "tdnet-negative" | "tdnet-neutral"; label?: string }[]>(() => {
+    const markers: { time: number; kind: "earnings" | "decision-buy" | "decision-sell" | "decision-neutral" | "tdnet-positive" | "tdnet-negative" | "tdnet-neutral"; label?: string }[] = [];
     const eventMs = parseEventDateMs(activeTicker?.eventEarningsDate);
-    if (eventMs == null || dailyCandles.length === 0) return [];
-    const eventTime = Math.floor(eventMs / 1000);
-    const nearestTime = findNearestCandleTime(dailyCandles, eventTime);
-    if (nearestTime == null) return [];
-    if (Math.abs(nearestTime - eventTime) > MAX_EVENT_OFFSET_SEC) return [];
-    return [{ time: nearestTime, kind: "earnings", label: "E" }];
-  }, [activeTicker?.eventEarningsDate, dailyCandles]);
+    if (eventMs != null && dailyCandles.length > 0) {
+      const eventTime = Math.floor(eventMs / 1000);
+      const nearestTime = findNearestCandleTime(dailyCandles, eventTime);
+      if (nearestTime != null && Math.abs(nearestTime - eventTime) <= MAX_EVENT_OFFSET_SEC) {
+        markers.push({ time: nearestTime, kind: "earnings", label: "E" });
+      }
+    }
+    if (showTdnetMarkers && dailyCandles.length > 0) {
+      tdnetDisclosures.forEach((item) => {
+        if (!item.publishedAt) return;
+        const publishedMs = Date.parse(item.publishedAt);
+        if (!Number.isFinite(publishedMs)) return;
+        const eventTime = Math.floor(publishedMs / 1000);
+        const nearestTime = findNearestCandleTime(dailyCandles, eventTime);
+        if (nearestTime == null) return;
+        if (Math.abs(nearestTime - eventTime) > 5 * 24 * 60 * 60) return;
+        const kind =
+          item.sentiment === "positive"
+            ? "tdnet-positive"
+            : item.sentiment === "negative"
+              ? "tdnet-negative"
+              : "tdnet-neutral";
+        const label =
+          item.eventType === "forecast_revision"
+            ? "予"
+            : item.eventType === "dividend_revision"
+              ? "配"
+              : item.eventType === "share_buyback"
+                ? "買"
+                : item.eventType === "share_split"
+                  ? "分"
+                  : "T";
+        markers.push({ time: nearestTime, kind, label });
+      });
+    }
+    return markers;
+  }, [activeTicker?.eventEarningsDate, dailyCandles, showTdnetMarkers, tdnetDisclosures]);
+  const tdnetDisclosureByCandleTime = useMemo(() => {
+    const mapped = new Map<number, TdnetDisclosureItem[]>();
+    if (!dailyCandles.length) return mapped;
+    tdnetDisclosures.forEach((item) => {
+      if (!item.publishedAt) return;
+      const publishedMs = Date.parse(item.publishedAt);
+      if (!Number.isFinite(publishedMs)) return;
+      const eventTime = Math.floor(publishedMs / 1000);
+      const nearestTime = findNearestCandleTime(dailyCandles, eventTime);
+      if (nearestTime == null) return;
+      if (Math.abs(nearestTime - eventTime) > 5 * 24 * 60 * 60) return;
+      const bucket = mapped.get(nearestTime) ?? [];
+      bucket.push(item);
+      mapped.set(nearestTime, bucket);
+    });
+    return mapped;
+  }, [dailyCandles, tdnetDisclosures]);
+  const activeTdnetDisclosure =
+    selectedTdnetDisclosures.length > 0
+      ? selectedTdnetDisclosures[
+          Math.max(0, Math.min(selectedTdnetDisclosureIndex, selectedTdnetDisclosures.length - 1))
+        ] ?? null
+      : null;
+  const activeTdnetReaction = useMemo(
+    () => buildTdnetReactionSummary(dailyCandles, dailyVolume, activeTdnetDisclosure),
+    [activeTdnetDisclosure, dailyCandles, dailyVolume]
+  );
 
   const weeklyCandles = weeklyData.candles;
   const weeklyVolume = weeklyData.volume;
@@ -3549,8 +3910,23 @@ export default function DetailView() {
   }, [cursorMode, dailyCandles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDailyChartClick = (time: number | null) => {
-    if (!cursorMode || time === null) return;
+    if (time === null) return;
     const nearestIndex = findNearestCandleIndex(dailyCandles, time);
+    if (nearestIndex != null) {
+      const candleTime = dailyCandles[nearestIndex]?.time ?? null;
+      if (candleTime != null) {
+        const tdnetItems = tdnetDisclosureByCandleTime.get(candleTime) ?? [];
+        setSelectedTdnetDisclosures(tdnetItems);
+        setSelectedTdnetDisclosureIndex(0);
+      } else {
+        setSelectedTdnetDisclosures([]);
+        setSelectedTdnetDisclosureIndex(0);
+      }
+    } else {
+      setSelectedTdnetDisclosures([]);
+      setSelectedTdnetDisclosureIndex(0);
+    }
+    if (!cursorMode) return;
     if (nearestIndex != null) {
       updateSelectedBar(nearestIndex);
     }
@@ -3840,24 +4216,48 @@ export default function DetailView() {
     startDt: visibleAnalysisRecalcRange?.startDt ?? null,
     endDt: visibleAnalysisRecalcRange?.endDt ?? null,
     riskMode: analysisRiskMode,
-    enabled: showDecisionMarkers && visibleAnalysisRecalcRange != null,
+    enabled: analysisFetchEnabled && showDecisionMarkers && visibleAnalysisRecalcRange != null,
     cacheKeyExtra: analysisFetchRefreshToken,
   });
+  const exactDecisionToneScopeKey = code ? `${code}|${analysisRiskMode}` : "";
   useEffect(() => {
-    if (!exactDecisionRange.length) return;
-    setExactDecisionToneCache((current) => {
-      let next: Map<number, ExactDecisionTone> | null = null;
+    if (!exactDecisionRange.length || !exactDecisionToneScopeKey) return;
+    setExactDecisionToneCacheByScope((current) => {
+      const scopedCurrent = current.get(exactDecisionToneScopeKey) ?? EMPTY_EXACT_DECISION_TONE_BY_DATE;
+      let nextScoped: Map<number, ExactDecisionTone> | null = null;
       exactDecisionRange.forEach((item) => {
-        if (current.get(item.dtKey) === item.tone) return;
-        if (next == null) {
-          next = new Map(current);
+        if (scopedCurrent.get(item.dtKey) === item.tone) return;
+        if (nextScoped == null) {
+          nextScoped = new Map(scopedCurrent);
         }
-        next.set(item.dtKey, item.tone);
+        nextScoped.set(item.dtKey, item.tone);
       });
-      return next ?? current;
+      if (nextScoped == null) {
+        return current;
+      }
+      const next = new Map(current);
+      next.set(exactDecisionToneScopeKey, nextScoped);
+      EXACT_DECISION_TONE_CACHE_BY_SCOPE.set(exactDecisionToneScopeKey, nextScoped);
+      return next;
     });
-  }, [exactDecisionRange]);
-  const exactDecisionToneByDate = exactDecisionToneCache;
+  }, [exactDecisionRange, exactDecisionToneScopeKey]);
+  const exactDecisionToneByDate = useMemo(() => {
+    if (!exactDecisionToneScopeKey) {
+      return EMPTY_EXACT_DECISION_TONE_BY_DATE;
+    }
+    const cached = exactDecisionToneCacheByScope.get(exactDecisionToneScopeKey);
+    if (cached != null) {
+      return cached;
+    }
+    if (!exactDecisionRange.length) {
+      return EMPTY_EXACT_DECISION_TONE_BY_DATE;
+    }
+    const fallback = new Map<number, ExactDecisionTone>();
+    exactDecisionRange.forEach((item) => {
+      fallback.set(item.dtKey, item.tone);
+    });
+    return fallback;
+  }, [exactDecisionRange, exactDecisionToneCacheByScope, exactDecisionToneScopeKey]);
   const visibleExactDecisionCoverage = useMemo(() => {
     if (!visibleAnalysisRecalcRange) {
       return { expectedCount: 0, resolvedCount: 0, missingCount: 0 };
@@ -3888,8 +4288,23 @@ export default function DetailView() {
     !exactDecisionRangeLoading &&
     visibleExactDecisionCoverage.expectedCount > 0 &&
     visibleExactDecisionCoverage.missingCount > 0;
+  const holdDailyChartUntilDecisionReady =
+    analysisFetchEnabled &&
+    showDecisionMarkers &&
+    dailyCandles.length > 0 &&
+    exactDecisionRangeLoading &&
+    exactDecisionToneByDate.size === 0;
+  const visibleExactDecisionMissing =
+    showDecisionMarkers &&
+    visibleAnalysisRecalcRange != null &&
+    visibleExactDecisionCoverage.expectedCount > 0 &&
+    visibleExactDecisionCoverage.missingCount > 0;
+  const analysisPanelJustOpened = showAnalysisPanel && !prevShowAnalysisPanelRef.current;
   useEffect(() => {
-    if (!backendReady || !showAnalysisPanel || !code) {
+    prevShowAnalysisPanelRef.current = showAnalysisPanel;
+  }, [showAnalysisPanel]);
+  useEffect(() => {
+    if (!backendReady || !showAnalysisPanel || !analysisPanelJustOpened || !code) {
       analysisAutoBackfillRequestKeyRef.current = null;
       return;
     }
@@ -3901,7 +4316,7 @@ export default function DetailView() {
     let params: Record<string, string | number | boolean> | null = null;
     let queuedMessage = "未計算の解析データを準備しています。";
 
-    if ((currentExactDecisionMissing || analysisMissingDataVisible) && visibleAnalysisRecalcRange) {
+    if ((visibleExactDecisionMissing || analysisMissingDataVisible) && visibleAnalysisRecalcRange) {
       requestKey = `window:${code}:${visibleAnalysisRecalcRange.startDt}:${visibleAnalysisRecalcRange.endDt}`;
       params = {
         start_dt: visibleAnalysisRecalcRange.startDt,
@@ -3910,7 +4325,7 @@ export default function DetailView() {
         include_phase: false,
         force_recompute: false,
       };
-      if (currentExactDecisionMissing) {
+      if (visibleExactDecisionMissing) {
         queuedMessage = "未計算の判定データを基準日を中心に130本分準備しています。";
       }
     } else {
@@ -3962,10 +4377,11 @@ export default function DetailView() {
   }, [
     backendReady,
     showAnalysisPanel,
+    analysisPanelJustOpened,
     code,
     analysisBackfillActive,
     analysisRecalcSubmitting,
-    currentExactDecisionMissing,
+    visibleExactDecisionMissing,
     visibleAnalysisRecalcRange,
     analysisMissingDataVisible,
   ]);
@@ -3975,16 +4391,20 @@ export default function DetailView() {
       dailyCandles.forEach((candle) => {
         const tone = exactDecisionToneByDate.get(toDateKey(candle.time));
         if (tone === "up") {
-          merged.push({ time: candle.time, kind: "decision-buy", label: "B" });
+          merged.push({ time: candle.time, kind: "decision-buy" });
         } else if (tone === "down") {
-          merged.push({ time: candle.time, kind: "decision-sell", label: "S" });
+          merged.push({ time: candle.time, kind: "decision-sell" });
         }
       });
     }
     const deduped = new Map<string, (typeof merged)[number]>();
     merged.forEach((marker) => {
       const key =
-        marker.kind === "earnings" ? `earnings:${marker.time}` : `decision:${marker.time}`;
+        marker.kind === "earnings"
+          ? `earnings:${marker.time}`
+          : marker.kind?.startsWith("tdnet-")
+            ? `${marker.kind}:${marker.time}:${marker.label ?? ""}`
+            : `decision:${marker.time}`;
       deduped.set(key, marker);
     });
     return [...deduped.values()].sort((a, b) => a.time - b.time);
@@ -4887,6 +5307,14 @@ export default function DetailView() {
                 </button>
                 <button
                   type="button"
+                  className={`popover-item ${showTdnetMarkers ? "active" : ""}`}
+                  onClick={() => setShowTdnetMarkers((prev) => !prev)}
+                >
+                  <span className="popover-item-label">TDNETマーカー</span>
+                  {showTdnetMarkers && <span className="popover-check">ON</span>}
+                </button>
+                <button
+                  type="button"
                   className={`popover-item ${showTradeMarkers ? "active" : ""}`}
                   onClick={() => setShowTradeMarkers((prev) => !prev)}
                 >
@@ -4951,6 +5379,12 @@ export default function DetailView() {
             }}
           >
             分析
+          </button>
+          <button
+            className={headerMode === "financial" ? "active" : ""}
+            onClick={() => setHeaderMode("financial")}
+          >
+            財務
           </button>
           <button
             className={headerMode === "draw" ? "active" : ""}
@@ -5267,6 +5701,14 @@ export default function DetailView() {
                       </button>
                       <button
                         type="button"
+                        className={`popover-item ${showTdnetMarkers ? "active" : ""}`}
+                        onClick={() => setShowTdnetMarkers((prev) => !prev)}
+                      >
+                        <span className="popover-item-label">TDNETマーカー</span>
+                        {showTdnetMarkers && <span className="popover-check">ON</span>}
+                      </button>
+                      <button
+                        type="button"
                         className={`popover-item ${showTradeMarkers ? "active" : ""}`}
                         onClick={() => setShowTradeMarkers((prev) => !prev)}
                       >
@@ -5329,6 +5771,12 @@ export default function DetailView() {
                   分析
                 </button>
                 <button
+                  className={headerMode === "financial" ? "active" : ""}
+                  onClick={() => setHeaderMode("financial")}
+                >
+                  財務
+                </button>
+                <button
                   className={headerMode === "draw" ? "active" : ""}
                   onClick={() => setHeaderMode("draw")}
                 >
@@ -5355,7 +5803,7 @@ export default function DetailView() {
           {marketDataStatusMessage}
         </div>
       )}
-      <div className="detail-content">
+      <div className={`detail-content ${showFinancialPanel ? "with-memo-panel detail-content-financial" : ""}`}>
         <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""} ${showRightPanel ? "with-memo-panel" : ""}`}>
           {compareCode && (
             <div className="detail-compare">
@@ -5509,57 +5957,62 @@ export default function DetailView() {
                     <div className="detail-compare-cell-meta">日足 ({leftDailyRangeLabel})</div>
                   </div>
                   <div className="detail-chart detail-compare-chart">
-                    <DetailChart
-                      ref={dailyChartRef}
-                      candles={dailyCandles}
-                      volume={dailyVolume}
-                      maLines={dailyMaLines}
-                      showVolume={showVolumeDaily}
-                      eventMarkers={mergedDailyEventMarkers}
-                      boxes={boxes}
-                      showBoxes={showBoxes}
-                      gapBands={gapBandsOverride}
-                      drawingEnabled={headerMode === "draw"}
-                      timeZones={dailyDrawings.timeZones}
-                      priceBands={dailyDrawings.priceBands}
-                      drawBoxes={dailyDrawings.drawBoxes}
-                      horizontalLines={dailyDrawings.horizontalLines}
-                      showPriceBands
-                      activeTool={activeDrawTool}
-                      activeDrawColor={activeDrawColor}
-                      activeLineOpacity={activeLineOpacity}
-                      activeLineWidth={activeLineWidth}
-                      onSelectShape={setSelectedDrawing}
-                      onAddTimeZone={addTimeZone(dailyDrawingKey)}
-                      onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
-                      onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
-                      onAddPriceBand={addPriceBand(dailyDrawingKey)}
-                      onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
-                      onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
-                      onAddDrawBox={addDrawBox(dailyDrawingKey)}
-                      onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
-                      onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
-                      onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
-                      onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
-                      onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
-                      partialTimes={dailyMonthBoundaries}
-                      visibleRange={dailyCandles.length ? resolvedDailyVisibleRange : null}
-                      positionOverlay={{
-                        dailyPositions,
-                        tradeMarkers,
-                        showOverlay: showTradesOverlay,
-                        showMarkers: showTradeMarkers,
-                        showPnL: showPnLPanel,
-                        hoverTime: resolvedCursorAsOfTime ?? mainSync.hoverTime,
-                        currentPositions,
-                        latestTradeTime
-                      }}
-                      cursorTime={resolvedCursorAsOfTime}
-                      onCrosshairMove={(time, point) =>
-                        handleCompareDailyCrosshair(time, "left", point)
-                      }
-                      onVisibleRangeChange={handleDailyVisibleRangeChange}
-                    />
+                    {!holdDailyChartUntilDecisionReady && (
+                      <DetailChart
+                        ref={dailyChartRef}
+                        candles={dailyCandles}
+                        volume={dailyVolume}
+                        maLines={dailyMaLines}
+                        showVolume={showVolumeDaily}
+                        eventMarkers={mergedDailyEventMarkers}
+                        boxes={boxes}
+                        showBoxes={showBoxes}
+                        gapBands={gapBandsOverride}
+                        drawingEnabled={headerMode === "draw"}
+                        timeZones={dailyDrawings.timeZones}
+                        priceBands={dailyDrawings.priceBands}
+                        drawBoxes={dailyDrawings.drawBoxes}
+                        horizontalLines={dailyDrawings.horizontalLines}
+                        showPriceBands
+                        activeTool={activeDrawTool}
+                        activeDrawColor={activeDrawColor}
+                        activeLineOpacity={activeLineOpacity}
+                        activeLineWidth={activeLineWidth}
+                        onSelectShape={setSelectedDrawing}
+                        onAddTimeZone={addTimeZone(dailyDrawingKey)}
+                        onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
+                        onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
+                        onAddPriceBand={addPriceBand(dailyDrawingKey)}
+                        onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
+                        onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
+                        onAddDrawBox={addDrawBox(dailyDrawingKey)}
+                        onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
+                        onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
+                        onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
+                        onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
+                        onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
+                        partialTimes={dailyMonthBoundaries}
+                        visibleRange={dailyCandles.length ? resolvedDailyVisibleRange : null}
+                        positionOverlay={{
+                          dailyPositions,
+                          tradeMarkers,
+                          showOverlay: showTradesOverlay,
+                          showMarkers: showTradeMarkers,
+                          showPnL: showPnLPanel,
+                          hoverTime: resolvedCursorAsOfTime ?? mainSync.hoverTime,
+                          currentPositions,
+                          latestTradeTime
+                        }}
+                        cursorTime={resolvedCursorAsOfTime}
+                        onCrosshairMove={(time, point) =>
+                          handleCompareDailyCrosshair(time, "left", point)
+                        }
+                        onVisibleRangeChange={handleDailyVisibleRangeChange}
+                      />
+                    )}
+                    {holdDailyChartUntilDecisionReady && (
+                      <div className="detail-chart-empty">判定マークを読み込み中...</div>
+                    )}
                     {dailyEmptyMessage && (
                       <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
                     )}
@@ -5639,55 +6092,57 @@ export default function DetailView() {
                 onDoubleClick={() => toggleFocus(focusPanel)}
               >
                 {focusPanel === "daily" && (
-                  <DetailChart
-                    ref={dailyChartRef}
-                    candles={dailyCandles}
-                    volume={dailyVolume}
-                    maLines={dailyMaLines}
-                    showVolume={showVolumeDaily}
-                    eventMarkers={mergedDailyEventMarkers}
-                    boxes={boxes}
-                    showBoxes={showBoxes}
-                    gapBands={gapBandsOverride}
-                    drawingEnabled={headerMode === "draw"}
-                    timeZones={dailyDrawings.timeZones}
-                    priceBands={dailyDrawings.priceBands}
-                    drawBoxes={dailyDrawings.drawBoxes}
-                    horizontalLines={dailyDrawings.horizontalLines}
-                    showPriceBands
-                    activeTool={activeDrawTool}
-                    activeDrawColor={activeDrawColor}
-                    activeLineOpacity={activeLineOpacity}
-                    activeLineWidth={activeLineWidth}
-                    onSelectShape={setSelectedDrawing}
-                    onAddTimeZone={addTimeZone(dailyDrawingKey)}
-                    onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
-                    onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
-                    onAddPriceBand={addPriceBand(dailyDrawingKey)}
-                    onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
-                    onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
-                    onAddDrawBox={addDrawBox(dailyDrawingKey)}
-                    onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
-                    onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
-                    onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
-                    onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
-                    onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
-                    partialTimes={dailyMonthBoundaries}
-                    visibleRange={resolvedDailyVisibleRange}
-                    positionOverlay={{
-                      dailyPositions,
-                      tradeMarkers,
-                      showOverlay: showTradesOverlay,
-                      showMarkers: showTradeMarkers,
-                      showPnL: showPnLPanel,
-                      hoverTime: resolvedCursorAsOfTime ?? mainSync.hoverTime,
-                      currentPositions,
-                      latestTradeTime
-                    }}
-                    cursorTime={resolvedCursorAsOfTime}
-                    onCrosshairMove={handleDailyCrosshair}
-                    onVisibleRangeChange={handleDailyVisibleRangeChange}
-                  />
+                  !holdDailyChartUntilDecisionReady && (
+                    <DetailChart
+                      ref={dailyChartRef}
+                      candles={dailyCandles}
+                      volume={dailyVolume}
+                      maLines={dailyMaLines}
+                      showVolume={showVolumeDaily}
+                      eventMarkers={mergedDailyEventMarkers}
+                      boxes={boxes}
+                      showBoxes={showBoxes}
+                      gapBands={gapBandsOverride}
+                      drawingEnabled={headerMode === "draw"}
+                      timeZones={dailyDrawings.timeZones}
+                      priceBands={dailyDrawings.priceBands}
+                      drawBoxes={dailyDrawings.drawBoxes}
+                      horizontalLines={dailyDrawings.horizontalLines}
+                      showPriceBands
+                      activeTool={activeDrawTool}
+                      activeDrawColor={activeDrawColor}
+                      activeLineOpacity={activeLineOpacity}
+                      activeLineWidth={activeLineWidth}
+                      onSelectShape={setSelectedDrawing}
+                      onAddTimeZone={addTimeZone(dailyDrawingKey)}
+                      onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
+                      onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
+                      onAddPriceBand={addPriceBand(dailyDrawingKey)}
+                      onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
+                      onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
+                      onAddDrawBox={addDrawBox(dailyDrawingKey)}
+                      onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
+                      onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
+                      onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
+                      onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
+                      onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
+                      partialTimes={dailyMonthBoundaries}
+                      visibleRange={resolvedDailyVisibleRange}
+                      positionOverlay={{
+                        dailyPositions,
+                        tradeMarkers,
+                        showOverlay: showTradesOverlay,
+                        showMarkers: showTradeMarkers,
+                        showPnL: showPnLPanel,
+                        hoverTime: resolvedCursorAsOfTime ?? mainSync.hoverTime,
+                        currentPositions,
+                        latestTradeTime
+                      }}
+                      cursorTime={resolvedCursorAsOfTime}
+                      onCrosshairMove={handleDailyCrosshair}
+                      onVisibleRangeChange={handleDailyVisibleRangeChange}
+                    />
+                  )
                 )}
                 {focusPanel === "weekly" && (
                   <DetailChart
@@ -5792,6 +6247,9 @@ export default function DetailView() {
                 {focusPanel === "daily" && dailyEmptyMessage && (
                   <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
                 )}
+                {focusPanel === "daily" && holdDailyChartUntilDecisionReady && (
+                  <div className="detail-chart-empty">判定マークを読み込み中...</div>
+                )}
                 {focusPanel === "weekly" && weeklyEmptyMessage && (
                   <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
                 )}
@@ -5815,56 +6273,61 @@ export default function DetailView() {
                   className="detail-chart detail-chart-focusable"
                   onDoubleClick={() => toggleFocus("daily")}
                 >
-                  <DetailChart
-                    ref={dailyChartRef}
-                    candles={dailyCandles}
-                    volume={dailyVolume}
-                    maLines={dailyMaLines}
-                    showVolume={showVolumeDaily}
-                    eventMarkers={mergedDailyEventMarkers}
-                    boxes={boxes}
-                    showBoxes={showBoxes}
-                    gapBands={gapBandsOverride}
-                    drawingEnabled={headerMode === "draw"}
-                    timeZones={dailyDrawings.timeZones}
-                    priceBands={dailyDrawings.priceBands}
-                    drawBoxes={dailyDrawings.drawBoxes}
-                    horizontalLines={dailyDrawings.horizontalLines}
-                    showPriceBands
-                    activeTool={activeDrawTool}
-                    activeDrawColor={activeDrawColor}
-                    activeLineOpacity={activeLineOpacity}
-                    activeLineWidth={activeLineWidth}
-                    onSelectShape={setSelectedDrawing}
-                    onAddTimeZone={addTimeZone(dailyDrawingKey)}
-                    onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
-                    onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
-                    onAddPriceBand={addPriceBand(dailyDrawingKey)}
-                    onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
-                    onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
-                    onAddDrawBox={addDrawBox(dailyDrawingKey)}
-                    onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
-                    onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
-                    onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
-                    onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
-                    onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
-                    partialTimes={dailyMonthBoundaries}
-                    visibleRange={resolvedDailyVisibleRange}
-                    positionOverlay={{
-                      dailyPositions,
-                      tradeMarkers,
-                      showOverlay: showTradesOverlay,
-                      showMarkers: showTradeMarkers,
-                      showPnL: showPnLPanel,
-                      hoverTime: resolvedCursorAsOfTime ?? mainSync.hoverTime,
-                      currentPositions,
-                      latestTradeTime
-                    }}
-                    cursorTime={resolvedCursorAsOfTime}
-                    onCrosshairMove={handleDailyCrosshair}
-                    onVisibleRangeChange={handleDailyVisibleRangeChange}
-                    onChartClick={handleDailyChartClick}
-                  />
+                  {!holdDailyChartUntilDecisionReady && (
+                    <DetailChart
+                      ref={dailyChartRef}
+                      candles={dailyCandles}
+                      volume={dailyVolume}
+                      maLines={dailyMaLines}
+                      showVolume={showVolumeDaily}
+                      eventMarkers={mergedDailyEventMarkers}
+                      boxes={boxes}
+                      showBoxes={showBoxes}
+                      gapBands={gapBandsOverride}
+                      drawingEnabled={headerMode === "draw"}
+                      timeZones={dailyDrawings.timeZones}
+                      priceBands={dailyDrawings.priceBands}
+                      drawBoxes={dailyDrawings.drawBoxes}
+                      horizontalLines={dailyDrawings.horizontalLines}
+                      showPriceBands
+                      activeTool={activeDrawTool}
+                      activeDrawColor={activeDrawColor}
+                      activeLineOpacity={activeLineOpacity}
+                      activeLineWidth={activeLineWidth}
+                      onSelectShape={setSelectedDrawing}
+                      onAddTimeZone={addTimeZone(dailyDrawingKey)}
+                      onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
+                      onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
+                      onAddPriceBand={addPriceBand(dailyDrawingKey)}
+                      onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
+                      onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
+                      onAddDrawBox={addDrawBox(dailyDrawingKey)}
+                      onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
+                      onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
+                      onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
+                      onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
+                      onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
+                      partialTimes={dailyMonthBoundaries}
+                      visibleRange={resolvedDailyVisibleRange}
+                      positionOverlay={{
+                        dailyPositions,
+                        tradeMarkers,
+                        showOverlay: showTradesOverlay,
+                        showMarkers: showTradeMarkers,
+                        showPnL: showPnLPanel,
+                        hoverTime: resolvedCursorAsOfTime ?? mainSync.hoverTime,
+                        currentPositions,
+                        latestTradeTime
+                      }}
+                      cursorTime={resolvedCursorAsOfTime}
+                      onCrosshairMove={handleDailyCrosshair}
+                      onVisibleRangeChange={handleDailyVisibleRangeChange}
+                      onChartClick={handleDailyChartClick}
+                    />
+                  )}
+                  {holdDailyChartUntilDecisionReady && (
+                    <div className="detail-chart-empty">判定マークを読み込み中...</div>
+                  )}
                   {dailyEmptyMessage && (
                     <div className="detail-chart-empty">Daily: {dailyEmptyMessage}</div>
                   )}
@@ -6188,7 +6651,192 @@ export default function DetailView() {
             </div>
           </div>
         )}
+        {showFinancialPanel && (
+          <div ref={financialPanelRef} className="daily-memo-panel detail-analysis-panel detail-financial-panel">
+            <div className="memo-panel-header">
+              <h3>EDINET財務</h3>
+            </div>
+            <div className="detail-analysis-body">
+              {(financialPanel?.summary?.latestFiscalYear != null || financialFetchedLabel) && (
+                <div className="detail-financial-meta-row">
+                  {financialPanel?.summary?.latestFiscalYear != null && (
+                    <div className="detail-financial-meta-pill">最新年度 {financialPanel.summary.latestFiscalYear}</div>
+                  )}
+                  {financialFetchedLabel && (
+                    <div className="detail-financial-meta-pill">取得日 {financialFetchedLabel}</div>
+                  )}
+                </div>
+              )}
+              {financialLoading ? (
+                <div className="detail-analysis-empty">財務データを読込中です。</div>
+              ) : financialSeries.length > 0 ? (
+                <>
+                  <div className="detail-financial-card-grid">
+                    {financialCards.map((card) => (
+                      <div key={card.label} className="detail-financial-card">
+                        <div className="detail-financial-card-label">{card.label}</div>
+                        <div className={`detail-financial-card-value detail-analysis-value--${card.tone}`}>{card.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="detail-analysis-section detail-financial-section">
+                    <div className="detail-analysis-section-title">売上・利益の推移</div>
+                    <div className="detail-financial-chart">
+                      <ResponsiveContainer width="100%" height={256}>
+                        <BarChart data={financialSeries}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(100, 116, 139, 0.18)" />
+                          <XAxis dataKey="label" stroke="#64748b" tickLine={false} axisLine={false} />
+                          <YAxis
+                            stroke="#64748b"
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(value) => `${formatNumber(Number(value) / 100_000_000, 0)}億`}
+                          />
+                          <Tooltip formatter={(value) => formatFinancialAmountLabel(Number(value))} />
+                          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: "#475569" }} iconSize={10} />
+                          <Bar dataKey="revenue" name="売上高" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="operatingIncome" name="営業利益" fill="#4ade80" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="netIncome" name="純利益" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div className="detail-analysis-section detail-financial-section">
+                    <div className="detail-analysis-section-title">利益率・ROEの推移</div>
+                    <div className="detail-financial-chart">
+                      <ResponsiveContainer width="100%" height={256}>
+                        <LineChart data={financialSeries}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(100, 116, 139, 0.18)" />
+                          <XAxis dataKey="label" stroke="#64748b" tickLine={false} axisLine={false} />
+                          <YAxis
+                            stroke="#64748b"
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(value) => `${formatNumber(Number(value) * 100, 0)}%`}
+                          />
+                          <Tooltip formatter={(value) => formatPercentLabel(Number(value))} />
+                          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: "#475569" }} iconSize={10} />
+                          <Line type="monotone" dataKey="grossMargin" name="粗利率" stroke="#38bdf8" strokeWidth={2} dot={false} />
+                          <Line type="monotone" dataKey="operatingMargin" name="営業利益率" stroke="#4ade80" strokeWidth={2} dot={false} />
+                          <Line type="monotone" dataKey="netMargin" name="純利益率" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                          <Line type="monotone" dataKey="roe" name="ROE" stroke="#f87171" strokeWidth={2} strokeDasharray="6 4" />
+                          <Line type="monotone" dataKey="roa" name="ROA" stroke="#c084fc" strokeWidth={2} strokeDasharray="6 4" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="detail-analysis-empty">
+                  {financialPanel?.mapped === false ? "EDINETコード未対応です。" : "財務データがありません。"}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
+      {activeTdnetDisclosure && !compareCode && (
+        <div className="detail-tdnet-card">
+          <div className="detail-tdnet-card-header">
+            <div className="detail-tdnet-card-title">TDNET開示</div>
+            <div className="detail-tdnet-card-actions">
+              {selectedTdnetDisclosures.length > 1 && (
+                <div className="detail-tdnet-card-pager">
+                  <button
+                    type="button"
+                    className="detail-tdnet-card-nav"
+                    onClick={() => setSelectedTdnetDisclosureIndex((prev) => Math.max(0, prev - 1))}
+                    disabled={selectedTdnetDisclosureIndex <= 0}
+                  >
+                    前
+                  </button>
+                  <span className="detail-tdnet-card-page">
+                    {selectedTdnetDisclosureIndex + 1}/{selectedTdnetDisclosures.length}
+                  </span>
+                  <button
+                    type="button"
+                    className="detail-tdnet-card-nav"
+                    onClick={() =>
+                      setSelectedTdnetDisclosureIndex((prev) => Math.min(selectedTdnetDisclosures.length - 1, prev + 1))
+                    }
+                    disabled={selectedTdnetDisclosureIndex >= selectedTdnetDisclosures.length - 1}
+                  >
+                    次
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                className="detail-tdnet-card-close"
+                onClick={() => {
+                  setSelectedTdnetDisclosures([]);
+                  setSelectedTdnetDisclosureIndex(0);
+                }}
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+          <div className="detail-tdnet-card-body">
+            <div className="detail-tdnet-card-headline">{activeTdnetDisclosure.title ?? "--"}</div>
+            <div className="detail-analysis-meta">
+              {[
+                activeTdnetDisclosure.eventType ? `種別 ${activeTdnetDisclosure.eventType}` : null,
+                activeTdnetDisclosure.sentiment ? `方向 ${activeTdnetDisclosure.sentiment}` : null,
+                activeTdnetDisclosure.publishedAt
+                  ? `開示 ${new Date(activeTdnetDisclosure.publishedAt).toLocaleString("ja-JP")}`
+                  : null,
+              ].filter(Boolean).join(" / ")}
+            </div>
+            {activeTdnetDisclosure.summaryText && (
+              <div className="detail-tdnet-card-summary">{activeTdnetDisclosure.summaryText}</div>
+            )}
+            {activeTdnetReaction && (
+              <div className="detail-tdnet-reaction">
+                <div className="detail-tdnet-reaction-header">株価反応</div>
+                <div className="detail-tdnet-reaction-meta">
+                  {[
+                    activeTdnetReaction.baseDate ? `基準日 ${activeTdnetReaction.baseDate}` : null,
+                    activeTdnetReaction.baseClose != null ? `終値 ${formatNumber(activeTdnetReaction.baseClose, 2)}` : null,
+                    activeTdnetReaction.volumeRatio != null
+                      ? `出来高 ${formatNumber(activeTdnetReaction.volumeRatio, 2)}x`
+                      : null,
+                  ].filter(Boolean).join(" / ")}
+                </div>
+                <div className="detail-tdnet-reaction-grid">
+                  {activeTdnetReaction.reactions.map((reaction) => (
+                    <div key={reaction.bars} className="detail-tdnet-reaction-item">
+                      <div className="detail-tdnet-reaction-label">{reaction.label}</div>
+                      <div className="detail-tdnet-reaction-value">
+                        {formatSignedPercentLabel(reaction.returnRatio, 1)}
+                      </div>
+                      <div className="detail-tdnet-reaction-date">{reaction.targetDate ?? "--"}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {activeTdnetDisclosure.tags.length > 0 && (
+              <div className="detail-tdnet-card-tags">
+                {activeTdnetDisclosure.tags.map((tag) => (
+                  <span key={tag} className="detail-tdnet-card-tag">{tag}</span>
+                ))}
+              </div>
+            )}
+            <div className="detail-tdnet-card-links">
+              {activeTdnetDisclosure.tdnetUrl && (
+                <a href={activeTdnetDisclosure.tdnetUrl} target="_blank" rel="noreferrer">TDNET</a>
+              )}
+              {activeTdnetDisclosure.pdfUrl && (
+                <a href={activeTdnetDisclosure.pdfUrl} target="_blank" rel="noreferrer">PDF</a>
+              )}
+              {activeTdnetDisclosure.xbrlUrl && (
+                <a href={activeTdnetDisclosure.xbrlUrl} target="_blank" rel="noreferrer">XBRL</a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {!focusPanel && (
         <div className="detail-footer">
           <div className="detail-footer-left">

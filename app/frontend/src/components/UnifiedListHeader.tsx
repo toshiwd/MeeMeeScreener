@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink } from "react-router-dom";
+import TopNav from "./TopNav";
 import { useStore } from "../store";
 import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
 
@@ -39,12 +39,6 @@ type UnifiedListHeaderProps = {
 };
 
 const LABELS = {
-  home: "\u4e00\u89a7\u306b\u623b\u308b",
-  ranking: "\u30e9\u30f3\u30ad\u30f3\u30b0",
-  market: "\u5e02\u5834\u6982\u6cc1",
-  favorites: "\u304a\u6c17\u306b\u5165\u308a",
-  candidates: "\u5019\u88dc",
-  positions: "\u4fdd\u6709",
   monthly: "\u6708",
   weekly: "\u9031",
   daily: "\u65e5",
@@ -198,51 +192,7 @@ export default function UnifiedListHeader({
       <div className="list-header-row">
         <div className="dynamic-header-row header-row-top">
           <div className="header-row-left">
-            <div className="app-brand">
-              <div className="app-brand-title">MeeMee</div>
-              <div className="app-brand-sub">Screener</div>
-            </div>
-            <nav className="list-tabs">
-              <NavLink
-                to="/"
-                end
-                className={({ isActive }) =>
-                  isActive ? "list-tab list-home active" : "list-tab list-home"
-                }
-              >
-                {LABELS.home}
-              </NavLink>
-              <NavLink
-                to="/ranking"
-                className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
-              >
-                {LABELS.ranking}
-              </NavLink>
-              <NavLink
-                to="/market"
-                className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
-              >
-                {LABELS.market}
-              </NavLink>
-              <NavLink
-                to="/favorites"
-                className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
-              >
-                {LABELS.favorites}
-              </NavLink>
-              <NavLink
-                to="/candidates"
-                className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
-              >
-                {LABELS.candidates}
-              </NavLink>
-              <NavLink
-                to="/positions"
-                className={({ isActive }) => (isActive ? "list-tab active" : "list-tab")}
-              >
-                {LABELS.positions}
-              </NavLink>
-            </nav>
+            <TopNav />
           </div>
 
           <div className="list-header-actions-wrapper">
