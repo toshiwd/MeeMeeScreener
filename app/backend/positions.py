@@ -8,6 +8,8 @@ import io
 import re
 import uuid
 
+from app.backend.trade_parser import TradeParser
+
 
 @dataclass
 class TradeEvent:
@@ -152,107 +154,70 @@ def _normalize_symbol(raw: str) -> str:
     return text
 
 
-def _rakuten_action(trade_type: str, side_type: str) -> str | None:
-    trade_norm = _normalize_label(trade_type)
-    side_norm = _normalize_label(side_type)
 
-    if trade_norm == "信用新規":
-        if side_norm == "買建":
-            return ACTION_MARGIN_OPEN_LONG
-        if side_norm == "売建":
-            return ACTION_MARGIN_OPEN_SHORT
-    if trade_norm == "信用返済":
-        if side_norm == "売埋":
-            return ACTION_MARGIN_CLOSE_LONG
-        if side_norm == "買埋":
-            return ACTION_MARGIN_CLOSE_SHORT
-    if trade_norm == "現物":
-        if side_norm == "買付":
-            return ACTION_SPOT_BUY
-        if side_norm == "売付":
-            return ACTION_SPOT_SELL
-    if trade_norm == "現引":
-        return ACTION_MARGIN_SWAP_TO_SPOT
-    if trade_norm == "現渡":
-        return ACTION_DELIVERY_SHORT
-    if side_norm == "入庫":
-        return ACTION_SPOT_IN
-    if side_norm == "出庫":
-        return ACTION_SPOT_OUT
+def _map_parser_row_to_event(row: dict) -> TradeEvent:
+    kind = row.get("kind")
+    memo = row.get("memo", "")
 
-    return None
+    action = row.get("position_action") or ACTION_UNKNOWN
+
+    if action == ACTION_UNKNOWN:
+        spot_markers = ("現物", "現渡", "現引", "入庫", "出庫")
+        is_spot = any(marker in memo for marker in spot_markers)
+
+        if kind == "BUY_OPEN":
+            action = ACTION_SPOT_BUY if is_spot else ACTION_MARGIN_OPEN_LONG
+        elif kind == "SELL_CLOSE":
+            action = ACTION_SPOT_SELL if is_spot else ACTION_MARGIN_CLOSE_LONG
+        elif kind == "SELL_OPEN":
+            action = ACTION_MARGIN_OPEN_SHORT
+        elif kind == "BUY_CLOSE":
+            action = ACTION_MARGIN_CLOSE_SHORT
+        elif kind == "DELIVERY":
+            action = ACTION_DELIVERY_SHORT
+        elif kind == "TAKE_DELIVERY":
+            action = ACTION_MARGIN_SWAP_TO_SPOT
+        elif kind == "INBOUND":
+            action = ACTION_SPOT_IN
+        elif kind == "OUTBOUND":
+            action = ACTION_SPOT_OUT
+
+        if action == ACTION_UNKNOWN:
+            if "現渡" in memo:
+                action = ACTION_DELIVERY_SHORT
+            elif "現引" in memo:
+                action = ACTION_MARGIN_SWAP_TO_SPOT
+            elif "入庫" in memo:
+                action = ACTION_SPOT_IN
+            elif "出庫" in memo:
+                action = ACTION_SPOT_OUT
+
+    source_hash = row.get("row_hash")
+    if not source_hash:
+        unique_str = f"{row.get('broker')}|{row.get('tradeDate')}|{row.get('code')}|{row.get('qty')}|{row.get('price')}|{row.get('memo')}|{row.get('_row_index')}"
+        source_hash = hashlib.sha256(unique_str.encode("utf-8")).hexdigest()
+
+    return TradeEvent(
+        broker=str(row.get("broker", "")).lower(),
+        exec_dt=datetime.strptime(row["tradeDate"], "%Y-%m-%d"),
+        symbol=str(row["code"]),
+        action=action,
+        qty=float(row["qty"]),
+        price=float(row["price"]) if row["price"] is not None else None,
+        source_row_hash=source_hash,
+        transaction_type=row.get("tradeType") or row.get("memo"),
+        side_type=row.get("buySell") or row.get("side", ""),
+        margin_type=row.get("creditType") or ""
+    )
 
 
 def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
-    rows, warnings = _read_csv_bytes(data)
-    if not rows:
-        return [], warnings + ["rakuten:empty"]
-
-    headers = rows[0]
-    resolved = {
-        "約定日": _resolve_header(headers, ["約定日"]),
-        "銘柄コード": _resolve_header(headers, ["銘柄コード"]),
-        "取引区分": _resolve_header(headers, ["取引区分"]),
-        "売買区分": _resolve_header(headers, ["売買区分"]),
-        "信用区分": _resolve_header(headers, ["信用区分"]),
-        "数量［株］": _resolve_header(headers, ["数量［株］", "数量[株]", "数量(株)", "数量"]),
-        "単価［円］": _resolve_header(headers, ["単価［円］", "単価(円)", "単価"])
-    }
-    required = ["約定日", "銘柄コード", "取引区分", "売買区分", "数量［株］"]
-    missing = [key for key in required if not resolved.get(key)]
-    if missing:
-        return [], warnings + [f"rakuten:missing_columns:{','.join(missing)}"]
-
-    events: list[TradeEvent] = []
-    for row_index, row in enumerate(rows[1:], start=1):
-        if not row:
-            continue
-        row_dict = {headers[idx]: row[idx] if idx < len(row) else "" for idx in range(len(headers))}
-
-        exec_dt = _parse_date(row_dict.get(resolved["約定日"]))
-        if exec_dt is None:
-            warnings.append("rakuten:invalid_date")
-            continue
-
-        symbol = _normalize_symbol(row_dict.get(resolved["銘柄コード"], ""))
-        if not symbol:
-            warnings.append(f"rakuten:missing_symbol:{exec_dt.date().isoformat()}")
-            continue
-
-        qty_raw = row_dict.get(resolved["数量［株］"], "")
-        qty = _parse_float(qty_raw)
-        if qty is None:
-            warnings.append(f"rakuten:invalid_qty:{symbol}:{_normalize_text(qty_raw)}")
-            continue
-        qty = float(int(qty))
-
-        trade_type = _normalize_text(row_dict.get(resolved["取引区分"], ""))
-        side_type = _normalize_text(row_dict.get(resolved["売買区分"], ""))
-        margin_type = _normalize_text(row_dict.get(resolved.get("信用区分") or "", ""))
-
-        action = _rakuten_action(trade_type, side_type)
-        if action is None:
-            warnings.append(f"rakuten:unmapped:{trade_type}:{side_type}:{symbol}")
-            action = ACTION_UNKNOWN
-
-        price = _parse_float(row_dict.get(resolved.get("単価［円］") or "", ""))
-        source_row_hash = _build_rakuten_row_hash(row_dict, headers, row_index)
-
-        events.append(
-            TradeEvent(
-                broker="rakuten",
-                exec_dt=exec_dt,
-                symbol=symbol,
-                action=action,
-                qty=qty,
-                price=price,
-                source_row_hash=source_row_hash,
-                transaction_type=trade_type,
-                side_type=side_type,
-                margin_type=margin_type
-            )
-        )
-
+    result = _parse_with_best_encoding(data, TradeParser.parse_rakuten_rows)
+    if result is None:
+        return [], ["decode_failed"]
+    
+    events = [_map_parser_row_to_event(r) for r in result["rows"]]
+    warnings = [w["message"] for w in result["warnings"]]
     return events, warnings
 
 
@@ -264,83 +229,49 @@ def _find_header_row(rows: list[list[str]], header_keys: list[str]) -> int | Non
     return None
 
 
+
 def parse_sbi_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
-    rows, warnings = _read_csv_bytes(data)
-    if not rows:
-        return [], warnings + ["sbi:empty"]
-
-    header_idx = _find_header_row(rows, ["約定日", "銘柄コード", "取引", "約定数量"])
-    if header_idx is None:
-        return [], warnings + ["sbi:header_not_found"]
-
-    headers = rows[header_idx]
-    header_map = _build_header_map(headers, ["約定日", "銘柄コード", "取引", "約定数量", "約定単価"])
-    required = ["約定日", "銘柄コード", "取引", "約定数量"]
-    missing = [key for key in required if key not in header_map]
-    if missing:
-        return [], warnings + [f"sbi:missing_columns:{','.join(missing)}"]
-
-    events: list[TradeEvent] = []
-    for offset, row in enumerate(rows[header_idx + 1:], start=1):
-        if not row or len(row) < len(headers):
-            continue
-        row_index = header_idx + offset
-        row_dict = {headers[idx]: row[idx] if idx < len(row) else "" for idx in range(len(headers))}
-
-        exec_dt = _parse_date(row_dict.get(header_map["約定日"]))
-        symbol = _normalize_symbol(row_dict.get(header_map["銘柄コード"], ""))
-        qty = _parse_float(row_dict.get(header_map["約定数量"], ""))
-        trade_kind = _normalize_text(row_dict.get(header_map["取引"], ""))
-
-        if not symbol or exec_dt is None or qty is None:
-            warnings.append(f"sbi:invalid_row:{symbol}")
-            continue
-
-        action = None
-        if "信用新規買" in trade_kind:
-            action = ACTION_MARGIN_OPEN_LONG
-        elif "信用新規売" in trade_kind:
-            action = ACTION_MARGIN_OPEN_SHORT
-        elif "信用返済売" in trade_kind:
-            action = ACTION_MARGIN_CLOSE_LONG
-        elif "信用返済買" in trade_kind:
-            action = ACTION_MARGIN_CLOSE_SHORT
-        elif "現物買" in trade_kind:
-            action = ACTION_SPOT_BUY
-        elif "現物売" in trade_kind:
-            action = ACTION_SPOT_SELL
-        elif "現渡" in trade_kind:
-            action = ACTION_DELIVERY_SHORT
-        elif "現引" in trade_kind:
-            action = ACTION_MARGIN_SWAP_TO_SPOT
-        elif "入庫" in trade_kind:
-            action = ACTION_SPOT_IN
-        elif "出庫" in trade_kind:
-            action = ACTION_SPOT_OUT
-
-        if action is None:
-            warnings.append(f"sbi:unmapped:{trade_kind}:{symbol}")
-            action = ACTION_UNKNOWN
-
-        price = _parse_float(row_dict.get(header_map.get("約定単価", ""), ""))
-        source_row_hash = hashlib.sha256(f"sbi|{row_index}|{'|'.join(row)}".encode("utf-8")).hexdigest()
-
-        events.append(
-            TradeEvent(
-                broker="sbi",
-                exec_dt=exec_dt,
-                symbol=symbol,
-                action=action,
-                qty=qty,
-                price=price,
-                source_row_hash=source_row_hash,
-                transaction_type=trade_kind,
-                side_type="",
-                margin_type=""
-            )
-        )
-
+    result = _parse_with_best_encoding(data, TradeParser.parse_sbi_rows)
+    if result is None:
+        return [], ["decode_failed"]
+    
+    events = [_map_parser_row_to_event(r) for r in result["rows"]]
+    warnings = [w["message"] for w in result["warnings"]]
     return events, warnings
+
+
+def _parse_with_best_encoding(data: bytes, parser) -> dict | None:
+    best_result: dict | None = None
+    best_rows = -1
+    best_warnings = 10**9
+    seen_text: set[str] = set()
+
+    for enc in ("cp932", "utf-8-sig", "utf-8"):
+        try:
+            text = data.decode(enc)
+        except Exception:
+            continue
+        if not text or text in seen_text:
+            continue
+        seen_text.add(text)
+
+        rows_all = list(csv.reader(text.splitlines()))
+        if not rows_all:
+            continue
+        try:
+            result = parser(rows_all, enc)
+        except Exception:
+            continue
+        rows = result.get("rows") if isinstance(result, dict) else None
+        warnings = result.get("warnings") if isinstance(result, dict) else None
+        row_count = len(rows) if isinstance(rows, list) else 0
+        warning_count = len(warnings) if isinstance(warnings, list) else 0
+        if row_count > best_rows or (row_count == best_rows and warning_count < best_warnings):
+            best_result = result
+            best_rows = row_count
+            best_warnings = warning_count
+
+    return best_result
 
 
 def rebuild_positions(conn) -> dict:
@@ -424,13 +355,13 @@ def rebuild_positions(conn) -> dict:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Spot sell exceeds holdings at {event.exec_dt}")
-                spot_qty = max(0.0, spot_qty - event.qty)
+                spot_qty -= event.qty
             elif event.action == ACTION_SPOT_OUT:
                 if event.qty > spot_qty:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Spot outbound exceeds holdings at {event.exec_dt}")
-                spot_qty = max(0.0, spot_qty - event.qty)
+                spot_qty -= event.qty
             elif event.action == ACTION_MARGIN_OPEN_LONG:
                 margin_long_qty += event.qty
             elif event.action == ACTION_MARGIN_CLOSE_LONG:
@@ -438,7 +369,7 @@ def rebuild_positions(conn) -> dict:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Margin long close exceeds holdings at {event.exec_dt}")
-                margin_long_qty = max(0.0, margin_long_qty - event.qty)
+                margin_long_qty -= event.qty
             elif event.action == ACTION_MARGIN_OPEN_SHORT:
                 margin_short_qty += event.qty
             elif event.action == ACTION_MARGIN_CLOSE_SHORT:
@@ -446,22 +377,21 @@ def rebuild_positions(conn) -> dict:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Margin short close exceeds holdings at {event.exec_dt}")
-                margin_short_qty = max(0.0, margin_short_qty - event.qty)
+                margin_short_qty -= event.qty
             elif event.action == ACTION_DELIVERY_SHORT:
                 if event.qty > spot_qty or event.qty > margin_short_qty:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Delivery exceeds holdings at {event.exec_dt}")
-                spot_qty = max(0.0, spot_qty - event.qty)
-                margin_short_qty = max(0.0, margin_short_qty - event.qty)
+                spot_qty -= event.qty
+                margin_short_qty -= event.qty
             elif event.action == ACTION_MARGIN_SWAP_TO_SPOT:
                 if event.qty > margin_long_qty:
                     round_issue = True
                     symbol_has_issue = True
                     issue_notes.append(f"Genbiki exceeds holdings at {event.exec_dt}")
-                move_qty = min(event.qty, margin_long_qty)
-                margin_long_qty -= move_qty
-                spot_qty += move_qty
+                margin_long_qty -= event.qty
+                spot_qty += event.qty
             elif event.action == ACTION_UNKNOWN:
                 round_issue = True
                 symbol_has_issue = True

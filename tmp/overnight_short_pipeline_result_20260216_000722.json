@@ -1,0 +1,66 @@
+﻿{
+    "startedAt":  "2026-02-16T00:07:22.6519900+09:00",
+    "finishedAt":  "2026-02-16T00:09:32.0423523+09:00",
+    "status":  "failed",
+    "error":  "リモート サーバーがエラーを返しました: (409) 競合",
+    "baseUrl":  "http://127.0.0.1:8000",
+    "lookbackDays":  260,
+    "maxMissingDays":  260,
+    "includeSell":  true,
+    "includePhase":  false,
+    "skipBuild":  false,
+    "buildTool":  "ps1",
+    "expectedMinMlPredDt":  1770940800,
+    "artifacts":  {
+                      "pipelineLog":  "C:\\work\\meemee-screener\\tmp\\overnight_short_pipeline_20260216_000722.log",
+                      "backendOutLog":  "C:\\work\\meemee-screener\\tmp\\backend_pipeline_20260216_000722.out.log",
+                      "backendErrLog":  "C:\\work\\meemee-screener\\tmp\\backend_pipeline_20260216_000722.err.log"
+                  },
+    "steps":  [
+                  {
+                      "name":  "pre_stop",
+                      "attempt":  1,
+                      "status":  "success",
+                      "startedAt":  "2026-02-16T00:07:22.6827431+09:00",
+                      "finishedAt":  "2026-02-16T00:07:23.2799750+09:00",
+                      "details":  {
+                                      "stopped":  [
+
+                                                  ]
+                                  },
+                      "error":  ""
+                  },
+                  {
+                      "name":  "start_backend",
+                      "attempt":  1,
+                      "status":  "success",
+                      "startedAt":  "2026-02-16T00:07:23.2953620+09:00",
+                      "finishedAt":  "2026-02-16T00:07:27.0485355+09:00",
+                      "details":  {
+                                      "stdout":  "C:\\work\\meemee-screener\\tmp\\backend_pipeline_20260216_000722.out.log",
+                                      "started":  true,
+                                      "stderr":  "C:\\work\\meemee-screener\\tmp\\backend_pipeline_20260216_000722.err.log",
+                                      "pid":  30696
+                                  },
+                      "error":  ""
+                  },
+                  {
+                      "name":  "analysis_backfill",
+                      "attempt":  1,
+                      "status":  "failed",
+                      "startedAt":  "2026-02-16T00:07:27.0528413+09:00",
+                      "finishedAt":  "2026-02-16T00:09:28.7167304+09:00",
+                      "details":  null,
+                      "error":  "リモート サーバーがエラーを返しました: (404) 見つかりません"
+                  },
+                  {
+                      "name":  "analysis_backfill",
+                      "attempt":  2,
+                      "status":  "failed",
+                      "startedAt":  "2026-02-16T00:09:30.7303046+09:00",
+                      "finishedAt":  "2026-02-16T00:09:32.0304324+09:00",
+                      "details":  null,
+                      "error":  "リモート サーバーがエラーを返しました: (409) 競合"
+                  }
+              ]
+}

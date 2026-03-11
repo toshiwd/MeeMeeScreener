@@ -1,0 +1,33 @@
+{
+  "range": {
+    "start": 20250101,
+    "end": 20260226,
+    "days": 266
+  },
+  "strict": {
+    "zero_days": 198,
+    "zero_rate": 0.7443609022556391,
+    "avg_qualified": 0.5,
+    "ret20_count": 131,
+    "avg_ret20": 0.05331157055804333,
+    "ret20_win_rate": 0.8549618320610687
+  },
+  "effective": {
+    "zero_days": 136,
+    "zero_rate": 0.5112781954887218,
+    "avg_qualified": 0.9172932330827067,
+    "ret20_count": 235,
+    "avg_ret20": 0.04791207020623399,
+    "ret20_win_rate": 0.8297872340425532
+  },
+  "fallback_stages": {
+    "day_counts": {
+      "hybrid_relaxed_score": 40,
+      "turn_strict_recovery": 22
+    },
+    "hit_counts": {
+      "hybrid_relaxed_score": 82,
+      "turn_strict_recovery": 29
+    }
+  }
+}

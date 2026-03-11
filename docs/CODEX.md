@@ -363,6 +363,19 @@ UIは「Profileを選ぶだけ」で並び替えが変わる。
 - A. クリーンインストール検証（初回起動の保証）
   1. 旧バージョンをアンインストール
   2. ユーザーデータ領域（例: `%LOCALAPPDATA%\MeeMeeScreener`）を削除して“完全初回”状態にする
+
+
+#### Spec: local data dir and trade CSV/TXT paths (do not change silently)
+
+- Local data dir MUST be used for CSV/TXT persistence.
+- Default local data dir (when MEEMEE_DATA_DIR is not set):
+  - `C:\Users\enish\AppData\Local\MeeMeeScreener\data` (example on this machine)
+  - General form: `%LOCALAPPDATA%\MeeMeeScreener\data`
+- Trade CSV canonical filenames (stored under the local data dir or its `csv` subdir):
+  - `????????.csv`
+  - `SBI??????.csv`
+- Stock data TXT (code.txt and related) must be read/written under the same local data dir.
+- Any change to local path resolution or filenames must be recorded here in this spec.
   3. インストーラーで新規インストール
   4. ダブルクリック起動 → 初回DB生成/初期設定/ログ生成が成功する
   5. 最低限スモーク: ランキング1回、チャート1回、TXT取り込み1回

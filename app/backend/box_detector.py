@@ -42,11 +42,20 @@ def detect_boxes(
     max_range_pct: float = 0.18,
     rescue_bars: int = 2,
     rescue_hits_per_side: int = 1,
-    breakout_buffer: float = 0.005
+    breakout_buffer: float = 0.005,
+    range_basis: str = "high_low",
 ) -> list[dict]:
     bars = _to_bars(rows)
     if len(bars) < min_bars:
         return []
+
+    basis = "body" if range_basis == "body" else "high_low"
+
+    def bar_upper(bar: Bar) -> float:
+        return max(bar.open, bar.close) if basis == "body" else bar.high
+
+    def bar_lower(bar: Bar) -> float:
+        return min(bar.open, bar.close) if basis == "body" else bar.low
 
     boxes: list[dict] = []
     index = 0
@@ -54,9 +63,10 @@ def detect_boxes(
 
     while index <= last - min_bars:
         start = index
-        end = start + min_bars - 1
-        upper = max(bar.high for bar in bars[start : end + 1])
-        lower = min(bar.low for bar in bars[start : end + 1])
+        seed_end = start + min_bars - 1
+        end = seed_end
+        upper = max(bar_upper(bar) for bar in bars[start : end + 1])
+        lower = min(bar_lower(bar) for bar in bars[start : end + 1])
         base = max(abs(lower), 1e-9)
         if (upper - lower) / base > max_range_pct:
             index += 1
@@ -67,23 +77,25 @@ def detect_boxes(
 
         for cursor in range(end + 1, min(last, start + max_bars)):
             bar = bars[cursor]
-            out_up = bar.high > upper
-            out_down = bar.low < lower
+            bar_hi = bar_upper(bar)
+            bar_lo = bar_lower(bar)
+            out_up = bar_hi > upper
+            out_down = bar_lo < lower
             if out_up or out_down:
-                if cursor - start <= rescue_bars:
+                if cursor - seed_end <= rescue_bars:
                     if out_up and rescue_up < rescue_hits_per_side:
                         rescue_up += 1
-                        upper = max(upper, bar.high)
+                        upper = max(upper, bar_hi)
                     elif out_down and rescue_down < rescue_hits_per_side:
                         rescue_down += 1
-                        lower = min(lower, bar.low)
+                        lower = min(lower, bar_lo)
                     else:
                         break
                 else:
                     break
             else:
-                upper = max(upper, bar.high)
-                lower = min(lower, bar.low)
+                upper = max(upper, bar_hi)
+                lower = min(lower, bar_lo)
 
             base = max(abs(lower), 1e-9)
             if (upper - lower) / base > max_range_pct:

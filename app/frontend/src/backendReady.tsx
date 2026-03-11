@@ -4,6 +4,27 @@ import { api } from "./api";
 import { useStore } from "./store";
 import StartupOverlay from "./components/StartupOverlay";
 
+export type HealthReadyResponse = {
+  ok?: boolean;
+  status?: string;
+  ready?: boolean;
+  phase?: string;
+  message?: string;
+  error_code?: string | null;
+  errors?: string[];
+  retryAfterMs?: number;
+  txt_count?: number;
+  last_updated?: string | null;
+  code_txt_missing?: boolean;
+};
+
+export type HealthDeepResponse = HealthReadyResponse & {
+  code_count?: number;
+  pan_out_txt_dir?: string | null;
+  stats?: Record<string, unknown>;
+  data_initialized?: boolean;
+};
+
 type BackendReadyState = {
   ready: boolean;
   phase: string;
@@ -21,7 +42,7 @@ const BACKOFF_STEPS = [200, 500, 1000];
 const ERROR_THRESHOLD = 5;
 const ERROR_GRACE_MS = 60000;
 const HEALTH_TIMEOUT_MS = 5000;
-const KEEPALIVE_INTERVAL_MS = 5000;
+const KEEPALIVE_INTERVAL_MS = 15000;
 const KEEPALIVE_FAIL_THRESHOLD = 2;
 
 const getDefaultMessage = (phase: string) => {
@@ -40,7 +61,9 @@ const useBackendReadyInternal = (): BackendReadyState => {
   const attemptRef = useRef(0);
   const failureRef = useRef(0);
   const timerRef = useRef<number | null>(null);
-  const inFlightRef = useRef(false);
+  // Separate in-flight flags so probe and keepalive never block each other.
+  const probeInFlightRef = useRef(false);
+  const keepaliveInFlightRef = useRef(false);
   const readyRef = useRef(false);
   const startRef = useRef(Date.now());
   const keepaliveFailRef = useRef(0);
@@ -52,9 +75,13 @@ const useBackendReadyInternal = (): BackendReadyState => {
     }
   };
 
-  const scheduleNext = () => {
+  const scheduleNext = (retryAfterMs?: number) => {
     const idx = Math.min(attemptRef.current - 1, BACKOFF_STEPS.length - 1);
-    const delay = BACKOFF_STEPS[idx] ?? BACKOFF_STEPS[BACKOFF_STEPS.length - 1];
+    const fallbackDelay = BACKOFF_STEPS[idx] ?? BACKOFF_STEPS[BACKOFF_STEPS.length - 1];
+    const delay =
+      typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && retryAfterMs > 0
+        ? Math.max(100, Math.min(5000, Math.floor(retryAfterMs)))
+        : fallbackDelay;
     clearTimer();
     timerRef.current = window.setTimeout(() => {
       void probe();
@@ -67,8 +94,8 @@ const useBackendReadyInternal = (): BackendReadyState => {
   };
 
   const probe = async () => {
-    if (readyRef.current || inFlightRef.current) return;
-    inFlightRef.current = true;
+    if (readyRef.current || probeInFlightRef.current) return;
+    probeInFlightRef.current = true;
     attemptRef.current += 1;
     setAttemptCount(attemptRef.current);
     try {
@@ -76,14 +103,10 @@ const useBackendReadyInternal = (): BackendReadyState => {
         timeout: HEALTH_TIMEOUT_MS,
         validateStatus: () => true
       });
-      const data = res.data as {
-        ready?: boolean;
-        phase?: string;
-        message?: string;
-        errors?: string[];
-      };
+      const data = res.data as HealthReadyResponse;
       const isHttpOk = res.status >= 200 && res.status < 300;
-      const isReady = typeof data?.ready === "boolean" ? data.ready : isHttpOk;
+      const hasReadyFlag = typeof data?.ready === "boolean";
+      const isReady = hasReadyFlag && data.ready === true;
       const nextPhase = data?.phase ?? (isReady ? "ready" : "starting");
       const nextMessage = data?.message ?? getDefaultMessage(nextPhase);
 
@@ -98,10 +121,17 @@ const useBackendReadyInternal = (): BackendReadyState => {
         return;
       }
 
+      if (isHttpOk && !hasReadyFlag) {
+        failureRef.current += 1;
+        setNotReadyState("starting", "バックエンド応答を確認中");
+        scheduleNext(data?.retryAfterMs);
+        return;
+      }
+
       if (isHttpOk) {
         failureRef.current = 0;
         setNotReadyState(nextPhase, nextMessage);
-        scheduleNext();
+        scheduleNext(data?.retryAfterMs);
         return;
       }
 
@@ -120,7 +150,7 @@ const useBackendReadyInternal = (): BackendReadyState => {
       if (failureRef.current % 10 === 0) {
         console.warn("backend not ready", res.status);
       }
-      scheduleNext();
+      scheduleNext(data?.retryAfterMs);
     } catch (err) {
       failureRef.current += 1;
       if (
@@ -137,21 +167,22 @@ const useBackendReadyInternal = (): BackendReadyState => {
       }
       scheduleNext();
     } finally {
-      inFlightRef.current = false;
+      probeInFlightRef.current = false;
     }
   };
 
   const keepalive = async () => {
-    if (!readyRef.current || inFlightRef.current) return;
-    inFlightRef.current = true;
+    if (!readyRef.current || keepaliveInFlightRef.current) return;
+    keepaliveInFlightRef.current = true;
     try {
       const res = await api.get("/health", {
         timeout: 2000,
         validateStatus: () => true
       });
       const isHttpOk = res.status >= 200 && res.status < 300;
-      const data = res.data as { ready?: boolean; phase?: string; message?: string };
-      const isReady = typeof data?.ready === "boolean" ? data.ready : isHttpOk;
+      const data = res.data as HealthReadyResponse;
+      const hasReadyFlag = typeof data?.ready === "boolean";
+      const isReady = hasReadyFlag && data.ready === true;
       if (isHttpOk && isReady) {
         keepaliveFailRef.current = 0;
         return;
@@ -160,7 +191,7 @@ const useBackendReadyInternal = (): BackendReadyState => {
     } catch {
       keepaliveFailRef.current += 1;
     } finally {
-      inFlightRef.current = false;
+      keepaliveInFlightRef.current = false;
     }
 
     if (keepaliveFailRef.current >= KEEPALIVE_FAIL_THRESHOLD) {

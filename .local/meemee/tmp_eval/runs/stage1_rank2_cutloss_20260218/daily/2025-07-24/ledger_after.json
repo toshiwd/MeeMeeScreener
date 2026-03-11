@@ -1,0 +1,97 @@
+{
+  "asOf": "2025-07-24",
+  "metrics": {
+    "asOf": "2025-07-24",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 7927626.154951,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": 1977862.392346,
+        "net_cum_return_pct": 19.778624
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": 1977862.392346,
+        "net_cum_return_pct": 19.778624
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": 1927862.392346,
+        "net_cum_return_pct": 19.278624
+      }
+    ],
+    "cum_pnl": 1977862.392346,
+    "cum_return_pct": 19.778624,
+    "daily_pnl": 79362.450987,
+    "equity": 11977862.392346,
+    "fees_cost_cum": 100000.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 2106520.627102,
+    "gross_cum_return_pct": 21.065206,
+    "gross_daily_pnl": 79362.450987,
+    "gross_units": 4,
+    "holdings_count": 2,
+    "long_units": 4,
+    "max_drawdown_pct": -2.624425,
+    "net_cum_pnl": 1977862.392346,
+    "net_cum_return_pct": 19.778624,
+    "net_daily_pnl": 79362.450987,
+    "net_exposure_pct": 40.0,
+    "net_units": 4,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -2.624425,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 271.431832,
+        "worstMonthPct": 0.6005388026405267
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 2000.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "stage1_rank2_cutloss_20260218",
+    "short_units": 0,
+    "slippage_cost_cum": 28658.234756,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 100000000.0,
+    "turnover_notional_daily": 0.0,
+    "turnover_pct_daily": 0.0
+  },
+  "positions": [
+    {
+      "avgPrice": 412.0,
+      "holdingDays": 17,
+      "openedAt": "2025-07-01",
+      "pnlPct": 0.48543689320388345,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "2492",
+      "units": 2
+    },
+    {
+      "avgPrice": 2220.71435546875,
+      "holdingDays": 2,
+      "openedAt": "2025-07-23",
+      "pnlPct": 2.026374976555747,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "7013",
+      "units": 2
+    }
+  ],
+  "seasonId": "stage1_rank2_cutloss_20260218"
+}

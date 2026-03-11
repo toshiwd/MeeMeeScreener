@@ -1,0 +1,109 @@
+{
+  "costModel": {
+    "borrowShortBpsAnnual": 0.0,
+    "feesBps": 0.0,
+    "sensitivityBps": [
+      5.0,
+      10.0,
+      15.0
+    ],
+    "slippageBps": 0.0,
+    "slippageLiquidityFactorBps": 0.0
+  },
+  "fieldMapping": {
+    "gate": "entryQualified+setupType",
+    "regime": "trendUp/trendDown/trendUpStrict/trendDownStrict",
+    "revRisk": "mlPTurnDownShort|mlPDownShort"
+  },
+  "initialCash": 10000000,
+  "maxHoldings": 3,
+  "maxPerTicker": 10000000,
+  "mode": "LIVE",
+  "operatingMode": "challenger",
+  "optimization": {
+    "iterationsPerRun": 12,
+    "minTradesStage0": 1,
+    "minTradesStage1": 3,
+    "minTradesStage2": 8,
+    "optimizeCostModel": false,
+    "parallelDbPaths": [],
+    "parallelWorkers": 1,
+    "scoreWeights": {
+      "costDrag": 0.4,
+      "maxDrawdown": 0.45,
+      "netExposure": 0.2,
+      "riskGateFailPenalty": 1000.0,
+      "tradeShortfall": 1.25,
+      "turnover": 0.01,
+      "worstMonth": 0.3
+    },
+    "stage0Months": 2,
+    "stage1MaxCandidates": 8,
+    "stage1Months": 12,
+    "stage2Months": 36,
+    "stage2TopK": 3
+  },
+  "policyVersion": "toredex.v8",
+  "portfolioConstraints": {
+    "grossUnitsCap": 10,
+    "maxNetUnits": 3,
+    "maxPerSector": 3,
+    "maxUnitsPerTicker": 1,
+    "minLiquidity20d": 0.0,
+    "shortBlacklist": []
+  },
+  "rankingMode": "ml",
+  "riskGates": {
+    "challenger": {
+      "enabled": true,
+      "maxDrawdownPct": -15.0,
+      "maxNetExposureUnits": 4.0,
+      "maxTurnoverPctPerMonth": 600.0,
+      "worstMonthPct": -12.0
+    },
+    "champion": {
+      "enabled": true,
+      "maxDrawdownPct": -8.0,
+      "maxNetExposureUnits": 2.0,
+      "maxTurnoverPctPerMonth": 300.0,
+      "worstMonthPct": -8.0
+    }
+  },
+  "runsDir": null,
+  "sides": {
+    "longEnabled": true,
+    "shortEnabled": false
+  },
+  "stageRules": {
+    "goal20Pct": 20.0,
+    "goal30Pct": 30.0
+  },
+  "thresholds": {
+    "addMaxPnlPct": 12.0,
+    "addMaxRevRisk": 0.45,
+    "addMinEv": 0.03,
+    "addMinPnlPct": -1.0,
+    "addMinUpProb": 0.6,
+    "cutLossHardPct": -10.0,
+    "cutLossWarnPct": -6.0,
+    "entryMaxRevRisk": 0.55,
+    "entryMinEv": 0.03,
+    "entryMinUpProb": 0.58,
+    "exitIfUnranked": 1.0,
+    "exitMinEv": -0.01,
+    "exitMinUpProb": 0.5,
+    "gameOverPct": -20.0,
+    "maxNewEntriesPerDay": 1.0,
+    "newEntryMaxRank": 1.0,
+    "revRiskHigh": 0.65,
+    "revRiskWarn": 0.55,
+    "switchMinEvGap": 0.03,
+    "takeProfitHintPct": 10.0
+  },
+  "topN": 50,
+  "unitOptions": [
+    2,
+    3,
+    5
+  ]
+}

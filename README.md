@@ -1,91 +1,86 @@
-# MeeMee Screener
+﻿# MeeMee Screener
 
-MeeMee Screener は MOOMOO Desktop 風の高速株式スクリーナーです。  
-本リポジトリは Windows 向けのデスクトップ配布（pywebview + FastAPI + onedir）に対応しています。
+MeeMee Screener は、銘柄スクリーニングと売買履歴連携を行う Windows 向けデスクトップアプリです。  
+構成は `pywebview + FastAPI + React (Vite)` です。
 
-## 配布版の使い方（Windows）
+## 起動（通常）
 
-### 1. WebView2 Runtime を入れる（未導入PCのみ）
-MeeMee Screener は Microsoft WebView2 Runtime が必要です。  
-以下のどちらかで導入してください。
-
-- 公式インストーラ（推奨）  
-  Evergreen Standalone Installer を実行  
-  例: `MicrosoftEdgeWebView2RuntimeInstallerX64.exe`
-
-- winget で導入（管理者権限）  
-  `winget install Microsoft.EdgeWebView2Runtime`
-
-### 2. ZIP を展開して起動
-`release/MeeMeeScreener-portable.zip` を展開し、  
-`MeeMeeScreener/MeeMeeScreener.exe` を起動します。
-
-### 2a. 導入を自動化して起動（管理者権限ありの場合）
-`tools/portable_bootstrap.cmd` と `MeeMeeScreener-portable.zip` を同じフォルダに置いて実行すると、
-WebView2 Runtime の導入 → ZIP 展開 → 起動まで自動で行います。
-
-## デスクトップ配布ビルド（Windows）
-
-### 事前準備
-- アイコンを `resources/icons/app_icon.ico` に配置（必須）
-- 依存: Node.js / Python / backend requirements / pyinstaller / pywebview
-
-### 実行
-`tools/build_release.cmd` をダブルクリック、または実行します。
-
-出力:
-- `release/MeeMeeScreener/`（onedir）
-- `release/MeeMeeScreener/MeeMeeScreener.exe`
-- `release/MeeMeeScreener-portable.zip`
-
-## moomoo の ebk から code.txt を作る
-moomoo の EBK 形式（例: `JP#4366`）を `code.txt` に変換できます。
-
-例:
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/convert_moomoo_ebk.ps1 `
-  -InputFile C:\path\to\moomoo.ebk `
-  -OutputFile tools\code.txt
+.\run.ps1
 ```
 
-`tools/run_export.cmd` に EBK を渡すと自動で変換します。
-```cmd
-tools\run_export.cmd C:\path\to\moomoo.ebk
+または:
+
+```powershell
+python -m app.desktop.launcher
 ```
 
-## データ・設定・ログの保存先
-配布物直下には書き込まず、以下を推奨します。
+## 起動（デバッグ）
 
-- DB: `%LOCALAPPDATA%\MeeMeeScreener\data\`
-- 設定: `%LOCALAPPDATA%\MeeMeeScreener\config\`
-- 状態: `%LOCALAPPDATA%\MeeMeeScreener\state\`
-- ログ: `%LOCALAPPDATA%\MeeMeeScreener\logs\launcher.log`
+```powershell
+.\run_debug.ps1
+```
 
-## 開発用（Windows PowerShell）
+## 開発環境（ローカル）
 
 ### Backend
+
 ```powershell
-cd C:\work\meemee-screener\app\backend
+cd app\backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python ingest_txt.py
 uvicorn main:app --reload --port 8000
 ```
 
 ### Frontend
+
 ```powershell
-cd C:\work\meemee-screener\app\frontend
+cd app\frontend
 npm install
 npm run dev
 ```
 
 ### ヘルスチェック
+
 ```powershell
 curl http://localhost:8000/health
 curl http://localhost:8000/api/health
 curl http://localhost:8000/api/list
 ```
 
-ブラウザで `http://localhost:5173` を開きます。  
-TXT データが無い場合は `data/txt` に配置するよう UI が案内します。
+## データ配置（既定）
+
+- DB: `%LOCALAPPDATA%\MeeMeeScreener\data\`
+- 設定: `%LOCALAPPDATA%\MeeMeeScreener\config\`
+- 状態: `%LOCALAPPDATA%\MeeMeeScreener\state\`
+- ログ: `%LOCALAPPDATA%\MeeMeeScreener\logs\launcher.log`
+
+## 取引 CSV ファイル名（運用ルール）
+
+アプリは `MEEMEE_DATA_DIR`（通常 `%LOCALAPPDATA%\MeeMeeScreener\data`）配下の CSV を読み込みます。
+
+| ブローカー | ファイル名 |
+| --- | --- |
+| 楽天証券 | 楽天証券取引履歴.csv |
+| SBI証券 | SBI証券取引履歴.csv |
+
+## リリースビルド
+
+```powershell
+tools\build_release.cmd
+```
+
+成果物:
+
+- `release/MeeMeeScreener/`
+- `release/MeeMeeScreener/MeeMeeScreener.exe`
+- `release/MeeMeeScreener-portable.zip`
+
+## 関連ドキュメント
+
+- `docs/README.md`（ドキュメント索引）
+- `docs/CODEX.md`（詳細仕様 / Runbook）
+- `docs/TXT_UPDATE_RUNBOOK.md`（TXT 更新ジョブ運用）
+- `SMOKE_TEST.md`（最小回帰テスト手順）
+- `tools/README.md`（ツール類の概要）

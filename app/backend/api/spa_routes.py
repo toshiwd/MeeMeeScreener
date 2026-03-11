@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 # Backward-compatible re-export (legacy imports).
-from app.api.endpoints.spa import router
+from app.backend.api.routers.spa import router
 
 __all__ = ["router"]
-

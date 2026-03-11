@@ -6,7 +6,7 @@ import ChartListCard from "../components/ChartListCard";
 import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import { useStore } from "../store";
-import { computeSignalMetrics } from "../utils/signals";
+import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
 import {
   buildConsultationPack,
   ConsultationSort,
@@ -20,6 +20,7 @@ type CandidateItem = {
 };
 
 type CandidateSortKey = "code" | "change" | "scoreUp" | "scoreDown";
+const CANDIDATES_VIEW_STATE_KEY = "candidatesViewState";
 const SCREENSHOT_LIMIT = 10;
 
 export default function CandidatesView() {
@@ -51,6 +52,8 @@ export default function CandidatesView() {
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
   const [filterDataOnly, setFilterDataOnly] = useState(false);
+  const [filterBuySignalsOnly, setFilterBuySignalsOnly] = useState(false);
+  const [filterSellSignalsOnly, setFilterSellSignalsOnly] = useState(false);
   const [consultVisible, setConsultVisible] = useState(false);
   const [consultExpanded, setConsultExpanded] = useState(false);
   const [consultTab, setConsultTab] = useState<"selection" | "position">("selection");
@@ -69,6 +72,64 @@ export default function CandidatesView() {
 
   // Use the screenshot hook
   const { generateScreenshots } = useConsultScreenshot();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.sessionStorage.getItem(CANDIDATES_VIEW_STATE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as {
+        search?: string;
+        sortKey?: CandidateSortKey;
+        filterSignalsOnly?: boolean;
+        filterDataOnly?: boolean;
+        filterBuySignalsOnly?: boolean;
+        filterSellSignalsOnly?: boolean;
+      };
+      if (typeof parsed.search === "string") {
+        setSearch(parsed.search);
+      }
+      if (
+        parsed.sortKey === "code" ||
+        parsed.sortKey === "change" ||
+        parsed.sortKey === "scoreUp" ||
+        parsed.sortKey === "scoreDown"
+      ) {
+        setSortKey(parsed.sortKey);
+      }
+      if (typeof parsed.filterSignalsOnly === "boolean") {
+        setFilterSignalsOnly(parsed.filterSignalsOnly);
+      }
+      if (typeof parsed.filterDataOnly === "boolean") {
+        setFilterDataOnly(parsed.filterDataOnly);
+      }
+      if (typeof parsed.filterBuySignalsOnly === "boolean") {
+        setFilterBuySignalsOnly(parsed.filterBuySignalsOnly);
+      }
+      if (typeof parsed.filterSellSignalsOnly === "boolean") {
+        setFilterSellSignalsOnly(parsed.filterSellSignalsOnly);
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const payload = {
+        search,
+        sortKey,
+        filterSignalsOnly,
+        filterDataOnly,
+        filterBuySignalsOnly,
+        filterSellSignalsOnly
+      };
+      window.sessionStorage.setItem(CANDIDATES_VIEW_STATE_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore storage failures
+    }
+  }, [search, sortKey, filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]);
 
   const listStyles = useMemo(
     () =>
@@ -103,9 +164,21 @@ export default function CandidatesView() {
         label: "\u30c7\u30fc\u30bf\u53d6\u5f97\u6e08\u307f",
         checked: filterDataOnly,
         onToggle: () => setFilterDataOnly((prev) => !prev)
+      },
+      {
+        key: "buy-signal",
+        label: "\u8cb7\u3044\u5224\u5b9a\u3042\u308a",
+        checked: filterBuySignalsOnly,
+        onToggle: () => setFilterBuySignalsOnly((prev) => !prev)
+      },
+      {
+        key: "sell-signal",
+        label: "\u58f2\u308a\u5224\u5b9a\u3042\u308a",
+        checked: filterSellSignalsOnly,
+        onToggle: () => setFilterSellSignalsOnly((prev) => !prev)
       }
     ],
-    [filterSignalsOnly, filterDataOnly]
+    [filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]
   );
 
   useEffect(() => {
@@ -137,34 +210,59 @@ export default function CandidatesView() {
     });
   }, [items, search]);
 
-  const signalMap = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
+  const signalMetricsMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeSignalMetrics>>();
     searchResults.forEach((item) => {
-      const payload = barsCache[listTimeframe][item.code];
+      const payload = barsCache[listTimeframe]?.[item.code];
       if (!payload?.bars?.length) return;
-      const signals = computeSignalMetrics(payload.bars, 4).signals;
-      if (signals.length) {
-        map.set(item.code, signals);
-      }
+      map.set(item.code, computeSignalMetrics(payload.bars, 4));
     });
     return map;
   }, [searchResults, barsCache, listTimeframe]);
 
+  const signalMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
+    signalMetricsMap.forEach((metrics, code) => {
+      if (metrics.signals.length) {
+        map.set(code, metrics.signals);
+      }
+    });
+    return map;
+  }, [signalMetricsMap]);
+
   const filteredItems = useMemo(() => {
-    if (!filterSignalsOnly && !filterDataOnly) return searchResults;
+    const hasDirectionalFilter = filterBuySignalsOnly || filterSellSignalsOnly;
+    if (!filterSignalsOnly && !filterDataOnly && !hasDirectionalFilter) return searchResults;
     return searchResults.filter((item) => {
-      const payload = barsCache[listTimeframe][item.code];
+      const payload = barsCache[listTimeframe]?.[item.code];
       const hasData = Boolean(payload?.bars?.length);
+      const metrics = signalMetricsMap.get(item.code);
+      const summary = metrics ? getSignalDirectionSummary(metrics) : null;
       if (filterDataOnly && !hasData) return false;
       if (filterSignalsOnly && !signalMap.has(item.code)) return false;
+      if (hasDirectionalFilter) {
+        const matchesBuy = filterBuySignalsOnly && Boolean(summary?.hasBuySignal);
+        const matchesSell = filterSellSignalsOnly && Boolean(summary?.hasSellSignal);
+        if (!(matchesBuy || matchesSell)) return false;
+      }
       return true;
     });
-  }, [searchResults, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
+  }, [
+    searchResults,
+    filterSignalsOnly,
+    filterDataOnly,
+    filterBuySignalsOnly,
+    filterSellSignalsOnly,
+    barsCache,
+    listTimeframe,
+    signalMap,
+    signalMetricsMap
+  ]);
 
   const metricsMap = useMemo(() => {
     const map = new Map<string, { change: number; score: number }>();
     filteredItems.forEach((item) => {
-      const payload = barsCache[listTimeframe][item.code];
+      const payload = barsCache[listTimeframe]?.[item.code];
       const bars = payload?.bars ?? [];
       if (!bars.length) {
         map.set(item.code, { change: 0, score: 0 });
@@ -245,7 +343,7 @@ export default function CandidatesView() {
       const itemsForPack = consultTargets.map((code) => {
         const candidate = items.find((item) => item.code === code);
         const ticker = tickerMap.get(code);
-        const payload = barsCache[consultTimeframe][code];
+        const payload = barsCache[consultTimeframe]?.[code];
         const boxes = boxesCache[consultTimeframe][code] ?? [];
         return {
           code,
@@ -339,14 +437,14 @@ export default function CandidatesView() {
       } catch {
         // ignore storage failures
       }
-      navigate(`/ detail / ${code}`, { state: { from: location.pathname } });
+      navigate(`/detail/${code}`, { state: { from: location.pathname } });
     },
     [navigate, location.pathname, listCodes]
   );
 
   const emptyLabel =
     !loadingList && backendReady && sortedItems.length === 0
-      ? search.trim() || filterSignalsOnly || filterDataOnly
+      ? search.trim() || filterSignalsOnly || filterDataOnly || filterBuySignalsOnly || filterSellSignalsOnly
         ? "該当する銘柄がありません。"
         : "候補がありません。"
       : null;
@@ -391,7 +489,7 @@ export default function CandidatesView() {
         {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
         <div className="rank-grid">
           {sortedItems.map((item) => {
-            const payload = barsCache[listTimeframe][item.code] ?? null;
+            const payload = barsCache[listTimeframe]?.[item.code] ?? null;
             const status = barsStatus[listTimeframe][item.code];
             const ticker = tickerMap.get(item.code);
             return (
@@ -408,6 +506,10 @@ export default function CandidatesView() {
                 densityKey={densityKey}
                 signals={signalMap.get(item.code) ?? []}
                 onOpenDetail={handleOpenDetail}
+                phaseBody={ticker?.bodyScore ?? null}
+                phaseEarly={ticker?.earlyScore ?? null}
+                phaseLate={ticker?.lateScore ?? null}
+                phaseN={ticker?.phaseN ?? null}
                 action={{
                   label: "\u2713",
                   ariaLabel: "候補から外す",
@@ -421,7 +523,7 @@ export default function CandidatesView() {
         </div>
       </div>
       <div
-        className={`consult - sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
+        className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
           }`}
       >
         <button

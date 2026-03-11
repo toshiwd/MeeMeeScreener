@@ -1,0 +1,229 @@
+{
+  "db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\stocks.duckdb",
+  "months": [
+    "2025-03",
+    "2025-04",
+    "2025-05",
+    "2025-06",
+    "2025-07",
+    "2025-08",
+    "2025-09",
+    "2025-10",
+    "2025-11",
+    "2025-12",
+    "2026-01",
+    "2026-02"
+  ],
+  "top_n": 50,
+  "baseline_rule": "buyCandidateScore desc + hard exclusions(overextended, liquidity<50M)",
+  "entry_priority_rule": "0.4*buy + 0.35*ml_prob + 0.15*ml_ev + 0.1*risk + buyEligible penalty + hard exclusions",
+  "overall": {
+    "baseline": {
+      "n": 126,
+      "win_rate": 0.6428571428571429,
+      "avg_ret": 0.04775416810793887,
+      "median_ret": 0.041351731871801745
+    },
+    "entry_priority": {
+      "n": 126,
+      "win_rate": 0.6428571428571429,
+      "avg_ret": 0.04775416810793887,
+      "median_ret": 0.041351731871801745
+    }
+  },
+  "per_month": [
+    {
+      "month": "2025-03",
+      "asof_dt": 1743379200,
+      "baseline": {
+        "n": 17,
+        "win_rate": 0.6470588235294118,
+        "avg_ret": 0.010734922562593523,
+        "median_ret": 0.017351069982648903
+      },
+      "entry_priority": {
+        "n": 17,
+        "win_rate": 0.6470588235294118,
+        "avg_ret": 0.010734922562593523,
+        "median_ret": 0.017351069982648903
+      }
+    },
+    {
+      "month": "2025-04",
+      "asof_dt": 1745971200,
+      "baseline": {
+        "n": 20,
+        "win_rate": 0.85,
+        "avg_ret": 0.08654091119364124,
+        "median_ret": 0.07074412803990848
+      },
+      "entry_priority": {
+        "n": 20,
+        "win_rate": 0.85,
+        "avg_ret": 0.08654091119364124,
+        "median_ret": 0.07074412803990848
+      }
+    },
+    {
+      "month": "2025-05",
+      "asof_dt": 1748563200,
+      "baseline": {
+        "n": 3,
+        "win_rate": 0.6666666666666666,
+        "avg_ret": 0.05727487466500092,
+        "median_ret": 0.09870703248186685
+      },
+      "entry_priority": {
+        "n": 3,
+        "win_rate": 0.6666666666666666,
+        "avg_ret": 0.05727487466500092,
+        "median_ret": 0.09870703248186685
+      }
+    },
+    {
+      "month": "2025-06",
+      "asof_dt": 1751241600,
+      "baseline": {
+        "n": 6,
+        "win_rate": 0.6666666666666666,
+        "avg_ret": 0.021543569859111916,
+        "median_ret": 0.026956538836995225
+      },
+      "entry_priority": {
+        "n": 6,
+        "win_rate": 0.6666666666666666,
+        "avg_ret": 0.021543569859111916,
+        "median_ret": 0.026956538836995225
+      }
+    },
+    {
+      "month": "2025-07",
+      "asof_dt": 1753920000,
+      "baseline": {
+        "n": 12,
+        "win_rate": 0.5,
+        "avg_ret": -0.013366616956063329,
+        "median_ret": 0.0133188286487122
+      },
+      "entry_priority": {
+        "n": 12,
+        "win_rate": 0.5,
+        "avg_ret": -0.013366616956063329,
+        "median_ret": 0.0133188286487122
+      }
+    },
+    {
+      "month": "2025-08",
+      "asof_dt": 1756425600,
+      "baseline": {
+        "n": 12,
+        "win_rate": 0.5,
+        "avg_ret": 0.06822843485122142,
+        "median_ret": 0.016869828237133233
+      },
+      "entry_priority": {
+        "n": 12,
+        "win_rate": 0.5,
+        "avg_ret": 0.06822843485122142,
+        "median_ret": 0.016869828237133233
+      }
+    },
+    {
+      "month": "2025-09",
+      "asof_dt": 1759190400,
+      "baseline": {
+        "n": 14,
+        "win_rate": 0.9285714285714286,
+        "avg_ret": 0.1539629920216376,
+        "median_ret": 0.15096639564326697
+      },
+      "entry_priority": {
+        "n": 14,
+        "win_rate": 0.9285714285714286,
+        "avg_ret": 0.1539629920216376,
+        "median_ret": 0.15096639564326697
+      }
+    },
+    {
+      "month": "2025-10",
+      "asof_dt": 1761868800,
+      "baseline": {
+        "n": 9,
+        "win_rate": 0.3333333333333333,
+        "avg_ret": -0.06712069035725705,
+        "median_ret": -0.042383683875079625
+      },
+      "entry_priority": {
+        "n": 9,
+        "win_rate": 0.3333333333333333,
+        "avg_ret": -0.06712069035725705,
+        "median_ret": -0.042383683875079625
+      }
+    },
+    {
+      "month": "2025-11",
+      "asof_dt": 1764288000,
+      "baseline": {
+        "n": 20,
+        "win_rate": 0.5,
+        "avg_ret": 0.001128050175687101,
+        "median_ret": 0.0023373171836027495
+      },
+      "entry_priority": {
+        "n": 20,
+        "win_rate": 0.5,
+        "avg_ret": 0.001128050175687101,
+        "median_ret": 0.0023373171836027495
+      }
+    },
+    {
+      "month": "2025-12",
+      "asof_dt": 1767052800,
+      "baseline": {
+        "n": 13,
+        "win_rate": 0.6923076923076923,
+        "avg_ret": 0.1207945182823428,
+        "median_ret": 0.08700834326579265
+      },
+      "entry_priority": {
+        "n": 13,
+        "win_rate": 0.6923076923076923,
+        "avg_ret": 0.1207945182823428,
+        "median_ret": 0.08700834326579265
+      }
+    },
+    {
+      "month": "2026-01",
+      "asof_dt": 1769731200,
+      "baseline": {
+        "n": 0,
+        "win_rate": null,
+        "avg_ret": null,
+        "median_ret": null
+      },
+      "entry_priority": {
+        "n": 0,
+        "win_rate": null,
+        "avg_ret": null,
+        "median_ret": null
+      }
+    },
+    {
+      "month": "2026-02",
+      "asof_dt": 1771977600,
+      "baseline": {
+        "n": 0,
+        "win_rate": null,
+        "avg_ret": null,
+        "median_ret": null
+      },
+      "entry_priority": {
+        "n": 0,
+        "win_rate": null,
+        "avg_ret": null,
+        "median_ret": null
+      }
+    }
+  ],
+  "elapsed_sec": 85.94
+}

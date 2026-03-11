@@ -1,0 +1,42 @@
+Total data points (days with streak >= 60): 262017
+
+Correlations with Max Drop (20 days) (Negative correlation = Higher metric -> Larger drop):
+dist_ma60         -0.271650
+dist_ma20         -0.128009
+streak_count      -0.075267
+vol_ratio         -0.036734
+rsi14             -0.007506
+fwd_ret_5          0.452052
+fwd_max_drop_20    1.000000
+
+Avg Max Drop by RSI 14 Buckets:
+rsi_bucket
+(-0.001, 46.154]   -0.075172
+(46.154, 54.745]   -0.072978
+(54.745, 62.295]   -0.072885
+(62.295, 70.96]    -0.072429
+(70.96, 100.0]     -0.076323
+
+Avg Max Drop by Dist MA60 Buckets:
+dist_bucket
+(-0.0009999943300000001, 0.0403]   -0.062471
+(0.0403, 0.07]                     -0.064030
+(0.07, 0.104]                      -0.067244
+(0.104, 0.156]                     -0.073846
+(0.156, 3.0]                       -0.102204
+
+Avg Max Drop by Streak Count Buckets:
+streak_bucket
+(59.999, 67.0]   -0.068381
+(67.0, 76.0]     -0.071119
+(76.0, 88.0]     -0.073993
+(88.0, 108.0]    -0.073895
+(108.0, 340.0]   -0.083044
+
+Avg Max Drop by Volume Ratio Buckets:
+vol_bucket
+(-0.001, 0.623]   -0.077900
+(0.623, 0.799]    -0.070652
+(0.799, 0.984]    -0.070529
+(0.984, 1.271]    -0.072151
+(1.271, 20.0]     -0.078564

@@ -1,0 +1,151 @@
+{
+  "generated_at": "2026-02-27",
+  "db_path": "C:\\work\\meemee-screener\\.local\\meemee\\research_db\\stocks_research_20200101_20221231.duckdb",
+  "window": {
+    "start_ymd": 20200101,
+    "end_ymd": 20221231,
+    "limit": 20,
+    "month_points": 36,
+    "quarter_points": 12
+  },
+  "results": [
+    {
+      "candidate": "relax_4",
+      "params": {
+        "prob_bal": 0.54,
+        "turn_bal": 0.58,
+        "pressure_score_bal": 0.79,
+        "pressure_max_ev_bal": 0.0,
+        "overheat_strong_prob": 0.64,
+        "overheat_strong_turn": 0.62
+      },
+      "months_total": 36,
+      "months_nonzero": 25,
+      "months_nonzero_rate": 0.6944444444444444,
+      "monthly_mean_n": 9.166666666666666,
+      "quarter_points_total": 12,
+      "quarter_items_evaluated": 149,
+      "quarter_missing_outcome": 0,
+      "quarter_precision": 0.697986577181208,
+      "quarter_mean_pnl_20d": 0.049506328660112675,
+      "quarter_top1_n": 10,
+      "quarter_top1_precision": 0.8,
+      "quarter_top1_mean_pnl_20d": 0.09751580569546274
+    },
+    {
+      "candidate": "relax_3",
+      "params": {
+        "prob_bal": 0.55,
+        "turn_bal": 0.59,
+        "pressure_score_bal": 0.8,
+        "pressure_max_ev_bal": -0.0005,
+        "overheat_strong_prob": 0.65,
+        "overheat_strong_turn": 0.63
+      },
+      "months_total": 36,
+      "months_nonzero": 23,
+      "months_nonzero_rate": 0.6388888888888888,
+      "monthly_mean_n": 8.777777777777779,
+      "quarter_points_total": 12,
+      "quarter_items_evaluated": 146,
+      "quarter_missing_outcome": 0,
+      "quarter_precision": 0.7191780821917808,
+      "quarter_mean_pnl_20d": 0.0558501989212168,
+      "quarter_top1_n": 10,
+      "quarter_top1_precision": 0.8,
+      "quarter_top1_mean_pnl_20d": 0.09751580569546274
+    },
+    {
+      "candidate": "relax_2",
+      "params": {
+        "prob_bal": 0.56,
+        "turn_bal": 0.6,
+        "pressure_score_bal": 0.81,
+        "pressure_max_ev_bal": -0.001,
+        "overheat_strong_prob": 0.65,
+        "overheat_strong_turn": 0.63
+      },
+      "months_total": 36,
+      "months_nonzero": 23,
+      "months_nonzero_rate": 0.6388888888888888,
+      "monthly_mean_n": 8.027777777777779,
+      "quarter_points_total": 12,
+      "quarter_items_evaluated": 137,
+      "quarter_missing_outcome": 0,
+      "quarter_precision": 0.7153284671532847,
+      "quarter_mean_pnl_20d": 0.05732004046658255,
+      "quarter_top1_n": 10,
+      "quarter_top1_precision": 0.8,
+      "quarter_top1_mean_pnl_20d": 0.09751580569546274
+    },
+    {
+      "candidate": "prob_soft_turn_keep",
+      "params": {
+        "prob_bal": 0.55,
+        "turn_bal": 0.62,
+        "pressure_score_bal": 0.81,
+        "pressure_max_ev_bal": -0.001,
+        "overheat_strong_prob": 0.65,
+        "overheat_strong_turn": 0.63
+      },
+      "months_total": 36,
+      "months_nonzero": 22,
+      "months_nonzero_rate": 0.6111111111111112,
+      "monthly_mean_n": 8.277777777777779,
+      "quarter_points_total": 12,
+      "quarter_items_evaluated": 141,
+      "quarter_missing_outcome": 0,
+      "quarter_precision": 0.7304964539007093,
+      "quarter_mean_pnl_20d": 0.059981353754601195,
+      "quarter_top1_n": 10,
+      "quarter_top1_precision": 0.8,
+      "quarter_top1_mean_pnl_20d": 0.09751580569546274
+    },
+    {
+      "candidate": "relax_1",
+      "params": {
+        "prob_bal": 0.57,
+        "turn_bal": 0.61,
+        "pressure_score_bal": 0.82,
+        "pressure_max_ev_bal": -0.0015,
+        "overheat_strong_prob": 0.66,
+        "overheat_strong_turn": 0.64
+      },
+      "months_total": 36,
+      "months_nonzero": 21,
+      "months_nonzero_rate": 0.5833333333333334,
+      "monthly_mean_n": 6.75,
+      "quarter_points_total": 12,
+      "quarter_items_evaluated": 120,
+      "quarter_missing_outcome": 0,
+      "quarter_precision": 0.75,
+      "quarter_mean_pnl_20d": 0.06804131768569467,
+      "quarter_top1_n": 10,
+      "quarter_top1_precision": 0.8,
+      "quarter_top1_mean_pnl_20d": 0.08846379183657178
+    },
+    {
+      "candidate": "baseline",
+      "params": {
+        "prob_bal": 0.58,
+        "turn_bal": 0.62,
+        "pressure_score_bal": 0.83,
+        "pressure_max_ev_bal": -0.002,
+        "overheat_strong_prob": 0.66,
+        "overheat_strong_turn": 0.64
+      },
+      "months_total": 36,
+      "months_nonzero": 18,
+      "months_nonzero_rate": 0.5,
+      "monthly_mean_n": 6.222222222222222,
+      "quarter_points_total": 12,
+      "quarter_items_evaluated": 116,
+      "quarter_missing_outcome": 0,
+      "quarter_precision": 0.75,
+      "quarter_mean_pnl_20d": 0.06777607857131654,
+      "quarter_top1_n": 9,
+      "quarter_top1_precision": 0.6666666666666666,
+      "quarter_top1_mean_pnl_20d": 0.07561804974005046
+    }
+  ]
+}

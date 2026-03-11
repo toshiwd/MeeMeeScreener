@@ -1,0 +1,55 @@
+High Win Rate Patterns (10 Day Horizon)
+WinRate_AnyDrop: Probability price drops below entry at least once.
+WinRate_3pct: Probability price drops >3% at least once.
+
+                                          Pattern      N  WinRate_AnyDrop  WinRate_3pct  WinRate_5pct  AvgMaxDrop
+19                       Overheated25 + Vol_High2   2318            99.9%         94.3%         83.1%      -10.9%
+46        Overheated15 + Overheated25 + Vol_High2   2318            99.9%         94.3%         83.1%      -10.9%
+72          Overheated25 + RSI_High70 + Vol_High2   1847            99.9%         94.2%         83.1%      -10.8%
+77       Overheated25 + RSI_Extreme80 + Vol_High2   1078            99.9%         94.5%         81.8%      -10.8%
+83            Overheated25 + Vol_High2 + BigDrop2    272           100.0%         89.0%         75.7%      -11.5%
+106          RSI_Extreme80 + Vol_High2 + BigDrop2     71           100.0%         90.1%         74.6%       -9.9%
+57       Overheated15 + RSI_Extreme80 + Vol_High2   1720            99.9%         89.7%         72.2%       -9.1%
+82       Overheated25 + Vol_High2 + BearishCandle    567            99.8%         86.6%         71.6%      -10.2%
+80        Overheated25 + RSI_Extreme80 + BigDrop2    293            98.6%         83.3%         70.6%       -9.7%
+86            Overheated25 + Vol_Low05 + BigDrop2    504            99.2%         83.7%         70.6%      -11.7%
+52          Overheated15 + RSI_High70 + Vol_High2   3542            99.9%         88.4%         70.4%       -8.7%
+12                       Overheated15 + Vol_High2   5050            99.9%         88.2%         70.2%       -8.8%
+84       Overheated25 + Vol_High2 + MA5_CrossDown     68           100.0%         86.8%         69.1%      -10.3%
+71      Overheated25 + RSI_High70 + RSI_Extreme80   4779            99.5%         84.7%         67.9%       -9.0%
+45    Overheated15 + Overheated25 + RSI_Extreme80   4779            99.5%         84.7%         67.9%       -9.0%
+18                   Overheated25 + RSI_Extreme80   4779            99.5%         84.7%         67.9%       -9.0%
+75           Overheated25 + RSI_High70 + BigDrop2   1285            99.4%         82.3%         67.2%       -9.4%
+63            Overheated15 + Vol_High2 + BigDrop2    555            99.8%         82.3%         67.0%       -9.5%
+17                      Overheated25 + RSI_High70  10418            99.5%         84.2%         66.8%       -8.8%
+44       Overheated15 + Overheated25 + RSI_High70  10418            99.5%         84.2%         66.8%       -8.8%
+66            Overheated15 + Vol_Low05 + BigDrop2    973            98.9%         79.1%         66.8%      -10.7%
+49         Overheated15 + Overheated25 + BigDrop2   3029            99.4%         81.9%         66.8%      -10.0%
+22                        Overheated25 + BigDrop2   3029            99.4%         81.9%         66.8%      -10.0%
+1                                    Overheated25  17451            99.5%         83.5%         66.3%       -9.2%
+9                     Overheated15 + Overheated25  17451            99.5%         83.5%         66.3%       -9.2%
+60        Overheated15 + RSI_Extreme80 + BigDrop2    400            98.8%         80.2%         66.2%       -8.8%
+88        Overheated25 + BearishCandle + BigDrop2   2769            99.4%         81.4%         66.2%       -9.8%
+90        Overheated25 + BigDrop2 + MA5_CrossDown   1159            99.3%         81.3%         66.2%      -10.0%
+87       Overheated25 + Vol_Low05 + MA5_CrossDown    364            98.6%         78.6%         64.6%      -10.2%
+100             RSI_High70 + Vol_Low05 + BigDrop2    155            98.7%         78.7%         64.5%       -9.0%
+79   Overheated25 + RSI_Extreme80 + BearishCandle   1415            99.5%         78.2%         64.2%       -8.4%
+94          RSI_High70 + RSI_Extreme80 + BigDrop2    425            98.8%         78.8%         64.2%       -8.5%
+33                       RSI_Extreme80 + BigDrop2    425            98.8%         78.8%         64.2%       -8.5%
+97              RSI_High70 + Vol_High2 + BigDrop2    296            99.7%         78.0%         64.2%       -8.6%
+91         RSI_High70 + RSI_Extreme80 + Vol_High2   2213            99.9%         83.7%         63.9%       -8.1%
+30                      RSI_Extreme80 + Vol_High2   2213            99.9%         83.7%         63.9%       -8.1%
+109      RSI_Extreme80 + BearishCandle + BigDrop2    390            99.2%         78.2%         63.3%       -8.2%
+74      Overheated25 + RSI_High70 + BearishCandle   3683            99.4%         78.5%         62.8%       -8.5%
+64       Overheated15 + Vol_High2 + MA5_CrossDown    194           100.0%         81.4%         62.4%       -9.1%
+47        Overheated15 + Overheated25 + Vol_Low05   2353            98.6%         77.9%         62.2%       -9.8%
+20                       Overheated25 + Vol_Low05   2353            98.6%         77.9%         62.2%       -9.8%
+48    Overheated15 + Overheated25 + BearishCandle   6982            99.4%         77.7%         62.2%       -9.0%
+21                   Overheated25 + BearishCandle   6982            99.4%         77.7%         62.2%       -9.0%
+23                   Overheated25 + MA5_CrossDown   1746            99.4%         78.9%         62.1%       -9.3%
+50    Overheated15 + Overheated25 + MA5_CrossDown   1746            99.4%         78.9%         62.1%       -9.3%
+85       Overheated25 + Vol_Low05 + BearishCandle   1205            98.9%         76.3%         61.7%       -9.9%
+89   Overheated25 + BearishCandle + MA5_CrossDown   1495            99.3%         77.7%         61.7%       -9.2%
+76      Overheated25 + RSI_High70 + MA5_CrossDown    789            99.6%         79.3%         61.1%       -8.4%
+62       Overheated15 + Vol_High2 + BearishCandle   1258            99.6%         77.2%         60.6%       -8.2%
+39                           Vol_Low05 + BigDrop2   2287            97.7%         72.8%         59.4%       -8.9%

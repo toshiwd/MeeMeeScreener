@@ -9,6 +9,7 @@
   - 必要な行は `rg` で抽出し、該当行のみを提示する。
 
 ## 1) 進め方（強制）
+* 変更点・対応報告は日本語で行い、必要なら英語に翻訳を添える。
 - 必ず: Plan -> Evidence -> Execute -> Verify の順で進める。
 - 1 fix = 1 symptom。無関係な整形/リネーム/大量置換を混ぜない。
 - 依頼が曖昧な場合でも、まず repo を検索して「現状の証拠」を集め、勝手に仕様を変えない。
@@ -30,3 +31,8 @@
 - backend/front の領域ルールは各ディレクトリの AGENTS.md を優先する:
   - app/backend/AGENTS.md
   - app/frontend/AGENTS.md
+
+## 6) ExecPlans 運用
+- 複雑な機能追加または大規模リファクタでは、設計から実装まで ExecPlan を必須とする。
+- ExecPlan は `.agent/PLANS.md` の要件に従って作成・更新する。
+- Rule (EN): When writing complex features or significant refactors, use an ExecPlan (as described in `.agent/PLANS.md`) from design to implementation.

@@ -1,0 +1,25 @@
+# TOREDEX Narrative 2024-08-27
+
+- season_id: stage2_candidate8d1_a60_addUp058_20260218
+- mode: BACKTEST
+- policy_version: toredex.v8
+
+## Buy Top 3
+1. 3989 ev=0.03855721393034826 upProb=1.0 revRisk=0.23293075684380032 gate=True:ENTRY_OK
+2. 5449 ev=0.03225806451612903 upProb=0.9537434094903339 revRisk=0.2561511423550088 gate=True:ENTRY_OK
+3. 2317 ev=0.03359173126614987 upProb=0.9208196721311475 revRisk=0.1826654523375835 gate=True:ENTRY_OK
+
+## Sell Top 3
+1. 7616 ev=-0.02321083172147002 upProb=0.8720136878125823 revRisk=0.8720136878125823 gate=True:ENTRY_OK
+2. 8783 ev=-0.010869565217391304 upProb=0.7966423357664233 revRisk=0.7966423357664233 gate=True:ENTRY_OK
+3. 6254 ev=-0.014957264957264958 upProb=0.9126174496644295 revRisk=0.9126174496644295 gate=True:ENTRY_OK
+
+## Actions
+- no actions
+
+## Metrics
+- equity: 14640072.162975
+- cum_return_pct: 46.400722
+- max_drawdown_pct: -4.551253
+- holdings_count: 1
+- game_over: False

@@ -1,0 +1,26 @@
+# TOREDEX Narrative 2024-01-29
+
+- season_id: stage2_rank2_dd_v31_unit123_net3_20260219
+- mode: BACKTEST
+- policy_version: toredex.v8
+
+## Buy Top 3
+1. 1711 ev=0.030732860520094562 upProb=1.0 revRisk=0.09513888888888894 gate=True:ENTRY_OK
+2. 9279 ev=0.03557022368903557 upProb=0.8895501730103806 revRisk=0.252080396428724 gate=True:ENTRY_OK
+3. 6871 ev=0.037758830694275276 upProb=0.8390176322418136 revRisk=0.0 gate=True:ENTRY_OK
+
+## Sell Top 3
+1. 9143 ev=-0.033632286995515695 upProb=0.5836320626311284 revRisk=0.5836320626311284 gate=True:ENTRY_OK
+2. 4902 ev=-0.012593804229400436 upProb=0.6499771286587279 revRisk=0.6499771286587279 gate=True:ENTRY_OK
+3. 4825 ev=-0.012844036697247707 upProb=0.6318831809319571 revRisk=0.6318831809319571 gate=True:ENTRY_OK
+
+## Actions
+1. 7949 LONG delta=-2 reason=X_EXIT_GATE_NG
+2. 1711 LONG delta=2 reason=E_NEW_TOP1_GATE_OK
+
+## Metrics
+- equity: 12898626.931998
+- cum_return_pct: 28.986269
+- max_drawdown_pct: -3.34037
+- holdings_count: 1
+- game_over: False

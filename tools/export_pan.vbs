@@ -511,7 +511,9 @@ Function ExportOneCode_Incremental(ByVal code, ByVal outFolder, ByRef cal, ByRef
     updatedAt = FormatTimestamp(Now)
     Dim rec2
     Set rec2 = GetOrCreateManifestRecord(manifest, code)
-    rec2("filePath") = outPath
+    ' filePath is not used in incremental logic; keep it empty to avoid
+    ' encoding-dependent write failures in manifest export.
+    rec2("filePath") = ""
     If Len(firstDate) > 0 Then rec2("firstDate") = firstDate
     If Len(firstClose) > 0 Then rec2("firstClose") = CStr(firstClose)
     If Len(lastWrittenDate) > 0 Then
@@ -616,7 +618,7 @@ Sub SaveManifest(ByVal path, ByRef dict)
                      CleanCsv(GetRecValue(rec, "lastClose")) & "," & _
                      CleanCsv(GetRecValue(rec, "firstDate")) & "," & _
                      CleanCsv(GetRecValue(rec, "firstClose")) & "," & _
-                     CleanCsv(GetRecValue(rec, "filePath")) & "," & _
+                     CleanCsv("") & "," & _
                      CleanCsv(GetRecValue(rec, "updatedAt"))
     Next
     ts.Close

@@ -1,0 +1,37 @@
+{
+  "generated_at_utc": "2026-03-04T07:54:10.715846+00:00",
+  "season_id": "toredex_live_short_hybrid_shadow_20260304_v2_test",
+  "window_days": 10,
+  "rollback_max_dd": -8.0,
+  "config_override": {
+    "rankingMode": "hybrid",
+    "sides": {
+      "longEnabled": true,
+      "shortEnabled": true
+    },
+    "thresholds": {
+      "entryMinUpProb": 0.56,
+      "entryMinEv": -0.01,
+      "entryMaxRevRisk": 0.7,
+      "maxNewEntriesPerDay": 2.0,
+      "newEntryMaxRank": 10.0
+    },
+    "operatingMode": "champion"
+  },
+  "run_result": null,
+  "summary": {
+    "window_days": 0,
+    "metric_days": 0,
+    "short_entries": 0,
+    "crash_boost_entries": 0,
+    "pass_days": 0,
+    "all_pass": false,
+    "min_max_drawdown_pct": null,
+    "promotion_gate_pass": false,
+    "rollback_trigger": false,
+    "rollback_reason": "NO_METRICS",
+    "latest": null
+  },
+  "metrics_window": [],
+  "daily_observations": []
+}

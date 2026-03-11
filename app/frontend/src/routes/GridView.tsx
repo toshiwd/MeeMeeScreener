@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   FixedSizeGrid as Grid,
   type FixedSizeGrid,
@@ -6,8 +6,12 @@ import {
 } from "react-window";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { useBackendReadyState } from "../backendReady";
-import type { MaSetting, SortDir, SortKey } from "../store";
+import {
+  useBackendReadyState,
+  type HealthDeepResponse,
+  type HealthReadyResponse
+} from "../backendReady";
+import type { MaSetting, SortDir } from "../store";
 import { useStore } from "../store";
 import StockTile from "../components/StockTile";
 import Toast from "../components/Toast";
@@ -19,12 +23,14 @@ import {
   IconLayoutGrid,
   IconFilter,
   IconRefresh,
+  IconPlayerStop,
   IconSettings,
   IconMoon,
   IconSun,
   IconUpload,
   IconDownload,
-  IconFileText
+  IconFileText,
+  IconBuildingArch // Added IconBuildingArch for Sector Sort
 } from "@tabler/icons-react";
 import TechnicalFilterDrawer from "../components/TechnicalFilterDrawer";
 import { computeSignalMetrics } from "../utils/signals";
@@ -37,7 +43,6 @@ import { applyTheme, getStoredTheme, setStoredTheme, toggleTheme, type Theme } f
 import { saveAsFile } from "../utils/aiExport";
 import {
   computeMAAt,
-  describeCondition,
   evaluateBuilderCondition,
   formatDateYMD,
   getLatestAnchorTime,
@@ -48,58 +53,70 @@ import {
   type TechnicalFilterState
 } from "../utils/technicalFilter";
 import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
-
-const GRID_GAP = 12;
-const KEEP_LIMIT = 24;
-type Timeframe = "monthly" | "weekly" | "daily";
-type SortOption = { key: SortKey; label: string };
-type SortSection = { title: string; options: SortOption[] };
-
-const rangeOptions = [
-  { label: "60本", count: 60 },
-  { label: "120本", count: 120 },
-  { label: "240本", count: 240 },
-  { label: "360本", count: 360 }
-];
-
-const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalFilterState => ({
-  defaultTimeframe,
-  anchorMode: "latest",
-  anchorDate: null,
-  conditions: []
-});
-
-function useResizeObserver() {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
-
-  useEffect(() => {
-    if (!ref.current) return;
-    const element = ref.current;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        setSize({ width, height });
-      }
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-
-  return { ref, size };
-}
-
-type HealthStatus = {
-  txt_count: number;
-  code_count: number;
-  last_updated: string | null;
-  code_txt_missing: boolean;
-  pan_out_txt_dir?: string | null;
-};
+import {
+  extractTxtUpdateJobId,
+  formatTxtUpdateStatusLabel,
+  isTxtUpdateConflictError,
+  type TxtUpdateStartPayload
+} from "../utils/txtUpdate";
+import { useResizeObserver } from "./grid/hooks/useResizeObserver";
+import GridIndicatorOverlay from "./grid/components/GridIndicatorOverlay";
+import { useTerminalJobPolling } from "./grid/hooks/useTerminalJobPolling";
+import type {
+  BuyStateFilter,
+  HealthStatus,
+  JobHistoryItem,
+  JobStatusPayload,
+  SortOption,
+  SortSection,
+  Timeframe,
+  ToastAction,
+  TxtUpdateJobState,
+  WalkforwardAttributionBucket,
+  WalkforwardAttributionRow,
+  WalkforwardLatest,
+  WalkforwardParams,
+  WalkforwardPreset,
+  WalkforwardReport,
+  WalkforwardResearchHedgeContribution,
+  WalkforwardResearchLatest,
+  WalkforwardResearchRejectedRow,
+  WalkforwardResearchReport,
+  WalkforwardResearchSetupRow,
+  WalkforwardSummary,
+  WalkforwardWindow
+} from "./grid/gridTypes";
+import {
+  ACTIVE_JOB_STATUS,
+  APP_VERSION_LABEL,
+  BARS_ERROR_RETRY_COOLDOWN_MS,
+  BARS_ERROR_RETRY_INTERVAL_MS,
+  GRID_GAP,
+  GRID_REFACTOR_ENABLED,
+  KP_LIMIT,
+  TERMINAL_JOB_STATUS,
+  WALKFORWARD_PRESETS_LIMIT,
+  WALKFORWARD_PRESETS_STORAGE_KEY,
+  createDefaultTechFilter,
+  createDefaultWalkforwardParams,
+  extractErrorDetail,
+  gridColumnOptions,
+  gridRowOptions,
+  mergeHealthStatus,
+  normalizeHealthStatus,
+  rangeOptions,
+  resolveGridSignalSortScore,
+  toWalkforwardParams
+} from "./grid/gridHelpers";
 
 export default function GridView() {
   const location = useLocation();
   const navigate = useNavigate();
+  const sectorParam = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const value = params.get("sector");
+    return value && value.trim() ? value.trim() : null;
+  }, [location.search]);
   const { ref, size } = useResizeObserver();
   const { ready: backendReady } = useBackendReadyState();
   const tickers = useStore((state) => state.tickers);
@@ -118,7 +135,6 @@ export default function GridView() {
   const keepList = useStore((state) => state.keepList);
   const addKeep = useStore((state) => state.addKeep);
   const removeKeep = useStore((state) => state.removeKeep);
-  const clearKeep = useStore((state) => state.clearKeep);
   const setColumns = useStore((state) => state.setColumns);
   const setRows = useStore((state) => state.setRows);
   const setSearch = useStore((state) => state.setSearch);
@@ -138,6 +154,7 @@ export default function GridView() {
   const resetMaSettings = useStore((state) => state.resetMaSettings);
   const eventsMeta = useStore((state) => state.eventsMeta);
   const refreshEvents = useStore((state) => state.refreshEvents);
+
   const eventsAttemptLabel = useMemo(
     () => formatEventDateYmd(eventsMeta?.lastAttemptAt),
     [eventsMeta?.lastAttemptAt]
@@ -160,7 +177,7 @@ export default function GridView() {
     const thresholdMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
     if (maxMs >= thresholdMs) return null;
     const formatted = formatEventDateYmd(rightsMaxDate);
-    return formatted ? `権利データ範囲: 〜${formatted}` : null;
+    return formatted ? `権利データ範囲: ～${formatted}` : null;
   }, [eventsMeta]);
 
   const [health, setHealth] = useState<HealthStatus | null>(null);
@@ -169,15 +186,8 @@ export default function GridView() {
   const [basicSortOpen, setBasicSortOpen] = useState(false);  // Basic sort menu
   const [displayOpen, setDisplayOpen] = useState(false);
   const [isSorting, setIsSorting] = useState(false);
-  const [updateRequestInFlight, setUpdateRequestInFlight] = useState(false);
-  const updateRequestStartedAtRef = useRef<number | null>(null);
-  const prevUpdateJobIdRef = useRef<string | null>(null);
-  const [txtUpdateStatus, setTxtUpdateStatus] = useState<TxtUpdateStatus | null>(null);
-  const [splitSuspects, setSplitSuspects] = useState<SplitSuspect[]>([]);
-  const [showSplitSuspects, setShowSplitSuspects] = useState(false);
-  const [updateLogLines, setUpdateLogLines] = useState<string[]>([]);
-  const [showUpdateLog, setShowUpdateLog] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; key: number } | null>(null);
+  const [toastAction, setToastAction] = useState<ToastAction | null>(null);
   const toastKeyRef = useRef(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [consultVisible, setConsultVisible] = useState(false);
@@ -191,33 +201,72 @@ export default function GridView() {
     null
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPanelMode, setSettingsPanelMode] = useState<"general" | "walkforward">("general");
+  const [dataDir, setDataDir] = useState("");
+  const [dataDirInput, setDataDirInput] = useState("");
+  const [dataDirLoading, setDataDirLoading] = useState(false);
+  const [dataDirSaving, setDataDirSaving] = useState(false);
+  const [dataDirMessage, setDataDirMessage] = useState<string | null>(null);
   const [currentTheme, setCurrentTheme] = useState<Theme>(() => getStoredTheme());
   const [tradeUploadInFlight, setTradeUploadInFlight] = useState(false);
   const [tradeSyncInFlight, setTradeSyncInFlight] = useState(false);
+  const [txtUpdateJob, setTxtUpdateJob] = useState<TxtUpdateJobState | null>(null);
+  const [txtUpdatePolling, setTxtUpdatePolling] = useState(false);
+  const [walkforwardSubmitting, setWalkforwardSubmitting] = useState(false);
+  const [walkforwardLoading, setWalkforwardLoading] = useState(false);
+  const [walkforwardLatest, setWalkforwardLatest] = useState<WalkforwardLatest | null>(null);
+  const [walkforwardResearchLatest, setWalkforwardResearchLatest] =
+    useState<WalkforwardResearchLatest | null>(null);
+  const [walkforwardParams, setWalkforwardParams] = useState<WalkforwardParams>(
+    createDefaultWalkforwardParams
+  );
+  const [walkforwardPresetName, setWalkforwardPresetName] = useState("");
+  const [walkforwardPresets, setWalkforwardPresets] = useState<WalkforwardPreset[]>([]);
+  const [walkforwardPresetImporting, setWalkforwardPresetImporting] = useState(false);
   const [watchlistExporting, setWatchlistExporting] = useState(false);
   const [techFilterOpen, setTechFilterOpen] = useState(false);
-  const [keepBarCollapsed, setKeepBarCollapsed] = useState(false);
   const [techFilterDraft, setTechFilterDraft] = useState<TechnicalFilterState>(() =>
     createDefaultTechFilter(gridTimeframe)
   );
   const [techFilterActive, setTechFilterActive] = useState<TechnicalFilterState>(() =>
     createDefaultTechFilter(gridTimeframe)
   );
+  const [buyStateFilter, setBuyStateFilter] = useState<BuyStateFilter>("all");
+  const [buyStateFilterDraft, setBuyStateFilterDraft] = useState<BuyStateFilter>("all");
+  const [shortTierAbOnly, setShortTierAbOnly] = useState(false);
+  const [shortTierAbOnlyDraft, setShortTierAbOnlyDraft] = useState(false);
+  const [sectorSortOpen, setSectorSortOpen] = useState(false); // Popover state for Sector Sort
   const sortRef = useRef<HTMLDivElement | null>(null);
   const displayRef = useRef<HTMLDivElement | null>(null);
   const settingsRef = useRef<HTMLDivElement | null>(null);
+  const sectorSortRef = useRef<HTMLDivElement | null>(null); // Ref for Sector Sort Popover
   const techFilterDropNoticeRef = useRef(false);
   const gridRef = useRef<FixedSizeGrid | null>(null);
   const tradeCsvInputRef = useRef<HTMLInputElement | null>(null);
-  const prevUpdateRunningRef = useRef(false);
+  const walkforwardPresetImportInputRef = useRef<HTMLInputElement | null>(null);
   const lastVisibleCodesRef = useRef<string[]>([]);
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
+  const barsErrorRetryCooldownRef = useRef<Record<string, number>>({});
   const undoTimerRef = useRef<number | null>(null);
+  const txtUpdateTerminalStatusRef = useRef<string | null>(null);
+  const txtUpdateDailyFollowupRef = useRef(false);
+  const seenTerminalJobsRef = useRef<Set<string>>(new Set());
+  const terminalJobsInitializedRef = useRef(false);
+  const walkforwardPresetsLoadedRef = useRef(false);
 
-  const showToast = useCallback((text: string) => {
+
+  const showToast = useCallback((text: string, action?: ToastAction | null) => {
     toastKeyRef.current += 1;
-    showToast({ text, key: toastKeyRef.current });
+    setToastAction(action ?? null);
+    setToastMessage({ text, key: toastKeyRef.current });
   }, []);
+
+  const clearSectorFilter = useCallback(() => {
+    const params = new URLSearchParams(location.search);
+    params.delete("sector");
+    const next = params.toString();
+    navigate(`${location.pathname}${next ? `?${next}` : ""}`);
+  }, [location.pathname, location.search, navigate]);
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
   const consultPaddingClass = consultVisible
@@ -230,6 +279,89 @@ export default function GridView() {
     const count = listRangeBars ?? 120;
     return Math.max(12, Math.min(260, Math.floor(count)));
   }, [listRangeBars]);
+
+  const formatRate = useCallback((value: number | null | undefined) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return "--";
+    return `${(value * 100).toFixed(1)}%`;
+  }, []);
+
+  const formatSigned = useCallback((value: number | null | undefined) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return "--";
+    const sign = value > 0 ? "+" : "";
+    return `${sign}${value.toFixed(3)}`;
+  }, []);
+
+  const formatCompactDate = useCallback((value: number | null | undefined) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return "--";
+    const text = String(Math.trunc(value));
+    if (!/^\d{8}$/.test(text)) return text;
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
+  }, []);
+
+  const formatAttributionRows = useCallback(
+    (bucket: WalkforwardAttributionBucket | undefined, limit = 3) => {
+      const top = Array.isArray(bucket?.top) ? bucket?.top?.slice(0, limit) : [];
+      const bottom = Array.isArray(bucket?.bottom) ? bucket?.bottom?.slice(0, limit) : [];
+      return { top, bottom };
+    },
+    []
+  );
+
+  const parseOptionalNumber = useCallback((value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const num = Number(trimmed);
+    if (!Number.isFinite(num)) return undefined;
+    return num;
+  }, []);
+
+  const normalizeWalkforwardPresetName = useCallback((value: string) => {
+    return value.trim().replace(/\s+/g, " ").slice(0, 40);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(WALKFORWARD_PRESETS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const items: WalkforwardPreset[] = [];
+      for (const entry of parsed) {
+        if (!entry || typeof entry !== "object") continue;
+        const nameRaw = (entry as { name?: unknown }).name;
+        const name = typeof nameRaw === "string" ? normalizeWalkforwardPresetName(nameRaw) : "";
+        if (!name) continue;
+        const paramsRaw = (entry as { params?: unknown }).params;
+        const createdAtRaw = (entry as { createdAt?: unknown }).createdAt;
+        const updatedAtRaw = (entry as { updatedAt?: unknown }).updatedAt;
+        const nowIso = new Date().toISOString();
+        items.push({
+          name,
+          params: toWalkforwardParams(paramsRaw),
+          createdAt: typeof createdAtRaw === "string" && createdAtRaw ? createdAtRaw : nowIso,
+          updatedAt: typeof updatedAtRaw === "string" && updatedAtRaw ? updatedAtRaw : nowIso,
+        });
+      }
+      items.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+      setWalkforwardPresets(items.slice(0, WALKFORWARD_PRESETS_LIMIT));
+    } catch {
+      // Ignore corrupted local storage.
+    } finally {
+      walkforwardPresetsLoadedRef.current = true;
+    }
+  }, [normalizeWalkforwardPresetName]);
+
+  useEffect(() => {
+    if (!walkforwardPresetsLoadedRef.current) return;
+    try {
+      window.localStorage.setItem(
+        WALKFORWARD_PRESETS_STORAGE_KEY,
+        JSON.stringify(walkforwardPresets)
+      );
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [walkforwardPresets]);
 
   const handleTradeCsvPick = () => {
     tradeCsvInputRef.current?.click();
@@ -247,13 +379,9 @@ export default function GridView() {
         timeout: 120000
       });
       showToast("トレードCSVをアップロードしました。");
-    } catch (err: any) {
-      const detail =
-        err?.response?.data?.error ||
-        err?.response?.data?.detail ||
-        err?.message ||
-        "Unknown error";
-      showToast(`トレードCSVのアップロードに失敗しました。 (${detail})`);
+    } catch (err: unknown) {
+      const detail = extractErrorDetail(err);
+      showToast(`トレードCSVのアップロードに失敗しました。(${detail})`);
     } finally {
       setTradeUploadInFlight(false);
       event.target.value = "";
@@ -264,20 +392,16 @@ export default function GridView() {
     if (tradeSyncInFlight) return;
     setTradeSyncInFlight(true);
     try {
-      const res = await api.get("/debug/trade-sync");
-      const errors = res.data?.errors ?? [];
-      if (Array.isArray(errors) && errors.length) {
-        showToast(`強制同期でエラーが発生しました。 (${errors[0]})`);
+      const res = await api.post("/jobs/force-sync");
+      if (res.data?.ok) {
+        showToast("強制同期（全件取込）を開始しました。");
       } else {
-        showToast("強制同期を実行しました。");
+        const error = res.data?.error ?? "不明なエラー";
+        showToast(`強制同期でエラーが発生しました。(${error})`);
       }
-    } catch (err: any) {
-      const detail =
-        err?.response?.data?.error ||
-        err?.response?.data?.detail ||
-        err?.message ||
-        "Unknown error";
-      showToast(`強制同期に失敗しました。 (${detail})`);
+    } catch (err: unknown) {
+      const detail = extractErrorDetail(err);
+      showToast(`強制同期に失敗しました。(${detail})`);
     } finally {
       setTradeSyncInFlight(false);
     }
@@ -287,7 +411,7 @@ export default function GridView() {
     if (watchlistExporting) return;
     const exportItems = sortedTickers.map((item) => item.ticker);
     if (!exportItems.length) {
-      showToast("エクスポート対象の銘柄がありません。");
+      showToast("書き出す銘柄がありません。");
       return;
     }
     setWatchlistExporting(true);
@@ -295,9 +419,9 @@ export default function GridView() {
       const lines = exportItems.map((item) => `JP#${item.code}`);
       const filename = "watchlist.ebk";
       const ok = await saveAsFile(lines.join("\n"), filename, "text/plain");
-      showToast(ok ? "銘柄一覧をエクスポートしました。" : "エクスポートをキャンセルしました。");
+      showToast(ok ? "watchlist.ebk を保存しました。" : "watchlist.ebk の保存に失敗しました。");
     } catch {
-      showToast("銘柄一覧のエクスポートに失敗しました。");
+      showToast("watchlist.ebk の保存に失敗しました。");
     } finally {
       setWatchlistExporting(false);
     }
@@ -316,37 +440,125 @@ export default function GridView() {
     }
   };
 
+  const handleDataDirSave = async () => {
+    if (!dataDirInput.trim()) {
+      setDataDirMessage("パスを入力してください。");
+      return;
+    }
+    setDataDirSaving(true);
+    setDataDirMessage(null);
+    try {
+      const res = await api.post("/system/data-dir", {
+        dataDir: dataDirInput.trim()
+      });
+      const next = res.data?.dataDir;
+      if (next) {
+        setDataDir(next);
+        setDataDirInput(next);
+      }
+      setDataDirMessage("データ保存先を更新しました。");
+      showToast("データ保存先を更新しました。");
+    } catch (err: unknown) {
+      const detail = extractErrorDetail(err);
+      setDataDirMessage(`保存に失敗しました: ${detail}`);
+      showToast("データ保存先の更新に失敗しました。");
+    } finally {
+      setDataDirSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (!backendReady) return;
     loadList();
   }, [backendReady, loadList]);
 
+  // Derive available sectors from tickers
+  const availableSectors = useMemo(() => {
+    const map = new Map<string, string>();
+    tickers.forEach((t) => {
+      if (t.sector33Code && t.sector33Name) {
+        map.set(t.sector33Code, t.sector33Name);
+      }
+    });
+    const list = Array.from(map.entries()).map(([code, name]) => ({ code, name }));
+    list.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+    return list;
+  }, [tickers]);
+
+  const handleSectorSelect = useCallback((code: string | null) => {
+    const params = new URLSearchParams(location.search);
+    if (code) {
+      params.set("sector", code);
+    } else {
+      params.delete("sector");
+    }
+    navigate({ search: params.toString() });
+    setSectorSortOpen(false);
+  }, [location.search, navigate]);
+
   useEffect(() => {
     if (!backendReady) return;
-    api
-      .get("/health", { validateStatus: () => true })
-      .then((res) => {
-        if (res.status >= 200 && res.status < 300) {
-          setHealth(res.data as HealthStatus);
+    let canceled = false;
+    const loadHealth = async () => {
+      try {
+        const deepRes = await api.get("/health/deep", { validateStatus: () => true });
+        if (canceled) return;
+        if (deepRes.status >= 200 && deepRes.status < 300) {
+          setHealth(normalizeHealthStatus(deepRes.data as HealthDeepResponse));
+          return;
         }
-      })
-      .catch(() => undefined);
+      } catch {
+        // fall through to lightweight health
+      }
+      try {
+        const lightRes = await api.get("/health", { validateStatus: () => true });
+        if (canceled) return;
+        if (lightRes.status >= 200 && lightRes.status < 300) {
+          const lightData = lightRes.data as HealthReadyResponse;
+          setHealth((prev) => mergeHealthStatus(prev, lightData));
+        }
+      } catch {
+        // keep previous health view on fetch error
+      }
+    };
+    void loadHealth();
+    return () => {
+      canceled = true;
+    };
   }, [backendReady]);
 
   useEffect(() => {
-    if (!sortOpen && !displayOpen && !settingsOpen) return;
+    if (!backendReady) return;
+    setDataDirLoading(true);
+    api
+      .get("/system/data-dir")
+      .then((res) => {
+        const dir = res.data?.dataDir ?? "";
+        if (dir) {
+          setDataDir(dir);
+          setDataDirInput(dir);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => setDataDirLoading(false));
+  }, [backendReady]);
+
+  useEffect(() => {
+    if (!sortOpen && !displayOpen && !settingsOpen && !sectorSortOpen) return;
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (sortRef.current && sortRef.current.contains(target)) return;
       if (displayRef.current && displayRef.current.contains(target)) return;
       if (settingsRef.current && settingsRef.current.contains(target)) return;
+      if (sectorSortRef.current && sectorSortRef.current.contains(target)) return;
       setSortOpen(false);
       setDisplayOpen(false);
       setSettingsOpen(false);
+      setSectorSortOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [sortOpen, displayOpen, settingsOpen]);
+  }, [sortOpen, displayOpen, settingsOpen, sectorSortOpen]);
 
   useEffect(() => {
     return () => {
@@ -368,17 +580,28 @@ export default function GridView() {
       {
         title: "買い候補",
         options: [
-          { key: "buyCandidate", label: "買い候補（総合）" },
-          { key: "buyInitial", label: "買い候補（初動）" },
-          { key: "buyBase", label: "買い候補（底がため）" }
+          { key: "entryPriority", label: "仕込み優先度(A/B/C)" },
+          { key: "buyCandidate", label: "買い候補(総合)" },
+          { key: "buySignalLatest", label: "最新買い判定", fixedDirection: "desc" },
+          { key: "swingScore", label: "スイング候補(総合)" },
         ]
       },
       {
         title: "売り候補",
         options: [
-          { key: "shortScore", label: "売り候補（総合）" },
-          { key: "aScore", label: "売り候補（反転確定）" },
-          { key: "bScore", label: "売り候補（戻り売り）" }
+          { key: "shortPriority", label: "売り精度優先(A/B/C)" },
+          { key: "shortScore", label: "売り候補(総合)" },
+          { key: "aScore", label: "売り候補(反転確実)" },
+          { key: "bScore", label: "売り候補(戻り売り)" },
+          { key: "sellSignalLatest", label: "最新売り判定", fixedDirection: "desc" },
+        ]
+      },
+      {
+        title: "ML",
+        options: [
+          { key: "mlEv20Net", label: "期待値(20D)" },
+          { key: "mlPUpShort", label: "上昇確率(短期)" },
+          { key: "mlPDownShort", label: "下落確率(短期)" }
         ]
       }
     ],
@@ -392,22 +615,30 @@ export default function GridView() {
         title: "基本",
         options: [
           { key: "code", label: "コード" },
-          { key: "name", label: "銘柄名" }
+          { key: "name", label: "銘柄名" },
+          { key: "sector", label: "業種" }
         ]
       },
       {
         title: "テクニカル",
         options: [
-          { key: "ma20Dev", label: "乖離率（MA20）" },
-          { key: "ma60Dev", label: "乖離率（MA60）" },
+          { key: "buySignalLatest", label: "最新買い判定", fixedDirection: "desc" },
+          { key: "sellSignalLatest", label: "最新売り判定", fixedDirection: "desc" },
+          { key: "ma20Dev", label: "乖離率(MA20)" },
+          { key: "ma60Dev", label: "乖離率(MA60)" },
           { key: "ma20Slope", label: "MA20傾き" },
-          { key: "ma60Slope", label: "MA60傾き" }
+          { key: "ma60Slope", label: "MA60傾き" },
         ]
       },
       {
         title: "パフォーマンス",
         options: [
-          { key: "performance", label: "騰落率" }  // Period selected via dropdown
+          { key: "chg1D", label: "単純騰落(1D)", fixedDirection: "desc" },
+          { key: "chg1W", label: "単純騰落(1W)", fixedDirection: "desc" },
+          { key: "chg1M", label: "単純騰落(1M)", fixedDirection: "desc" },
+          { key: "chg1Q", label: "単純騰落(1Q)", fixedDirection: "desc" },
+          { key: "chg1Y", label: "単純騰落(1Y)", fixedDirection: "desc" },
+          { key: "performance", label: "騰落率(期間選択)" }
         ]
       },
       {
@@ -415,8 +646,16 @@ export default function GridView() {
         options: [
           { key: "upScore", label: "上昇スコア" },
           { key: "downScore", label: "下落スコア" },
-          { key: "overheatUp", label: "過熱（上）" },
-          { key: "overheatDown", label: "過熱（下）" }
+          { key: "overheatUp", label: "過熱(上)" },
+          { key: "overheatDown", label: "過熱(下)" },
+        ]
+      },
+      {
+        title: "ML",
+        options: [
+          { key: "mlEv20Net", label: "期待値(20D)" },
+          { key: "mlPUpShort", label: "上昇確率(短期)" },
+          { key: "mlPDownShort", label: "下落確率(短期)" }
         ]
       },
       {
@@ -438,21 +677,89 @@ export default function GridView() {
     [sortSections]
   );
 
-  // Determine if current view is a candidate view
-  const isCandidateView = useMemo(() => {
-    // Check if sortKey is a candidate sort key
-    const candidateKeys = ["buyCandidate", "buyInitial", "buyBase", "shortScore", "aScore", "bScore"];
-    return candidateKeys.includes(sortKey);
-  }, [sortKey]);
+  const visibleSortSections = useMemo<SortSection[]>(() => {
+    const seenKeys = new Set<string>();
+    const merged: SortSection[] = [];
+    for (const section of sortSections) {
+      const options = section.options.filter((option) => {
+        if (seenKeys.has(option.key)) return false;
+        seenKeys.add(option.key);
+        return true;
+      });
+      if (!options.length) continue;
+      const existing = merged.find((item) => item.title === section.title);
+      if (existing) {
+        existing.options.push(...options);
+        continue;
+      }
+      merged.push({ ...section, options: [...options] });
+    }
+    return merged;
+  }, [sortSections]);
+  const [openSortSections, setOpenSortSections] = useState<string[]>([]);
+  useEffect(() => {
+    if (!sortOpen) return;
+    if (!visibleSortSections.length) {
+      setOpenSortSections([]);
+      return;
+    }
+    const activeSectionTitle =
+      visibleSortSections.find((section) => section.options.some((opt) => opt.key === sortKey))?.title ?? null;
+    const next = new Set<string>();
+    next.add(visibleSortSections[0]?.title ?? "");
+    if (activeSectionTitle) next.add(activeSectionTitle);
+    setOpenSortSections(Array.from(next).filter(Boolean));
+  }, [sortOpen, visibleSortSections, sortKey]);
 
+  const defaultSortLabel = "コード";
   const sortLabel = useMemo(
-    () => sortOptions.find((option) => option.key === sortKey)?.label ?? "コード",
+    () => sortOptions.find((option) => option.key === sortKey)?.label ?? defaultSortLabel,
     [sortOptions, sortKey]
   );
 
   const sortDirLabel = sortDir === "desc" ? "降順" : "昇順";
   const gridTimeframeLabel =
     gridTimeframe === "daily" ? "日足" : gridTimeframe === "weekly" ? "週足" : "月足";
+  const txtUpdateCanCancel = Boolean(
+    txtUpdateJob && txtUpdateJob.id && !TERMINAL_JOB_STATUS.has(txtUpdateJob.status)
+  );
+  const txtUpdateStatusLabel = useMemo(() => {
+    if (!txtUpdateJob) return null;
+    return formatTxtUpdateStatusLabel(txtUpdateJob.status);
+  }, [txtUpdateJob]);
+  const txtUpdateStatusTone = useMemo(() => {
+    if (!txtUpdateJob) return "is-idle";
+    if (txtUpdateJob.status === "success") return "is-done";
+    if (txtUpdateJob.status === "failed" || txtUpdateJob.status === "canceled") return "is-error";
+    return "is-running";
+  }, [txtUpdateJob]);
+  const txtUpdateProgressValue = useMemo(() => {
+    const raw = txtUpdateJob?.progress;
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
+    return Math.max(0, Math.min(100, Math.round(raw)));
+  }, [txtUpdateJob?.progress]);
+  const txtUpdateStageLabel = useMemo(() => {
+    const message = txtUpdateJob?.message?.toLowerCase() ?? "";
+    if (!message) return txtUpdateStatusLabel ?? "待機中";
+    if (message.includes("pan import") || message.includes("launching pan")) return "PAN取込";
+    if (message.includes("pan rolling export") || message.includes("vbs export") || message.includes("export completed")) {
+      return "TXT出力";
+    }
+    if (message.includes("ingesting")) return "TXT取込";
+    if (message.includes("phase")) return "Phase更新";
+    if (message.includes("ml")) return "ML更新";
+    if (message.includes("score")) return "スコア更新";
+    if (message.includes("cache")) return "キャッシュ更新";
+    if (message.includes("walkforward")) return "検証";
+    if (message.includes("final")) return "仕上げ";
+    if (message.includes("queue")) return "待機";
+    return txtUpdateStatusLabel ?? "更新中";
+  }, [txtUpdateJob?.message, txtUpdateStatusLabel]);
+  const txtUpdateShortDetail = useMemo(() => {
+    const message = txtUpdateJob?.message?.trim();
+    if (!message) return null;
+    return message.length > 72 ? `${message.slice(0, 72)}...` : message;
+  }, [txtUpdateJob?.message]);
 
   const normalizeWatchCode = useCallback((value: string) => {
     const trimmed = value.trim();
@@ -469,12 +776,26 @@ export default function GridView() {
     return normalized;
   }, []);
 
+  const normalizeMonthLabel = useCallback((value: string | null | undefined) => {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d{6}$/.test(trimmed)) {
+      return `${trimmed.slice(0, 4)}-${trimmed.slice(4, 6)}`;
+    }
+    const match = trimmed.match(/^(\d{4})[/-](\d{1,2})/);
+    if (match) {
+      return `${match[1]}-${String(match[2]).padStart(2, "0")}`;
+    }
+    return trimmed;
+  }, []);
+
   const normalizedSearch = useMemo(
     () => (search ? normalizeWatchCode(search) : null),
     [search, normalizeWatchCode]
   );
 
-  const filtered = useMemo(() => {
+  const searchFiltered = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return tickers;
     return tickers.filter((item) => {
@@ -482,10 +803,23 @@ export default function GridView() {
     });
   }, [tickers, search]);
 
+  const sectorFiltered = useMemo(() => {
+    if (!sectorParam) return searchFiltered;
+    return searchFiltered.filter((item) => item.sector33Code === sectorParam);
+  }, [searchFiltered, sectorParam]);
+
+  const sectorLabel = useMemo(() => {
+    if (!sectorParam) return null;
+    const match = tickers.find(
+      (item) => item.sector33Code === sectorParam && item.sector33Name
+    );
+    return match?.sector33Name ?? sectorParam;
+  }, [sectorParam, tickers]);
+
   useEffect(() => {
     if (!backendReady) return;
     if (techFilterActive.conditions.length === 0) return;
-    const codes = filtered.map((item) => item.code);
+    const codes = sectorFiltered.map((item) => item.code);
     if (!codes.length) return;
     const timeframes = Array.from(
       new Set(techFilterActive.conditions.map((condition) => condition.timeframe))
@@ -497,7 +831,7 @@ export default function GridView() {
     backendReady,
     techFilterActive.conditions.length,
     techFilterActive.conditions,
-    filtered,
+    sectorFiltered,
     ensureBarsForVisible
   ]);
 
@@ -549,6 +883,28 @@ export default function GridView() {
     [barsCache, gridTimeframe]
   );
   const listAnchorLabel = listAnchorTime ? formatDateYMD(listAnchorTime) : null;
+  const boxMonthLabel = useMemo(() => {
+    const base = listAnchorTime ?? activeAnchorTime ?? Math.floor(Date.now() / 1000);
+    const date = new Date(base * 1000);
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth() + 1;
+    return `${year}-${String(month).padStart(2, "0")}`;
+  }, [listAnchorTime, activeAnchorTime]);
+  const latestBoxMonthLabel = useMemo(() => {
+    let latest: string | null = null;
+    const consider = (value: string | null | undefined) => {
+      const normalized = normalizeMonthLabel(value);
+      if (!normalized) return;
+      if (!latest || normalized > latest) {
+        latest = normalized;
+      }
+    };
+    sectorFiltered.forEach((ticker) => {
+      consider(ticker.boxEndMonth);
+      consider(ticker.breakoutMonth);
+    });
+    return latest;
+  }, [sectorFiltered, normalizeMonthLabel]);
 
   const filterAsofTimeframe = useMemo(() => {
     if (techFilterActive.conditions.length === 0) return null;
@@ -560,33 +916,47 @@ export default function GridView() {
   const filterAnchorInfoByCode = useMemo(() => {
     const map = new Map<string, AnchorInfo>();
     if (activeAnchorTime == null || !filterAsofTimeframe) return map;
-    filtered.forEach((ticker) => {
+    sectorFiltered.forEach((ticker) => {
       const payload = barsCache[filterAsofTimeframe][ticker.code];
       if (!payload?.bars?.length) return;
       const anchor = resolveAnchorInfo(payload.bars, activeAnchorTime);
       if (anchor) map.set(ticker.code, anchor);
     });
     return map;
-  }, [filtered, barsCache, filterAsofTimeframe, activeAnchorTime]);
+  }, [sectorFiltered, barsCache, filterAsofTimeframe, activeAnchorTime]);
 
   const listAnchorInfoByCode = useMemo(() => {
     const map = new Map<string, AnchorInfo>();
     if (listAnchorTime == null) return map;
-    filtered.forEach((ticker) => {
+    sectorFiltered.forEach((ticker) => {
       const payload = barsCache[gridTimeframe][ticker.code];
       if (!payload?.bars?.length) return;
       const anchor = resolveAnchorInfo(payload.bars, listAnchorTime);
       if (anchor) map.set(ticker.code, anchor);
     });
     return map;
-  }, [filtered, barsCache, gridTimeframe, listAnchorTime]);
+  }, [sectorFiltered, barsCache, gridTimeframe, listAnchorTime]);
 
   const buildFilterResult = useCallback(
     (state: TechnicalFilterState) => {
       const { conditions } = state;
+      const applyBoxFilter = (items: typeof sectorFiltered) => {
+        if (!state.boxThisMonth) return items;
+        const targetMonth = latestBoxMonthLabel ?? boxMonthLabel;
+        if (!targetMonth) return [];
+        return items.filter((ticker) => {
+          const end = normalizeMonthLabel(ticker.boxEndMonth);
+          const breakout = normalizeMonthLabel(ticker.breakoutMonth);
+          if (end === targetMonth || breakout === targetMonth) return true;
+          const stateLabel = ticker.boxState ?? "NONE";
+          if (stateLabel !== "NONE") return true;
+          if (ticker.boxActive === true || ticker.hasBox === true) return true;
+          return false;
+        });
+      };
       if (!conditions.length) {
         return {
-          items: filtered,
+          items: applyBoxFilter(sectorFiltered),
           asofMap: new Map<string, string>()
         };
       }
@@ -598,7 +968,7 @@ export default function GridView() {
       timeframes.forEach((timeframe) => {
         anchorTimes.set(timeframe, resolveAnchorTimeForTimeframe(timeframe, state));
       });
-      const items = filtered.filter((ticker) => {
+      const items = sectorFiltered.filter((ticker) => {
         const anchorCache = new Map<Timeframe, AnchorInfo | null>();
         for (const condition of conditions) {
           const timeframe = condition.timeframe;
@@ -619,18 +989,24 @@ export default function GridView() {
         }
         return true;
       });
-      return { items, asofMap };
+      return { items: applyBoxFilter(items), asofMap };
     },
-    [filtered, barsCache, resolveAnchorTimeForTimeframe]
+    [
+      sectorFiltered,
+      barsCache,
+      resolveAnchorTimeForTimeframe,
+      boxMonthLabel,
+      latestBoxMonthLabel,
+      normalizeMonthLabel
+    ]
   );
 
   const canAddWatchlist = useMemo(() => {
     if (!normalizedSearch) return null;
-    if (filtered.length > 0) return null;
+    if (searchFiltered.length > 0) return null;
     if (tickers.some((item) => item.code === normalizedSearch)) return null;
     return normalizedSearch;
-  }, [normalizedSearch, filtered.length, tickers]);
-
+  }, [normalizedSearch, searchFiltered.length, tickers]);
   const activeFilterResult = useMemo(
     () => buildFilterResult(techFilterActive),
     [buildFilterResult, techFilterActive]
@@ -645,6 +1021,11 @@ export default function GridView() {
   const activeConditionTimeframes = useMemo(() => {
     return new Set(techFilterActive.conditions.map((condition) => condition.timeframe));
   }, [techFilterActive.conditions]);
+  const hasActiveFilters = useMemo(
+    () => techFilterActive.conditions.length > 0 || techFilterActive.boxThisMonth,
+    [techFilterActive.conditions.length, techFilterActive.boxThisMonth]
+  );
+  const hasActiveFilterChips = hasActiveFilters || buyStateFilter !== "all" || shortTierAbOnly;
   const activeTimeframeLabel = useMemo(() => {
     if (activeConditionTimeframes.size === 0) return "未設定";
     if (activeConditionTimeframes.size === 1) {
@@ -675,13 +1056,16 @@ export default function GridView() {
   const sortedTickers = useMemo(() => {
     const boxOrder: Record<string, number> = {
       IN_BOX: 3,
-      JUST_BREAKOUT: 2,
-      BREAKOUT_UP: 2,
-      BREAKOUT_DOWN: 2,
-      NONE: 0
+      JUST_BRAKOUT: 2,
+      BRAKOUT_UP: 2,
+      BRAKOUT_DOWN: 2,
+      NON: 0
     };
-    const isBuyCandidate =
-      sortKey === "buyCandidate" || sortKey === "buyInitial" || sortKey === "buyBase";
+
+    const activeKey = sortKey;
+
+    const isBuyStateSort = activeKey === "buyCandidate";
+
     const resolveDeviation = (bars: number[][] | undefined, anchor: AnchorInfo | undefined, period: number) => {
       if (!bars || !anchor) return null;
       const close = resolveOperandValue(bars, anchor.index, { type: "field", field: "C" });
@@ -702,56 +1086,76 @@ export default function GridView() {
       const bars = barsCache[gridTimeframe][ticker.code]?.bars;
       const anchor = listAnchorInfoByCode.get(ticker.code);
       let sortValue: string | number | null = null;
-      if ((sortKey === "upScore" || sortKey === "downScore") && ticker.statusLabel === "UNKNOWN") {
+
+      // Calculate sort value based on activeKey
+      if ((activeKey === "upScore" || activeKey === "downScore") && ticker.statusLabel === "UNKNOWN") {
         sortValue = null;
-      } else if (sortKey === "code") {
+      } else if (activeKey === "code") {
         sortValue = ticker.code;
-      } else if (sortKey === "name") {
+      } else if (activeKey === "name") {
         sortValue = ticker.name ?? "";
-      } else if (sortKey === "ma20Dev") {
+      } else if (activeKey === "sector") {
+        sortValue = ticker.sector33Code ?? null;
+      } else if (activeKey === "ma20Dev") {
         sortValue = resolveDeviation(bars, anchor, 20);
-      } else if (sortKey === "ma60Dev") {
+      } else if (activeKey === "ma60Dev") {
         sortValue = resolveDeviation(bars, anchor, 60);
-      } else if (sortKey === "ma20Slope") {
+      } else if (activeKey === "ma20Slope") {
         sortValue = resolveSlope(bars, anchor, 20);
-      } else if (sortKey === "ma60Slope") {
+      } else if (activeKey === "ma60Slope") {
         sortValue = resolveSlope(bars, anchor, 60);
-      } else if (sortKey === "chg1D") {
+      } else if (activeKey === "chg1D") {
         sortValue = ticker.chg1D ?? null;
-      } else if (sortKey === "chg1W") {
+      } else if (activeKey === "chg1W") {
         sortValue = ticker.chg1W ?? null;
-      } else if (sortKey === "chg1M") {
+      } else if (activeKey === "chg1M") {
         sortValue = ticker.chg1M ?? null;
-      } else if (sortKey === "chg1Q") {
+      } else if (activeKey === "chg1Q") {
         sortValue = ticker.chg1Q ?? null;
-      } else if (sortKey === "chg1Y") {
+      } else if (activeKey === "chg1Y") {
         sortValue = ticker.chg1Y ?? null;
-      } else if (sortKey === "prevWeekChg") {
+      } else if (activeKey === "prevWeekChg") {
         sortValue = ticker.prevWeekChg ?? null;
-      } else if (sortKey === "prevMonthChg") {
+      } else if (activeKey === "prevMonthChg") {
         sortValue = ticker.prevMonthChg ?? null;
-      } else if (sortKey === "prevQuarterChg") {
+      } else if (activeKey === "prevQuarterChg") {
         sortValue = ticker.prevQuarterChg ?? null;
-      } else if (sortKey === "prevYearChg") {
+      } else if (activeKey === "prevYearChg") {
         sortValue = ticker.prevYearChg ?? null;
-      } else if (sortKey === "upScore") {
+      } else if (activeKey === "upScore") {
         sortValue = ticker.scores?.upScore ?? null;
-      } else if (sortKey === "downScore") {
+      } else if (activeKey === "downScore") {
         sortValue = ticker.scores?.downScore ?? null;
-      } else if (sortKey === "overheatUp") {
+      } else if (activeKey === "overheatUp") {
         sortValue = ticker.scores?.overheatUp ?? null;
-      } else if (sortKey === "overheatDown") {
+      } else if (activeKey === "overheatDown") {
         sortValue = ticker.scores?.overheatDown ?? null;
-      } else if (sortKey === "boxState") {
-        const state = ticker.boxState ?? "NONE";
+      } else if (activeKey === "swingScore") {
+        sortValue = ticker.swingScore ?? ticker.swingLongScore ?? ticker.swingShortScore ?? null;
+      } else if (activeKey === "mlEv20Net") {
+        sortValue = ticker.mlEv20Net ?? null;
+      } else if (activeKey === "mlPUpShort") {
+        sortValue = ticker.mlPUpShort ?? ticker.mlPUp ?? null;
+      } else if (activeKey === "mlPDownShort") {
+        sortValue = ticker.mlPDownShort ?? ticker.mlPDown ?? null;
+      } else if (activeKey === "boxState") {
+        const state = ticker.boxState ?? "NON";
         sortValue = boxOrder[state] ?? 0;
-      } else if (sortKey === "shortScore") {
+      } else if (activeKey === "shortScore") {
         sortValue = ticker.shortScore ?? null;
-      } else if (sortKey === "aScore") {
+      } else if (activeKey === "aScore") {
         sortValue = ticker.aScore ?? null;
-      } else if (sortKey === "bScore") {
+      } else if (activeKey === "bScore") {
         sortValue = ticker.bScore ?? null;
-      } else if (sortKey === "performance") {
+      } else if (activeKey === "shortPriority") {
+        sortValue = ticker.shortPriorityScore ?? null;
+      } else if (activeKey === "entryPriority") {
+        sortValue = ticker.entryPriorityScore ?? null;
+      } else if (activeKey === "buySignalLatest") {
+        sortValue = resolveGridSignalSortScore(item.metrics, ticker.liquidity20d, "up");
+      } else if (activeKey === "sellSignalLatest") {
+        sortValue = resolveGridSignalSortScore(item.metrics, ticker.liquidity20d, "down");
+      } else if (activeKey === "performance") {
         // Use selected performance period
         switch (performancePeriod) {
           case "1D": sortValue = ticker.chg1D ?? null; break;
@@ -761,7 +1165,7 @@ export default function GridView() {
           case "1Y": sortValue = ticker.chg1Y ?? null; break;
           default: sortValue = ticker.chg1M ?? null;
         }
-      } else if (isBuyCandidate) {
+      } else if (isBuyStateSort) {
         sortValue = null;
       }
       return { ...item, sortValue };
@@ -780,37 +1184,13 @@ export default function GridView() {
     const compareBuyState = (a: typeof items[number], b: typeof items[number]) => {
       const aState = a.ticker.buyState ?? "";
       const bState = b.ticker.buyState ?? "";
-      const aRank = Number.isFinite(a.ticker.buyStateRank)
-        ? (a.ticker.buyStateRank as number)
-        : 0;
-      const bRank = Number.isFinite(b.ticker.buyStateRank)
-        ? (b.ticker.buyStateRank as number)
-        : 0;
-      const aScore = Number.isFinite(a.ticker.buyStateScore)
-        ? (a.ticker.buyStateScore as number)
-        : null;
-      const bScore = Number.isFinite(b.ticker.buyStateScore)
-        ? (b.ticker.buyStateScore as number)
-        : null;
-      const aRisk = Number.isFinite(a.ticker.buyRiskDistance)
-        ? (a.ticker.buyRiskDistance as number)
-        : null;
-      const bRisk = Number.isFinite(b.ticker.buyRiskDistance)
-        ? (b.ticker.buyRiskDistance as number)
-        : null;
-
-      if (sortKey === "buyInitial" || sortKey === "buyBase") {
-        const target = sortKey === "buyInitial" ? "初動" : "底がため";
-        const aEligible = aState === target;
-        const bEligible = bState === target;
-        if (aEligible !== bEligible) return aEligible ? -1 : 1;
-        if (!aEligible && !bEligible) return a.ticker.code.localeCompare(b.ticker.code);
-        const scoreResult = compareNumeric(aScore, bScore, sortDir);
-        if (scoreResult !== 0) return scoreResult;
-        const riskResult = compareNumeric(aRisk, bRisk, "asc");
-        if (riskResult !== 0) return riskResult;
-        return a.ticker.code.localeCompare(b.ticker.code);
-      }
+      // ... same logic as before, just using activeKey
+      const aRank = Number.isFinite(a.ticker.buyStateRank) ? (a.ticker.buyStateRank as number) : 0;
+      const bRank = Number.isFinite(b.ticker.buyStateRank) ? (b.ticker.buyStateRank as number) : 0;
+      const aScore = Number.isFinite(a.ticker.buyStateScore) ? (a.ticker.buyStateScore as number) : null;
+      const bScore = Number.isFinite(b.ticker.buyStateScore) ? (b.ticker.buyStateScore as number) : null;
+      const aRisk = Number.isFinite(a.ticker.buyRiskDistance) ? (a.ticker.buyRiskDistance as number) : null;
+      const bRisk = Number.isFinite(b.ticker.buyRiskDistance) ? (b.ticker.buyRiskDistance as number) : null;
 
       if (aRank !== bRank) return bRank - aRank;
       const scoreResult = compareNumeric(aScore, bScore, sortDir);
@@ -823,7 +1203,8 @@ export default function GridView() {
     };
 
     const compare = (a: typeof items[number], b: typeof items[number]) => {
-      if (isBuyCandidate) {
+      // 1. Inner Sort (using activeKey)
+      if (isBuyStateSort) {
         return compareBuyState(a, b);
       }
       const av = a.sortValue;
@@ -850,9 +1231,33 @@ export default function GridView() {
       if (result === 0) return a.ticker.code.localeCompare(b.ticker.code);
       return sortDir === "desc" ? -result : result;
     };
-    items.sort(compare);
-    return items;
-  }, [scoredTickers, sortKey, sortDir, collator, barsCache, gridTimeframe, listAnchorInfoByCode, performancePeriod]);
+
+    let filteredItems = items;
+    if (buyStateFilter === "initial") {
+      filteredItems = filteredItems.filter((item) => item.ticker.buyState === "初動");
+    } else if (buyStateFilter === "base") {
+      filteredItems = filteredItems.filter((item) => item.ticker.buyState === "底がため");
+    }
+    if (shortTierAbOnly) {
+      filteredItems = filteredItems.filter((item) => {
+        const tier = item.ticker.shortPriorityTier;
+        return tier === "A" || tier === "B";
+      });
+    }
+    filteredItems.sort(compare);
+    return filteredItems;
+  }, [
+    scoredTickers,
+    sortKey,
+    sortDir,
+    collator,
+    barsCache,
+    gridTimeframe,
+    listAnchorInfoByCode,
+    performancePeriod,
+    buyStateFilter,
+    shortTierAbOnly
+  ]);
   const sortedCodes = useMemo(
     () => sortedTickers.map((item) => item.ticker.code),
     [sortedTickers]
@@ -936,8 +1341,43 @@ export default function GridView() {
   useEffect(() => {
     if (!backendReady) return;
     if (!lastVisibleCodesRef.current.length) return;
-    ensureBarsForVisible(gridTimeframe, lastVisibleCodesRef.current, "timeframe-change");
-  }, [backendReady, gridTimeframe, maSettings, ensureBarsForVisible]);
+    ensureBarsForVisible(gridTimeframe, lastVisibleCodesRef.current, "timeframe-or-range-change");
+  }, [backendReady, gridTimeframe, listRangeBars, maSettings, ensureBarsForVisible]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    let disposed = false;
+    const retryVisibleErrorTiles = async () => {
+      const visibleCodes = lastVisibleCodesRef.current;
+      if (!visibleCodes.length) return;
+      const now = Date.now();
+      const state = useStore.getState();
+      const statusMap = state.barsStatus[gridTimeframe] ?? {};
+      const retryCodes: string[] = [];
+      visibleCodes.forEach((code) => {
+        if (statusMap[code] !== "error") return;
+        const cooldownKey = `${gridTimeframe}:${code}`;
+        const nextAllowedAt = barsErrorRetryCooldownRef.current[cooldownKey] ?? 0;
+        if (now < nextAllowedAt) return;
+        barsErrorRetryCooldownRef.current[cooldownKey] = now + BARS_ERROR_RETRY_COOLDOWN_MS;
+        retryCodes.push(code);
+      });
+      if (!retryCodes.length || disposed) return;
+      try {
+        await ensureBarsForVisible(gridTimeframe, retryCodes, "visible-error-retry");
+      } catch {
+        // Keep polling with cooldown; transient failures are expected.
+      }
+    };
+    void retryVisibleErrorTiles();
+    const timer = window.setInterval(() => {
+      void retryVisibleErrorTiles();
+    }, BARS_ERROR_RETRY_INTERVAL_MS);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [backendReady, gridTimeframe, ensureBarsForVisible]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1031,8 +1471,8 @@ export default function GridView() {
         removeKeep(code);
         return;
       }
-      if (keepList.length >= KEEP_LIMIT) {
-        showToast(`候補箱は最大${KEEP_LIMIT}件までです。`);
+      if (keepList.length >= KP_LIMIT) {
+        showToast(`候補キープは最大 ${KP_LIMIT} 件です。`);
         return;
       }
       addKeep(code);
@@ -1080,6 +1520,8 @@ export default function GridView() {
       if (event.key === "Escape") {
         setSortOpen(false);
         setDisplayOpen(false);
+        setSettingsOpen(false);
+        setSectorSortOpen(false); // Close sector sort popover
         if (consultVisible) {
           setConsultVisible(false);
         }
@@ -1149,9 +1591,9 @@ export default function GridView() {
         trashToken: undoInfo.trashToken
       });
       await loadList();
-      showToast(`${undoInfo.code} を復元しました。`);
+      showToast(`${undoInfo.code} の除外を取り消しました。`);
     } catch {
-      showToast("復元に失敗しました。");
+      showToast("除外の取り消しに失敗しました。");
     } finally {
       if (undoTimerRef.current) {
         window.clearTimeout(undoTimerRef.current);
@@ -1196,18 +1638,21 @@ export default function GridView() {
       defaultTimeframe
     );
     if (result.dropped > 0 && !techFilterDropNoticeRef.current) {
-      showToast("旧条件の一部は削除しました。");
+      showToast("不正なフィルタ条件を自動で除外しました。");
       techFilterDropNoticeRef.current = true;
     }
     return {
       ...state,
       defaultTimeframe,
-      conditions: result.conditions
+      conditions: result.conditions,
+      boxThisMonth: typeof state.boxThisMonth === "boolean" ? state.boxThisMonth : false
     };
   };
 
   const handleOpenTechFilter = () => {
     setTechFilterDraft(sanitizeTechFilterState(techFilterActive, gridTimeframe));
+    setBuyStateFilterDraft(buyStateFilter);
+    setShortTierAbOnlyDraft(shortTierAbOnly);
     setTechFilterOpen(true);
   };
 
@@ -1215,27 +1660,22 @@ export default function GridView() {
     const normalized = sanitizeTechFilterState(techFilterDraft, gridTimeframe);
     setTechFilterActive(normalized);
     setTechFilterDraft(normalized);
+    setBuyStateFilter(buyStateFilterDraft);
+    setShortTierAbOnly(shortTierAbOnlyDraft);
     setTechFilterOpen(false);
   };
 
   const handleCancelTechFilter = () => {
     setTechFilterDraft(techFilterActive);
+    setBuyStateFilterDraft(buyStateFilter);
+    setShortTierAbOnlyDraft(shortTierAbOnly);
     setTechFilterOpen(false);
   };
 
   const handleResetTechFilterDraft = () => {
     setTechFilterDraft(createDefaultTechFilter(techFilterDraft.defaultTimeframe));
-  };
-
-  const handleRemoveActiveCondition = (id: string) => {
-    const next = {
-      ...techFilterActive,
-      conditions: techFilterActive.conditions.filter((item) => item.id !== id)
-    };
-    setTechFilterActive(next);
-    if (!techFilterOpen) {
-      setTechFilterDraft(next);
-    }
+    setBuyStateFilterDraft("all");
+    setShortTierAbOnlyDraft(false);
   };
 
   const handleClearActiveFilters = () => {
@@ -1245,270 +1685,143 @@ export default function GridView() {
     }
   };
 
-  type UpdateSummary = {
-    total?: number;
-    ok?: number;
-    err?: number;
-    split?: number;
+  const handleClearAllActiveFilters = () => {
+    handleClearActiveFilters();
+    setBuyStateFilter("all");
+    setBuyStateFilterDraft("all");
+    setShortTierAbOnly(false);
+    setShortTierAbOnlyDraft(false);
   };
 
-  type UpdateTxtPayload = {
-    ok?: boolean;
-    error?: string;
-    last_updated_at?: string;
-    summary?: UpdateSummary;
-    searched?: string[];
-    stdout_tail?: string[];
-  };
-
-  type TxtUpdateStatus = {
-    running?: boolean;
-    phase?: string;
-    started_at?: string;
-    finished_at?: string;
-    processed?: number;
-    total?: number;
-    summary?: UpdateSummary;
-    error?: string | null;
-    last_updated_at?: string | null;
-    job_id?: string | null;
-    stdout_tail?: string[];
-    status_message?: string | null;
-    elapsed_ms?: number | null;
-    timeout_sec?: number;
-    warning?: boolean;
-  };
-
-  type SplitSuspect = {
-    code: string;
-    file_date?: string;
-    file_close?: string;
-    pan_date?: string;
-    pan_close?: string;
-    diff_ratio?: string;
-    reason?: string;
-    detected_at?: string;
-  };
-
-  const formatUpdatedAt = (value: string | null | undefined) => {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    const pad = (num: number) => String(num).padStart(2, "0");
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-      date.getHours()
-    )}:${pad(date.getMinutes())}`;
-  };
-
-  const formatElapsed = (elapsedMs?: number | null) => {
-    if (!elapsedMs || elapsedMs < 1000) return null;
-    const totalSeconds = Math.floor(elapsedMs / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes}:${String(seconds).padStart(2, "0")}`;
-  };
-
-  const lastUpdatedLabel = formatUpdatedAt(
-    (txtUpdateStatus?.last_updated_at as string | null | undefined) ?? health?.last_updated
-  );
-  const isUpdateRunning = Boolean(txtUpdateStatus?.running);
-  const isUpdateStarting = updateRequestInFlight && !isUpdateRunning;
-  const isUpdatingTxt = isUpdateRunning || isUpdateStarting;
-  const normalizeCountValue = (value: unknown) => {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed) return null;
-      const parsed = Number(trimmed);
-      return Number.isFinite(parsed) ? parsed : null;
+  const handleUpdateError = useCallback((payload?: TxtUpdateStartPayload) => {
+    const error = payload?.error ?? 'unknown';
+    if (isTxtUpdateConflictError(error) || payload?.status === "conflict") {
+      showToast("日次更新は既に実行中です。");
+      return;
     }
-    return null;
-  };
+    if (error === 'code_txt_missing') {
+      showToast("code.txt が見つかりません。");
+      return;
+    }
+    if (error.startsWith('vbs_not_found')) {
+      showToast("日次更新スクリプトが見つかりません。");
+      return;
+    }
+    showToast("日次更新の起動に失敗しました。");
+  }, [showToast]);
 
-  const updateProgressPercent = (() => {
-    if (!isUpdateRunning) return null;
-    const processed = normalizeCountValue(txtUpdateStatus?.processed);
-    const total = normalizeCountValue(txtUpdateStatus?.total);
-    if (typeof processed === "number" && processed >= 0) {
-      if (typeof total === "number" && total > 0) {
-        return Math.min(100, Math.round((processed / total) * 100));
+  const applyTxtUpdateStatus = useCallback((payload?: JobStatusPayload | null) => {
+    if (!payload || typeof payload.id !== "string" || !payload.id) return;
+    const nextStatus = typeof payload.status === "string" ? payload.status : "running";
+    const nextMessage = typeof payload.message === "string" ? payload.message : null;
+    const hasBackgroundFollowup =
+      typeof nextMessage === "string" &&
+      (nextMessage.includes("バックグラウンド") || nextMessage.includes("followup=queued("));
+    const nextProgress =
+      typeof payload.progress === "number" && Number.isFinite(payload.progress)
+        ? payload.progress
+        : null;
+    setTxtUpdateJob({ id: payload.id, status: nextStatus, progress: nextProgress, message: nextMessage });
+
+    if (!TERMINAL_JOB_STATUS.has(nextStatus)) {
+      setTxtUpdatePolling(true);
+      return;
+    }
+
+    setTxtUpdatePolling(false);
+    const terminalKey = `${payload.id}:${nextStatus}`;
+    if (txtUpdateTerminalStatusRef.current === terminalKey) return;
+    txtUpdateTerminalStatusRef.current = terminalKey;
+
+    if (nextStatus === "success") {
+      const runDailyFollowup = txtUpdateDailyFollowupRef.current;
+      txtUpdateDailyFollowupRef.current = false;
+      resetBarsCache();
+      void loadList();
+      if (!runDailyFollowup) {
+        showToast(
+          hasBackgroundFollowup
+            ? "TXT更新が完了しました。重い後続処理はバックグラウンドで継続します。"
+            : "TXT更新が完了しました。"
+        );
+        return;
       }
-      if (total === 100) return Math.min(100, Math.round(processed));
-    }
-    return null;
-  })();
-  const formatUpdateCount = () => {
-    const processed = normalizeCountValue(txtUpdateStatus?.processed);
-    const total = normalizeCountValue(txtUpdateStatus?.total);
-    if (typeof total === "number" && total > 0) {
-      const safeProcessedRaw = typeof processed === "number" && processed >= 0 ? processed : 0;
-      const safeProcessed = Math.min(safeProcessedRaw, total);
-      return `${safeProcessed}/${total}`;
-    }
-    if (typeof processed === "number") {
-      return `${processed}`;
-    }
-    return null;
-  };
-  const updateProgressLabel = (() => {
-    if (!isUpdateRunning) return null;
-    const statusMessage = txtUpdateStatus.status_message?.trim();
-    if (txtUpdateStatus.phase === "ingesting") {
-      return statusMessage || "取り込み中…";
-    }
-    if (txtUpdateStatus.phase === "exporting") {
-      return statusMessage || "出力中…";
-    }
-    if (txtUpdateStatus.phase === "queued" || txtUpdateStatus.phase === "starting") {
-      return "準備中…";
-    }
-    return statusMessage || "更新中…";
-  })();
-  const updatePhase = txtUpdateStatus?.phase ?? null;
-  const updateStatusTone = isUpdateRunning || isUpdateStarting
-    ? "running"
-      : updatePhase === "done"
-        ? "done"
-        : updatePhase === "error"
-          ? "error"
-          : updatePhase === "idle"
-            ? "idle"
-            : "idle";
-  const updateStatusText = (() => {
-    if (isUpdateStarting) return "更新中";
-    if (isUpdateRunning) return updateProgressLabel ?? "更新中";
-    if (updatePhase === "done") return "更新完了";
-    if (updatePhase === "error") return "更新エラー";
-    if (updatePhase === "idle") return "待機中";
-    if (!txtUpdateStatus) return "状態確認中";
-    return "待機中";
-  })();
-  const updateProgressValue = (() => {
-    if (updateProgressPercent != null) return updateProgressPercent;
-    if (isUpdateStarting || updateStatusTone === "running") return 60;
-    if (updateStatusTone === "done") return 100;
-    return 0;
-  })();
-  const updateProgressDisplay = (() => {
-    const countLabel = formatUpdateCount();
-    if (countLabel) return countLabel;
-    if (updateProgressPercent != null) return `${updateProgressPercent}%`;
-    if (updateStatusTone === "done") return "100%";
-    return null;
-  })();
-
-  const formatUpdateSummary = (summary?: UpdateSummary) => {
-    if (!summary) return null;
-    const parts: string[] = [];
-    if (typeof summary.ok === "number") {
-      parts.push(`成功 ${summary.ok}`);
-    }
-    if (typeof summary.err === "number" && summary.err > 0) {
-      parts.push(`エラー ${summary.err}`);
-    }
-    if (typeof summary.split === "number" && summary.split > 0) {
-      parts.push(`分割疑い ${summary.split}`);
-    }
-    return parts.length > 0 ? parts.join(" / ") : null;
-  };
-
-  const formatUpdateToast = (message: string, summary?: UpdateSummary) => {
-    const suffix = formatUpdateSummary(summary);
-    return suffix ? `${message}（${suffix}）` : message;
-  };
-
-  const updateDetailText = (() => {
-    if (isUpdateStarting) return "更新中";
-    if (isUpdateRunning) {
-      const elapsed = formatElapsed(txtUpdateStatus?.elapsed_ms);
-      return elapsed ? `経過 ${elapsed}` : "経過 --:--";
-    }
-    if (updatePhase === "done") {
-      const summary = formatUpdateSummary(txtUpdateStatus?.summary);
-      if (summary) return `結果 ${summary}`;
-      const statusMessage = txtUpdateStatus?.status_message?.trim();
-      if (statusMessage) return statusMessage;
-      return "更新完了";
-    }
-    if (updatePhase === "error") {
-      const statusMessage = txtUpdateStatus?.status_message?.trim();
-      return statusMessage ? statusMessage : "更新に失敗しました";
-    }
-    if (!txtUpdateStatus) return "状態を取得中";
-    return "手動で開始";
-  })();
-
-  const handleUpdateError = (payload?: UpdateTxtPayload) => {
-    const error = payload?.error ?? "unknown";
-    if (error === "already_updated_today") {
-      const lastUpdated = formatUpdatedAt(payload?.last_updated_at);
-      setToastMessage(
-        lastUpdated
-          ? `本日はTXT更新済みです（最終 ${lastUpdated}）`
-          : "本日はTXT更新済みです。"
+      if (eventsMeta?.isRefreshing) {
+        showToast(
+          hasBackgroundFollowup
+            ? "日次更新が完了しました。重い後続処理はバックグラウンドで継続します。イベント更新は既に実行中です。"
+            : "日次更新が完了しました。イベント更新は既に実行中です。"
+        );
+        return;
+      }
+      void refreshEvents();
+      showToast(
+        hasBackgroundFollowup
+          ? "日次更新が完了しました。重い後続処理はバックグラウンドで継続します。続けてイベント更新を開始しました。"
+          : "日次更新が完了しました。続けてイベント更新を開始しました。"
       );
       return;
     }
-    if (error === "update_in_progress") {
-      showToast("TXT更新は実行中です。");
-      return;
-    }
-    if (error.startsWith("vbs_failed")) {
-      showToast(formatUpdateToast("TXT更新でエラーが発生しました。", payload?.summary));
-      return;
-    }
-    if (error.startsWith("ingest_failed")) {
-      showToast(formatUpdateToast("TXT取り込みでエラーが発生しました。", payload?.summary));
-      return;
-    }
-    if (error.startsWith("vbs_not_found")) {
-      showToast("TXT更新スクリプトが見つかりません。");
-      return;
-    }
-    if (error === "code_txt_missing") {
-      const searched = payload?.searched?.filter(Boolean).join(" / ");
-      setToastMessage(
-        searched ? `code.txt が見つかりません（探索: ${searched}）` : "code.txt が見つかりません。"
-      );
-      return;
-    }
-    if (error.startsWith("ingest_not_found")) {
-      const missingPath = error.split(":").slice(1).join(":").trim();
-      setToastMessage(
-        missingPath
-          ? `TXT取り込みスクリプトが見つかりません（${missingPath}）`
-          : "TXT取り込みスクリプトが見つかりません。"
-      );
-      return;
-    }
-    showToast("TXT更新に失敗しました。");
-  };
 
-  const fetchTxtUpdateStatus = useCallback(async () => {
+    if (nextStatus === "canceled") {
+      txtUpdateDailyFollowupRef.current = false;
+      showToast("日次更新をキャンセルしました。");
+      return;
+    }
+    txtUpdateDailyFollowupRef.current = false;
+    const detail = payload.error || payload.message || "詳細不明";
+    showToast(`日次更新が失敗しました。(${detail})`, {
+      label: "設定",
+      onClick: () => {
+        setSettingsPanelMode("general");
+        setSettingsOpen(true);
+      }
+    });
+  }, [eventsMeta?.isRefreshing, loadList, refreshEvents, showToast, resetBarsCache]);
+
+  useEffect(() => {
     if (!backendReady) return;
-    try {
-      const res = await api.get("/txt_update/status");
-      const payload = res.data as TxtUpdateStatus;
-      setTxtUpdateStatus(payload);
-      if (payload.stdout_tail && payload.stdout_tail.length) {
-        setUpdateLogLines(payload.stdout_tail);
+    let disposed = false;
+    const loadCurrentTxtJob = async () => {
+      try {
+        const res = await api.get("/jobs/current");
+        if (disposed) return;
+        const payload = (res.data ?? null) as JobStatusPayload | null;
+        if (!payload || payload.type !== "txt_update") return;
+        applyTxtUpdateStatus(payload);
+      } catch {
+        // ignore initial current-job fetch failures
       }
-    } catch {
-      // Ignore status fetch errors while offline.
-    }
-  }, [backendReady]);
+    };
+    void loadCurrentTxtJob();
+    return () => {
+      disposed = true;
+    };
+  }, [backendReady, applyTxtUpdateStatus]);
 
-  const fetchSplitSuspects = useCallback(async () => {
-    if (!backendReady) return [];
-    try {
-      const res = await api.get("/txt_update/split_suspects");
-      const items = (res.data?.items as SplitSuspect[]) ?? [];
-      setSplitSuspects(items);
-      return items;
-    } catch {
-      return [];
-    }
-  }, [backendReady]);
+  useEffect(() => {
+    if (!txtUpdatePolling || !txtUpdateJob?.id) return;
+    let disposed = false;
+    const poll = async () => {
+      try {
+        const res = await api.get(`/jobs/${txtUpdateJob.id}`);
+        if (disposed) return;
+        applyTxtUpdateStatus((res.data ?? null) as JobStatusPayload | null);
+      } catch {
+        // keep polling; transient errors are common during backend restart
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => {
+      void poll();
+    }, 2000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [txtUpdatePolling, txtUpdateJob?.id, applyTxtUpdateStatus]);
+
+
 
   const buildConsultation = useCallback(async () => {
     if (!keepList.length) return;
@@ -1568,12 +1881,12 @@ export default function GridView() {
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
-      showToast("相談パックがまだありません。");
+      showToast("相場メモがまだありません。");
       return;
     }
     try {
       await navigator.clipboard.writeText(consultText);
-      showToast("相談パックをコピーしました。");
+      showToast("相場メモをコピーしました。");
     } catch {
       showToast("コピーに失敗しました。");
     }
@@ -1587,147 +1900,583 @@ export default function GridView() {
   }, [keepList]);
 
   const handleUpdateTxt = useCallback(async () => {
-    if (isUpdatingTxt || !backendReady) return;
-    updateRequestStartedAtRef.current = Date.now();
-    setUpdateRequestInFlight(true);
-    // Clear any stale completed count (e.g. 679/679) so a new run doesn't look "instantly finished".
-    // Keep running=false until we observe it from the backend.
-    setTxtUpdateStatus((prev) => {
-      const fallbackTotal = (prev?.total ?? health?.code_count ?? 0) || 0;
-      return {
-        ...(prev ?? {}),
-        running: prev?.running ?? false,
-        processed: 0,
-        total: fallbackTotal > 0 ? fallbackTotal : prev?.total
-      };
-    });
-    setShowSplitSuspects(false);
-    setSplitSuspects([]);
-    setShowUpdateLog(false);
-    setUpdateLogLines([]);
-    showToast("TXT更新を開始しました。");
+    if (!backendReady) return;
+    showToast("日次更新を開始しました。");
     try {
-      const res = await api.post("/txt_update/run");
-      const payload = res.data as UpdateTxtPayload;
-      if (payload.ok) {
-        await fetchTxtUpdateStatus();
-      } else {
+      const res = await api.post("/jobs/txt-update", null, {
+        params: { completion_mode: "practical_fast", auto_fill_missing_history: true }
+      });
+      const payload = (res.data ?? {}) as TxtUpdateStartPayload;
+      if (payload.ok === false) {
+        txtUpdateDailyFollowupRef.current = false;
         handleUpdateError(payload);
+        if (isTxtUpdateConflictError(payload.error) || payload.status === "conflict") {
+          try {
+            const current = await api.get("/jobs/current");
+            const job = (current.data ?? null) as JobStatusPayload | null;
+            if (job?.type === "txt_update") {
+              applyTxtUpdateStatus(job);
+            }
+          } catch {
+            // ignore current-job fetch failures after conflict
+          }
+        }
+        return;
+      }
+      const jobId = extractTxtUpdateJobId(payload);
+      if (jobId) {
+        txtUpdateDailyFollowupRef.current = true;
+        txtUpdateTerminalStatusRef.current = null;
+        setTxtUpdateJob({
+          id: jobId,
+          status: "queued",
+          progress: 0,
+          message: "Waiting in queue..."
+        });
+        setTxtUpdatePolling(true);
+      } else {
+        txtUpdateDailyFollowupRef.current = false;
       }
     } catch (error) {
-      let payload: UpdateTxtPayload | null = null;
+      txtUpdateDailyFollowupRef.current = false;
+      let payload: TxtUpdateStartPayload | null = null;
       if (typeof error === "object" && error && "response" in error) {
-        const response = (error as { response?: { data?: UpdateTxtPayload } }).response;
+        const response = (error as { response?: { data?: TxtUpdateStartPayload } }).response;
         payload = response?.data ?? null;
       }
       if (payload) {
         handleUpdateError(payload);
       } else {
-        showToast("TXT更新に失敗しました。");
+        showToast("日次更新の起動に失敗しました。");
+      }
+    }
+  }, [backendReady, handleUpdateError, applyTxtUpdateStatus]);
+
+  const handleCancelTxtUpdate = useCallback(async () => {
+    if (!txtUpdateJob?.id) return;
+    try {
+      const res = await api.post(`/jobs/${txtUpdateJob.id}/cancel`);
+      const payload = (res.data ?? {}) as { cancel_requested?: boolean; status?: string };
+      if (payload.cancel_requested) {
+        txtUpdateTerminalStatusRef.current = null;
+        setTxtUpdatePolling(true);
+        setTxtUpdateJob((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            status: typeof payload.status === "string" ? payload.status : "cancel_requested"
+          };
+        });
+        showToast("日次更新のキャンセルを要求しました。");
+      } else {
+        setTxtUpdatePolling(false);
+        showToast("日次更新は既に終了しています。");
+      }
+    } catch (err) {
+      const detail = extractErrorDetail(err);
+      showToast(`日次更新のキャンセルに失敗しました。(${detail})`);
+    }
+  }, [txtUpdateJob?.id, showToast]);
+
+  const handlePhaseRebuild = useCallback(async () => {
+    if (!backendReady) return;
+    showToast("Phase\u518d\u8a08\u7b97\u3092\u958b\u59cb\u3057\u307e\u3057\u305f\u3002");
+    try {
+      const res = await api.post("/phase/rebuild");
+      const payload = res.data as { ok?: boolean; error?: string };
+      if (payload && payload.ok === false) {
+        showToast("Phase\u518d\u8a08\u7b97\u306e\u8d77\u52d5\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002");
+      }
+    } catch {
+      showToast("Phase\u518d\u8a08\u7b97\u306e\u8d77\u52d5\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002");
+    }
+  }, [backendReady]);
+
+  const fetchLatestWalkforward = useCallback(async (silent = false) => {
+    if (!backendReady) return;
+    setWalkforwardLoading(true);
+    try {
+      const res = await api.get("/jobs/strategy/walkforward/latest");
+      const payload = (res.data ?? {}) as {
+        has_run?: boolean;
+        latest?: WalkforwardLatest | null;
+      };
+      if (payload.has_run && payload.latest) {
+        setWalkforwardLatest(payload.latest);
+      } else {
+        setWalkforwardLatest(null);
+      }
+      try {
+        const researchRes = await api.get("/jobs/strategy/walkforward/research/latest");
+        const researchPayload = (researchRes.data ?? {}) as {
+          has_snapshot?: boolean;
+          latest?: WalkforwardResearchLatest | null;
+        };
+        if (researchPayload.has_snapshot && researchPayload.latest) {
+          setWalkforwardResearchLatest(researchPayload.latest);
+        } else {
+          setWalkforwardResearchLatest(null);
+        }
+      } catch (researchErr) {
+        setWalkforwardResearchLatest(null);
+        if (!silent) {
+          const detail = extractErrorDetail(researchErr);
+          showToast(`ウォークフォワード研究結果の取得に失敗しました。(${detail})`);
+        }
+      }
+    } catch (err) {
+      if (!silent) {
+        const detail = extractErrorDetail(err);
+        showToast(`ウォークフォワード結果の取得に失敗しました。(${detail})`);
       }
     } finally {
-      setUpdateRequestInFlight(false);
-      updateRequestStartedAtRef.current = null;
+      setWalkforwardLoading(false);
     }
-  }, [isUpdatingTxt, backendReady, fetchTxtUpdateStatus, handleUpdateError]);
-
-  useEffect(() => {
-    // If the request promise got stuck (webview/network hiccup), don't let the UI
-    // show "starting" forever once we can observe the job is not running.
-    if (!updateRequestInFlight) return;
-    if (txtUpdateStatus && txtUpdateStatus.running === false) {
-      setUpdateRequestInFlight(false);
-      updateRequestStartedAtRef.current = null;
-      return;
-    }
-    const startedAt = updateRequestStartedAtRef.current;
-    if (startedAt == null) return;
-    const timer = window.setTimeout(() => {
-      if (updateRequestStartedAtRef.current === startedAt) {
-        setUpdateRequestInFlight(false);
-        updateRequestStartedAtRef.current = null;
-      }
-    }, 20000);
-    return () => window.clearTimeout(timer);
-  }, [updateRequestInFlight, txtUpdateStatus]);
+  }, [backendReady, showToast]);
 
   useEffect(() => {
     if (!backendReady) return;
-    fetchTxtUpdateStatus();
-    // Use a fixed interval to avoid "stopping" feel on navigation return
-    const timer = window.setInterval(() => {
-      fetchTxtUpdateStatus();
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [backendReady, fetchTxtUpdateStatus]);
+    void fetchLatestWalkforward(true);
+  }, [backendReady, fetchLatestWalkforward]);
 
-  useEffect(() => {
-    const wasRunning = prevUpdateRunningRef.current;
-    const isRunning = Boolean(txtUpdateStatus?.running);
-    if (wasRunning && !isRunning) {
-      if (txtUpdateStatus?.phase === "done") {
-        const summary = txtUpdateStatus.summary;
-        resetBarsCache();
-        loadList();
-        const hasWarning = Boolean(txtUpdateStatus.warning);
-        setToastMessage(
-          formatUpdateToast(
-            hasWarning ? "TXT更新が完了しました（警告あり）。" : "TXT更新が完了しました。",
-            summary
-          )
-        );
-        if (hasWarning) {
-          setShowUpdateLog(true);
-        }
-        fetchSplitSuspects().then((items) => {
-          if (items.length) {
-            setShowSplitSuspects(true);
-            showToast(`分割疑い ${items.length}件。TXT削除→再更新してください。`);
-          }
-        });
-        api
-          .get("/health")
-          .then((res) => setHealth(res.data as HealthStatus))
-          .catch(() => undefined);
-      } else if (txtUpdateStatus?.phase === "error") {
-        showToast("TXT更新に失敗しました。");
-        setShowUpdateLog(true);
+  const applyWalkforwardTenYearPreset = useCallback(() => {
+    setWalkforwardParams((prev) => ({
+      ...prev,
+      trainMonths: 120,
+      testMonths: 12,
+      stepMonths: 12,
+      minWindows: 1
+    }));
+    showToast("10年単位プリセットを適用しました。");
+  }, [showToast]);
+
+  const handleRunWalkforward = useCallback(async () => {
+    if (!backendReady || walkforwardSubmitting) return;
+    setWalkforwardSubmitting(true);
+    try {
+      const maxNewEntriesPerMonth = parseOptionalNumber(walkforwardParams.maxNewEntriesPerMonth);
+      const minMlPUpLong = parseOptionalNumber(walkforwardParams.minMlPUpLong);
+      const regimeLongMin = parseOptionalNumber(walkforwardParams.regimeLongMinBreadthAbove60);
+      const regimeShortMax = parseOptionalNumber(walkforwardParams.regimeShortMaxBreadthAbove60);
+      const params: Record<string, string | number | boolean> = {
+        train_months: walkforwardParams.trainMonths,
+        test_months: walkforwardParams.testMonths,
+        step_months: walkforwardParams.stepMonths,
+        min_windows: walkforwardParams.minWindows,
+        max_codes: walkforwardParams.maxCodes,
+        allowed_sides: walkforwardParams.allowedSides,
+        min_long_score: walkforwardParams.minLongScore,
+        min_short_score: walkforwardParams.minShortScore,
+        max_new_entries_per_day: walkforwardParams.maxNewEntriesPerDay,
+        use_regime_filter: walkforwardParams.useRegimeFilter,
+        regime_breadth_lookback_days: walkforwardParams.regimeBreadthLookbackDays
+      };
+      if (typeof maxNewEntriesPerMonth === "number") {
+        params.max_new_entries_per_month = maxNewEntriesPerMonth;
       }
+      if (typeof minMlPUpLong === "number") {
+        params.min_ml_p_up_long = minMlPUpLong;
+      }
+      if (typeof regimeLongMin === "number") {
+        params.regime_long_min_breadth_above60 = regimeLongMin;
+      }
+      if (typeof regimeShortMax === "number") {
+        params.regime_short_max_breadth_above60 = regimeShortMax;
+      }
+      const allowedLongSetups = walkforwardParams.allowedLongSetups.trim();
+      const allowedShortSetups = walkforwardParams.allowedShortSetups.trim();
+      if (allowedLongSetups) {
+        params.allowed_long_setups = allowedLongSetups;
+      }
+      if (allowedShortSetups) {
+        params.allowed_short_setups = allowedShortSetups;
+      }
+      const res = await api.post("/jobs/strategy/walkforward", null, {
+        params
+      });
+      const payload = (res.data ?? {}) as { ok?: boolean; error?: string; job_id?: string };
+      if (payload.ok === false) {
+        showToast(`ウォークフォワード検証の起動に失敗しました。(${payload.error ?? "不明"})`);
+        return;
+      }
+      showToast("ウォークフォワード検証ジョブを開始しました。");
+    } catch (err) {
+      const detail = extractErrorDetail(err);
+      showToast(`ウォークフォワード検証の起動に失敗しました。(${detail})`);
+    } finally {
+      setWalkforwardSubmitting(false);
     }
-    prevUpdateRunningRef.current = isRunning;
-  }, [txtUpdateStatus, resetBarsCache, loadList, formatUpdateToast, fetchSplitSuspects]);
+  }, [backendReady, parseOptionalNumber, walkforwardSubmitting, walkforwardParams, showToast]);
 
-  useEffect(() => {
-    // If a job finishes between polling intervals, we may never observe running=true and
-    // would miss the completion side effects (cache reset, reload, toasts).
-    const jobId = (txtUpdateStatus?.job_id as string | null | undefined) ?? null;
-    const prevJobId = prevUpdateJobIdRef.current;
-    prevUpdateJobIdRef.current = jobId;
-    if (!jobId || !prevJobId || jobId === prevJobId) return;
-    if (txtUpdateStatus?.running) return;
-    if (txtUpdateStatus?.phase !== "done") return;
-
-    const summary = txtUpdateStatus.summary;
-    resetBarsCache();
-    loadList();
-    const hasWarning = Boolean(txtUpdateStatus.warning);
-    setToastMessage(
-      formatUpdateToast(hasWarning ? "TXT update done (warnings)" : "TXT update done.", summary)
+  const walkforwardSummary = walkforwardLatest?.report?.summary ?? null;
+  const walkforwardTopWindows = useMemo(() => {
+    const windows = Array.isArray(walkforwardLatest?.report?.windows)
+      ? walkforwardLatest?.report?.windows
+      : [];
+    const successRows = windows.filter((row) => row?.status === "success");
+    return successRows.slice(0, 5);
+  }, [walkforwardLatest]);
+  const walkforwardAttributionCode = useMemo(
+    () => formatAttributionRows(walkforwardLatest?.report?.attribution?.code),
+    [formatAttributionRows, walkforwardLatest]
+  );
+  const walkforwardAttributionSetup = useMemo(
+    () =>
+      formatAttributionRows(
+        walkforwardLatest?.report?.attribution?.setup_id ??
+          walkforwardLatest?.report?.attribution?.setup
+      ),
+    [formatAttributionRows, walkforwardLatest]
+  );
+  const walkforwardAttributionSector = useMemo(
+    () => formatAttributionRows(walkforwardLatest?.report?.attribution?.sector33_code),
+    [formatAttributionRows, walkforwardLatest]
+  );
+  const walkforwardResearchReport = walkforwardResearchLatest?.report ?? null;
+  const walkforwardResearchAdoptedSetups = useMemo(() => {
+    const rows = Array.isArray(walkforwardResearchReport?.adopted_setups)
+      ? walkforwardResearchReport?.adopted_setups
+      : [];
+    return rows.slice(0, 5);
+  }, [walkforwardResearchReport]);
+  const walkforwardResearchRejectedReasons = useMemo(() => {
+    const rows = Array.isArray(walkforwardResearchReport?.rejected_reasons)
+      ? walkforwardResearchReport?.rejected_reasons
+      : [];
+    return rows.slice(0, 5);
+  }, [walkforwardResearchReport]);
+  const walkforwardResearchHedgeContribution = walkforwardResearchReport?.hedge_contribution ?? null;
+  const normalizedWalkforwardPresetName = useMemo(
+    () => normalizeWalkforwardPresetName(walkforwardPresetName),
+    [normalizeWalkforwardPresetName, walkforwardPresetName]
+  );
+  const matchedWalkforwardPreset = useMemo(() => {
+    if (!normalizedWalkforwardPresetName) return null;
+    const key = normalizedWalkforwardPresetName.toLowerCase();
+    return (
+      walkforwardPresets.find((preset) => preset.name.toLowerCase() === key) ?? null
     );
-    if (hasWarning) {
-      setShowUpdateLog(true);
+  }, [normalizedWalkforwardPresetName, walkforwardPresets]);
+
+  const handleSaveWalkforwardPreset = useCallback(() => {
+    const name = normalizeWalkforwardPresetName(walkforwardPresetName);
+    if (!name) {
+      showToast("プリセット名を入力してください。");
+      return;
     }
-    fetchSplitSuspects().then((items) => {
-      if (items.length) {
-        setShowSplitSuspects(true);
-        showToast("split suspects: " + items.length);
+    const nowIso = new Date().toISOString();
+    setWalkforwardPresets((prev) => {
+      const key = name.toLowerCase();
+      const index = prev.findIndex((item) => item.name.toLowerCase() === key);
+      const payload: WalkforwardPreset = {
+        name,
+        params: { ...walkforwardParams },
+        createdAt: index >= 0 ? prev[index].createdAt : nowIso,
+        updatedAt: nowIso,
+      };
+      const next = [...prev];
+      if (index >= 0) {
+        next[index] = payload;
+      } else {
+        next.push(payload);
       }
+      next.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+      return next.slice(0, WALKFORWARD_PRESETS_LIMIT);
     });
-    api
-      .get("/health")
-      .then((res) => setHealth(res.data as HealthStatus))
-      .catch(() => undefined);
-  }, [txtUpdateStatus, resetBarsCache, loadList, formatUpdateToast, fetchSplitSuspects]);
+    setWalkforwardPresetName(name);
+    showToast(`プリセットを保存しました。(${name})`);
+  }, [normalizeWalkforwardPresetName, showToast, walkforwardParams, walkforwardPresetName]);
+
+  const handleLoadWalkforwardPreset = useCallback(() => {
+    if (!matchedWalkforwardPreset) {
+      showToast("読み込むプリセットが見つかりません。");
+      return;
+    }
+    setWalkforwardParams({ ...matchedWalkforwardPreset.params });
+    setWalkforwardPresetName(matchedWalkforwardPreset.name);
+    showToast(`プリセットを読み込みました。(${matchedWalkforwardPreset.name})`);
+  }, [matchedWalkforwardPreset, showToast]);
+
+  const handleDeleteWalkforwardPreset = useCallback(() => {
+    if (!matchedWalkforwardPreset) {
+      showToast("削除対象のプリセットが見つかりません。");
+      return;
+    }
+    const target = matchedWalkforwardPreset.name;
+    setWalkforwardPresets((prev) =>
+      prev.filter((item) => item.name.toLowerCase() !== target.toLowerCase())
+    );
+    setWalkforwardPresetName("");
+    showToast(`プリセットを削除しました。(${target})`);
+  }, [matchedWalkforwardPreset, showToast]);
+
+  const normalizeImportedWalkforwardPresets = useCallback(
+    (payload: unknown) => {
+      const rawList = Array.isArray(payload)
+        ? payload
+        : payload && typeof payload === "object" && Array.isArray((payload as { presets?: unknown }).presets)
+          ? ((payload as { presets: unknown[] }).presets)
+          : [];
+      const nowIso = new Date().toISOString();
+      const deduped = new Map<string, WalkforwardPreset>();
+      for (const entry of rawList) {
+        if (!entry || typeof entry !== "object") continue;
+        const rawName = (entry as { name?: unknown }).name;
+        const name = typeof rawName === "string" ? normalizeWalkforwardPresetName(rawName) : "";
+        if (!name) continue;
+        const params = toWalkforwardParams((entry as { params?: unknown }).params);
+        const createdAtRaw = (entry as { createdAt?: unknown }).createdAt;
+        const updatedAtRaw = (entry as { updatedAt?: unknown }).updatedAt;
+        const item: WalkforwardPreset = {
+          name,
+          params,
+          createdAt: typeof createdAtRaw === "string" && createdAtRaw ? createdAtRaw : nowIso,
+          updatedAt: typeof updatedAtRaw === "string" && updatedAtRaw ? updatedAtRaw : nowIso,
+        };
+        deduped.set(name.toLowerCase(), item);
+      }
+      return Array.from(deduped.values());
+    },
+    [normalizeWalkforwardPresetName]
+  );
+
+  const handleExportWalkforwardPresets = useCallback(async () => {
+    if (!walkforwardPresets.length) {
+      showToast("エクスポート対象のプリセットがありません。");
+      return;
+    }
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+      now.getDate()
+    ).padStart(2, "0")}_${String(now.getHours()).padStart(2, "0")}${String(
+      now.getMinutes()
+    ).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+    const payload = {
+      version: 1,
+      exportedAt: now.toISOString(),
+      presets: walkforwardPresets,
+    };
+    try {
+      const ok = await saveAsFile(
+        JSON.stringify(payload, null, 2),
+        `walkforward-presets-${stamp}.json`,
+        "application/json"
+      );
+      showToast(ok ? "ウォークフォワードプリセットを書き出しました。" : "書き出しに失敗しました。");
+    } catch {
+      showToast("書き出しに失敗しました。");
+    }
+  }, [showToast, walkforwardPresets]);
+
+  const handlePickWalkforwardPresetImport = useCallback(() => {
+    if (walkforwardPresetImporting) return;
+    walkforwardPresetImportInputRef.current?.click();
+  }, [walkforwardPresetImporting]);
+
+  const handleImportWalkforwardPresetFile = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file || walkforwardPresetImporting) return;
+      setWalkforwardPresetImporting(true);
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const imported = normalizeImportedWalkforwardPresets(parsed);
+        if (!imported.length) {
+          showToast("インポート可能なプリセットが見つかりませんでした。");
+          return;
+        }
+        const currentKeys = new Set(walkforwardPresets.map((item) => item.name.toLowerCase()));
+        const overwriteCount = imported.filter((item) => currentKeys.has(item.name.toLowerCase())).length;
+        const nowIso = new Date().toISOString();
+        setWalkforwardPresets((prev) => {
+          const byKey = new Map<string, WalkforwardPreset>();
+          for (const item of prev) {
+            byKey.set(item.name.toLowerCase(), item);
+          }
+          for (const incoming of imported) {
+            const key = incoming.name.toLowerCase();
+            const existing = byKey.get(key);
+            byKey.set(key, {
+              ...incoming,
+              createdAt: existing?.createdAt ?? incoming.createdAt,
+              updatedAt: nowIso,
+            });
+          }
+          const merged = Array.from(byKey.values());
+          merged.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+          return merged.slice(0, WALKFORWARD_PRESETS_LIMIT);
+        });
+        if (imported.length === 1) {
+          setWalkforwardPresetName(imported[0].name);
+        }
+        showToast(
+          overwriteCount > 0
+            ? `${imported.length}件インポートしました（上書き ${overwriteCount}件）。`
+            : `${imported.length}件インポートしました。`
+        );
+      } catch {
+        showToast("インポートに失敗しました。JSON形式を確認してください。");
+      } finally {
+        setWalkforwardPresetImporting(false);
+        event.target.value = "";
+      }
+    },
+    [
+      normalizeImportedWalkforwardPresets,
+      showToast,
+      walkforwardPresetImporting,
+      walkforwardPresets
+    ]
+  );
+
+  const formatJobTypeLabel = useCallback((jobType: string | null | undefined) => {
+    switch (jobType) {
+      case "txt_update":
+        return "日次更新";
+      case "txt_followup":
+        return "後続更新";
+      case "force_sync":
+        return "強制同期";
+      case "phase_rebuild":
+        return "Phase再計算";
+      case "ml_train":
+        return "ML学習";
+      case "ml_predict":
+        return "ML予測";
+      case "strategy_backtest":
+        return "戦略バックテスト";
+      case "strategy_walkforward":
+        return "ウォークフォワード検証";
+      default:
+        return jobType || "ジョブ";
+    }
+  }, []);
+
+  const notifyTerminalJob = useCallback(async (item: JobHistoryItem) => {
+    const id = typeof item.id === "string" ? item.id : "";
+    const type = typeof item.type === "string" ? item.type : "";
+    const status = typeof item.status === "string" ? item.status : "";
+    if (!id || !type || !status) return;
+    if (type === "txt_update") return;
+
+    let detail: string | null = typeof item.message === "string" ? item.message : null;
+    if (status === "failed") {
+      try {
+        const detailRes = await api.get(`/jobs/${id}`);
+        const payload = (detailRes.data ?? null) as JobStatusPayload | null;
+        if (payload) {
+          const fromError = typeof payload.error === "string" && payload.error.trim() ? payload.error : null;
+          const fromMessage =
+            typeof payload.message === "string" && payload.message.trim() ? payload.message : null;
+          detail = fromError ?? fromMessage ?? detail;
+        }
+      } catch {
+        // Keep history-level detail when detail fetch fails.
+      }
+    }
+
+    const label = formatJobTypeLabel(type);
+    if (status === "success") {
+      if (type === "strategy_walkforward") {
+        void fetchLatestWalkforward(true);
+      }
+      if (type === "force_sync") {
+        resetBarsCache();
+        void loadList();
+      }
+      if (type === "txt_followup") {
+        void loadList();
+      }
+      showToast(`${label}が完了しました。`);
+      return;
+    }
+    if (status === "canceled") {
+      showToast(`${label}をキャンセルしました。`);
+      return;
+    }
+
+    let action: ToastAction | null = null;
+    if (type === "phase_rebuild") {
+      action = {
+        label: "再実行",
+        onClick: () => {
+          void handlePhaseRebuild();
+        }
+      };
+    } else if (type === "strategy_walkforward") {
+      action = {
+        label: "再実行",
+        onClick: () => {
+          setSettingsPanelMode("walkforward");
+          setSettingsOpen(true);
+          void handleRunWalkforward();
+        }
+      };
+    }
+    if (type === "txt_followup") {
+      showToast(`後続更新が失敗しました。日次データ更新は完了済みです。(${detail ?? "詳細不明"})`);
+      return;
+    }
+    showToast(`${label}が失敗しました。(${detail ?? "詳細不明"})`, action);
+  }, [formatJobTypeLabel, handlePhaseRebuild, handleRunWalkforward, loadList, resetBarsCache, showToast]);
+  useEffect(() => {
+    if (!backendReady || GRID_REFACTOR_ENABLED) return;
+    let disposed = false;
+    let timer: number | null = null;
+    const scheduleNext = (delayMs: number) => {
+      if (disposed) return;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+      timer = window.setTimeout(() => {
+        void pollTerminalJobs();
+      }, delayMs);
+    };
+
+    const pollTerminalJobs = async () => {
+      let nextDelayMs = 15000;
+      try {
+        const res = await api.get("/jobs/history", { params: { limit: 20 } });
+        if (disposed) return;
+        const list = Array.isArray(res.data) ? (res.data as JobHistoryItem[]) : [];
+        const hasActiveJobs = list.some((entry) => ACTIVE_JOB_STATUS.has(String(entry?.status ?? "")));
+        nextDelayMs = hasActiveJobs ? 4000 : 15000;
+        const terminalItems = list.filter((entry) =>
+          TERMINAL_JOB_STATUS.has(String(entry?.status ?? ""))
+        );
+        if (!terminalJobsInitializedRef.current) {
+          for (const entry of terminalItems) {
+            if (typeof entry.id === "string" && entry.id) {
+              seenTerminalJobsRef.current.add(entry.id);
+            }
+          }
+          terminalJobsInitializedRef.current = true;
+          scheduleNext(nextDelayMs);
+          return;
+        }
+        for (const entry of [...terminalItems].reverse()) {
+          const id = typeof entry.id === "string" ? entry.id : "";
+          if (!id) continue;
+          if (seenTerminalJobsRef.current.has(id)) continue;
+          seenTerminalJobsRef.current.add(id);
+          void notifyTerminalJob(entry);
+        }
+      } catch {
+        // Keep silent; polling failures are transient.
+      }
+      scheduleNext(nextDelayMs);
+    };
+
+    void pollTerminalJobs();
+    return () => {
+      disposed = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [backendReady, notifyTerminalJob]);
+  useTerminalJobPolling({ enabled: backendReady && GRID_REFACTOR_ENABLED, onTerminalJob: notifyTerminalJob });
 
 
   return (
@@ -1735,338 +2484,968 @@ export default function GridView() {
       <header className="unified-list-header">
         <div className="list-header-row">
           <div className="header-row-top">
-            <TopNav />
+            <div className="header-row-left">
+              <TopNav />
+            </div>
             <div className="list-header-actions-wrapper">
               <div className="list-header-actions">
-              {keepList.length > 0 && (
-                <button
-                  type="button"
-                  className={`consult-trigger ${consultVisible ? "active" : ""}`}
-                  onClick={() => setConsultVisible(!consultVisible)}
-                >
-                  <IconMessage size={16} />
-                  <span>相談</span>
-                  <span className="badge">{keepList.length}</span>
-                </button>
-              )}
-              <div className="list-header-spacer" style={{ width: 8 }} />
-              <div className="popover-anchor" ref={sortRef}>
-                <IconButton
-                  icon={<IconArrowsSort size={18} />}
-                  label={`並び: ${sortLabel}`}
-                  variant="iconLabel"
-                  tooltip="並び替え"
-                  ariaLabel="並び替えメニューを開く"
-                  selected={sortOpen}
-                  onClick={() => {
-                    setSortOpen(!sortOpen);
-                    setDisplayOpen(false);
-                    setSettingsOpen(false);
-                  }}
-                />
-                {sortOpen && (
-                  <div className="popover-panel">
-                    {(isCandidateView ? candidateSortSections : sortSections).map((section) => (
-                      <div className="popover-section" key={section.title}>
-                        <div className="popover-title">{section.title}</div>
-                        <div className="popover-grid">
-                          {section.options.map((opt) => (
+                {keepList.length > 0 && (
+                  <button
+                    type="button"
+                    className={`consult-trigger ${consultVisible ? "active" : ""}`}
+                    onClick={() => setConsultVisible(!consultVisible)}
+                  >
+                    <IconMessage size={16} />
+                    <span>相談</span>
+                    <span className="badge">{keepList.length}</span>
+                  </button>
+                )}
+                <div className="list-header-spacer" style={{ width: 8 }} />
+                <div className="popover-anchor" ref={sortRef}>
+                  <IconButton
+                    icon={<IconArrowsSort size={18} />}
+                    label={`並び: ${sortLabel}`}
+                    variant="iconLabel"
+                    tooltip="並び替え"
+                    ariaLabel="並び替えメニューを開く"
+                    selected={sortOpen}
+                    onClick={() => {
+                      setSortOpen(!sortOpen);
+                      setDisplayOpen(false);
+                      setSettingsOpen(false);
+                      setSectorSortOpen(false);
+                    }}
+                  />
+                  {sortOpen && (
+                    <div className="popover-panel sort-popover-panel">
+                      {visibleSortSections.map((section) => {
+                        const expanded = openSortSections.includes(section.title);
+                        return (
+                        <div className="popover-section" key={section.title}>
+                          <button
+                            type="button"
+                            className={`popover-section-toggle ${expanded ? "active" : ""}`}
+                            onClick={() =>
+                              setOpenSortSections((current) =>
+                                current.includes(section.title)
+                                  ? current.filter((title) => title !== section.title)
+                                  : [...current, section.title]
+                              )
+                            }
+                          >
+                            <span className="popover-title">{section.title}</span>
+                            <span className="popover-section-meta">
+                              {section.options.length}件 {expanded ? "−" : "+"}
+                            </span>
+                          </button>
+                          {expanded && (
+                            <div className="popover-grid">
+                              {section.options.map((opt) => (
+                                <button
+                                  key={opt.key}
+                                  type="button"
+                                  className={`popover-item ${sortKey === opt.key ? "active" : ""}`}
+                                  onClick={() => {
+                                    if (opt.fixedDirection) {
+                                      setSortKey(opt.key);
+                                      setSortDir(opt.fixedDirection);
+                                    } else if (sortKey === opt.key) {
+                                      setSortDir(sortDir === "asc" ? "desc" : "asc");
+                                    } else {
+                                      setSortKey(opt.key);
+                                      setSortDir("desc");
+                                    }
+                                    setSortOpen(false);
+                                  }}
+                                >
+                                  <span className="popover-item-label">{opt.label}</span>
+                                  {sortKey === opt.key && (
+                                    <span className="popover-check">{sortDirLabel}</span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )})}
+                    </div>
+                  )}
+                </div>
+                <div className="popover-anchor" ref={displayRef}>
+                  <IconButton
+                    icon={<IconLayoutGrid size={18} />}
+                    label="表示"
+                    variant="iconLabel"
+                    tooltip="表示設定"
+                    ariaLabel="表示設定メニューを開く"
+                    selected={displayOpen}
+                    onClick={() => {
+                      setDisplayOpen(!displayOpen);
+                      setSortOpen(false);
+                      setSettingsOpen(false);
+                      setSectorSortOpen(false);
+                    }}
+                  />
+                  {displayOpen && (
+                    <div className="popover-panel">
+                      <div className="popover-section">
+                        <div className="popover-title">行数</div>
+                        <div className="segmented">
+                          {gridRowOptions.map((r) => (
                             <button
-                              key={opt.key}
-                              type="button"
-                              className={`popover-item ${sortKey === opt.key ? "active" : ""}`}
-                              onClick={() => {
-                                if (sortKey === opt.key) {
-                                  setSortDir(sortDir === "asc" ? "desc" : "asc");
-                                } else {
-                                  setSortKey(opt.key);
-                                  setSortDir("desc");
-                                }
-                                setSortOpen(false);
-                              }}
+                              key={r}
+                              className={rows === r ? "active" : ""}
+                              onClick={() => setRows(r)}
                             >
-                              <span className="popover-item-label">{opt.label}</span>
-                              {sortKey === opt.key && (
-                                <span className="popover-check">{sortDirLabel}</span>
-                              )}
+                              {r}
                             </button>
                           ))}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="popover-anchor" ref={displayRef}>
-                <IconButton
-                  icon={<IconLayoutGrid size={18} />}
-                  label="表示"
-                  variant="iconLabel"
-                  tooltip="表示設定"
-                  ariaLabel="表示設定メニューを開く"
-                  selected={displayOpen}
-                  onClick={() => {
-                    setDisplayOpen(!displayOpen);
-                    setSortOpen(false);
-                    setSettingsOpen(false);
-                  }}
-                />
-                {displayOpen && (
-                  <div className="popover-panel">
-                    <div className="popover-section">
-                      <div className="popover-title">行数</div>
-                      <div className="segmented">
-                        {[1, 2, 3, 4, 5, 6].map((r) => (
-                          <button
-                            key={r}
-                            className={rows === r ? "active" : ""}
-                            onClick={() => setRows(r as any)}
-                          >
-                            {r}
-                          </button>
-                        ))}
+                      <div className="popover-section">
+                        <div className="popover-title">列数</div>
+                        <div className="segmented">
+                          {gridColumnOptions.map((c) => (
+                            <button
+                              key={c}
+                              className={columns === c ? "active" : ""}
+                              onClick={() => setColumns(c)}
+                            >
+                              {c}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">列数</div>
-                      <div className="segmented">
-                        {[1, 2, 3, 4].map((c) => (
-                          <button
-                            key={c}
-                            className={columns === c ? "active" : ""}
-                            onClick={() => setColumns(c as any)}
-                          >
-                            {c}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="popover-section">
-                      <button
-                        className="popover-item"
-                        onClick={() => {
-                          setRows(3);
-                          setColumns(3);
-                          setDisplayOpen(false);
-                        }}
-                      >
-                        <span className="popover-item-label">3x3に戻す</span>
-                      </button>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">表示オプション</div>
-                      <button
-                        className={`popover-item ${showBoxes ? "active" : ""}`}
-                        onClick={() => setShowBoxes(!showBoxes)}
-                      >
-                        <span className="popover-item-label">ボックス枠を表示</span>
-                        {showBoxes && <span className="popover-check">ON</span>}
-                      </button>
-                      <button
-                        className={`popover-item ${showIndicators ? "active" : ""}`}
-                        onClick={() => {
-                          setShowIndicators(!showIndicators);
-                          setDisplayOpen(false);
-                        }}
-                      >
-                        <span className="popover-item-label">インジケーター設定</span>
-                      </button>
-                      <button
-                        className={`popover-item ${maSettings[gridTimeframe].some(s => s.visible) ? "active" : ""}`}
-                        onClick={() => {
-                          if (maSettings[gridTimeframe].some(s => s.visible)) {
-                            const newState = maSettings[gridTimeframe].map(s => ({ ...s, visible: false }));
-                            newState.forEach((s, i) => updateMaSetting(gridTimeframe, i, { visible: false }));
-                          } else {
-                            resetMaSettings(gridTimeframe);
-                          }
-                        }}
-                      >
-                        <span className="popover-item-label">MA一括表示切替</span>
-                        <span className="popover-status">
-                          {maSettings[gridTimeframe].some(s => s.visible) ? "ON" : "OFF"}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="popover-anchor">
-                <IconButton
-                  icon={<IconFilter size={18} />}
-                  label="フィルタ"
-                  selected={techFilterActive.conditions.length > 0}
-                  variant="iconLabel"
-                  onClick={() => setTechFilterOpen(true)}
-                />
-              </div>
-              <div className="txt-update-group">
-                <IconButton
-                  icon={<IconRefresh size={18} />}
-                  label={isUpdatingTxt ? "更新中" : "TXT更新"}
-                  variant="iconLabel"
-                  tooltip="TXT更新"
-                  ariaLabel="TXT更新"
-                  className={`txt-update-button ${isUpdatingTxt ? "is-updating" : ""}`}
-                  onClick={handleUpdateTxt}
-                  disabled={!backendReady || isUpdatingTxt}
-                />
-                {backendReady && (
-                  <div className="txt-update-meta">
-                    <span className={`txt-update-status is-${updateStatusTone}`}>
-                      <span className="txt-update-dot" />
-                      {updateStatusText}
-                      {updateProgressDisplay != null ? `（${updateProgressDisplay}）` : ""}
-                    </span>
-                    <div
-                      className={`txt-update-progress is-${updateStatusTone} ${(updateStatusTone === "running" && updateProgressPercent == null) ||
-                        isUpdateStarting
-                        ? "is-indeterminate"
-                        : ""
-                        }`}
-                      aria-hidden="true"
-                    >
-                      <div
-                        className="txt-update-progress-bar"
-                        style={{ width: `${updateProgressValue}%` }}
-                      />
-                    </div>
-                    <span className="txt-update-detail">{updateDetailText}</span>
-                    <span className="txt-update-last">
-                      最終更新：{lastUpdatedLabel ?? "--"}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div className="popover-anchor" ref={settingsRef}>
-                <IconButton
-                  icon={<IconSettings size={18} />}
-                  tooltip="設定"
-                  ariaLabel="設定"
-                  onClick={() => {
-                    setSettingsOpen(!settingsOpen);
-                    setSortOpen(false);
-                    setDisplayOpen(false);
-                  }}
-                />
-                {settingsOpen && (
-                  <div className="popover-panel popover-right-aligned" style={{ right: 0 }}>
-                    <div className="popover-section">
-                      <div className="popover-title">外観設定</div>
-                      <div className="segmented">
+                      <div className="popover-section">
                         <button
-                          className={currentTheme === "dark" ? "active" : ""}
-                          onClick={() => currentTheme !== "dark" && handleThemeToggle()}
+                          className="popover-item"
+                          onClick={() => {
+                            setRows(3);
+                            setColumns(3);
+                            setDisplayOpen(false);
+                          }}
                         >
-                          <IconMoon size={16} />
-                          <span>ダーク</span>
-                        </button>
-                        <button
-                          className={currentTheme === "light" ? "active" : ""}
-                          onClick={() => currentTheme !== "light" && handleThemeToggle()}
-                        >
-                          <IconSun size={16} />
-                          <span>ライト</span>
+                          <span className="popover-item-label">3x3に戻す</span>
                         </button>
                       </div>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">取引CSV</div>
-                      <button
-                        type="button"
-                        className="popover-item"
-                        onClick={handleTradeCsvPick}
-                        disabled={tradeUploadInFlight}
-                      >
-                        <span className="popover-item-label">
-                          <IconUpload size={16} />
-                          <span>{tradeUploadInFlight ? "取り込み中..." : "CSV取り込み"}</span>
-                        </span>
-                        <span className="popover-status">手動</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="popover-item"
-                        onClick={handleForceTradeSync}
-                        disabled={tradeSyncInFlight}
-                      >
-                        <span className="popover-item-label">
-                          <IconRefresh size={16} />
-                          <span>{tradeSyncInFlight ? "同期中..." : "強制同期"}</span>
-                        </span>
-                        <span className="popover-status">強制</span>
-                      </button>
-                      <div className="popover-hint">
-                        保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
-                      </div>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">スクショ</div>
-                      <div className="popover-hint">
-                        保存先: %USERPROFILE%\\Downloads\\MeeMeeScreener
-                      </div>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">銘柄一覧</div>
-                      <button
-                        type="button"
-                        className="popover-item"
-                        onClick={handleExportWatchlist}
-                        disabled={watchlistExporting}
-                      >
-                        <span className="popover-item-label">
-                          <IconDownload size={16} />
-                          <span>{watchlistExporting ? "エクスポート中..." : "EXPORT"}</span>
-                        </span>
-                        <span className="popover-status">EBK</span>
-                      </button>
-                      <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
-                        <span className="popover-item-label">
-                          <IconFileText size={16} />
-                          <span>code.txt</span>
-                        </span>
-                        <span className="popover-status">編集</span>
-                      </button>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">イベント</div>
-                      <button
-                        type="button"
-                        className="popover-item"
-                        disabled={eventsMeta?.isRefreshing}
-                        onClick={() => {
-                          void refreshEvents();
-                          setSettingsOpen(false);
-                        }}
-                      >
-                        <span className="popover-item-label">
-                          <IconRefresh size={16} />
-                          <span>
-                            {eventsMeta?.isRefreshing ? "更新中..." : "イベント更新"}
+                      <div className="popover-section">
+                        <div className="popover-title">表示オプション</div>
+                        <button
+                          className={`popover-item ${showBoxes ? "active" : ""}`}
+                          onClick={() => setShowBoxes(!showBoxes)}
+                        >
+                          <span className="popover-item-label">ボックス枠を表示</span>
+                          {showBoxes && <span className="popover-check">ON</span>}
+                        </button>
+                        <button
+                          className={`popover-item ${showIndicators ? "active" : ""}`}
+                          onClick={() => {
+                            setShowIndicators(!showIndicators);
+                            setDisplayOpen(false);
+                          }}
+                        >
+                          <span className="popover-item-header-label">インジケーター設定</span>
+                        </button>
+                        <button
+                          className={`popover-item ${maSettings[gridTimeframe].some(s => s.visible) ? "active" : ""}`}
+                          onClick={() => {
+                            if (maSettings[gridTimeframe].some(s => s.visible)) {
+                              const newState = maSettings[gridTimeframe].map(s => ({ ...s, visible: false }));
+                              newState.forEach((s, i) => updateMaSetting(gridTimeframe, i, { visible: false }));
+                            } else {
+                              resetMaSettings(gridTimeframe);
+                            }
+                          }}
+                        >
+                          <span className="popover-item-label">MA一括表示切替</span>
+                          <span className="popover-status">
+                            {maSettings[gridTimeframe].some(s => s.visible) ? "ON" : "OFF"}
                           </span>
-                        </span>
-                        <span className="popover-status">手動</span>
-                      </button>
-                      <div className="popover-hint">
-                        状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+                        </button>
                       </div>
-                      <div className="popover-hint">
-                        最終試行: {eventsAttemptLabel ?? "--"}
-                      </div>
-                      {eventsMeta?.lastError && (
-                        <div className="popover-hint">エラー: {eventsMeta.lastError}</div>
-                      )}
                     </div>
-                  </div>
-                )}
-                <input
-                  ref={tradeCsvInputRef}
-                  type="file"
-                  accept=".csv"
-                  onChange={handleTradeCsvChange}
-                  style={{ display: "none" }}
-                />
-              </div>
+                  )}
+                </div>
+                <div className="popover-anchor">
+                  <IconButton
+                    icon={<IconFilter size={18} />}
+                    label="フィルタ"
+                    selected={hasActiveFilterChips}
+                    variant="iconLabel"
+                    onClick={handleOpenTechFilter}
+                  />
+                </div>
+                <div className="txt-update-group">
+                  <IconButton
+                    icon={<IconRefresh size={18} />}
+                    label="日次更新"
+                    variant="iconLabel"
+                    tooltip="日次更新（TXT/Phase/解析補完）"
+                    ariaLabel="日次更新"
+                    className="txt-update-button"
+                    onClick={handleUpdateTxt}
+                    disabled={!backendReady}
+                  />
+                  {txtUpdateCanCancel && (
+                    <IconButton
+                      icon={<IconPlayerStop size={18} />}
+                      label="停止"
+                      variant="iconLabel"
+                      tooltip="日次更新を停止"
+                      ariaLabel="日次更新を停止"
+                      className="txt-update-button"
+                      onClick={handleCancelTxtUpdate}
+                      disabled={!backendReady || !txtUpdateCanCancel}
+                    />
+                  )}
+                  {txtUpdateStatusLabel && (
+                    <div className="txt-update-meta" title={txtUpdateJob?.message ?? undefined}>
+                      <div className={`txt-update-status ${txtUpdateStatusTone}`}>
+                        <span className="txt-update-dot" />
+                        <span>{txtUpdateStatusLabel}</span>
+                        {txtUpdateProgressValue != null && (
+                          <span className="txt-update-percent">{txtUpdateProgressValue}%</span>
+                        )}
+                      </div>
+                      <div className="txt-update-detail">{txtUpdateStageLabel}</div>
+                      {txtUpdateShortDetail && (
+                        <div className="txt-update-last">{txtUpdateShortDetail}</div>
+                      )}
+                      <div
+                        className={`txt-update-progress ${txtUpdateStatusTone} ${
+                          txtUpdateProgressValue == null ? "is-indeterminate" : ""
+                        }`}
+                      >
+                        <div
+                          className="txt-update-progress-bar"
+                          style={{ width: `${txtUpdateProgressValue ?? 42}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="popover-anchor" ref={settingsRef}>
+                  <IconButton
+                    icon={<IconFileText size={18} />}
+                    label="検証"
+                    variant="iconLabel"
+                    tooltip="ウォークフォワード検証"
+                    ariaLabel="ウォークフォワード検証パネルを開く"
+                    selected={settingsOpen && settingsPanelMode === "walkforward"}
+                    onClick={() => {
+                      const alreadyOpen = settingsOpen && settingsPanelMode === "walkforward";
+                      setSettingsPanelMode("walkforward");
+                      setSettingsOpen(!alreadyOpen);
+                      setSortOpen(false);
+                      setDisplayOpen(false);
+                      setSectorSortOpen(false);
+                    }}
+                  />
+                  <IconButton
+                    icon={<IconSettings size={18} />}
+                    tooltip="設定"
+                    ariaLabel="設定メニューを開く"
+                    selected={settingsOpen && settingsPanelMode === "general"}
+                    onClick={() => {
+                      const alreadyOpen = settingsOpen && settingsPanelMode === "general";
+                      setSettingsPanelMode("general");
+                      setSettingsOpen(!alreadyOpen);
+                      setSortOpen(false);
+                      setDisplayOpen(false);
+                      setSectorSortOpen(false);
+                    }}
+                  />
+                  {settingsOpen && (
+                    <div
+                      className="popover-panel popover-right-aligned"
+                      style={{ right: 0, maxHeight: "calc(100vh - 96px)", overflowY: "auto" }}
+                    >
+                      {settingsPanelMode === "general" && (
+                        <>
+                          <div className="popover-section">
+                            <div className="popover-title">外観設定</div>
+                            <div className="segmented">
+                              <button
+                                className={currentTheme === "dark" ? "active" : ""}
+                                onClick={() => currentTheme !== "dark" && handleThemeToggle()}
+                              >
+                                <IconMoon size={16} />
+                                <span>ダーク</span>
+                              </button>
+                              <button
+                                className={currentTheme === "light" ? "active" : ""}
+                                onClick={() => currentTheme !== "light" && handleThemeToggle()}
+                              >
+                                <IconSun size={16} />
+                                <span>ライト</span>
+                              </button>
+                            </div>
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">取引CSV</div>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleTradeCsvPick}
+                              disabled={tradeUploadInFlight}
+                            >
+                              <span className="popover-item-label">
+                                <IconUpload size={16} />
+                                <span>{tradeUploadInFlight ? "取り込み中..." : "CSV取り込み"}</span>
+                              </span>
+                              <span className="popover-status">手動</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleForceTradeSync}
+                              disabled={tradeSyncInFlight}
+                            >
+                              <span className="popover-item-label">
+                                <IconRefresh size={16} />
+                                <span>{tradeSyncInFlight ? "同期中..." : "強制同期(全件取込)"}</span>
+                              </span>
+                              <span className="popover-status">強制</span>
+                            </button>
+                            <div className="popover-hint">
+                              保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
+                            </div>
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">MM_DATA_DIR</div>
+                            <div className="popover-input-row">
+                              <input
+                                type="text"
+                                className="popover-input"
+                                placeholder="%LOCALAPPDATA%\\MeeMeeScreener\\data"
+                                value={dataDirInput}
+                                onChange={(event) => setDataDirInput(event.target.value)}
+                              />
+                              <button
+                                type="button"
+                                className="popover-item"
+                                disabled={dataDirSaving}
+                                onClick={handleDataDirSave}
+                              >
+                                {dataDirSaving ? "保存中..." : "保存"}
+                              </button>
+                            </div>
+                            <div className="popover-hint">
+                              現在: {dataDir || (dataDirLoading ? "読み込み中..." : "未設定")}
+                            </div>
+                            {dataDirMessage && (
+                              <div className="popover-hint">{dataDirMessage}</div>
+                            )}
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">TXT参照フォルダ</div>
+                            <div className="popover-hint">
+                              現在: {health?.pan_out_txt_dir ?? "未取得"}
+                            </div>
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">Phase</div>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handlePhaseRebuild}
+                              disabled={!backendReady}
+                            >
+                              <span className="popover-item-label">
+                                <IconFileText size={16} />
+                                <span>{"Phase\u518d\u8a08\u7b97"}</span>
+                              </span>
+                              <span className="popover-status">{"\u624b\u52d5"}</span>
+                            </button>
+                            <div className="popover-hint">{"\u901a\u5e38\u306f\u300c\u65e5\u6b21\u66f4\u65b0\u300d\u3067\u81ea\u52d5\u5b9f\u884c\u3055\u308c\u307e\u3059\u3002"}</div>
+                          </div>
+                        </>
+                      )}
+                      {settingsPanelMode === "walkforward" && (
+                        <div className="popover-section">
+                          <div className="popover-title">ウォークフォワード検証</div>
+                          <div className="popover-title" style={{ marginTop: 6 }}>プリセット</div>
+                          <div className="popover-input-row" style={{ marginTop: 6 }}>
+                            <input
+                              type="text"
+                              className="popover-input"
+                              placeholder="例: 地合いあり_2026Q1"
+                              value={walkforwardPresetName}
+                              onChange={(event) => setWalkforwardPresetName(event.target.value)}
+                            />
+                          </div>
+                          <div className="popover-input-row" style={{ marginTop: 6 }}>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleSaveWalkforwardPreset}
+                            >
+                              保存
+                            </button>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleLoadWalkforwardPreset}
+                              disabled={!matchedWalkforwardPreset}
+                            >
+                              読込
+                            </button>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleDeleteWalkforwardPreset}
+                              disabled={!matchedWalkforwardPreset}
+                            >
+                              削除
+                            </button>
+                          </div>
+                          <div className="popover-input-row" style={{ marginTop: 6 }}>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleExportWalkforwardPresets}
+                            >
+                              書き出し
+                            </button>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handlePickWalkforwardPresetImport}
+                              disabled={walkforwardPresetImporting}
+                            >
+                              {walkforwardPresetImporting ? "読込中..." : "読み込み"}
+                            </button>
+                          </div>
+                          {walkforwardPresets.length > 0 && (
+                            <div className="popover-hint" style={{ marginTop: 6 }}>
+                              最近のプリセット:
+                              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+                                {walkforwardPresets.slice(0, 8).map((preset) => (
+                                  <button
+                                    key={preset.name}
+                                    type="button"
+                                    className={`popover-item ${normalizedWalkforwardPresetName.toLowerCase() ===
+                                        preset.name.toLowerCase()
+                                        ? "active"
+                                        : ""
+                                      }`}
+                                    style={{ width: "auto", padding: "4px 8px" }}
+                                    onClick={() => setWalkforwardPresetName(preset.name)}
+                                  >
+                                    <span className="popover-item-label">{preset.name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          <div className="popover-title" style={{ marginTop: 10 }}>検証期間設定</div>
+                          <div className="popover-input-row" style={{ marginTop: 6 }}>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={applyWalkforwardTenYearPreset}
+                            >
+                              10年単位(120/12/12)
+                            </button>
+                          </div>
+                          <div className="popover-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>学習期間(月)</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.trainMonths}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    trainMonths: Math.max(1, Number(event.target.value) || 1)
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>検証期間(月)</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.testMonths}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    testMonths: Math.max(1, Number(event.target.value) || 1)
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>ずらし幅(月)</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.stepMonths}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    stepMonths: Math.max(1, Number(event.target.value) || 1)
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>最小検証窓数</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.minWindows}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    minWindows: Math.max(1, Number(event.target.value) || 1)
+                                  }))
+                                }
+                              />
+                            </label>
+                          </div>
+                          <div className="popover-input-row" style={{ marginTop: 8 }}>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4, flex: 1 }}>
+                              <span>対象銘柄数上限</span>
+                              <input
+                                type="number"
+                                min={20}
+                                className="popover-input"
+                                value={walkforwardParams.maxCodes}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    maxCodes: Math.max(20, Number(event.target.value) || 20)
+                                  }))
+                                }
+                              />
+                            </label>
+                          </div>
+                          <div className="popover-title" style={{ marginTop: 10 }}>戦略条件</div>
+                          <div className="segmented" style={{ marginTop: 6 }}>
+                            {(["both", "long", "short"] as const).map((side) => (
+                              <button
+                                key={side}
+                                type="button"
+                                className={walkforwardParams.allowedSides === side ? "active" : ""}
+                                onClick={() => {
+                                  setWalkforwardParams((prev) => ({ ...prev, allowedSides: side }));
+                                }}
+                              >
+                                {side === "both" ? "両建て" : side === "long" ? "買いのみ" : "売りのみ"}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="popover-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>買いスコア下限</span>
+                              <input
+                                type="number"
+                                step={0.1}
+                                className="popover-input"
+                                value={walkforwardParams.minLongScore}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    minLongScore: Number(event.target.value) || 0
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>売りスコア下限</span>
+                              <input
+                                type="number"
+                                step={0.1}
+                                className="popover-input"
+                                value={walkforwardParams.minShortScore}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    minShortScore: Number(event.target.value) || 0
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>1日新規上限</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.maxNewEntriesPerDay}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    maxNewEntriesPerDay: Math.max(1, Number(event.target.value) || 1)
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>1か月新規上限(任意)</span>
+                              <input
+                                type="number"
+                                min={1}
+                                className="popover-input"
+                                value={walkforwardParams.maxNewEntriesPerMonth}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    maxNewEntriesPerMonth: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                              <span>ML買い確率下限(任意)</span>
+                              <input
+                                type="number"
+                                step={0.01}
+                                min={0}
+                                max={1}
+                                className="popover-input"
+                                value={walkforwardParams.minMlPUpLong}
+                                onChange={(event) =>
+                                  setWalkforwardParams((prev) => ({
+                                    ...prev,
+                                    minMlPUpLong: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                          </div>
+                          <label
+                            className="popover-hint"
+                            style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={walkforwardParams.useRegimeFilter}
+                              onChange={(event) =>
+                                setWalkforwardParams((prev) => ({
+                                  ...prev,
+                                  useRegimeFilter: event.target.checked
+                                }))
+                              }
+                            />
+                            <span>レジームフィルタを使う</span>
+                          </label>
+                          {walkforwardParams.useRegimeFilter && (
+                            <div className="popover-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+                              <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                                <span>地合い参照日数</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  className="popover-input"
+                                  value={walkforwardParams.regimeBreadthLookbackDays}
+                                  onChange={(event) =>
+                                    setWalkforwardParams((prev) => ({
+                                      ...prev,
+                                      regimeBreadthLookbackDays: Math.max(1, Number(event.target.value) || 1)
+                                    }))
+                                  }
+                                />
+                              </label>
+                              <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                                <span>買い許可しきい値(任意)</span>
+                                <input
+                                  type="number"
+                                  step={0.01}
+                                  min={0}
+                                  max={1}
+                                  className="popover-input"
+                                  value={walkforwardParams.regimeLongMinBreadthAbove60}
+                                  onChange={(event) =>
+                                    setWalkforwardParams((prev) => ({
+                                      ...prev,
+                                      regimeLongMinBreadthAbove60: event.target.value
+                                    }))
+                                  }
+                                />
+                              </label>
+                              <label className="popover-hint" style={{ display: "grid", gap: 4 }}>
+                                <span>売り許可しきい値(任意)</span>
+                                <input
+                                  type="number"
+                                  step={0.01}
+                                  min={0}
+                                  max={1}
+                                  className="popover-input"
+                                  value={walkforwardParams.regimeShortMaxBreadthAbove60}
+                                  onChange={(event) =>
+                                    setWalkforwardParams((prev) => ({
+                                      ...prev,
+                                      regimeShortMaxBreadthAbove60: event.target.value
+                                    }))
+                                  }
+                                />
+                              </label>
+                            </div>
+                          )}
+                          <label className="popover-hint" style={{ display: "grid", gap: 4, marginTop: 8 }}>
+                            <span>買いセットアップ制限(任意, カンマ区切り)</span>
+                            <input
+                              type="text"
+                              className="popover-input"
+                              placeholder="例: long_pullback_p3,long_breakout_p2"
+                              value={walkforwardParams.allowedLongSetups}
+                              onChange={(event) =>
+                                setWalkforwardParams((prev) => ({
+                                  ...prev,
+                                  allowedLongSetups: event.target.value
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="popover-hint" style={{ display: "grid", gap: 4, marginTop: 8 }}>
+                            <span>売りセットアップ制限(任意, カンマ区切り)</span>
+                            <input
+                              type="text"
+                              className="popover-input"
+                              placeholder="例: short_downtrend_p4,short_crash_top_p3"
+                              value={walkforwardParams.allowedShortSetups}
+                              onChange={(event) =>
+                                setWalkforwardParams((prev) => ({
+                                  ...prev,
+                                  allowedShortSetups: event.target.value
+                                }))
+                              }
+                            />
+                          </label>
+                          <div className="popover-input-row" style={{ marginTop: 8 }}>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleRunWalkforward}
+                              disabled={!backendReady || walkforwardSubmitting}
+                            >
+                              {walkforwardSubmitting ? "起動中..." : "検証を実行"}
+                            </button>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={() => {
+                                void fetchLatestWalkforward(false);
+                              }}
+                              disabled={walkforwardLoading}
+                            >
+                              {walkforwardLoading ? "読込中..." : "最新結果"}
+                            </button>
+                          </div>
+                          {walkforwardLatest && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              最終実行: {walkforwardLatest.run_id ?? "--"}
+                              {walkforwardLatest.finished_at ? ` / ${String(walkforwardLatest.finished_at).replace("T", " ").slice(0, 19)}` : ""}
+                            </div>
+                          )}
+                          {walkforwardSummary && (
+                            <div className="popover-hint" style={{ marginTop: 8, display: "grid", gap: 2 }}>
+                              <div>実行窓: {walkforwardSummary.executed_windows ?? 0}/{walkforwardSummary.windows_total ?? 0}</div>
+                              <div>検証期間 勝率: {formatRate(walkforwardSummary.oos_weighted_win_rate)}</div>
+                              <div>検証期間 取引数: {walkforwardSummary.oos_trade_events ?? 0}</div>
+                              <div>検証期間 実現損益: {formatSigned(walkforwardSummary.oos_total_realized_unit_pnl)}</div>
+                              <div>最大ドローダウン: {formatSigned(walkforwardSummary.oos_worst_max_drawdown_unit)}</div>
+                              <div>PF平均: {formatSigned(walkforwardSummary.oos_mean_profit_factor)}</div>
+                              <div>勝ち窓比率: {formatRate(walkforwardSummary.oos_positive_window_ratio)}</div>
+                            </div>
+                          )}
+                          {walkforwardTopWindows.length > 0 && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              直近窓:
+                              {walkforwardTopWindows.map((row) => {
+                                const metrics = row.test?.metrics;
+                                return (
+                                  <div key={`${row.index}:${row.label}`} style={{ marginTop: 2 }}>
+                                    {row.label ?? `窓 ${row.index ?? "?"}`} / 取引 {metrics?.trade_events ?? 0} / 勝率 {formatRate(metrics?.win_rate)} / 損益 {formatSigned(metrics?.total_realized_unit_pnl)}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {(walkforwardAttributionCode.top.length > 0 || walkforwardAttributionCode.bottom.length > 0) && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              銘柄寄与:
+                              {walkforwardAttributionCode.top.map((row) => (
+                                <div key={`code-top-${row.key}`} style={{ marginTop: 2 }}>
+                                  上位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                              {walkforwardAttributionCode.bottom.map((row) => (
+                                <div key={`code-bottom-${row.key}`} style={{ marginTop: 2 }}>
+                                  下位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {(walkforwardAttributionSetup.top.length > 0 || walkforwardAttributionSetup.bottom.length > 0) && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              セットアップ寄与:
+                              {walkforwardAttributionSetup.top.map((row) => (
+                                <div key={`setup-top-${row.key}`} style={{ marginTop: 2 }}>
+                                  上位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                              {walkforwardAttributionSetup.bottom.map((row) => (
+                                <div key={`setup-bottom-${row.key}`} style={{ marginTop: 2 }}>
+                                  下位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {(walkforwardAttributionSector.top.length > 0 || walkforwardAttributionSector.bottom.length > 0) && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              業種寄与:
+                              {walkforwardAttributionSector.top.map((row) => (
+                                <div key={`sector-top-${row.key}`} style={{ marginTop: 2 }}>
+                                  上位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                              {walkforwardAttributionSector.bottom.map((row) => (
+                                <div key={`sector-bottom-${row.key}`} style={{ marginTop: 2 }}>
+                                  下位 {row.key ?? "--"} / 取引 {row.trades ?? 0} / 勝率 {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {walkforwardResearchLatest && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              研究スナップショット: {formatCompactDate(walkforwardResearchLatest.snapshot_date)} / run{" "}
+                              {walkforwardResearchLatest.source_run_id ?? "--"}
+                            </div>
+                          )}
+                          {walkforwardResearchAdoptedSetups.length > 0 && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              採用セットアップ:
+                              {walkforwardResearchAdoptedSetups.map((row) => (
+                                <div key={`research-setup-${row.setup_id}`} style={{ marginTop: 2 }}>
+                                  {row.setup_id ?? "--"} / 取引 {row.trades ?? 0} / 勝率{" "}
+                                  {formatRate(row.win_rate)} / 損益 {formatSigned(row.ret_net_sum)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {walkforwardResearchRejectedReasons.length > 0 && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              非採用理由:
+                              {walkforwardResearchRejectedReasons.map((row) => (
+                                <div key={`research-reason-${row.reason}`} style={{ marginTop: 2 }}>
+                                  {row.reason ?? "--"} / 件数 {row.count ?? 0}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {walkforwardResearchHedgeContribution && (
+                            <div className="popover-hint" style={{ marginTop: 8 }}>
+                              ヘッジ寄与:
+                              <div style={{ marginTop: 2 }}>
+                                core {formatSigned(walkforwardResearchHedgeContribution.core_ret_net_sum)} / hedge{" "}
+                                {formatSigned(walkforwardResearchHedgeContribution.hedge_ret_net_sum)} / total{" "}
+                                {formatSigned(walkforwardResearchHedgeContribution.total_ret_net_sum)}
+                              </div>
+                              <div style={{ marginTop: 2 }}>
+                                hedge share {formatRate(walkforwardResearchHedgeContribution.hedge_share)}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {settingsPanelMode === "general" && (
+                        <>
+                          <div className="popover-section">
+                            <div className="popover-title">スクショ</div>
+                            <div className="popover-hint">
+                              保存先: %USERPROFILE%\\Downloads\\MeeMeeScreener
+                            </div>
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">銘柄一覧</div>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleExportWatchlist}
+                              disabled={watchlistExporting}
+                            >
+                              <span className="popover-item-label">
+                                <IconDownload size={16} />
+                                <span>{watchlistExporting ? "書き出し中..." : "書き出し"}</span>
+                              </span>
+                              <span className="popover-status">BK</span>
+                            </button>
+                            <button type="button" className="popover-item" onClick={handleOpenCodeTxt}>
+                              <span className="popover-item-label">
+                                <IconFileText size={16} />
+                                <span>code.txt</span>
+                              </span>
+                              <span className="popover-status">編集</span>
+                            </button>
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">イベント</div>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              disabled={eventsMeta?.isRefreshing}
+                              onClick={() => {
+                                void refreshEvents();
+                                setSettingsOpen(false);
+                              }}
+                            >
+                              <span className="popover-item-label">
+                                <IconRefresh size={16} />
+                                <span>
+                                  {eventsMeta?.isRefreshing ? "更新中..." : "イベント更新"}
+                                </span>
+                              </span>
+                              <span className="popover-status">手動</span>
+                            </button>
+                            <div className="popover-hint">
+                              状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+                            </div>
+                            <div className="popover-hint">
+                              最終試行: {eventsAttemptLabel ?? "--"}
+                            </div>
+                            {eventsMeta?.lastError && (
+                              <div className="popover-hint">エラー: {eventsMeta.lastError}</div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                      <div
+                        className="popover-hint"
+                        style={{
+                          borderTop: "1px solid var(--theme-border-subtle)",
+                          marginTop: 4,
+                          paddingTop: 8,
+                          textAlign: "right"
+                        }}
+                      >
+                        {APP_VERSION_LABEL}
+                      </div>
+                    </div>
+                  )}
+                  <input
+                    ref={tradeCsvInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={handleTradeCsvChange}
+                    style={{ display: "none" }}
+                  />
+                  <input
+                    ref={walkforwardPresetImportInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={handleImportWalkforwardPresetFile}
+                    style={{ display: "none" }}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -2098,6 +3477,74 @@ export default function GridView() {
                 </button>
               ))}
             </div>
+            {sectorParam && (
+              <div className="sector-filter-chip">
+                <span>セクター: {sectorLabel ?? sectorParam}</span>
+                <button type="button" onClick={clearSectorFilter}>
+                  解除
+                </button>
+              </div>
+            )}
+
+            {/* Sector Sort/Filter Button */}
+            <div className="sector-sort-button" style={{ marginRight: 8, position: "relative" }} ref={sectorSortRef}>
+              <IconButton
+                icon={<IconBuildingArch size={18} />}
+                label={sectorLabel ? sectorLabel : "業種"}
+                variant="iconLabel"
+                tooltip="業種で絞り込み / 並び替え"
+                selected={sectorSortOpen || !!sectorParam}
+                onClick={() => {
+                  setSectorSortOpen(!sectorSortOpen);
+                  setSortOpen(false);
+                  setDisplayOpen(false);
+                  setSettingsOpen(false);
+                }}
+              />
+              {sectorSortOpen && (
+                <div className="popover-panel" style={{ width: 320, maxHeight: 500, overflowY: "auto" }}>
+                  <div className="popover-section">
+                    <div className="popover-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span>業種で絞り込み</span>
+                      {sectorParam && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          style={{ fontSize: 11, color: "var(--theme-text-muted)" }}
+                          onClick={() => handleSectorSelect(null)}
+                        >
+                          解除
+                        </button>
+                      )}
+                    </div>
+                    <div className="popover-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 4 }}>
+                      <button
+                        type="button"
+                        className={`popover-item ${!sectorParam ? "active" : ""}`}
+                        onClick={() => handleSectorSelect(null)}
+                        style={{ justifyContent: "center" }}
+                      >
+                        <span className="popover-item-label">すべて</span>
+                      </button>
+                      {availableSectors.map((sec) => (
+                        <button
+                          key={sec.code}
+                          type="button"
+                          className={`popover-item ${sectorParam === sec.code ? "active" : ""}`}
+                          onClick={() => handleSectorSelect(sec.code)}
+                          style={{ justifyContent: "flex-start", padding: "6px 8px" }}
+                        >
+                          <span className="popover-item-label" style={{ fontSize: 11 }}>{sec.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+
+                </div>
+              )}
+            </div>
+
             <div className="search-field list-search">
               <input
                 className="search-input"
@@ -2140,27 +3587,65 @@ export default function GridView() {
 
 
 
-        {techFilterActive.conditions.length > 0 && (
+        {hasActiveFilterChips && (
           <div className="tech-filter-chips-row">
-            <span className="tech-filter-chip">
-              基準日: 最新 {activeAnchorLabel ? `(${activeAnchorLabel})` : ""}
-            </span>
-            <span className="tech-filter-chip">
-              条件足種: {activeTimeframeLabel}
-            </span>
-            {techFilterActive.conditions.map((condition) => (
-              <span key={condition.id} className="tech-filter-chip">
-                {(condition.timeframe === "daily"
-                  ? "日足"
-                  : condition.timeframe === "weekly"
-                    ? "週足"
-                    : "月足")}: {describeCondition(condition)}
-                <button type="button" onClick={() => handleRemoveActiveCondition(condition.id)}>
+            {techFilterActive.conditions.length > 0 && (
+              <span className="tech-filter-chip">
+                テクニカル {techFilterActive.conditions.length}条件 ({activeTimeframeLabel})
+                <button type="button" onClick={handleOpenTechFilter}>
+                  編集
+                </button>
+              </span>
+            )}
+            {techFilterActive.boxThisMonth && (
+              <span className="tech-filter-chip">今月ボックス</span>
+            )}
+            {buyStateFilter === "initial" && (
+              <span className="tech-filter-chip">
+                初動のみ
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBuyStateFilter("all");
+                    setBuyStateFilterDraft("all");
+                  }}
+                >
                   ×
                 </button>
               </span>
-            ))}
-            <button type="button" className="tech-filter-chip-reset" onClick={handleClearActiveFilters}>
+            )}
+            {buyStateFilter === "base" && (
+              <span className="tech-filter-chip">
+                底がためのみ
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBuyStateFilter("all");
+                    setBuyStateFilterDraft("all");
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            )}
+            {shortTierAbOnly && (
+              <span className="tech-filter-chip">
+                売りTier A/Bのみ
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShortTierAbOnly(false);
+                    setShortTierAbOnlyDraft(false);
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            )}
+            {activeAnchorLabel && techFilterActive.conditions.length > 0 && (
+              <span className="tech-filter-chip">基準日: {activeAnchorLabel}</span>
+            )}
+            <button type="button" className="tech-filter-chip-reset" onClick={handleClearAllActiveFilters}>
               すべて解除
             </button>
           </div>
@@ -2168,110 +3653,16 @@ export default function GridView() {
       </header>
       {health && health.txt_count === 0 && (
         <div className="data-warning">
-          TXTが見つかりません。PANROLLINGで出力したTXTを
+          TXTが見つかりません。PANROLLINGで出力したTXTめ
           {health.pan_out_txt_dir ? ` ${health.pan_out_txt_dir} ` : ""}
           に配置してください。
         </div>
       )}
       {health && health.code_txt_missing && health.txt_count > 0 && (
         <div className="data-warning subtle">
-          code.txt がありません。ファイル名から銘柄コードを推定しています（code.txt推奨）。
+          code.txt がありません。ファイル名から銘柄コードを推定して表示します。code.txt 推奨です。
         </div>
       )}
-      {showSplitSuspects && splitSuspects.length > 0 && (
-        <div className="split-suspects-panel">
-          <div className="split-suspects-header">
-            <div className="split-suspects-title">分割疑い {splitSuspects.length}件</div>
-            <button type="button" onClick={() => setShowSplitSuspects(false)}>
-              閉じる
-            </button>
-          </div>
-          <div className="split-suspects-body">
-            <div className="split-suspects-note">
-              該当銘柄のTXTを削除してから再更新してください。
-            </div>
-            <div className="split-suspects-list">
-              {splitSuspects.slice(0, 50).map((item) => (
-                <div key={`${item.code}-${item.file_date}`} className="split-suspects-row">
-                  <span className="split-suspects-code">{item.code}</span>
-                  <span className="split-suspects-date">{item.file_date ?? "--"}</span>
-                  <span className="split-suspects-diff">
-                    差異 {item.diff_ratio ?? "--"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-      {showUpdateLog && (
-        <div className="update-log-panel">
-          <div className="update-log-header">
-            <div className="update-log-title">TXT更新ログ（末尾）</div>
-            <button type="button" onClick={() => setShowUpdateLog(false)}>
-              閉じる
-            </button>
-          </div>
-          {txtUpdateStatus?.error && (
-            <div className="update-log-error">
-              原因: {txtUpdateStatus.error}
-              {txtUpdateStatus.error === "timeout" && txtUpdateStatus.timeout_sec
-                ? `（${txtUpdateStatus.timeout_sec}s）`
-                : ""}
-            </div>
-          )}
-          <pre className="update-log-body">
-            {updateLogLines.length ? updateLogLines.join("\n") : "ログはまだありません。"}
-          </pre>
-        </div>
-      )}
-      <div className={`keep-bar ${keepBarCollapsed ? "is-collapsed" : ""}`}>
-        <div className="keep-bar-header">
-          <div className="keep-bar-title">候補箱</div>
-          <div className="keep-bar-meta">
-            {keepList.length}/{KEEP_LIMIT}
-          </div>
-          <div className="keep-bar-hint">S:候補 / E:除外 / J,K:上下 / ←→:横</div>
-          <button
-            type="button"
-            className="keep-bar-toggle"
-            onClick={() => setKeepBarCollapsed((prev) => !prev)}
-          >
-            {keepBarCollapsed ? "開く" : "たたむ"}
-          </button>
-          {keepList.length > 0 && (
-            <button type="button" className="keep-bar-clear" onClick={clearKeep}>
-              クリア
-            </button>
-          )}
-        </div>
-        {!keepBarCollapsed &&
-          (keepList.length > 0 ? (
-            <div className="keep-bar-chips">
-              {keepList.map((code) => (
-                <div className="keep-chip" key={code}>
-                  <button
-                    type="button"
-                    className="keep-chip-main"
-                    onClick={() => handleKeepNavigate(code)}
-                  >
-                    {code}
-                  </button>
-                  <button
-                    type="button"
-                    className="keep-chip-remove"
-                    onClick={() => removeKeep(code)}
-                    aria-label={`${code} を候補箱から外す`}
-                  >
-                    x
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="keep-bar-empty">Sキーまたは + で候補に追加</div>
-          ))}
-      </div>
       <div className={`grid-shell ${consultPaddingClass}`} ref={ref}>
         {showSkeleton && (
           <div className="grid-skeleton">
@@ -2472,76 +3863,30 @@ export default function GridView() {
               {consultTab === "selection" ? (
                 <textarea className="consult-drawer-body" value={consultText} readOnly />
               ) : (
-                <div className="consult-placeholder">建玉相談は準備中です。</div>
+                <div className="consult-placeholder">建玉情報がありません</div>
               )}
             </div>
           </div>
         )}
       </div>
-      {showIndicators && (
-        <div className="indicator-overlay" onClick={() => setShowIndicators(false)}>
-          <div className="indicator-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="indicator-header">
-              <div className="indicator-title">Indicators</div>
-              <button className="indicator-close" onClick={() => setShowIndicators(false)}>
-                Close
-              </button>
-            </div>
-            {(["daily", "weekly", "monthly"] as Timeframe[]).map((frame) => (
-              <div className="indicator-section" key={frame}>
-                <div className="indicator-subtitle">Moving Averages ({frame})</div>
-                <div className="indicator-rows">
-                  {maSettings[frame].map((setting, index) => (
-                    <div className="indicator-row" key={setting.key}>
-                      <input
-                        type="checkbox"
-                        checked={setting.visible}
-                        onChange={() => updateSetting(frame, index, { visible: !setting.visible })}
-                      />
-                      <div className="indicator-label">{setting.label}</div>
-                      <input
-                        className="indicator-input"
-                        type="number"
-                        min={1}
-                        value={setting.period}
-                        onChange={(event) =>
-                          updateSetting(frame, index, { period: Number(event.target.value) || 1 })
-                        }
-                      />
-                      <input
-                        className="indicator-input indicator-width"
-                        type="number"
-                        min={1}
-                        max={6}
-                        value={setting.lineWidth}
-                        onChange={(event) =>
-                          updateSetting(frame, index, { lineWidth: Number(event.target.value) })
-                        }
-                      />
-                      <input
-                        className="indicator-color-input"
-                        type="color"
-                        value={setting.color}
-                        onChange={(event) => updateSetting(frame, index, { color: event.target.value })}
-                      />
-                    </div>
-                  ))}
-                </div>
-                <button className="indicator-reset" onClick={() => resetSettings(frame)}>
-                  Reset {frame}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <GridIndicatorOverlay
+        isOpen={showIndicators}
+        maSettings={maSettings}
+        onClose={() => setShowIndicators(false)}
+        onUpdateSetting={updateSetting}
+        onResetSettings={resetSettings}
+      />
       <TechnicalFilterDrawer
         open={techFilterOpen}
         timeframe={techFilterDraft.defaultTimeframe}
         anchorLabel={draftAnchorLabel}
         matchCount={draftFilterResult.items.length}
         value={techFilterDraft}
+        buyStateFilter={buyStateFilterDraft}
+        shortTierAbOnly={shortTierAbOnlyDraft}
         onChange={setTechFilterDraft}
+        onBuyStateFilterChange={setBuyStateFilterDraft}
+        onShortTierAbOnlyChange={setShortTierAbOnlyDraft}
         onApply={handleApplyTechFilter}
         onCancel={handleCancelTechFilter}
         onReset={handleResetTechFilterDraft}
@@ -2549,7 +3894,20 @@ export default function GridView() {
           setTechFilterDraft((prev) => ({ ...prev, defaultTimeframe: next }));
         }}
       />
-      <Toast message={toastMessage?.text ?? null} onClose={() => setToastMessage(null)} />
+      <Toast
+        message={toastMessage?.text ?? null}
+        onClose={() => {
+          setToastMessage(null);
+          setToastAction(null);
+        }}
+        action={toastAction}
+        duration={toastAction ? 8000 : 4000}
+      />
     </div>
   );
 }
+
+
+
+
+

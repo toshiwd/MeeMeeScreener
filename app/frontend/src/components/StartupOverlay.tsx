@@ -50,29 +50,53 @@ export default function StartupOverlay({
 
   return (
     <div className={`startup-overlay ${visible ? "is-visible" : "is-hidden"}`}>
+      {/* Animated background particles */}
+      <div className="startup-bg-particles" aria-hidden="true">
+        <div className="startup-particle startup-particle-1" />
+        <div className="startup-particle startup-particle-2" />
+        <div className="startup-particle startup-particle-3" />
+      </div>
+
       <div className="startup-card" role="status" aria-live="polite">
-        <div className="startup-title">起動中</div>
-        <div className="startup-subtitle">
-          {isError ? "起動エラー" : subtitle}
+        {/* Logo / brand area */}
+        <div className="startup-brand">
+          <div className="startup-logo-ring" aria-hidden="true">
+            <div className="startup-logo-orbit" />
+            <div className="startup-logo-core">
+              <span className="startup-logo-text">M</span>
+            </div>
+          </div>
+          <div className="startup-brand-name">MeeMee<span className="startup-brand-accent"> Screener</span></div>
         </div>
+
+        {/* Status area */}
+        <div className="startup-status">
+          <div className="startup-status-text">
+            {isError ? "起動エラー" : subtitle}
+          </div>
+          {!isError && (
+            <>
+              <div className="startup-progress-track">
+                <div className="startup-progress-fill" style={{ width: progressPct }} />
+                <div className="startup-progress-glow" style={{ left: progressPct }} />
+              </div>
+              <div className="startup-meta">
+                試行 {attemptCount} 回 · 経過 {elapsedSeconds}s
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Loading indicator */}
         {!isError && (
-          <div className="startup-progress">
-            <div className="startup-progress-bar" style={{ width: progressPct }} />
-            <div className="startup-progress-meta">
-              試行 {attemptCount} 回 / 経過 {elapsedSeconds}s
-            </div>
+          <div className="startup-loading-dots" aria-hidden="true">
+            <span className="startup-dot" />
+            <span className="startup-dot" />
+            <span className="startup-dot" />
           </div>
         )}
-        {!isError && (
-          <div className="startup-body">
-            <div className="startup-spinner" aria-hidden="true" />
-            <div className="startup-skeleton">
-              <div className="startup-line" />
-              <div className="startup-line" />
-              <div className="startup-line short" />
-            </div>
-          </div>
-        )}
+
+        {/* Error state */}
         {isError && (
           <div className="startup-error">
             <div className="startup-error-message">{error}</div>

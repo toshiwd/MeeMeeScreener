@@ -1,0 +1,25 @@
+# TOREDEX Narrative 2026-01-13
+
+- season_id: tradex_demo_202601_v7c
+- mode: BACKTEST
+- policy_version: toredex.v5
+
+## Buy Top 3
+1. 5020 ev=0.032747612847153273 upProb=0.6011144396488007 revRisk=0.3598484563231743 gate=True:ENTRY_OK
+2. 7337 ev=0.028021249464251004 upProb=0.6017484685798172 revRisk=0.3475065308382932 gate=True:ENTRY_OK
+3. 7167 ev=0.033232305627267394 upProb=0.6018263468597663 revRisk=0.3157186997946915 gate=True:ENTRY_OK
+
+## Sell Top 3
+1. 5721 ev=0.07903513074923879 upProb=0.4955776184827223 revRisk=0.6436062224427738 gate=False:SETUP_watch
+2. 4316 ev=-0.007355413618588969 upProb=0.5203793372043952 revRisk=0.625056513181241 gate=False:SETUP_watch
+3. 1357 ev=0.0035173357791103326 upProb=0.5260529090168906 revRisk=0.48477798801042493 gate=False:SETUP_watch
+
+## Actions
+- no actions
+
+## Metrics
+- equity: 10245231.607629
+- cum_return_pct: 2.452316
+- max_drawdown_pct: 0.0
+- holdings_count: 1
+- game_over: False

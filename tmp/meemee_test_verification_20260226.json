@@ -1,0 +1,54 @@
+{
+  "date": "2026-02-26",
+  "selftest_dev": {
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/selftest.ps1 -Mode dev",
+    "exit_code": 1,
+    "failure": "heatmap colors all 0.0",
+    "evidence": "%LOCALAPPDATA%/MeeMeeScreener/data/selftest_artifacts/selftest.log"
+  },
+  "pytest": {
+    "command": "python -m pytest tests/test_job_integration.py tests/test_txt_update_submission_contract.py -q",
+    "exit_code": 0,
+    "result": "12 passed"
+  },
+  "api_smoke": {
+    "report": "tmp/meemee_function_smoke_20260226.json",
+    "summary": {
+      "passed": 18,
+      "failed": 5,
+      "total": 23
+    },
+    "notable_failures": [
+      "/api/list 404",
+      "/api/rankings/trace/last-qualified timeout under full-load smoke",
+      "trade import fixtures parsed 0 events (sbi/rakuten)",
+      "second txt-update returned 409 conflict (guard worked)"
+    ]
+  },
+  "focused_checks": {
+    "report": "tmp/meemee_focus_check_20260226.json",
+    "heatmap": {
+      "status_code": 200,
+      "nonzero_color": false,
+      "item_count": 6
+    },
+    "rankings_trace": {
+      "status_code": 200,
+      "last_non_zero_date_iso": "2026-02-03",
+      "zero_streak_days": 13
+    }
+  },
+  "trade_upload_endpoint": {
+    "endpoint": "/api/trade_csv/upload",
+    "sbi_sample": {
+      "status_code": 200,
+      "ingest_received": 0,
+      "ingest_inserted": 0
+    },
+    "rakuten_sample": {
+      "status_code": 200,
+      "ingest_received": 0,
+      "ingest_inserted": 0
+    }
+  }
+}

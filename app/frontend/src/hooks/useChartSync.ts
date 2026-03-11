@@ -16,6 +16,8 @@ interface UseChartSyncOptions {
     monthlyCandles?: { time: number }[];
 }
 
+type CrosshairPoint = { x: number; y: number } | null;
+
 export function useChartSync(
     dailyChartRef: MutableRefObject<DetailChartHandle | null>,
     monthlyChartRef: MutableRefObject<DetailChartHandle | null>,
@@ -118,37 +120,60 @@ export function useChartSync(
         });
     };
 
-    const handleDailyCrosshair = (time: number | null) => {
+    const handleDailyCrosshair = (time: number | null, point?: CrosshairPoint) => {
         if (!options?.cursorEnabled) return;
         if (options.enabled === false) return;
 
-        weeklyChartRef?.current?.setCrosshair(time, null);
-        monthlyChartRef.current?.setCrosshair(time, null);
+        const resolvedPoint = point ?? null;
+        weeklyChartRef?.current?.setCrosshair(time, resolvedPoint);
+        monthlyChartRef.current?.setCrosshair(time, resolvedPoint);
         scheduleHoverTime(time);
     };
 
-    const handleMonthlyCrosshair = (time: number | null) => {
+    const handleMonthlyCrosshair = (time: number | null, point?: CrosshairPoint) => {
         if (!options?.cursorEnabled) return;
         if (options.enabled === false) return;
 
-        dailyChartRef.current?.setCrosshair(time, null);
-        weeklyChartRef?.current?.setCrosshair(time, null);
+        const resolvedPoint = point ?? null;
+        dailyChartRef.current?.setCrosshair(time, resolvedPoint);
+        weeklyChartRef?.current?.setCrosshair(time, resolvedPoint);
         scheduleHoverTime(time);
     };
 
-    const handleWeeklyCrosshair = (time: number | null) => {
+    const handleWeeklyCrosshair = (time: number | null, point?: CrosshairPoint) => {
         if (!options?.cursorEnabled) return;
         if (options.enabled === false) return;
 
-        dailyChartRef.current?.setCrosshair(time, null);
-        monthlyChartRef.current?.setCrosshair(time, null);
+        const resolvedPoint = point ?? null;
+        dailyChartRef.current?.setCrosshair(time, resolvedPoint);
+        monthlyChartRef.current?.setCrosshair(time, resolvedPoint);
         scheduleHoverTime(time);
+    };
+
+    const handleMonthlyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+        if (!range) return;
+        if (!syncRangesRef.current) return;
+
+        // Sync monthly range to daily and weekly
+        dailyChartRef.current?.setVisibleRange(range);
+        weeklyChartRef?.current?.setVisibleRange(range);
+    };
+
+    const handleWeeklyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+        if (!range) return;
+        if (!syncRangesRef.current) return;
+
+        // Sync weekly range to daily and monthly
+        dailyChartRef.current?.setVisibleRange(range);
+        monthlyChartRef.current?.setVisibleRange(range);
     };
 
     return {
         hoverTime,
         setHoverTime, // exposed if needed to reset
         handleDailyVisibleRangeChange,
+        handleMonthlyVisibleRangeChange,
+        handleWeeklyVisibleRangeChange,
         handleDailyCrosshair,
         handleMonthlyCrosshair,
         handleWeeklyCrosshair

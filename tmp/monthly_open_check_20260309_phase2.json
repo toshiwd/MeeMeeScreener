@@ -1,0 +1,441 @@
+{
+  "generated_at_utc": "2026-02-26T00:50:14.258265+00:00",
+  "asof_date": "2026-02-26",
+  "phase": 2,
+  "phase_date": "2026-03-09",
+  "latest_daily_dt": 1771977600,
+  "source_plan_file": "tmp/monthly_execution_plan_202603_strictplus_backups.json",
+  "source_base_plan_file": "tmp/monthly_execution_plan_202603.json",
+  "thresholds": {
+    "primary_strict": {
+      "p_up_min": 0.47,
+      "ev20_net_min": -0.005,
+      "turnover20_min": 12000000
+    },
+    "strict": {
+      "p_up_min": 0.46,
+      "ev20_net_min": -0.005,
+      "turnover20_min": 5000000
+    },
+    "strict_plus": {
+      "p_up_min": 0.45,
+      "ev20_net_min": -0.005,
+      "turnover20_min": 5000000
+    },
+    "relaxed": {
+      "p_up_min": 0.44,
+      "ev20_net_min": -0.01,
+      "turnover20_min": 3000000
+    }
+  },
+  "candidate_count": 11,
+  "evaluated_candidates": [
+    {
+      "code": "7453",
+      "name": "良品計画",
+      "sector": "小売業",
+      "tier": "primary",
+      "source_bucket": "primary",
+      "source_rank": 5,
+      "base_priority_rank": 5,
+      "base_composite": 1.1042927410146828,
+      "monthly_score_up": 0.6214907146195567,
+      "live": {
+        "p_up": 0.4869528029846816,
+        "ev20_net": 0.002618333413429104,
+        "rank_up_20": -0.7631307446203854,
+        "turnover20": 15956887.35,
+        "latest_daily_dt": 1771977600
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.47,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 12000000
+      },
+      "eligible": true,
+      "ineligible_reasons": [],
+      "live_score": 0.5977064195593085
+    },
+    {
+      "code": "6762",
+      "name": "TDK",
+      "sector": "電気機器",
+      "tier": "primary",
+      "source_bucket": "primary",
+      "source_rank": 6,
+      "base_priority_rank": 6,
+      "base_composite": 1.0872085374774074,
+      "monthly_score_up": 0.5852968948864207,
+      "live": {
+        "p_up": 0.48999017528062366,
+        "ev20_net": 0.011960038220425061,
+        "rank_up_20": -0.7852888108633502,
+        "turnover20": 31956683.975,
+        "latest_daily_dt": 1771977600
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.47,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 12000000
+      },
+      "eligible": true,
+      "ineligible_reasons": [],
+      "live_score": 0.614344233041729
+    },
+    {
+      "code": "6361",
+      "name": "荏原",
+      "sector": "機械",
+      "tier": "primary",
+      "source_bucket": "primary",
+      "source_rank": 7,
+      "base_priority_rank": 7,
+      "base_composite": 1.0783333540306708,
+      "monthly_score_up": 0.5956968641814083,
+      "live": {
+        "p_up": 0.4747294395688214,
+        "ev20_net": 0.012090495934371262,
+        "rank_up_20": 0.0988996074330052,
+        "turnover20": 15647650.15,
+        "latest_daily_dt": 1771977600
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.47,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 12000000
+      },
+      "eligible": true,
+      "ineligible_reasons": [],
+      "live_score": 0.5947047124992654
+    },
+    {
+      "code": "6324",
+      "name": "ハーモニックドライブ",
+      "sector": "機械",
+      "tier": "strict",
+      "source_bucket": "strict_plus_first",
+      "source_rank": 1,
+      "base_priority_rank": null,
+      "base_composite": 1.277805385562085,
+      "monthly_score_up": 0.7724223742706872,
+      "live": {
+        "p_up": 0.5052569615055325,
+        "ev20_net": 0.00012604978586526006,
+        "rank_up_20": -0.17715535466693924,
+        "turnover20": 5999934.25,
+        "latest_daily_dt": 1771977600
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.46,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 5000000
+      },
+      "eligible": true,
+      "ineligible_reasons": [],
+      "live_score": 0.6313563004517033
+    },
+    {
+      "code": "5802",
+      "name": "住友電気工業",
+      "sector": "非鉄金属",
+      "tier": "strict_plus",
+      "source_bucket": "strict_plus_first",
+      "source_rank": 2,
+      "base_priority_rank": null,
+      "base_composite": 1.0947549315825646,
+      "monthly_score_up": 0.6184870556138231,
+      "live": {
+        "p_up": 0.4568742050800943,
+        "ev20_net": 0.019393670888647387,
+        "rank_up_20": 0.9561858822206897,
+        "turnover20": 83121726.25,
+        "latest_daily_dt": 1771977600
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.45,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 5000000
+      },
+      "eligible": true,
+      "ineligible_reasons": [],
+      "live_score": 0.6367092166720386
+    },
+    {
+      "code": "4186",
+      "name": "東京応化工業",
+      "sector": "化学",
+      "tier": "strict_plus",
+      "source_bucket": "strict_plus_first",
+      "source_rank": 3,
+      "base_priority_rank": null,
+      "base_composite": 1.030756374390456,
+      "monthly_score_up": 0.519220946458837,
+      "live": {
+        "p_up": 0.47934575743207836,
+        "ev20_net": 0.03218967049954064,
+        "rank_up_20": 0.6059382672061148,
+        "turnover20": 11700346.4,
+        "latest_daily_dt": 1771977600
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.45,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 5000000
+      },
+      "eligible": true,
+      "ineligible_reasons": [],
+      "live_score": 0.5639096919103799
+    },
+    {
+      "code": "9503",
+      "name": "関西電力",
+      "sector": "電気・ガス業",
+      "tier": "strict_plus",
+      "source_bucket": "strict_plus_first",
+      "source_rank": 4,
+      "base_priority_rank": null,
+      "base_composite": 1.0103210422632312,
+      "monthly_score_up": 0.512597277832763,
+      "live": {
+        "p_up": 0.49331724565270857,
+        "ev20_net": 0.004406518777759476,
+        "rank_up_20": -1.1115596338046063,
+        "turnover20": 9581649.025,
+        "latest_daily_dt": 1771977600
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.45,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 5000000
+      },
+      "eligible": true,
+      "ineligible_reasons": [],
+      "live_score": 0.5105102573091292
+    },
+    {
+      "code": "6814",
+      "name": "古野電気",
+      "sector": "電気機器",
+      "tier": "relaxed",
+      "source_bucket": "relaxed_reserve",
+      "source_rank": 1,
+      "base_priority_rank": null,
+      "base_composite": 1.2854303791876496,
+      "monthly_score_up": 0.8118089192976465,
+      "live": {
+        "p_up": 0.46658816574007594,
+        "ev20_net": 0.007033294149927125,
+        "rank_up_20": -0.04049920391530744,
+        "turnover20": 4591171.0,
+        "latest_daily_dt": 1771977600
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.44,
+        "ev20_net_min": -0.01,
+        "turnover20_min": 3000000
+      },
+      "eligible": true,
+      "ineligible_reasons": [],
+      "live_score": 0.6478199589652698
+    },
+    {
+      "code": "5726",
+      "name": "大阪チタニウム(住友チタ)",
+      "sector": "非鉄金属",
+      "tier": "relaxed",
+      "source_bucket": "relaxed_reserve",
+      "source_rank": 2,
+      "base_priority_rank": null,
+      "base_composite": 1.084980610700544,
+      "monthly_score_up": 0.6398156344154736,
+      "live": {
+        "p_up": 0.44508060829116197,
+        "ev20_net": 8.436799390848255e-05,
+        "rank_up_20": 0.0817743632414764,
+        "turnover20": 4369882.45,
+        "latest_daily_dt": 1771977600
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.44,
+        "ev20_net_min": -0.01,
+        "turnover20_min": 3000000
+      },
+      "eligible": true,
+      "ineligible_reasons": [],
+      "live_score": 0.5351587765744819
+    },
+    {
+      "code": "1801",
+      "name": "大成建設",
+      "sector": "建設業",
+      "tier": "relaxed",
+      "source_bucket": "relaxed_reserve",
+      "source_rank": 3,
+      "base_priority_rank": null,
+      "base_composite": 1.0499142528949374,
+      "monthly_score_up": 0.5069588347060295,
+      "live": {
+        "p_up": 0.4973465467914732,
+        "ev20_net": 0.045608871397434816,
+        "rank_up_20": 0.7633495897897404,
+        "turnover20": 19379293.75,
+        "latest_daily_dt": 1771977600
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.44,
+        "ev20_net_min": -0.01,
+        "turnover20_min": 3000000
+      },
+      "eligible": true,
+      "ineligible_reasons": [],
+      "live_score": 0.6000604645361847
+    },
+    {
+      "code": "7202",
+      "name": "いすゞ自動車",
+      "sector": "輸送用機器",
+      "tier": "relaxed",
+      "source_bucket": "relaxed_reserve",
+      "source_rank": 4,
+      "base_priority_rank": null,
+      "base_composite": 1.002864943143142,
+      "monthly_score_up": 0.49826626716617006,
+      "live": {
+        "p_up": 0.4960968225596621,
+        "ev20_net": 0.008501853417309897,
+        "rank_up_20": -0.7315616799176292,
+        "turnover20": 6188549.125,
+        "latest_daily_dt": 1771977600
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.44,
+        "ev20_net_min": -0.01,
+        "turnover20_min": 3000000
+      },
+      "eligible": true,
+      "ineligible_reasons": [],
+      "live_score": 0.49318315390182554
+    }
+  ],
+  "recommendation": {
+    "slots": [
+      {
+        "slot": 1,
+        "action": "keep_primary",
+        "selected": {
+          "code": "7453",
+          "name": "良品計画",
+          "sector": "小売業",
+          "tier": "primary",
+          "source_bucket": "primary",
+          "source_rank": 5,
+          "base_priority_rank": 5,
+          "base_composite": 1.1042927410146828,
+          "monthly_score_up": 0.6214907146195567,
+          "live": {
+            "p_up": 0.4869528029846816,
+            "ev20_net": 0.002618333413429104,
+            "rank_up_20": -0.7631307446203854,
+            "turnover20": 15956887.35,
+            "latest_daily_dt": 1771977600
+          },
+          "events": [],
+          "thresholds": {
+            "p_up_min": 0.47,
+            "ev20_net_min": -0.005,
+            "turnover20_min": 12000000
+          },
+          "eligible": true,
+          "ineligible_reasons": [],
+          "live_score": 0.5977064195593085
+        },
+        "replaced_primary": null
+      },
+      {
+        "slot": 2,
+        "action": "keep_primary",
+        "selected": {
+          "code": "6762",
+          "name": "TDK",
+          "sector": "電気機器",
+          "tier": "primary",
+          "source_bucket": "primary",
+          "source_rank": 6,
+          "base_priority_rank": 6,
+          "base_composite": 1.0872085374774074,
+          "monthly_score_up": 0.5852968948864207,
+          "live": {
+            "p_up": 0.48999017528062366,
+            "ev20_net": 0.011960038220425061,
+            "rank_up_20": -0.7852888108633502,
+            "turnover20": 31956683.975,
+            "latest_daily_dt": 1771977600
+          },
+          "events": [],
+          "thresholds": {
+            "p_up_min": 0.47,
+            "ev20_net_min": -0.005,
+            "turnover20_min": 12000000
+          },
+          "eligible": true,
+          "ineligible_reasons": [],
+          "live_score": 0.614344233041729
+        },
+        "replaced_primary": null
+      },
+      {
+        "slot": 3,
+        "action": "keep_primary",
+        "selected": {
+          "code": "6361",
+          "name": "荏原",
+          "sector": "機械",
+          "tier": "primary",
+          "source_bucket": "primary",
+          "source_rank": 7,
+          "base_priority_rank": 7,
+          "base_composite": 1.0783333540306708,
+          "monthly_score_up": 0.5956968641814083,
+          "live": {
+            "p_up": 0.4747294395688214,
+            "ev20_net": 0.012090495934371262,
+            "rank_up_20": 0.0988996074330052,
+            "turnover20": 15647650.15,
+            "latest_daily_dt": 1771977600
+          },
+          "events": [],
+          "thresholds": {
+            "p_up_min": 0.47,
+            "ev20_net_min": -0.005,
+            "turnover20_min": 12000000
+          },
+          "eligible": true,
+          "ineligible_reasons": [],
+          "live_score": 0.5947047124992654
+        },
+        "replaced_primary": null
+      }
+    ],
+    "summary": {
+      "primary_slots": 3,
+      "kept_primary": 3,
+      "replaced_primary": 0,
+      "vacant_slots": 0,
+      "strict_plus_eligible": 4,
+      "relaxed_eligible": 4,
+      "rotation_offset_strict_plus": 1,
+      "rotation_offset_relaxed": 2
+    }
+  }
+}

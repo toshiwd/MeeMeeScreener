@@ -1,0 +1,141 @@
+{
+  "generated_at": "2026-02-27",
+  "events_rows": 986296,
+  "split": {
+    "train_ymd_to": 20241231,
+    "test_ymd_from": 20250101,
+    "train_rows": 818800,
+    "test_rows": 167496
+  },
+  "regime_counts_train": {
+    "risk_off": 364118,
+    "risk_on": 337348,
+    "neutral": 117334
+  },
+  "regime_counts_test": {
+    "risk_on": 77198,
+    "risk_off": 62035,
+    "neutral": 28263
+  },
+  "pair_regime_count": 234,
+  "train_selected_count": 6,
+  "test_pass_count": 3,
+  "test_pass_pairs": [
+    {
+      "regime": "risk_off",
+      "pair": "shooting_star_like+bear_harami"
+    },
+    {
+      "regime": "risk_off",
+      "pair": "bear_marubozu+bear_engulfing"
+    },
+    {
+      "regime": "risk_off",
+      "pair": "bear_marubozu+three_black_crows"
+    }
+  ],
+  "selected_preview": [
+    {
+      "regime": "neutral",
+      "pair": "shooting_star_like+bear_harami",
+      "train_rows": 117334,
+      "test_rows": 28263,
+      "n_train": 650,
+      "coverage_train": 0.005539741251470162,
+      "diff_ret20_train": 0.007759990007409194,
+      "diff_precision_train": 0.0511269094965231,
+      "z_precision_train": 2.6032836711355913,
+      "n_test": 160,
+      "coverage_test": 0.0056611117008102466,
+      "diff_ret20_test": -0.017550156371080997,
+      "diff_precision_test": -0.10324275878020134,
+      "z_precision_test": -2.6419217635906986,
+      "test_pass": false
+    },
+    {
+      "regime": "risk_off",
+      "pair": "bear_marubozu+three_black_crows",
+      "train_rows": 364118,
+      "test_rows": 62035,
+      "n_train": 653,
+      "coverage_train": 0.001793374675242641,
+      "diff_ret20_train": 0.030791966978022195,
+      "diff_precision_train": 0.08759138080727125,
+      "z_precision_train": 4.479704104826191,
+      "n_test": 117,
+      "coverage_test": 0.0018860320786652696,
+      "diff_ret20_test": 0.01067366058844859,
+      "diff_precision_test": 0.07843817698787181,
+      "z_precision_test": 1.7567496527652346,
+      "test_pass": true
+    },
+    {
+      "regime": "risk_off",
+      "pair": "shooting_star_like+three_black_crows",
+      "train_rows": 364118,
+      "test_rows": 62035,
+      "n_train": 1088,
+      "coverage_train": 0.0029880423379234204,
+      "diff_ret20_train": 0.005636960695223566,
+      "diff_precision_train": 0.0454793883506629,
+      "z_precision_train": 3.0005466821698104,
+      "n_test": 141,
+      "coverage_test": 0.0022729104537760943,
+      "diff_ret20_test": -0.01619900911192058,
+      "diff_precision_test": -0.07098913333182078,
+      "z_precision_test": -1.7450452776528043,
+      "test_pass": false
+    },
+    {
+      "regime": "risk_off",
+      "pair": "shooting_star_like+bear_harami",
+      "train_rows": 364118,
+      "test_rows": 62035,
+      "n_train": 2752,
+      "coverage_train": 0.00755798944298277,
+      "diff_ret20_train": 0.006323341024174601,
+      "diff_precision_train": 0.02139438543850858,
+      "z_precision_train": 2.2397406994478497,
+      "n_test": 380,
+      "coverage_test": 0.006125574272588055,
+      "diff_ret20_test": 4.613077359619244e-05,
+      "diff_precision_test": 0.06931311329170375,
+      "z_precision_test": 2.7917231610151267,
+      "test_pass": true
+    },
+    {
+      "regime": "risk_off",
+      "pair": "bear_marubozu+bear_engulfing",
+      "train_rows": 364118,
+      "test_rows": 62035,
+      "n_train": 2130,
+      "coverage_train": 0.005849752003471402,
+      "diff_ret20_train": 0.0017140047611438197,
+      "diff_precision_train": 0.021706317035591782,
+      "z_precision_train": 2.0008894649883113,
+      "n_test": 387,
+      "coverage_test": 0.006238413798662045,
+      "diff_ret20_test": 0.016274899139996094,
+      "diff_precision_test": 0.038378598239836026,
+      "z_precision_test": 1.5598580577355654,
+      "test_pass": true
+    },
+    {
+      "regime": "risk_on",
+      "pair": "shooting_star_like+three_black_crows",
+      "train_rows": 337348,
+      "test_rows": 77198,
+      "n_train": 328,
+      "coverage_train": 0.0009722897423432182,
+      "diff_ret20_train": 0.026209202056368012,
+      "diff_precision_train": 0.06521126342650285,
+      "z_precision_train": 2.3614828629703366,
+      "n_test": 107,
+      "coverage_test": 0.0013860462706287728,
+      "diff_ret20_test": 0.008187192518220702,
+      "diff_precision_test": 0.0028152188632029063,
+      "z_precision_test": 0.059081273162162745,
+      "test_pass": false
+    }
+  ]
+}

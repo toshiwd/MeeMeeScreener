@@ -1,0 +1,70 @@
+{
+  "generated_at": "2026-02-27",
+  "window": {
+    "start": 20260101,
+    "end": 20260226,
+    "limit": 20
+  },
+  "baseline_weights": [
+    [
+      "shootingStarLike",
+      0.01
+    ],
+    [
+      "threeWhiteSoldiers",
+      0.01
+    ],
+    [
+      "bullEngulfing",
+      0.01
+    ]
+  ],
+  "experiment_weights": [
+    [
+      "shootingStarLike",
+      0.01
+    ],
+    [
+      "threeWhiteSoldiers",
+      0.01
+    ],
+    [
+      "bullEngulfing",
+      0.01
+    ],
+    [
+      "morningStar",
+      0.005
+    ],
+    [
+      "threeBlackCrows",
+      0.005
+    ]
+  ],
+  "baseline": {
+    "n_pred_dates": 29,
+    "n": 153,
+    "precision": 0.8366013071895425,
+    "mean_pnl_20d": 0.04663445796982404,
+    "n_top1": 9,
+    "precision_top1": 0.7777777777777778,
+    "mean_pnl_top1_20d": 0.012231723067740967
+  },
+  "experiment": {
+    "n_pred_dates": 29,
+    "n": 153,
+    "precision": 0.8366013071895425,
+    "mean_pnl_20d": 0.04663445796982404,
+    "n_top1": 9,
+    "precision_top1": 0.7777777777777778,
+    "mean_pnl_top1_20d": 0.012231723067740967
+  },
+  "delta_experiment_minus_baseline": {
+    "n": 0,
+    "precision": 0.0,
+    "mean_pnl_20d": 0.0,
+    "n_top1": 0,
+    "precision_top1": 0.0,
+    "mean_pnl_top1_20d": 0.0
+  }
+}

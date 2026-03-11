@@ -1,0 +1,37 @@
+{
+  "ok": true,
+  "db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\stocks.duckdb",
+  "start_ymd": 20160226,
+  "end_ymd": 20260226,
+  "all_dates_in_range": 2442,
+  "target_dates": 2174,
+  "processed_dates": 2174,
+  "before_rows_in_range": 185269,
+  "after_rows_in_range": 1597819,
+  "coverage_before": {
+    "n_dates": 2442,
+    "zero_dates": 2174,
+    "incomplete_dates": 2174,
+    "min_rows": 0,
+    "max_rows": 693,
+    "min_expected": 599,
+    "max_expected": 686
+  },
+  "coverage_after": {
+    "n_dates": 2442,
+    "zero_dates": 0,
+    "incomplete_dates": 0,
+    "min_rows": 599,
+    "max_rows": 693,
+    "min_expected": 599,
+    "max_expected": 686
+  },
+  "sell_codes_in_range": 693,
+  "last_rows_for_dt": 686,
+  "missing_only": true,
+  "min_coverage_ratio": 0.995,
+  "chunk_size": 40,
+  "started_at_utc": "2026-02-27T06:37:33.764489+00:00",
+  "finished_at_utc": "2026-02-27T07:56:42.600834+00:00",
+  "duration_seconds": 4748.836345
+}

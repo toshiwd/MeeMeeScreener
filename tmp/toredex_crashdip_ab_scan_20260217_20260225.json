@@ -1,0 +1,174 @@
+{
+  "generated_at_utc": "2026-03-04T07:11:10.102573+00:00",
+  "window": {
+    "start_date": "2026-02-17",
+    "end_date": "2026-02-25",
+    "days": 9
+  },
+  "variants": [
+    {
+      "name": "hybrid_crashdip_baseline",
+      "config_hash": "09a36d3c7bc119804b5474e43a420f78fcd04a25620e4db2bf711cc58acf663b",
+      "override": {
+        "rankingMode": "hybrid",
+        "sides": {
+          "longEnabled": true,
+          "shortEnabled": true
+        },
+        "thresholds": {
+          "entryMinUpProb": 0.56,
+          "entryMinEv": -0.01,
+          "entryMaxRevRisk": 0.7,
+          "maxNewEntriesPerDay": 2.0,
+          "newEntryMaxRank": 10.0,
+          "crashDipBonusEnabled": 1.0,
+          "crashDipBonus": 0.04,
+          "crashDipPct": -0.07,
+          "crashDipMinDownProb": 0.58,
+          "crashDipMinTurnDown": 0.56,
+          "crashDipMaxEv": 0.0,
+          "crashDipMaxPerDay": 1.0
+        }
+      },
+      "action_days": 0,
+      "total_actions": 0,
+      "long_entries": 0,
+      "short_entries": 0,
+      "top_short_tickers": [],
+      "errors": [
+        {
+          "as_of": "2026-02-17",
+          "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n"
+        },
+        {
+          "as_of": "2026-02-18",
+          "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n\nFile is already open in \nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 31900)\nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 26772)"
+        },
+        {
+          "as_of": "2026-02-19",
+          "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n\nFile is already open in \nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 31900)\nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 26772)"
+        },
+        {
+          "as_of": "2026-02-20",
+          "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n\nFile is already open in \nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 31900)\nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 26772)"
+        },
+        {
+          "as_of": "2026-02-24",
+          "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n\nFile is already open in \nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 26772)"
+        },
+        {
+          "as_of": "2026-02-25",
+          "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n\nFile is already open in \nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 31900)\nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 26772)"
+        }
+      ],
+      "daily": [
+        {
+          "as_of": "2026-02-21",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-22",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-23",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        }
+      ]
+    },
+    {
+      "name": "hybrid_crashdip_relaxed",
+      "config_hash": "ba423a0716a9fadc954546e11ceff2edc332e26a1264c231cadfc375c045375e",
+      "override": {
+        "rankingMode": "hybrid",
+        "sides": {
+          "longEnabled": true,
+          "shortEnabled": true
+        },
+        "thresholds": {
+          "entryMinUpProb": 0.56,
+          "entryMinEv": -0.01,
+          "entryMaxRevRisk": 0.7,
+          "maxNewEntriesPerDay": 2.0,
+          "newEntryMaxRank": 10.0,
+          "crashDipBonusEnabled": 1.0,
+          "crashDipBonus": 0.05,
+          "crashDipPct": -0.07,
+          "crashDipMinDownProb": 0.57,
+          "crashDipMinTurnDown": 0.52,
+          "crashDipMaxEv": 0.0,
+          "crashDipMaxPerDay": 1.0
+        }
+      },
+      "action_days": 0,
+      "total_actions": 0,
+      "long_entries": 0,
+      "short_entries": 0,
+      "top_short_tickers": [],
+      "errors": [
+        {
+          "as_of": "2026-02-17",
+          "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n"
+        },
+        {
+          "as_of": "2026-02-18",
+          "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n\nFile is already open in \nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 26772)"
+        },
+        {
+          "as_of": "2026-02-19",
+          "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n\nFile is already open in \nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 26772)"
+        },
+        {
+          "as_of": "2026-02-20",
+          "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n\nFile is already open in \nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 26772)"
+        }
+      ],
+      "daily": [
+        {
+          "as_of": "2026-02-21",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-22",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-23",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-24",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        },
+        {
+          "as_of": "2026-02-25",
+          "action_count": 0,
+          "long_entries": 0,
+          "short_entries": 0,
+          "actions": []
+        }
+      ]
+    }
+  ]
+}

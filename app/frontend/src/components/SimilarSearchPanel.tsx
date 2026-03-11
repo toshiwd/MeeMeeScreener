@@ -51,6 +51,10 @@ export default function SimilarSearchPanel({
     const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null);
     const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
     const [refreshBusy, setRefreshBusy] = useState(false);
+    const shouldFullRefresh = (statusError?: string | null, lastError?: string | null) => {
+        const combined = `${statusError ?? ""} ${lastError ?? ""}`;
+        return combined.includes("Similarity artifacts not found") || combined.includes("artifacts not found");
+    };
     const getTodayInputValue = () => {
         const today = new Date();
         const yyyy = today.getFullYear();
@@ -123,6 +127,47 @@ export default function SimilarSearchPanel({
             });
     }, [isOpen, queryTicker, targetDate, alpha]);
 
+    const handleJump = (item: SearchResult) => {
+        const params = new URLSearchParams();
+        if (item.asof) {
+            params.set("mainAsOf", item.asof);
+        }
+        onClose();
+        navigate(params.size > 0 ? `/detail/${item.ticker}?${params.toString()}` : `/detail/${item.ticker}`);
+    };
+
+    const handleCompare = (item: SearchResult) => {
+        if (!queryTicker) return;
+        if (typeof window !== "undefined") {
+            try {
+                const payload = {
+                    queryTicker,
+                    mainAsOf: targetDate || null,
+                    items: results.map((result) => ({
+                        ticker: result.ticker,
+                        asof: result.asof ?? null
+                    }))
+                };
+                window.sessionStorage.setItem(
+                    "similarCompareList",
+                    JSON.stringify(payload)
+                );
+            } catch {
+                // ignore storage errors
+            }
+        }
+        const params = new URLSearchParams();
+        params.set("compare", item.ticker);
+        if (targetDate) {
+            params.set("mainAsOf", targetDate);
+        }
+        if (item.asof) {
+            params.set("compareAsOf", item.asof);
+        }
+        onClose();
+        navigate(`/detail/${queryTicker}?${params.toString()}`);
+    };
+
     if (!isOpen) return null;
 
     return (
@@ -184,8 +229,11 @@ export default function SimilarSearchPanel({
                                 onClick={() => {
                                     setRefreshBusy(true);
                                     setRefreshMessage(null);
+                                    const mode = shouldFullRefresh(refreshStatus?.error, error)
+                                        ? "full"
+                                        : "incremental";
                                     api
-                                        .post("/search/similar/refresh", null, { params: { mode: "incremental" } })
+                                        .post("/search/similar/refresh", null, { params: { mode } })
                                         .then(() => {
                                             setRefreshMessage("類似検索データを更新開始しました");
                                             fetchRefreshStatus();
@@ -252,37 +300,8 @@ export default function SimilarSearchPanel({
                             key={`${item.ticker}-${item.asof}`}
                             item={item}
                             rank={idx + 1}
-                            onJump={() => navigate(`/detail/${item.ticker}`)}
-                            onCompare={() => {
-                                if (!queryTicker) return;
-                                if (typeof window !== "undefined") {
-                                    try {
-                                        const payload = {
-                                            queryTicker,
-                                            mainAsOf: targetDate || null,
-                                            items: results.map((result) => ({
-                                                ticker: result.ticker,
-                                                asof: result.asof ?? null
-                                            }))
-                                        };
-                                        window.sessionStorage.setItem(
-                                            "similarCompareList",
-                                            JSON.stringify(payload)
-                                        );
-                                    } catch {
-                                        // ignore storage errors
-                                    }
-                                }
-                                const params = new URLSearchParams();
-                                params.set("compare", item.ticker);
-                                if (targetDate) {
-                                    params.set("mainAsOf", targetDate);
-                                }
-                                if (item.asof) {
-                                    params.set("compareAsOf", item.asof);
-                                }
-                                navigate(`/detail/${queryTicker}?${params.toString()}`);
-                            }}
+                    onJump={() => handleJump(item)}
+                    onCompare={() => handleCompare(item)}
                         />
                     ))}
                 </div>

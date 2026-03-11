@@ -22,13 +22,26 @@ def _get_exe_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _default_app_storage_name() -> str:
+    if os.getenv("MEEMEE_SELFTEST", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return f"{APP_NAME}-selftest"
+    if os.getenv("MEEMEE_DEV", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return f"{APP_NAME}-dev"
+    if os.getenv("MEEMEE_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return f"{APP_NAME}-dev"
+    app_env = (os.getenv("APP_ENV") or os.getenv("ENV") or "dev").strip().lower()
+    if app_env in {"dev", "development", "test"}:
+        return f"{APP_NAME}-dev"
+    return APP_NAME
+
+
 def _resolve_data_dir() -> Path:
     """
     Resolves the data directory based on priority:
     1. Environment Variable: MEEMEE_DATA_DIR
     2. Config File: meemee.config.json (next to exe)
     3. Portable Flag: portable.flag (next to exe) -> <exe_dir>/data
-    4. Default: %LOCALAPPDATA%/MeeMeeScreener/data
+    4. Default: %LOCALAPPDATA%/<env-specific-app>/data
     """
     exe_dir = _get_exe_dir()
 
@@ -57,9 +70,24 @@ def _resolve_data_dir() -> Path:
         return path
 
     local_app_data = os.getenv("LOCALAPPDATA") or str(Path.home())
-    path = Path(local_app_data) / APP_NAME / DEFAULT_DATA_DIR_NAME
+    path = Path(local_app_data) / _default_app_storage_name() / DEFAULT_DATA_DIR_NAME
     logger.info("DataDir resolved via default: %s", path)
     return path
+
+
+def _get_config_path() -> Path:
+    return _get_exe_dir() / CONFIG_FILENAME
+
+
+def write_data_dir_override(data_dir: Path | str) -> Path:
+    target = Path(data_dir).expanduser().resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    config_path = _get_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as handle:
+        json.dump({"dataDir": str(target)}, handle, ensure_ascii=False, indent=2)
+    logger.info("Wrote MEEMEE_DATA_DIR override: %s -> %s", config_path, target)
+    return config_path
 
 
 class AppConfig:
@@ -148,11 +176,23 @@ DEBUG = os.getenv("DEBUG", "0") == "1"
 
 def resolve_trade_csv_paths() -> list[str]:
     paths: list[str] = []
+    preferred_names = (
+        "rakuten_trade_history.csv",
+        "sbi_trade_history.csv",
+        "楽天証券取引履歴.csv",
+        "SBI証券取引履歴.csv",
+    )
+    legacy_names = (
+        "????????.csv",
+        "SBI??????.csv",
+        "????????????????.csv",
+        "SBI????????????.csv",
+    )
     def _scan_dir(base: Path) -> None:
         if not base or not base.is_dir():
             return
         # Common filenames (preferred).
-        for filename in ("楽天証券取引履歴.csv", "SBI証券取引履歴.csv"):
+        for filename in (*preferred_names, *legacy_names):
             candidate = base / filename
             if candidate.exists():
                 paths.append(str(candidate))
@@ -164,9 +204,9 @@ def resolve_trade_csv_paths() -> list[str]:
                 if entry.suffix.lower() != ".csv":
                     continue
                 name = entry.name.lower()
-                if "取引履歴" not in entry.name and "trade" not in name:
+                if "????????" not in entry.name and "trade" not in name:
                     continue
-                if any(key in entry.name for key in ("楽天", "ＳＢＩ", "SBI")) or any(key in name for key in ("rakuten", "sbi")):
+                if any(key in entry.name for key in ("????", "??????", "SBI")) or any(key in name for key in ("rakuten", "sbi")):
                     paths.append(str(entry))
         except OSError:
             return
@@ -188,16 +228,14 @@ def resolve_trade_csv_paths() -> list[str]:
         paths.extend([os.path.abspath(part) for part in parts])
 
     # Old repo-local defaults (fallback)
-    default_rakuten = os.path.abspath(os.path.join(REPO_ROOT, "data", "楽天証券取引履歴.csv"))
-    default_sbi = os.path.abspath(os.path.join(REPO_ROOT, "data", "SBI証券取引履歴.csv"))
-    if os.path.isfile(default_rakuten):
-        paths.append(default_rakuten)
-    if os.path.isfile(default_sbi):
-        paths.append(default_sbi)
+    for filename in (*preferred_names, *legacy_names):
+        candidate = os.path.abspath(os.path.join(REPO_ROOT, "data", filename))
+        if os.path.isfile(candidate):
+            paths.append(candidate)
 
     unique_paths = list(set(paths))
     if not unique_paths and not paths:
-        unique_paths.append(str(config.DATA_DIR / "楽天証券取引履歴.csv"))
+        unique_paths.append(str(config.DATA_DIR / preferred_names[0]))
     return unique_paths
 
 
@@ -214,6 +252,8 @@ def canonical_trade_csv_path(broker: str) -> str:
     if broker == "sbi":
         return str(base_dir / "SBI証券取引履歴.csv")
     return str(base_dir / "楽天証券取引履歴.csv")
+
+
 
 
 def resolve_pan_out_txt_dir() -> str:

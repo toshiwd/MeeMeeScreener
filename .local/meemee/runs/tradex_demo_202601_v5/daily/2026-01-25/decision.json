@@ -1,0 +1,25 @@
+{
+  "actions": [
+    {
+      "deltaUnits": 3,
+      "reasonId": "A_ADD_STAGE2_STRICT_OK",
+      "side": "LONG",
+      "ticker": "5727"
+    }
+  ],
+  "asOf": "2026-01-25",
+  "checks": {
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v4",
+  "seasonId": "tradex_demo_202601_v5",
+  "stage": {
+    "goal20Reached": true,
+    "goal30Reached": false,
+    "stage2Active": true
+  }
+}

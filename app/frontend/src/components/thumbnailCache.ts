@@ -23,3 +23,7 @@ export const getThumbnailCache = (key: string) => cache.get(key);
 export const setThumbnailCache = (key: string, dataUrl: string) => {
   cache.set(key, dataUrl);
 };
+
+export const clearThumbnailCache = () => {
+  cache.clear();
+};

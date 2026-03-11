@@ -1,0 +1,173 @@
+{
+  "generated_at_utc": "2026-02-26T00:01:24.240669Z",
+  "source_selection_file": "tmp\\monthly_selection_20260201.json",
+  "source_execution_file": "tmp\\monthly_execution_plan_202603.json",
+  "month_target": "2026-03",
+  "latest_month_pred_dt": 20260201,
+  "latest_daily_dt": 1771977600,
+  "rules": {
+    "candidate_filter": {
+      "m_pup_min": 0.5,
+      "m_pabs_min": 0.55,
+      "d_pup_min": 0.46,
+      "d_ev20_net_min": -0.005,
+      "turnover20_min": 5000000
+    },
+    "backup_filter_strict": {
+      "d_pup_min": 0.47,
+      "d_ev20_net_min": 0.0,
+      "turnover20_min": 8000000,
+      "sector_cap": 2,
+      "slots_per_phase": 4
+    },
+    "event_block_window_days": {
+      "before": 3,
+      "after": 2
+    }
+  },
+  "stats": {
+    "candidate_pool_size": 10,
+    "candidate_top30_size": 10,
+    "primary_total": 10,
+    "backup_total": 1,
+    "backup_shortage_phases": [
+      1,
+      2,
+      3
+    ],
+    "event_rows_near_phases": 230
+  },
+  "phase_execution_with_backups": [
+    {
+      "phase": 1,
+      "date": "2026-03-02",
+      "primaries": [
+        {
+          "priority_rank": 1,
+          "code": "7003",
+          "name": "三井E&S(三井造船)",
+          "sector": "機械",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 2,
+          "code": "5711",
+          "name": "三菱マテリアル",
+          "sector": "非鉄金属",
+          "entry_status": "ready",
+          "risk_flags": [
+            "low_liquidity"
+          ]
+        },
+        {
+          "priority_rank": 3,
+          "code": "1942",
+          "name": "関電工",
+          "sector": "建設業",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 4,
+          "code": "3436",
+          "name": "SUMCO",
+          "sector": "金属製品",
+          "entry_status": "ready",
+          "risk_flags": []
+        }
+      ],
+      "backups": [
+        {
+          "backup_rank": 1,
+          "code": "6324",
+          "name": "ハーモニックドライブ",
+          "sector": "機械",
+          "composite": 1.277805385562085,
+          "monthly": {
+            "p_up_big": 0.7513375716327536,
+            "p_abs_big": 0.8216202470925323,
+            "score_up": 0.7724223742706872
+          },
+          "daily": {
+            "p_up": 0.5052569615055325,
+            "ev20_net": 0.00012604978586526006,
+            "rank_up_20": -0.17715535466693924
+          },
+          "liquidity": {
+            "turnover20": 5999934.25
+          },
+          "risk_flags": [
+            "low_liquidity",
+            "low_ev_buffer",
+            "negative_rank_trend"
+          ]
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "date": "2026-03-09",
+      "primaries": [
+        {
+          "priority_rank": 5,
+          "code": "7453",
+          "name": "良品計画",
+          "sector": "小売業",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 6,
+          "code": "6762",
+          "name": "TDK",
+          "sector": "電気機器",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 7,
+          "code": "6361",
+          "name": "荏原",
+          "sector": "機械",
+          "entry_status": "ready",
+          "risk_flags": []
+        }
+      ],
+      "backups": []
+    },
+    {
+      "phase": 3,
+      "date": "2026-03-16",
+      "primaries": [
+        {
+          "priority_rank": 8,
+          "code": "2768",
+          "name": "双日HD(ニチメン日商岩井)",
+          "sector": "卸売業",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 9,
+          "code": "6504",
+          "name": "富士電機",
+          "sector": "電気機器",
+          "entry_status": "ready",
+          "risk_flags": []
+        },
+        {
+          "priority_rank": 10,
+          "code": "7014",
+          "name": "名村造船所",
+          "sector": "輸送用機器",
+          "entry_status": "ready",
+          "risk_flags": [
+            "low_liquidity"
+          ]
+        }
+      ],
+      "backups": []
+    }
+  ]
+}

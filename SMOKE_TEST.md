@@ -1,115 +1,93 @@
 # MeeMee Screener Smoke Test Procedure
 
-**Time Required:** 5–8 minutes  
-**Goal:** Verify core functionality is intact without regression.  
-**Pass Condition:** All REQUIRED steps complete without crash, error dialog, DB lock error, or UI freeze (no permanent unresponsive state).
+**Time Required:** 5-10 minutes
+**Goal:** 起動・更新・チャート表示の主要フローが回帰していないことを確認する。
+**Pass Condition:** REQUIRED 手順でクラッシュ、UIフリーズ、永続エラーが発生しないこと。
 
 ---
 
 ## 0. Preflight (REQUIRED)
-- [ ] Prepare one trade CSV (SBI or Rakuten) on local disk.
-- [ ] (Dev) Run `run.ps1` OR (Release) run `MeeMeeScreener.exe`.
-- [ ] If a console/log shows backend URL/port, note it for optional API checks.
+
+- [ ] `run.ps1` または `MeeMeeScreener.exe` で起動する。
+- [ ] API が `http://127.0.0.1:8000` で応答することを確認する。
 
 ---
 
-## 1. Launch Re-Check (REQUIRED)
-1. Action: Launch the app.
+## 1. Launch & Readiness (REQUIRED)
+
+1. Action: アプリを起動。
 2. Check:
-   - [ ] Window appears within 10 seconds.
-   - [ ] Title "MeeMee Screener" is visible.
-   - [ ] No "Python Error" / "Backend Failed" dialogs.
+- [ ] 起動直後に UI が先行して壊れた状態にならない。
+- [ ] `GET /api/health` が `ready=true` を返してから UI が通常表示になる。
+- [ ] `GET /api/health` の主要キー `ok,status,ready,phase,message,errors,retryAfterMs` が存在する。
 
 ---
 
-## 2. Startup & Lock Check (REQUIRED)
-1. Action: Start app once.
+## 2. Health Display Integrity (REQUIRED)
+
+1. Action: Grid 画面で health 情報を確認。
 2. Check:
-   - [ ] `app.lock` exists in Data Directory (default: `%LOCALAPPDATA%\MeeMeeScreener\data`).
-3. Action: Start a second instance immediately.
-4. Expectation:
-   - [ ] Second instance exits quickly (no two instances running).
-   - [ ] Logs mention lock ownership (PID check) or "holds lock" equivalent.
+- [ ] `/api/health/deep` 成功時に `txt_count/code_count/pan_out_txt_dir` が表示できる。
+- [ ] `/api/health/deep` が失敗した場合でも `/api/health` フォールバックで画面が壊れない。
 
 ---
 
-## 3. List Data Load (REQUIRED)
-1. Action: Wait for the main screen.
+## 3. Basic View Integrity (REQUIRED)
+
+- [ ] メイン画面で銘柄一覧が表示される。
+- [ ] `/` -> `/ranking` -> `/detail/:code` -> `/favorites` -> `/` の遷移が成功する。
+- [ ] スクロール中にチャートが継続表示され、永続的な「読み込み中」に張り付かない。
+
+---
+
+## 4. TXT Update Job Path (REQUIRED)
+
+### 4.1 Start/Complete
+
+1. Action: TXT Update を1回実行。
 2. Check:
-   - [ ] Stock grid/list is populated (not empty).
-   - [ ] Scrolling works.
-   - [ ] Ticker/Name (or equivalent identifiers) are visible.
+- [ ] ジョブ開始が受理される (`200`)。
+- [ ] 完了時に `success` もしくは `failed` の終端状態になる（中間状態で停止しない）。
+- [ ] `update_state.json` に `last_pipeline_stage` と `last_pipeline_status` が記録される。
 
----
+### 4.2 Double Trigger Guard
 
-## 4. Basic View Integrity (REQUIRED)
-- [ ] Switch between main tabs (e.g., Screener / Ranking / Watchlist). No freeze.
-- [ ] Click one stock tile -> Chart/Detail view opens.
-- [ ] Return to list view. No freeze.
-
----
-
-## 5. TXT Update (Job Path) (REQUIRED)
-### 5.1 UI Path (REQUIRED)
-1. Action: Click **"TXT更新"** (or "TXT Update") button.
+1. Action: 実行中に再度 TXT Update を実行。
 2. Check:
-   - [ ] UI remains responsive (no permanent hang).
-   - [ ] A notification/toast appears (Started/Queued/Running is acceptable).
-3. Wait (up to reasonable time for your dataset):
-   - [ ] Completion toast appears (Completed) OR a clear error toast appears (Failed).
-   - [ ] App still responsive after completion.
+- [ ] 2回目は `409 conflict` で拒否される。
+- [ ] 競合レスポンスに `error_detail` が含まれる場合、lock起因か通常重複か判別できる。
 
-### 5.2 Double-Trigger Guard (REQUIRED)
-1. Action: While TXT update is running, click the same button again (or trigger again quickly).
-2. Expectation:
-   - [ ] It is rejected or ignored (e.g., "already running") and does NOT start a second concurrent update.
-   - [ ] No DB lock errors.
+### 4.3 Retry Trace
 
----
-
-## 6. Force Sync (Job Path) (OPTIONAL / If Implemented)
-1. Action: Click **"強制同期"** (Force Sync).
+1. Action: lock 再試行が発生するケースを実行（必要なら同時処理で再現）。
 2. Check:
-   - [ ] UI remains responsive.
-   - [ ] Process finishes (success or clear failure message).
-   - [ ] No "Database Locked" errors in UI/log.
+- [ ] `update_state.json` に `retry_trace[]` が追記される。
+- [ ] `last_retry_summary` / `last_retry_exhausted_stage` / `last_retry_exhausted_kind` が更新される。
 
 ---
 
-## 7. CSV Import (Trades) (REQUIRED)
-1. Action: Drag & Drop a valid trade CSV (SBI or Rakuten) onto the app.
-2. Check:
-   - [ ] Notification: Import success (or explicit failure reason).
-   - [ ] Positions/held count or related UI state updates.
+## 5. API Performance Check (REQUIRED)
+
+```powershell
+python tools/analytics/benchmark_api.py --runs 20 --warmup 3 --batch-codes 48 --limit 240 --output tmp/api_benchmark_after_v3.json
+```
+
+Check:
+- [ ] `batch_bars_v3_daily` の p95 が 250ms 以下（目標）。
+- [ ] `batch_bars_v3_monthly` の p95 を記録し、退行がない。
+- [ ] `grid_screener` の p95 が 1.2s 以下（目標）。
 
 ---
 
-## 8. Persistence & Restart (REQUIRED)
-1. Action: Close the app (X).
-2. Check:
-   - [ ] Process terminates completely (no orphaned backend / webview processes).
-   - [ ] `app.lock` is removed from Data Directory.
-3. Action: Relaunch the app.
-4. Check:
-   - [ ] App starts normally, data loads, no corruption/repair dialogs.
+## 6. Optional API Sanity (Dev)
+
+- `POST /api/batch_bars_v3`
+  - payload: `{ "codes": ["7203"], "timeframes": ["daily","weekly","monthly"], "limit": 240, "includeProvisional": true }`
+  - expect: `200`, `items[code].daily|weekly|monthly` が存在
+- `POST /api/jobs/txt-update` を連続実行
+  - 1回目: `200` (accepted)
+  - 2回目: `409` (`update_in_progress`)
 
 ---
 
-## 9. Job API Sanity (OPTIONAL / Dev Only)
-Use this only if you need API-level confirmation.
-
-- Start TXT update:
-  - POST `/api/jobs/txt-update`
-  - Expect: `200 OK` + `{ "ok": true, "job_id": "..." }`
-- Start again immediately:
-  - Expect: `409 Conflict` OR `{ "ok": false, "error": "already_running" }`
-- Check status:
-  - GET `/api/txt_update/status`
-  - Expect: `running: true`, `phase` is `queued` or `running`
-- Wait for completion and check status:
-  - GET `/api/txt_update/status`
-  - Expect: `running: false`, `phase` is `done` (success) or `error`
-
----
-
-**STOP RULE:** If any REQUIRED step fails, STOP. Do not merge PR. Revert and debug.
+**STOP RULE:** REQUIRED 手順で失敗した場合はマージしない。原因を切り分けてから再実施する。

@@ -11,7 +11,11 @@ def is_frozen() -> bool:
 
 def base_path() -> Path:
     if is_frozen():
-        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)).resolve()
+        bundled_root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)).resolve()
+        internal_dir = bundled_root / "_internal"
+        if internal_dir.is_dir():
+            return internal_dir
+        return bundled_root
     return Path(__file__).resolve().parents[2]
 
 
@@ -24,12 +28,16 @@ def is_portable_mode() -> bool:
     if is_frozen():
         # Check in the same folder as the executable
         exe_dir = Path(sys.executable).parent
-        portable_marker = exe_dir / "portable.txt"
-        return portable_marker.exists()
+        for name in ("portable.flag", "portable.txt"):
+            if (exe_dir / name).exists():
+                return True
+        return False
     else:
         # In development mode, check in the repo root
-        portable_marker = base_path() / "portable.txt"
-        return portable_marker.exists()
+        for name in ("portable.flag", "portable.txt"):
+            if (base_path() / name).exists():
+                return True
+        return False
 
 
 def local_app_dir(app_name: str = "MeeMeeScreener") -> Path:

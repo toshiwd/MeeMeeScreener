@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-02-27",
+  "db": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\stocks.duckdb",
+  "window": {
+    "start_ymd": 20160226,
+    "end_ymd": 20260226,
+    "limit": 20
+  },
+  "quarter_points": 51,
+  "results": [
+    {
+      "direction": "up",
+      "risk_mode": "balanced",
+      "n": 656,
+      "precision": 0.5960365853658537,
+      "mean_pnl_20d": 0.02298127652162911,
+      "n_top1": 50,
+      "precision_top1": 0.56,
+      "mean_pnl_top1_20d": -0.024031918338768308,
+      "missing_outcome": 12
+    },
+    {
+      "direction": "down",
+      "risk_mode": "balanced",
+      "n": 256,
+      "precision": 0.71484375,
+      "mean_pnl_20d": 0.07330690763114023,
+      "n_top1": 25,
+      "precision_top1": 0.72,
+      "mean_pnl_top1_20d": 0.07802282846778512,
+      "missing_outcome": 2
+    },
+    {
+      "direction": "down",
+      "risk_mode": "aggressive",
+      "n": 294,
+      "precision": 0.6904761904761905,
+      "mean_pnl_20d": 0.06619108168837352,
+      "n_top1": 28,
+      "precision_top1": 0.7142857142857143,
+      "mean_pnl_top1_20d": 0.08371347698439392,
+      "missing_outcome": 3
+    }
+  ]
+}

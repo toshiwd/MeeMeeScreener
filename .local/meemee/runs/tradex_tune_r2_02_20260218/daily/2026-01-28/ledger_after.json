@@ -1,0 +1,87 @@
+{
+  "asOf": "2026-01-28",
+  "metrics": {
+    "asOf": "2026-01-28",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 7831323.71931,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -177676.28069,
+        "net_cum_return_pct": -1.776763
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -186676.28069,
+        "net_cum_return_pct": -1.866763
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -195676.28069,
+        "net_cum_return_pct": -1.956763
+      }
+    ],
+    "cum_pnl": -168676.28069,
+    "cum_return_pct": -1.686763,
+    "daily_pnl": -4385.964912,
+    "equity": 9831323.71931,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": -168676.28069,
+    "gross_cum_return_pct": -1.686763,
+    "gross_daily_pnl": -4385.964912,
+    "gross_units": 2,
+    "holdings_count": 1,
+    "long_units": 2,
+    "max_drawdown_pct": -1.686763,
+    "net_cum_pnl": -168676.28069,
+    "net_cum_return_pct": -1.686763,
+    "net_daily_pnl": -4385.964912,
+    "net_exposure_pct": 20.0,
+    "net_units": 2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -1.686763,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 181.44346199999998,
+        "worstMonthPct": null
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "tradex_tune_r2_02_20260218",
+    "short_units": 0,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 18000000.0,
+    "turnover_notional_daily": 4000000.0,
+    "turnover_pct_daily": 40.668138
+  },
+  "positions": [
+    {
+      "avgPrice": 905.100036621094,
+      "holdingDays": 1,
+      "openedAt": "2026-01-28",
+      "pnlPct": 0.0,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "3861",
+      "units": 2
+    }
+  ],
+  "seasonId": "tradex_tune_r2_02_20260218"
+}

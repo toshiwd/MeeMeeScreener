@@ -1,0 +1,287 @@
+{
+  "generated_at_utc": "2026-03-04T05:13:58.205912+00:00",
+  "season_id": "toredex_live_short_hybrid_shadow_20260304_v2",
+  "window_days": 10,
+  "rollback_max_dd": -8.0,
+  "config_override": {
+    "rankingMode": "hybrid",
+    "sides": {
+      "longEnabled": true,
+      "shortEnabled": true
+    },
+    "thresholds": {
+      "entryMinUpProb": 0.56,
+      "entryMinEv": -0.01,
+      "entryMaxRevRisk": 0.7,
+      "maxNewEntriesPerDay": 2.0,
+      "newEntryMaxRank": 10.0
+    },
+    "operatingMode": "champion"
+  },
+  "run_result": {
+    "ok": true,
+    "status": "success",
+    "season_id": "toredex_live_short_hybrid_shadow_20260304_v2",
+    "asOf": "2026-03-04",
+    "mode": "LIVE",
+    "snapshot_hash": "2c7322a71566eb243a56d2124b995eeeba4cf8601a4f54af785ae5f524d90130",
+    "decision_hash": "4db9cecc0a031f5600f523395104c2f57652634bf53fbc635e189941d45c1d00",
+    "snapshot_path": "runs/toredex_live_short_hybrid_shadow_20260304_v2/daily/2026-03-04/snapshot.json",
+    "decision_path": "runs/toredex_live_short_hybrid_shadow_20260304_v2/daily/2026-03-04/decision.json",
+    "trade_count": 1,
+    "metrics": {
+      "season_id": "toredex_live_short_hybrid_shadow_20260304_v2",
+      "asOf": "2026-03-04",
+      "cash": 12090673.983719,
+      "equity": 10090673.983719,
+      "daily_pnl": 0.0,
+      "cum_pnl": 90673.983719,
+      "cum_return_pct": 0.90674,
+      "max_drawdown_pct": -0.527046,
+      "holdings_count": 1,
+      "goal20_reached": false,
+      "goal30_reached": false,
+      "game_over": false,
+      "gross_daily_pnl": 0.0,
+      "gross_cum_pnl": 90673.983719,
+      "gross_cum_return_pct": 0.90674,
+      "net_daily_pnl": 0.0,
+      "net_cum_pnl": 90673.983719,
+      "net_cum_return_pct": 0.90674,
+      "fees_cost_daily": 0.0,
+      "slippage_cost_daily": 0.0,
+      "borrow_cost_daily": 0.0,
+      "fees_cost_cum": 0.0,
+      "slippage_cost_cum": 0.0,
+      "borrow_cost_cum": 0.0,
+      "turnover_notional_daily": 2000000.0,
+      "turnover_notional_cum": 10000000.0,
+      "turnover_pct_daily": 19.820282,
+      "long_units": 0,
+      "short_units": 2,
+      "gross_units": 2,
+      "net_units": -2,
+      "net_exposure_pct": -20.0,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "cost_sensitivity": [
+        {
+          "fees_bps": 5.0,
+          "net_cum_pnl": 85673.983719,
+          "net_cum_return_pct": 0.85674
+        },
+        {
+          "fees_bps": 10.0,
+          "net_cum_pnl": 80673.983719,
+          "net_cum_return_pct": 0.80674
+        },
+        {
+          "fees_bps": 15.0,
+          "net_cum_pnl": 75673.983719,
+          "net_cum_return_pct": 0.75674
+        }
+      ],
+      "risk_gate_details": {
+        "mode": "champion",
+        "enabled": true,
+        "thresholds": {
+          "maxDrawdownPct": -8.0,
+          "worstMonthPct": -8.0,
+          "maxTurnoverPctPerMonth": 300.0,
+          "maxNetExposureUnits": 2.0
+        },
+        "observed": {
+          "maxDrawdownPct": -0.527046,
+          "worstMonthPct": 0.9207371655068908,
+          "maxTurnoverPctPerMonth": 59.825829999999996,
+          "maxNetExposureUnits": 2.0
+        },
+        "pass": true,
+        "reason": ""
+      }
+    },
+    "performance_breakdown": {
+      "gross": {
+        "daily_pnl": 0.0,
+        "cum_pnl": 90673.983719,
+        "cum_return_pct": 0.90674
+      },
+      "net": {
+        "daily_pnl": 0.0,
+        "cum_pnl": 90673.983719,
+        "cum_return_pct": 0.90674
+      },
+      "costs": {
+        "fees_daily": 0.0,
+        "slippage_daily": 0.0,
+        "borrow_daily": 0.0,
+        "fees_cum": 0.0,
+        "slippage_cum": 0.0,
+        "borrow_cum": 0.0
+      },
+      "turnover": {
+        "daily_notional": 2000000.0,
+        "cum_notional": 10000000.0,
+        "daily_pct": 19.820282
+      },
+      "exposure": {
+        "long_units": 0,
+        "short_units": 2,
+        "gross_units": 2,
+        "net_units": -2,
+        "net_exposure_pct": -20.0
+      },
+      "sensitivity": [
+        {
+          "fees_bps": 5.0,
+          "net_cum_pnl": 85673.983719,
+          "net_cum_return_pct": 0.85674
+        },
+        {
+          "fees_bps": 10.0,
+          "net_cum_pnl": 80673.983719,
+          "net_cum_return_pct": 0.80674
+        },
+        {
+          "fees_bps": 15.0,
+          "net_cum_pnl": 75673.983719,
+          "net_cum_return_pct": 0.75674
+        }
+      ]
+    },
+    "risk_gate": {
+      "pass": true,
+      "reason": "",
+      "details": {
+        "mode": "champion",
+        "enabled": true,
+        "thresholds": {
+          "maxDrawdownPct": -8.0,
+          "worstMonthPct": -8.0,
+          "maxTurnoverPctPerMonth": 300.0,
+          "maxNetExposureUnits": 2.0
+        },
+        "observed": {
+          "maxDrawdownPct": -0.527046,
+          "worstMonthPct": 0.9207371655068908,
+          "maxTurnoverPctPerMonth": 59.825829999999996,
+          "maxNetExposureUnits": 2.0
+        },
+        "pass": true,
+        "reason": ""
+      }
+    }
+  },
+  "summary": {
+    "window_days": 10,
+    "metric_days": 10,
+    "short_entries": 3,
+    "pass_days": 10,
+    "all_pass": true,
+    "min_max_drawdown_pct": -0.527046,
+    "promotion_gate_pass": true,
+    "rollback_trigger": false,
+    "rollback_reason": "",
+    "latest": {
+      "as_of": "2026-03-04",
+      "net_cum_return_pct": 0.90674,
+      "max_drawdown_pct": -0.527046,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 2,
+      "long_units": 0
+    }
+  },
+  "metrics_window": [
+    {
+      "as_of": "2026-02-18",
+      "net_cum_return_pct": 0.0,
+      "max_drawdown_pct": 0.0,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 2,
+      "long_units": 0
+    },
+    {
+      "as_of": "2026-02-19",
+      "net_cum_return_pct": -0.527046,
+      "max_drawdown_pct": -0.527046,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 2,
+      "long_units": 0
+    },
+    {
+      "as_of": "2026-02-20",
+      "net_cum_return_pct": -0.01387,
+      "max_drawdown_pct": -0.527046,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 0,
+      "long_units": 0
+    },
+    {
+      "as_of": "2026-02-24",
+      "net_cum_return_pct": -0.01387,
+      "max_drawdown_pct": -0.527046,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 0,
+      "long_units": 0
+    },
+    {
+      "as_of": "2026-02-25",
+      "net_cum_return_pct": -0.01387,
+      "max_drawdown_pct": -0.527046,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 0,
+      "long_units": 0
+    },
+    {
+      "as_of": "2026-02-26",
+      "net_cum_return_pct": -0.01387,
+      "max_drawdown_pct": -0.527046,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 0,
+      "long_units": 0
+    },
+    {
+      "as_of": "2026-02-27",
+      "net_cum_return_pct": -0.01387,
+      "max_drawdown_pct": -0.527046,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 0,
+      "long_units": 0
+    },
+    {
+      "as_of": "2026-03-02",
+      "net_cum_return_pct": -0.01387,
+      "max_drawdown_pct": -0.527046,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 2,
+      "long_units": 0
+    },
+    {
+      "as_of": "2026-03-03",
+      "net_cum_return_pct": 0.90674,
+      "max_drawdown_pct": -0.527046,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 0,
+      "long_units": 0
+    },
+    {
+      "as_of": "2026-03-04",
+      "net_cum_return_pct": 0.90674,
+      "max_drawdown_pct": -0.527046,
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "short_units": 2,
+      "long_units": 0
+    }
+  ]
+}

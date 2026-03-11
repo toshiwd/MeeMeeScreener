@@ -13,7 +13,11 @@ type TechnicalFilterDrawerProps = {
   anchorLabel: string | null;
   matchCount: number | null;
   value: TechnicalFilterState;
+  buyStateFilter: "all" | "initial" | "base";
+  shortTierAbOnly: boolean;
   onChange: (next: TechnicalFilterState) => void;
+  onBuyStateFilterChange: (next: "all" | "initial" | "base") => void;
+  onShortTierAbOnlyChange: (next: boolean) => void;
   onApply: () => void;
   onCancel: () => void;
   onReset: () => void;
@@ -74,13 +78,18 @@ export default function TechnicalFilterDrawer({
   anchorLabel,
   matchCount,
   value,
+  buyStateFilter,
+  shortTierAbOnly,
   onChange,
+  onBuyStateFilterChange,
+  onShortTierAbOnlyChange,
   onApply,
   onCancel,
   onReset,
   onTimeframeChange
 }: TechnicalFilterDrawerProps) {
   const timeframeLabel = formatTimeframeLabel(timeframe);
+  const boxThisMonth = value.boxThisMonth;
 
   const handleAddCondition = () => {
     if (value.conditions.length >= 10) return;
@@ -143,6 +152,49 @@ export default function TechnicalFilterDrawer({
               </div>
               <div className="tech-filter-section-meta">
                 判定: {timeframeLabel} / 基準日: {anchorLabel ?? "---"}
+              </div>
+            </div>
+            <div className="tech-filter-section">
+              <div className="tech-filter-section-title">ボックス</div>
+              <div className="tech-filter-pill-row">
+                <button
+                  type="button"
+                  className={`tech-filter-pill ${boxThisMonth ? "active" : ""}`}
+                  onClick={() =>
+                    onChange({
+                      ...value,
+                      boxThisMonth: !boxThisMonth
+                    })
+                  }
+                >
+                  今月ボックス
+                </button>
+              </div>
+            </div>
+            <div className="tech-filter-section">
+              <div className="tech-filter-section-title">クイック</div>
+              <div className="tech-filter-pill-row">
+                <button
+                  type="button"
+                  className={`tech-filter-pill ${buyStateFilter === "initial" ? "active" : ""}`}
+                  onClick={() => onBuyStateFilterChange(buyStateFilter === "initial" ? "all" : "initial")}
+                >
+                  初動のみ
+                </button>
+                <button
+                  type="button"
+                  className={`tech-filter-pill ${buyStateFilter === "base" ? "active" : ""}`}
+                  onClick={() => onBuyStateFilterChange(buyStateFilter === "base" ? "all" : "base")}
+                >
+                  底がためのみ
+                </button>
+                <button
+                  type="button"
+                  className={`tech-filter-pill ${shortTierAbOnly ? "active" : ""}`}
+                  onClick={() => onShortTierAbOnlyChange(!shortTierAbOnly)}
+                >
+                  売りTier A/Bのみ
+                </button>
               </div>
             </div>
             <div className="tech-filter-section tech-filter-conditions">

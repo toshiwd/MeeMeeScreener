@@ -55,7 +55,8 @@ export default function Sparkline({ code }: { code: string }) {
         width,
         layout: {
           background: { color: "transparent" },
-          textColor: "#7c8698"
+          textColor: "#7c8698",
+          attributionLogo: false
         },
         grid: {
           vertLines: { color: "rgba(255,255,255,0.04)" },
@@ -70,11 +71,11 @@ export default function Sparkline({ code }: { code: string }) {
       });
 
       const series = chart.addCandlestickSeries({
-        upColor: "#42d392",
-        downColor: "#ef4444",
+        upColor: "#ef4444",
+        downColor: "#22c55e",
         borderVisible: false,
-        wickUpColor: "#42d392",
-        wickDownColor: "#ef4444"
+        wickUpColor: "#ef4444",
+        wickDownColor: "#22c55e"
       });
 
       const ma3 = chart.addLineSeries({ color: MA_COLORS.ma3, lineWidth: 1, priceLineVisible: false });

@@ -19,6 +19,12 @@ export type SignalMetrics = {
   exhaustionRisk: number;
 };
 
+export type SignalDirectionSummary = {
+  hasBuySignal: boolean;
+  hasSellSignal: boolean;
+  hasAnySignal: boolean;
+};
+
 const PERIODS = [7, 20, 60, 100];
 
 const THRESHOLDS: Record<number, number> = {
@@ -138,6 +144,19 @@ const buildSignals = (counts: Record<number, MaCountState>, maxSignals: number) 
   return signals.slice(0, maxSignals);
 };
 
+const hasDirectionalThresholdSignal = (
+  counts: Record<number, MaCountState>,
+  direction: "up" | "down"
+) => {
+  return [100, 60, 20, 7].some((period) => {
+    const state = counts[period];
+    if (!state) return false;
+    const threshold = THRESHOLDS[period] ?? Math.floor(period * 0.8);
+    const count = direction === "up" ? state.upCount : state.downCount;
+    return count >= threshold;
+  });
+};
+
 const computeTrendStrength = (counts: Record<number, MaCountState>) => {
   let total = 0;
   PERIODS.forEach((period) => {
@@ -206,5 +225,15 @@ export const computeSignalMetrics = (bars: number[][], maxSignals = 5): SignalMe
     signals: buildSignals(counts, maxSignals),
     trendStrength: computeTrendStrength(counts),
     exhaustionRisk: computeExhaustionRisk(counts)
+  };
+};
+
+export const getSignalDirectionSummary = (metrics: SignalMetrics): SignalDirectionSummary => {
+  const hasBuySignal = hasDirectionalThresholdSignal(metrics.counts, "up");
+  const hasSellSignal = hasDirectionalThresholdSignal(metrics.counts, "down");
+  return {
+    hasBuySignal,
+    hasSellSignal,
+    hasAnySignal: hasBuySignal || hasSellSignal
   };
 };

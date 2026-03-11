@@ -1,0 +1,87 @@
+{
+  "asOf": "2026-02-06",
+  "metrics": {
+    "asOf": "2026-02-06",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 7978728.052961,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -21271.947039,
+        "net_cum_return_pct": -0.212719
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -21271.947039,
+        "net_cum_return_pct": -0.212719
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -30271.947039,
+        "net_cum_return_pct": -0.302719
+      }
+    ],
+    "cum_pnl": -21271.947039,
+    "cum_return_pct": -0.212719,
+    "daily_pnl": -2346.07563,
+    "equity": 9978728.052961,
+    "fees_cost_cum": 18000.0,
+    "fees_cost_daily": 2000.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 1465.788658,
+    "gross_cum_return_pct": 0.014658,
+    "gross_daily_pnl": 0.0,
+    "gross_units": 2,
+    "holdings_count": 1,
+    "long_units": 2,
+    "max_drawdown_pct": -0.900436,
+    "net_cum_pnl": -21271.947039,
+    "net_cum_return_pct": -0.212719,
+    "net_daily_pnl": -2346.07563,
+    "net_exposure_pct": 20.0,
+    "net_units": 2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -0.900436,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 120.323593,
+        "worstMonthPct": 0.6695802515668703
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "tradex_exec_costed_short_01_20260218",
+    "short_units": 0,
+    "slippage_cost_cum": 4737.735697,
+    "slippage_cost_daily": 346.07563,
+    "turnover_notional_cum": 18000000.0,
+    "turnover_notional_daily": 2000000.0,
+    "turnover_pct_daily": 20.037924
+  },
+  "positions": [
+    {
+      "avgPrice": 1150.0,
+      "holdingDays": 1,
+      "openedAt": "2026-02-06",
+      "pnlPct": 0.0,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "4443",
+      "units": 2
+    }
+  ],
+  "seasonId": "tradex_exec_costed_short_01_20260218"
+}

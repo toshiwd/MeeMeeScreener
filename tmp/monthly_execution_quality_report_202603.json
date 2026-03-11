@@ -1,0 +1,60 @@
+{
+  "source": "tmp/monthly_execution_plan_202603_strictplus_backups.json",
+  "overall": {
+    "phase_count": 3,
+    "health_counts": {
+      "ok": 3,
+      "warn": 0,
+      "alert": 0
+    },
+    "strict_gap_avg": -0.028749464644680978,
+    "relaxed_gap_avg": -0.03113757767666503
+  },
+  "phases": [
+    {
+      "phase": 1,
+      "date": "2026-03-02",
+      "primary_count": 4,
+      "strict_plus_backup_count": 4,
+      "relaxed_reserve_count": 4,
+      "primary_composite_avg": 1.2212544382784871,
+      "strict_plus_composite_avg": 1.1034094334495843,
+      "relaxed_composite_avg": 1.1057975464815684,
+      "strict_plus_gap_vs_primary": 0.11784500482890281,
+      "relaxed_gap_vs_primary": 0.11545689179691876,
+      "strict_plus_total_risk_flags": 8,
+      "relaxed_total_risk_flags": 8,
+      "health": "ok"
+    },
+    {
+      "phase": 2,
+      "date": "2026-03-09",
+      "primary_count": 3,
+      "strict_plus_backup_count": 4,
+      "relaxed_reserve_count": 4,
+      "primary_composite_avg": 1.089944877507587,
+      "strict_plus_composite_avg": 1.1034094334495843,
+      "relaxed_composite_avg": 1.1057975464815684,
+      "strict_plus_gap_vs_primary": -0.013464555941997247,
+      "relaxed_gap_vs_primary": -0.0158526689739813,
+      "strict_plus_total_risk_flags": 8,
+      "relaxed_total_risk_flags": 8,
+      "health": "ok"
+    },
+    {
+      "phase": 3,
+      "date": "2026-03-16",
+      "primary_count": 3,
+      "strict_plus_backup_count": 4,
+      "relaxed_reserve_count": 4,
+      "primary_composite_avg": 0.9127805906286358,
+      "strict_plus_composite_avg": 1.1034094334495843,
+      "relaxed_composite_avg": 1.1057975464815684,
+      "strict_plus_gap_vs_primary": -0.1906288428209485,
+      "relaxed_gap_vs_primary": -0.19301695585293255,
+      "strict_plus_total_risk_flags": 8,
+      "relaxed_total_risk_flags": 8,
+      "health": "ok"
+    }
+  ]
+}

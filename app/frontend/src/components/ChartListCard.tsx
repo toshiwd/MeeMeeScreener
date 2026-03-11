@@ -1,26 +1,12 @@
-﻿import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { BarsPayload, MaSetting } from "../store";
 import type { SignalChip } from "../utils/signals";
 import { formatEventBadgeDate } from "../utils/events";
-import ChartInfoPanel from "./ChartInfoPanel";
-import DetailChart from "./DetailChart";
-
-type Candle = {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-};
-
-type VolumePoint = {
-  time: number;
-  value: number;
-};
+import ThumbnailCanvas from "./ThumbnailCanvas";
 
 type ActionConfig = {
-  label: string;
+  label: ReactNode;
   ariaLabel: string;
   className?: string;
   onClick: () => void;
@@ -45,12 +31,25 @@ type ChartListCardProps = {
   onOpenDetail: (code: string) => void;
   signals?: SignalChip[];
   action?: ActionConfig | null;
+  maxDate?: string | null;
+  phaseBody?: number | null;
+  phaseEarly?: number | null;
+  phaseLate?: number | null;
+  phaseN?: number | null;
 };
 
 const normalizeDateParts = (year: number, month: number, day: number) => {
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
   if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return null;
   return Math.floor(Date.UTC(year, month - 1, day) / 1000);
+};
+
+const parseMaxDate = (value: string | null | undefined): number | null => {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  // Use UTC midnight for comparison
+  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 1000);
 };
 
 const normalizeTime = (value: unknown) => {
@@ -92,55 +91,6 @@ const normalizeTime = (value: unknown) => {
     }
   }
   return null;
-};
-
-const buildCandles = (rows: number[][]): Candle[] => {
-  const entries: Candle[] = [];
-  for (const row of rows) {
-    if (!Array.isArray(row) || row.length < 5) continue;
-    const time = normalizeTime(row[0]);
-    if (time == null) continue;
-    const open = Number(row[1]);
-    const high = Number(row[2]);
-    const low = Number(row[3]);
-    const close = Number(row[4]);
-    if (![open, high, low, close].every((value) => Number.isFinite(value))) continue;
-    entries.push({ time, open, high, low, close });
-  }
-  entries.sort((a, b) => a.time - b.time);
-  return entries;
-};
-
-const buildVolume = (rows: number[][]): VolumePoint[] => {
-  const entries: VolumePoint[] = [];
-  for (const row of rows) {
-    if (!Array.isArray(row) || row.length < 6) continue;
-    const time = normalizeTime(row[0]);
-    if (time == null) continue;
-    const value = Number(row[5]);
-    if (!Number.isFinite(value)) continue;
-    entries.push({ time, value });
-  }
-  entries.sort((a, b) => a.time - b.time);
-  return entries;
-};
-
-const computeMA = (candles: Candle[], period: number) => {
-  if (period <= 1) {
-    return candles.map((c) => ({ time: c.time, value: c.close }));
-  }
-  const data: { time: number; value: number }[] = [];
-  let sum = 0;
-  for (let i = 0; i < candles.length; i += 1) {
-    sum += candles[i].close;
-    if (i >= period) {
-      sum -= candles[i - period].close;
-    }
-    if (i >= period - 1) {
-      data.push({ time: candles[i].time, value: sum / period });
-    }
-  }
-  return data;
 };
 
 const parseRootMarginPx = (value: string): number => {
@@ -249,86 +199,53 @@ const ChartListCard = memo(function ChartListCard({
   densityKey,
   onOpenDetail,
   signals,
-  action
+  action,
+  maxDate,
+  phaseBody,
+  phaseEarly,
+  phaseLate,
+  phaseN
 }: ChartListCardProps) {
   const { ref, inView } = useInView(deferUntilInView, rootMargin);
-  const [hoverTime, setHoverTime] = useState<number | null>(null);
-  const hoverRafRef = useRef<number | null>(null);
-  const hoverPendingRef = useRef<number | null>(null);
-  const hoverValueRef = useRef<number | null>(null);
-
-  const rows = useMemo(
-    () => (payload?.bars?.length ? payload.bars : fallbackSeries ?? []),
-    [payload, fallbackSeries]
-  );
-  const candlesAll = useMemo(() => buildCandles(rows), [rows]);
-  const volumeAll = useMemo(() => buildVolume(rows), [rows]);
-  const candles = useMemo(() => {
-    if (!rangeBars || rangeBars <= 0) return candlesAll;
-    return candlesAll.slice(-rangeBars);
-  }, [candlesAll, rangeBars]);
-  const volume = useMemo(() => {
-    if (!rangeBars || rangeBars <= 0) return volumeAll;
-    return volumeAll.slice(-rangeBars);
-  }, [volumeAll, rangeBars]);
-  const maLines = useMemo(
-    () =>
-      maSettings.map((setting) => ({
-        key: setting.key,
-        label: setting.label,
-        period: setting.period,
-        color: setting.color,
-        visible: setting.visible,
-        lineWidth: setting.lineWidth,
-        data: computeMA(candlesAll, setting.period)
-      })),
-    [candlesAll, maSettings]
-  );
-  const rangedMaLines = useMemo(() => {
-    if (!rangeBars || rangeBars <= 0) return maLines;
-    return maLines.map((line) => ({
-      ...line,
-      data: line.data.slice(-rangeBars)
-    }));
-  }, [maLines, rangeBars]);
-  const barsForInfo = useMemo(
-    () => candles.map((bar) => ({ time: bar.time, close: bar.close })),
-    [candles]
-  );
+  const maxTime = useMemo(() => parseMaxDate(maxDate), [maxDate]);
+  const basePayload = useMemo(() => {
+    if (payload?.bars?.length) return payload;
+    if (fallbackSeries?.length) {
+      return {
+        bars: fallbackSeries,
+        ma: { ma7: [], ma20: [], ma60: [] }
+      };
+    }
+    return null;
+  }, [payload, fallbackSeries]);
+  const barsPayload = useMemo(() => {
+    if (!basePayload) return null;
+    if (maxTime === null) return basePayload;
+    const filteredBars = basePayload.bars.filter((row) => {
+      const time = normalizeTime(row[0]);
+      return time != null && time <= maxTime;
+    });
+    return { ...basePayload, bars: filteredBars };
+  }, [basePayload, maxTime]);
   const chartKey = `${code}-${rangeBars ?? "all"}-${densityKey ?? "default"}`;
 
-  const scheduleHoverTime = useCallback((time: number | null) => {
-    hoverPendingRef.current = time;
-    if (hoverRafRef.current !== null) return;
-    hoverRafRef.current = window.requestAnimationFrame(() => {
-      hoverRafRef.current = null;
-      const next = hoverPendingRef.current ?? null;
-      if (hoverValueRef.current === next) return;
-      hoverValueRef.current = next;
-      setHoverTime(next);
-    });
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (hoverRafRef.current !== null) {
-        window.cancelAnimationFrame(hoverRafRef.current);
-        hoverRafRef.current = null;
-      }
-    },
-    []
-  );
-
   const handleOpen = () => onOpenDetail(code);
-  const showLoading = rows.length === 0;
+  const showLoading = !barsPayload || barsPayload.bars.length === 0;
   const earningsLabel = formatEventBadgeDate(eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(eventRightsDate);
+  const formatScore = (value: number | null | undefined) =>
+    Number.isFinite(value)
+      ? String(Math.min(10, Math.max(0, Math.round(value! * 10))))
+      : "--";
+  const formatN = (value: number | null | undefined) =>
+    typeof value === "number" ? String(value) : "--";
+  const showPhase = false;
   const loadingLabel =
     status === "error"
       ? "読み込み失敗"
       : status === "empty"
-      ? "データなし"
-      : "読み込み中...";
+        ? "データなし"
+        : "読み込み中...";
 
   return (
     <div
@@ -391,25 +308,31 @@ const ChartListCard = memo(function ChartListCard({
           </div>
         </div>
       ) : null}
+      {showPhase && (
+        <div className="tile-phase">
+          <div className="tile-scores">
+            <span className="score-chip">B {formatScore(phaseBody)}</span>
+            <span className="score-chip">E {formatScore(phaseEarly)}</span>
+            <span className="score-chip">L {formatScore(phaseLate)}</span>
+            <span className="score-chip">n {formatN(phaseN)}</span>
+          </div>
+        </div>
+      )}
       <div className="tile-chart">
         {deferUntilInView && !inView && <div className="rank-chart-placeholder" />}
         {(!deferUntilInView || inView) && showLoading && (
           <div className="tile-loading">{loadingLabel}</div>
         )}
-        {(!deferUntilInView || inView) && !showLoading && (
-          <>
-            <DetailChart
-              key={chartKey}
-              candles={candles}
-              volume={volume}
-              maLines={rangedMaLines}
-              showVolume={false}
-              boxes={[]}
-              showBoxes={false}
-              onCrosshairMove={(time) => scheduleHoverTime(time)}
-            />
-            <ChartInfoPanel bars={barsForInfo} hoverTime={hoverTime} />
-          </>
+        {(!deferUntilInView || inView) && !showLoading && barsPayload && (
+          <ThumbnailCanvas
+            key={chartKey}
+            payload={barsPayload}
+            boxes={[]}
+            showBoxes={false}
+            maSettings={maSettings}
+            maxBars={rangeBars ?? undefined}
+            showAxes
+          />
         )}
       </div>
     </div>
@@ -417,3 +340,7 @@ const ChartListCard = memo(function ChartListCard({
 });
 
 export default ChartListCard;
+
+
+
+

@@ -1,4 +1,8 @@
 import { memo, type MouseEvent } from "react";
+import { useEffect } from "react";
+import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
+import { api } from "../api";
+import { useBackendReadyState } from "../backendReady";
 import { Ticker, useStore } from "../store";
 import type { SignalChip } from "../utils/signals";
 import { formatEventBadgeDate } from "../utils/events";
@@ -40,6 +44,11 @@ const StockTile = memo(function StockTile({
     const map = state.barsCache?.[timeframe] ?? {};
     return map[ticker.code];
   });
+  const { ready: backendReady } = useBackendReadyState();
+  const favorites = useStore((state) => state.favorites);
+  const favoritesLoaded = useStore((state) => state.favoritesLoaded);
+  const loadFavorites = useStore((state) => state.loadFavorites);
+  const setFavoriteLocal = useStore((state) => state.setFavoriteLocal);
   const boxes = useStore((state) => {
     const map = state.boxesCache?.[timeframe] ?? {};
     return map[ticker.code] ?? [];
@@ -62,6 +71,36 @@ const StockTile = memo(function StockTile({
   const cachedThumb = getThumbnailCache(cacheKey);
   const earningsLabel = formatEventBadgeDate(ticker.eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(ticker.eventRightsDate);
+  const isFavorite = favorites.includes(ticker.code);
+  const entryPriorityScore = Number.isFinite(ticker.entryPriorityScore ?? NaN)
+    ? Math.round(ticker.entryPriorityScore as number)
+    : null;
+  const entryPriorityTier = ticker.entryPriorityTier ?? null;
+  const entryPriorityLabel = (ticker.entryPriorityLabel ?? "").trim();
+  const entryPriorityReasons = Array.isArray(ticker.entryPriorityReasons)
+    ? ticker.entryPriorityReasons.filter((reason) => typeof reason === "string" && reason.trim()).slice(0, 3)
+    : [];
+  const showEntryPriorityChip = Boolean(entryPriorityTier && entryPriorityScore != null);
+  const entryPriorityTitle = [entryPriorityLabel, ...entryPriorityReasons].filter(Boolean).join(" / ");
+  const shortPriorityScore = Number.isFinite(ticker.shortPriorityScore ?? NaN)
+    ? Math.round(ticker.shortPriorityScore as number)
+    : null;
+  const shortPriorityTier = ticker.shortPriorityTier ?? null;
+  const shortPriorityLabel = (ticker.shortPriorityLabel ?? "").trim();
+  const shortPriorityReasons = Array.isArray(ticker.shortPriorityReasons)
+    ? ticker.shortPriorityReasons.filter((reason) => typeof reason === "string" && reason.trim()).slice(0, 3)
+    : [];
+  const showShortPriorityChip = Boolean(shortPriorityTier && shortPriorityScore != null);
+  const shortPriorityTitle = [shortPriorityLabel, ...shortPriorityReasons].filter(Boolean).join(" / ");
+  const patternName = (ticker.buyPatternName ?? "").trim();
+  const patternCode = (ticker.buyPatternCode ?? "").trim();
+  const showPatternChip = patternName.length > 0 && patternCode !== "WAIT";
+  const patternTone = ticker.buyOverextended ? "warning" : ticker.buyEligible ? "achieved" : "";
+
+  useEffect(() => {
+    if (!backendReady || favoritesLoaded) return;
+    loadFavorites();
+  }, [backendReady, favoritesLoaded, loadFavorites]);
 
   const handleActivate = () => onActivate?.(ticker.code);
   const handleOpenDetail = () => onOpenDetail(ticker.code);
@@ -73,6 +112,21 @@ const StockTile = memo(function StockTile({
     event.stopPropagation();
     onExclude?.(ticker.code);
   };
+  const handleToggleFavorite = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (!backendReady) return;
+    const next = !isFavorite;
+    setFavoriteLocal(ticker.code, next);
+    try {
+      if (next) {
+        await api.post(`/favorites/${encodeURIComponent(ticker.code)}`);
+      } else {
+        await api.delete(`/favorites/${encodeURIComponent(ticker.code)}`);
+      }
+    } catch {
+      setFavoriteLocal(ticker.code, isFavorite);
+    }
+  };
   const handleOpenClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     handleOpenDetail();
@@ -83,8 +137,10 @@ const StockTile = memo(function StockTile({
       className={`tile ${active ? "is-selected" : ""}`}
       role="button"
       tabIndex={0}
-      onClick={handleActivate}
-      onDoubleClick={handleOpenDetail}
+      onClick={() => {
+        handleActivate();
+        handleOpenDetail();
+      }}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.preventDefault();
@@ -97,7 +153,7 @@ const StockTile = memo(function StockTile({
           <span className="tile-code">{ticker.code}</span>
           <span className="tile-name">{ticker.name}</span>
           {asofLabel && (
-            <span className="asof-badge" title={asofTooltip ?? undefined}>
+            <span className="asof-badge" data-tooltip={asofTooltip ?? ""}>
               asof: {asofLabel}
             </span>
           )}
@@ -108,15 +164,23 @@ const StockTile = memo(function StockTile({
             </span>
           )}
           {ticker.dataStatus === "missing" && (
-            <span className="badge status-missing">���捞</span>
+            <span className="badge status-missing">データ欠損</span>
           )}
         </div>
         <div className="tile-actions">
           <button
             type="button"
+            className={`favorite-toggle ${isFavorite ? "active" : ""}`}
+            onClick={handleToggleFavorite}
+            aria-label={isFavorite ? "お気に入り解除" : "お気に入り追加"}
+          >
+            {isFavorite ? <IconHeartFilled size={16} /> : <IconHeart size={16} />}
+          </button>
+          <button
+            type="button"
             className={`tile-action ${kept ? "active" : ""}`}
             onClick={handleToggleKeep}
-            aria-label={kept ? "��┠����O��" : "��┠�֒ǉ�"}
+            aria-label={kept ? "候補から外す" : "候補に追加"}
           >
             +
           </button>
@@ -124,7 +188,7 @@ const StockTile = memo(function StockTile({
             type="button"
             className="tile-action danger"
             onClick={handleExclude}
-            aria-label="���O"
+            aria-label="除外"
           >
             x
           </button>
@@ -132,15 +196,36 @@ const StockTile = memo(function StockTile({
             type="button"
             className="tile-action"
             onClick={handleOpenClick}
-            aria-label="�ڍׂ��J��"
+            aria-label="詳細を開く"
           >
             &gt;
           </button>
         </div>
       </div>
-      {signals?.length ? (
+      {showEntryPriorityChip || showShortPriorityChip || showPatternChip || signals?.length ? (
         <div className="tile-signal-row">
           <div className="signal-chips">
+            {showEntryPriorityChip && (
+              <span
+                className={`signal-chip entry-tier tier-${String(entryPriorityTier).toLowerCase()}`}
+                data-tooltip={entryPriorityTitle}
+              >
+                仕込{entryPriorityTier}:{entryPriorityScore}
+              </span>
+            )}
+            {showShortPriorityChip && (
+              <span
+                className={`signal-chip short-tier tier-${String(shortPriorityTier).toLowerCase()}`}
+                data-tooltip={shortPriorityTitle}
+              >
+                売り{shortPriorityTier}:{shortPriorityScore}
+              </span>
+            )}
+            {showPatternChip && (
+              <span className={`signal-chip pattern ${patternTone}`.trim()}>
+                買い:{patternName}
+              </span>
+            )}
             {signals.slice(0, 4).map((signal) => (
               <span
                 key={signal.label}
@@ -169,12 +254,12 @@ const StockTile = memo(function StockTile({
             <img className="thumb-canvas-image" src={cachedThumb} alt="" />
           </div>
         ) : (
-          <div className="tile-loading">
+          <div className={`tile-loading ${barsStatus !== "error" && barsStatus !== "empty" ? "skeleton skeleton-chart" : ""}`}>
             {barsStatus === "error"
-              ? "�ǂݍ��ݎ��s"
+              ? "読み込み失敗"
               : barsStatus === "empty"
-              ? "�f�[�^�Ȃ�"
-              : "�ǂݍ��ݒ�..."}
+              ? "データなし"
+              : null}
           </div>
         )}
       </div>

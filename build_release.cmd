@@ -35,7 +35,15 @@ rem Create necessary files if they don't exist
 if not exist "..\\..\\app\\backend\\update_state.json" echo {} > "..\\..\\app\\backend\\update_state.json"
 if not exist "..\\..\\app\\backend\\rank_config.json" echo {} > "..\\..\\app\\backend\\rank_config.json"
 
-pyinstaller --noconfirm MeeMeeScreener.spec > pyinstaller_build.log 2>&1
+rem Ensure industry_master exists in bundled DuckDB (build-time, no runtime dependency)
+call python ..\\..\\tools\\setup\\ensure_industry_master.py --db "..\\..\\app\\backend\\stocks.duckdb"
+if errorlevel 1 goto :fail_pyinstaller
+
+rem Clean stale PyInstaller artifacts
+if exist "build" rmdir /s /q "build"
+if exist "dist\\MeeMeeScreener" rmdir /s /q "dist\\MeeMeeScreener"
+
+pyinstaller --clean --noconfirm MeeMeeScreener.spec > pyinstaller_build.log 2>&1
 if errorlevel 1 goto :fail_pyinstaller
 popd
 echo PyInstaller build completed.
@@ -54,6 +62,11 @@ if exist "release\\MeeMeeScreener" goto :fail_release_locked
 
 xcopy /y /s /e /q /i "build\\pyinstaller\\dist\\MeeMeeScreener\\*" "release\\MeeMeeScreener"
 if errorlevel 1 goto :fail_copy_release
+
+rem Copy latest ML seed artifacts for cross-PC ranking reproducibility
+python tools\\setup\\copy_seed_ml_models.py --dest "release\\MeeMeeScreener\\_internal\\seed\\models\\ml"
+if errorlevel 1 goto :fail_copy_seed
+
 
 rem Copy additional tools
 xcopy /y /s /e /q /i "tools\\*.vbs" "release\\MeeMeeScreener\\tools" 2>nul
@@ -102,6 +115,10 @@ exit /b 1
 
 :fail_copy_release
 echo ERROR: Copy to release folder failed
+exit /b 1
+
+:fail_copy_seed
+echo ERROR: Copying ML seed artifacts failed
 exit /b 1
 
 :fail_copy_tools

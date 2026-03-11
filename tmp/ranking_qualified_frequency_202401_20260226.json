@@ -1,0 +1,1364 @@
+{
+  "db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\stocks.duckdb",
+  "date_count": 266,
+  "date_start": 20250122,
+  "date_end": 20260225,
+  "scenarios": {
+    "D_latest_up_hybrid": {
+      "tf": "D",
+      "which": "latest",
+      "dir": "up",
+      "mode": "hybrid",
+      "limit": 50,
+      "total_days": 266,
+      "total_zero_qualified_days": 198,
+      "total_zero_rate": 0.7443609022556391,
+      "last_30_zero_days": [
+        20260107,
+        20260108,
+        20260113,
+        20260114,
+        20260115,
+        20260116,
+        20260119,
+        20260120,
+        20260121,
+        20260122,
+        20260123,
+        20260126,
+        20260127,
+        20260128,
+        20260129,
+        20260130,
+        20260202,
+        20260204,
+        20260205,
+        20260206,
+        20260209,
+        20260210,
+        20260212,
+        20260213,
+        20260216,
+        20260217,
+        20260218,
+        20260219,
+        20260220,
+        20260225
+      ],
+      "monthly_summary": [
+        {
+          "month": "202501",
+          "days": 8,
+          "zero_qualified_days": 7,
+          "zero_rate": 0.875,
+          "avg_qualified": 0.25,
+          "min_qualified": 0,
+          "max_qualified": 2
+        },
+        {
+          "month": "202502",
+          "days": 18,
+          "zero_qualified_days": 18,
+          "zero_rate": 1.0,
+          "avg_qualified": 0.0,
+          "min_qualified": 0,
+          "max_qualified": 0
+        },
+        {
+          "month": "202503",
+          "days": 20,
+          "zero_qualified_days": 19,
+          "zero_rate": 0.95,
+          "avg_qualified": 0.05,
+          "min_qualified": 0,
+          "max_qualified": 1
+        },
+        {
+          "month": "202504",
+          "days": 21,
+          "zero_qualified_days": 13,
+          "zero_rate": 0.6190476190476191,
+          "avg_qualified": 0.47619047619047616,
+          "min_qualified": 0,
+          "max_qualified": 2
+        },
+        {
+          "month": "202505",
+          "days": 20,
+          "zero_qualified_days": 15,
+          "zero_rate": 0.75,
+          "avg_qualified": 0.4,
+          "min_qualified": 0,
+          "max_qualified": 3
+        },
+        {
+          "month": "202506",
+          "days": 21,
+          "zero_qualified_days": 14,
+          "zero_rate": 0.6666666666666666,
+          "avg_qualified": 0.5238095238095238,
+          "min_qualified": 0,
+          "max_qualified": 2
+        },
+        {
+          "month": "202507",
+          "days": 22,
+          "zero_qualified_days": 9,
+          "zero_rate": 0.4090909090909091,
+          "avg_qualified": 1.2727272727272727,
+          "min_qualified": 0,
+          "max_qualified": 4
+        },
+        {
+          "month": "202508",
+          "days": 20,
+          "zero_qualified_days": 8,
+          "zero_rate": 0.4,
+          "avg_qualified": 1.5,
+          "min_qualified": 0,
+          "max_qualified": 4
+        },
+        {
+          "month": "202509",
+          "days": 20,
+          "zero_qualified_days": 16,
+          "zero_rate": 0.8,
+          "avg_qualified": 0.55,
+          "min_qualified": 0,
+          "max_qualified": 4
+        },
+        {
+          "month": "202510",
+          "days": 22,
+          "zero_qualified_days": 14,
+          "zero_rate": 0.6363636363636364,
+          "avg_qualified": 0.8636363636363636,
+          "min_qualified": 0,
+          "max_qualified": 4
+        },
+        {
+          "month": "202511",
+          "days": 18,
+          "zero_qualified_days": 15,
+          "zero_rate": 0.8333333333333334,
+          "avg_qualified": 0.16666666666666666,
+          "min_qualified": 0,
+          "max_qualified": 1
+        },
+        {
+          "month": "202512",
+          "days": 22,
+          "zero_qualified_days": 19,
+          "zero_rate": 0.8636363636363636,
+          "avg_qualified": 0.22727272727272727,
+          "min_qualified": 0,
+          "max_qualified": 2
+        },
+        {
+          "month": "202601",
+          "days": 19,
+          "zero_qualified_days": 17,
+          "zero_rate": 0.8947368421052632,
+          "avg_qualified": 0.15789473684210525,
+          "min_qualified": 0,
+          "max_qualified": 2
+        },
+        {
+          "month": "202602",
+          "days": 15,
+          "zero_qualified_days": 14,
+          "zero_rate": 0.9333333333333333,
+          "avg_qualified": 0.13333333333333333,
+          "min_qualified": 0,
+          "max_qualified": 2
+        }
+      ],
+      "daily_tail": [
+        {
+          "date": 20251223,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251224,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251225,
+          "item_count": 8,
+          "qualified_true": 2,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251226,
+          "item_count": 8,
+          "qualified_true": 1,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251229,
+          "item_count": 8,
+          "qualified_true": 2,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251230,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260105,
+          "item_count": 8,
+          "qualified_true": 2,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260106,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260107,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260108,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260109,
+          "item_count": 8,
+          "qualified_true": 1,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260113,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260114,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260115,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260116,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260119,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260120,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260121,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260122,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260123,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260126,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260127,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260128,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260129,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260130,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260202,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260203,
+          "item_count": 6,
+          "qualified_true": 2,
+          "qualified_false": 4,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260204,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260205,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260206,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260209,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260210,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260212,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260213,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260216,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260217,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260218,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260219,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260220,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260225,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        }
+      ]
+    },
+    "D_latest_up_turn": {
+      "tf": "D",
+      "which": "latest",
+      "dir": "up",
+      "mode": "turn",
+      "limit": 50,
+      "total_days": 266,
+      "total_zero_qualified_days": 136,
+      "total_zero_rate": 0.5112781954887218,
+      "last_30_zero_days": [
+        20251209,
+        20251210,
+        20251211,
+        20251215,
+        20251217,
+        20251219,
+        20251223,
+        20251224,
+        20260106,
+        20260114,
+        20260115,
+        20260116,
+        20260121,
+        20260122,
+        20260128,
+        20260129,
+        20260202,
+        20260204,
+        20260205,
+        20260206,
+        20260209,
+        20260210,
+        20260212,
+        20260213,
+        20260216,
+        20260217,
+        20260218,
+        20260219,
+        20260220,
+        20260225
+      ],
+      "monthly_summary": [
+        {
+          "month": "202501",
+          "days": 8,
+          "zero_qualified_days": 6,
+          "zero_rate": 0.75,
+          "avg_qualified": 0.625,
+          "min_qualified": 0,
+          "max_qualified": 3
+        },
+        {
+          "month": "202502",
+          "days": 18,
+          "zero_qualified_days": 17,
+          "zero_rate": 0.9444444444444444,
+          "avg_qualified": 0.1111111111111111,
+          "min_qualified": 0,
+          "max_qualified": 2
+        },
+        {
+          "month": "202503",
+          "days": 20,
+          "zero_qualified_days": 16,
+          "zero_rate": 0.8,
+          "avg_qualified": 0.3,
+          "min_qualified": 0,
+          "max_qualified": 2
+        },
+        {
+          "month": "202504",
+          "days": 21,
+          "zero_qualified_days": 5,
+          "zero_rate": 0.23809523809523808,
+          "avg_qualified": 1.7619047619047619,
+          "min_qualified": 0,
+          "max_qualified": 4
+        },
+        {
+          "month": "202505",
+          "days": 20,
+          "zero_qualified_days": 12,
+          "zero_rate": 0.6,
+          "avg_qualified": 1.1,
+          "min_qualified": 0,
+          "max_qualified": 4
+        },
+        {
+          "month": "202506",
+          "days": 21,
+          "zero_qualified_days": 5,
+          "zero_rate": 0.23809523809523808,
+          "avg_qualified": 1.2857142857142858,
+          "min_qualified": 0,
+          "max_qualified": 2
+        },
+        {
+          "month": "202507",
+          "days": 22,
+          "zero_qualified_days": 2,
+          "zero_rate": 0.09090909090909091,
+          "avg_qualified": 2.1818181818181817,
+          "min_qualified": 0,
+          "max_qualified": 3
+        },
+        {
+          "month": "202508",
+          "days": 20,
+          "zero_qualified_days": 3,
+          "zero_rate": 0.15,
+          "avg_qualified": 2.3,
+          "min_qualified": 0,
+          "max_qualified": 4
+        },
+        {
+          "month": "202509",
+          "days": 20,
+          "zero_qualified_days": 14,
+          "zero_rate": 0.7,
+          "avg_qualified": 0.85,
+          "min_qualified": 0,
+          "max_qualified": 4
+        },
+        {
+          "month": "202510",
+          "days": 22,
+          "zero_qualified_days": 10,
+          "zero_rate": 0.45454545454545453,
+          "avg_qualified": 1.7272727272727273,
+          "min_qualified": 0,
+          "max_qualified": 4
+        },
+        {
+          "month": "202511",
+          "days": 18,
+          "zero_qualified_days": 11,
+          "zero_rate": 0.6111111111111112,
+          "avg_qualified": 0.8888888888888888,
+          "min_qualified": 0,
+          "max_qualified": 4
+        },
+        {
+          "month": "202512",
+          "days": 22,
+          "zero_qualified_days": 13,
+          "zero_rate": 0.5909090909090909,
+          "avg_qualified": 0.7727272727272727,
+          "min_qualified": 0,
+          "max_qualified": 3
+        },
+        {
+          "month": "202601",
+          "days": 19,
+          "zero_qualified_days": 8,
+          "zero_rate": 0.42105263157894735,
+          "avg_qualified": 1.1578947368421053,
+          "min_qualified": 0,
+          "max_qualified": 3
+        },
+        {
+          "month": "202602",
+          "days": 15,
+          "zero_qualified_days": 14,
+          "zero_rate": 0.9333333333333333,
+          "avg_qualified": 0.13333333333333333,
+          "min_qualified": 0,
+          "max_qualified": 2
+        }
+      ],
+      "daily_tail": [
+        {
+          "date": 20251223,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251224,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251225,
+          "item_count": 8,
+          "qualified_true": 2,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251226,
+          "item_count": 8,
+          "qualified_true": 3,
+          "qualified_false": 5,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251229,
+          "item_count": 8,
+          "qualified_true": 2,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251230,
+          "item_count": 8,
+          "qualified_true": 3,
+          "qualified_false": 5,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260105,
+          "item_count": 8,
+          "qualified_true": 3,
+          "qualified_false": 5,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260106,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260107,
+          "item_count": 8,
+          "qualified_true": 2,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260108,
+          "item_count": 8,
+          "qualified_true": 2,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260109,
+          "item_count": 8,
+          "qualified_true": 2,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260113,
+          "item_count": 7,
+          "qualified_true": 2,
+          "qualified_false": 5,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260114,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260115,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260116,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260119,
+          "item_count": 7,
+          "qualified_true": 2,
+          "qualified_false": 5,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260120,
+          "item_count": 6,
+          "qualified_true": 2,
+          "qualified_false": 4,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260121,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260122,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260123,
+          "item_count": 6,
+          "qualified_true": 2,
+          "qualified_false": 4,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260126,
+          "item_count": 6,
+          "qualified_true": 1,
+          "qualified_false": 5,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260127,
+          "item_count": 6,
+          "qualified_true": 2,
+          "qualified_false": 4,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260128,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260129,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260130,
+          "item_count": 6,
+          "qualified_true": 2,
+          "qualified_false": 4,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260202,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260203,
+          "item_count": 6,
+          "qualified_true": 2,
+          "qualified_false": 4,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260204,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260205,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260206,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260209,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260210,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260212,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260213,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260216,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260217,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260218,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260219,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260220,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260225,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        }
+      ]
+    },
+    "D_latest_down_hybrid": {
+      "tf": "D",
+      "which": "latest",
+      "dir": "down",
+      "mode": "hybrid",
+      "limit": 50,
+      "total_days": 266,
+      "total_zero_qualified_days": 258,
+      "total_zero_rate": 0.9699248120300752,
+      "last_30_zero_days": [
+        20260109,
+        20260113,
+        20260114,
+        20260115,
+        20260116,
+        20260119,
+        20260120,
+        20260121,
+        20260122,
+        20260123,
+        20260126,
+        20260127,
+        20260128,
+        20260129,
+        20260130,
+        20260202,
+        20260203,
+        20260204,
+        20260205,
+        20260206,
+        20260209,
+        20260210,
+        20260212,
+        20260213,
+        20260216,
+        20260217,
+        20260218,
+        20260219,
+        20260220,
+        20260225
+      ],
+      "monthly_summary": [
+        {
+          "month": "202501",
+          "days": 8,
+          "zero_qualified_days": 8,
+          "zero_rate": 1.0,
+          "avg_qualified": 0.0,
+          "min_qualified": 0,
+          "max_qualified": 0
+        },
+        {
+          "month": "202502",
+          "days": 18,
+          "zero_qualified_days": 18,
+          "zero_rate": 1.0,
+          "avg_qualified": 0.0,
+          "min_qualified": 0,
+          "max_qualified": 0
+        },
+        {
+          "month": "202503",
+          "days": 20,
+          "zero_qualified_days": 17,
+          "zero_rate": 0.85,
+          "avg_qualified": 0.15,
+          "min_qualified": 0,
+          "max_qualified": 1
+        },
+        {
+          "month": "202504",
+          "days": 21,
+          "zero_qualified_days": 19,
+          "zero_rate": 0.9047619047619048,
+          "avg_qualified": 0.09523809523809523,
+          "min_qualified": 0,
+          "max_qualified": 1
+        },
+        {
+          "month": "202505",
+          "days": 20,
+          "zero_qualified_days": 20,
+          "zero_rate": 1.0,
+          "avg_qualified": 0.0,
+          "min_qualified": 0,
+          "max_qualified": 0
+        },
+        {
+          "month": "202506",
+          "days": 21,
+          "zero_qualified_days": 21,
+          "zero_rate": 1.0,
+          "avg_qualified": 0.0,
+          "min_qualified": 0,
+          "max_qualified": 0
+        },
+        {
+          "month": "202507",
+          "days": 22,
+          "zero_qualified_days": 22,
+          "zero_rate": 1.0,
+          "avg_qualified": 0.0,
+          "min_qualified": 0,
+          "max_qualified": 0
+        },
+        {
+          "month": "202508",
+          "days": 20,
+          "zero_qualified_days": 20,
+          "zero_rate": 1.0,
+          "avg_qualified": 0.0,
+          "min_qualified": 0,
+          "max_qualified": 0
+        },
+        {
+          "month": "202509",
+          "days": 20,
+          "zero_qualified_days": 18,
+          "zero_rate": 0.9,
+          "avg_qualified": 0.1,
+          "min_qualified": 0,
+          "max_qualified": 1
+        },
+        {
+          "month": "202510",
+          "days": 22,
+          "zero_qualified_days": 21,
+          "zero_rate": 0.9545454545454546,
+          "avg_qualified": 0.045454545454545456,
+          "min_qualified": 0,
+          "max_qualified": 1
+        },
+        {
+          "month": "202511",
+          "days": 18,
+          "zero_qualified_days": 18,
+          "zero_rate": 1.0,
+          "avg_qualified": 0.0,
+          "min_qualified": 0,
+          "max_qualified": 0
+        },
+        {
+          "month": "202512",
+          "days": 22,
+          "zero_qualified_days": 22,
+          "zero_rate": 1.0,
+          "avg_qualified": 0.0,
+          "min_qualified": 0,
+          "max_qualified": 0
+        },
+        {
+          "month": "202601",
+          "days": 19,
+          "zero_qualified_days": 19,
+          "zero_rate": 1.0,
+          "avg_qualified": 0.0,
+          "min_qualified": 0,
+          "max_qualified": 0
+        },
+        {
+          "month": "202602",
+          "days": 15,
+          "zero_qualified_days": 15,
+          "zero_rate": 1.0,
+          "avg_qualified": 0.0,
+          "min_qualified": 0,
+          "max_qualified": 0
+        }
+      ],
+      "daily_tail": [
+        {
+          "date": 20251223,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251224,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251225,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251226,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251229,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20251230,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260105,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260106,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260107,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260108,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260109,
+          "item_count": 8,
+          "qualified_true": 0,
+          "qualified_false": 8,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260113,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260114,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260115,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260116,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260119,
+          "item_count": 7,
+          "qualified_true": 0,
+          "qualified_false": 7,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260120,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260121,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260122,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260123,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260126,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260127,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260128,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260129,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260130,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260202,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260203,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260204,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260205,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260206,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260209,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260210,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260212,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260213,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260216,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260217,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260218,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260219,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260220,
+          "item_count": 0,
+          "qualified_true": 0,
+          "qualified_false": 0,
+          "qualified_none": 0
+        },
+        {
+          "date": 20260225,
+          "item_count": 6,
+          "qualified_true": 0,
+          "qualified_false": 6,
+          "qualified_none": 0
+        }
+      ]
+    }
+  }
+}

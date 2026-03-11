@@ -1,0 +1,26 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -2,
+      "reasonId": "R_CUT_LOSS_WARN",
+      "side": "LONG",
+      "ticker": "4293"
+    }
+  ],
+  "asOf": "2026-01-14",
+  "checks": {
+    "exposureOk": true,
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v8",
+  "seasonId": "stage1_a60_net5_20260218",
+  "stage": {
+    "goal20Reached": true,
+    "goal30Reached": true,
+    "stage2Active": true
+  }
+}

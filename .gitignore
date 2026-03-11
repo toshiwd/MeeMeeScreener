@@ -5,7 +5,10 @@
 /app/frontend/node_modules/
 /app/frontend/dist/
 /app/backend/static/
-/build/
+/build/*
+!/build/pyinstaller/
+/build/pyinstaller/*
+!/build/pyinstaller/MeeMeeScreener.spec
 /release/
 __pycache__/
 .pytest_cache/
@@ -20,8 +23,23 @@ __pycache__/
 out.txt
 *.tmp
 *.log
+tmp/pullback_events_daily.csv
+tmp/pullback_events_with_candlestick_patterns.csv
+tmp/monthly_all_candidates_with_gate.csv
+tmp/monthly_all_candidates_with_gate_enriched.csv
 
 # Development databases (root level only)
 /stocks.duckdb
 /favorites.sqlite
 /practice.sqlite
+
+# Workspace cleanup / generated artifacts
+/.trash/
+/research_workspace/
+/data/edinetdb/
+/production_data/
+/published/
+/tmp/e2e_workspace/
+/tmp/codex-check/
+/tsc_errors*.txt
+/tmp_req.json

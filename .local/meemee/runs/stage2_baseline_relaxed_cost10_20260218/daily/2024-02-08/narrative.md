@@ -1,0 +1,25 @@
+# TOREDEX Narrative 2024-02-08
+
+- season_id: stage2_baseline_relaxed_cost10_20260218
+- mode: BACKTEST
+- policy_version: toredex.v8
+
+## Buy Top 3
+1. 5285 ev=0.07396664249456128 upProb=0.9949786507258753 revRisk=0.015603947243571515 gate=True:ENTRY_OK
+2. 6857 ev=0.07555192150449713 upProb=0.9297582037996546 revRisk=0.16137977355593938 gate=True:ENTRY_OK
+3. 1514 ev=0.06963788300835655 upProb=0.9166292134831461 revRisk=0.0 gate=True:ENTRY_OK
+
+## Sell Top 3
+1. 7776 ev=-0.028688524590163935 upProb=0.8834241245136187 revRisk=0.8834241245136187 gate=True:ENTRY_OK
+2. 1357 ev=-0.03954802259887006 upProb=0.7591061452513966 revRisk=0.7591061452513966 gate=True:ENTRY_OK
+3. 3402 ev=-0.06175482328993576 upProb=0.6665113476295341 revRisk=0.6665113476295341 gate=True:ENTRY_OK
+
+## Actions
+- no actions
+
+## Metrics
+- equity: 13122396.20975
+- cum_return_pct: 31.223962
+- max_drawdown_pct: -3.34037
+- holdings_count: 1
+- game_over: False

@@ -1,0 +1,177 @@
+{
+  "generated_at": "2026-02-26 12:26:02",
+  "startup": {
+    "ok": true,
+    "error": null,
+    "pid": 25872
+  },
+  "summary": {
+    "passed": 18,
+    "failed": 5,
+    "total": 23,
+    "nonzero_heatmap_color": null
+  },
+  "checks": [
+    {
+      "name": "health",
+      "ok": true,
+      "status_code": 200,
+      "path": "/health",
+      "error": null
+    },
+    {
+      "name": "api_health",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/health",
+      "error": null
+    },
+    {
+      "name": "list",
+      "ok": false,
+      "status_code": 404,
+      "path": "/api/list",
+      "error": null
+    },
+    {
+      "name": "grid_screener",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/grid/screener",
+      "error": null
+    },
+    {
+      "name": "market_heatmap",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/market/heatmap",
+      "error": null
+    },
+    {
+      "name": "rankings",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/rankings",
+      "error": null
+    },
+    {
+      "name": "rankings_trace",
+      "ok": false,
+      "status_code": null,
+      "path": "/api/rankings/trace/last-qualified",
+      "error": "HTTPConnectionPool(host='127.0.0.1', port=28888): Read timed out. (read timeout=15)"
+    },
+    {
+      "name": "ticker_daily",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/ticker/daily",
+      "error": null
+    },
+    {
+      "name": "positions_current",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/positions/current",
+      "error": null
+    },
+    {
+      "name": "positions_held",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/positions/held",
+      "error": null
+    },
+    {
+      "name": "favorites_get_before",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/favorites",
+      "error": null
+    },
+    {
+      "name": "favorites_add",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/favorites/1306",
+      "error": null
+    },
+    {
+      "name": "favorites_get_after_add",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/favorites",
+      "error": null
+    },
+    {
+      "name": "favorites_delete",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/favorites/1306",
+      "error": null
+    },
+    {
+      "name": "trade_import_sbi",
+      "ok": false,
+      "status_code": 400,
+      "path": "/api/imports/trade-history",
+      "error": null
+    },
+    {
+      "name": "trade_import_rakuten",
+      "ok": false,
+      "status_code": 400,
+      "path": "/api/imports/trade-history",
+      "error": null
+    },
+    {
+      "name": "job_txt_update_submit_1",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/jobs/txt-update",
+      "error": null
+    },
+    {
+      "name": "job_txt_update_submit_2",
+      "ok": false,
+      "status_code": 409,
+      "path": "/api/jobs/txt-update",
+      "error": null
+    },
+    {
+      "name": "jobs_current",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/jobs/current",
+      "error": null
+    },
+    {
+      "name": "jobs_history",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/jobs/history",
+      "error": null
+    },
+    {
+      "name": "events_meta",
+      "ok": true,
+      "status_code": 200,
+      "path": "/api/events/meta",
+      "error": null
+    },
+    {
+      "name": "spa_market",
+      "ok": true,
+      "status_code": 200,
+      "path": "/market",
+      "error": null
+    },
+    {
+      "name": "spa_ranking",
+      "ok": true,
+      "status_code": 200,
+      "path": "/ranking",
+      "error": null
+    }
+  ]
+}

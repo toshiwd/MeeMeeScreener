@@ -1,0 +1,25 @@
+# TOREDEX Narrative 2025-12-23
+
+- season_id: tradex_demo_202512_v2
+- mode: BACKTEST
+- policy_version: toredex.v1
+
+## Buy Top 3
+1. 9235 ev=0.16611295681063123 upProb=0.0 revRisk=1.0 gate=True:ENTRY_OK_FALLBACK
+2. 4784 ev=0.12771739130434784 upProb=0.043076923076923075 revRisk=0.3069230769230769 gate=True:ENTRY_OK_FALLBACK
+3. 6330 ev=0.0968421052631579 upProb=0.18970476911430734 revRisk=0.16029523088569264 gate=True:ENTRY_OK_FALLBACK
+
+## Sell Top 3
+1. 4316 ev=-0.08828125 upProb=0.11076923076923076 revRisk=0.23923076923076922 gate=True:ENTRY_OK_FALLBACK
+2. 4889 ev=-0.07997594708358388 upProb=0.029146919431279616 revRisk=0.32085308056872036 gate=True:ENTRY_OK_FALLBACK
+3. 7261 ev=-0.029318541996830427 upProb=0.7863437236731255 revRisk=0.2774454615485032 gate=True:ENTRY_OK_FALLBACK
+
+## Actions
+- no actions
+
+## Metrics
+- equity: 10000000.0
+- cum_return_pct: 0.0
+- max_drawdown_pct: -3.429801
+- holdings_count: 3
+- game_over: False

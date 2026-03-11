@@ -80,24 +80,21 @@ export const useConsultScreenshot = () => {
                         tickerName = metaRes.data?.name ?? code;
                     } catch { }
 
-                    // Fetch bars using the correct batch_bars endpoint
-                    // Minimal amounts for screenshot readability per user request
-                    const dailyRes = await api.post("/batch_bars", {
-                        timeframe: "daily",
+                    // Fetch daily/weekly/monthly in one round-trip.
+                    const barsRes = await api.post("/batch_bars_v3", {
                         codes: [code],
-                        limit: 120  // Exactly 120 bars (~6 months)
-                    });
-                    const monthlyRes = await api.post("/batch_bars", {
-                        timeframe: "monthly",
-                        codes: [code],
-                        limit: 6  // Exactly 6 bars
+                        timeframes: ["daily", "weekly", "monthly"],
+                        limit: 120,
+                        includeProvisional: true
                     });
 
                     // Extract payload from response
-                    const dailyPayload = dailyRes.data?.items?.[code];
-                    const monthlyPayload = monthlyRes.data?.items?.[code];
+                    const barsItem = barsRes.data?.items?.[code];
+                    const dailyPayload = barsItem?.daily;
+                    const weeklyPayload = barsItem?.weekly;
+                    const monthlyPayload = barsItem?.monthly;
 
-                    if (!dailyPayload || !monthlyPayload) {
+                    if (!dailyPayload || !weeklyPayload || !monthlyPayload) {
                         throw new Error("Failed to fetch bars data");
                     }
 
@@ -114,34 +111,10 @@ export const useConsultScreenshot = () => {
                         value: d[5],
                     }));
 
-                    // Build weekly from daily (same logic as store)
-                    const buildWeeklyBars = (dailyBars: number[][]) => {
-                        const weekly: number[][] = [];
-                        let currentWeek: number[] | null = null;
-
-                        dailyBars.forEach(bar => {
-                            const date = new Date(bar[0]);
-                            const dayOfWeek = date.getDay();
-
-                            if (dayOfWeek === 1 || !currentWeek) { // Monday or first bar
-                                if (currentWeek) weekly.push(currentWeek);
-                                currentWeek = [...bar];
-                            } else if (currentWeek) {
-                                currentWeek[2] = Math.max(currentWeek[2], bar[2]); // high
-                                currentWeek[3] = Math.min(currentWeek[3], bar[3]); // low
-                                currentWeek[4] = bar[4]; // close (latest)
-                                currentWeek[5] += bar[5]; // volume (sum)
-                            }
-                        });
-                        if (currentWeek) weekly.push(currentWeek);
-                        return weekly;
-                    };
-
                     const dailyCandles = parseBars(dailyPayload.bars).slice(-120);  // Last 120 bars
                     const dailyVolume = parseVolume(dailyPayload.bars).slice(-120);
-                    const weeklyBars = buildWeeklyBars(dailyPayload.bars);
-                    const weeklyCandles = parseBars(weeklyBars).slice(-24);  // Last 24 bars
-                    const weeklyVolume = parseVolume(weeklyBars).slice(-24);
+                    const weeklyCandles = parseBars(weeklyPayload.bars).slice(-24);  // Last 24 bars
+                    const weeklyVolume = parseVolume(weeklyPayload.bars).slice(-24);
                     const monthlyCandles = parseBars(monthlyPayload.bars).slice(-6);  // Last 6 bars
                     const monthlyVolume = parseVolume(monthlyPayload.bars).slice(-6);
 
@@ -241,7 +214,7 @@ export const useConsultScreenshot = () => {
                         try {
                             // Add timeout to prevent infinite hang
                             const savePromise = saveBlobToFile(blob, filename);
-                            const timeoutPromise = new Promise<{ success: boolean; error?: string }>((_, reject) =>
+                            const timeoutPromise = new Promise<never>((_, reject) =>
                                 setTimeout(() => reject(new Error("Save timeout")), 15000)
                             );
 

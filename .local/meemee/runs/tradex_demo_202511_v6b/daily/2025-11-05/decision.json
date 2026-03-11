@@ -1,0 +1,25 @@
+{
+  "actions": [
+    {
+      "deltaUnits": -2,
+      "reasonId": "T_TP_PARTIAL_3_TO_2",
+      "side": "LONG",
+      "ticker": "3655"
+    }
+  ],
+  "asOf": "2025-11-05",
+  "checks": {
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v5",
+  "seasonId": "tradex_demo_202511_v6b",
+  "stage": {
+    "goal20Reached": true,
+    "goal30Reached": false,
+    "stage2Active": true
+  }
+}

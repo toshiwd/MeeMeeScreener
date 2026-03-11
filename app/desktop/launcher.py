@@ -1,26 +1,53 @@
 from __future__ import annotations
 
+import csv
 import ctypes
 import json
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
 import urllib.request
+import urllib.parse
+import urllib.error
 from pathlib import Path
 
 import traceback
 
 
+_repo_root = Path(__file__).resolve().parents[2]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
 from app.desktop.runtime_paths import base_path, local_app_dir, resolve_path
-from app.backend.core.config import config
 
 APP_NAME = "MeeMeeScreener"
 WINDOW_TITLE = "MeeMee Screener"
 MUTEX_NAME = "Global\\MeeMeeScreenerSingleton"
-HEALTH_TIMEOUT_SECONDS = 10
+HEALTH_TIMEOUT_SECONDS = 25
+_LOGGED_RESOLVED_PATHS = False
+_DEV_ENV_KEYS = ("MEEMEE_DEV", "MEEMEE_DEV_MODE")
+
+
+def _is_dev_mode() -> bool:
+    return os.getenv("MEEMEE_DEV", "").lower() in ("1", "true", "yes", "on") or os.getenv(
+        "MEEMEE_DEV_MODE", ""
+    ).lower() in ("1", "true", "yes", "on")
+
+
+def _is_selftest_mode() -> bool:
+    return os.getenv("MEEMEE_SELFTEST", "").lower() in ("1", "true", "yes", "on")
+
+
+def _storage_app_name() -> str:
+    if _is_selftest_mode():
+        return f"{APP_NAME}-selftest"
+    if _is_dev_mode():
+        return f"{APP_NAME}-dev"
+    return APP_NAME
 
 
 def _check_webview2_runtime() -> bool:
@@ -113,25 +140,804 @@ def _can_bind_port(port: int) -> bool:
         return False
 
 
-def _wait_for_health(port: int, timeout_seconds: int) -> bool:
+def _tasklist_rows(*, image_name: str | None = None, pid: int | None = None) -> list[list[str]]:
+    cmd = ["tasklist", "/FO", "CSV", "/NH"]
+    if image_name:
+        cmd.extend(["/FI", f"IMAGENAME eq {image_name}"])
+    if pid is not None:
+        cmd.extend(["/FI", f"PID eq {int(pid)}"])
+    try:
+        raw = subprocess.check_output(
+            cmd,
+            stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            text=True,
+            encoding="cp932",
+            errors="ignore",
+        )
+    except Exception:
+        return []
+    rows: list[list[str]] = []
+    for row in csv.reader(line for line in raw.splitlines() if line.strip()):
+        if not row:
+            continue
+        if row[0].startswith("INFO:"):
+            continue
+        rows.append(row)
+    return rows
+
+
+def _list_pids_by_image(image_name: str) -> list[int]:
+    pids: list[int] = []
+    for row in _tasklist_rows(image_name=image_name):
+        if len(row) < 2:
+            continue
+        try:
+            pids.append(int(str(row[1]).replace(",", "").strip()))
+        except Exception:
+            continue
+    return pids
+
+
+def _pid_exists(pid: int) -> bool:
+    return bool(_tasklist_rows(pid=int(pid)))
+
+
+def _get_process_commandline(pid: int) -> str:
+    script = (
+        f"$p = Get-CimInstance Win32_Process -Filter \"ProcessId = {int(pid)}\"; "
+        "if ($p) { $p.CommandLine }"
+    )
+    try:
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", script],
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            text=True,
+            encoding="cp932",
+            errors="ignore",
+        )
+        return out.strip()
+    except Exception:
+        return ""
+
+
+def _is_backend_process(pid: int) -> bool:
+    cmdline = _get_process_commandline(pid).lower()
+    if not cmdline:
+        return False
+    return (
+        "--backend" in cmdline
+        or "meemee_backend_only" in cmdline
+        or ("uvicorn" in cmdline and ("app.main:app" in cmdline or " main:app" in cmdline))
+    )
+
+
+def _terminate_pid(pid: int) -> bool:
+    try:
+        subprocess.check_call(
+            ["taskkill", "/PID", str(int(pid)), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _cleanup_stale_backend_processes() -> int:
+    if not getattr(sys, "frozen", False):
+        return 0
+    image_name = os.path.basename(sys.executable)
+    if not image_name:
+        return 0
+    current_pid = os.getpid()
+    killed = 0
+    for pid in _list_pids_by_image(image_name):
+        if pid == current_pid:
+            continue
+        if not _is_backend_process(pid):
+            continue
+        if _terminate_pid(pid):
+            killed += 1
+            print(f"[launcher] Terminated stale backend process PID={pid}")
+    return killed
+
+
+def _list_listening_pids_on_port(port: int) -> list[int]:
+    try:
+        raw = subprocess.check_output(
+            ["netstat", "-ano", "-p", "tcp"],
+            stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            text=True,
+            encoding="cp932",
+            errors="ignore",
+        )
+    except Exception:
+        return []
+    pids: set[int] = set()
+    suffix = f":{int(port)}"
+    for line in raw.splitlines():
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        local_addr = parts[1]
+        state = parts[3].upper()
+        if state != "LISTENING":
+            continue
+        if not local_addr.endswith(suffix):
+            continue
+        try:
+            pids.add(int(parts[4]))
+        except Exception:
+            continue
+    return sorted(pids)
+
+
+def _list_listening_ports_for_pid(pid: int) -> list[int]:
+    try:
+        raw = subprocess.check_output(
+            ["netstat", "-ano", "-p", "tcp"],
+            stderr=subprocess.STDOUT,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            text=True,
+            encoding="cp932",
+            errors="ignore",
+        )
+    except Exception:
+        return []
+    ports: set[int] = set()
+    target_pid = str(int(pid))
+    for line in raw.splitlines():
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        if parts[3].upper() != "LISTENING":
+            continue
+        if parts[4] != target_pid:
+            continue
+        local_addr = parts[1]
+        try:
+            port = int(local_addr.rsplit(":", 1)[1])
+        except Exception:
+            continue
+        ports.add(port)
+    return sorted(ports)
+
+
+def _read_locked_backend_pid(data_dir: str) -> int | None:
+    lock_path = os.path.join(data_dir, "app.lock")
+    try:
+        with open(lock_path, "r", encoding="utf-8") as handle:
+            text = handle.read().strip()
+    except Exception:
+        return None
+    if not text.isdigit():
+        return None
+    pid = int(text)
+    if pid <= 0 or pid == os.getpid():
+        return None
+    if not _pid_exists(pid):
+        try:
+            os.remove(lock_path)
+        except Exception:
+            pass
+        return None
+    if not _is_backend_process(pid):
+        try:
+            os.remove(lock_path)
+        except Exception:
+            pass
+        return None
+    return pid
+
+
+def _detect_reusable_locked_backend(data_dir: str, preferred_port: int) -> tuple[int | None, str | None]:
+    pid = _read_locked_backend_pid(data_dir)
+    if pid is None:
+        return None, None
+    ports = _list_listening_ports_for_pid(pid)
+    if not ports:
+        return None, f"locked_by_pid={pid}"
+    candidates = [preferred_port] if preferred_port in ports else []
+    candidates.extend(port for port in ports if port != preferred_port)
+    last_err: str | None = None
+    for port in candidates:
+        ok, err = _wait_for_health_detail(port, 3)
+        if ok or (err and "status=503" in err):
+            return port, f"pid={pid} port={port}"
+        last_err = err
+    return candidates[0], f"pid={pid} port={candidates[0]} pending_health err={last_err}"
+
+
+def _terminate_unhealthy_backend_on_port(port: int) -> int:
+    killed = 0
+    current_pid = os.getpid()
+    for pid in _list_listening_pids_on_port(port):
+        if pid == current_pid:
+            continue
+        if not _is_backend_process(pid):
+            continue
+        if _terminate_pid(pid):
+            killed += 1
+            print(f"[launcher] Terminated unhealthy backend PID={pid} on port {port}")
+    return killed
+
+
+def _get_health_timeout_seconds() -> int:
+    raw = os.getenv("MEEMEE_HEALTH_TIMEOUT_SECONDS")
+    if not raw:
+        return HEALTH_TIMEOUT_SECONDS
+    try:
+        value = int(raw)
+    except Exception:
+        return HEALTH_TIMEOUT_SECONDS
+    return max(5, min(120, value))
+
+
+_RETRYABLE_DB_LOCK_KEYWORDS = (
+    "another backend process is running",
+    "already open",
+    "cannot open file",
+    "database is locked",
+    "used by",
+    "unique file handle conflict",
+    "cannot attach",
+)
+
+
+def _is_retryable_db_lock_detail(payload: dict[str, object]) -> bool:
+    if not bool(payload.get("db_retryable")):
+        return False
+    errors = payload.get("errors")
+    if not isinstance(errors, list):
+        return False
+    text = " ".join(str(item or "") for item in errors).lower()
+    return bool(text) and any(keyword in text for keyword in _RETRYABLE_DB_LOCK_KEYWORDS)
+
+
+def _wait_for_health_detail(
+    port: int,
+    timeout_seconds: int,
+    *,
+    proc: subprocess.Popen | None = None,
+) -> tuple[bool, str | None]:
     deadline = time.monotonic() + timeout_seconds
-    url = f"http://127.0.0.1:{port}/health"
+    started_at = time.monotonic()
+    url = f"http://127.0.0.1:{port}/api/health"
     # Ensure localhost health checks are not routed through system proxy settings
     # (common on corporate Windows setups), otherwise we can mistakenly think the
     # backend is down and shut it back off.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     last_err: Exception | None = None
+    last_detail: str | None = None
+    proc_exit_detail: str | None = None
+    retryable_lock_hits = 0
     while time.monotonic() < deadline:
         try:
             with opener.open(url, timeout=1) as response:
-                if response.status == 200:
-                    return True
+                body = response.read()
+                payload: dict[str, object] = {}
+                if body:
+                    try:
+                        payload = json.loads(body.decode("utf-8"))
+                    except Exception:
+                        payload = {}
+                is_http_ok = 200 <= int(response.status) < 300
+                is_ready = payload.get("ready")
+                if is_http_ok and is_ready is True:
+                    return True, None
+                phase = str(payload.get("phase") or "")
+                message = str(payload.get("message") or "")
+                last_detail = f"status={response.status} phase={phase} message={message}".strip()
+                if _is_retryable_db_lock_detail(payload):
+                    retryable_lock_hits += 1
+                    if retryable_lock_hits >= 4 and (time.monotonic() - started_at) >= 2.0:
+                        return False, f"{last_detail} cause=db_lock"
+                else:
+                    retryable_lock_hits = 0
+        except urllib.error.HTTPError as exc:
+            last_err = exc
+            detail = f"status={exc.code}"
+            try:
+                body = exc.read()
+                if body:
+                    payload = json.loads(body.decode("utf-8"))
+                    phase = str(payload.get("phase") or "")
+                    message = str(payload.get("message") or "")
+                    detail = f"status={exc.code} phase={phase} message={message}".strip()
+                    if _is_retryable_db_lock_detail(payload):
+                        retryable_lock_hits += 1
+                        if retryable_lock_hits >= 4 and (time.monotonic() - started_at) >= 2.0:
+                            return False, f"{detail} cause=db_lock"
+                    else:
+                        retryable_lock_hits = 0
+            except Exception:
+                pass
+            last_detail = detail
         except Exception as exc:
             last_err = exc
-            time.sleep(0.2)
+            last_detail = str(exc)
+            retryable_lock_hits = 0
+        if proc is not None:
+            rc = proc.poll()
+            if rc is not None:
+                proc_exit_detail = f"backend_exit={rc}"
+        time.sleep(0.2)
     if last_err is not None:
         print(f"[launcher] Health check failed for {url}: {last_err}")
-    return False
+    return False, (last_detail or proc_exit_detail or (str(last_err) if last_err else None))
+
+
+def _wait_for_health(port: int, timeout_seconds: int) -> bool:
+    ok, _ = _wait_for_health_detail(port, timeout_seconds)
+    return ok
+
+
+def _escape_html(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#x27;")
+    )
+
+
+def _tail_file(path: str, max_lines: int = 200) -> tuple[str, str | None]:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().splitlines()
+        if not lines:
+            return "", None
+        return "\n".join(lines[-max_lines:]), None
+    except Exception as exc:
+        return "", str(exc)
+
+
+def _resolved_paths_snapshot(paths: dict[str, str]) -> list[tuple[str, str]]:
+    exe_dir = os.path.dirname(sys.executable)
+    cwd = os.getcwd()
+    app_env = os.getenv("APP_ENV", "")
+    data_dir = os.getenv("MEEMEE_DATA_DIR", paths.get("data_dir", ""))
+    data_store = os.getenv("MEEMEE_DATA_STORE", paths.get("data_store_dir", ""))
+    db_path = os.getenv("STOCKS_DB_PATH", paths.get("stocks_db", ""))
+    auto_update_enabled = os.getenv("MEEMEE_ENABLE_AUTO_UPDATE", "").lower() in ("1", "true", "yes", "on")
+    return [
+        ("exe_dir", exe_dir),
+        ("cwd", cwd),
+        ("APP_ENV", app_env),
+        ("MEEMEE_DATA_DIR", data_dir),
+        ("MEEMEE_DATA_STORE", data_store),
+        ("STOCKS_DB_PATH", db_path),
+        ("auto_update_enabled", str(auto_update_enabled)),
+    ]
+
+
+def _build_error_html(
+    title: str,
+    message: str,
+    paths: dict[str, str],
+    backend_log_path: str,
+    health_error: str | None = None,
+) -> str:
+    resolved_rows = "\n".join(
+        f"<tr><td>{_escape_html(k)}</td><td>{_escape_html(v)}</td></tr>"
+        for k, v in _resolved_paths_snapshot(paths)
+    )
+    log_tail, log_err = _tail_file(backend_log_path, 200)
+    log_display = log_tail if log_tail else ""
+    if log_err:
+        log_display = f"(failed to read backend.log: {log_err})\n{backend_log_path}"
+    elif not log_tail:
+        log_display = f"(backend.log is empty)\n{backend_log_path}"
+    health_block = f"<p><strong>health:</strong> {_escape_html(health_error)}</p>" if health_error else ""
+    extra_hint = ""
+    if health_error and "cause=db_lock" in health_error:
+        extra_hint = (
+            "<p class=\"message\"><strong>hint:</strong> stocks.duckdb is locked by another process. "
+            "Close other MeeMee/backend or long-running jobs using the same data directory, then relaunch.</p>"
+        )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MeeMee Screener - Error</title>
+  <style>
+    body {{
+      margin: 0;
+      font-family: "Segoe UI", "Meiryo", sans-serif;
+      background: #0b1020;
+      color: #e2e8f0;
+    }}
+    .container {{
+      max-width: 980px;
+      margin: 32px auto;
+      padding: 0 20px 40px;
+    }}
+    .card {{
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 14px;
+      padding: 20px 22px;
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.45);
+      margin-bottom: 18px;
+    }}
+    h1 {{
+      font-size: 20px;
+      margin: 0 0 8px;
+    }}
+    h2 {{
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #94a3b8;
+      margin: 0 0 10px;
+    }}
+    .message {{
+      font-size: 14px;
+      color: #cbd5f5;
+      }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }}
+    td {{
+      padding: 6px 8px;
+      border-bottom: 1px solid #1e293b;
+      vertical-align: top;
+      word-break: break-all;
+    }}
+    td:first-child {{
+      width: 200px;
+      color: #94a3b8;
+      }}
+    pre {{
+      white-space: pre-wrap;
+      background: #0b1020;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      padding: 12px;
+      color: #e2e8f0;
+      font-size: 12px;
+      max-height: 360px;
+      overflow: auto;
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>{_escape_html(title)}</h1>
+      <p class="message">{_escape_html(message)}</p>
+      {health_block}
+      {extra_hint}
+      <p class="message">backend.log: {_escape_html(backend_log_path)}</p>
+    </div>
+    <div class="card">
+      <h2>Resolved Paths</h2>
+      <table>{resolved_rows}</table>
+    </div>
+    <div class="card">
+      <h2>backend.log (last 200 lines)</h2>
+      <pre>{_escape_html(log_display)}</pre>
+    </div>
+  </div>
+</body>
+</html>"""
+
+
+def _build_loading_html() -> str:
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MeeMee Screener - Starting</title>
+  <style>
+    :root {
+      --bg-1: #030712;
+      --bg-2: #0b1220;
+      --ink: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-2: #22d3ee;
+      --card: rgba(10, 16, 30, 0.86);
+      --card-border: rgba(148, 163, 184, 0.22);
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "Meiryo", sans-serif;
+      background:
+        radial-gradient(1200px 720px at -10% -10%, #1d4ed8 0%, transparent 55%),
+        radial-gradient(980px 620px at 120% 110%, #0f766e 0%, transparent 60%),
+        linear-gradient(140deg, var(--bg-1) 0%, var(--bg-2) 60%, #060a12 100%);
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .glow {
+      position: fixed;
+      border-radius: 999px;
+      filter: blur(48px);
+      opacity: 0.32;
+      pointer-events: none;
+      animation: drift 8s ease-in-out infinite alternate;
+    }
+    .glow.one {
+      width: 320px;
+      height: 320px;
+      left: -40px;
+      top: -60px;
+      background: #2563eb;
+    }
+    .glow.two {
+      width: 360px;
+      height: 360px;
+      right: -80px;
+      bottom: -80px;
+      background: #0d9488;
+      animation-delay: -2.4s;
+    }
+    @keyframes drift {
+      from { transform: translate3d(0, 0, 0); }
+      to { transform: translate3d(18px, -14px, 0); }
+    }
+    .card {
+      width: min(560px, 100%);
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 28px 30px;
+      box-shadow: 0 24px 60px rgba(2, 6, 23, 0.5);
+      backdrop-filter: blur(12px);
+      position: relative;
+      overflow: hidden;
+    }
+    .card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        110deg,
+        rgba(56, 189, 248, 0.0) 0%,
+        rgba(56, 189, 248, 0.08) 36%,
+        rgba(56, 189, 248, 0.0) 74%
+      );
+      transform: translateX(-120%);
+      animation: sheen 2.8s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes sheen {
+      to { transform: translateX(130%); }
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 30px;
+      letter-spacing: 0.01em;
+      font-weight: 700;
+    }
+    .pill {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #bae6fd;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      background: rgba(2, 6, 23, 0.55);
+    }
+    .status {
+      margin: 0;
+      color: #dbeafe;
+      line-height: 1.6;
+      font-size: 15px;
+      min-height: 24px;
+      position: relative;
+      z-index: 1;
+    }
+    .status::after {
+      content: "";
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--accent);
+      margin-left: 8px;
+      vertical-align: middle;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.35; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.25); }
+    }
+    .sub {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .progress {
+      margin-top: 18px;
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(51, 65, 85, 0.65);
+      overflow: hidden;
+      position: relative;
+      z-index: 1;
+    }
+    .progress::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      width: 32%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      box-shadow: 0 0 18px rgba(34, 211, 238, 0.45);
+      animation: loading 1.4s ease-in-out infinite;
+    }
+    @keyframes loading {
+      0% { transform: translateX(-120%); }
+      60% { transform: translateX(220%); }
+      100% { transform: translateX(220%); }
+    }
+    .spinner {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      border: 3px solid rgba(148, 163, 184, 0.24);
+      border-top-color: var(--accent);
+      border-right-color: rgba(56, 189, 248, 0.7);
+      animation: spin 0.95s linear infinite;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow one" aria-hidden="true"></div>
+  <div class="glow two" aria-hidden="true"></div>
+  <div class="card">
+    <div class="row">
+      <div class="spinner" aria-hidden="true"></div>
+      <h1>MeeMee Screener</h1>
+      <span class="pill">booting</span>
+    </div>
+    <p id="boot-status" class="status">Starting backend...</p>
+    <p class="sub">Please wait while services are prepared.</p>
+    <div class="progress" aria-hidden="true"></div>
+  </div>
+  <script>
+    (function () {
+      var status = document.getElementById("boot-status");
+      window.__setStatus = function (text) {
+        if (!status) return;
+        if (typeof text !== "string") return;
+        var next = text.trim();
+        if (!next) return;
+        status.textContent = next;
+      };
+    })();
+  </script>
+</body>
+</html>"""
+
+
+def _show_error_page(window, html: str) -> None:
+    try:
+        window.load_html(html)
+    except Exception:
+        try:
+            window.load_url("data:text/html;charset=utf-8," + urllib.parse.quote(html))
+        except Exception:
+            pass
+
+
+def _check_frontend_render(window, paths: dict[str, str], backend_log_path: str) -> None:
+    try:
+        result = window.evaluate_js(
+            "(() => { const root = document.getElementById('root'); return root ? root.innerHTML.length : 0; })();"
+        )
+    except Exception:
+        result = 0
+    try:
+        length = int(result) if result is not None else 0
+    except Exception:
+        length = 0
+    if length <= 0:
+        error_html = _build_error_html(
+            "Frontend failed to render",
+            "UI root is empty after backend ready. Check static assets and console logs.",
+            paths,
+            backend_log_path,
+            health_error="frontend_render_timeout",
+        )
+        _show_error_page(window, error_html)
+
+
+def _schedule_frontend_watchdog(window, paths: dict[str, str], backend_log_path: str) -> None:
+    timer = threading.Timer(6.0, _check_frontend_render, args=(window, paths, backend_log_path))
+    timer.daemon = True
+    timer.start()
+
+
+def _write_text(path: str, content: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+
+
+def _write_json(path: str, payload: object) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+
+def _http_get_json(url: str, timeout: float = 5.0) -> dict | list:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(url, timeout=timeout) as response:
+        raw = response.read().decode("utf-8", errors="replace")
+    return json.loads(raw)
+
+
+def _http_post_multipart(
+    url: str,
+    field_name: str,
+    filename: str,
+    content: bytes,
+    fields: dict[str, str] | None = None,
+    timeout: float = 10.0,
+) -> dict:
+    boundary = f"----MeeMeeBoundary{int(time.time() * 1000)}"
+    parts: list[bytes] = []
+    if fields:
+        for key, value in fields.items():
+            part = (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="{key}"\r\n\r\n'
+                f"{value}\r\n"
+            ).encode("utf-8")
+            parts.append(part)
+    file_header = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
+        "Content-Type: text/csv\r\n\r\n"
+    ).encode("utf-8")
+    parts.append(file_header + content + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+    body = b"".join(parts)
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    req.add_header("Content-Length", str(len(body)))
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(req, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+        return json.loads(raw)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
 
 
 def _copy_if_missing(src: str, dst: str) -> None:
@@ -148,6 +954,166 @@ def _write_json_if_missing(dst: str, payload: dict) -> None:
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     with open(dst, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=True, indent=2)
+
+
+def _extract_model_version_from_name(name: str) -> str | None:
+    stem = Path(name).stem
+    if "_" not in stem:
+        return None
+    prefix = stem.split("_", 1)[0]
+    if len(prefix) == 14 and prefix.isdigit():
+        return prefix
+    return None
+
+
+def _latest_model_version(model_dir: Path) -> str | None:
+    versions: set[str] = set()
+    for file in model_dir.glob("*.txt"):
+        version = _extract_model_version_from_name(file.name)
+        if version:
+            versions.add(version)
+    if not versions:
+        return None
+    return sorted(versions)[-1]
+
+
+def _has_active_ml_model(stocks_db: str) -> bool:
+    if not os.path.isfile(stocks_db):
+        return False
+    try:
+        import duckdb
+    except Exception:
+        return False
+    try:
+        with duckdb.connect(stocks_db) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM ml_model_registry WHERE is_active = TRUE LIMIT 1"
+            ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
+def _register_seed_model(stocks_db: str, model_dir: Path, model_version: str) -> None:
+    try:
+        import duckdb
+    except Exception:
+        return
+    cls_path = model_dir / f"{model_version}_cls.txt"
+    reg_path = model_dir / f"{model_version}_reg.txt"
+    if (not cls_path.exists()) or (not reg_path.exists()):
+        return
+
+    turn_up_path = model_dir / f"{model_version}_turn_up.txt"
+    turn_down_path = model_dir / f"{model_version}_turn_down.txt"
+
+    horizon_models: dict[str, dict[str, str | None]] = {}
+    for horizon in (5, 10, 20):
+        cls_h = model_dir / f"{model_version}_cls_{horizon}.txt"
+        reg_h = model_dir / f"{model_version}_reg_{horizon}.txt"
+        turn_down_h = model_dir / f"{model_version}_turn_down_{horizon}.txt"
+        horizon_models[str(horizon)] = {
+            "cls_model_path": str(cls_h) if cls_h.exists() else None,
+            "reg_model_path": str(reg_h) if reg_h.exists() else None,
+            "turn_down_model_path": str(turn_down_h) if turn_down_h.exists() else None,
+        }
+
+    artifact = {
+        "cls_model_path": str(cls_path),
+        "reg_model_path": str(reg_path),
+        "turn_up_model_path": str(turn_up_path) if turn_up_path.exists() else None,
+        "turn_down_model_path": str(turn_down_path) if turn_down_path.exists() else None,
+        "horizon_models": horizon_models,
+    }
+
+    # Keep model registration portable across machines.
+    model_key = "ml_ev20_simple_v1"
+    objective = "ret20_regression_with_p_up_gate"
+    feature_version = 2
+    label_version = 3
+
+    try:
+        with duckdb.connect(stocks_db) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ml_model_registry (
+                    model_version TEXT PRIMARY KEY,
+                    model_key TEXT,
+                    objective TEXT,
+                    feature_version INTEGER,
+                    label_version INTEGER,
+                    train_start_dt INTEGER,
+                    train_end_dt INTEGER,
+                    metrics_json TEXT,
+                    artifact_path TEXT,
+                    n_train INTEGER,
+                    created_at TIMESTAMP,
+                    is_active BOOLEAN
+                );
+                """
+            )
+            row = conn.execute(
+                "SELECT model_version FROM ml_model_registry WHERE is_active = TRUE LIMIT 1"
+            ).fetchone()
+            if row:
+                return
+            conn.execute(
+                "UPDATE ml_model_registry SET is_active = FALSE WHERE model_key = ?",
+                [model_key],
+            )
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO ml_model_registry (
+                    model_version,
+                    model_key,
+                    objective,
+                    feature_version,
+                    label_version,
+                    train_start_dt,
+                    train_end_dt,
+                    metrics_json,
+                    artifact_path,
+                    n_train,
+                    created_at,
+                    is_active
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, TRUE)
+                """,
+                [
+                    model_version,
+                    model_key,
+                    objective,
+                    feature_version,
+                    label_version,
+                    None,
+                    None,
+                    "{}",
+                    json.dumps(artifact, ensure_ascii=False),
+                    0,
+                ],
+            )
+    except Exception:
+        return
+
+
+def _seed_ml_models(paths: dict[str, str]) -> None:
+    seed_dir = Path(resolve_path("seed", "models", "ml"))
+    if not seed_dir.is_dir():
+        return
+
+    target_dir = Path(paths["data_dir"]) / "models" / "ml"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for src in seed_dir.glob("*.txt"):
+        dst = target_dir / src.name
+        if not dst.exists():
+            shutil.copy2(src, dst)
+
+    model_version = _latest_model_version(target_dir)
+    if not model_version:
+        return
+    if _has_active_ml_model(paths["stocks_db"]):
+        return
+    _register_seed_model(paths["stocks_db"], target_dir, model_version)
 
 
 def _db_has_data(path: str) -> bool:
@@ -194,81 +1160,6 @@ def _run_ingest(txt_dir: str, db_path: str) -> bool:
         return False
 
 
-def _loading_html() -> str:
-    return """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>MeeMee Screener</title>
-  <style>
-    :root {
-      color-scheme: light;
-    }
-    body {
-      margin: 0;
-      font-family: "Segoe UI", "Meiryo", sans-serif;
-      background: #0f172a;
-      color: #e2e8f0;
-      display: grid;
-      place-items: center;
-      height: 100vh;
-    }
-    .card {
-      width: min(520px, 86vw);
-      background: #111827;
-      border: 1px solid #1f2937;
-      border-radius: 18px;
-      padding: 24px 28px;
-      box-shadow: 0 20px 40px rgba(15, 23, 42, 0.5);
-    }
-    .title {
-      font-size: 18px;
-      margin: 0 0 8px;
-    }
-    .status {
-      font-size: 14px;
-      color: #94a3b8;
-    }
-    .bar {
-      margin-top: 16px;
-      height: 6px;
-      background: #1e293b;
-      border-radius: 999px;
-      overflow: hidden;
-    }
-    .bar span {
-      display: block;
-      height: 100%;
-      width: 40%;
-      background: linear-gradient(90deg, #38bdf8, #6366f1);
-      animation: slide 1.2s ease-in-out infinite;
-      border-radius: 999px;
-    }
-    @keyframes slide {
-      0% { transform: translateX(-60%); }
-      50% { transform: translateX(60%); }
-      100% { transform: translateX(-60%); }
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1 class="title">MeeMee Screener</h1>
-    <div id="status" class="status">Starting...</div>
-    <div class="bar"><span></span></div>
-  </div>
-  <script>
-    window.__setStatus = function (text) {
-      var el = document.getElementById("status");
-      if (el) { el.textContent = text; }
-    };
-  </script>
-</body>
-</html>
-"""
-
-
 def _update_loading(window, text: str) -> None:
     try:
         window.evaluate_js(f"window.__setStatus({json.dumps(text)});")
@@ -285,7 +1176,8 @@ def _maximize_window(window) -> None:
 
 def _prepare_appdata() -> dict[str, str]:
     # Use config for data_dir resolution logic
-    data_dir = config.DATA_DIR
+    data_root = local_app_dir(_storage_app_name())
+    data_dir = data_root if data_root.name == "data" else data_root / "data"
     
     # We still use local_app for other non-data stuff? Or just unify?
     # Original 'root' was local_app_dir(APP_NAME).
@@ -303,13 +1195,14 @@ def _prepare_appdata() -> dict[str, str]:
     # Let's pivot everything to be inside `config.DATA_DIR` for portability!
     
     csv_dir = data_dir / "csv"
-    txt_dir = config.PAN_OUT_TXT_DIR # which is data_dir / "txt" via config
+    txt_dir = data_dir / "txt"
     config_dir = data_dir / "config"
     state_dir = data_dir / "state"
     logs_dir = data_dir / "logs"
+    data_store_dir = data_dir / "data_store"
     
     # Ensure dirs
-    for path in (data_dir, csv_dir, config_dir, state_dir, logs_dir, txt_dir):
+    for path in (data_dir, csv_dir, config_dir, state_dir, logs_dir, txt_dir, data_store_dir):
         path.mkdir(parents=True, exist_ok=True)
 
     bundled_db = resolve_path("app", "backend", "stocks.duckdb")
@@ -319,9 +1212,9 @@ def _prepare_appdata() -> dict[str, str]:
     bundled_update_state = resolve_path("app", "backend", "update_state.json")
     bundled_code_txt = resolve_path("tools", "code.txt")
 
-    stocks_db = str(config.DB_PATH)
-    favorites_db = str(config.FAVORITES_DB_PATH)
-    practice_db = str(config.PRACTICE_DB_PATH)
+    stocks_db = str(data_dir / "stocks.duckdb")
+    favorites_db = str(data_dir / "favorites.sqlite")
+    practice_db = str(data_dir / "practice.sqlite")
     rank_config = str(config_dir / "rank_config.json")
     # Keep update_state in the data root. Older builds used data/state/update_state.json
     # which caused the backend/UI to read stale values depending on env overrides.
@@ -359,9 +1252,10 @@ def _prepare_appdata() -> dict[str, str]:
             shutil.copy2(bundled_db, stocks_db)
 
     # Return dict with STRINGS as requested by consumer
-    return {
+    prepared = {
         "root": str(data_dir.parent), # Guessing parent?
         "data_dir": str(data_dir),
+        "data_store_dir": str(data_store_dir),
         "csv_dir": str(csv_dir),
         "config_dir": str(config_dir),
         "state_dir": str(state_dir),
@@ -374,14 +1268,21 @@ def _prepare_appdata() -> dict[str, str]:
         "update_state": update_state,
         "code_txt": code_txt
     }
+    _seed_ml_models(prepared)
+    return prepared
 
 
 def _configure_environment(paths: dict[str, str]) -> None:
-    os.environ.setdefault("APP_ENV", "prod")
-    os.environ.setdefault("DEBUG", "0")
+    if _is_dev_mode():
+        os.environ.setdefault("APP_ENV", "dev")
+        os.environ.setdefault("DEBUG", "1")
+    else:
+        os.environ.setdefault("APP_ENV", "prod")
+        os.environ.setdefault("DEBUG", "0")
     # Unify data-dir resolution across split modules (app.core.config vs app.backend.core.config).
     # The backend API uses app.core.config, which prioritizes MEEMEE_DATA_DIR.
     os.environ["MEEMEE_DATA_DIR"] = paths["data_dir"]
+    os.environ["MEEMEE_DATA_STORE"] = paths["data_store_dir"]
     os.environ["STOCKS_DB_PATH"] = paths["stocks_db"]
     os.environ["FAVORITES_DB_PATH"] = paths["favorites_db"]
     os.environ["PRACTICE_DB_PATH"] = paths["practice_db"]
@@ -416,6 +1317,29 @@ def _configure_environment(paths: dict[str, str]) -> None:
     )
 
 
+def _log_resolved_paths_once(paths: dict[str, str]) -> None:
+    global _LOGGED_RESOLVED_PATHS
+    if _LOGGED_RESOLVED_PATHS:
+        return
+    _LOGGED_RESOLVED_PATHS = True
+    exe_dir = os.path.dirname(sys.executable)
+    app_env = os.getenv("APP_ENV", "")
+    data_dir = os.getenv("MEEMEE_DATA_DIR", "")
+    data_store = os.getenv("MEEMEE_DATA_STORE", "")
+    db_path = os.getenv("STOCKS_DB_PATH", paths.get("stocks_db", ""))
+    auto_update_enabled = os.getenv("MEEMEE_ENABLE_AUTO_UPDATE", "").lower() in ("1", "true", "yes", "on")
+    print(
+        "[launcher] Resolved paths:"
+        f" exe_dir={exe_dir}"
+        f" APP_ENV={app_env}"
+        f" MEEMEE_DATA_DIR={data_dir}"
+        f" MEEMEE_DATA_STORE={data_store}"
+        f" STOCKS_DB_PATH={db_path}"
+        f" auto_update_enabled={auto_update_enabled}"
+    )
+    os.environ["MEEMEE_RESOLVED_PATHS_LOGGED"] = "1"
+
+
 def _configure_logging(logs_dir: str) -> Path:
     log_path = Path(logs_dir) / "launcher.log"
     log_handle = open(log_path, "a", encoding="utf-8")
@@ -424,16 +1348,89 @@ def _configure_logging(logs_dir: str) -> Path:
     return log_path
 
 
-def _start_server(port: int):
+def _write_app_lock(data_dir: str) -> str | None:
+    lock_path = os.path.join(data_dir, "launcher_ui.lock")
+    payload = {
+        "pid": os.getpid(),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    try:
+        _write_json(lock_path, payload)
+        return lock_path
+    except Exception as exc:
+        print(f"[launcher] Failed to write app lock: {exc}")
+        return None
+
+
+def _remove_app_lock(lock_path: str | None) -> None:
+    if not lock_path:
+        return
+    try:
+        if os.path.exists(lock_path):
+            os.remove(lock_path)
+    except Exception as exc:
+        print(f"[launcher] Failed to remove app lock: {exc}")
+
+
+def _backend_command() -> list[str]:
+    if _is_dev_mode() and not getattr(sys, "frozen", False):
+        return [sys.executable, "-m", "uvicorn", "app.main:app"]
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--backend"]
+    return [sys.executable, str(Path(__file__).resolve()), "--backend"]
+
+
+def _start_backend_process(port: int, backend_log_path: str) -> tuple[subprocess.Popen, object]:
+    os.makedirs(os.path.dirname(backend_log_path), exist_ok=True)
+    log_handle = open(backend_log_path, "a", encoding="utf-8")
+    env = os.environ.copy()
+    env["MEEMEE_BACKEND_ONLY"] = "1"
+    env["MEEMEE_BACKEND_PORT"] = str(port)
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    cmd = _backend_command()
+    if _is_dev_mode() and not getattr(sys, "frozen", False):
+        cmd = cmd + ["--host", "127.0.0.1", "--port", str(port)]
+        if os.getenv("MEEMEE_DEV_RELOAD", "").lower() in ("1", "true", "yes", "on"):
+            cmd.append("--reload")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=log_handle,
+        stderr=log_handle,
+        env=env,
+        cwd=str(base_path()),
+        creationflags=creation_flags,
+    )
+    return proc, log_handle
+
+
+def _stop_backend_process(proc: subprocess.Popen | None, log_handle: object | None, timeout: float = 5.0) -> None:
+    if proc is None:
+        if log_handle and hasattr(log_handle, "close"):
+            log_handle.close()
+        return
+    try:
+        proc.terminate()
+        proc.wait(timeout=timeout)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    if log_handle and hasattr(log_handle, "close"):
+        log_handle.close()
+
+
+def _run_backend_only() -> None:
     from importlib import import_module
     import uvicorn
 
+    port = int(os.getenv("MEEMEE_BACKEND_PORT", "28888"))
     sys.path.insert(0, str(base_path()))
     try:
         sys.modules.setdefault("db", import_module("app.backend.db"))
         sys.modules.setdefault("box_detector", import_module("app.backend.box_detector"))
     except Exception:
-        # Backend aliases are best-effort for frozen imports.
         pass
     backend = import_module("app.backend.main")
     config = uvicorn.Config(
@@ -441,34 +1438,199 @@ def _start_server(port: int):
         host="127.0.0.1",
         port=port,
         log_level="info",
-        access_log=False
+        access_log=False,
     )
     server = uvicorn.Server(config=config)
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    return server, thread
+    server.run()
 
 
-def _stop_server(server, thread: threading.Thread, timeout: float = 5.0) -> None:
-    server.should_exit = True
-    server.force_exit = True
-    thread.join(timeout=timeout)
-    if thread.is_alive():
-        os._exit(0)
+def _run_selftest() -> int:
+    os.environ.setdefault("MEEMEE_SELFTEST", "1")
+    paths = _prepare_appdata()
+    log_path = _configure_logging(paths["logs_dir"])
+    _configure_environment(paths)
+    _log_resolved_paths_once(paths)
+
+    artifacts_dir = os.path.join(paths["data_dir"], "selftest_artifacts")
+    os.makedirs(artifacts_dir, exist_ok=True)
+    selftest_log_path = os.path.join(artifacts_dir, "selftest.log")
+    log_handle = open(selftest_log_path, "a", encoding="utf-8")
+
+    def log(message: str) -> None:
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[selftest] {timestamp} {message}"
+        print(line)
+        try:
+            log_handle.write(line + "\n")
+            log_handle.flush()
+        except Exception:
+            pass
+
+    backend_log_path = os.path.join(paths["logs_dir"], "backend.log")
+    proc = None
+    proc_log_handle = None
+    try:
+        log("Starting backend...")
+        proc, proc_log_handle = _start_backend_process(28888, backend_log_path)
+        ok, err = _wait_for_health_detail(
+            28888,
+            int(os.getenv("MEEMEE_SELFTEST_HEALTH_TIMEOUT", "20")),
+            proc=proc,
+        )
+        if not ok:
+            log(f"FAIL: backend health timeout: {err}")
+            _write_text(os.path.join(artifacts_dir, "health_error.txt"), str(err))
+            return 1
+
+        log("Fetching heatmap API...")
+        heatmap_url = "http://127.0.0.1:28888/api/market/heatmap?period=1d"
+        heatmap = _http_get_json(heatmap_url, timeout=10)
+        _write_json(os.path.join(artifacts_dir, "api_dump.json"), heatmap)
+        items = heatmap.get("items") if isinstance(heatmap, dict) else None
+        diagnostics = heatmap.get("diagnostics") if isinstance(heatmap, dict) else None
+        if not isinstance(items, list) or not diagnostics:
+            log("FAIL: heatmap response missing items/diagnostics")
+            return 1
+        if not diagnostics.get("industry_master_present"):
+            log("FAIL: industry_master_present is false")
+            return 1
+        if diagnostics.get("industry_master_rows", 0) <= 0:
+            log("FAIL: industry_master_rows is 0")
+            return 1
+        if diagnostics.get("computed_from") != "industry_master":
+            log("FAIL: computed_from is fallback")
+            return 1
+        if len(items) == 0:
+            log("FAIL: heatmap items empty")
+            return 1
+        if all(abs(float(item.get("color", 0) or 0)) < 1e-9 for item in items):
+            log("FAIL: heatmap colors all 0.0")
+            return 1
+
+        log("Importing trade CSV fixtures...")
+        fixtures = [
+            (resolve_path("fixtures", "sbi_sample.csv"), "sbi_sample.csv", "sbi"),
+            (resolve_path("fixtures", "rakuten_sample.csv"), "rakuten_sample.csv", "rakuten"),
+        ]
+        trade_results = []
+        for path, filename, broker in fixtures:
+            if not os.path.isfile(path):
+                log(f"FAIL: fixture missing: {path}")
+                return 1
+            with open(path, "rb") as handle:
+                content = handle.read()
+            resp = _http_post_multipart(
+                "http://127.0.0.1:28888/api/imports/trade-history",
+                "file",
+                filename,
+                content,
+                fields={"broker": broker},
+                timeout=20,
+            )
+            trade_results.append(resp)
+            ingest = resp.get("ingest") if isinstance(resp, dict) else None
+            if not isinstance(ingest, dict):
+                ingest = resp if isinstance(resp, dict) else {}
+            received = ingest.get("received", 0)
+            inserted = ingest.get("inserted", 0)
+            ok_flag = None
+            if isinstance(resp, dict):
+                ok_flag = resp.get("ok")
+                if ok_flag is None and resp.get("result") == "success":
+                    ok_flag = True
+            if not ok_flag or received <= 0 or inserted <= 0:
+                log(f"FAIL: trade import failed for {filename}")
+                _write_json(os.path.join(artifacts_dir, f"trade_import_{filename}.json"), resp)
+                return 1
+            _write_json(os.path.join(artifacts_dir, f"trade_import_{filename}.json"), resp)
+
+        log("Launching browser for UI smoke...")
+        frontend_base = os.getenv("MEEMEE_SELFTEST_FRONTEND_URL")
+        if not frontend_base:
+            if _is_dev_mode():
+                frontend_base = os.getenv("MEEMEE_DEV_FRONTEND_URL", "http://127.0.0.1:5173")
+            else:
+                frontend_base = "http://127.0.0.1:28888"
+        frontend_base = frontend_base.rstrip("/")
+        target_url = f"{frontend_base}/market"
+
+        def _find_external_python() -> str | None:
+            for candidate in ("python", "py"):
+                resolved = shutil.which(candidate)
+                if resolved:
+                    return candidate
+            return None
+
+        def _run_playwright_external(url: str, screenshot_path: str) -> tuple[str, dict | None]:
+            py = _find_external_python()
+            if not py:
+                log("FAIL: python not found in PATH for external Playwright")
+                return "error", None
+            log("Installing Playwright via system Python...")
+            subprocess.run([py, "-m", "pip", "install", "playwright"], check=False)
+            subprocess.run([py, "-m", "playwright", "install", "chromium"], check=False)
+            script_path = os.path.join(artifacts_dir, "playwright_selftest.py")
+            script = (
+                "import json,sys\n"
+                "from playwright.sync_api import sync_playwright\n"
+                "try:\n"
+                "    with sync_playwright() as p:\n"
+                "        browser = p.chromium.launch(headless=True)\n"
+                "        page = browser.new_page()\n"
+                f"        page.goto('{url}', timeout=30000)\n"
+                "        page.wait_for_selector('.market-heatmap', timeout=10000)\n"
+                "        page.wait_for_selector('.heatmap-canvas[data-heatmap-state]', timeout=15000)\n"
+                "        page.wait_for_function(\"() => { const el = document.querySelector('.heatmap-canvas[data-heatmap-state]'); return !!el && el.dataset.heatmapState !== 'loading'; }\", timeout=15000)\n"
+                f"        page.screenshot(path=r'{screenshot_path}')\n"
+                "        print(json.dumps({'status': 'ok'}))\n"
+                "        browser.close()\n"
+                "except Exception as e:\n"
+                "    print(json.dumps({'status': 'error', 'detail': str(e)}))\n"
+            )
+            _write_text(script_path, script)
+            try:
+                out = subprocess.check_output([py, script_path], timeout=60, encoding="utf-8")
+                res = json.loads(out)
+                return res.get("status", "error"), res
+            except Exception as e:
+                return "error", {"detail": str(e)}
+
+        screenshot_path = os.path.join(artifacts_dir, "screenshot.png")
+        status, detail = _run_playwright_external(target_url, screenshot_path)
+        if status != "ok":
+            log(f"FAIL: UI smoke test failed: {detail}")
+            return 1
+        
+        log("Selftest passed.")
+        return 0
+
+    except Exception as exc:
+        log(f"FAIL: Unhandled exception: {exc}")
+        traceback.print_exc(file=log_handle)
+        return 1
+    finally:
+        if proc is not None:
+            _stop_backend_process(proc, proc_log_handle)
+        try:
+            log_handle.close()
+        except Exception:
+            pass
 
 
 def main() -> None:
+    if os.getenv("MEEMEE_BACKEND_ONLY") == "1" or "--backend" in sys.argv:
+        _run_backend_only()
+        return
+    if _is_selftest_mode():
+        code = _run_selftest()
+        raise SystemExit(code)
     mutex = _acquire_mutex()
     if not mutex:
         _message_box("MeeMee Screener is already running.", WINDOW_TITLE)
         return
 
-    if not mutex:
-        _message_box("MeeMee Screener is already running.", WINDOW_TITLE)
-        return
-
-    import sys
     log_path: Path | None = None
+    app_lock_path: str | None = None
     try:
         icon_path = resolve_path("resources", "icons", "app_icon.ico")
         if not os.path.isfile(icon_path):
@@ -479,8 +1641,10 @@ def main() -> None:
             return
 
         paths = _prepare_appdata()
+        app_lock_path = _write_app_lock(paths["data_dir"])
         log_path = _configure_logging(paths["logs_dir"])
         _configure_environment(paths)
+        _log_resolved_paths_once(paths)
 
         # Check for .NET Framework 4.8 before initializing pywebview
         if not _check_dotnet_framework():
@@ -509,7 +1673,6 @@ def main() -> None:
         
         import webview
         import base64
-        import subprocess
 
         class JsApi:
             def save_screenshot(self, data_uri: str, filename: str) -> dict:
@@ -567,108 +1730,214 @@ def main() -> None:
                     return False
 
 
+        # Determine backend parameters
+        fixed_port = 28888
+        port = fixed_port
+        dev_mode = _is_dev_mode()
+        if dev_mode:
+            port = int(os.getenv("MEEMEE_DEV_BACKEND_PORT", str(fixed_port)))
+        
+        # Prepare startup surface.
+        # In prod, render a lightweight loading page first and load frontend URL after backend is healthy.
+        # In dev, keep loading the frontend dev server URL directly.
+        
+        # We need to find the static directory.
+        static_dir = os.environ.get("STATIC_DIR")
+        if not static_dir or not os.path.isdir(static_dir):
+             # Fallback
+             static_dir = resolve_path("app", "backend", "static")
+        
+        index_html_path = os.path.join(static_dir, "index.html")
+        
+        start_url = ""
+        html_content = ""
+
+        if dev_mode and os.getenv("MEEMEE_DEV_FRONTEND_URL"):
+             start_url = os.getenv("MEEMEE_DEV_FRONTEND_URL")
+        else:
+             # Production / Bundled mode: ensure build exists, then show launcher loading HTML.
+             if not os.path.isfile(index_html_path):
+                 # Fallback if no build found
+                 html_content = _build_error_html("Missing Frontend", f"index.html not found at {index_html_path}", paths, "")
+             else:
+                 html_content = _build_loading_html()
+
+        # Create window immediately
         window = webview.create_window(
             WINDOW_TITLE,
-            html=_loading_html(),
+            url=start_url if start_url else None,
+            html=html_content if not start_url else None,
             width=1280,
             height=720,
             resizable=True,
-            js_api=JsApi()
+            background_color="#05070f",
+            js_api=JsApi(),
+            text_select=False 
         )
+        
         def _on_shown() -> None:
             _maximize_window(window)
 
         window.events.shown += _on_shown
 
-        server_state: dict[str, object | None] = {"server": None, "thread": None}
+        server_state: dict[str, object | None] = {
+            "proc": None,
+            "log_handle": None,
+            "port": port,
+            "backend_log": None,
+        }
 
         def _on_closed() -> None:
-            server = server_state.get("server")
-            thread = server_state.get("thread")
-            if server and thread:
-                _stop_server(server, thread)
+            proc = server_state.get("proc")
+            log_handle = server_state.get("log_handle")
+            _stop_backend_process(proc if isinstance(proc, subprocess.Popen) else None, log_handle)
 
         window.events.closed += _on_closed
 
         def _bootstrap(win) -> None:
-            if os.path.isfile(paths["stocks_db"]) and not _db_has_data(paths["stocks_db"]):
-                if _count_txt_files(paths["txt_dir"]) > 0:
-                    _update_loading(win, "Loading data files...")
-                    _run_ingest(paths["txt_dir"], paths["stocks_db"])
-
+            # Start backend in background immediately
+            backend_log_path = os.path.join(paths["logs_dir"], "backend.log")
+            server_state["backend_log"] = backend_log_path
+            proc = None
             _update_loading(win, "Starting backend...")
-            # Use a fixed port to ensure LocalStorage persistence (Origin must stay same)
-            fixed_port = 28888
-            port = fixed_port
-            if _wait_for_health(port, 1):
-                _update_loading(win, "Opening app...")
-                _maximize_window(win)
-                win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
-                threading.Timer(0.2, _maximize_window, args=(win,)).start()
-                return
-            if not _can_bind_port(port):
-                if _wait_for_health(port, HEALTH_TIMEOUT_SECONDS):
-                    _update_loading(win, "Opening app...")
-                    _maximize_window(win)
-                    win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
-                    threading.Timer(0.2, _maximize_window, args=(win,)).start()
-                    return
-                alt_port = _find_free_port()
-                _update_loading(win, f"Port {fixed_port} in use. Switching to {alt_port}...")
-                print(f"[launcher] Port {fixed_port} in use. Switching to {alt_port}.")
-                port = alt_port
-            try:
-                server, thread = _start_server(port)
-            except Exception as exc:
-                _update_loading(win, "Backend crashed while starting.")
-                traceback.print_exc()
-                _message_box(f"Backend crashed while starting:\n{exc}", WINDOW_TITLE)
-                try:
-                    win.destroy()
-                except Exception:
-                    pass
-                return
-            server_state["server"] = server
-            server_state["thread"] = thread
+            cleaned = _cleanup_stale_backend_processes()
+            if cleaned > 0:
+                print(f"[launcher] Cleaned up stale backend processes: {cleaned}")
+            
+            # Check port availability / existing backend health
+            final_port = port
+            reuse_existing_backend = False
+            locked_backend_pid = _read_locked_backend_pid(paths["data_dir"])
+            locked_backend_port, locked_backend_detail = _detect_reusable_locked_backend(paths["data_dir"], final_port)
+            if locked_backend_port is not None:
+                final_port = int(locked_backend_port)
+                reuse_existing_backend = True
+                print(f"[launcher] Reusing locked backend {locked_backend_detail}")
+            elif locked_backend_pid is not None and _is_backend_process(locked_backend_pid):
+                if _terminate_pid(locked_backend_pid):
+                    print(f"[launcher] Terminated stale locked backend PID={locked_backend_pid}")
+                    time.sleep(0.4)
+            if not _can_bind_port(final_port):
+                existing_ok, existing_err = _wait_for_health_detail(final_port, 3)
+                if existing_ok:
+                    reuse_existing_backend = True
+                    print(f"[launcher] Reusing existing healthy backend on port {final_port}")
+                elif existing_err and "status=503" in existing_err:
+                    reuse_existing_backend = True
+                    print(
+                        f"[launcher] Reusing existing backend still starting on port {final_port}: {existing_err}"
+                    )
+                else:
+                    killed = _terminate_unhealthy_backend_on_port(final_port)
+                    if killed > 0:
+                        time.sleep(0.4)
+                    if _can_bind_port(final_port):
+                        print(f"[launcher] Reclaimed backend port {final_port} after terminating stale process")
+                    else:
+                        fallback_port = _find_free_port()
+                        print(
+                            f"[launcher] Port {final_port} is busy and unhealthy ({existing_err}); "
+                            f"retrying with free port {fallback_port}"
+                        )
+                        final_port = fallback_port
 
-            if not _wait_for_health(port, HEALTH_TIMEOUT_SECONDS):
-                if _wait_for_health(port, 3):
-                    _update_loading(win, "Opening app...")
-                    _maximize_window(win)
-                    win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
-                    threading.Timer(0.2, _maximize_window, args=(win,)).start()
-                    return
-                if port == fixed_port and not _can_bind_port(fixed_port):
-                    alt_port = _find_free_port()
-                    _update_loading(win, f"Port {fixed_port} in use. Switching to {alt_port}...")
-                    print(f"[launcher] Port {fixed_port} in use. Switching to {alt_port}.")
-                    _stop_server(server, thread)
-                    server, thread = _start_server(alt_port)
-                    server_state["server"] = server
-                    server_state["thread"] = thread
-                    port = alt_port
-                    if _wait_for_health(port, HEALTH_TIMEOUT_SECONDS):
-                        _update_loading(win, "Opening app...")
-                        _maximize_window(win)
-                        win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
-                        threading.Timer(0.2, _maximize_window, args=(win,)).start()
-                        return
-                _update_loading(win, "Backend failed to start.")
-                _stop_server(server, thread)
-                _message_box("Backend failed to start. See logs for details.", WINDOW_TITLE)
+            if not reuse_existing_backend:
                 try:
-                    win.destroy()
-                except Exception:
-                    pass
-                return
+                    proc, log_handle = _start_backend_process(final_port, backend_log_path)
+                    server_state["proc"] = proc
+                    server_state["log_handle"] = log_handle
+                except Exception as exc:
+                    print(f"[launcher] Backend start failed: {exc}")
+                    # Continue; we may still have an existing healthy backend on the fixed port.
 
-            _update_loading(win, "Opening app...")
+            _update_loading(win, "Waiting for backend health...")
+            health_timeout = _get_health_timeout_seconds()
+            ok, health_err = _wait_for_health_detail(
+                final_port,
+                health_timeout,
+                proc=proc if isinstance(proc, subprocess.Popen) else None,
+            )
+            if not ok:
+                locked_backend_port, locked_backend_detail = _detect_reusable_locked_backend(
+                    paths["data_dir"],
+                    final_port,
+                )
+                if locked_backend_port is not None and int(locked_backend_port) != int(final_port):
+                    fallback_ok, fallback_err = _wait_for_health_detail(int(locked_backend_port), 5)
+                    if fallback_ok or (fallback_err and "status=503" in fallback_err):
+                        print(
+                            "[launcher] Backend startup failed; "
+                            f"falling back to locked backend {locked_backend_detail}"
+                        )
+                        _stop_backend_process(
+                            proc if isinstance(proc, subprocess.Popen) else None,
+                            server_state.get("log_handle"),
+                        )
+                        server_state["proc"] = None
+                        server_state["log_handle"] = None
+                        final_port = int(locked_backend_port)
+                        ok = True
+                        health_err = None
+                proc = server_state.get("proc")
+                log_handle = server_state.get("log_handle")
+                if not ok:
+                    exit_note = ""
+                    if isinstance(proc, subprocess.Popen):
+                        rc = proc.poll()
+                        if rc is not None:
+                            exit_note = f" backend_exit={rc}"
+                    _stop_backend_process(proc if isinstance(proc, subprocess.Popen) else None, log_handle)
+                    server_state["proc"] = None
+                    server_state["log_handle"] = None
+                    error_html = _build_error_html(
+                        "Backend failed to start",
+                        "Backend did not become ready on /api/health.",
+                        paths,
+                        backend_log_path,
+                        health_error=f"{health_err or 'health_check_timeout'} (timeout={health_timeout}s){exit_note}",
+                    )
+                    _show_error_page(win, error_html)
+                    return
+
+            server_state["port"] = final_port
             _maximize_window(win)
-            win.load_url(f"http://127.0.0.1:{port}/?t={int(time.time())}")
+            _update_loading(win, "Loading frontend...")
+            if dev_mode and os.getenv("MEEMEE_DEV_FRONTEND_URL"):
+                win.load_url(os.getenv("MEEMEE_DEV_FRONTEND_URL"))
+            else:
+                win.load_url(f"http://127.0.0.1:{final_port}/?t={int(time.time())}")
+                _schedule_frontend_watchdog(win, paths, backend_log_path)
             threading.Timer(0.2, _maximize_window, args=(win,)).start()
+            
+            # Update Check (async)
+            try:
+                 enable_updates = os.getenv("MEEMEE_ENABLE_AUTO_UPDATE", "").lower() in ("1", "true", "yes", "on")
+                 if _is_dev_mode():
+                     enable_updates = False
+                 if enable_updates:
+                     from app.backend.infra.google_drive.update_client import UpdateClient
+                     client = UpdateClient()
+                     current_ver = "2.0.0"
+                     update = client.check_for_updates(current_ver)
+                     if update:
+                         do_update = ctypes.windll.user32.MessageBoxW(
+                             0, 
+                             f"New version {update.version} is available.\n\n{update.notes}\n\nUpdate now?", 
+                             "Update Available", 
+                             4
+                         ) == 6
+                         if do_update:
+                             # We can't easily show loading screen anymore because we are already in the app.
+                             # This UX might need revisiting later, but for now we focus on startup speed.
+                             # Maybe we can use window.evaluate_js to show a modal in React?
+                             # For now, just shelling out to updater might be abrupt.
+                             pass
+            except Exception:
+                pass
 
-        # Use None to let pywebview auto-detect the best available backend
-        # EdgeChromium requires WebView2 runtime, falls back to mshtml if unavailable
+
+        # Trigger bootstrap after window creation
+        # webview.start blocks, so we can't run code after it in main thread easily unless we use the func argument
         webview.start(_bootstrap, window, icon=icon_path, private_mode=False, storage_path=paths["state_dir"])
     except Exception as exc:
         detail = "".join(traceback.format_exception(exc))
@@ -683,6 +1952,7 @@ def main() -> None:
             except Exception:
                 _message_box(f"Launch failed:\n{exc}", WINDOW_TITLE)
     finally:
+        _remove_app_lock(app_lock_path)
         _release_mutex(mutex)
 
 

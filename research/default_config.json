@@ -1,0 +1,181 @@
+{
+  "tp_long": 0.1,
+  "tp_short": 0.1,
+  "cost": {
+    "enabled": true,
+    "rate_per_side": 0.001
+  },
+  "stop_loss": {
+    "enabled": true,
+    "rate": 0.08
+  },
+  "split": {
+    "train_years": 20,
+    "valid_months": 12,
+    "test_months": 12
+  },
+  "model": {
+    "candidate_pool": 150,
+    "top_k": 20,
+    "ridge_alpha": 1.0,
+    "risk_penalty": 0.35,
+    "use_lightgbm": true,
+    "lgbm_n_estimators": 1000,
+    "lgbm_learning_rate": 0.02,
+    "lgbm_max_depth": 6,
+    "lgbm_use_dart": false,
+    "lgbm_optuna_trials": 0,
+    "confidence_threshold": 0.0,
+    "use_high_conf_labels": false,
+    "regime_strategy_enabled": true,
+    "regime_strategy_long_enabled": true,
+    "regime_strategy_short_enabled": true,
+    "regime_min_rows": 120,
+    "regime_min_months": 4,
+    "regime_min_improvement": 0.0005,
+    "short_score_return_base": 0.45,
+    "short_score_prob_weight": 0.2,
+    "short_score_prob_alpha": 0.01,
+    "short_score_risk_scale": 1.2,
+    "short_mt_bear_bonus": 0.003,
+    "short_mt_bull_penalty": 0.006,
+    "short_vr1_penalty": 0.004,
+    "short_vr2_bonus": 0.001,
+    "short_regime_topk_caps": {
+      "mt2": 6,
+      "mt1": 12,
+      "mt0": 20
+    },
+    "short_month_gate_enabled": false,
+    "short_month_gate_allowed_regimes": [],
+    "short_month_gate_pred_return_max": null,
+    "short_month_gate_prob_min": null,
+    "short_month_gate_risk_max": null,
+    "short_month_gate_auto": false,
+    "short_month_gate_auto_max_regimes": 4,
+    "short_month_gate_auto_min_months": 6,
+    "short_month_gate_auto_min_improvement": 0.0002
+  },
+  "publish_gate": {
+    "min_test_overall_return_at20": 0.003,
+    "min_test_long_return_at20": 0.015,
+    "min_test_short_return_at20": -0.01,
+    "max_test_risk_mae_p90": 0.12,
+    "min_test_months": 6,
+    "regime_overrides": {
+      "mt2": {
+        "min_test_long_return_at20": 0.016,
+        "min_test_short_return_at20": -0.012
+      },
+      "mt1": {
+        "min_test_long_return_at20": 0.015,
+        "min_test_short_return_at20": -0.009
+      },
+      "mt0": {
+        "min_test_long_return_at20": 0.013,
+        "min_test_short_return_at20": -0.006
+      }
+    }
+  },
+  "study": {
+    "timeframes": [
+      "daily",
+      "weekly",
+      "monthly"
+    ],
+    "families": [
+      "bottom",
+      "top",
+      "bottom_negation",
+      "top_negation",
+      "up_cont",
+      "down_cont"
+    ],
+    "trials_per_family": {
+      "daily": 256,
+      "weekly": 192,
+      "monthly": 96
+    },
+    "refinement_trials_per_family": {
+      "daily": 640,
+      "weekly": 480,
+      "monthly": 240
+    },
+    "retention_gates": {
+      "min_profit_factor": 1.05,
+      "min_positive_window_ratio": 0.52,
+      "max_worst_drawdown": 0.35,
+      "min_samples": 60,
+      "top_hypotheses_per_combo": 5
+    },
+    "adoption_gates": {
+      "min_oos_return": 0.02,
+      "min_pf": 1.15,
+      "min_positive_window_ratio": 0.55,
+      "max_worst_drawdown": 0.25,
+      "min_stability": 0.45,
+      "min_cluster_consistency": 0.45,
+      "min_fold_months": 12
+    },
+    "seed_weights": {
+      "reversal": {
+        "Candle": 0.12,
+        "Pivot": 0.1,
+        "MA": 0.2,
+        "Volume": 0.16,
+        "WeeklyContext": 0.18,
+        "MonthlyContext": 0.1,
+        "Regime": 0.08,
+        "Cluster": 0.06
+      },
+      "continuation": {
+        "MA": 0.24,
+        "BreakoutShape": 0.12,
+        "Pivot": 0.06,
+        "Volume": 0.18,
+        "WeeklyContext": 0.16,
+        "Regime": 0.12,
+        "MonthlyContext": 0.06,
+        "Cluster": 0.06
+      }
+    },
+    "negation_penalties": [
+      -0.2,
+      -0.3,
+      -0.45
+    ],
+    "selection_cutoffs": [
+      0.005,
+      0.01,
+      0.02,
+      0.05,
+      0.1
+    ],
+    "top_refinement_parents": 10,
+    "random_seed": 42,
+    "resume": true
+  },
+  "feature_version": "v3_deep",
+  "label_version": "v3_quality_sl8",
+  "model_version": "two_stage_lgbm_v1",
+  "loop_variants": [
+    {
+      "name": "baseline",
+      "candidate_pool": 150,
+      "ridge_alpha": 1.0,
+      "risk_penalty": 0.35
+    },
+    {
+      "name": "risk_tight",
+      "candidate_pool": 120,
+      "ridge_alpha": 1.4,
+      "risk_penalty": 0.5
+    },
+    {
+      "name": "recall_wide",
+      "candidate_pool": 200,
+      "ridge_alpha": 0.8,
+      "risk_penalty": 0.25
+    }
+  ]
+}

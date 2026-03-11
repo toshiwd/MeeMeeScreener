@@ -1,14 +1,17 @@
-﻿import { useLayoutEffect } from "react";
+import { Suspense, lazy, useLayoutEffect } from "react";
 import { Route, Routes } from "react-router-dom";
 import { BackendReadyProvider } from "./backendReady";
-import CandidatesView from "./routes/CandidatesView";
-import DetailView from "./routes/DetailView";
-import FavoritesView from "./routes/FavoritesView";
-import GridView from "./routes/GridView";
-import PracticeView from "./routes/PracticeView";
-import RankingView from "./routes/RankingView";
-import PositionsView from "./routes/PositionsView";
 import { applyTheme, getStoredTheme } from "./utils/theme";
+
+const GridView = lazy(() => import("./routes/GridView"));
+const RankingView = lazy(() => import("./routes/RankingView"));
+const FavoritesView = lazy(() => import("./routes/FavoritesView"));
+const CandidatesView = lazy(() => import("./routes/CandidatesView"));
+const PositionsView = lazy(() => import("./routes/PositionsView"));
+const MarketView = lazy(() => import("./routes/MarketView"));
+const ToredexSimulationView = lazy(() => import("./routes/ToredexSimulationView"));
+const DetailView = lazy(() => import("./routes/DetailView"));
+const PracticeView = lazy(() => import("./routes/PracticeView"));
 
 export default function App() {
   // Initialize theme on app mount
@@ -19,15 +22,19 @@ export default function App() {
 
   return (
     <BackendReadyProvider>
-      <Routes>
-        <Route path="/" element={<GridView />} />
-        <Route path="/ranking" element={<RankingView />} />
-        <Route path="/favorites" element={<FavoritesView />} />
-        <Route path="/candidates" element={<CandidatesView />} />
-        <Route path="/positions" element={<PositionsView />} />
-        <Route path="/detail/:code" element={<DetailView />} />
-        <Route path="/practice/:code" element={<PracticeView />} />
-      </Routes>
+      <Suspense fallback={null}>
+        <Routes>
+          <Route path="/" element={<GridView />} />
+          <Route path="/ranking" element={<RankingView />} />
+          <Route path="/favorites" element={<FavoritesView />} />
+          <Route path="/candidates" element={<CandidatesView />} />
+          <Route path="/positions" element={<PositionsView />} />
+          <Route path="/market" element={<MarketView />} />
+          <Route path="/toredex-sim" element={<ToredexSimulationView />} />
+          <Route path="/detail/:code" element={<DetailView />} />
+          <Route path="/practice/:code" element={<PracticeView />} />
+        </Routes>
+      </Suspense>
     </BackendReadyProvider>
   );
 }

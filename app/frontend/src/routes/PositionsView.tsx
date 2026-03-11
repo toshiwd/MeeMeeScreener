@@ -6,7 +6,7 @@ import UnifiedListHeader from "../components/UnifiedListHeader";
 import ChartListCard from "../components/ChartListCard";
 import Toast from "../components/Toast";
 import { useStore } from "../store";
-import { computeSignalMetrics } from "../utils/signals";
+import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
 import { IconRefresh, IconUpload } from "@tabler/icons-react";
 import {
   buildConsultationPack,
@@ -14,7 +14,6 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
-import { buildCurrentPositions, type TradeEvent } from "../utils/positions";
 
 type HeldItem = {
   symbol: string;
@@ -39,6 +38,7 @@ type HistoryItem = {
 };
 
 type PositionSortKey = "code" | "change" | "scoreUp" | "scoreDown";
+const POSITIONS_VIEW_STATE_KEY = "positionsViewState";
 const SCREENSHOT_LIMIT = 10;
 
 type RoundEvent = {
@@ -57,6 +57,22 @@ const formatDate = (value: string | null | undefined) => {
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
   return `${yyyy}/${mm}/${dd}`;
+};
+
+const extractErrorMessage = (err: unknown, fallback = "不明なエラー") => {
+  if (!err || typeof err !== "object") return fallback;
+  const maybeErr = err as {
+    message?: unknown;
+    response?: {
+      data?: {
+        error?: unknown;
+      };
+    };
+  };
+  const responseError = maybeErr.response?.data?.error;
+  if (typeof responseError === "string" && responseError.trim()) return responseError;
+  if (typeof maybeErr.message === "string" && maybeErr.message.trim()) return maybeErr.message;
+  return fallback;
 };
 
 export default function PositionsView() {
@@ -87,6 +103,8 @@ export default function PositionsView() {
   const [sortKey, setSortKey] = useState<PositionSortKey>("code");
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
   const [filterDataOnly, setFilterDataOnly] = useState(false);
+  const [filterBuySignalsOnly, setFilterBuySignalsOnly] = useState(false);
+  const [filterSellSignalsOnly, setFilterSellSignalsOnly] = useState(false);
   const [consultVisible, setConsultVisible] = useState(false);
   const [consultExpanded, setConsultExpanded] = useState(false);
   const [consultTab, setConsultTab] = useState<"selection" | "position">("selection");
@@ -111,6 +129,64 @@ export default function PositionsView() {
   const [eventsLoading, setEventsLoading] = useState(false);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.sessionStorage.getItem(POSITIONS_VIEW_STATE_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as {
+        tab?: "held" | "history";
+        sortKey?: PositionSortKey;
+        filterSignalsOnly?: boolean;
+        filterDataOnly?: boolean;
+        filterBuySignalsOnly?: boolean;
+        filterSellSignalsOnly?: boolean;
+      };
+      if (parsed.tab === "held" || parsed.tab === "history") {
+        setTab(parsed.tab);
+      }
+      if (
+        parsed.sortKey === "code" ||
+        parsed.sortKey === "change" ||
+        parsed.sortKey === "scoreUp" ||
+        parsed.sortKey === "scoreDown"
+      ) {
+        setSortKey(parsed.sortKey);
+      }
+      if (typeof parsed.filterSignalsOnly === "boolean") {
+        setFilterSignalsOnly(parsed.filterSignalsOnly);
+      }
+      if (typeof parsed.filterDataOnly === "boolean") {
+        setFilterDataOnly(parsed.filterDataOnly);
+      }
+      if (typeof parsed.filterBuySignalsOnly === "boolean") {
+        setFilterBuySignalsOnly(parsed.filterBuySignalsOnly);
+      }
+      if (typeof parsed.filterSellSignalsOnly === "boolean") {
+        setFilterSellSignalsOnly(parsed.filterSellSignalsOnly);
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const payload = {
+        tab,
+        sortKey,
+        filterSignalsOnly,
+        filterDataOnly,
+        filterBuySignalsOnly,
+        filterSellSignalsOnly
+      };
+      window.sessionStorage.setItem(POSITIONS_VIEW_STATE_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore storage failures
+    }
+  }, [tab, sortKey, filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]);
+
+  useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
     loadList().catch(() => { });
@@ -126,66 +202,18 @@ export default function PositionsView() {
     setLoading(true);
     const load = async () => {
       try {
-        const tradesRes = await api.get("/trades");
-        const tradesPayload = (tradesRes.data || {}) as { events?: TradeEvent[] };
-        const tradeEvents = Array.isArray(tradesPayload.events) ? tradesPayload.events : [];
-        const tradesByCode = new Map<string, TradeEvent[]>();
-
-        tradeEvents.forEach((trade) => {
-          const code = (trade.code ?? "").toString().trim();
-          if (!code) return;
-          const list = tradesByCode.get(code);
-          if (list) {
-            list.push(trade);
-          } else {
-            tradesByCode.set(code, [trade]);
-          }
-        });
-
-        const allTradedCodes = Array.from(tradesByCode.keys()).sort((a, b) => a.localeCompare(b, "ja"));
-        const holdings: HeldItem[] = [];
-        const holdingCodes: string[] = [];
-
-        tradesByCode.forEach((items, code) => {
-          const positions = buildCurrentPositions(items);
-          const totals = positions.reduce(
-            (acc, pos) => {
-              acc.longLots += pos.longLots;
-              acc.shortLots += pos.shortLots;
-              return acc;
-            },
-            { longLots: 0, shortLots: 0 }
-          );
-          if (!(totals.longLots > 0 || totals.shortLots > 0)) return;
-          holdingCodes.push(code);
-          const buy = totals.longLots;
-          const sell = totals.shortLots;
-          const buyLabel = Number.isInteger(buy) ? `${buy}` : `${buy}`;
-          const sellLabel = Number.isInteger(sell) ? `${sell}` : `${sell}`;
-          const ticker = tickerMap.get(code);
-          holdings.push({
-            symbol: code,
-            name: ticker?.name ?? code,
-            buy_qty: buy,
-            sell_qty: sell,
-            sell_buy_text: `${sellLabel}-${buyLabel}`,
-            opened_at: null,
-            has_issue: false,
-            issue_note: null
-          });
-        });
+        const heldRes = await api.get("/positions/held");
+        const holdings = (heldRes.data?.items || []) as HeldItem[];
+        const holdingSet = new Set(holdings.map((item) => item.symbol));
 
         if (tab === "held") {
           setHeldItems(holdings);
           setHistoryItems([]);
         } else {
-          const holdingSet = new Set(holdingCodes);
-          const historyCodes = allTradedCodes.filter((code) => !holdingSet.has(code));
-          const historyCodeSet = new Set(historyCodes);
           const res = await api.get("/positions/history");
           const rawItems = (res.data?.items || []) as HistoryItem[];
           const filtered = rawItems
-            .filter((item) => historyCodeSet.has(item.symbol))
+            .filter((item) => !holdingSet.has(item.symbol))
             .map((item, index) => ({ ...item, round_no: index + 1 }));
           setHistoryItems(filtered);
           setHeldItems([]);
@@ -199,37 +227,69 @@ export default function PositionsView() {
       }
     };
     load();
-  }, [backendReady, tab, tickerMap]);
+  }, [backendReady, tab]);
 
-  const signalMap = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
+  const signalMetricsMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeSignalMetrics>>();
     heldItems.forEach((item) => {
-      const payload = barsCache[listTimeframe][item.symbol];
+      if (!item?.symbol) return;
+      const timeline = barsCache[listTimeframe];
+      const payload = timeline ? timeline[item.symbol] : null;
       if (!payload?.bars?.length) return;
-      const signals = computeSignalMetrics(payload.bars, 4).signals;
-      if (signals.length) {
-        map.set(item.symbol, signals);
-      }
+      map.set(item.symbol, computeSignalMetrics(payload.bars, 4));
     });
     return map;
   }, [heldItems, barsCache, listTimeframe]);
 
+  const signalMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
+    signalMetricsMap.forEach((metrics, code) => {
+      if (metrics.signals.length) {
+        map.set(code, metrics.signals);
+      }
+    });
+    return map;
+  }, [signalMetricsMap]);
+
   const filteredHeldItems = useMemo(() => {
+    const hasDirectionalFilter = filterBuySignalsOnly || filterSellSignalsOnly;
     if (tab !== "held") return heldItems;
-    if (!filterSignalsOnly && !filterDataOnly) return heldItems;
+    if (!filterSignalsOnly && !filterDataOnly && !hasDirectionalFilter) return heldItems;
     return heldItems.filter((item) => {
-      const payload = barsCache[listTimeframe][item.symbol];
+      if (!item?.symbol) return false;
+      const timeline = barsCache[listTimeframe];
+      const payload = timeline ? timeline[item.symbol] : null;
       const hasData = Boolean(payload?.bars?.length);
+      const metrics = signalMetricsMap.get(item.symbol);
+      const summary = metrics ? getSignalDirectionSummary(metrics) : null;
       if (filterDataOnly && !hasData) return false;
       if (filterSignalsOnly && !signalMap.has(item.symbol)) return false;
+      if (hasDirectionalFilter) {
+        const matchesBuy = filterBuySignalsOnly && Boolean(summary?.hasBuySignal);
+        const matchesSell = filterSellSignalsOnly && Boolean(summary?.hasSellSignal);
+        if (!(matchesBuy || matchesSell)) return false;
+      }
       return true;
     });
-  }, [tab, heldItems, filterSignalsOnly, filterDataOnly, barsCache, listTimeframe, signalMap]);
+  }, [
+    tab,
+    heldItems,
+    filterSignalsOnly,
+    filterDataOnly,
+    filterBuySignalsOnly,
+    filterSellSignalsOnly,
+    barsCache,
+    listTimeframe,
+    signalMap,
+    signalMetricsMap
+  ]);
 
   const heldMetricsMap = useMemo(() => {
     const map = new Map<string, { change: number; score: number }>();
     filteredHeldItems.forEach((item) => {
-      const payload = barsCache[listTimeframe][item.symbol];
+      if (!item?.symbol) return;
+      const timeline = barsCache[listTimeframe];
+      const payload = timeline ? timeline[item.symbol] : null;
       const bars = payload?.bars ?? [];
       if (!bars.length) {
         map.set(item.symbol, { change: 0, score: 0 });
@@ -283,6 +343,13 @@ export default function PositionsView() {
   const activeItems = useMemo(() => {
     return tab === "held" ? sortedHeldItems : historyItems;
   }, [tab, sortedHeldItems, historyItems]);
+  const listCodes = useMemo(
+    () =>
+      activeItems
+        .map((item) => item.symbol)
+        .filter((code): code is string => typeof code === "string" && code.length > 0),
+    [activeItems]
+  );
 
   const consultTargets = useMemo(
     () => (tab === "held" ? sortedHeldItems.map((item) => item.symbol) : []),
@@ -344,10 +411,13 @@ export default function PositionsView() {
         const res = await api.get("/positions/history");
         setHistoryItems((res.data?.items || []) as HistoryItem[]);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      const msg = err.response?.data?.error || err.message || "Unknown error";
-      const warnings = err.response?.data?.warnings || [];
+      const msg = extractErrorMessage(err);
+      const warnings =
+        err && typeof err === "object" && "response" in err
+          ? ((err as { response?: { data?: { warnings?: unknown[] } } }).response?.data?.warnings ?? [])
+          : [];
       const warnMsg = warnings.length ? "\n" + warnings.join("\n") : "";
       alert(`インポートに失敗しました: ${msg}${warnMsg}`);
     } finally {
@@ -357,9 +427,15 @@ export default function PositionsView() {
 
   const handleOpenDetail = useCallback(
     (code: string) => {
+      try {
+        sessionStorage.setItem("detailListBack", location.pathname);
+        sessionStorage.setItem("detailListCodes", JSON.stringify(listCodes));
+      } catch {
+        // ignore storage failures
+      }
       navigate(`/detail/${code}`, { state: { from: location.pathname } });
     },
-    [navigate, location.pathname]
+    [navigate, location.pathname, listCodes]
   );
 
 
@@ -385,7 +461,7 @@ export default function PositionsView() {
       const itemsForPack = consultTargets.map((code) => {
         const held = heldItems.find((item) => item.symbol === code);
         const ticker = tickerMap.get(code);
-        const payload = barsCache[consultTimeframe][code];
+        const payload = barsCache[consultTimeframe]?.[code];
         const boxes = boxesCache[consultTimeframe][code] ?? [];
         return {
           code,
@@ -461,11 +537,11 @@ export default function PositionsView() {
       }
       const itemsForShots = targets.map((code) => ({
         code,
-        payload: barsCache[listTimeframe][code] ?? null,
+        payload: (barsCache[listTimeframe] && barsCache[listTimeframe][code]) ?? null,
         boxes: [],
         maSettings: maSettings[listTimeframe] ?? []
       }));
-      const result = downloadChartScreenshots(itemsForShots, {
+      const result = await downloadChartScreenshots(itemsForShots, {
         rangeBars: listRangeBars,
         timeframeLabel: listTimeframe
       });
@@ -529,23 +605,46 @@ export default function PositionsView() {
             label: "\u30c7\u30fc\u30bf\u53d6\u5f97\u6e08\u307f",
             checked: filterDataOnly,
             onToggle: () => setFilterDataOnly((prev) => !prev)
+          },
+          {
+            key: "buy-signal",
+            label: "\u8cb7\u3044\u5224\u5b9a\u3042\u308a",
+            checked: filterBuySignalsOnly,
+            onToggle: () => setFilterBuySignalsOnly((prev) => !prev)
+          },
+          {
+            key: "sell-signal",
+            label: "\u58f2\u308a\u5224\u5b9a\u3042\u308a",
+            checked: filterSellSignalsOnly,
+            onToggle: () => setFilterSellSignalsOnly((prev) => !prev)
           }
         ]
         : [],
-    [tab, filterSignalsOnly, filterDataOnly]
+    [tab, filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]
   );
 
   const isSingleDensity = listColumns === 1 && listRows === 1;
-  const emptyLabel = tab === "held" ? "保有銘柄はありません" : "履歴はまだありません";
+  const emptyLabel =
+    tab === "held"
+      ? heldItems.length > 0 &&
+        (filterSignalsOnly || filterDataOnly || filterBuySignalsOnly || filterSellSignalsOnly) &&
+        sortedHeldItems.length === 0
+        ? "該当する銘柄がありません。"
+        : "保有銘柄はありません"
+      : "履歴はまだありません";
 
   const renderItem = (item: HeldItem | HistoryItem) => {
     if ("buy_qty" in item && !(item.buy_qty > 0 || item.sell_qty > 0)) {
       return null;
     }
     const code = item.symbol;
-    const payload = barsCache[listTimeframe][code] ?? null;
-    const status = barsStatus[listTimeframe][code];
-    const signals = "buy_qty" in item ? (signalMap.get(code) ?? []) : ([] as any[]);
+    if (!code) return null;
+
+    const timeline = barsCache[listTimeframe];
+    const statusMap = barsStatus[listTimeframe];
+    const payload = timeline ? timeline[code] ?? null : null;
+    const status = statusMap ? statusMap[code] : undefined;
+    const signals = "buy_qty" in item ? (signalMap.get(code) ?? []) : [];
     const ticker = tickerMap.get(code);
 
     let displayName = item.name;
@@ -575,15 +674,11 @@ export default function PositionsView() {
         densityKey={densityKey}
         signals={signals}
         onOpenDetail={handleOpenDetail}
-        action={"round_id" in item ? {
-          label: "履歴",
-          ariaLabel: "取引履歴",
-          className: "favorite-toggle",
-          onClick: (e) => {
-            e.stopPropagation();
-            setSelectedRound(item as HistoryItem);
-          }
-        } : undefined}
+        phaseBody={ticker?.bodyScore ?? null}
+        phaseEarly={ticker?.earlyScore ?? null}
+        phaseLate={ticker?.lateScore ?? null}
+        phaseN={ticker?.phaseN ?? null}
+        action={undefined}
       />
     );
   };
@@ -683,8 +778,8 @@ export default function PositionsView() {
               } else {
                 alert(`エラー: ${data.message}`);
               }
-            } catch (err: any) {
-              alert(`再計算に失敗しました: ${err.message}`);
+            } catch (err: unknown) {
+              alert(`再計算に失敗しました: ${extractErrorMessage(err)}`);
             }
           }}
         >
