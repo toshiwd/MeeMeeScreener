@@ -9,6 +9,7 @@ from typing import Any
 import duckdb
 
 from app.backend.tdnetdb.schema import ensure_tdnetdb_schema, utcnow_naive
+from app.db.session import get_conn_for_path
 
 
 def _json_dumps(value: Any) -> str:
@@ -139,7 +140,10 @@ class TdnetdbRepository:
     def __init__(self, db_path: str | Path):
         self._db_path = str(Path(db_path).expanduser().resolve())
 
-    def _connect(self) -> duckdb.DuckDBPyConnection:
+    def _connect_read(self):
+        return get_conn_for_path(self._db_path, timeout_sec=2.5, read_only=True)
+
+    def _connect_write(self) -> duckdb.DuckDBPyConnection:
         conn = duckdb.connect(self._db_path)
         ensure_tdnetdb_schema(conn)
         return conn
@@ -188,7 +192,7 @@ class TdnetdbRepository:
             )
         if not rows:
             return 0
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.executemany(
                 """
                 INSERT INTO tdnet_disclosures (
@@ -245,7 +249,7 @@ class TdnetdbRepository:
         code = str(sec_code or "").strip()
         if not code:
             return []
-        with self._connect() as conn:
+        with self._connect_read() as conn:
             rows = conn.execute(
                 """
                 SELECT d.disclosure_id, d.sec_code, d.company_name, d.title, d.category,

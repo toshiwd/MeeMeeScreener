@@ -52,7 +52,18 @@ def read_json(path: Path) -> dict[str, Any]:
 def read_csv(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(path)
-    return pd.read_csv(path)
+    frame = pd.read_csv(path)
+    for col in ("code", "sector33_code", "sector33_name", "snapshot_id", "study_id"):
+        if col not in frame.columns:
+            continue
+        def _normalize(value: Any) -> Any:
+            if pd.isna(value):
+                return value
+            if isinstance(value, float) and float(value).is_integer():
+                return str(int(value))
+            return str(value).strip()
+        frame[col] = frame[col].map(_normalize)
+    return frame
 
 
 def write_csv(path: Path, frame: pd.DataFrame) -> None:

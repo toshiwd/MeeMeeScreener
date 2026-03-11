@@ -79,7 +79,6 @@ def health():
     if not _HEALTH_LIGHT:
         return health_deep()
 
-    txt_status = get_txt_status()
     readiness = _collect_db_readiness()
     missing_tables = list(readiness.get("missing_tables") or [])
     errors = list(readiness.get("errors") or [])
@@ -109,9 +108,9 @@ def health():
             "db_retryable": bool(readiness.get("db_retryable")),
             "db_connect_stats": readiness.get("db_connect_stats"),
             "readiness_state": readiness_state,
-            "txt_count": txt_status.get("txt_count"),
-            "last_updated": txt_status.get("last_updated"),
-            "code_txt_missing": txt_status.get("code_txt_missing"),
+            "txt_count": None,
+            "last_updated": None,
+            "code_txt_missing": None,
         },
     )
     if ready:

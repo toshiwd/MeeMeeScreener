@@ -5914,7 +5914,15 @@ def predict_for_dates_bulk(
         _ensure_ml_schema(conn)
         feature_rows = int(conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()[0] or 0)
         if feature_rows <= 0:
-            refresh_ml_feature_table(conn, feature_version=FEATURE_VERSION)
+            if requested_dates:
+                refresh_ml_feature_table(
+                    conn,
+                    feature_version=FEATURE_VERSION,
+                    start_dt=requested_dates[0] - 50000,
+                    end_dt=requested_dates[-1],
+                )
+            else:
+                refresh_ml_feature_table(conn, feature_version=FEATURE_VERSION)
 
         available_rows = conn.execute(
             """
@@ -6039,7 +6047,15 @@ def predict_for_dt(dt: int | None = None) -> dict[str, Any]:
             ).fetchone()
             needs_feature_refresh = has_target is None
         if needs_feature_refresh:
-            refresh_ml_feature_table(conn, feature_version=FEATURE_VERSION)
+            if target_dt is not None and feature_rows > 0:
+                refresh_ml_feature_table(
+                    conn,
+                    feature_version=FEATURE_VERSION,
+                    start_dt=target_dt - 50000,
+                    end_dt=target_dt,
+                )
+            else:
+                refresh_ml_feature_table(conn, feature_version=FEATURE_VERSION)
 
         if target_dt is None:
             row = conn.execute("SELECT MAX(dt) FROM ml_feature_daily").fetchone()

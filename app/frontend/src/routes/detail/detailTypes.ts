@@ -46,6 +46,11 @@ export type ApiWarnings = {
 export type BarsMeta = {
   hasProvisional?: boolean;
   panDelayed?: boolean;
+  latestPanDate?: number | null;
+  latestYahooDate?: number | null;
+  latestResolvedDate?: number | null;
+  pendingYahooDate?: number | null;
+  delayedPendingDate?: number | null;
   message?: string | null;
 };
 

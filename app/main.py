@@ -218,11 +218,13 @@ from app.backend.core.ranking_quality_job import (
 from app.backend.core.tdnet_import_job import TDNET_IMPORT_JOB_TYPE, handle_tdnet_import
 from app.backend.core.toredex_live_job import handle_toredex_live
 from app.backend.core.toredex_self_improve_job import handle_toredex_self_improve
+from app.backend.core.txt_followup_job import handle_txt_followup
 from app.backend.core.txt_update_job import handle_txt_update
 from app.db.session import get_connect_stats, is_transient_duckdb_error
 
 job_manager.register_handler("force_sync", handle_force_sync)
 job_manager.register_handler("txt_update", handle_txt_update)
+job_manager.register_handler("txt_followup", handle_txt_followup)
 job_manager.register_handler("phase_rebuild", handle_phase_rebuild)
 job_manager.register_handler("ml_train", handle_ml_train)
 job_manager.register_handler("ml_predict", handle_ml_predict)

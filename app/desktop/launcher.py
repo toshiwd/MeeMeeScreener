@@ -413,12 +413,9 @@ def _wait_for_health_detail(
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     last_err: Exception | None = None
     last_detail: str | None = None
+    proc_exit_detail: str | None = None
     retryable_lock_hits = 0
     while time.monotonic() < deadline:
-        if proc is not None:
-            rc = proc.poll()
-            if rc is not None:
-                return False, f"backend_exit={rc}"
         try:
             with opener.open(url, timeout=1) as response:
                 body = response.read()
@@ -464,10 +461,14 @@ def _wait_for_health_detail(
             last_err = exc
             last_detail = str(exc)
             retryable_lock_hits = 0
+        if proc is not None:
+            rc = proc.poll()
+            if rc is not None:
+                proc_exit_detail = f"backend_exit={rc}"
         time.sleep(0.2)
     if last_err is not None:
         print(f"[launcher] Health check failed for {url}: {last_err}")
-    return False, (last_detail or (str(last_err) if last_err else None))
+    return False, (last_detail or proc_exit_detail or (str(last_err) if last_err else None))
 
 
 def _wait_for_health(port: int, timeout_seconds: int) -> bool:

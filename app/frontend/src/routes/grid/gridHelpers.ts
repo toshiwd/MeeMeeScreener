@@ -35,12 +35,33 @@ export const createDefaultTechFilter = (defaultTimeframe: Timeframe): TechnicalF
 export const normalizeHealthStatus = (
   payload: HealthReadyResponse | HealthDeepResponse | null | undefined
 ): HealthStatus => ({
-  txt_count: typeof payload?.txt_count === "number" ? payload.txt_count : 0,
+  txt_count: typeof payload?.txt_count === "number" ? payload.txt_count : null,
   code_count: typeof payload?.code_count === "number" ? payload.code_count : undefined,
   last_updated: typeof payload?.last_updated === "string" ? payload.last_updated : null,
   code_txt_missing: payload?.code_txt_missing === true,
   pan_out_txt_dir: typeof payload?.pan_out_txt_dir === "string" ? payload.pan_out_txt_dir : null
 });
+
+export const mergeHealthStatus = (
+  prev: HealthStatus | null,
+  payload: HealthReadyResponse | HealthDeepResponse | null | undefined
+): HealthStatus => {
+  const next = normalizeHealthStatus(payload);
+  if (!prev) return next;
+  const codeTxtMissing =
+    payload?.code_txt_missing === true
+      ? true
+      : payload?.code_txt_missing === false
+        ? false
+        : prev.code_txt_missing;
+  return {
+    txt_count: next.txt_count ?? prev.txt_count,
+    code_count: next.code_count ?? prev.code_count,
+    last_updated: next.last_updated ?? prev.last_updated,
+    code_txt_missing: codeTxtMissing,
+    pan_out_txt_dir: next.pan_out_txt_dir ?? prev.pan_out_txt_dir
+  };
+};
 
 export const resolveGridSignalSortScore = (
   metrics: SignalMetrics | null,

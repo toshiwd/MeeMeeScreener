@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 
+from research.agent import run_agent_cycle, run_agent_init, run_agent_loop
 from research.config import load_config
 from research.evaluate import run_evaluate
 from research.features import build_features_for_asof
@@ -105,6 +106,26 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     study_loop.add_argument("--resume", action="store_true")
     study_loop.add_argument("--study-id", default=None)
+
+    agent_init = sub.add_parser("agent_init", help="Initialize the agent research workspace")
+    agent_init.add_argument("--snapshot-id", default=None)
+
+    agent_cycle = sub.add_parser("agent_cycle", help="Run one agent research cycle")
+    agent_cycle.add_argument("--snapshot-id", default=None)
+    agent_cycle.add_argument("--theme", default=None)
+    agent_cycle.add_argument("--max-hypotheses", type=int, default=1)
+    agent_cycle.add_argument("--max-codes", type=int, default=None)
+    agent_cycle.add_argument("--resume", action="store_true")
+    agent_cycle.add_argument("--force-dataset", action="store_true")
+
+    agent_loop = sub.add_parser("agent_loop", help="Run multiple agent research cycles")
+    agent_loop.add_argument("--snapshot-id", default=None)
+    agent_loop.add_argument("--theme", default=None)
+    agent_loop.add_argument("--max-cycles", type=int, default=1)
+    agent_loop.add_argument("--max-hypotheses", type=int, default=1)
+    agent_loop.add_argument("--max-codes", type=int, default=None)
+    agent_loop.add_argument("--resume", action="store_true")
+    agent_loop.add_argument("--force-dataset", action="store_true")
 
     return parser
 
@@ -274,6 +295,41 @@ def main(argv: list[str] | None = None) -> int:
                 families=families,
                 resume=bool(args.resume),
                 study_id=str(args.study_id) if args.study_id else None,
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "agent_init":
+            snapshot_id = _resolve_snapshot_id(paths, args.snapshot_id)
+            result = run_agent_init(paths=paths, snapshot_id=snapshot_id)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "agent_cycle":
+            snapshot_id = _resolve_snapshot_id(paths, args.snapshot_id)
+            result = run_agent_cycle(
+                paths=paths,
+                snapshot_id=snapshot_id,
+                theme=str(args.theme) if args.theme else None,
+                max_hypotheses=int(args.max_hypotheses),
+                max_codes=int(args.max_codes) if args.max_codes else None,
+                resume=bool(args.resume),
+                force_dataset=bool(args.force_dataset),
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "agent_loop":
+            snapshot_id = _resolve_snapshot_id(paths, args.snapshot_id)
+            result = run_agent_loop(
+                paths=paths,
+                snapshot_id=snapshot_id,
+                theme=str(args.theme) if args.theme else None,
+                max_cycles=int(args.max_cycles),
+                max_hypotheses=int(args.max_hypotheses),
+                max_codes=int(args.max_codes) if args.max_codes else None,
+                resume=bool(args.resume),
+                force_dataset=bool(args.force_dataset),
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0

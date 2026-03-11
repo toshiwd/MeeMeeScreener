@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import duckdb
+from threading import RLock
 try:
     import numpy as np
 except Exception:  # pragma: no cover - runtime fallback for missing numpy in packaged app
@@ -66,6 +67,23 @@ class SimilarityService:
         self.df_env: Optional["pd.DataFrame"] = None
         self.tag_index: Optional[Dict[str, List[int]]] = None
         self.loaded = False
+        self._state_lock = RLock()
+
+    def _month_values_to_compare_keys(self, values: "pd.Series") -> "pd.Series":
+        if pd is None:
+            raise RuntimeError("pandas_missing")
+        month_values = values.astype("int64").copy()
+        epoch_mask = month_values >= 1_000_000_000
+        ymd_mask = (~epoch_mask) & (month_values >= 10_000_000)
+
+        if epoch_mask.any():
+            epoch_dt = pd.to_datetime(month_values.loc[epoch_mask], unit="s", utc=True)
+            month_values.loc[epoch_mask] = (
+                epoch_dt.dt.year * 100 + epoch_dt.dt.month
+            ).astype("int64")
+        if ymd_mask.any():
+            month_values.loc[ymd_mask] = (month_values.loc[ymd_mask] // 100).astype("int64")
+        return month_values
 
     def _load_monthly_bars(
         self,
@@ -226,154 +244,155 @@ class SimilarityService:
 
     def load_artifacts(self):
         """Load pre-computed data into memory."""
-        if self.loaded:
-            return
-        if pd is None:
-            raise RuntimeError("pandas_missing")
+        with self._state_lock:
+            if self.loaded:
+                return
+            if pd is None:
+                raise RuntimeError("pandas_missing")
 
-        required_paths = [
-            self.df_vec60_path,
-            self.df_vec24_path,
-            self.df_env_path,
-            self.tag_index_path
-        ]
-        missing = [path for path in required_paths if not os.path.exists(path)]
-        if missing:
-            try:
-                # Attempt to rebuild artifacts on demand if missing
-                self.refresh_data(incremental=False)
-            except Exception as exc:
-                missing_list = ", ".join(missing)
-                raise FileNotFoundError(
-                    f"Similarity artifacts not found: {missing_list}. refresh_data failed: {exc}"
-                ) from exc
+            required_paths = [
+                self.df_vec60_path,
+                self.df_vec24_path,
+                self.df_env_path,
+                self.tag_index_path
+            ]
             missing = [path for path in required_paths if not os.path.exists(path)]
             if missing:
-                missing_list = ", ".join(missing)
-                raise FileNotFoundError(
-                    f"Similarity artifacts not found after refresh_data(): {missing_list}"
-                )
+                try:
+                    # Attempt to rebuild artifacts on demand if missing
+                    self.refresh_data(incremental=False)
+                except Exception as exc:
+                    missing_list = ", ".join(missing)
+                    raise FileNotFoundError(
+                        f"Similarity artifacts not found: {missing_list}. refresh_data failed: {exc}"
+                    ) from exc
+                missing = [path for path in required_paths if not os.path.exists(path)]
+                if missing:
+                    missing_list = ", ".join(missing)
+                    raise FileNotFoundError(
+                        f"Similarity artifacts not found after refresh_data(): {missing_list}"
+                    )
 
-        try:
-            self.df_vec60 = pd.read_parquet(self.df_vec60_path)
-            self.df_vec24 = pd.read_parquet(self.df_vec24_path)
-            self.df_env = pd.read_parquet(self.df_env_path)
-        except ImportError as exc:
-            raise RuntimeError("Parquet engine missing. Install pyarrow or fastparquet.") from exc
-        except Exception as exc:
-            raise RuntimeError(f"Failed to load similarity artifacts: {exc}") from exc
+            try:
+                self.df_vec60 = pd.read_parquet(self.df_vec60_path)
+                self.df_vec24 = pd.read_parquet(self.df_vec24_path)
+                self.df_env = pd.read_parquet(self.df_env_path)
+            except ImportError as exc:
+                raise RuntimeError("Parquet engine missing. Install pyarrow or fastparquet.") from exc
+            except Exception as exc:
+                raise RuntimeError(f"Failed to load similarity artifacts: {exc}") from exc
 
-        try:
-            with open(self.tag_index_path, "rb") as f:
-                self.tag_index = pickle.load(f)
-        except Exception as exc:
-            raise RuntimeError(f"Failed to load tag index: {exc}") from exc
-            
-        self.loaded = True
+            try:
+                with open(self.tag_index_path, "rb") as f:
+                    self.tag_index = pickle.load(f)
+            except Exception as exc:
+                raise RuntimeError(f"Failed to load tag index: {exc}") from exc
+
+            self.loaded = True
 
     def refresh_data(self, incremental: bool = False):
         """Rebuilds the similarity dataset from DuckDB. Incremental updates are supported."""
-        print("Starting Refresh Data...")
-        if pd is None:
-            raise RuntimeError("pandas_missing")
+        with self._state_lock:
+            print("Starting Refresh Data...")
+            if pd is None:
+                raise RuntimeError("pandas_missing")
 
-        if incremental and not os.path.exists(self.df_vec60_path):
-            incremental = False
-
-        if incremental:
-            try:
-                self.load_artifacts()
-            except Exception as exc:
-                print(f"Incremental refresh fallback to full: {exc}")
+            if incremental and not os.path.exists(self.df_vec60_path):
                 incremental = False
 
-        with get_conn_for_path(self.db_path, timeout_sec=2.5, read_only=False) as conn:
             if incremental:
-                db_max = conn.execute(
-                    "SELECT code, MAX(month) AS max_month FROM monthly_bars GROUP BY code"
-                ).df()
-                if db_max.empty:
-                    raise RuntimeError(
-                        "monthly_bars table is empty. Import monthly data before building similarity artifacts."
+                try:
+                    self.load_artifacts()
+                except Exception as exc:
+                    print(f"Incremental refresh fallback to full: {exc}")
+                    incremental = False
+
+            with get_conn_for_path(self.db_path, timeout_sec=2.5, read_only=True) as conn:
+                if incremental:
+                    db_max = conn.execute(
+                        "SELECT code, MAX(month) AS max_month FROM monthly_bars GROUP BY code"
+                    ).df()
+                    if db_max.empty:
+                        raise RuntimeError(
+                            "monthly_bars table is empty. Import monthly data before building similarity artifacts."
+                        )
+
+                    db_max["month_key_db"] = self._month_values_to_compare_keys(db_max["max_month"])
+                    existing = self.df_env[["code", "asof"]].copy()
+                    existing["month_key_existing"] = (
+                        existing["asof"].dt.year * 100 + existing["asof"].dt.month
                     )
+                    existing_max = existing.groupby("code", as_index=False)["month_key_existing"].max()
 
-                use_epoch = db_max["max_month"].max() >= 1_000_000_000
-                existing = self.df_env.copy()
-                if use_epoch:
-                    month_start = existing["asof"].dt.to_period("M").dt.to_timestamp()
-                    existing["month"] = (month_start.astype("int64") // 1_000_000_000).astype("int64")
-                else:
-                    existing["month"] = existing["asof"].dt.year * 100 + existing["asof"].dt.month
-                existing_max = existing.groupby("code", as_index=False)["month"].max()
+                    merged = db_max.merge(existing_max, on="code", how="left")
+                    needs_update = merged[
+                        merged["month_key_existing"].isna() |
+                        (merged["month_key_db"] > merged["month_key_existing"])
+                    ]
+                    codes_to_update = needs_update["code"].tolist()
 
-                merged = db_max.merge(existing_max, on="code", how="left", suffixes=("_db", "_existing"))
-                needs_update = merged[
-                    merged["month"].isna() | (merged["max_month"] > merged["month"])
-                ]
-                codes_to_update = needs_update["code"].tolist()
+                    if not codes_to_update:
+                        print("No incremental updates needed.")
+                        return
 
-                if not codes_to_update:
-                    print("No incremental updates needed.")
-                    return
+                    df_monthly = self._load_monthly_bars(conn, codes_to_update)
+                    if df_monthly.empty:
+                        raise RuntimeError(
+                            "monthly_bars returned no rows for incremental similarity refresh."
+                        )
 
-                df_monthly = self._load_monthly_bars(conn, codes_to_update)
-                if df_monthly.empty:
-                    raise RuntimeError(
-                        "monthly_bars returned no rows for incremental similarity refresh."
-                    )
+                    counts = df_monthly["code"].value_counts()
+                    valid_codes = set(counts[counts >= 120].index)
+                    insufficient_codes = [code for code in codes_to_update if code not in valid_codes]
+                    df_monthly = df_monthly[df_monthly["code"].isin(valid_codes)].copy()
 
-                counts = df_monthly["code"].value_counts()
-                valid_codes = set(counts[counts >= 120].index)
-                insufficient_codes = [code for code in codes_to_update if code not in valid_codes]
-                df_monthly = df_monthly[df_monthly["code"].isin(valid_codes)].copy()
+                    if insufficient_codes:
+                        self.df_vec60 = self.df_vec60[~self.df_vec60["code"].isin(insufficient_codes)]
+                        self.df_vec24 = self.df_vec24[~self.df_vec24["code"].isin(insufficient_codes)]
+                        self.df_env = self.df_env[~self.df_env["code"].isin(insufficient_codes)]
 
-                if insufficient_codes:
-                    self.df_vec60 = self.df_vec60[~self.df_vec60["code"].isin(insufficient_codes)]
-                    self.df_vec24 = self.df_vec24[~self.df_vec24["code"].isin(insufficient_codes)]
-                    self.df_env = self.df_env[~self.df_env["code"].isin(insufficient_codes)]
+                    if df_monthly.empty:
+                        self._persist_artifacts()
+                        print("Incremental Refresh Complete (removals only).")
+                        return
 
-                if df_monthly.empty:
+                    print(f"Incremental rebuild for {len(valid_codes)} tickers.")
+                    df_vec60_new, df_vec24_new, df_env_new = self._build_vectors_and_tags(df_monthly)
+
+                    drop_codes = set(codes_to_update)
+                    self.df_vec60 = self.df_vec60[~self.df_vec60["code"].isin(drop_codes)]
+                    self.df_vec24 = self.df_vec24[~self.df_vec24["code"].isin(drop_codes)]
+                    self.df_env = self.df_env[~self.df_env["code"].isin(drop_codes)]
+
+                    self.df_vec60 = pd.concat([self.df_vec60, df_vec60_new], ignore_index=True)
+                    self.df_vec24 = pd.concat([self.df_vec24, df_vec24_new], ignore_index=True)
+                    self.df_env = pd.concat([self.df_env, df_env_new], ignore_index=True)
+
                     self._persist_artifacts()
-                    print("Incremental Refresh Complete (removals only).")
+                    print("Incremental Refresh Complete.")
                     return
 
-                print(f"Incremental rebuild for {len(valid_codes)} tickers.")
-                df_vec60_new, df_vec24_new, df_env_new = self._build_vectors_and_tags(df_monthly)
+                df_monthly = self._load_monthly_bars(conn)
 
-                drop_codes = set(codes_to_update)
-                self.df_vec60 = self.df_vec60[~self.df_vec60["code"].isin(drop_codes)]
-                self.df_vec24 = self.df_vec24[~self.df_vec24["code"].isin(drop_codes)]
-                self.df_env = self.df_env[~self.df_env["code"].isin(drop_codes)]
+            if df_monthly.empty:
+                raise RuntimeError(
+                    "monthly_bars table is empty. Import monthly data before building similarity artifacts."
+                )
 
-                self.df_vec60 = pd.concat([self.df_vec60, df_vec60_new], ignore_index=True)
-                self.df_vec24 = pd.concat([self.df_vec24, df_vec24_new], ignore_index=True)
-                self.df_env = pd.concat([self.df_env, df_env_new], ignore_index=True)
+            counts = df_monthly["code"].value_counts()
+            valid_codes = counts[counts >= 120].index
+            df_monthly = df_monthly[df_monthly["code"].isin(valid_codes)].copy()
+            if df_monthly.empty:
+                raise RuntimeError(
+                    "No tickers have the 120 months of history required for similarity search."
+                )
 
-                self._persist_artifacts()
-                print("Incremental Refresh Complete.")
-                return
+            print(f"Monthly Bars loaded: {len(df_monthly)} rows, {len(valid_codes)} tickers.")
+            print("Generating vectors and tags...")
 
-            df_monthly = self._load_monthly_bars(conn)
-
-        if df_monthly.empty:
-            raise RuntimeError(
-                "monthly_bars table is empty. Import monthly data before building similarity artifacts."
-            )
-
-        counts = df_monthly["code"].value_counts()
-        valid_codes = counts[counts >= 120].index
-        df_monthly = df_monthly[df_monthly["code"].isin(valid_codes)].copy()
-        if df_monthly.empty:
-            raise RuntimeError(
-                "No tickers have the 120 months of history required for similarity search."
-            )
-
-        print(f"Monthly Bars loaded: {len(df_monthly)} rows, {len(valid_codes)} tickers.")
-        print("Generating vectors and tags...")
-
-        self.df_vec60, self.df_vec24, self.df_env = self._build_vectors_and_tags(df_monthly)
-        self._persist_artifacts()
-        print("Refresh Complete.")
+            self.df_vec60, self.df_vec24, self.df_env = self._build_vectors_and_tags(df_monthly)
+            self._persist_artifacts()
+            print("Refresh Complete.")
 
     def search(
         self,
@@ -387,12 +406,23 @@ class SimilarityService:
             raise RuntimeError("pandas_missing")
         if np is None:
             raise RuntimeError("numpy_missing")
-        
-        if not self.loaded:
-            self.load_artifacts()
-        if not self.loaded or self.df_env is None or self.df_vec60 is None or self.df_vec24 is None or self.tag_index is None:
-            raise RuntimeError("Similarity artifacts are not loaded. Run refresh_data() first.")
-            
+
+        with self._state_lock:
+            if not self.loaded:
+                self.load_artifacts()
+            if (
+                not self.loaded
+                or self.df_env is None
+                or self.df_vec60 is None
+                or self.df_vec24 is None
+                or self.tag_index is None
+            ):
+                raise RuntimeError("Similarity artifacts are not loaded. Run refresh_data() first.")
+            df_env = self.df_env
+            df_vec60 = self.df_vec60
+            df_vec24 = self.df_vec24
+            tag_index = self.tag_index
+             
         # Parse AsOf
         if asof:
             # Try parsing YYYY-MM-DD
@@ -402,8 +432,8 @@ class SimilarityService:
             target_date = None
             
         # Find Query Row
-        query_mask = (self.df_env["code"] == ticker)
-        df_ticker = self.df_env[query_mask].copy()
+        query_mask = (df_env["code"] == ticker)
+        df_ticker = df_env[query_mask].copy()
         
         if df_ticker.empty:
             # Ticker not in index (likely < 120 months data)
@@ -431,7 +461,7 @@ class SimilarityService:
                 
                 query_idx = closest_idx
                 # Log warning?
-                closest_asof = self.df_env.loc[query_idx, 'asof']
+                closest_asof = df_env.loc[query_idx, 'asof']
                 print(f"Warning: Exact asof {asof} not found for {ticker}. Using closest: {closest_asof}")
             else:
                 query_idx = match.index[0]
@@ -440,14 +470,14 @@ class SimilarityService:
             # Assumes sorted by time
             query_idx = df_ticker.index[-1]
             
-        query_row = self.df_env.loc[query_idx]
+        query_row = df_env.loc[query_idx]
         query_tag = query_row["tag_id"]
-        query_vec60 = np.array(self.df_vec60.loc[query_idx]["vec60"], dtype=np.float32)
-        query_vec24 = np.array(self.df_vec24.loc[query_idx]["vec24"], dtype=np.float32)
+        query_vec60 = np.array(df_vec60.loc[query_idx]["vec60"], dtype=np.float32)
+        query_vec24 = np.array(df_vec24.loc[query_idx]["vec24"], dtype=np.float32)
         
         # Fallback Levels
         # 0: Exact Tag
-        candidates_indices = self.tag_index.get(query_tag, [])
+        candidates_indices = tag_index.get(query_tag, [])
         tag_focus_info = ""
         if match_tag:
             tag_focus_info = " (Tag Focus)" if candidates_indices else " (Tag Focus: none)"
@@ -463,14 +493,14 @@ class SimilarityService:
             # Level 1: Ignore Range
             # Pattern: MA20_MA60_DIR_*
             prefix = "_".join(parts[:3])
-            candidates_indices = self._find_indices_prefix(prefix)
+            candidates_indices = self._find_indices_prefix(prefix, tag_index)
             level_desc = "Level 1 (Ignore Range)"
             
         if len(candidates_indices) < k:
             # Level 2: Ignore Dir
             # Pattern: MA20_MA60_*
             prefix = "_".join(parts[:2])
-            candidates_indices = self._find_indices_prefix(prefix)
+            candidates_indices = self._find_indices_prefix(prefix, tag_index)
             level_desc = "Level 2 (Ignore Dir)"
             
         if len(candidates_indices) < k:
@@ -480,12 +510,12 @@ class SimilarityService:
             # Tag: MA20_MA60_DIR_RANGE.
             # So we match the 2nd part.
             target_ma60 = parts[1]
-            candidates_indices = self._find_indices_ma60(target_ma60)
+            candidates_indices = self._find_indices_ma60(target_ma60, tag_index)
             level_desc = "Level 3 (MA60 Only)"
             
         if len(candidates_indices) < k:
              # Level 4: All
-             candidates_indices = list(self.df_env.index)
+             candidates_indices = list(df_env.index)
              level_desc = "Level 4 (All)"
              
         # Limit candidates to prevents MEMORY EXPLOSION?
@@ -506,9 +536,9 @@ class SimilarityService:
 
         # Calculate Scores
         # Vectorize!
-        cand_env = self.df_env.loc[candidates_indices]
-        cand_vec60 = np.vstack(self.df_vec60.loc[candidates_indices]["vec60"].values) # (N, 60)
-        cand_vec24 = np.vstack(self.df_vec24.loc[candidates_indices]["vec24"].values) # (N, 24)
+        cand_env = df_env.loc[candidates_indices]
+        cand_vec60 = np.vstack(df_vec60.loc[candidates_indices]["vec60"].values) # (N, 60)
+        cand_vec24 = np.vstack(df_vec24.loc[candidates_indices]["vec24"].values) # (N, 24)
 
         # Dot Product base
         s60 = np.dot(cand_vec60, query_vec60)
@@ -549,7 +579,7 @@ class SimilarityService:
                 break
                 
             idx = int(r["idx"])
-            row_meta = self.df_env.iloc[idx]
+            row_meta = df_env.iloc[idx]
             code = row_meta["code"]
             r_asof = row_meta["asof"]
             
@@ -597,26 +627,32 @@ class SimilarityService:
                     "range": str(row_meta["tag_range"]),
                     "fallback": str(level_desc)
                 },
-                vec60=[float(x) for x in self.df_vec60.iloc[idx]["vec60"]],
-                vec24=[float(x) for x in self.df_vec24.iloc[idx]["vec24"]]
+                vec60=[float(x) for x in df_vec60.iloc[idx]["vec60"]],
+                vec24=[float(x) for x in df_vec24.iloc[idx]["vec24"]]
             ))
             
         return final_results
 
-    def _find_indices_prefix(self, prefix):
+    def _find_indices_prefix(self, prefix, tag_index: Optional[Dict[str, List[int]]] = None):
         # Scan keys?
         # Optimization: Pre-group by prefix if needed.
         # For now, iterate keys.
         res = []
-        for k, v in self.tag_index.items():
+        source = tag_index if tag_index is not None else self.tag_index
+        if not source:
+            return res
+        for k, v in source.items():
             if k.startswith(prefix):
                 res.extend(v)
         return res
 
-    def _find_indices_ma60(self, ma60_val):
+    def _find_indices_ma60(self, ma60_val, tag_index: Optional[Dict[str, List[int]]] = None):
         # ma60 is 2nd part.
         res = []
-        for k, v in self.tag_index.items():
+        source = tag_index if tag_index is not None else self.tag_index
+        if not source:
+            return res
+        for k, v in source.items():
             parts = k.split("_")
             if len(parts) >= 2 and parts[1] == ma60_val:
                 res.extend(v)

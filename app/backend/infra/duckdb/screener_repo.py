@@ -12,9 +12,9 @@ class ScreenerRepository:
     def __init__(self, db_path: str):
         self.db_path = db_path
 
-    def _get_conn(self):
-        # Use the shared retry/connect policy from app.db.session.
-        return get_conn_for_path(self.db_path, timeout_sec=2.5, read_only=False)
+    def _get_read_conn(self):
+        # Screener fetches are read-only and should avoid writer mode locks.
+        return get_conn_for_path(self.db_path, timeout_sec=2.5, read_only=True)
 
     def _table_exists(self, conn: duckdb.DuckDBPyConnection, name: str) -> bool:
         row = conn.execute(
@@ -36,7 +36,7 @@ class ScreenerRepository:
         Returns:
             (codes, meta_rows, daily_rows, monthly_rows, earnings_rows, rights_rows)
         """
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             # 1. Get all codes
             codes_rows = conn.execute("SELECT DISTINCT code FROM daily_bars ORDER BY code").fetchall()
             codes = [row[0] for row in codes_rows]
@@ -148,7 +148,7 @@ class ScreenerRepository:
     ) -> Dict[str, Tuple[Optional[str], Optional[str], Optional[str]]]:
         if not codes:
             return {}
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             if not self._table_exists(conn, "industry_master"):
                 return {}
             placeholders = ",".join(["?"] * len(codes))
@@ -170,7 +170,7 @@ class ScreenerRepository:
             }
 
     def fetch_phase_pred_map(self, asof_map: Dict[str, int | None]) -> Dict[str, Dict[str, Any]]:
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             if not self._table_exists(conn, "phase_pred_daily"):
                 return {}
 
@@ -241,7 +241,7 @@ class ScreenerRepository:
         if not codes:
             return {}
         
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             placeholders = ",".join(["?"] * len(codes))
             where_clauses = [f"code IN ({placeholders})"]
             params: list = list(codes)
@@ -281,7 +281,7 @@ class ScreenerRepository:
         if not codes:
             return {}
         
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             placeholders = ",".join(["?"] * len(codes))
             where_clauses = [f"code IN ({placeholders})"]
             params: list = list(codes)
@@ -319,7 +319,7 @@ class ScreenerRepository:
     def fetch_meta_map(self, codes: List[str]) -> Dict[str, str]:
         if not codes:
             return {}
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             placeholders = ",".join(["?"] * len(codes))
             rows = conn.execute(
                 f"SELECT code, name FROM stock_meta WHERE code IN ({placeholders})",
@@ -328,7 +328,7 @@ class ScreenerRepository:
             return {row[0]: repair_cp932_mojibake(str(row[1] or row[0])) for row in rows}
 
     def fetch_all_codes(self) -> List[str]:
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             rows = conn.execute(
                 "SELECT DISTINCT code FROM daily_bars ORDER BY code"
             ).fetchall()

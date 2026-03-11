@@ -32,6 +32,7 @@ import type {
   EnvironmentScenario,
   EnvironmentSummary,
   EnvironmentComputationInput,
+  BarsMeta,
 } from "./detailTypes";
 
 export const ANALYSIS_BACKFILL_ACTIVE_STATUSES = new Set(["queued", "running", "cancel_requested"]);
@@ -1192,6 +1193,38 @@ export const formatDateLabel = (value: number | null) => {
   const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
   const dd = String(date.getUTCDate()).padStart(2, "0");
   return `${yyyy}/${mm}/${dd}`;
+};
+
+export const resolveLatestResolvedMetaDate = (...metas: Array<BarsMeta | null | undefined>) => {
+  let maxValue: number | null = null;
+  metas.forEach((meta) => {
+    const normalized = normalizeTime(meta?.latestResolvedDate ?? null);
+    if (normalized == null) return;
+    if (maxValue == null || normalized > maxValue) {
+      maxValue = normalized;
+    }
+  });
+  return maxValue;
+};
+
+export const resolveAnalysisBaseAsOfTime = ({
+  mainAsOfTime,
+  resolvedCursorAsOfTime,
+  analysisBaseAsOfTime,
+  latestResolvedMetaDate,
+  latestDailyAsOfTime,
+}: {
+  mainAsOfTime: number | null;
+  resolvedCursorAsOfTime: number | null;
+  analysisBaseAsOfTime: number | null;
+  latestResolvedMetaDate: number | null;
+  latestDailyAsOfTime: number | null;
+}) => {
+  if (resolvedCursorAsOfTime != null) return resolvedCursorAsOfTime;
+  if (mainAsOfTime != null) return mainAsOfTime;
+  if (analysisBaseAsOfTime != null) return analysisBaseAsOfTime;
+  if (latestResolvedMetaDate != null) return latestResolvedMetaDate;
+  return latestDailyAsOfTime;
 };
 
 export const toDateKey = (time: number) => {

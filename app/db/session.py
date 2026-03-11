@@ -20,6 +20,8 @@ _OPEN_LOCK: Any = None
 _SCHEMA_STATE_LOCK: Any = None
 _SCHEMA_READY_FOR_DB: str | None = None
 _DB_OPEN_MODE_BY_PATH: dict[str, str] = {}
+_DB_ACCESS_LOCKS: dict[str, Any] = {}
+_DB_ACCESS_LOCKS_GUARD: Any = None
 _CONNECT_STATS_LOCK: Any = None
 _CONNECT_STATS: dict[str, Any] = {
     "open_calls": 0,
@@ -36,11 +38,13 @@ _CONNECT_STATS: dict[str, Any] = {
 def _ensure_locks() -> None:
     import threading
 
-    global _OPEN_LOCK, _SCHEMA_STATE_LOCK, _CONNECT_STATS_LOCK
+    global _OPEN_LOCK, _SCHEMA_STATE_LOCK, _DB_ACCESS_LOCKS_GUARD, _CONNECT_STATS_LOCK
     if _OPEN_LOCK is None:
         _OPEN_LOCK = threading.Lock()
     if _SCHEMA_STATE_LOCK is None:
         _SCHEMA_STATE_LOCK = threading.Lock()
+    if _DB_ACCESS_LOCKS_GUARD is None:
+        _DB_ACCESS_LOCKS_GUARD = threading.Lock()
     if _CONNECT_STATS_LOCK is None:
         _CONNECT_STATS_LOCK = threading.Lock()
 
@@ -110,6 +114,40 @@ def _remember_db_open_mode(db_path: str, mode: str) -> None:
     if current == "rw":
         return
     _DB_OPEN_MODE_BY_PATH[db_path] = "ro" if mode == "ro" else "rw"
+
+
+def _serialize_db_access_enabled() -> bool:
+    raw = os.getenv("MEEMEE_SERIALIZE_DUCKDB_ACCESS", "1")
+    return str(raw).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _get_db_access_lock(db_path: str) -> Any | None:
+    if not _serialize_db_access_enabled():
+        return None
+    _ensure_locks()
+    normalized = _normalize_db_path(db_path)
+    with _DB_ACCESS_LOCKS_GUARD:
+        lock = _DB_ACCESS_LOCKS.get(normalized)
+        if lock is None:
+            import threading
+
+            lock = threading.RLock()
+            _DB_ACCESS_LOCKS[normalized] = lock
+        return lock
+
+
+def _try_acquire_access_lock(lock: Any | None, timeout_sec: float) -> bool:
+    if lock is None:
+        return True
+    timeout_sec = max(0.0, float(timeout_sec))
+    try:
+        if timeout_sec <= 0.0:
+            return bool(lock.acquire(blocking=False))
+        return bool(lock.acquire(timeout=timeout_sec))
+    except TypeError:
+        if timeout_sec <= 0.0:
+            return bool(lock.acquire(False))
+        return bool(lock.acquire(True))
 
 
 def _connect_with_retry_path(
@@ -193,15 +231,34 @@ def _connect_with_retry(max_wait_sec: float = 1.0) -> duckdb.DuckDBPyConnection:
 
 
 class _ConnContext:
+    def __init__(self):
+        self._conn: duckdb.DuckDBPyConnection | None = None
+        self._access_lock: Any = None
+
     def __enter__(self) -> duckdb.DuckDBPyConnection:
-        self._conn = _connect_with_retry(max_wait_sec=2.5)
+        db_path = _normalize_db_path(str(config.DB_PATH))
+        self._access_lock = _get_db_access_lock(db_path)
+        if self._access_lock is not None:
+            self._access_lock.acquire()
+        try:
+            self._conn = _connect_with_retry(max_wait_sec=2.5)
+        except Exception:
+            if self._access_lock is not None:
+                self._access_lock.release()
+                self._access_lock = None
+            raise
         return self._conn
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         try:
-            self._conn.close()
+            if self._conn is not None:
+                self._conn.close()
         except Exception:
             pass
+        finally:
+            if self._access_lock is not None:
+                self._access_lock.release()
+                self._access_lock = None
         return False
 
 
@@ -215,21 +272,35 @@ class _PathConnContext:
         self._timeout_sec = max(0.0, float(timeout_sec))
         self._read_only = bool(read_only)
         self._conn: duckdb.DuckDBPyConnection | None = None
+        self._access_lock: Any = None
 
     def __enter__(self) -> duckdb.DuckDBPyConnection:
-        self._conn = _connect_with_retry_path(
-            db_path=self._db_path,
-            max_wait_sec=self._timeout_sec,
-            read_only=self._read_only,
-        )
+        self._access_lock = _get_db_access_lock(self._db_path)
+        if self._access_lock is not None:
+            self._access_lock.acquire()
+        try:
+            self._conn = _connect_with_retry_path(
+                db_path=self._db_path,
+                max_wait_sec=self._timeout_sec,
+                read_only=self._read_only,
+            )
+        except Exception:
+            if self._access_lock is not None:
+                self._access_lock.release()
+                self._access_lock = None
+            raise
         return self._conn
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        if self._conn is not None:
-            try:
+        try:
+            if self._conn is not None:
                 self._conn.close()
-            except Exception:
-                pass
+        except Exception:
+            pass
+        finally:
+            if self._access_lock is not None:
+                self._access_lock.release()
+                self._access_lock = None
         return False
 
 
@@ -241,20 +312,33 @@ class _TryConnContext:
     def __init__(self, timeout_sec: float = 0.0):
         self._timeout_sec = max(0.0, float(timeout_sec))
         self._conn: duckdb.DuckDBPyConnection | None = None
+        self._access_lock: Any = None
 
     def __enter__(self) -> duckdb.DuckDBPyConnection | None:
+        db_path = _normalize_db_path(str(config.DB_PATH))
+        self._access_lock = _get_db_access_lock(db_path)
+        if not _try_acquire_access_lock(self._access_lock, self._timeout_sec):
+            self._access_lock = None
+            return None
         try:
             self._conn = _connect_with_retry(max_wait_sec=self._timeout_sec)
         except Exception:
             self._conn = None
+            if self._access_lock is not None:
+                self._access_lock.release()
+                self._access_lock = None
         return self._conn
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        if self._conn is not None:
-            try:
+        try:
+            if self._conn is not None:
                 self._conn.close()
-            except Exception:
-                pass
+        except Exception:
+            pass
+        finally:
+            if self._access_lock is not None:
+                self._access_lock.release()
+                self._access_lock = None
         return False
 
 
@@ -268,8 +352,13 @@ class _TryPathConnContext:
         self._timeout_sec = max(0.0, float(timeout_sec))
         self._read_only = bool(read_only)
         self._conn: duckdb.DuckDBPyConnection | None = None
+        self._access_lock: Any = None
 
     def __enter__(self) -> duckdb.DuckDBPyConnection | None:
+        self._access_lock = _get_db_access_lock(self._db_path)
+        if not _try_acquire_access_lock(self._access_lock, self._timeout_sec):
+            self._access_lock = None
+            return None
         try:
             self._conn = _connect_with_retry_path(
                 db_path=self._db_path,
@@ -278,14 +367,21 @@ class _TryPathConnContext:
             )
         except Exception:
             self._conn = None
+            if self._access_lock is not None:
+                self._access_lock.release()
+                self._access_lock = None
         return self._conn
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        if self._conn is not None:
-            try:
+        try:
+            if self._conn is not None:
                 self._conn.close()
-            except Exception:
-                pass
+        except Exception:
+            pass
+        finally:
+            if self._access_lock is not None:
+                self._access_lock.release()
+                self._access_lock = None
         return False
 
 
@@ -319,7 +415,7 @@ def _acquire_lock() -> tuple[object | None, Any]:
                     except RuntimeError:
                         raise  # Propagate the "already running" error
                     except Exception:
-                        pass  # tasklist unavailable or failed — allow startup
+                        pass  # tasklist unavailable or failed 驕ｯ・ｶ郢晢ｽｻallow startup
                 lock_path.unlink(missing_ok=True)
             except RuntimeError:
                 raise

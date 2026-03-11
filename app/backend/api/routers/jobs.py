@@ -316,6 +316,7 @@ def submit_txt_update_job(
 
 @router.post("/api/jobs/txt-update")
 def submit_txt_update(
+    completion_mode: str = "full",
     auto_ml_predict: bool = True,
     auto_ml_train: bool = True,
     force_recompute_on_pan_finalize: bool = True,
@@ -358,6 +359,7 @@ def submit_txt_update(
 ):
     try:
         request_payload = {
+            "completion_mode": str(completion_mode),
             "auto_ml_predict": bool(auto_ml_predict),
             "auto_ml_train": bool(auto_ml_train),
             "force_recompute_on_pan_finalize": bool(force_recompute_on_pan_finalize),

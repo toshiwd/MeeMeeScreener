@@ -123,6 +123,8 @@ import {
   buildRangeFromEndTime,
   hasSignificantRangeChange,
   formatDateLabel,
+  resolveAnalysisBaseAsOfTime,
+  resolveLatestResolvedMetaDate,
   toDateKey,
   countInRange,
   filterCandlesByAsOf,
@@ -732,27 +734,34 @@ export default function DetailView() {
       return maxValue;
     }, null);
   }, [dailyData]);
+  const latestResolvedMetaDate = useMemo(
+    () => resolveLatestResolvedMetaDate(dailyBarsMeta, monthlyBarsMeta),
+    [dailyBarsMeta, monthlyBarsMeta]
+  );
   useEffect(() => {
     if (mainAsOfTime != null) {
       analysisBaseAsOfRef.current = mainAsOfTime;
       return;
     }
     if (analysisBaseAsOfRef.current != null) return;
-    if (latestDailyAsOfTime == null) return;
-    analysisBaseAsOfRef.current = latestDailyAsOfTime;
-  }, [mainAsOfTime, latestDailyAsOfTime]);
+    const nextBaseAsOfTime = latestResolvedMetaDate ?? latestDailyAsOfTime;
+    if (nextBaseAsOfTime == null) return;
+    analysisBaseAsOfRef.current = nextBaseAsOfTime;
+  }, [mainAsOfTime, latestDailyAsOfTime, latestResolvedMetaDate]);
   const resolvedCursorAsOfTime = useMemo(() => {
     if (!cursorMode) return null;
     if (selectedBarData?.time != null) return selectedBarData.time;
     return analysisCursorTime;
   }, [cursorMode, selectedBarData?.time, analysisCursorTime]);
   const detailAsOfTime = useMemo(() => {
-    if (resolvedCursorAsOfTime != null) {
-      return resolvedCursorAsOfTime;
-    }
-    if (mainAsOfTime != null) return mainAsOfTime;
-    return analysisBaseAsOfRef.current ?? latestDailyAsOfTime;
-  }, [resolvedCursorAsOfTime, mainAsOfTime, latestDailyAsOfTime]);
+    return resolveAnalysisBaseAsOfTime({
+      mainAsOfTime,
+      resolvedCursorAsOfTime,
+      analysisBaseAsOfTime: analysisBaseAsOfRef.current,
+      latestResolvedMetaDate,
+      latestDailyAsOfTime,
+    });
+  }, [resolvedCursorAsOfTime, mainAsOfTime, latestResolvedMetaDate, latestDailyAsOfTime]);
   const analysisCursorDateLabel = useMemo(() => {
     if (!cursorMode) return "";
     const label = formatDateLabel(resolvedCursorAsOfTime);

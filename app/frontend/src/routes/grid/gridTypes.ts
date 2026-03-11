@@ -9,7 +9,7 @@ export type SortSection = { title: string; options: SortOption[] };
 export type BuyStateFilter = "all" | "initial" | "base";
 
 export type HealthStatus = {
-  txt_count: number;
+  txt_count: number | null;
   code_count?: number;
   last_updated: string | null;
   code_txt_missing: boolean;

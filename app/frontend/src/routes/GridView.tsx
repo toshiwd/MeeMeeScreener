@@ -102,6 +102,7 @@ import {
   extractErrorDetail,
   gridColumnOptions,
   gridRowOptions,
+  mergeHealthStatus,
   normalizeHealthStatus,
   rangeOptions,
   resolveGridSignalSortScore,
@@ -514,7 +515,7 @@ export default function GridView() {
         if (canceled) return;
         if (lightRes.status >= 200 && lightRes.status < 300) {
           const lightData = lightRes.data as HealthReadyResponse;
-          setHealth((prev) => ({ ...(prev ?? normalizeHealthStatus(null)), ...normalizeHealthStatus(lightData) }));
+          setHealth((prev) => mergeHealthStatus(prev, lightData));
         }
       } catch {
         // keep previous health view on fetch error
@@ -676,26 +677,25 @@ export default function GridView() {
     [sortSections]
   );
 
-  // Determine if current view is a candidate view
-  const isCandidateView = useMemo(() => {
-    // Check if sortKey is a candidate sort key
-    const candidateKeys = [
-      "entryPriority",
-      "buyCandidate",
-      "buySignalLatest",
-      "swingScore",
-      "shortPriority",
-      "shortScore",
-      "aScore",
-      "bScore",
-      "sellSignalLatest"
-    ];
-    return candidateKeys.includes(sortKey);
-  }, [sortKey]);
-  const visibleSortSections = useMemo(
-    () => (isCandidateView ? candidateSortSections : basicSortSections),
-    [isCandidateView, candidateSortSections, basicSortSections]
-  );
+  const visibleSortSections = useMemo<SortSection[]>(() => {
+    const seenKeys = new Set<string>();
+    const merged: SortSection[] = [];
+    for (const section of sortSections) {
+      const options = section.options.filter((option) => {
+        if (seenKeys.has(option.key)) return false;
+        seenKeys.add(option.key);
+        return true;
+      });
+      if (!options.length) continue;
+      const existing = merged.find((item) => item.title === section.title);
+      if (existing) {
+        existing.options.push(...options);
+        continue;
+      }
+      merged.push({ ...section, options: [...options] });
+    }
+    return merged;
+  }, [sortSections]);
   const [openSortSections, setOpenSortSections] = useState<string[]>([]);
   useEffect(() => {
     if (!sortOpen) return;
@@ -1714,6 +1714,9 @@ export default function GridView() {
     if (!payload || typeof payload.id !== "string" || !payload.id) return;
     const nextStatus = typeof payload.status === "string" ? payload.status : "running";
     const nextMessage = typeof payload.message === "string" ? payload.message : null;
+    const hasBackgroundFollowup =
+      typeof nextMessage === "string" &&
+      (nextMessage.includes("バックグラウンド") || nextMessage.includes("followup=queued("));
     const nextProgress =
       typeof payload.progress === "number" && Number.isFinite(payload.progress)
         ? payload.progress
@@ -1736,15 +1739,27 @@ export default function GridView() {
       resetBarsCache();
       void loadList();
       if (!runDailyFollowup) {
-        showToast("TXT更新が完了しました。");
+        showToast(
+          hasBackgroundFollowup
+            ? "TXT更新が完了しました。重い後続処理はバックグラウンドで継続します。"
+            : "TXT更新が完了しました。"
+        );
         return;
       }
       if (eventsMeta?.isRefreshing) {
-        showToast("日次更新が完了しました。イベント更新は既に実行中です。");
+        showToast(
+          hasBackgroundFollowup
+            ? "日次更新が完了しました。重い後続処理はバックグラウンドで継続します。イベント更新は既に実行中です。"
+            : "日次更新が完了しました。イベント更新は既に実行中です。"
+        );
         return;
       }
       void refreshEvents();
-      showToast("日次更新が完了しました。続けてイベント更新を開始しました。");
+      showToast(
+        hasBackgroundFollowup
+          ? "日次更新が完了しました。重い後続処理はバックグラウンドで継続します。続けてイベント更新を開始しました。"
+          : "日次更新が完了しました。続けてイベント更新を開始しました。"
+      );
       return;
     }
 
@@ -1889,7 +1904,7 @@ export default function GridView() {
     showToast("日次更新を開始しました。");
     try {
       const res = await api.post("/jobs/txt-update", null, {
-        params: { auto_fill_missing_history: true }
+        params: { completion_mode: "practical_fast", auto_fill_missing_history: true }
       });
       const payload = (res.data ?? {}) as TxtUpdateStartPayload;
       if (payload.ok === false) {
@@ -2319,6 +2334,8 @@ export default function GridView() {
     switch (jobType) {
       case "txt_update":
         return "日次更新";
+      case "txt_followup":
+        return "後続更新";
       case "force_sync":
         return "強制同期";
       case "phase_rebuild":
@@ -2368,6 +2385,9 @@ export default function GridView() {
         resetBarsCache();
         void loadList();
       }
+      if (type === "txt_followup") {
+        void loadList();
+      }
       showToast(`${label}が完了しました。`);
       return;
     }
@@ -2394,8 +2414,12 @@ export default function GridView() {
         }
       };
     }
+    if (type === "txt_followup") {
+      showToast(`後続更新が失敗しました。日次データ更新は完了済みです。(${detail ?? "詳細不明"})`);
+      return;
+    }
     showToast(`${label}が失敗しました。(${detail ?? "詳細不明"})`, action);
-  }, [formatJobTypeLabel, handlePhaseRebuild, handleRunWalkforward, showToast]);
+  }, [formatJobTypeLabel, handlePhaseRebuild, handleRunWalkforward, loadList, resetBarsCache, showToast]);
   useEffect(() => {
     if (!backendReady || GRID_REFACTOR_ENABLED) return;
     let disposed = false;

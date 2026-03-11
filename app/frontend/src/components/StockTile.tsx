@@ -153,7 +153,7 @@ const StockTile = memo(function StockTile({
           <span className="tile-code">{ticker.code}</span>
           <span className="tile-name">{ticker.name}</span>
           {asofLabel && (
-            <span className="asof-badge" title={asofTooltip ?? undefined}>
+            <span className="asof-badge" data-tooltip={asofTooltip ?? ""}>
               asof: {asofLabel}
             </span>
           )}
@@ -208,7 +208,7 @@ const StockTile = memo(function StockTile({
             {showEntryPriorityChip && (
               <span
                 className={`signal-chip entry-tier tier-${String(entryPriorityTier).toLowerCase()}`}
-                title={entryPriorityTitle || undefined}
+                data-tooltip={entryPriorityTitle}
               >
                 仕込{entryPriorityTier}:{entryPriorityScore}
               </span>
@@ -216,7 +216,7 @@ const StockTile = memo(function StockTile({
             {showShortPriorityChip && (
               <span
                 className={`signal-chip short-tier tier-${String(shortPriorityTier).toLowerCase()}`}
-                title={shortPriorityTitle || undefined}
+                data-tooltip={shortPriorityTitle}
               >
                 売り{shortPriorityTier}:{shortPriorityScore}
               </span>
@@ -254,12 +254,12 @@ const StockTile = memo(function StockTile({
             <img className="thumb-canvas-image" src={cachedThumb} alt="" />
           </div>
         ) : (
-          <div className="tile-loading">
+          <div className={`tile-loading ${barsStatus !== "error" && barsStatus !== "empty" ? "skeleton skeleton-chart" : ""}`}>
             {barsStatus === "error"
               ? "読み込み失敗"
               : barsStatus === "empty"
               ? "データなし"
-              : "読み込み中..."}
+              : null}
           </div>
         )}
       </div>

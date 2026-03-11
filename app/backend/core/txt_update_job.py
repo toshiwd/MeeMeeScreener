@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 _RETRY_TRACE_MAX = 200
 _RETRY_JITTER_RATIO = 0.20
 _VBS_PROGRESS_FILE_NAME = "vbs_progress.json"
+_TXT_UPDATE_JOB_TYPE = "txt_update"
+_TXT_FOLLOWUP_JOB_TYPE = "txt_followup"
+_COMPLETION_MODE_FULL = "full"
+_COMPLETION_MODE_PRACTICAL_FAST = "practical_fast"
 
 
 def _update_vbs_path() -> str:
@@ -212,6 +216,91 @@ def _record_pipeline_success(state: dict, *, stage: str, message: str) -> None:
     state.pop("last_error_message", None)
     _set_pipeline_stage(state, stage, status="success", message=message, save=False)
     _save_update_state(state)
+
+
+def _set_followup_stage(
+    state: dict,
+    stage: str,
+    *,
+    status: str = "running",
+    message: str | None = None,
+    save: bool = True,
+) -> None:
+    now_iso = datetime.now().isoformat()
+    state["last_followup_stage"] = stage
+    state["last_followup_stage_status"] = status
+    state["last_followup_stage_at"] = now_iso
+    state["last_followup_status"] = status
+    if message is not None:
+        state["last_followup_message"] = message
+    if save:
+        _save_update_state(state)
+
+
+def _record_followup_failure(state: dict, *, stage: str, error: str, message: str | None = None) -> None:
+    now_iso = datetime.now().isoformat()
+    state["last_followup_status"] = "failed"
+    state["last_followup_finished_at"] = now_iso
+    state["last_followup_failed_at"] = now_iso
+    state["last_followup_failed_stage"] = stage
+    state["last_followup_error"] = str(error)
+    state["last_followup_error_message"] = message or str(error)
+    _set_followup_stage(state, stage, status="failed", message=message or str(error), save=False)
+    _save_update_state(state)
+
+
+def _record_followup_canceled(state: dict, *, stage: str, message: str) -> None:
+    now_iso = datetime.now().isoformat()
+    state["last_followup_status"] = "canceled"
+    state["last_followup_finished_at"] = now_iso
+    state["last_followup_canceled_at"] = now_iso
+    state["last_followup_error"] = "canceled"
+    state["last_followup_error_message"] = message
+    _set_followup_stage(state, stage, status="canceled", message=message, save=False)
+    _save_update_state(state)
+
+
+def _record_followup_success(state: dict, *, stage: str, message: str) -> None:
+    now_iso = datetime.now().isoformat()
+    state["last_followup_status"] = "success"
+    state["last_followup_finished_at"] = now_iso
+    state.pop("last_followup_error", None)
+    state.pop("last_followup_error_message", None)
+    _set_followup_stage(state, stage, status="success", message=message, save=False)
+    _save_update_state(state)
+
+
+def _normalize_completion_mode(value: object) -> str:
+    text = str(value or "").strip().lower()
+    if text == _COMPLETION_MODE_PRACTICAL_FAST:
+        return _COMPLETION_MODE_PRACTICAL_FAST
+    return _COMPLETION_MODE_FULL
+
+
+def _record_followup_enqueued(state: dict, *, source_job_id: str, followup_job_id: str) -> None:
+    now_iso = datetime.now().isoformat()
+    state["last_followup_job_id"] = str(followup_job_id)
+    state["last_followup_enqueued_at"] = now_iso
+    state["last_followup_source_txt_job_id"] = str(source_job_id)
+    state["last_followup_status"] = "queued"
+    state.pop("last_followup_error", None)
+    _save_update_state(state)
+
+
+def _queue_txt_followup(
+    state: dict,
+    *,
+    source_job_id: str,
+    payload: dict[str, Any],
+) -> str | None:
+    followup_job_id = job_manager.submit(_TXT_FOLLOWUP_JOB_TYPE, payload, unique=False)
+    if followup_job_id:
+        _record_followup_enqueued(
+            state,
+            source_job_id=str(source_job_id),
+            followup_job_id=str(followup_job_id),
+        )
+    return followup_job_id
 
 
 def _run_phase_batch_latest() -> int:
@@ -648,12 +737,13 @@ def _mark_job_canceled(
     *,
     state: dict | None = None,
     stage: str = "cancel",
+    job_type: str = _TXT_UPDATE_JOB_TYPE,
 ) -> None:
     if state is not None:
         _record_pipeline_canceled(state, stage=stage, message=message)
     job_manager._update_db(
         job_id,
-        "txt_update",
+        job_type,
         "canceled",
         message=message,
         error="canceled",
@@ -661,14 +751,48 @@ def _mark_job_canceled(
     )
 
 
-def _exit_if_canceled(job_id: str, state: dict, *, stage: str, message: str) -> bool:
+def _exit_if_canceled(
+    job_id: str,
+    state: dict,
+    *,
+    stage: str,
+    message: str,
+    job_type: str = _TXT_UPDATE_JOB_TYPE,
+) -> bool:
     if not _is_job_canceled(job_id):
         return False
-    _mark_job_canceled(job_id, message, state=state, stage=stage)
+    _mark_job_canceled(job_id, message, state=state, stage=stage, job_type=job_type)
+    return True
+
+
+def _mark_followup_canceled(
+    job_id: str,
+    message: str = "Canceled",
+    *,
+    state: dict | None = None,
+    stage: str = "cancel",
+) -> None:
+    if state is not None:
+        _record_followup_canceled(state, stage=stage, message=message)
+    job_manager._update_db(
+        job_id,
+        _TXT_FOLLOWUP_JOB_TYPE,
+        "canceled",
+        message=message,
+        error="canceled",
+        finished_at=datetime.now(),
+    )
+
+
+def _exit_followup_if_canceled(job_id: str, state: dict, *, stage: str, message: str) -> bool:
+    if not _is_job_canceled(job_id):
+        return False
+    _mark_followup_canceled(job_id, message, state=state, stage=stage)
     return True
 
 
 def handle_txt_update(job_id: str, payload: dict) -> None:
+    completion_mode = _normalize_completion_mode(payload.get("completion_mode"))
     auto_ml_predict = _to_bool(payload.get("auto_ml_predict"), True)
     auto_ml_train = _to_bool(payload.get("auto_ml_train"), True)
     force_ml_train = _to_bool(payload.get("force_ml_train"), False)
@@ -1394,132 +1518,137 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     WALKFORWARD_GATE_PROGRESS = 98
     FINALIZING_PROGRESS = 99
 
-    try:
-        from app.backend.services import ml_service
-
+    if completion_mode == _COMPLETION_MODE_PRACTICAL_FAST:
         if force_recompute_due_to_pan_finalize:
             ml_note_parts.append(f"pan_finalize_force_recompute(rows={int(pan_finalized_rows)})")
+        ml_note_parts.append("ml=queued(background)")
+    else:
+        try:
+            from app.backend.services import ml_service
 
-        if effective_auto_ml_train:
-            if _exit_if_canceled(job_id, state, stage="ml_train", message="Canceled before ML training"):
-                return
-            latest_pred_dt = _to_optional_int(state.get("last_ml_predict_dt"))
-            has_prior_ml = bool(state.get("last_ml_train_at") or state.get("last_ml_model_version"))
-            skip_train = (
-                (not force_ml_train)
-                and bool(skip_ml_train_if_no_change)
-                and (not force_recompute_due_to_pan_finalize)
-                and int(changed_files) == 0
-                and has_prior_ml
-            )
-            if skip_train:
-                if latest_pred_dt is not None and int(latest_pred_dt) == int(phase_dt):
-                    skip_message = f"Skipping ML training (no data change, dt={int(phase_dt)})"
-                else:
-                    skip_message = (
-                        "Skipping ML training (no data change; "
-                        f"prediction refresh only, dt={int(phase_dt)})"
-                    )
-                _set_pipeline_stage(state, "ml_train", message=skip_message)
-                job_manager._update_db(
-                    job_id,
-                    "txt_update",
-                    "running",
-                    message=skip_message,
-                    progress=ML_TRAIN_PROGRESS_DONE,
-                )
-                ml_note_parts.append("ml_train=skip(no_change)")
-            else:
-                _set_pipeline_stage(state, "ml_train", message="Refreshing ML training...")
-                job_manager._update_db(
-                    job_id,
-                    "txt_update",
-                    "running",
-                    message="Refreshing ML training...",
-                    progress=ML_TRAIN_PROGRESS_START,
-                )
-                ml_report = {"progress": -1, "at": 0.0}
+            if force_recompute_due_to_pan_finalize:
+                ml_note_parts.append(f"pan_finalize_force_recompute(rows={int(pan_finalized_rows)})")
 
-                def _on_ml_train_progress(progress: int, message: str) -> None:
-                    progress_clamped = max(0, min(100, int(progress)))
-                    now_ts = time.monotonic()
-                    prev_progress = int(ml_report["progress"])
-                    prev_ts = float(ml_report["at"])
-                    if (
-                        progress_clamped < 100
-                        and prev_progress >= 0
-                        and (progress_clamped - prev_progress) < 2
-                        and (now_ts - prev_ts) < 1.5
-                    ):
-                        return
-                    ml_report["progress"] = progress_clamped
-                    ml_report["at"] = now_ts
-                    total_progress = ML_TRAIN_PROGRESS_START + int(round(progress_clamped / 100))
-                    total_progress = max(ML_TRAIN_PROGRESS_START, min(ML_TRAIN_PROGRESS_DONE, total_progress))
-                    detail = f"Refreshing ML training... {message} ({progress_clamped}%)"
-                    _set_pipeline_stage(state, "ml_train", message=detail)
+            if effective_auto_ml_train:
+                if _exit_if_canceled(job_id, state, stage="ml_train", message="Canceled before ML training"):
+                    return
+                latest_pred_dt = _to_optional_int(state.get("last_ml_predict_dt"))
+                has_prior_ml = bool(state.get("last_ml_train_at") or state.get("last_ml_model_version"))
+                skip_train = (
+                    (not force_ml_train)
+                    and bool(skip_ml_train_if_no_change)
+                    and (not force_recompute_due_to_pan_finalize)
+                    and int(changed_files) == 0
+                    and has_prior_ml
+                )
+                if skip_train:
+                    if latest_pred_dt is not None and int(latest_pred_dt) == int(phase_dt):
+                        skip_message = f"Skipping ML training (no data change, dt={int(phase_dt)})"
+                    else:
+                        skip_message = (
+                            "Skipping ML training (no data change; "
+                            f"prediction refresh only, dt={int(phase_dt)})"
+                        )
+                    _set_pipeline_stage(state, "ml_train", message=skip_message)
                     job_manager._update_db(
                         job_id,
                         "txt_update",
                         "running",
-                        message=detail,
-                        progress=total_progress,
+                        message=skip_message,
+                        progress=ML_TRAIN_PROGRESS_DONE,
                     )
+                    ml_note_parts.append("ml_train=skip(no_change)")
+                else:
+                    _set_pipeline_stage(state, "ml_train", message="Refreshing ML training...")
+                    job_manager._update_db(
+                        job_id,
+                        "txt_update",
+                        "running",
+                        message="Refreshing ML training...",
+                        progress=ML_TRAIN_PROGRESS_START,
+                    )
+                    ml_report = {"progress": -1, "at": 0.0}
 
-                train_result = ml_service.train_models(dry_run=False, progress_cb=_on_ml_train_progress)
-                state["last_ml_train_at"] = datetime.now().isoformat()
-                model_version = train_result.get("model_version")
-                if model_version:
-                    state["last_ml_model_version"] = str(model_version)
-                ml_note_parts.append("ml_train=ok")
-        else:
-            ml_note_parts.append("ml_train=skip(disabled)")
+                    def _on_ml_train_progress(progress: int, message: str) -> None:
+                        progress_clamped = max(0, min(100, int(progress)))
+                        now_ts = time.monotonic()
+                        prev_progress = int(ml_report["progress"])
+                        prev_ts = float(ml_report["at"])
+                        if (
+                            progress_clamped < 100
+                            and prev_progress >= 0
+                            and (progress_clamped - prev_progress) < 2
+                            and (now_ts - prev_ts) < 1.5
+                        ):
+                            return
+                        ml_report["progress"] = progress_clamped
+                        ml_report["at"] = now_ts
+                        total_progress = ML_TRAIN_PROGRESS_START + int(round(progress_clamped / 100))
+                        total_progress = max(ML_TRAIN_PROGRESS_START, min(ML_TRAIN_PROGRESS_DONE, total_progress))
+                        detail = f"Refreshing ML training... {message} ({progress_clamped}%)"
+                        _set_pipeline_stage(state, "ml_train", message=detail)
+                        job_manager._update_db(
+                            job_id,
+                            "txt_update",
+                            "running",
+                            message=detail,
+                            progress=total_progress,
+                        )
 
-        if effective_auto_ml_predict:
-            if _exit_if_canceled(job_id, state, stage="ml_predict", message="Canceled before ML prediction"):
-                return
-            _set_pipeline_stage(state, "ml_predict", message="Refreshing ML prediction...")
-            job_manager._update_db(
-                job_id,
-                "txt_update",
-                "running",
-                message="Refreshing ML prediction...",
-                progress=ML_PREDICT_PROGRESS,
-            )
-            pred_result = ml_service.predict_for_dt(dt=phase_dt)
-            state["last_ml_predict_at"] = datetime.now().isoformat()
-            state["last_ml_predict_dt"] = int(pred_result.get("dt") or phase_dt)
-            state["last_ml_predict_rows"] = int(pred_result.get("rows") or 0)
-            ml_note_parts.append(f"ml_predict=ok(rows={state['last_ml_predict_rows']})")
-
-            if _exit_if_canceled(job_id, state, stage="ml_live_guard", message="Canceled before ML live guard"):
-                return
-            _set_pipeline_stage(state, "ml_live_guard", message="Evaluating live guard...")
-            job_manager._update_db(
-                job_id,
-                "txt_update",
-                "running",
-                message="Evaluating ML live guard...",
-                progress=ML_LIVE_GUARD_PROGRESS,
-            )
-            guard_result = ml_service.enforce_live_guard()
-            state["last_ml_live_guard_at"] = datetime.now().isoformat()
-            state["last_ml_live_guard_action"] = str(guard_result.get("action") or "unknown")
-            state["last_ml_live_guard_reason"] = str(guard_result.get("reason") or "")
-            rolled_back_to = guard_result.get("rolled_back_to")
-            if rolled_back_to:
-                state["last_ml_model_version"] = str(rolled_back_to)
-                ml_note_parts.append(f"ml_live_guard=rollback({rolled_back_to})")
+                    train_result = ml_service.train_models(dry_run=False, progress_cb=_on_ml_train_progress)
+                    state["last_ml_train_at"] = datetime.now().isoformat()
+                    model_version = train_result.get("model_version")
+                    if model_version:
+                        state["last_ml_model_version"] = str(model_version)
+                    ml_note_parts.append("ml_train=ok")
             else:
-                ml_note_parts.append(f"ml_live_guard={state['last_ml_live_guard_action']}")
+                ml_note_parts.append("ml_train=skip(disabled)")
+
+            if effective_auto_ml_predict:
+                if _exit_if_canceled(job_id, state, stage="ml_predict", message="Canceled before ML prediction"):
+                    return
+                _set_pipeline_stage(state, "ml_predict", message="Refreshing ML prediction...")
+                job_manager._update_db(
+                    job_id,
+                    "txt_update",
+                    "running",
+                    message="Refreshing ML prediction...",
+                    progress=ML_PREDICT_PROGRESS,
+                )
+                pred_result = ml_service.predict_for_dt(dt=phase_dt)
+                state["last_ml_predict_at"] = datetime.now().isoformat()
+                state["last_ml_predict_dt"] = int(pred_result.get("dt") or phase_dt)
+                state["last_ml_predict_rows"] = int(pred_result.get("rows") or 0)
+                ml_note_parts.append(f"ml_predict=ok(rows={state['last_ml_predict_rows']})")
+
+                if _exit_if_canceled(job_id, state, stage="ml_live_guard", message="Canceled before ML live guard"):
+                    return
+                _set_pipeline_stage(state, "ml_live_guard", message="Evaluating live guard...")
+                job_manager._update_db(
+                    job_id,
+                    "txt_update",
+                    "running",
+                    message="Evaluating ML live guard...",
+                    progress=ML_LIVE_GUARD_PROGRESS,
+                )
+                guard_result = ml_service.enforce_live_guard()
+                state["last_ml_live_guard_at"] = datetime.now().isoformat()
+                state["last_ml_live_guard_action"] = str(guard_result.get("action") or "unknown")
+                state["last_ml_live_guard_reason"] = str(guard_result.get("reason") or "")
+                rolled_back_to = guard_result.get("rolled_back_to")
+                if rolled_back_to:
+                    state["last_ml_model_version"] = str(rolled_back_to)
+                    ml_note_parts.append(f"ml_live_guard=rollback({rolled_back_to})")
+                else:
+                    ml_note_parts.append(f"ml_live_guard={state['last_ml_live_guard_action']}")
+            else:
+                ml_note_parts.append("ml_predict=skip")
+        except Exception as exc:
+            print(f"[txt_update_job] ml predict refresh failed: {exc}")
+            state["last_ml_error"] = str(exc)
+            ml_note_parts.append(f"ml=failed({exc})")
         else:
-            ml_note_parts.append("ml_predict=skip")
-    except Exception as exc:
-        print(f"[txt_update_job] ml predict refresh failed: {exc}")
-        state["last_ml_error"] = str(exc)
-        ml_note_parts.append(f"ml=failed({exc})")
-    else:
-        state.pop("last_ml_error", None)
+            state.pop("last_ml_error", None)
 
     try:
         if _exit_if_canceled(job_id, state, stage="scoring", message="Canceled before scoring refresh"):
@@ -1589,7 +1718,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         state["last_sell_analysis_error"] = str(exc)
         ml_note_parts.append(f"sell_analysis=failed({exc})")
 
-    if auto_fill_missing_history:
+    if completion_mode != _COMPLETION_MODE_PRACTICAL_FAST and auto_fill_missing_history:
         try:
             if _exit_if_canceled(
                 job_id,
@@ -1662,20 +1791,21 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             state["last_analysis_backfill_error"] = str(exc)
             ml_note_parts.append(f"analysis_backfill=failed({exc})")
 
-    try:
-        from app.backend.core.analysis_prewarm_job import schedule_analysis_prewarm_if_needed
+    if completion_mode != _COMPLETION_MODE_PRACTICAL_FAST:
+        try:
+            from app.backend.core.analysis_prewarm_job import schedule_analysis_prewarm_if_needed
 
-        prewarm_job_id = schedule_analysis_prewarm_if_needed(source=f"txt_update:{job_id}")
-        state["last_analysis_prewarm_submit_at"] = datetime.now().isoformat()
-        state["last_analysis_prewarm_job_id"] = prewarm_job_id
-        if prewarm_job_id:
-            ml_note_parts.append(f"analysis_prewarm=queued({prewarm_job_id})")
-        else:
-            ml_note_parts.append("analysis_prewarm=skip(covered_or_active)")
-    except Exception as exc:
-        logger.warning("Analysis prewarm submit skipped: %s", exc)
-        state["last_analysis_prewarm_error"] = str(exc)
-        ml_note_parts.append(f"analysis_prewarm=failed({exc})")
+            prewarm_job_id = schedule_analysis_prewarm_if_needed(source=f"txt_update:{job_id}")
+            state["last_analysis_prewarm_submit_at"] = datetime.now().isoformat()
+            state["last_analysis_prewarm_job_id"] = prewarm_job_id
+            if prewarm_job_id:
+                ml_note_parts.append(f"analysis_prewarm=queued({prewarm_job_id})")
+            else:
+                ml_note_parts.append("analysis_prewarm=skip(covered_or_active)")
+        except Exception as exc:
+            logger.warning("Analysis prewarm submit skipped: %s", exc)
+            state["last_analysis_prewarm_error"] = str(exc)
+            ml_note_parts.append(f"analysis_prewarm=failed({exc})")
 
     try:
         if _exit_if_canceled(job_id, state, stage="cache_refresh", message="Canceled before cache refresh"):
@@ -1707,6 +1837,68 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             error="Rankings cache refresh failed",
             message=f"Rankings cache refresh failed: {exc}",
             finished_at=datetime.now(),
+        )
+        return
+
+    if completion_mode == _COMPLETION_MODE_PRACTICAL_FAST:
+        should_queue_followup = bool(
+            effective_auto_ml_train
+            or effective_auto_ml_predict
+            or auto_fill_missing_history
+            or effective_auto_walkforward_run
+            or effective_auto_walkforward_gate
+        )
+        followup_job_id: str | None = None
+        if should_queue_followup:
+            followup_payload = dict(payload)
+            followup_payload.update(
+                {
+                    "source_txt_job_id": str(job_id),
+                    "phase_dt": int(phase_dt),
+                    "changed_files": int(changed_files),
+                    "pan_finalized_rows": int(pan_finalized_rows),
+                    "summary_line": str(summary_line),
+                }
+            )
+            followup_job_id = _queue_txt_followup(
+                state,
+                source_job_id=str(job_id),
+                payload=followup_payload,
+            )
+            if followup_job_id:
+                ml_note_parts.append(f"followup=queued({followup_job_id})")
+            else:
+                ml_note_parts.append("followup=skip(queue_rejected)")
+        completion_ts = datetime.now()
+        _set_pipeline_stage(state, "finalize", message="Finalizing update status...")
+        job_manager._update_db(
+            job_id,
+            _TXT_UPDATE_JOB_TYPE,
+            "running",
+            message="Finalizing update status...",
+            progress=FINALIZING_PROGRESS,
+        )
+        state.update(
+            {
+                "last_txt_update_at": completion_ts.isoformat(),
+                "last_txt_update_date": completion_ts.date().isoformat(),
+            }
+        )
+        base_message = (
+            f"{summary_line}. 日次更新は完了。重い後続処理はバックグラウンドで継続中。"
+            if followup_job_id
+            else f"{summary_line}. Ingest + Phase + Scoring completed."
+        )
+        ml_note = f" [{' / '.join(ml_note_parts)}]" if ml_note_parts else ""
+        final_message = f"{base_message}{ml_note}"
+        _record_pipeline_success(state, stage="finalize", message=final_message)
+        job_manager._update_db(
+            job_id,
+            _TXT_UPDATE_JOB_TYPE,
+            "success",
+            message=final_message,
+            progress=100,
+            finished_at=completion_ts,
         )
         return
 

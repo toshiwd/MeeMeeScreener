@@ -168,9 +168,23 @@ def test_submit_txt_update_includes_force_recompute_on_pan_finalize_flag():
 
     assert response == {"ok": True}
     submitted_payload = mock_submit.call_args.args[0]
+    assert submitted_payload["completion_mode"] == "full"
     assert submitted_payload["auto_ml_predict"] is False
     assert submitted_payload["auto_ml_train"] is False
     assert submitted_payload["force_recompute_on_pan_finalize"] is False
+
+
+def test_submit_txt_update_forwards_practical_fast_completion_mode():
+    with patch("app.backend.api.routers.jobs.submit_txt_update_job", return_value={"ok": True}) as mock_submit:
+        response = jobs.submit_txt_update(
+            completion_mode="practical_fast",
+            auto_ml_predict=True,
+            auto_ml_train=True,
+        )
+
+    assert response == {"ok": True}
+    submitted_payload = mock_submit.call_args.args[0]
+    assert submitted_payload["completion_mode"] == "practical_fast"
 
 
 def test_walkforward_latest_response_keeps_summary_and_adds_attribution():

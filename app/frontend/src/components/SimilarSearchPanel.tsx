@@ -127,9 +127,13 @@ export default function SimilarSearchPanel({
             });
     }, [isOpen, queryTicker, targetDate, alpha]);
 
-    const handleJump = (ticker: string) => {
+    const handleJump = (item: SearchResult) => {
+        const params = new URLSearchParams();
+        if (item.asof) {
+            params.set("mainAsOf", item.asof);
+        }
         onClose();
-        navigate(`/detail/${ticker}`);
+        navigate(params.size > 0 ? `/detail/${item.ticker}?${params.toString()}` : `/detail/${item.ticker}`);
     };
 
     const handleCompare = (item: SearchResult) => {
@@ -296,7 +300,7 @@ export default function SimilarSearchPanel({
                             key={`${item.ticker}-${item.asof}`}
                             item={item}
                             rank={idx + 1}
-                    onJump={() => handleJump(item.ticker)}
+                    onJump={() => handleJump(item)}
                     onCompare={() => handleCompare(item)}
                         />
                     ))}

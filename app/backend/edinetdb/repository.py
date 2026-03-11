@@ -11,6 +11,7 @@ from typing import Any
 import duckdb
 
 from app.backend.edinetdb.schema import ensure_edinetdb_schema, utcnow_naive
+from app.db.session import get_conn_for_path
 
 
 def _json_dumps(value: Any) -> str:
@@ -58,7 +59,10 @@ class EdinetdbRepository:
     def __init__(self, db_path: str | Path):
         self._db_path = str(Path(db_path).expanduser().resolve())
 
-    def _connect(self) -> duckdb.DuckDBPyConnection:
+    def _connect_read(self):
+        return get_conn_for_path(self._db_path, timeout_sec=2.5, read_only=True)
+
+    def _connect_write(self) -> duckdb.DuckDBPyConnection:
         conn = duckdb.connect(self._db_path)
         ensure_edinetdb_schema(conn)
         return conn
@@ -145,7 +149,7 @@ class EdinetdbRepository:
                     now,
                 ]
             )
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.executemany(self._enqueue_upsert_sql(force), rows)
         return keys
 
@@ -189,7 +193,7 @@ class EdinetdbRepository:
             sql += " AND phase = ?"
             params.append(phase)
         sql += " ORDER BY priority DESC, COALESCE(retry_at, TIMESTAMP '1970-01-01') ASC, created_at ASC LIMIT 1"
-        with self._connect() as conn:
+        with self._connect_read() as conn:
             row = conn.execute(sql, params).fetchone()
         if not row:
             return None
@@ -209,7 +213,7 @@ class EdinetdbRepository:
 
     def mark_ok(self, task_key: str, *, http_status: int = 200, fetched_at: datetime | None = None) -> None:
         fetched_at = fetched_at or utcnow_naive()
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.execute(
                 """
                 UPDATE edinetdb_task_queue
@@ -227,7 +231,7 @@ class EdinetdbRepository:
 
     def mark_failed(self, task_key: str, *, error: str, http_status: int | None = None) -> None:
         now = utcnow_naive()
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.execute(
                 """
                 UPDATE edinetdb_task_queue
@@ -250,7 +254,7 @@ class EdinetdbRepository:
         http_status: int | None = None,
     ) -> None:
         now = utcnow_naive()
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.execute(
                 """
                 UPDATE edinetdb_task_queue
@@ -267,7 +271,7 @@ class EdinetdbRepository:
 
     def mark_skipped(self, task_key: str, *, reason: str) -> None:
         now = utcnow_naive()
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.execute(
                 """
                 UPDATE edinetdb_task_queue
@@ -291,14 +295,14 @@ class EdinetdbRepository:
             params.append(phase)
         sql += " GROUP BY status"
         out: dict[str, int] = {}
-        with self._connect() as conn:
+        with self._connect_read() as conn:
             rows = conn.execute(sql, params).fetchall()
         for status, cnt in rows:
             out[str(status)] = int(cnt)
         return out
 
     def pending_task_count(self, job_name: str) -> int:
-        with self._connect() as conn:
+        with self._connect_read() as conn:
             row = conn.execute(
                 """
                 SELECT COUNT(*)
@@ -330,7 +334,7 @@ class EdinetdbRepository:
             )
         if not payload:
             return
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.executemany(
                 """
                 INSERT INTO edinetdb_company_map(sec_code, edinet_code, name, industry, updated_at)
@@ -345,7 +349,7 @@ class EdinetdbRepository:
             )
 
     def company_map_count(self) -> int:
-        with self._connect() as conn:
+        with self._connect_read() as conn:
             row = conn.execute("SELECT COUNT(*) FROM edinetdb_company_map").fetchone()
         return int((row[0] if row else 0) or 0)
 
@@ -354,7 +358,7 @@ class EdinetdbRepository:
         if not codes:
             return {}
         placeholders = ",".join(["?"] * len(codes))
-        with self._connect() as conn:
+        with self._connect_read() as conn:
             rows = conn.execute(
                 f"""
                 SELECT sec_code, edinet_code
@@ -369,7 +373,7 @@ class EdinetdbRepository:
 
     def upsert_unmapped_code(self, sec_code: str, reason: str) -> None:
         now = utcnow_naive()
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.execute(
                 """
                 INSERT INTO edinetdb_unmapped_codes(sec_code, reason, first_seen_at, last_seen_at)
@@ -382,7 +386,7 @@ class EdinetdbRepository:
             )
 
     def get_company_latest(self, edinet_code: str) -> dict[str, Any] | None:
-        with self._connect() as conn:
+        with self._connect_read() as conn:
             row = conn.execute(
                 """
                 SELECT edinet_code, latest_fiscal_year, latest_hash, fetched_at, last_checked_at
@@ -406,7 +410,7 @@ class EdinetdbRepository:
         if not codes:
             return {}
         placeholders = ",".join(["?"] * len(codes))
-        with self._connect() as conn:
+        with self._connect_read() as conn:
             rows = conn.execute(
                 f"""
                 SELECT edinet_code, latest_fiscal_year, latest_hash, fetched_at, last_checked_at
@@ -436,7 +440,7 @@ class EdinetdbRepository:
     ) -> None:
         fetched_at = fetched_at or utcnow_naive()
         last_checked_at = last_checked_at or fetched_at
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.execute(
                 """
                 INSERT INTO edinetdb_company_latest(
@@ -476,7 +480,7 @@ class EdinetdbRepository:
             rows.append((edinet_code, fiscal_year, accounting_standard, _json_dumps(record), fetched_at))
         if not rows:
             return 0
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.executemany(
                 """
                 INSERT INTO edinetdb_financials(edinet_code, fiscal_year, accounting_standard, payload_json, fetched_at)
@@ -513,7 +517,7 @@ class EdinetdbRepository:
             rows.append((edinet_code, fiscal_year, accounting_standard, _json_dumps(record), fetched_at))
         if not rows:
             return 0
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.executemany(
                 """
                 INSERT INTO edinetdb_ratios(edinet_code, fiscal_year, accounting_standard, payload_json, fetched_at)
@@ -567,7 +571,7 @@ class EdinetdbRepository:
                 rows.append((edinet_code, fiscal_year, block_name, str(text), fetched_at))
         if not rows:
             return 0
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.executemany(
                 """
                 INSERT INTO edinetdb_text_blocks(edinet_code, fiscal_year, block_name, text, fetched_at)
@@ -601,7 +605,7 @@ class EdinetdbRepository:
             rows.append((edinet_code, asof, _json_dumps(item), fetched_at))
         if not rows:
             return 0
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.executemany(
                 """
                 INSERT INTO edinetdb_analysis(edinet_code, asof_date, payload_json, fetched_at)
@@ -616,7 +620,7 @@ class EdinetdbRepository:
 
     def set_meta(self, key: str, value: Any) -> None:
         now = utcnow_naive()
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.execute(
                 """
                 INSERT INTO edinetdb_meta(key, value_json, updated_at)
@@ -629,7 +633,7 @@ class EdinetdbRepository:
             )
 
     def get_meta(self, key: str) -> Any | None:
-        with self._connect() as conn:
+        with self._connect_read() as conn:
             row = conn.execute("SELECT value_json FROM edinetdb_meta WHERE key = ?", [key]).fetchone()
         if not row or row[0] is None:
             return None
@@ -650,7 +654,7 @@ class EdinetdbRepository:
         jst_date: date | None = None,
     ) -> None:
         called_at = called_at or utcnow_naive()
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.execute(
                 """
                 INSERT INTO edinetdb_api_call_log(
@@ -671,7 +675,7 @@ class EdinetdbRepository:
             )
 
     def migrate_legacy_backfill_phase(self, job_name: str = "backfill_700") -> int:
-        with self._connect() as conn:
+        with self._connect_write() as conn:
             conn.execute(
                 """
                 UPDATE edinetdb_task_queue

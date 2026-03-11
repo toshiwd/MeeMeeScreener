@@ -29,12 +29,16 @@ class StockRepository:
         # Cache: table_name -> (monotonic_ts, frozenset of lowercase column names)
         self._schema_columns_cache: dict[str, tuple[float, frozenset[str]]] = {}
 
-    def _get_conn(self):
+    def _get_read_conn(self):
+        # Use read-only access for query paths to reduce lock pressure.
+        return get_conn_for_path(self._db_path, timeout_sec=2.5, read_only=True)
+
+    def _get_write_conn(self):
         # Use the shared retry/connect policy from app.db.session.
         return get_conn_for_path(self._db_path, timeout_sec=2.5, read_only=False)
 
     def get_all_codes(self) -> List[str]:
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
              rows = conn.execute("SELECT DISTINCT code FROM daily_bars ORDER BY code").fetchall()
         return [r[0] for r in rows]
 
@@ -60,7 +64,7 @@ class StockRepository:
             LIMIT ?
         """
         params.append(limit)
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             rows = conn.execute(query, params).fetchall()
         # Return valid sort order (ASC)
         return sorted(rows, key=lambda x: x[0])
@@ -103,7 +107,7 @@ class StockRepository:
         """
         params.append(limit)
 
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             rows = conn.execute(query, params).fetchall()
 
         grouped: Dict[str, List[Tuple]] = {code: [] for code in unique_codes}
@@ -141,7 +145,7 @@ class StockRepository:
             LIMIT ?
         """
         params.append(limit)
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             rows = conn.execute(query, params).fetchall()
             if not rows:
                 fallback_query = """
@@ -217,7 +221,7 @@ class StockRepository:
         """
         params.append(limit)
 
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             rows = conn.execute(query, params).fetchall()
             grouped: Dict[str, List[Tuple]] = {code: [] for code in unique_codes}
             for row in rows:
@@ -277,7 +281,7 @@ class StockRepository:
         if codes is not None and len(codes) == 0:
             return []
 
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             code_filter = ""
             params: List[Any] = []
             if codes:
@@ -353,7 +357,7 @@ class StockRepository:
             return conn.execute(fallback_query, fallback_params).fetchall()
 
     def ensure_score_table(self):
-        with self._get_conn() as conn:
+        with self._get_write_conn() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS stock_scores (
                     code VARCHAR PRIMARY KEY,
@@ -368,7 +372,7 @@ class StockRepository:
     def save_scores(self, scores: List[Dict[str, Any]], *, replace: bool = False):
         self.ensure_score_table()
         # scores: list of dicts with code, score_a, score_b, reasons, badges
-        with self._get_conn() as conn:
+        with self._get_write_conn() as conn:
             if replace:
                 conn.execute("DELETE FROM stock_scores")
 
@@ -393,8 +397,9 @@ class StockRepository:
             """, data)
 
     def get_scores(self) -> Dict[str, Dict]:
-        self.ensure_score_table()
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
+            if not self._table_exists(conn, "stock_scores"):
+                return {}
             rows = conn.execute("SELECT code, score_a, score_b, reasons, badges FROM stock_scores").fetchall()
         
         result = {}
@@ -418,7 +423,7 @@ class StockRepository:
             query += " AND dt <= ?"
             params.append(asof_dt)
         query += " ORDER BY dt DESC LIMIT 1"
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             row = conn.execute(query, params).fetchone()
         return row
 
@@ -537,7 +542,7 @@ class StockRepository:
         return None
 
     def get_ml_analysis_pred(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             if not self._table_exists(conn, "ml_pred_20d"):
                 return None
             names = self._get_schema_columns(conn, "ml_pred_20d")
@@ -609,7 +614,7 @@ class StockRepository:
 
         ml_rows_desc: List[Tuple[Any, ...]] = []
         sell_rows_desc: List[Tuple[Any, ...]] = []
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             ml_names: frozenset[str] = frozenset()
             if self._table_exists(conn, "ml_pred_20d"):
                 ml_names = self._get_schema_columns(conn, "ml_pred_20d")
@@ -773,7 +778,7 @@ class StockRepository:
         horizon = max(1, int(horizon))
         lookback_bars = max(60, int(lookback_bars))
         limit_bars = max(lookback_bars + horizon + 120, 240)
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             if not self._table_exists(conn, "ml_pred_20d"):
                 return None
             if not self._table_exists(conn, "daily_bars"):
@@ -1041,7 +1046,7 @@ class StockRepository:
         }
 
     def get_sell_analysis_snapshot(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             if not self._table_exists(conn, "sell_analysis_daily"):
                 return None
             if not self._column_exists(conn, "sell_analysis_daily", "code"):
@@ -1135,7 +1140,7 @@ class StockRepository:
                     return fv
             return None
 
-        with self._get_conn() as conn:
+        with self._get_read_conn() as conn:
             if not self._table_exists(conn, "ml_pred_20d"):
                 return {}
             names = self._get_schema_columns(conn, "ml_pred_20d")

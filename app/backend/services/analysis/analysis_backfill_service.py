@@ -37,22 +37,22 @@ def _resolve_anchor_dt(conn, anchor_dt: int | None) -> int | None:
         if normalized_anchor_dt is None:
             return int(anchor_dt)
         row = conn.execute(
+            f"SELECT MAX(date) FROM daily_bars WHERE {_normalized_date_sql('date')} <= ?",
+            [int(normalized_anchor_dt)],
+        ).fetchone()
+        if row and row[0] is not None:
+            return _normalize_dt_key(int(row[0])) or int(normalized_anchor_dt)
+        row = conn.execute(
             f"SELECT MAX(dt) FROM ml_feature_daily WHERE {_normalized_date_sql('dt')} <= ?",
             [int(normalized_anchor_dt)],
         ).fetchone()
         if row and row[0] is not None:
             return int(row[0])
-        row = conn.execute(
-            f"SELECT MAX(date) FROM daily_bars WHERE {_normalized_date_sql('date')} <= ?",
-            [int(normalized_anchor_dt)],
-        ).fetchone()
-        if row and row[0] is not None:
-            return int(row[0])
         return None
-    row = conn.execute("SELECT MAX(dt) FROM ml_feature_daily").fetchone()
-    if row and row[0] is not None:
-        return int(row[0])
     row = conn.execute("SELECT MAX(date) FROM daily_bars").fetchone()
+    if row and row[0] is not None:
+        return _normalize_dt_key(int(row[0])) or int(row[0])
+    row = conn.execute("SELECT MAX(dt) FROM ml_feature_daily").fetchone()
     if row and row[0] is not None:
         return int(row[0])
     return None
@@ -71,6 +71,17 @@ def _resolve_target_dates(conn, *, lookback_days: int, anchor_dt: int) -> list[i
     ).fetchall()
     values = [int(row[0]) for row in rows if row and row[0] is not None]
     values.sort()
+    return values
+
+
+def _append_anchor_date(target_dates: list[int], anchor_dt: int) -> list[int]:
+    normalized_anchor_dt = _normalize_dt_key(anchor_dt)
+    if normalized_anchor_dt is None:
+        return [int(value) for value in target_dates]
+    values = [int(value) for value in target_dates]
+    if normalized_anchor_dt not in values:
+        values.append(int(normalized_anchor_dt))
+        values.sort()
     return values
 
 
@@ -95,7 +106,14 @@ def _resolve_target_dates_in_range(conn, *, start_dt: int, end_dt: int) -> list[
         """,
         [int(lower), int(upper)],
     ).fetchall()
-    return [int(row[0]) for row in rows if row and row[0] is not None]
+    values = [int(row[0]) for row in rows if row and row[0] is not None]
+    normalized_start = _normalize_dt_key(start_dt)
+    normalized_end = _normalize_dt_key(end_dt)
+    if normalized_start is not None:
+        values = _append_anchor_date(values, int(normalized_start))
+    if normalized_end is not None:
+        values = _append_anchor_date(values, int(normalized_end))
+    return values
 
 
 def _resolve_target_scope(
@@ -135,6 +153,7 @@ def _resolve_target_scope(
             "target_dates": [],
         }
     target_dates = _resolve_target_dates(conn, lookback_days=lookback_days, anchor_dt=resolved_anchor_dt)
+    target_dates = _append_anchor_date(target_dates, int(resolved_anchor_dt))
     return {
         "anchor_dt": int(resolved_anchor_dt),
         "start_dt": int(target_dates[0]) if target_dates else int(resolved_anchor_dt),

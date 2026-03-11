@@ -21,6 +21,7 @@
 - `docs/heatmap_api.md`: ヒートマップ API の仕様
 - `docs/UI_SPEC_HEADER.md`: ヘッダー UI の実装仕様
 - `docs/ux/UX_POLICY.md`: UI/UX 方針
+- `docs/NOTE_TRADE_REPRO_STUDY.md`: note記事から売買局面と玉操作を抽出し、再現性研究に使うためのルール整理
 
 ## Tools
 
