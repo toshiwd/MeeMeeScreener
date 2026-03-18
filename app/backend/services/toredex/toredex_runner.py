@@ -194,9 +194,13 @@ def _build_daily_narrative(
             if not isinstance(item, dict):
                 continue
             gate = item.get("gate") if isinstance(item.get("gate"), dict) else {}
+            frame = item.get("timeframeSignals") if isinstance(item.get("timeframeSignals"), dict) else {}
             lines.append(
                 f"{idx}. {item.get('ticker')} ev={item.get('ev')} upProb={item.get('upProb')} "
-                f"revRisk={item.get('revRisk')} gate={gate.get('ok')}:{gate.get('reason')}"
+                f"revRisk={item.get('revRisk')} frame={frame.get('frameState') or '--'} "
+                f"Wup={frame.get('weeklyBreakoutUpProb')} Mup={frame.get('monthlyBreakoutUpProb')} "
+                f"Wdn={frame.get('weeklyBreakoutDownProb')} Mdn={frame.get('monthlyBreakoutDownProb')} "
+                f"gate={gate.get('ok')}:{gate.get('reason')}"
             )
     else:
         lines.append("- none")
@@ -207,9 +211,13 @@ def _build_daily_narrative(
             if not isinstance(item, dict):
                 continue
             gate = item.get("gate") if isinstance(item.get("gate"), dict) else {}
+            frame = item.get("timeframeSignals") if isinstance(item.get("timeframeSignals"), dict) else {}
             lines.append(
                 f"{idx}. {item.get('ticker')} ev={item.get('ev')} upProb={item.get('upProb')} "
-                f"revRisk={item.get('revRisk')} gate={gate.get('ok')}:{gate.get('reason')}"
+                f"revRisk={item.get('revRisk')} frame={frame.get('frameState') or '--'} "
+                f"Wup={frame.get('weeklyBreakoutUpProb')} Mup={frame.get('monthlyBreakoutUpProb')} "
+                f"Wdn={frame.get('weeklyBreakoutDownProb')} Mdn={frame.get('monthlyBreakoutDownProb')} "
+                f"gate={gate.get('ok')}:{gate.get('reason')}"
             )
     else:
         lines.append("- none")
@@ -714,10 +722,6 @@ def run_backtest(
             if metric and bool(metric.get("game_over")):
                 stopped_reason = "R_GAME_OVER"
                 break
-            if metric and metric.get("risk_gate_pass") is False:
-                stopped_reason = "R_RISK_GATE_FAIL"
-                break
-
         if not dry_run and last_processed is not None:
             repo.set_season_end_date(season_id, last_processed)
 

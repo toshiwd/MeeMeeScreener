@@ -26,6 +26,68 @@ def _round6(value: float | None) -> float | None:
     return round(float(value), 6)
 
 
+def _first_float(*values: Any) -> float | None:
+    for value in values:
+        out = _float_or_none(value)
+        if out is not None:
+            return out
+    return None
+
+
+def _max_float(*values: Any) -> float | None:
+    best: float | None = None
+    for value in values:
+        out = _float_or_none(value)
+        if out is None:
+            continue
+        if best is None or out > best:
+            best = out
+    return best
+
+
+def _frame_signal_value(item: dict[str, Any], key: str) -> float | None:
+    signals = item.get("timeframeSignals") if isinstance(item.get("timeframeSignals"), dict) else {}
+    return _first_float(signals.get(key) if isinstance(signals, dict) else None, item.get(key))
+
+
+def _effective_up_prob(item: dict[str, Any]) -> float | None:
+    return _max_float(item.get("upProb"), _frame_signal_value(item, "weeklyBreakoutUpProb"), _frame_signal_value(item, "monthlyBreakoutUpProb"))
+
+
+def _effective_rev_risk(item: dict[str, Any]) -> float | None:
+    return _max_float(item.get("revRisk"), _frame_signal_value(item, "weeklyBreakoutDownProb"), _frame_signal_value(item, "monthlyBreakoutDownProb"))
+
+
+def _frame_state(item: dict[str, Any]) -> str:
+    weekly_up = _frame_signal_value(item, "weeklyBreakoutUpProb")
+    weekly_down = _frame_signal_value(item, "weeklyBreakoutDownProb")
+    monthly_up = _frame_signal_value(item, "monthlyBreakoutUpProb")
+    monthly_down = _frame_signal_value(item, "monthlyBreakoutDownProb")
+    bullish = max((value for value in (weekly_up, monthly_up) if value is not None), default=None)
+    bearish = max((value for value in (weekly_down, monthly_down) if value is not None), default=None)
+    if bullish is None and bearish is None:
+        return "UNKNOWN"
+    if bullish is not None and bearish is None:
+        return "BULLISH"
+    if bullish is None and bearish is not None:
+        return "BEARISH"
+    if bullish is not None and bearish is not None:
+        if bullish - bearish >= 0.08:
+            return "BULLISH"
+        if bearish - bullish >= 0.08:
+            return "BEARISH"
+    return "MIXED"
+
+
+def _frame_summary(item: dict[str, Any]) -> dict[str, Any]:
+    signals = item.get("timeframeSignals") if isinstance(item.get("timeframeSignals"), dict) else {}
+    out = dict(signals) if isinstance(signals, dict) else {}
+    out["frameState"] = _frame_state(item)
+    out["effectiveUpProb"] = _effective_up_prob(item)
+    out["effectiveRevRisk"] = _effective_rev_risk(item)
+    return out
+
+
 @lru_cache(maxsize=256)
 def _decompose_reduce_units(units: int) -> tuple[int, ...]:
     if units == 0:
@@ -57,8 +119,8 @@ def _next_add_units(current_units: int) -> int:
 
 def _build_candidate_key(item: dict[str, Any]) -> tuple[Any, ...]:
     ev = _float_or_none(item.get("ev"))
-    up_prob = _float_or_none(item.get("upProb"))
-    rev_risk = _float_or_none(item.get("revRisk"))
+    up_prob = _effective_up_prob(item)
+    rev_risk = _effective_rev_risk(item)
     score = _float_or_none(item.get("entryScore"))
     ticker = str(item.get("ticker") or "")
     return (
@@ -84,13 +146,13 @@ def _is_crash_dip_short_candidate(
 
     down_prob = _float_or_none(item.get("pDown"))
     if down_prob is None:
-        down_prob = _float_or_none(item.get("upProb"))
+        down_prob = _effective_up_prob(item)
     if down_prob is None or down_prob < min_down_prob:
         return False
 
     turn_down = _float_or_none(item.get("pTurnDown"))
     if turn_down is None:
-        turn_down = _float_or_none(item.get("revRisk"))
+        turn_down = _effective_rev_risk(item)
     if turn_down is None or turn_down < min_turn_down:
         return False
 
@@ -354,6 +416,25 @@ def build_decision(
             continue
         sector_map[ticker] = str(item.get("sector") or "")
 
+    def _top_signals(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for item in items[:3]:
+            if not isinstance(item, dict):
+                continue
+            ticker = str(item.get("ticker") or "")
+            if not ticker:
+                continue
+            out.append(
+                {
+                    "ticker": ticker,
+                    "frameState": _frame_state(item),
+                    "upProb": _effective_up_prob(item),
+                    "revRisk": _effective_rev_risk(item),
+                    "frameSignals": _frame_summary(item),
+                }
+            )
+        return out
+
     actions: list[dict[str, Any]] = []
     new_entries_today = 0
     crash_new_entries_today = 0
@@ -407,8 +488,8 @@ def build_decision(
         gate = ref.get("gate") if isinstance(ref.get("gate"), dict) else {}
         gate_ok = bool(gate.get("ok"))
         ev = _float_or_none(ref.get("ev"))
-        up_prob = _float_or_none(ref.get("upProb"))
-        rev_risk = _float_or_none(ref.get("revRisk"))
+        up_prob = _effective_up_prob(ref)
+        rev_risk = _effective_rev_risk(ref)
 
         if not gate_ok:
             signal_weak = (
@@ -462,9 +543,9 @@ def build_decision(
             gate = item.get("gate") if isinstance(item.get("gate"), dict) else {}
             if not bool(gate.get("ok")):
                 continue
-            up_prob = _float_or_none(item.get("upProb"))
+            up_prob = _effective_up_prob(item)
             ev = _float_or_none(item.get("ev"))
-            rev_risk = _float_or_none(item.get("revRisk"))
+            rev_risk = _effective_rev_risk(item)
             liquidity20d = _float_or_none(item.get("liquidity20d"))
             if up_prob is None or ev is None:
                 continue
@@ -486,9 +567,9 @@ def build_decision(
             gate = item.get("gate") if isinstance(item.get("gate"), dict) else {}
             if not bool(gate.get("ok")):
                 continue
-            up_prob = _float_or_none(item.get("upProb"))
+            up_prob = _effective_up_prob(item)
             ev = _float_or_none(item.get("ev"))
-            rev_risk = _float_or_none(item.get("revRisk"))
+            rev_risk = _effective_rev_risk(item)
             liquidity20d = _float_or_none(item.get("liquidity20d"))
             shortable = bool(item.get("shortable", True))
             if up_prob is None or ev is None:
@@ -534,9 +615,9 @@ def build_decision(
         if units_now > 0:
             pos_ref = position_map.get((ticker, side), {})
             current_pnl = _float_or_none(pos_ref.get("pnlPct")) or 0.0
-            cand_up_prob = _float_or_none(cand.get("upProb"))
+            cand_up_prob = _effective_up_prob(cand)
             cand_ev = _float_or_none(cand.get("ev"))
-            cand_rev_risk = _float_or_none(cand.get("revRisk"))
+            cand_rev_risk = _effective_rev_risk(cand)
             if current_pnl < add_min_pnl or current_pnl > add_max_pnl:
                 continue
             if cand_up_prob is not None and cand_up_prob < add_min_up:
@@ -579,7 +660,7 @@ def build_decision(
                 continue
             if rank_index >= new_entry_max_rank:
                 continue
-            cand_up_prob = _float_or_none(cand.get("upProb"))
+            cand_up_prob = _effective_up_prob(cand)
             cand_ev = _float_or_none(cand.get("ev"))
             rank_entry_min_up = entry_min_up
             rank_entry_min_ev = entry_min_ev
@@ -652,6 +733,48 @@ def build_decision(
         new_entries_today += 1
         switched = True
 
+    def _rebalance_exposure_to_limit() -> None:
+        while True:
+            current_state = _state_after_actions(positions, actions)
+            long_units, short_units = _long_short_units(current_state)
+            imbalance = abs(long_units - short_units)
+            if imbalance <= max_net_units:
+                return
+
+            dominant_side = "LONG" if long_units > short_units else "SHORT"
+            excess = imbalance - max_net_units
+            trim_candidates = [
+                pos
+                for pos in sorted_positions
+                if str(pos.get("side") or "LONG").upper() == dominant_side
+                and int(current_state.get(_position_key(pos), 0)) > 0
+            ]
+            trim_candidates.sort(
+                key=lambda pos: (
+                    _float_or_none(pos.get("pnlPct")) or 0.0,
+                    str(pos.get("ticker") or ""),
+                )
+            )
+
+            trimmed = False
+            for pos in trim_candidates:
+                ticker = str(pos.get("ticker") or "")
+                units = int(current_state.get((ticker, dominant_side), 0))
+                if units <= 0:
+                    continue
+                allowed_steps = [step for step in (5, 3, 2) if step <= units]
+                if not allowed_steps:
+                    continue
+                step = next((candidate for candidate in allowed_steps if candidate >= excess), allowed_steps[0])
+                _add_action(actions, ticker, dominant_side, -step, "R_EXPOSURE_TRIM")
+                trimmed = True
+                break
+
+            if not trimmed:
+                return
+
+    _rebalance_exposure_to_limit()
+
     final_state = _state_after_actions(positions, actions)
     max_holdings_ok = len(_distinct_tickers(final_state)) <= int(config.max_holdings)
     unit_rule_ok = all(int(action.get("deltaUnits") or 0) in ALLOWED_UNIT_SET for action in actions)
@@ -689,6 +812,10 @@ def build_decision(
         "mode": mode,
         "policyVersion": config.policy_version,
         "actions": actions,
+        "signals": {
+            "buy": _top_signals(buy_rankings),
+            "sell": _top_signals(sell_rankings),
+        },
         "checks": {
             "maxHoldingsOk": bool(max_holdings_ok),
             "unitRuleOk": bool(unit_rule_ok),

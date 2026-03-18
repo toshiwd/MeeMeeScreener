@@ -4,6 +4,7 @@ from app.backend.services.toredex_config import ToredexConfig, load_toredex_conf
 from app.backend.services.toredex_hash import hash_payload
 from app.backend.services.toredex_paths import resolve_runs_root
 from app.backend.services.toredex_policy import build_decision
+from app.backend.services.toredex import toredex_snapshot_service
 from app.backend.services.toredex_runner import _evaluate_risk_gate
 
 
@@ -92,6 +93,251 @@ def test_toredex_policy_decision_is_deterministic() -> None:
     assert left == right
     assert left["actions"]
     assert left["actions"][0]["deltaUnits"] in {2, 3, 5}
+
+
+def test_toredex_snapshot_exposes_timeframe_signals(monkeypatch) -> None:
+    config = ToredexConfig(
+        data={
+            "policyVersion": "toredex.v1",
+            "mode": "LIVE",
+            "topN": 50,
+            "runsDir": None,
+            "initialCash": 10_000_000,
+            "maxPerTicker": 10_000_000,
+            "maxHoldings": 3,
+            "unitOptions": [2, 3, 5],
+            "rankingMode": "hybrid",
+            "sides": {"longEnabled": True, "shortEnabled": False},
+            "thresholds": {
+                "entryMinUpProb": 0.55,
+                "entryMinEv": 0.0,
+                "exitMinUpProb": 0.45,
+                "exitMinEv": -0.01,
+                "revRiskWarn": 0.55,
+                "revRiskHigh": 0.65,
+                "switchMinEvGap": 0.03,
+                "cutLossWarnPct": -8.0,
+                "cutLossHardPct": -10.0,
+                "gameOverPct": -20.0,
+                "takeProfitHintPct": 10.0,
+            },
+            "stageRules": {"goal20Pct": 20.0, "goal30Pct": 30.0},
+        },
+        config_hash="x",
+    )
+
+    def fake_get_rankings_asof(*args, **_kwargs):
+        direction = args[2]
+        if direction == "up":
+            return {
+                "pred_dt": 20250110,
+                "items": [
+                    {
+                        "code": "1111",
+                        "asOf": "2025-01-10",
+                        "mlEv20Net": 0.12,
+                        "mlPUp": 0.53,
+                        "weeklyBreakoutUpProb": 0.71,
+                        "weeklyBreakoutDownProb": 0.18,
+                        "weeklyRangeProb": 0.11,
+                        "monthlyBreakoutUpProb": 0.68,
+                        "monthlyBreakoutDownProb": 0.09,
+                        "monthlyRangeProb": 0.22,
+                        "monthlyBoxState": "tight",
+                        "monthlyBoxPos": 0.28,
+                        "monthlyBoxMonths": 5,
+                        "monthlyBoxRangePct": 12.3,
+                        "monthlyBoxWild": False,
+                        "weeklyRegimeAligned": True,
+                        "monthlyRegimeAligned": True,
+                        "entryQualified": True,
+                        "entryScore": 0.8,
+                        "sector": "X",
+                        "trendUp": True,
+                        "trendDown": False,
+                    }
+                ],
+            }
+        return {"pred_dt": 20250110, "items": []}
+
+    monkeypatch.setattr(toredex_snapshot_service.rankings_cache, "get_rankings_asof", fake_get_rankings_asof)
+    snapshot = toredex_snapshot_service.build_snapshot(
+        season_id="s1",
+        as_of=_parse_date("2025-01-10"),
+        config=config,
+        positions=[],
+    )
+
+    item = snapshot["rankings"]["buy"][0]
+    assert item["timeframeSignals"]["frameState"] == "BULLISH"
+    assert item["timeframeSignals"]["weeklyBreakoutUpProb"] == 0.71
+    assert item["timeframeSignals"]["monthlyBreakoutUpProb"] == 0.68
+
+
+def test_toredex_policy_uses_timeframe_signals_for_entry_gate() -> None:
+    config = ToredexConfig(
+        data={
+            "policyVersion": "toredex.v1",
+            "mode": "LIVE",
+            "topN": 50,
+            "runsDir": None,
+            "initialCash": 10_000_000,
+            "maxPerTicker": 10_000_000,
+            "maxHoldings": 3,
+            "unitOptions": [2, 3, 5],
+            "rankingMode": "hybrid",
+            "sides": {"longEnabled": True, "shortEnabled": False},
+            "thresholds": {
+                "entryMinUpProb": 0.55,
+                "entryMinEv": 0.0,
+                "exitMinUpProb": 0.45,
+                "exitMinEv": -0.01,
+                "revRiskWarn": 0.55,
+                "revRiskHigh": 0.65,
+                "switchMinEvGap": 0.03,
+                "cutLossWarnPct": -8.0,
+                "cutLossHardPct": -10.0,
+                "gameOverPct": -20.0,
+                "takeProfitHintPct": 10.0,
+            },
+            "stageRules": {"goal20Pct": 20.0, "goal30Pct": 30.0},
+        },
+        config_hash="x",
+    )
+    snapshot = {
+        "asOf": "2025-01-10",
+        "seasonId": "s1",
+        "policyVersion": "toredex.v1",
+        "positions": [],
+        "rankings": {
+            "buy": [
+                {
+                    "ticker": "1111",
+                    "ev": 0.05,
+                    "upProb": 0.53,
+                    "revRisk": 0.20,
+                    "entryScore": 0.8,
+                    "gate": {"ok": True, "reason": "ENTRY_OK"},
+                    "timeframeSignals": {
+                        "weeklyBreakoutUpProb": 0.71,
+                        "weeklyBreakoutDownProb": 0.18,
+                        "monthlyBreakoutUpProb": 0.68,
+                        "monthlyBreakoutDownProb": 0.09,
+                        "frameState": "BULLISH",
+                    },
+                }
+            ],
+            "sell": [],
+        },
+        "meta": {"noFutureLeakOk": True},
+    }
+
+    decision = build_decision(snapshot=snapshot, config=config, prev_metrics=None)
+    assert decision["actions"]
+    assert decision["actions"][0]["reasonId"] == "E_NEW_TOP1_GATE_OK"
+    assert decision["signals"]["buy"][0]["frameSignals"]["frameState"] == "BULLISH"
+    assert decision["signals"]["buy"][0]["upProb"] == 0.71
+
+
+def test_toredex_policy_rebalances_exposure_after_risk_cut() -> None:
+    config = ToredexConfig(
+        data={
+            "policyVersion": "toredex.v1",
+            "mode": "LIVE",
+            "topN": 50,
+            "runsDir": None,
+            "initialCash": 10_000_000,
+            "maxPerTicker": 10_000_000,
+            "maxHoldings": 3,
+            "unitOptions": [2, 3, 5],
+            "rankingMode": "hybrid",
+            "sides": {"longEnabled": True, "shortEnabled": True},
+            "thresholds": {
+                "entryMinUpProb": 0.55,
+                "entryMinEv": 0.0,
+                "entryMaxRevRisk": 0.7,
+                "addMinUpProb": 0.6,
+                "addMinEv": 0.03,
+                "addMaxRevRisk": 0.45,
+                "addMinPnlPct": -1.0,
+                "addMaxPnlPct": 12.0,
+                "maxNewEntriesPerDay": 2.0,
+                "newEntryMaxRank": 10.0,
+                "exitMinUpProb": 0.5,
+                "exitMinEv": -0.01,
+                "revRiskWarn": 0.55,
+                "revRiskHigh": 0.65,
+                "switchMinEvGap": 0.05,
+                "cutLossWarnPct": -5.5,
+                "cutLossHardPct": -9.0,
+                "gameOverPct": -20.0,
+                "takeProfitHintPct": 10.0,
+                "exitIfUnranked": 0.0,
+                "exitGateNgMinHoldingDays": 10.0,
+                "exitGateNgMinPnlPct": 0.0,
+            },
+            "stageRules": {"goal20Pct": 20.0, "goal30Pct": 30.0},
+            "portfolioConstraints": {
+                "grossUnitsCap": 10,
+                "maxNetUnits": 2,
+                "maxUnitsPerTicker": 2,
+                "maxPerSector": 2,
+                "minLiquidity20d": 0.0,
+                "shortBlacklist": [],
+            },
+        },
+        config_hash="x",
+    )
+    snapshot = {
+        "asOf": "2003-06-11",
+        "seasonId": "toredex_multiframe_20260318",
+        "policyVersion": "toredex.v1",
+        "positions": [
+            {"ticker": "1001", "side": "SHORT", "units": 2, "avgPrice": 8375.0, "stage": "PROBE", "openedAt": "2003-05-29", "holdingDays": 9, "pnlPct": -6.0},
+            {"ticker": "1306", "side": "LONG", "units": 2, "avgPrice": 835.0, "stage": "PROBE", "openedAt": "2003-05-28", "holdingDays": 10, "pnlPct": 13.0},
+            {"ticker": "1308", "side": "LONG", "units": 2, "avgPrice": 879.0, "stage": "PROBE", "openedAt": "2003-06-06", "holdingDays": 3, "pnlPct": 13.0},
+        ],
+        "rankings": {
+            "buy": [
+                {
+                    "ticker": "1306",
+                    "ev": 0.1,
+                    "upProb": 0.8,
+                    "revRisk": 0.2,
+                    "entryScore": 0.9,
+                    "gate": {"ok": True, "reason": "ENTRY_OK"},
+                    "liquidity20d": 100_000_000.0,
+                },
+                {
+                    "ticker": "1308",
+                    "ev": 0.09,
+                    "upProb": 0.79,
+                    "revRisk": 0.2,
+                    "entryScore": 0.85,
+                    "gate": {"ok": True, "reason": "ENTRY_OK"},
+                    "liquidity20d": 100_000_000.0,
+                },
+            ],
+            "sell": [
+                {
+                    "ticker": "1001",
+                    "ev": 0.08,
+                    "upProb": 0.78,
+                    "revRisk": 0.2,
+                    "entryScore": 0.88,
+                    "gate": {"ok": True, "reason": "ENTRY_OK"},
+                    "shortable": True,
+                    "liquidity20d": 100_000_000.0,
+                }
+            ],
+        },
+        "meta": {"noFutureLeakOk": True},
+    }
+
+    decision = build_decision(snapshot=snapshot, config=config, prev_metrics={"equity": 10_253_235.073254}, mode="BACKTEST")
+    assert decision["checks"]["exposureOk"] is True
+    assert any(action["reasonId"] == "R_CUT_LOSS_WARN" for action in decision["actions"])
+    assert any(action["reasonId"] == "R_EXPOSURE_TRIM" for action in decision["actions"])
 
 
 def test_toredex_policy_keeps_profitable_position_on_early_gate_ng() -> None:
