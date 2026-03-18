@@ -208,11 +208,15 @@ def run_publish(
     allow_non_pareto: bool = False,
     publish_phases: tuple[str, ...] = ("test", "inference"),
     allow_quality_gate_fail: bool = False,
+    legacy_publish: bool = False,
     config: ResearchConfig | None = None,
 ) -> dict[str, Any]:
     run_dir = paths.run_dir(run_id)
     if not run_dir.exists():
         raise FileNotFoundError(f"run not found: {run_id}")
+    repo_published_root = (paths.repo_root / "published").resolve()
+    if (not legacy_publish) and paths.published_root.resolve() == repo_published_root:
+        raise RuntimeError("publish gate failed: repo published/ requires --legacy-publish")
 
     manifest = read_json(run_dir / "manifest.json")
     created_at = now_utc_iso()
@@ -268,6 +272,7 @@ def run_publish(
     payload = {
         "published_version": version_name,
         "published_at": created_at,
+        "legacy_publish": bool(legacy_publish),
         "run_id": run_id,
         "source_manifest": manifest,
         "publish_gate": {
@@ -293,6 +298,7 @@ def run_publish(
         "ok": True,
         "run_id": run_id,
         "is_pareto": bool(is_pareto),
+        "legacy_publish": bool(legacy_publish),
         "published_version": version_name,
         "latest_dir": str(paths.latest_published_dir),
         "long_rows": int(len(public_long)),

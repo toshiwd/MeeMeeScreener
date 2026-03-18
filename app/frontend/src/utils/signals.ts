@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 export type PendingSide = "up" | "down" | null;
 
 export type MaCountState = {

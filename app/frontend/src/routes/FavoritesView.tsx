@@ -28,7 +28,6 @@ type FavoritesResponse = {
 
 type FavoriteSortKey = "code" | "change" | "scoreUp" | "scoreDown";
 const FAVORITES_VIEW_STATE_KEY = "favoritesViewState";
-const SCREENSHOT_LIMIT = 10;
 
 export default function FavoritesView() {
   const location = useLocation();
@@ -42,7 +41,7 @@ export default function FavoritesView() {
   const boxesCache = useStore((state) => state.boxesCache);
   const maSettings = useStore((state) => state.maSettings);
   const tickers = useStore((state) => state.tickers);
-  const loadList = useStore((state) => state.loadList);
+  const ensureListLoaded = useStore((state) => state.ensureListLoaded);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
   const listRangeBars = useStore((state) => state.settings.listRangeBars);
   const listColumns = useStore((state) => state.settings.listColumns);
@@ -68,7 +67,6 @@ export default function FavoritesView() {
   const [consultText, setConsultText] = useState("");
   const [consultSort, setConsultSort] = useState<ConsultationSort>("score");
   const [consultBusy, setConsultBusy] = useState(false);
-  const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
@@ -220,8 +218,8 @@ export default function FavoritesView() {
   useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
-    loadList().catch(() => { });
-  }, [backendReady, loadList, tickers.length]);
+    ensureListLoaded().catch(() => { });
+  }, [backendReady, ensureListLoaded, tickers.length]);
 
   const tickerMap = useMemo(() => {
     return new Map(tickers.map((ticker) => [ticker.code, ticker]));
@@ -345,14 +343,6 @@ export default function FavoritesView() {
 
   const consultTargets = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
 
-  const searchCodes = useMemo(() => searchResults.map((item) => item.code), [searchResults]);
-
-  useEffect(() => {
-    if (!backendReady) return;
-    if (!searchCodes.length) return;
-    ensureBarsForVisible(listTimeframe, searchCodes, "favorites");
-  }, [backendReady, searchCodes, ensureBarsForVisible, listTimeframe]);
-
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && consultVisible) {
@@ -387,6 +377,14 @@ export default function FavoritesView() {
       navigate(`/detail/${code}`, { state: { from: location.pathname } });
     },
     [navigate, location.pathname, listCodes]
+  );
+
+  const handleEnsureVisibleItem = useCallback(
+    (code: string) => {
+      if (!backendReady) return;
+      void ensureBarsForVisible(listTimeframe, [code], "favorites-visible");
+    },
+    [backendReady, ensureBarsForVisible, listTimeframe]
   );
 
   const buildConsultation = useCallback(async () => {
@@ -444,7 +442,8 @@ export default function FavoritesView() {
     barsCache,
     boxesCache,
     consultSort,
-    tickerMap
+    tickerMap,
+    resolveName
   ]);
 
   const handleCopyConsult = useCallback(async () => {
@@ -460,7 +459,7 @@ export default function FavoritesView() {
     }
   }, [consultText]);
 
-  const { generateScreenshots, isProcessing: isScreenshotProcessing, progress: screenshotProgress } = useConsultScreenshot();
+  const { generateScreenshots, isProcessing: screenshotBusy } = useConsultScreenshot();
 
   const handleCreateScreenshots = useCallback(async () => {
     if (consultTargets.length === 0) {
@@ -553,6 +552,8 @@ export default function FavoritesView() {
                 densityKey={densityKey}
                 signals={signalMap.get(item.code) ?? []}
                 onOpenDetail={handleOpenDetail}
+                deferUntilInView
+                onEnterView={handleEnsureVisibleItem}
                 phaseBody={ticker?.bodyScore ?? null}
                 phaseEarly={ticker?.earlyScore ?? null}
                 phaseLate={ticker?.lateScore ?? null}

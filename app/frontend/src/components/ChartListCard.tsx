@@ -36,6 +36,8 @@ type ChartListCardProps = {
   phaseEarly?: number | null;
   phaseLate?: number | null;
   phaseN?: number | null;
+  onEnterView?: (code: string) => void;
+  annotation?: ReactNode;
 };
 
 const normalizeDateParts = (year: number, month: number, day: number) => {
@@ -204,7 +206,9 @@ const ChartListCard = memo(function ChartListCard({
   phaseBody,
   phaseEarly,
   phaseLate,
-  phaseN
+  phaseN,
+  onEnterView,
+  annotation
 }: ChartListCardProps) {
   const { ref, inView } = useInView(deferUntilInView, rootMargin);
   const maxTime = useMemo(() => parseMaxDate(maxDate), [maxDate]);
@@ -246,6 +250,11 @@ const ChartListCard = memo(function ChartListCard({
       : status === "empty"
         ? "データなし"
         : "読み込み中...";
+
+  useEffect(() => {
+    if (!deferUntilInView || !inView || !onEnterView) return;
+    onEnterView(code);
+  }, [code, deferUntilInView, inView, onEnterView]);
 
   return (
     <div
@@ -308,6 +317,7 @@ const ChartListCard = memo(function ChartListCard({
           </div>
         </div>
       ) : null}
+      {annotation ? <div className="tile-annotation-row">{annotation}</div> : null}
       {showPhase && (
         <div className="tile-phase">
           <div className="tile-scores">

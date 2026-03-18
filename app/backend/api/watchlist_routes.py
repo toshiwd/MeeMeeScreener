@@ -20,6 +20,7 @@ from app.backend.services.watchlist import (
     update_watchlist_file,
     watchlist_lock,
 )
+from app.backend.core.screener_snapshot_job import schedule_screener_snapshot_refresh
 
 router = APIRouter()
 
@@ -78,6 +79,7 @@ def watchlist_remove(payload: dict = Body(default=None)):
         try:
             db_counts = delete_ticker_db_rows(code)
             invalidate_screener_cache()
+            schedule_screener_snapshot_refresh(source=f"watchlist_remove:{code}", force=True)
         except Exception as exc:
             return JSONResponse(
                 status_code=500,

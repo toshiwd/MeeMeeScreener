@@ -6,8 +6,9 @@ import threading
 from datetime import datetime
 
 from app.backend.core.jobs import job_manager
+from app.backend.core.analysis_prewarm_job import schedule_analysis_prewarm_if_needed
 from app.backend.services.jpx_calendar import get_jpx_session_info, jst_now
-from app.backend.services.yahoo_daily_ingest import ingest_latest_provisional_daily_rows
+from app.backend.services.data.yahoo_daily_ingest import ingest_latest_provisional_daily_rows
 
 logger = logging.getLogger(__name__)
 
@@ -107,22 +108,27 @@ def handle_yf_daily_ingest(job_id: str, payload: dict) -> None:
         dry_run=dry_run,
     )
     inserted = int(report.get("inserted") or 0)
+    updated = int(report.get("updated") or 0)
     target_codes = int(report.get("target_codes") or 0)
     coverage = report.get("coverage") if isinstance(report.get("coverage"), dict) else {}
     covered_codes = int(coverage.get("covered_codes") or 0) if coverage else 0
     target_date = coverage.get("target_date") if coverage else None
     message = (
-        f"Yahoo daily ingest completed (inserted={inserted}, target_codes={target_codes}, "
+        f"Yahoo daily ingest completed (inserted={inserted}, updated={updated}, target_codes={target_codes}, "
         f"covered={covered_codes}, target_date={target_date})"
     )
 
-    if inserted > 0 and not dry_run:
+    if (inserted > 0 or updated > 0) and not dry_run:
         try:
             from app.backend.services import rankings_cache
 
             rankings_cache.refresh_cache()
         except Exception as exc:
             logger.warning("Rankings cache refresh after Yahoo ingest failed: %s", exc)
+        try:
+            schedule_analysis_prewarm_if_needed(source=f"yf_daily_ingest:{job_id}")
+        except Exception as exc:
+            logger.warning("Analysis prewarm submission after Yahoo ingest failed: %s", exc)
 
     job_manager._update_db(
         job_id,

@@ -94,7 +94,15 @@ export default function UnifiedListHeader({
   const densityRef = useRef<HTMLDivElement | null>(null);
   const filterRef = useRef<HTMLDivElement | null>(null);
   const moreRef = useRef<HTMLDivElement | null>(null);
-  const eventsMeta = useStore((state) => state.eventsMeta);
+  const eventsRefreshing = useStore((state) => state.eventsMeta?.isRefreshing ?? false);
+  const eventsLastError = useStore((state) => state.eventsMeta?.lastError ?? null);
+  const eventsEarningsLastSuccessAt = useStore(
+    (state) => state.eventsMeta?.earningsLastSuccessAt ?? null
+  );
+  const eventsRightsLastSuccessAt = useStore(
+    (state) => state.eventsMeta?.rightsLastSuccessAt ?? null
+  );
+  const eventsRightsMaxDate = useStore((state) => state.eventsMeta?.dataCoverage?.rightsMaxDate ?? null);
   const refreshEvents = useStore((state) => state.refreshEvents);
 
   const filterItemsSafe = filterItems ?? [];
@@ -107,54 +115,25 @@ export default function UnifiedListHeader({
   }, [sortOptions, sortValue]);
 
   const eventsLastSuccessLabel = useMemo(() => {
-    const earningsMs = parseEventDateMs(eventsMeta?.earningsLastSuccessAt);
-    const rightsMs = parseEventDateMs(eventsMeta?.rightsLastSuccessAt);
+    const earningsMs = parseEventDateMs(eventsEarningsLastSuccessAt);
+    const rightsMs = parseEventDateMs(eventsRightsLastSuccessAt);
     const candidates = [
-      { value: eventsMeta?.earningsLastSuccessAt ?? null, ms: earningsMs },
-      { value: eventsMeta?.rightsLastSuccessAt ?? null, ms: rightsMs }
+      { value: eventsEarningsLastSuccessAt, ms: earningsMs },
+      { value: eventsRightsLastSuccessAt, ms: rightsMs }
     ].filter((item) => item.value && item.ms != null) as { value: string; ms: number }[];
     if (!candidates.length) return null;
     const oldest = candidates.reduce((prev, next) => (next.ms < prev.ms ? next : prev));
     return formatEventDateYmd(oldest.value);
-  }, [eventsMeta]);
+  }, [eventsEarningsLastSuccessAt, eventsRightsLastSuccessAt]);
 
   const rightsCoverageLabel = useMemo(() => {
-    const rightsMaxDate = eventsMeta?.dataCoverage?.rightsMaxDate ?? null;
-    const maxMs = parseEventDateMs(rightsMaxDate);
-    if (!rightsMaxDate || maxMs == null) return null;
+    const maxMs = parseEventDateMs(eventsRightsMaxDate);
+    if (!eventsRightsMaxDate || maxMs == null) return null;
     const thresholdMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
     if (maxMs >= thresholdMs) return null;
-    const formatted = formatEventDateYmd(rightsMaxDate);
+    const formatted = formatEventDateYmd(eventsRightsMaxDate);
     return formatted ? `権利データ範囲: ～${formatted}` : null;
-  }, [eventsMeta]);
-
-  useEffect(() => {
-    const handlePointer = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (sortRef.current?.contains(target)) return;
-      if (densityRef.current?.contains(target)) return;
-      if (filterRef.current?.contains(target)) return;
-      if (moreRef.current?.contains(target)) return;
-      setSortOpen(false);
-      setDensityOpen(false);
-      setFilterOpen(false);
-      setMoreOpen(false);
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setSortOpen(false);
-      setDensityOpen(false);
-      setFilterOpen(false);
-      setMoreOpen(false);
-    };
-    document.addEventListener("mousedown", handlePointer);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handlePointer);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, []);
-
+  }, [eventsRightsMaxDate]);
 
   useEffect(() => {
     const handlePointer = (event: MouseEvent) => {
@@ -465,14 +444,14 @@ export default function UnifiedListHeader({
                       <button
                         type="button"
                         className="popover-item"
-                        disabled={eventsMeta?.isRefreshing}
+                        disabled={eventsRefreshing}
                         onClick={() => {
                           void refreshEvents();
                           setMoreOpen(false);
                         }}
                       >
                         <span>
-                          {eventsMeta?.isRefreshing
+                          {eventsRefreshing
                             ? "\u30a4\u30d9\u30f3\u30c8\u66f4\u65b0\u4e2d..."
                             : LABELS.refreshEvents}
                         </span>
@@ -542,11 +521,11 @@ export default function UnifiedListHeader({
           </div>
           <div className="list-events-inline">
             <span className="event-meta-status">
-              状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+              状態: {eventsRefreshing ? "更新中" : "待機中"}
             </span>
-            {eventsMeta?.lastError && (
-              <span className="event-meta-error" title={eventsMeta.lastError}>
-                エラー: {eventsMeta.lastError}
+            {eventsLastError && (
+              <span className="event-meta-error" title={eventsLastError}>
+                エラー: {eventsLastError}
               </span>
             )}
             <span className="event-meta-last">

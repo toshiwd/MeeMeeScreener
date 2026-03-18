@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.backend.core.jobs import job_manager
-from app.backend.services.toredex_self_improve import run_self_improve, run_self_improve_loop
+from app.backend.services.toredex.toredex_self_improve import run_self_improve, run_self_improve_loop
 
 
 def _to_int(value: object, default: int) -> int:

@@ -407,21 +407,77 @@ def _enqueue_backfill_analysis_tasks(
     edinet_codes: list[str],
     force: bool = False,
 ) -> int:
+    return _enqueue_analysis_tasks(
+        repo,
+        job_name=job_name,
+        phase="backfill_analysis",
+        edinet_codes=edinet_codes,
+        force=force,
+        start_priority=300_000,
+    )
+
+
+def _enqueue_analysis_tasks(
+    repo: EdinetdbRepository,
+    *,
+    job_name: str,
+    phase: str,
+    edinet_codes: list[str],
+    force: bool = False,
+    start_priority: int,
+) -> int:
     tasks: list[dict[str, Any]] = []
-    start = 300_000
     for idx, edinet_code in enumerate(edinet_codes):
         tasks.append(
             {
                 "job_name": job_name,
-                "phase": "backfill_analysis",
+                "phase": phase,
                 "edinet_code": edinet_code,
                 "endpoint": EP_ANALYSIS,
                 "params": {},
-                "priority": start - idx,
+                "priority": start_priority - idx,
             }
         )
     repo.enqueue_tasks_bulk(tasks, force=force)
     return len(tasks)
+
+
+def _build_daily_watch_analysis_candidates(
+    *,
+    ordered_new: list[str],
+    p0: list[str],
+    mapped: dict[str, str],
+) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def append_candidate(edinet_code: str | None) -> None:
+        code = str(edinet_code or "").strip()
+        if not code or code in seen:
+            return
+        seen.add(code)
+        candidates.append(code)
+
+    for edinet_code in ordered_new:
+        append_candidate(edinet_code)
+    for sec_code in p0:
+        append_candidate(mapped.get(sec_code))
+    return candidates
+
+
+def _resolve_daily_watch_analysis_cap(
+    *,
+    cfg: EdinetdbConfig,
+    budget: DailyBudget,
+    candidate_count: int,
+) -> int:
+    if not cfg.daily_watch_analysis_enabled or candidate_count <= 0 or budget.remaining <= 0:
+        return 0
+    available_after_reserve = max(0, int(budget.remaining) - int(cfg.daily_watch_analysis_reserve))
+    max_calls = max(0, int(cfg.daily_watch_analysis_max_calls))
+    if available_after_reserve <= 0 or max_calls <= 0:
+        return 0
+    return min(candidate_count, available_after_reserve, max_calls)
 
 
 def _process_text_blocks_task(
@@ -1032,6 +1088,11 @@ def run_daily_watch(cfg: EdinetdbConfig | None = None) -> dict[str, Any]:
             continue
         if edinet_code in new_edinet and edinet_code not in ordered_new:
             ordered_new.append(edinet_code)
+    analysis_candidates = _build_daily_watch_analysis_candidates(
+        ordered_new=ordered_new,
+        p0=p0,
+        mapped=mapped,
+    )
 
     _enqueue_full_fetch_tasks(
         repo,
@@ -1086,6 +1147,8 @@ def run_daily_watch(cfg: EdinetdbConfig | None = None) -> dict[str, Any]:
     stop_reason = new_phase["stop_reason"]
     check_phase = {"counters": {"ok": 0, "failed": 0, "retry": 0, "skipped": 0, "changed": 0}, "stop_reason": "not_started"}
     heavy_phase = {"counters": {"ok": 0, "failed": 0, "retry": 0, "skipped": 0, "changed": 0}, "stop_reason": "not_started"}
+    analysis_phase = {"counters": {"ok": 0, "failed": 0, "retry": 0, "skipped": 0, "changed": 0}, "stop_reason": "not_started"}
+    analysis_queued = 0
 
     if stop_reason not in ("rate_limit", "budget_stop"):
         check_phase_budget = PhaseBudget(daily_budget=budget, cap=check_cap)
@@ -1111,6 +1174,33 @@ def run_daily_watch(cfg: EdinetdbConfig | None = None) -> dict[str, Any]:
         if heavy_phase["stop_reason"] != "completed":
             stop_reason = heavy_phase["stop_reason"]
 
+    if stop_reason not in ("rate_limit", "budget_stop"):
+        analysis_cap = _resolve_daily_watch_analysis_cap(
+            cfg=cfg,
+            budget=budget,
+            candidate_count=len(analysis_candidates),
+        )
+        if analysis_cap > 0:
+            analysis_codes = analysis_candidates[:analysis_cap]
+            analysis_queued = _enqueue_analysis_tasks(
+                repo,
+                job_name="daily_watch",
+                phase="analysis_followup",
+                edinet_codes=analysis_codes,
+                force=True,
+                start_priority=220,
+            )
+            analysis_client = _build_client(cfg=cfg, on_attempt=budget.consume_or_raise, max_retries=3)
+            analysis_phase = _run_task_loop(
+                repo=repo,
+                client=analysis_client,
+                cfg=cfg,
+                job_name="daily_watch",
+                phase="analysis_followup",
+            )
+            if analysis_phase["stop_reason"] != "completed":
+                stop_reason = analysis_phase["stop_reason"]
+
     return _build_summary(
         job_name="daily_watch",
         cfg=cfg,
@@ -1129,16 +1219,21 @@ def run_daily_watch(cfg: EdinetdbConfig | None = None) -> dict[str, Any]:
                 "unmapped": len(missing_map),
                 "p0_mapped": len(p0_edinet),
                 "p1_rotated": len(ranking_rotated),
+                "analysis_candidates": len(analysis_candidates),
+                "analysis_queued": analysis_queued,
                 "map_refreshed": map_refreshed,
             },
             "processed": {
                 "new_phase": new_phase["counters"],
                 "check_phase": check_phase["counters"],
                 "update_heavy_phase": heavy_phase["counters"],
+                "analysis_followup_phase": analysis_phase["counters"],
             },
             "phase_budget": {
                 "new_cap": new_cap,
                 "check_cap": check_cap,
+                "analysis_reserve": cfg.daily_watch_analysis_reserve,
+                "analysis_max_calls": cfg.daily_watch_analysis_max_calls,
             },
         },
     )

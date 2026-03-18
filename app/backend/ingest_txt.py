@@ -5,6 +5,7 @@ import json
 import re
 import time
 import io
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -50,6 +51,10 @@ CODE_PATTERN_DEFAULT = r"^[0-9A-Za-z]{4,16}$"
 CODE_PATTERN = re.compile(os.getenv("CODE_PATTERN", CODE_PATTERN_DEFAULT))
 STRICT_CODE_VALIDATION = os.getenv("CODE_STRICT", "0") == "1"
 USE_CODE_TXT = os.getenv("USE_CODE_TXT", "0") == "1"
+TXT_PARSE_MAX_WORKERS = max(
+    1,
+    min(8, int(os.getenv("MEEMEE_TXT_PARSE_WORKERS", str(os.cpu_count() or 4)))),
+)
 
 HEADER_ALIASES = {
     "code": {"code", "ticker", "symbol", "銘柄", "銘柄コード", "コード"},
@@ -746,14 +751,21 @@ def _repair_concatenated_records(raw_text: str) -> tuple[str, int]:
     return repaired_text, total_repairs
 
 
-def read_csv_with_fallback(path: str) -> tuple[pd.DataFrame, int]:
+def read_csv_with_fallback(path: str, *, start_offset: int = 0) -> tuple[pd.DataFrame, int]:
     encodings = ["utf-8", "shift_jis", "cp932"]
     last_err: Exception | None = None
     for encoding in encodings:
         try:
             try:
-                with open(path, "r", encoding=encoding) as handle:
-                    raw_text = handle.read()
+                with open(path, "rb") as handle:
+                    if start_offset > 0:
+                        handle.seek(start_offset)
+                    raw_bytes = handle.read()
+                    if start_offset > 0:
+                        raw_bytes = raw_bytes.lstrip(b"\r\n")
+                    if not raw_bytes:
+                        return _empty_daily_frame(), 0
+                    raw_text = raw_bytes.decode(encoding)
             except Exception as read_exc:
                 last_err = read_exc
                 continue
@@ -795,13 +807,38 @@ def normalize_code(df: pd.DataFrame) -> tuple[pd.DataFrame, int, int, int]:
     return df, missing_count, nonstandard_count, invalid_count
 
 
-def parse_file(path: str, watchlist: set[str] | None, counts: dict) -> pd.DataFrame:
+def _empty_daily_frame() -> pd.DataFrame:
+    return pd.DataFrame(columns=["code", "date", "o", "h", "l", "c", "v"])
+
+
+def _empty_counts_delta() -> dict[str, int]:
+    return {
+        "missing_code": 0,
+        "invalid_date": 0,
+        "non_numeric": 0,
+        "invalid_code": 0,
+        "older_file": 0,
+        "filtered_watchlist": 0,
+        "duplicate_rows": 0,
+        "nonstandard_code": 0,
+        "file_error": 0,
+        "repaired_boundaries": 0,
+    }
+
+
+def parse_file(
+    path: str,
+    watchlist: set[str] | None,
+    *,
+    start_offset: int = 0,
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    counts = _empty_counts_delta()
     try:
-        df, repaired_boundaries = read_csv_with_fallback(path)
+        df, repaired_boundaries = read_csv_with_fallback(path, start_offset=start_offset)
     except Exception as exc:
         counts["file_error"] += 1
         print(f"Warning: failed to read {path}: {exc}")
-        return pd.DataFrame(columns=["code", "date", "o", "h", "l", "c", "v"])
+        return _empty_daily_frame(), counts
     if repaired_boundaries > 0:
         counts["repaired_boundaries"] += int(repaired_boundaries)
         print(
@@ -810,7 +847,7 @@ def parse_file(path: str, watchlist: set[str] | None, counts: dict) -> pd.DataFr
 
     df = strip_header_row(df)
     if df.empty:
-        return df
+        return df, counts
 
     df, missing_code, nonstandard_code, invalid_code = normalize_code(df)
     counts["missing_code"] += missing_code
@@ -818,14 +855,14 @@ def parse_file(path: str, watchlist: set[str] | None, counts: dict) -> pd.DataFr
     counts["invalid_code"] += invalid_code
 
     if df.empty:
-        return df
+        return df, counts
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     invalid_date = int(df["date"].isna().sum())
     counts["invalid_date"] += invalid_date
     df = df[df["date"].notna()]
     if df.empty:
-        return df
+        return df, counts
 
     if watchlist:
         before = len(df)
@@ -833,7 +870,7 @@ def parse_file(path: str, watchlist: set[str] | None, counts: dict) -> pd.DataFr
         counts["filtered_watchlist"] += int(before - len(df))
 
     if df.empty:
-        return df
+        return df, counts
 
     for col in ["o", "h", "l", "c", "v"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -842,10 +879,10 @@ def parse_file(path: str, watchlist: set[str] | None, counts: dict) -> pd.DataFr
     counts["non_numeric"] += int(non_numeric_mask.sum())
     df = df[~non_numeric_mask]
     if df.empty:
-        return df
+        return df, counts
 
     df["v"] = df["v"].round().astype("Int64")
-    return df
+    return df, counts
 
 
 ProgressCallback = Callable[[int, str], None]
@@ -858,7 +895,7 @@ def _notify_progress(progress_cb: ProgressCallback | None, progress: int, messag
 
 
 def read_daily_files(
-    files: list[str],
+    files: list[tuple[str, int]],
     watchlist: set[str] | None,
     counts: dict,
     *,
@@ -867,35 +904,57 @@ def read_daily_files(
     latest_by_code: dict[str, tuple[float, pd.DataFrame]] = {}
     name_map: dict[str, str] = {}
     total_files = max(1, len(files))
-    for index, path in enumerate(files, start=1):
-        _notify_progress(progress_cb, 5 + int(85 * index / total_files), f"Reading TXT files {index}/{total_files}")
-        df = parse_file(path, watchlist, counts)
-        if df.empty:
-            continue
+    max_workers = min(TXT_PARSE_MAX_WORKERS, max(1, len(files)))
+    def consume_parsed_results(parsed_items) -> None:
+        for index, (path, df, file_counts) in enumerate(parsed_items, start=1):
+            _notify_progress(progress_cb, 5 + int(85 * index / total_files), f"Reading TXT files {index}/{total_files}")
+            for key, value in file_counts.items():
+                counts[key] += int(value)
+            if df.empty:
+                continue
 
-        mtime = os.path.getmtime(path)
-        for code, group in df.groupby("code"):
-            existing = latest_by_code.get(code)
-            if existing is None:
+            mtime = os.path.getmtime(path)
+            for code, group in df.groupby("code"):
+                existing = latest_by_code.get(code)
+                if existing is None:
+                    latest_by_code[code] = (mtime, group)
+                    display_name = name_from_filename(path, code)
+                    preferred_name = _prefer_display_name(name_map.get(code), display_name)
+                    if preferred_name:
+                        name_map[code] = preferred_name
+                    continue
+                if existing[0] >= mtime:
+                    counts["older_file"] += len(group)
+                    display_name = name_from_filename(path, code)
+                    preferred_name = _prefer_display_name(name_map.get(code), display_name)
+                    if preferred_name:
+                        name_map[code] = preferred_name
+                    continue
+                counts["older_file"] += len(existing[1])
                 latest_by_code[code] = (mtime, group)
                 display_name = name_from_filename(path, code)
                 preferred_name = _prefer_display_name(name_map.get(code), display_name)
                 if preferred_name:
                     name_map[code] = preferred_name
-                continue
-            if existing[0] >= mtime:
-                counts["older_file"] += len(group)
-                display_name = name_from_filename(path, code)
-                preferred_name = _prefer_display_name(name_map.get(code), display_name)
-                if preferred_name:
-                    name_map[code] = preferred_name
-                continue
-            counts["older_file"] += len(existing[1])
-            latest_by_code[code] = (mtime, group)
-            display_name = name_from_filename(path, code)
-            preferred_name = _prefer_display_name(name_map.get(code), display_name)
-            if preferred_name:
-                name_map[code] = preferred_name
+
+    if max_workers <= 1 or len(files) <= 1:
+        consume_parsed_results(
+            (path, *parse_file(path, watchlist, start_offset=start_offset))
+            for path, start_offset in files
+        )
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            consume_parsed_results(
+                (path, *result)
+                for (path, _start_offset), result in zip(
+                    files,
+                    executor.map(
+                        lambda item: parse_file(item[0], watchlist, start_offset=item[1]),
+                        files,
+                    ),
+                    strict=False,
+                )
+            )
 
     frames = [entry[1] for entry in latest_by_code.values()]
     if not frames:
@@ -1158,7 +1217,7 @@ def log_volume_stats(stage: str, df: pd.DataFrame) -> None:
     )
 
 
-def _load_ingest_state() -> dict[str, float]:
+def _load_ingest_state() -> dict[str, object]:
     if not os.path.exists(INGEST_STATE_PATH):
         return {}
     try:
@@ -1168,12 +1227,30 @@ def _load_ingest_state() -> dict[str, float]:
         return {}
 
 
-def _save_ingest_state(state: dict[str, float]) -> None:
+def _save_ingest_state(state: dict[str, object]) -> None:
     try:
         with open(INGEST_STATE_PATH, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
     except Exception as e:
         print(f"Warning: Failed to save ingest state: {e}")
+
+
+def _resolve_ingest_state_entry(raw: object) -> tuple[float | None, int | None]:
+    if isinstance(raw, dict):
+        mtime_raw = raw.get("mtime")
+        size_raw = raw.get("size")
+        try:
+            mtime = float(mtime_raw) if mtime_raw is not None else None
+        except (TypeError, ValueError):
+            mtime = None
+        try:
+            size = int(size_raw) if size_raw is not None else None
+        except (TypeError, ValueError):
+            size = None
+        return mtime, size
+    if isinstance(raw, (int, float)):
+        return float(raw), None
+    return None, None
 
 
 def _detect_and_log_pan_source_revisions(
@@ -1246,6 +1323,59 @@ def _detect_and_log_pan_source_revisions(
             pass
 
 
+def _validate_incremental_history_integrity(
+    conn,
+    *,
+    incremental_daily: pd.DataFrame,
+) -> None:
+    if incremental_daily.empty or not {"code", "date"}.issubset(incremental_daily.columns):
+        return
+    prepared = incremental_daily.loc[:, ["code", "date"]].copy()
+    prepared["code"] = prepared["code"].astype("string").str.strip()
+    prepared["date"] = pd.to_numeric(prepared["date"], errors="coerce").astype("Int64")
+    prepared = prepared.dropna(subset=["code", "date"])
+    if prepared.empty:
+        return
+    prepared["date"] = prepared["date"].astype("int64")
+    incoming_counts = (
+        prepared.groupby("code", as_index=False)
+        .agg(incoming_rows=("date", "nunique"))
+        .astype({"code": "string", "incoming_rows": "int64"})
+    )
+    conn.register("incremental_history_guard_df", incoming_counts)
+    try:
+        suspicious = conn.execute(
+            """
+            SELECT
+                g.code,
+                g.incoming_rows,
+                COUNT(d.date) AS existing_rows
+            FROM incremental_history_guard_df g
+            JOIN daily_bars d
+              ON d.code = g.code
+            GROUP BY g.code, g.incoming_rows
+            HAVING COUNT(d.date) >= 30
+               AND g.incoming_rows < GREATEST(10, CAST(FLOOR(COUNT(d.date) * 0.5) AS BIGINT))
+            ORDER BY existing_rows DESC, g.code
+            """
+        ).fetchall()
+    finally:
+        try:
+            conn.unregister("incremental_history_guard_df")
+        except Exception:
+            pass
+    if not suspicious:
+        return
+    preview = ", ".join(
+        f"{code}(incoming={incoming_rows}, existing={existing_rows})"
+        for code, incoming_rows, existing_rows in suspicious[:8]
+    )
+    raise RuntimeError(
+        "Incremental history validation failed: incoming TXT rows are too small for existing history "
+        f"for {preview}. Retry with full ingest."
+    )
+
+
 def ingest(
     incremental: bool = False,
     run_id: str | None = None,
@@ -1276,12 +1406,12 @@ def ingest(
     _notify_progress(progress_cb, 8, "Scanning TXT files...")
     start = step_start("list_txt_files")
     print(f"TXT_DIR={DATA_DIR}")
-    files = list_txt_files(DATA_DIR)
+    txt_paths = list_txt_files(DATA_DIR)
     
     # Differential Logic
     state = _load_ingest_state()
     new_state = {}
-    changed_files = []
+    changed_files: list[tuple[str, int]] = []
     
     total_bytes = 0
     skipped_count = 0
@@ -1289,12 +1419,12 @@ def ingest(
     
     force_full = False
     
-    for path in files:
+    for path in txt_paths:
         try:
             mtime = os.path.getmtime(path)
             size = os.path.getsize(path)
             filename = os.path.basename(path)
-            new_state[filename] = mtime
+            new_state[filename] = {"mtime": mtime, "size": int(size)}
             total_bytes += size
             
             # Sanity Check: Future mtime (allow 1 day slack)
@@ -1303,16 +1433,18 @@ def ingest(
                 force_full = True
             
             if incremental and not force_full:
-                last_mtime = state.get(filename)
+                last_mtime, last_size = _resolve_ingest_state_entry(state.get(filename))
                 if last_mtime is not None:
-                    # Sanity Check: Size drop? (Optional, but user suggested)
-                    # We don't store last size in state, so we can't check size drop easily 
-                    # unless we update state schema. Skipping size check for now.
-                    if mtime <= last_mtime:
+                    if mtime <= last_mtime and (last_size is None or int(size) == int(last_size)):
                         skipped_count += 1
                         continue
-            
-            changed_files.append(path)
+                    if last_size is not None and int(size) > int(last_size) and mtime >= last_mtime:
+                        # Re-parse the full file even in incremental mode because downstream
+                        # replaces per-code history and recomputes aggregates from scratch.
+                        changed_files.append((path, 0))
+                        continue
+
+            changed_files.append((path, 0))
         except OSError as exc:
             print(f"Warning: Skipping unreadable file {path}: {exc}")
             continue
@@ -1322,6 +1454,7 @@ def ingest(
         files = changed_files
     else:
         reason = "Forced Full" if force_full else "Full Mode"
+        files = [(path, 0) for path in txt_paths]
         print(f"{reason}: Processing {len(files)} files.")
         incremental = False # Disable incremental flag for DB operations downstream
 
@@ -1458,6 +1591,7 @@ def ingest(
                 # Incremental: Delete only processed codes
                 codes = [str(code) for code in daily["code"].dropna().unique().tolist() if str(code)]
                 if codes:
+                    _validate_incremental_history_integrity(conn, incremental_daily=daily[["code", "date"]])
                     codes_df = pd.DataFrame({"code": codes})
                     conn.register("incremental_codes_df", codes_df)
                     conn.execute("CREATE TEMP TABLE _tmp_incremental_codes AS SELECT DISTINCT code FROM incremental_codes_df")

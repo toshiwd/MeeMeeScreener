@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.backend.core.jobs import job_manager
-from app.backend.services.analysis_backfill_service import backfill_missing_analysis_history
+from app.backend.core.screener_snapshot_job import schedule_screener_snapshot_refresh
+from app.backend.services.analysis.analysis_backfill_service import backfill_missing_analysis_history
 
 
 def _to_int(value: object, default: int | None = None, *, minimum: int | None = None) -> int | None:
@@ -86,3 +87,8 @@ def handle_analysis_backfill(job_id: str, payload: dict) -> None:
         error=(" | ".join(str(e) for e in errors)[:800] if errors else None),
         finished_at=datetime.now(),
     )
+    if not errors:
+        try:
+            schedule_screener_snapshot_refresh(source=f"analysis_backfill:{job_id}")
+        except Exception:
+            ...

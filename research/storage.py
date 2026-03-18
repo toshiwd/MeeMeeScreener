@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -13,6 +14,8 @@ import pandas as pd
 
 
 _ASOF_FILE_RE = re.compile(r".*_(\d{4}-\d{2}-\d{2})\.csv$")
+_DEFAULT_RESEARCH_HOME_NAME = "MeeMeeResearch"
+_DEFAULT_MEEMEE_HOME_NAME = "MeeMeeScreener"
 
 
 def now_utc_iso() -> str:
@@ -83,9 +86,36 @@ def git_commit(repo_root: Path) -> str:
         return "unknown"
 
 
+def _local_appdata_root() -> Path:
+    return Path(os.getenv("LOCALAPPDATA") or str(Path.home())).expanduser().resolve()
+
+
+def default_research_home() -> Path:
+    raw = str(os.getenv("MEEMEE_RESEARCH_HOME") or "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return (_local_appdata_root() / _DEFAULT_RESEARCH_HOME_NAME).resolve()
+
+
+def default_research_bridge_root(research_home: Path) -> Path:
+    raw = str(os.getenv("MEEMEE_RESEARCH_BRIDGE_DIR") or "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return (research_home / "bridge").resolve()
+
+
+def default_source_db_path() -> Path:
+    for env_name in ("MEEMEE_SOURCE_DB", "STOCKS_DB_PATH"):
+        raw = str(os.getenv(env_name) or "").strip()
+        if raw:
+            return Path(raw).expanduser().resolve()
+    return (_local_appdata_root() / _DEFAULT_MEEMEE_HOME_NAME / "data" / "stocks.duckdb").resolve()
+
+
 @dataclass(frozen=True)
 class ResearchPaths:
     repo_root: Path
+    research_home: Path
     workspace_root: Path
     published_root: Path
 
@@ -93,17 +123,20 @@ class ResearchPaths:
     def build(
         cls,
         repo_root: Path | None = None,
+        research_home: Path | None = None,
         workspace_root: Path | None = None,
         published_root: Path | None = None,
     ) -> "ResearchPaths":
         root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
-        workspace = (workspace_root or (root / "research_workspace")).resolve()
-        published = (published_root or (root / "published")).resolve()
-        paths = cls(repo_root=root, workspace_root=workspace, published_root=published)
+        resolved_home = (research_home or default_research_home()).resolve()
+        workspace = (workspace_root or (resolved_home / "workspace")).resolve()
+        published = (published_root or (resolved_home / "legacy_published")).resolve()
+        paths = cls(repo_root=root, research_home=resolved_home, workspace_root=workspace, published_root=published)
         paths.ensure_base_dirs()
         return paths
 
     def ensure_base_dirs(self) -> None:
+        self.research_home.mkdir(parents=True, exist_ok=True)
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.snapshots_root.mkdir(parents=True, exist_ok=True)
         self.cache_root.mkdir(parents=True, exist_ok=True)
@@ -111,6 +144,9 @@ class ResearchPaths:
         self.studies_root.mkdir(parents=True, exist_ok=True)
         self.evaluations_root.mkdir(parents=True, exist_ok=True)
         self.state_root.mkdir(parents=True, exist_ok=True)
+        self.logs_root.mkdir(parents=True, exist_ok=True)
+        self.mirror_root.mkdir(parents=True, exist_ok=True)
+        self.bridge_root.mkdir(parents=True, exist_ok=True)
         self.published_root.mkdir(parents=True, exist_ok=True)
 
     @property
@@ -136,6 +172,38 @@ class ResearchPaths:
     @property
     def state_root(self) -> Path:
         return self.workspace_root / "state"
+
+    @property
+    def logs_root(self) -> Path:
+        return self.research_home / "logs"
+
+    @property
+    def mirror_root(self) -> Path:
+        return self.research_home / "mirror"
+
+    @property
+    def current_mirror_dir(self) -> Path:
+        return self.mirror_root / "current"
+
+    @property
+    def current_mirror_db(self) -> Path:
+        return self.current_mirror_dir / "source.duckdb"
+
+    @property
+    def current_mirror_manifest(self) -> Path:
+        return self.current_mirror_dir / "mirror_manifest.json"
+
+    @property
+    def bridge_root(self) -> Path:
+        return default_research_bridge_root(self.research_home)
+
+    @property
+    def bridge_latest_dir(self) -> Path:
+        return self.bridge_root / "latest"
+
+    @property
+    def bridge_history_root(self) -> Path:
+        return self.bridge_root / "history"
 
     def snapshot_dir(self, snapshot_id: str) -> Path:
         return self.snapshots_root / str(snapshot_id)
@@ -190,24 +258,22 @@ class ResearchPaths:
     def latest_published_dir(self) -> Path:
         return self.published_root / "latest"
 
-    def replace_latest_atomically(self, source_dir: Path) -> None:
+    def replace_dir_atomically(self, source_dir: Path, target_dir: Path) -> None:
         if not source_dir.exists() or not source_dir.is_dir():
             raise FileNotFoundError(f"source publish dir missing: {source_dir}")
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
-        stage = self.published_root / f".latest_stage_{stamp}"
-        backup = self.published_root / f".latest_backup_{stamp}"
-        if stage.exists():
-            shutil.rmtree(stage, ignore_errors=True)
-        shutil.copytree(source_dir, stage)
-
-        latest = self.latest_published_dir
-        if latest.exists():
+        backup = target_dir.parent / f".{target_dir.name}_backup_{stamp}"
+        if target_dir.exists():
             if backup.exists():
                 shutil.rmtree(backup, ignore_errors=True)
-            latest.replace(backup)
-        stage.replace(latest)
+            target_dir.replace(backup)
+        source_dir.replace(target_dir)
         if backup.exists():
             shutil.rmtree(backup, ignore_errors=True)
+
+    def replace_latest_atomically(self, source_dir: Path) -> None:
+        self.replace_dir_atomically(source_dir, self.latest_published_dir)
 
 
 def extract_asof_from_file(path: Path) -> str | None:

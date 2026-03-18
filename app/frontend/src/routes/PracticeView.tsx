@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
@@ -6,6 +6,7 @@ import { useBackendReadyState } from "../backendReady";
 import DetailChart, { DetailChartHandle } from "../components/DetailChart";
 import Toast from "../components/Toast";
 import { useStore } from "../store";
+import type { MaSetting } from "../storeTypes";
 import { computeSignalMetrics } from "../utils/signals";
 import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
 import {
@@ -17,10 +18,7 @@ import {
   IconRefresh,
   IconChevronLeft,
   IconChevronRight,
-  IconBriefcase,
-  IconPlus,
-  IconPlayerStop,
-  IconChartArrows
+  IconPlus
 } from "@tabler/icons-react";
 import IconButton from "../components/IconButton";
 import { buildAIExport, copyToClipboard } from "../utils/aiExport";
@@ -69,6 +67,33 @@ import {
   subtractMonths
 } from "./practice/practiceHelpers";
 
+const buildChartSeries = (bars: DailyBar[]) => ({
+  candles: buildCandles(bars),
+  volume: buildVolume(bars)
+});
+
+const filterSeriesByTime = <T extends { time: number }>(
+  series: T[],
+  startTime: number,
+  endTime: number
+) => series.filter((item) => item.time >= startTime && item.time <= endTime);
+
+const buildPracticeMaLines = (
+  candles: Parameters<typeof computeMA>[0],
+  settings: MaSetting[],
+  startTime: number,
+  endTime: number
+) =>
+  settings.map((setting) => ({
+    key: setting.key,
+    label: setting.label,
+    period: setting.period,
+    color: setting.color,
+    lineWidth: setting.lineWidth,
+    visible: setting.visible,
+    data: setting.visible ? filterSeriesByTime(computeMA(candles, setting.period), startTime, endTime) : []
+  }));
+
 export default function PracticeView() {
   const { code } = useParams();
   const navigate = useNavigate();
@@ -89,7 +114,7 @@ export default function PracticeView() {
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
 
   const tickers = useStore((state) => state.tickers);
-  const loadList = useStore((state) => state.loadList);
+  const ensureListLoaded = useStore((state) => state.ensureListLoaded);
   const loadingList = useStore((state) => state.loadingList);
   const maSettings = useStore((state) => state.maSettings);
 
@@ -109,7 +134,7 @@ export default function PracticeView() {
   const [tradeNote, setTradeNote] = useState("");
   const [trades, setTrades] = useState<PracticeTrade[]>([]);
   const [editingTradeId, setEditingTradeId] = useState<string | null>(null);
-  const [dailyLimit, setDailyLimit] = useState(DEFAULT_LIMITS.daily);
+  const [dailyLimit] = useState(DEFAULT_LIMITS.daily);
   const [dailyData, setDailyData] = useState<number[][]>([]);
   const [dailyErrors, setDailyErrors] = useState<string[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -119,25 +144,26 @@ export default function PracticeView() {
   const [weeklyRatio, setWeeklyRatio] = useState(DEFAULT_WEEKLY_RATIO);
   const [lotSize, setLotSize] = useState(DEFAULT_LOT_SIZE);
   const [rangeMonths, setRangeMonths] = useState(DEFAULT_RANGE_MONTHS);
-  const [hasMoreDaily, setHasMoreDaily] = useState(true);
-  const [loadingDaily, setLoadingDaily] = useState(false);
+  const [, setHasMoreDaily] = useState(true);
+  const [, setLoadingDaily] = useState(false);
 
+  const tickerByCode = useMemo(() => new Map(tickers.map((item) => [item.code, item])), [tickers]);
   const tickerName = useMemo(() => {
     if (!code) return "";
-    const raw = tickers.find((item) => item.code === code)?.name ?? "";
+    const raw = tickerByCode.get(code)?.name ?? "";
     const cleaned = raw.replace(/\s*\?\s*$/, "").trim();
     return cleaned === "?" ? "" : cleaned;
-  }, [tickers, code]);
+  }, [tickerByCode, code]);
   const sessionStorageKey = code ? `practice_session_id_${code}` : null;
 
   useEffect(() => {
     if (!backendReady) return;
     if (!tickers.length && !loadingList) {
-      loadList();
+      void ensureListLoaded();
     }
-  }, [backendReady, tickers.length, loadingList, loadList]);
+  }, [backendReady, tickers.length, loadingList, ensureListLoaded]);
 
-  const refreshSessions = (selectId?: string | null) => {
+  const refreshSessions = useCallback((selectId?: string | null) => {
     if (!backendReady || !code) return;
     setSessionsLoading(true);
     api
@@ -163,11 +189,11 @@ export default function PracticeView() {
         }
       })
       .finally(() => setSessionsLoading(false));
-  };
+  }, [backendReady, code, sessionId, sessionStorageKey]);
 
   useEffect(() => {
     refreshSessions();
-  }, [backendReady, code]);
+  }, [refreshSessions]);
 
   useEffect(() => {
     if (!sessionStorageKey || !sessionId) return;
@@ -232,7 +258,7 @@ export default function PracticeView() {
   }, [backendReady, sessionId, code]);
 
 
-  const persistSession = (next: Partial<{
+  const persistSession = useCallback((next: Partial<{
     startDate: string | null;
     endDate: string | null;
     cursorTime: number | null;
@@ -264,7 +290,21 @@ export default function PracticeView() {
     api.post("/practice/session", payload).catch(() => {
       setToastMessage("セッションの保存に失敗しました。");
     });
-  };
+  }, [
+    code,
+    cursorTime,
+    endDate,
+    lotSize,
+    maxUnlockedTime,
+    notesCollapsed,
+    panelCollapsed,
+    rangeMonths,
+    sessionId,
+    sessionNotes,
+    startDate,
+    tradeLogCollapsed,
+    trades
+  ]);
 
   useEffect(() => {
     if (!backendReady || !code) return;
@@ -328,7 +368,7 @@ export default function PracticeView() {
     if (!sessionId) return;
     if (cursorTime == null && maxUnlockedTime == null) return;
     persistSession({ cursorTime, maxUnlockedTime });
-  }, [cursorTime, maxUnlockedTime, sessionId]);
+  }, [cursorTime, maxUnlockedTime, persistSession, sessionId]);
 
   useEffect(() => {
     if (!dailyBars.length || sessionEndTime == null) return;
@@ -378,54 +418,41 @@ export default function PracticeView() {
     return start;
   }, [cursorTime, rangeMonths, dailyBars]);
 
-  const trainingBars = useMemo(() => {
-    if (!dailyBars.length) return [];
+  const practiceChartData = useMemo(() => {
+    const emptyWeeklyAggregate = buildAggregatedBars([], "weekly", cursorTime);
+    const emptyMonthlyAggregate = buildAggregatedBars([], "monthly", cursorTime);
+    if (!dailyBars.length) {
+      return {
+        trainingBars: [] as DailyBar[],
+        weeklyAggregate: emptyWeeklyAggregate,
+        monthlyAggregate: emptyMonthlyAggregate,
+        weeklyBars: [] as DailyBar[],
+        monthlyBars: [] as DailyBar[],
+        trainingCandles: [] as ReturnType<typeof buildCandles>,
+        dailySeries: buildChartSeries([]),
+        weeklyCandlesAll: emptyWeeklyAggregate.candles,
+        weeklySeries: {
+          candles: [] as typeof emptyWeeklyAggregate.candles,
+          volume: [] as typeof emptyWeeklyAggregate.volume
+        },
+        monthlyCandlesAll: emptyMonthlyAggregate.candles,
+        monthlySeries: {
+          candles: [] as typeof emptyMonthlyAggregate.candles,
+          volume: [] as typeof emptyMonthlyAggregate.volume
+        },
+        practiceSignals: [] as ReturnType<typeof computeSignalMetrics>["signals"]
+      };
+    }
+
     const endTime = cursorTime ?? dailyBars[dailyBars.length - 1].time;
-    return dailyBars.filter((bar) => bar.time <= endTime);
-  }, [dailyBars, cursorTime]);
-
-  const visibleDailyBars = useMemo(() => {
-    if (!trainingBars.length) return [];
-    const startTime = rangeStartTime ?? trainingBars[0].time;
-    const endTime = cursorTime ?? trainingBars[trainingBars.length - 1].time;
-    return trainingBars.filter((bar) => bar.time >= startTime && bar.time <= endTime);
-  }, [trainingBars, rangeStartTime, cursorTime]);
-
-  const weeklyAggregate = useMemo(
-    () => buildAggregatedBars(trainingBars, "weekly", cursorTime),
-    [trainingBars, cursorTime]
-  );
-  const monthlyAggregate = useMemo(
-    () => buildAggregatedBars(trainingBars, "monthly", cursorTime),
-    [trainingBars, cursorTime]
-  );
-
-  const weeklyBars = useMemo(() => {
-    if (!weeklyAggregate.bars.length) return [];
-    const startTime = rangeStartTime ?? weeklyAggregate.bars[0].time;
-    const endTime = cursorTime ?? weeklyAggregate.bars[weeklyAggregate.bars.length - 1].time;
-    return weeklyAggregate.bars.filter((bar) => bar.time >= startTime && bar.time <= endTime);
-  }, [weeklyAggregate.bars, rangeStartTime, cursorTime]);
-
-  const monthlyBars = useMemo(() => {
-    if (!monthlyAggregate.bars.length) return [];
-    const startTime = rangeStartTime ?? monthlyAggregate.bars[0].time;
-    const endTime = cursorTime ?? monthlyAggregate.bars[monthlyAggregate.bars.length - 1].time;
-    return monthlyAggregate.bars.filter((bar) => bar.time >= startTime && bar.time <= endTime);
-  }, [monthlyAggregate.bars, rangeStartTime, cursorTime]);
-
-  const trainingCandles = useMemo(() => buildCandles(trainingBars), [trainingBars]);
-  const dailyCandles = useMemo(() => buildCandles(visibleDailyBars), [visibleDailyBars]);
-  const dailyVolume = useMemo(() => buildVolume(visibleDailyBars), [visibleDailyBars]);
-  const weeklyCandlesAll = useMemo(() => buildCandles(weeklyAggregate.bars), [weeklyAggregate.bars]);
-  const weeklyCandles = useMemo(() => buildCandles(weeklyBars), [weeklyBars]);
-  const weeklyVolume = useMemo(() => buildVolume(weeklyBars), [weeklyBars]);
-  const monthlyCandlesAll = useMemo(() => buildCandles(monthlyAggregate.bars), [monthlyAggregate.bars]);
-  const monthlyCandles = useMemo(() => buildCandles(monthlyBars), [monthlyBars]);
-  const monthlyVolume = useMemo(() => buildVolume(monthlyBars), [monthlyBars]);
-
-  const practiceSignals = useMemo(() => {
-    if (!trainingBars.length) return [];
+    const trainingBars = filterSeriesByTime(dailyBars, dailyBars[0].time, endTime);
+    const startTime = rangeStartTime ?? trainingBars[0]?.time ?? endTime;
+    const visibleDailyBars = filterSeriesByTime(trainingBars, startTime, endTime);
+    const weeklyAggregate = buildAggregatedBars(trainingBars, "weekly", cursorTime);
+    const monthlyAggregate = buildAggregatedBars(trainingBars, "monthly", cursorTime);
+    const weeklyBars = filterSeriesByTime(weeklyAggregate.bars, startTime, endTime);
+    const monthlyBars = filterSeriesByTime(monthlyAggregate.bars, startTime, endTime);
+    const trainingCandles = buildCandles(trainingBars);
     const rows = trainingBars.map((bar) => [
       bar.time,
       bar.open,
@@ -434,64 +461,61 @@ export default function PracticeView() {
       bar.close,
       bar.volume
     ]);
-    return computeSignalMetrics(rows).signals;
-  }, [trainingBars]);
 
+    return {
+      trainingBars,
+      weeklyAggregate,
+      monthlyAggregate,
+      weeklyBars,
+      monthlyBars,
+      trainingCandles,
+      dailySeries: buildChartSeries(visibleDailyBars),
+      weeklyCandlesAll: weeklyAggregate.candles,
+      weeklySeries: {
+        candles: filterSeriesByTime(weeklyAggregate.candles, startTime, endTime),
+        volume: filterSeriesByTime(weeklyAggregate.volume, startTime, endTime)
+      },
+      monthlyCandlesAll: monthlyAggregate.candles,
+      monthlySeries: {
+        candles: filterSeriesByTime(monthlyAggregate.candles, startTime, endTime),
+        volume: filterSeriesByTime(monthlyAggregate.volume, startTime, endTime)
+      },
+      practiceSignals: computeSignalMetrics(rows).signals
+    };
+  }, [dailyBars, cursorTime, rangeStartTime]);
+  const trainingBars = practiceChartData.trainingBars;
+  const weeklyAggregate = practiceChartData.weeklyAggregate;
+  const monthlyAggregate = practiceChartData.monthlyAggregate;
+  const weeklyBars = practiceChartData.weeklyBars;
+  const monthlyBars = practiceChartData.monthlyBars;
+  const trainingCandles = practiceChartData.trainingCandles;
+  const dailySeries = practiceChartData.dailySeries;
+  const weeklyCandlesAll = practiceChartData.weeklyCandlesAll;
+  const weeklySeries = practiceChartData.weeklySeries;
+  const monthlyCandlesAll = practiceChartData.monthlyCandlesAll;
+  const monthlySeries = practiceChartData.monthlySeries;
+  const practiceSignals = practiceChartData.practiceSignals;
+  const dailyCandles = dailySeries.candles;
+  const dailyVolume = dailySeries.volume;
+  const weeklyCandles = weeklySeries.candles;
+  const weeklyVolume = weeklySeries.volume;
+  const monthlyCandles = monthlySeries.candles;
   const dailyMaLines = useMemo(() => {
     const start = rangeStartTime ?? (trainingCandles[0]?.time ?? 0);
     const end = cursorTime ?? (trainingCandles[trainingCandles.length - 1]?.time ?? 0);
-    return maSettings.daily.map((setting) => {
-      const data = computeMA(trainingCandles, setting.period).filter(
-        (point) => point.time >= start && point.time <= end
-      );
-      return {
-        key: setting.key,
-        label: setting.label,
-        period: setting.period,
-        color: setting.color,
-        lineWidth: setting.lineWidth,
-        visible: setting.visible,
-        data
-      };
-    });
+    return buildPracticeMaLines(trainingCandles, maSettings.daily, start, end);
   }, [trainingCandles, maSettings.daily, rangeStartTime, cursorTime]);
 
   const weeklyMaLines = useMemo(() => {
     const start = rangeStartTime ?? (weeklyCandlesAll[0]?.time ?? 0);
     const end = cursorTime ?? (weeklyCandlesAll[weeklyCandlesAll.length - 1]?.time ?? 0);
-    return maSettings.weekly.map((setting) => {
-      const data = computeMA(weeklyCandlesAll, setting.period).filter(
-        (point) => point.time >= start && point.time <= end
-      );
-      return {
-        key: setting.key,
-        label: setting.label,
-        period: setting.period,
-        color: setting.color,
-        lineWidth: setting.lineWidth,
-        visible: setting.visible,
-        data
-      };
-    });
+    return buildPracticeMaLines(weeklyCandlesAll, maSettings.weekly, start, end);
   }, [weeklyCandlesAll, maSettings.weekly, rangeStartTime, cursorTime]);
 
   const monthlyMaLines = useMemo(() => {
     const start = rangeStartTime ?? (monthlyCandlesAll[0]?.time ?? 0);
     const end = cursorTime ?? (monthlyCandlesAll[monthlyCandlesAll.length - 1]?.time ?? 0);
-    return maSettings.monthly.map((setting) => {
-      const data = computeMA(monthlyCandlesAll, setting.period).filter(
-        (point) => point.time >= start && point.time <= end
-      );
-      return {
-        key: setting.key,
-        label: setting.label,
-        period: setting.period,
-        color: setting.color,
-        lineWidth: setting.lineWidth,
-        visible: setting.visible,
-        data
-      };
-    });
+    return buildPracticeMaLines(monthlyCandlesAll, maSettings.monthly, start, end);
   }, [monthlyCandlesAll, maSettings.monthly, rangeStartTime, cursorTime]);
 
   const visibleTrades = useMemo(
@@ -572,7 +596,7 @@ export default function PracticeView() {
   const canResetDay =
     !isLocked && cursorTime != null && trades.some((trade) => trade.time === cursorTime);
 
-  const handleStep = (direction: 1 | -1) => {
+  const handleStep = useCallback((direction: 1 | -1) => {
     if (!dailyBars.length) return;
     const minIndex = minStepIndex;
     const maxIndex = maxStepIndex;
@@ -601,9 +625,17 @@ export default function PracticeView() {
       setMaxUnlockedTime(nextMaxUnlocked);
     }
     persistSession({ cursorTime: nextTime, maxUnlockedTime: nextMaxUnlocked });
-  };
+  }, [
+    cursorIndex,
+    dailyBars,
+    maxStepIndex,
+    maxUnlockedIndex,
+    maxUnlockedTime,
+    minStepIndex,
+    persistSession
+  ]);
 
-  const togglePanel = (force?: boolean) => {
+  const togglePanel = useCallback((force?: boolean) => {
     setPanelCollapsed((prev) => {
       const next = typeof force === "boolean" ? force : !prev;
       if (sessionId) {
@@ -613,9 +645,9 @@ export default function PracticeView() {
       }
       return next;
     });
-  };
+  }, [notesCollapsed, persistSession, sessionId, tradeLogCollapsed]);
 
-  const toggleNotes = () => {
+  const toggleNotes = useCallback(() => {
     setNotesCollapsed((prev) => {
       const next = !prev;
       persistSession({
@@ -623,9 +655,9 @@ export default function PracticeView() {
       });
       return next;
     });
-  };
+  }, [panelCollapsed, persistSession, tradeLogCollapsed]);
 
-  const toggleTradeLog = () => {
+  const toggleTradeLog = useCallback(() => {
     setTradeLogCollapsed((prev) => {
       const next = !prev;
       persistSession({
@@ -633,7 +665,7 @@ export default function PracticeView() {
       });
       return next;
     });
-  };
+  }, [notesCollapsed, panelCollapsed, persistSession]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -669,7 +701,7 @@ export default function PracticeView() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleStep, notesCollapsed, panelCollapsed]);
+  }, [handleStep, toggleNotes, togglePanel, toggleTradeLog]);
 
   useEffect(() => {
     if (!panelCollapsed && !startDate && startDateInputRef.current) {
@@ -953,7 +985,7 @@ export default function PracticeView() {
     setSessionManagerOpen(false);
   };
 
-  const handleEndSession = () => {
+  const _handleEndSession = () => {
     if (!cursorCandle || !sessionId || endDate) return;
     if (typeof window !== "undefined") {
       const ok = window.confirm("現在の練習を終了しますか？");

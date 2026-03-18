@@ -17,6 +17,7 @@ from app.core.config import (
     resolve_pan_code_txt_path,
 )
 from app.db.session import get_conn
+from app.backend.services.screener_snapshot_service import invalidate_screener_snapshot_cache
 from app.services.screener_engine import _invalidate_screener_cache
 
 WATCHLIST_TRASH_DIR = os.path.join(DATA_DIR, "trash")
@@ -167,6 +168,7 @@ def restore_watchlist_artifacts(token: str) -> list[str]:
 
 def invalidate_screener_cache() -> None:
     _invalidate_screener_cache()
+    invalidate_screener_snapshot_cache()
 
 
 def _get_favorites_conn():

@@ -103,7 +103,7 @@ export const captureWindowBlob = async (
         const backgroundColor = resolveCaptureBackground(root);
 
         // Pre-capture canvas elements before cloning (lightweight-charts uses canvas)
-        const canvasMap = captureCanvasElements(root);
+        captureCanvasElements(root);
 
         // Dynamically import html2canvas
         let html2canvas: (element: HTMLElement, options?: object) => Promise<HTMLCanvasElement>;
@@ -226,7 +226,7 @@ export const saveBlobToFile = async (blob: Blob, filename: string): Promise<{
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
         return { success: true, fileName: filename };
-    } catch (e) {
+    } catch {
         return { success: false, error: "保存に失敗しました" };
     }
 };
@@ -268,6 +268,7 @@ export const getScreenType = (pathname: string): string => {
     if (pathname === "/ranking") return "Ranking";
     if (pathname === "/favorites") return "Favorites";
     if (pathname === "/candidates") return "Candidates";
+    if (pathname === "/tradex-tags") return "AIResearch";
     if (pathname === "/") return "Grid";
     return "Screen";
 };

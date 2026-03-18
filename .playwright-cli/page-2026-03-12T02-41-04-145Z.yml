@@ -1,0 +1,146 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e19]:
+    - generic [ref=e21]:
+      - generic [ref=e22]:
+        - button "一覧に戻る" [ref=e23] [cursor=pointer]:
+          - img [ref=e25]
+          - generic [ref=e28]: 一覧に戻る
+        - button "前画面" [ref=e29] [cursor=pointer]:
+          - img [ref=e31]
+          - generic [ref=e34]: 前画面
+      - generic [ref=e35]:
+        - generic [ref=e37]: "2413"
+        - button "シグナル 2" [ref=e41]
+      - generic [ref=e42]:
+        - generic [ref=e44]:
+          - button "3M" [ref=e45] [cursor=pointer]
+          - button "6M" [ref=e46] [cursor=pointer]
+          - button "1Y" [ref=e47] [cursor=pointer]
+          - button "2Y" [ref=e48] [cursor=pointer]
+        - generic [ref=e49]:
+          - button "表示設定メニューを開く" [ref=e51] [cursor=pointer]:
+            - img [ref=e53]
+            - generic [ref=e57]: 表示
+          - generic [ref=e58]:
+            - button "チャート" [ref=e59] [cursor=pointer]
+            - button "分析" [ref=e60] [cursor=pointer]
+            - button "財務" [ref=e61] [cursor=pointer]
+            - button "描画" [ref=e62] [cursor=pointer]
+            - button "練習" [ref=e63] [cursor=pointer]
+            - button "建玉" [ref=e64] [cursor=pointer]
+        - generic [ref=e65]:
+          - button "スクショ" [ref=e66] [cursor=pointer]:
+            - img [ref=e68]
+          - button "AI出力" [ref=e71] [cursor=pointer]:
+            - img [ref=e73]
+          - button "再計算" [disabled] [ref=e75]:
+            - img [ref=e77]
+          - button "類似" [ref=e80] [cursor=pointer]:
+            - img [ref=e82]
+      - generic [ref=e86]:
+        - button "お気に入り追加" [ref=e87] [cursor=pointer]:
+          - img [ref=e88]
+        - button "前の銘柄" [disabled] [ref=e90]:
+          - img [ref=e92]
+          - generic [ref=e95]: 前の銘柄
+        - button "次の銘柄" [disabled] [ref=e96]:
+          - img [ref=e98]
+          - generic [ref=e101]: 次の銘柄
+    - generic [ref=e102]: Yahoo 仮データを表示しています。 PAN 取込完了後に正式データへ切り替わります。
+    - generic [ref=e104]:
+      - generic [ref=e105]:
+        - generic [ref=e106]: Daily
+        - generic [ref=e108]:
+          - table [ref=e111]:
+            - row [ref=e112]:
+              - cell
+              - cell [ref=e113]
+              - cell [ref=e117]
+            - row [ref=e121]:
+              - cell
+              - cell [ref=e122]
+              - cell [ref=e126]
+          - generic:
+            - generic:
+              - generic: 26/03/12
+              - generic: 前日比+12 (+0.74%)
+            - generic:
+              - generic: O
+              - generic: 1,627
+              - generic: H
+              - generic: 1,665
+              - generic: L
+              - generic: 1,624
+              - generic: C
+              - generic: 1,633
+              - generic: 出来高
+              - generic: 2,448
+            - generic:
+              - generic:
+                - generic: 7MA
+                - generic: 1,632
+              - generic:
+                - generic: 20MA
+                - generic: 1,636
+              - generic:
+                - generic: 60MA
+                - generic: 1,897
+              - generic:
+                - generic: 100MA
+                - generic: 2,065
+              - generic:
+                - generic: 200MA
+                - generic: 2,085
+            - generic:
+              - generic: 本数
+              - generic:
+                - generic: 7MA
+                - generic: 上1 / 下0
+              - generic:
+                - generic: 20MA
+                - generic: 上0 / 下2
+              - generic:
+                - generic: 60MA
+                - generic: 上0 / 下64
+              - generic:
+                - generic: 100MA
+                - generic: 上0 / 下62
+              - generic:
+                - generic: 200MA
+                - generic: 上0 / 下36
+      - generic [ref=e129]:
+        - generic [ref=e130]:
+          - generic [ref=e131]: Weekly
+          - table [ref=e136]:
+            - row [ref=e137]:
+              - cell
+              - cell [ref=e138]
+              - cell [ref=e142]
+            - row [ref=e146]:
+              - cell
+              - cell [ref=e147]
+              - cell [ref=e151]
+        - generic [ref=e155]:
+          - generic [ref=e156]: Monthly
+          - table [ref=e161]:
+            - row [ref=e162]:
+              - cell
+              - cell [ref=e163]
+              - cell [ref=e167]
+            - row [ref=e171]:
+              - cell
+              - cell [ref=e172]
+              - cell [ref=e176]
+    - generic [ref=e179]:
+      - button "Load more daily/monthly" [ref=e181] [cursor=pointer]
+      - generic [ref=e182]: Daily 2000 bars | Weekly 428 bars | Monthly 240 bars
+    - button "Data issue detected (Errors Request failed with status code 503)" [ref=e184] [cursor=pointer]

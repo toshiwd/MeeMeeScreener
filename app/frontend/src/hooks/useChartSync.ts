@@ -1,8 +1,6 @@
 import { useRef, useState, useEffect, MutableRefObject } from "react";
 import { DetailChartHandle } from "../components/DetailChart";
 
-type Timeframe = "daily" | "weekly" | "monthly";
-
 interface UseChartSyncOptions {
     enabled: boolean;
     cursorEnabled: boolean;
@@ -67,9 +65,6 @@ export function useChartSync(
         if (!syncRangesRef.current) return;
 
         // Check if we need to load more data
-        const dailyMin = options?.dailyCandles?.[0]?.time;
-        const monthlyMin = options?.monthlyCandles?.[0]?.time;
-
         // Logic: If visible range start is before the earliest loaded data, trigger load more
         // Note: This logic assumes 'range' is coming from the chart.
         // However, the original code had checks against weeklyCandles for Daily range changes?

@@ -3,6 +3,7 @@ import os
 import threading
 import time
 import subprocess
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,7 @@ _PROCESS_LOCK_STATE_LOCK = threading.Lock()
 _PROCESS_LOCK_OWNED = False
 _PROCESS_LOCK_REFCOUNT = 0
 _PROCESS_LOCK_PATH: str | None = None
+logger = logging.getLogger(__name__)
 
 
 def _rankings_warmup_delay_sec() -> float:
@@ -170,6 +172,7 @@ sys.path.insert(0, os.getcwd())
 
 from app.backend.api.dependencies import init_resources
 from app.backend.api.routers import (
+    analysis_bridge,
     bars,
     grid,
     system,
@@ -197,6 +200,12 @@ from app.backend.core.analysis_prewarm_job import (
     start_analysis_prewarm_scheduler,
     stop_analysis_prewarm_scheduler,
 )
+from app.backend.core.screener_snapshot_job import (
+    SCREENER_SNAPSHOT_JOB_TYPE,
+    handle_screener_snapshot_refresh,
+    start_screener_snapshot_scheduler,
+    stop_screener_snapshot_scheduler,
+)
 from app.backend.core.phase_batch_job import handle_phase_rebuild
 from app.backend.core.strategy_backtest_job import (
     handle_strategy_backtest,
@@ -205,6 +214,8 @@ from app.backend.core.strategy_backtest_job import (
 )
 from app.backend.core.yahoo_daily_ingest_job import (
     YF_DAILY_INGEST_JOB_TYPE,
+)
+from app.backend.core.yahoo_daily_ingest_runtime import (
     handle_yf_daily_ingest,
     start_yf_daily_ingest_scheduler,
     stop_yf_daily_ingest_scheduler,
@@ -215,29 +226,53 @@ from app.backend.core.ranking_quality_job import (
     start_ranking_analysis_quality_scheduler,
     stop_ranking_analysis_quality_scheduler,
 )
+from app.backend.core.external_analysis_publish_job import (
+    EXTERNAL_ANALYSIS_PUBLISH_JOB_TYPE,
+    handle_external_analysis_publish_latest,
+)
+from app.backend.core.taisyaku_import_job import TAISYAKU_IMPORT_JOB_TYPE, handle_taisyaku_import
 from app.backend.core.tdnet_import_job import TDNET_IMPORT_JOB_TYPE, handle_tdnet_import
 from app.backend.core.toredex_live_job import handle_toredex_live
 from app.backend.core.toredex_self_improve_job import handle_toredex_self_improve
 from app.backend.core.txt_followup_job import handle_txt_followup
 from app.backend.core.txt_update_job import handle_txt_update
+from app.backend.core.legacy_analysis_control import (
+    is_legacy_analysis_disabled,
+    legacy_analysis_disabled_log_value,
+)
 from app.db.session import get_connect_stats, is_transient_duckdb_error
 
 job_manager.register_handler("force_sync", handle_force_sync)
 job_manager.register_handler("txt_update", handle_txt_update)
 job_manager.register_handler("txt_followup", handle_txt_followup)
-job_manager.register_handler("phase_rebuild", handle_phase_rebuild)
-job_manager.register_handler("ml_train", handle_ml_train)
-job_manager.register_handler("ml_predict", handle_ml_predict)
-job_manager.register_handler("ml_live_guard", handle_ml_live_guard)
-job_manager.register_handler("analysis_backfill", handle_analysis_backfill)
+if not is_legacy_analysis_disabled():
+    job_manager.register_handler("phase_rebuild", handle_phase_rebuild)
+    job_manager.register_handler("ml_train", handle_ml_train)
+    job_manager.register_handler("ml_predict", handle_ml_predict)
+    job_manager.register_handler("ml_live_guard", handle_ml_live_guard)
+    job_manager.register_handler("analysis_backfill", handle_analysis_backfill)
+else:
+    logger.info(
+        "Legacy analysis handlers not registered for Phase 1 (%s)",
+        legacy_analysis_disabled_log_value(),
+    )
 job_manager.register_handler("strategy_backtest", handle_strategy_backtest)
 job_manager.register_handler("strategy_walkforward", handle_strategy_walkforward)
 job_manager.register_handler("strategy_walkforward_gate", handle_strategy_walkforward_gate)
+job_manager.register_handler(EXTERNAL_ANALYSIS_PUBLISH_JOB_TYPE, handle_external_analysis_publish_latest)
 job_manager.register_handler(YF_DAILY_INGEST_JOB_TYPE, handle_yf_daily_ingest)
-job_manager.register_handler(RANKING_ANALYSIS_QUALITY_JOB_TYPE, handle_ranking_analysis_quality)
+if not is_legacy_analysis_disabled():
+    job_manager.register_handler(RANKING_ANALYSIS_QUALITY_JOB_TYPE, handle_ranking_analysis_quality)
+else:
+    logger.info(
+        "Ranking analysis quality handler not registered while legacy analysis is disabled (%s)",
+        legacy_analysis_disabled_log_value(),
+    )
+job_manager.register_handler(TAISYAKU_IMPORT_JOB_TYPE, handle_taisyaku_import)
 job_manager.register_handler(TDNET_IMPORT_JOB_TYPE, handle_tdnet_import)
 job_manager.register_handler("toredex_live", handle_toredex_live)
 job_manager.register_handler("toredex_self_improve", handle_toredex_self_improve)
+job_manager.register_handler(SCREENER_SNAPSHOT_JOB_TYPE, handle_screener_snapshot_refresh)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -273,6 +308,7 @@ async def lifespan(app: FastAPI):
     
     lock_path, lock_acquired = _acquire_process_lock()
     try:
+        logger.info("Backend startup mode (%s)", legacy_analysis_disabled_log_value())
         init_resources(data_dir)
         # Ensure jobs left by a previous backend process are finalized on boot.
         cleanup_stale_jobs()
@@ -286,14 +322,29 @@ async def lifespan(app: FastAPI):
             name="rankings-cache-warmup",
             daemon=True,
         ).start()
+        start_screener_snapshot_scheduler()
         start_yf_daily_ingest_scheduler()
-        start_ranking_analysis_quality_scheduler()
-        start_analysis_prewarm_scheduler()
+        if not is_legacy_analysis_disabled():
+            start_ranking_analysis_quality_scheduler()
+        else:
+            logger.info(
+                "Skipping ranking analysis quality scheduler at startup (%s)",
+                legacy_analysis_disabled_log_value(),
+            )
+        if not is_legacy_analysis_disabled():
+            start_analysis_prewarm_scheduler()
+        else:
+            logger.info(
+                "Skipping legacy analysis prewarm scheduler at startup (%s)",
+                legacy_analysis_disabled_log_value(),
+            )
         yield
     finally:
         # Shutdown
-        stop_analysis_prewarm_scheduler(timeout_sec=1.0)
-        stop_ranking_analysis_quality_scheduler(timeout_sec=1.0)
+        if not is_legacy_analysis_disabled():
+            stop_analysis_prewarm_scheduler(timeout_sec=1.0)
+            stop_ranking_analysis_quality_scheduler(timeout_sec=1.0)
+        stop_screener_snapshot_scheduler(timeout_sec=1.0)
         stop_yf_daily_ingest_scheduler(timeout_sec=1.0)
         _release_process_lock(lock_path, lock_acquired)
         print("[Main] Shutting down.")
@@ -329,6 +380,7 @@ def create_app() -> FastAPI:
 
     # Routes
     app.include_router(bars.router)
+    app.include_router(analysis_bridge.router)
     app.include_router(ticker.router)
     app.include_router(grid.router)
     app.include_router(similar.router)

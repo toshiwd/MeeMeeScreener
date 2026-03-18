@@ -12,6 +12,7 @@ from app.backend.api.dependencies import get_screener_repo, get_stock_repo
 from app.backend.domain.screening import metrics
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
 from app.backend.services import rankings_cache
+from app.backend.services import screener_snapshot_service
 from app.backend.services import swing_plan_service
 from app.backend.services.watchlist import load_watchlist_codes, resolve_watchlist_path, watchlist_lock
 from app.core.config import config as core_config
@@ -601,36 +602,63 @@ def _resolve_db_mtime() -> float | None:
     except OSError:
         return None
 
-@router.get("/screener", response_model=List[Dict[str, Any]])
-def get_screener_rows(
+
+def _build_grid_rankings_fallback(limit: int) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(int(limit or 260), 260))
+    fallback_rows: list[dict[str, Any]] = []
+    seen_codes: set[str] = set()
+
+    for direction, stage_label in (("up", "RANKING_UP"), ("down", "RANKING_DOWN")):
+        payload = rankings_cache.get_rankings(
+            "W",
+            "latest",
+            direction,
+            safe_limit,
+            mode="rule",
+            risk_mode="balanced",
+        )
+        items = payload.get("items", []) if isinstance(payload, dict) else []
+        for rank, src in enumerate(items, start=1):
+            code = str(src.get("code") or "").strip()
+            if not code or code in seen_codes:
+                continue
+            seen_codes.add(code)
+            name = str(src.get("name") or code).strip() or code
+            score = _first_finite(
+                src.get("entryScore"),
+                src.get("hybridScore"),
+                src.get("changePct"),
+            )
+            reason_parts = ["RANKING_CACHE_FALLBACK", stage_label, f"rank={rank}"]
+            as_of = str(src.get("asOf") or "").strip()
+            if as_of:
+                reason_parts.append(f"asOf={as_of}")
+            fallback_rows.append(
+                {
+                    "code": code,
+                    "name": name,
+                    "stage": stage_label,
+                    "score": float(score) if score is not None else None,
+                    "reason": " / ".join(reason_parts),
+                    "scoreStatus": "STALE_FALLBACK",
+                    "missingReasons": ["GRID_DB_LOCKED_FALLBACK"],
+                    "scoreBreakdown": None,
+                    "chg1W": _first_finite(src.get("changePct")),
+                    "entryPriorityScore": _first_finite(src.get("entryScore")),
+                    "mlEv20Net": _first_finite(src.get("hybridScore")),
+                }
+            )
+            if len(fallback_rows) >= safe_limit:
+                return fallback_rows
+    return fallback_rows
+
+def _compute_live_screener_rows(
     limit: int = 260,
-    force_update: bool = False,
     screener_repo: ScreenerRepository = Depends(get_screener_repo),
     stock_repo: StockRepository = Depends(get_stock_repo),
 ):
-    global _grid_api_cache
-
-    # 1. Fetch Data
     today = jst_now().date()
     window_end = today + timedelta(days=30)
-    cache_key = (
-        _resolve_db_mtime(),
-        int(limit),
-        today.isoformat(),
-    )
-
-    if not force_update:
-        with _grid_api_lock:
-            cached_key = _grid_api_cache.get("cache_key")
-            cache_hit = cached_key == cache_key
-            cached_data = _grid_api_cache.get("data") if cache_hit else None
-            cached_codes = _grid_api_cache.get("codes") if cache_hit else None
-        if cache_hit and isinstance(cached_data, list):
-            response_results = _clone_screener_rows(cached_data)
-            repair_codes = cached_codes if isinstance(cached_codes, list) else []
-            _maybe_trigger_missing_data_repair(repair_codes)
-            return response_results
-    
     (
         codes,
         meta_rows,
@@ -645,8 +673,7 @@ def get_screener_rows(
         rights_min_date=today,
         monthly_limit=120,
     )
-    
-    # 2. Process Data
+
     meta_map = {row[0]: row for row in meta_rows}
     sector_map = screener_repo.fetch_sector_map(codes)
     daily_map = _group_rows_by_code(daily_rows)
@@ -655,36 +682,20 @@ def get_screener_rows(
     rights_map = {row[0]: row[1] for row in rights_rows}
     short_score_map = stock_repo.get_scores()
     ml_map = stock_repo.get_latest_ml_pred_map(codes)
-    
+
     asof_map: dict[str, int | None] = {}
     results = []
     for code in codes:
-        # Extract specific rows for this code
         d_rows = daily_map.get(code, [])
         m_rows = monthly_map.get(code, [])
         asof_map[code] = d_rows[-1][1] if d_rows else None
-        
-        # We need to strip the code from the rows for metrics computation if it expects (date, o, h, l, c, v)
-        # generic _group_rows_by_code preserves the full tuple including code at index 0.
-        # metrics.py expects: date at index 0?
-        # Let's check logic in metrics.py.
-        # It uses row[0] as date.
-        # ScreenerRepository returns (code, date, o, h, l, c, v).
-        # So we need to pass `row[1:]` to metrics if metrics expects (date, ...).
-        # Let's double check metrics.py logic.
-        # metrics.py: `date_value = row[0]` inside `_build_weekly_bars`.
-        # So it expects `(date, o, h, l, c, v)`.
-        # So we must slice `row[1:]`.
-        
+
         d_rows_sliced = [r[1:] for r in d_rows]
         m_rows_sliced = [r[1:] for r in m_rows]
-        
+
         meta = meta_map.get(code)
-        
         computed = metrics.compute_screener_metrics(d_rows_sliced, m_rows_sliced)
-        
-        # Merge Meta
-        # Meta row: code, name, stage, score, reason, score_status, missing_reasons, score_breakdown
+
         sector_info = sector_map.get(code)
         industry_name = sector_info[0] if sector_info else None
         name = meta[1] if meta else (industry_name or code)
@@ -692,12 +703,10 @@ def get_screener_rows(
         score = meta[3] if meta else None
         reason = meta[4] if meta else None
         score_status = meta[5] if meta else None
-        
-        # Fallback/Default logic (simplified from screener_engine)
-        if not stage or stage == "UNKNOWN":
-             stage = computed.get("statusLabel", "UNKNOWN")
 
-        # Construct Result Item
+        if not stage or stage == "UNKNOWN":
+            stage = computed.get("statusLabel", "UNKNOWN")
+
         item = {
             "code": code,
             "name": name,
@@ -730,15 +739,24 @@ def get_screener_rows(
     _apply_short_priority_metrics(response_results)
     _apply_entry_priority_metrics(response_results)
     _apply_swing_metrics(response_results)
-
-    with _grid_api_lock:
-        _grid_api_cache["data"] = _clone_screener_rows(response_results)
-        _grid_api_cache["codes"] = [str(code) for code in codes if isinstance(code, str)]
-        _grid_api_cache["cache_key"] = cache_key
-
     _maybe_trigger_missing_data_repair(codes)
-
     return response_results
+
+
+@router.get("/screener", response_model=Dict[str, Any])
+def get_screener_rows(
+    limit: int = 260,
+    force_update: bool = False,
+    screener_repo: ScreenerRepository = Depends(get_screener_repo),
+    stock_repo: StockRepository = Depends(get_stock_repo),
+):
+    response = screener_snapshot_service.get_screener_snapshot_response(
+        limit=limit,
+        force_refresh=force_update,
+        screener_repo=screener_repo,
+        stock_repo=stock_repo,
+    )
+    return response
 
 @router.get("/ranking", response_model=Dict[str, Any])
 def get_ranking(limit: int = 50):

@@ -83,7 +83,23 @@ def _copy_result_table_with_schema(
     if builder is None:
         return _copy_table(conn, src_schema=src_schema, table_name=table_name)
     builder(conn)
-    conn.execute(f"INSERT INTO {table_name} SELECT * FROM {src_schema}.{table_name}")
+    target_columns = [
+        str(row[1])
+        for row in conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+    ]
+    source_columns = {
+        str(row[1])
+        for row in conn.execute(f"PRAGMA table_info('{src_schema}.{table_name}')").fetchall()
+    }
+    insert_columns = [column for column in target_columns if column in source_columns]
+    if not insert_columns:
+        row = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+    quoted_columns = ", ".join(insert_columns)
+    conn.execute(
+        f"INSERT INTO {table_name} ({quoted_columns}) "
+        f"SELECT {quoted_columns} FROM {src_schema}.{table_name}"
+    )
     row = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
     return int(row[0]) if row and row[0] is not None else 0
 

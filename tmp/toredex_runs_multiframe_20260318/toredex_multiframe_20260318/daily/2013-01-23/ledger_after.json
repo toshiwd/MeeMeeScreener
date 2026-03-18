@@ -1,0 +1,76 @@
+{
+  "asOf": "2013-01-23",
+  "metrics": {
+    "asOf": "2013-01-23",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 11256942.956388,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": 44942.956388,
+        "net_cum_return_pct": 0.44943
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -1167057.043612,
+        "net_cum_return_pct": -11.67057
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -2379057.043612,
+        "net_cum_return_pct": -23.79057
+      }
+    ],
+    "cum_pnl": 1256942.956388,
+    "cum_return_pct": 12.56943,
+    "daily_pnl": -31284.916202,
+    "equity": 11256942.956388,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 1256942.956388,
+    "gross_cum_return_pct": 12.56943,
+    "gross_daily_pnl": -31284.916202,
+    "gross_units": 0,
+    "holdings_count": 0,
+    "long_units": 0,
+    "max_drawdown_pct": -0.926783,
+    "net_cum_pnl": 1256942.956388,
+    "net_cum_return_pct": 12.56943,
+    "net_daily_pnl": -31284.916202,
+    "net_exposure_pct": 0.0,
+    "net_units": 0,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -0.926783,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 656.210542,
+        "worstMonthPct": -1.542236307036271
+      },
+      "pass": false,
+      "reason": "TURNOVER(656.2105> 600.0000)",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": false,
+    "risk_gate_reason": "TURNOVER(656.2105> 600.0000)",
+    "season_id": "toredex_multiframe_20260318",
+    "short_units": 0,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 2424000000.0,
+    "turnover_notional_daily": 2000000.0,
+    "turnover_pct_daily": 17.717573
+  },
+  "positions": [],
+  "seasonId": "toredex_multiframe_20260318"
+}

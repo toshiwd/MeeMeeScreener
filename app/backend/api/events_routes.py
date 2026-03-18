@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 
 from app.backend.db import get_conn
 from app.backend.events import jst_now
-from app.backend.services.events import (
+from app.backend.services.data.events import (
     _format_event_date,
     _format_event_timestamp,
     _is_events_lock_stale,

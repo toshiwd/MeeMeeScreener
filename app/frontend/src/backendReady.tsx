@@ -1,22 +1,18 @@
 ﻿import { createContext, useContext, useEffect, useRef, useState } from "react";
+/* eslint-disable react-refresh/only-export-components */
 import type { ReactNode } from "react";
+import { useCallback } from "react";
 import { api } from "./api";
+import {
+  type HealthReadyResponse,
+  isAliveHealthResponse,
+  KEEPALIVE_RECONNECT_GRACE_MS,
+  shouldReconnectAfterKeepaliveFailure
+} from "./backendReadyHelpers";
 import { useStore } from "./store";
 import StartupOverlay from "./components/StartupOverlay";
 
-export type HealthReadyResponse = {
-  ok?: boolean;
-  status?: string;
-  ready?: boolean;
-  phase?: string;
-  message?: string;
-  error_code?: string | null;
-  errors?: string[];
-  retryAfterMs?: number;
-  txt_count?: number;
-  last_updated?: string | null;
-  code_txt_missing?: boolean;
-};
+export type { HealthReadyResponse } from "./backendReadyHelpers";
 
 export type HealthDeepResponse = HealthReadyResponse & {
   code_count?: number;
@@ -27,6 +23,9 @@ export type HealthDeepResponse = HealthReadyResponse & {
 
 type BackendReadyState = {
   ready: boolean;
+  backendAlive: boolean;
+  backendReady: boolean;
+  dbBusy: boolean;
   phase: string;
   message: string;
   error: string | null;
@@ -43,7 +42,7 @@ const ERROR_THRESHOLD = 5;
 const ERROR_GRACE_MS = 60000;
 const HEALTH_TIMEOUT_MS = 5000;
 const KEEPALIVE_INTERVAL_MS = 15000;
-const KEEPALIVE_FAIL_THRESHOLD = 2;
+const STARTUP_BACKGROUND_TASK_DELAY_MS = 2500;
 
 const getDefaultMessage = (phase: string) => {
   if (phase === "ingesting") return "データ準備中";
@@ -52,6 +51,9 @@ const getDefaultMessage = (phase: string) => {
 
 const useBackendReadyInternal = (): BackendReadyState => {
   const [ready, setReady] = useState(false);
+  const [backendAlive, setBackendAlive] = useState(false);
+  const [backendReady, setBackendReady] = useState(false);
+  const [dbBusy, setDbBusy] = useState(false);
   const [phase, setPhase] = useState("starting");
   const [message, setMessage] = useState(getDefaultMessage("starting"));
   const [error, setError] = useState<string | null>(null);
@@ -61,21 +63,23 @@ const useBackendReadyInternal = (): BackendReadyState => {
   const attemptRef = useRef(0);
   const failureRef = useRef(0);
   const timerRef = useRef<number | null>(null);
+  const probeRef = useRef<() => Promise<void>>(async () => { });
   // Separate in-flight flags so probe and keepalive never block each other.
   const probeInFlightRef = useRef(false);
   const keepaliveInFlightRef = useRef(false);
   const readyRef = useRef(false);
   const startRef = useRef(Date.now());
   const keepaliveFailRef = useRef(0);
+  const keepaliveFirstFailAtRef = useRef<number | null>(null);
 
-  const clearTimer = () => {
+  const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-  };
+  }, []);
 
-  const scheduleNext = (retryAfterMs?: number) => {
+  const scheduleNext = useCallback((retryAfterMs?: number) => {
     const idx = Math.min(attemptRef.current - 1, BACKOFF_STEPS.length - 1);
     const fallbackDelay = BACKOFF_STEPS[idx] ?? BACKOFF_STEPS[BACKOFF_STEPS.length - 1];
     const delay =
@@ -84,16 +88,16 @@ const useBackendReadyInternal = (): BackendReadyState => {
         : fallbackDelay;
     clearTimer();
     timerRef.current = window.setTimeout(() => {
-      void probe();
+      void probeRef.current();
     }, delay);
-  };
+  }, [clearTimer]);
 
-  const setNotReadyState = (nextPhase: string, nextMessage: string) => {
+  const setNotReadyState = useCallback((nextPhase: string, nextMessage: string) => {
     setPhase(nextPhase);
     setMessage(nextMessage);
-  };
+  }, []);
 
-  const probe = async () => {
+  const probe = useCallback(async () => {
     if (readyRef.current || probeInFlightRef.current) return;
     probeInFlightRef.current = true;
     attemptRef.current += 1;
@@ -113,16 +117,23 @@ const useBackendReadyInternal = (): BackendReadyState => {
       if (isReady) {
         readyRef.current = true;
         setReady(true);
+        setBackendAlive(true);
+        setBackendReady(true);
+        setDbBusy(data?.status === "degraded");
         setPhase("ready");
         setMessage("準備完了");
         setError(null);
         setErrorDetails(null);
         keepaliveFailRef.current = 0;
+        keepaliveFirstFailAtRef.current = null;
         return;
       }
 
       if (isHttpOk && !hasReadyFlag) {
         failureRef.current += 1;
+        setBackendAlive(true);
+        setBackendReady(false);
+        setDbBusy(false);
         setNotReadyState("starting", "バックエンド応答を確認中");
         scheduleNext(data?.retryAfterMs);
         return;
@@ -130,12 +141,18 @@ const useBackendReadyInternal = (): BackendReadyState => {
 
       if (isHttpOk) {
         failureRef.current = 0;
+        setBackendAlive(true);
+        setBackendReady(false);
+        setDbBusy(data?.status === "degraded");
         setNotReadyState(nextPhase, nextMessage);
         scheduleNext(data?.retryAfterMs);
         return;
       }
 
       failureRef.current += 1;
+      setBackendAlive(false);
+      setBackendReady(false);
+      setDbBusy(false);
       setNotReadyState(nextPhase, nextMessage);
       if (
         failureRef.current >= ERROR_THRESHOLD &&
@@ -153,6 +170,9 @@ const useBackendReadyInternal = (): BackendReadyState => {
       scheduleNext(data?.retryAfterMs);
     } catch (err) {
       failureRef.current += 1;
+      setBackendAlive(false);
+      setBackendReady(false);
+      setDbBusy(false);
       if (
         failureRef.current >= ERROR_THRESHOLD &&
         Date.now() - startRef.current >= ERROR_GRACE_MS
@@ -169,62 +189,87 @@ const useBackendReadyInternal = (): BackendReadyState => {
     } finally {
       probeInFlightRef.current = false;
     }
-  };
+  }, [scheduleNext, setNotReadyState]);
 
-  const keepalive = async () => {
+  const keepalive = useCallback(async () => {
     if (!readyRef.current || keepaliveInFlightRef.current) return;
     keepaliveInFlightRef.current = true;
     try {
-      const res = await api.get("/health", {
+      const res = await api.get("/health/live", {
         timeout: 2000,
         validateStatus: () => true
       });
-      const isHttpOk = res.status >= 200 && res.status < 300;
       const data = res.data as HealthReadyResponse;
-      const hasReadyFlag = typeof data?.ready === "boolean";
-      const isReady = hasReadyFlag && data.ready === true;
-      if (isHttpOk && isReady) {
+      if (isAliveHealthResponse(res.status, data)) {
         keepaliveFailRef.current = 0;
+        keepaliveFirstFailAtRef.current = null;
+        setBackendAlive(true);
         return;
+      }
+      if (keepaliveFailRef.current === 0) {
+        keepaliveFirstFailAtRef.current = Date.now();
       }
       keepaliveFailRef.current += 1;
     } catch {
+      if (keepaliveFailRef.current === 0) {
+        keepaliveFirstFailAtRef.current = Date.now();
+      }
       keepaliveFailRef.current += 1;
     } finally {
       keepaliveInFlightRef.current = false;
     }
 
-    if (keepaliveFailRef.current >= KEEPALIVE_FAIL_THRESHOLD) {
+    if (
+      shouldReconnectAfterKeepaliveFailure({
+        failCount: keepaliveFailRef.current,
+        firstFailureAtMs: keepaliveFirstFailAtRef.current,
+        nowMs: Date.now(),
+        graceMs: KEEPALIVE_RECONNECT_GRACE_MS
+      })
+    ) {
       // Backend likely restarted/crashed after initial ready. Flip to not-ready and resume probing.
       readyRef.current = false;
       setReady(false);
+      setBackendAlive(false);
+      setBackendReady(false);
+      setDbBusy(false);
       setError(null);
       setErrorDetails(null);
       setNotReadyState("starting", "バックエンド再接続中");
       keepaliveFailRef.current = 0;
+      keepaliveFirstFailAtRef.current = null;
       clearTimer();
-      void probe();
+      void probeRef.current();
     }
-  };
+  }, [clearTimer, setNotReadyState]);
 
-  const retry = () => {
+  useEffect(() => {
+    probeRef.current = probe;
+  }, [probe]);
+
+  const retry = useCallback(() => {
     failureRef.current = 0;
     attemptRef.current = 0;
     setError(null);
     setErrorDetails(null);
     setNotReadyState("starting", getDefaultMessage("starting"));
     readyRef.current = false;
+    setReady(false);
+    setBackendAlive(false);
+    setBackendReady(false);
+    setDbBusy(false);
     startRef.current = Date.now();
     setAttemptCount(0);
     setElapsedMs(0);
+    keepaliveFirstFailAtRef.current = null;
     clearTimer();
     void probe();
-  };
+  }, [clearTimer, probe, setNotReadyState]);
 
   useEffect(() => {
     void probe();
     return () => clearTimer();
-  }, []);
+  }, [clearTimer, probe]);
 
   useEffect(() => {
     if (!ready) return;
@@ -232,7 +277,7 @@ const useBackendReadyInternal = (): BackendReadyState => {
       void keepalive();
     }, KEEPALIVE_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [ready]);
+  }, [ready, keepalive]);
 
   useEffect(() => {
     if (ready) return;
@@ -242,7 +287,19 @@ const useBackendReadyInternal = (): BackendReadyState => {
     return () => window.clearInterval(timer);
   }, [ready]);
 
-  return { ready, phase, message, error, errorDetails, attemptCount, elapsedMs, retry };
+  return {
+    ready,
+    backendAlive,
+    backendReady,
+    dbBusy,
+    phase,
+    message,
+    error,
+    errorDetails,
+    attemptCount,
+    elapsedMs,
+    retry
+  };
 };
 
 export function BackendReadyProvider({ children }: { children: ReactNode }) {
@@ -266,11 +323,40 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!state.ready) return undefined;
-    void refreshEventsIfStale();
+    const runBackgroundTasks = () => {
+      void refreshEventsIfStale();
+      void loadEventsMeta();
+    };
+
+    let idleCallbackId: number | null = null;
+    let timeoutId: number | null = null;
+    if (typeof window.requestIdleCallback === "function") {
+      idleCallbackId = window.requestIdleCallback(
+        () => {
+          runBackgroundTasks();
+          idleCallbackId = null;
+        },
+        { timeout: STARTUP_BACKGROUND_TASK_DELAY_MS }
+      );
+    } else {
+      timeoutId = window.setTimeout(() => {
+        runBackgroundTasks();
+        timeoutId = null;
+      }, STARTUP_BACKGROUND_TASK_DELAY_MS);
+    }
+
     const timer = window.setInterval(() => {
       void loadEventsMeta();
     }, 60000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      if (idleCallbackId !== null && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleCallbackId);
+      }
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
   }, [state.ready, refreshEventsIfStale, loadEventsMeta]);
 
   return (
@@ -297,6 +383,9 @@ export function useBackendReadyState() {
   if (!context) {
     return {
       ready: true,
+      backendAlive: true,
+      backendReady: true,
+      dbBusy: false,
       phase: "ready",
       message: "準備完了",
       error: null,

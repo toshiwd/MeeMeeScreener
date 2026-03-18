@@ -27,6 +27,7 @@ _CACHE_MISS = object()
 _cache_lock = Lock()
 _chart_cache: dict[str, tuple[float, tuple[int, float, float, float, float, float] | None]] = {}
 _spark_cache: dict[str, tuple[float, tuple[int, float, float, float, float, float] | None]] = {}
+_history_cache: dict[str, tuple[float, list[tuple[int, float, float, float, float, float]]]] = {}
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -72,6 +73,11 @@ def _spark_chunk_size() -> int:
 
 def _chart_max_workers() -> int:
     return _env_int("MEEMEE_YF_CHART_MAX_WORKERS", 8, minimum=1)
+
+
+def _history_range() -> str:
+    value = str(os.getenv("MEEMEE_YF_HISTORY_RANGE") or "2y").strip()
+    return value or "2y"
 
 
 def _user_agent() -> str:
@@ -254,6 +260,44 @@ def get_provisional_daily_row_from_chart(code: str) -> tuple[int, float, float, 
     return row
 
 
+def get_historical_daily_rows_from_chart(
+    code: str,
+    *,
+    range_token: str | None = None,
+) -> list[tuple[int, float, float, float, float, float]]:
+    if not _enabled():
+        return []
+    symbol = code_to_yahoo_symbol(code)
+    if symbol is None:
+        return []
+    resolved_range = str(range_token or _history_range()).strip() or "2y"
+    cache_key = f"{symbol}:{resolved_range}"
+    cached = _cache_get(_history_cache, cache_key)
+    if cached is not _CACHE_MISS:
+        return list(cached or [])
+
+    rows: list[tuple[int, float, float, float, float, float]] = []
+    try:
+        params = urllib.parse.urlencode(
+            {
+                "interval": "1d",
+                "range": resolved_range,
+                "includePrePost": "false",
+                "events": "div,splits",
+            }
+        )
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?{params}"
+        payload = _fetch_json(url, timeout_sec=max(_timeout_sec(), 3.0))
+        rows = _extract_rows_from_chart_payload(payload)
+    except Exception as exc:
+        logger.debug("Yahoo chart history fetch failed for %s: %s", symbol, exc)
+        rows = []
+
+    with _cache_lock:
+        _history_cache[cache_key] = (time.monotonic() + _cache_ttl_sec(), list(rows))
+    return list(rows)
+
+
 def get_provisional_daily_rows_from_spark(
     codes: Sequence[str],
     *,
@@ -296,6 +340,15 @@ def get_provisional_daily_rows_from_spark(
                 _cache_set(_spark_cache, symbol, row)
                 if row is not None:
                     resolved[code_by_symbol[symbol]] = row
+
+    unresolved_symbols = [
+        symbol for symbol, code in code_by_symbol.items() if code not in resolved
+    ]
+    if unresolved_symbols:
+        fallback_rows = _get_provisional_daily_rows_from_chart_symbols(
+            {symbol: code_by_symbol[symbol] for symbol in unresolved_symbols}
+        )
+        resolved.update(fallback_rows)
 
     return resolved
 
@@ -449,11 +502,16 @@ def _fetch_chart_row_for_symbol(symbol: str) -> tuple[int, float, float, float, 
 
 
 def _extract_row_from_chart_payload(payload: dict[str, Any] | None) -> tuple[int, float, float, float, float, float] | None:
+    rows = _extract_rows_from_chart_payload(payload)
+    return rows[-1] if rows else None
+
+
+def _extract_rows_from_chart_payload(payload: dict[str, Any] | None) -> list[tuple[int, float, float, float, float, float]]:
     if not isinstance(payload, dict):
-        return None
+        return []
     result = ((payload.get("chart") or {}).get("result") or [None])[0]
     if not isinstance(result, dict):
-        return None
+        return []
     timestamps = result.get("timestamp") or []
     quote = (((result.get("indicators") or {}).get("quote") or [None])[0]) or {}
     opens = quote.get("open") or []
@@ -461,7 +519,8 @@ def _extract_row_from_chart_payload(payload: dict[str, Any] | None) -> tuple[int
     lows = quote.get("low") or []
     closes = quote.get("close") or []
     volumes = quote.get("volume") or []
-    for idx in range(len(timestamps) - 1, -1, -1):
+    rows: list[tuple[int, float, float, float, float, float]] = []
+    for idx in range(len(timestamps)):
         ts = _to_int(_value_at(timestamps, idx))
         open_ = _to_float(_value_at(opens, idx))
         high = _to_float(_value_at(highs, idx))
@@ -470,8 +529,8 @@ def _extract_row_from_chart_payload(payload: dict[str, Any] | None) -> tuple[int
         if ts is None or open_ is None or high is None or low is None or close is None:
             continue
         volume = _to_pan_volume_unit(_to_float(_value_at(volumes, idx)))
-        return (ts, open_, high, low, close, volume)
-    return None
+        rows.append((ts, open_, high, low, close, volume))
+    return rows
 
 
 def _extract_row_from_spark_item(item: dict[str, Any]) -> tuple[int, float, float, float, float, float] | None:
@@ -584,3 +643,4 @@ def _clear_caches_for_tests() -> None:
     with _cache_lock:
         _chart_cache.clear()
         _spark_cache.clear()
+        _history_cache.clear()

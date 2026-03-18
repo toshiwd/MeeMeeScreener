@@ -2,11 +2,21 @@
 
 このリポジトリで現在運用しているドキュメントの一覧です。
 
+## Read Order
+
+- まず `AGENTS.md` を読む。
+- MeeMee の判断軸や画面方針を触るなら `docs/MEEMEE_PRINCIPLES.md` を読む。
+- 次に変更対象が `backend` / `frontend` のどちらかなら、対応する領域 `AGENTS.md` を読む。
+- 詳細仕様や Runbook が必要な時だけ `docs/CODEX.md` を開く。
+
 ## Core
 
 - `README.md`: 起動手順、開発手順、運用上の最小ルール
-- `docs/CODEX.md`: 詳細仕様、Runbook、開発時の補足
 - `AGENTS.md`: 作業時のグローバルガードレール
+- `app/backend/AGENTS.md`: Backend 変更時のローカルルール
+- `app/frontend/AGENTS.md`: Frontend 変更時のローカルルール
+- `docs/MEEMEE_PRINCIPLES.md`: MeeMee 固有のプロダクト原則、AI出力原則、画面分離方針
+- `docs/CODEX.md`: 必要時のみ参照する詳細仕様、Runbook、開発時の補足
 
 ## Operational
 

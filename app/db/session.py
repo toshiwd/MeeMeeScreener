@@ -97,6 +97,15 @@ def _connect_retry_wait_sec(default_sec: float = 1.0) -> float:
     return max(0.1, min(10.0, value))
 
 
+def _read_only_connections_enabled() -> bool:
+    raw = os.getenv("MEEMEE_ENABLE_DUCKDB_READ_ONLY")
+    if raw is not None:
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    # DuckDB on Windows is prone to "different configuration" errors when
+    # the same file is opened with mixed read-only/read-write modes.
+    return os.name != "nt"
+
+
 def _normalize_db_path(db_path: str) -> str:
     raw = str(db_path or "").strip() or str(config.DB_PATH)
     try:
@@ -167,7 +176,11 @@ def _connect_with_retry_path(
         try:
             with _OPEN_LOCK:
                 known_mode = _DB_OPEN_MODE_BY_PATH.get(db_path)
-                open_read_only = bool(read_only and known_mode != "rw")
+                open_read_only = bool(
+                    read_only
+                    and _read_only_connections_enabled()
+                    and known_mode != "rw"
+                )
                 if open_read_only:
                     try:
                         conn = duckdb.connect(db_path, read_only=True)

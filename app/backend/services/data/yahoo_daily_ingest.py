@@ -5,6 +5,9 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
 
+import pandas as pd
+
+from app.backend.ingest_txt import build_daily_ma, build_feature_snapshot_daily
 from .yahoo_provisional import (
     get_provisional_daily_rows_from_spark,
     is_close_only_zero_volume_row,
@@ -154,8 +157,9 @@ def _cleanup_stale_yahoo_rows(conn) -> int:
 def _insert_rows(
     conn,
     rows: Sequence[tuple[str, int, float, float, float, float, float]],
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     inserted = 0
+    updated = 0
     cleaned_stale = 0
 
     conn.execute("BEGIN TRANSACTION")
@@ -213,6 +217,75 @@ def _insert_rows(
                 ).fetchone()[0]
             )
 
+            updated = int(
+                conn.execute(
+                    """
+                    WITH dedup AS (
+                        SELECT
+                            code,
+                            date,
+                            o,
+                            h,
+                            l,
+                            c,
+                            v,
+                            ROW_NUMBER() OVER (PARTITION BY code, date ORDER BY code) AS rn
+                        FROM _tmp_yf_daily_ingest
+                    ),
+                    pending AS (
+                        SELECT code, date, o, h, l, c, v
+                        FROM dedup
+                        WHERE rn = 1
+                    )
+                    SELECT COUNT(*)
+                    FROM pending p
+                    JOIN daily_bars d
+                      ON d.code = p.code AND d.date = p.date
+                    WHERE COALESCE(d.source, 'pan') = 'yahoo'
+                      AND (
+                          COALESCE(d.o, -1) <> COALESCE(p.o, -1)
+                          OR COALESCE(d.h, -1) <> COALESCE(p.h, -1)
+                          OR COALESCE(d.l, -1) <> COALESCE(p.l, -1)
+                          OR COALESCE(d.c, -1) <> COALESCE(p.c, -1)
+                          OR COALESCE(d.v, -1) <> COALESCE(p.v, -1)
+                      )
+                    """
+                ).fetchone()[0]
+            )
+
+            conn.execute(
+                """
+                UPDATE daily_bars AS d
+                SET
+                    o = p.o,
+                    h = p.h,
+                    l = p.l,
+                    c = p.c,
+                    v = p.v,
+                    source = 'yahoo'
+                FROM (
+                    WITH dedup AS (
+                        SELECT
+                            code,
+                            date,
+                            o,
+                            h,
+                            l,
+                            c,
+                            v,
+                            ROW_NUMBER() OVER (PARTITION BY code, date ORDER BY code) AS rn
+                        FROM _tmp_yf_daily_ingest
+                    )
+                    SELECT code, date, o, h, l, c, v
+                    FROM dedup
+                    WHERE rn = 1
+                ) AS p
+                WHERE d.code = p.code
+                  AND d.date = p.date
+                  AND COALESCE(d.source, 'pan') = 'yahoo'
+                """
+            )
+
             conn.execute(
                 """
                 INSERT INTO daily_bars (code, date, o, h, l, c, v, source)
@@ -244,8 +317,83 @@ def _insert_rows(
             pass
         raise
 
-    conflicts = max(0, len(rows) - inserted)
-    return inserted, conflicts, cleaned_stale
+    conflicts = max(0, len(rows) - inserted - updated)
+    return inserted, updated, conflicts, cleaned_stale
+
+
+def _refresh_feature_inputs_for_codes(
+    conn,
+    *,
+    codes: Sequence[str],
+) -> tuple[int, int, int]:
+    unique_codes = sorted({str(code).strip() for code in codes if str(code).strip()})
+    if not unique_codes:
+        return 0, 0, 0
+
+    placeholders = ",".join(["?"] * len(unique_codes))
+    rows = conn.execute(
+        f"""
+        SELECT code, date, o, h, l, c, v
+        FROM daily_bars
+        WHERE code IN ({placeholders})
+        ORDER BY code, date
+        """,
+        unique_codes,
+    ).fetchall()
+    if not rows:
+        return len(unique_codes), 0, 0
+
+    daily = pd.DataFrame(rows, columns=["code", "date", "o", "h", "l", "c", "v"])
+    daily_ma = build_daily_ma(daily)
+    feature_snapshot = build_feature_snapshot_daily(daily, daily_ma)
+    codes_df = pd.DataFrame({"code": unique_codes})
+
+    conn.register("yf_feature_codes_df", codes_df)
+    conn.execute("CREATE OR REPLACE TEMP TABLE _tmp_yf_feature_codes AS SELECT DISTINCT code FROM yf_feature_codes_df")
+    conn.execute("DELETE FROM daily_ma WHERE code IN (SELECT code FROM _tmp_yf_feature_codes)")
+    conn.execute("DELETE FROM feature_snapshot_daily WHERE code IN (SELECT code FROM _tmp_yf_feature_codes)")
+    conn.register("yf_daily_ma_df", daily_ma)
+    conn.register("yf_feature_snapshot_df", feature_snapshot)
+    conn.execute("INSERT INTO daily_ma SELECT code, date, ma7, ma20, ma60 FROM yf_daily_ma_df")
+    conn.execute(
+        """
+        INSERT INTO feature_snapshot_daily (
+            dt,
+            code,
+            close,
+            ma7,
+            ma20,
+            ma60,
+            atr14,
+            diff20_pct,
+            diff20_atr,
+            cnt_20_above,
+            cnt_7_above,
+            day_count,
+            candle_flags
+        )
+        SELECT
+            dt,
+            code,
+            close,
+            ma7,
+            ma20,
+            ma60,
+            atr14,
+            diff20_pct,
+            diff20_atr,
+            cnt_20_above,
+            cnt_7_above,
+            day_count,
+            candle_flags
+        FROM yf_feature_snapshot_df
+        """
+    )
+    conn.execute("DROP TABLE IF EXISTS _tmp_yf_feature_codes")
+    conn.unregister("yf_feature_codes_df")
+    conn.unregister("yf_daily_ma_df")
+    conn.unregister("yf_feature_snapshot_df")
+    return len(unique_codes), int(len(daily_ma)), int(len(feature_snapshot))
 
 
 def get_daily_ingest_coverage(*, target_date_key: int | None = None, max_codes: int | None = None) -> dict[str, Any]:
@@ -343,7 +491,7 @@ def ingest_latest_provisional_daily_rows(
             skipped_not_today += 1
             continue
         last_key = latest_map.get(code)
-        if last_key is not None and row_key <= last_key:
+        if last_key is not None and row_key < last_key:
             skipped_not_newer += 1
             continue
         if is_close_only_zero_volume_row(row):
@@ -364,11 +512,25 @@ def ingest_latest_provisional_daily_rows(
         )
 
     inserted = 0
+    updated = 0
     conflicts = 0
     cleaned_stale = 0
+    refreshed_feature_codes = 0
+    refreshed_daily_ma_rows = 0
+    refreshed_feature_snapshot_rows = 0
     if not dry_run:
         with get_conn() as conn:
-            inserted, conflicts, cleaned_stale = _insert_rows(conn, rows_to_insert)
+            inserted, updated, conflicts, cleaned_stale = _insert_rows(conn, rows_to_insert)
+        if inserted > 0 or updated > 0:
+            with get_conn() as conn:
+                (
+                    refreshed_feature_codes,
+                    refreshed_daily_ma_rows,
+                    refreshed_feature_snapshot_rows,
+                ) = _refresh_feature_inputs_for_codes(
+                    conn,
+                    codes=[row[0] for row in rows_to_insert],
+                )
 
     coverage_target = today_key
     coverage = get_daily_ingest_coverage(target_date_key=coverage_target, max_codes=max_codes)
@@ -381,8 +543,12 @@ def ingest_latest_provisional_daily_rows(
         "fetched_codes": fetched_codes,
         "insert_candidates": len(rows_to_insert),
         "inserted": inserted,
+        "updated": updated,
         "conflicts": conflicts,
         "purged_stale_yahoo": cleaned_stale,
+        "refreshed_feature_codes": refreshed_feature_codes,
+        "refreshed_daily_ma_rows": refreshed_daily_ma_rows,
+        "refreshed_feature_snapshot_rows": refreshed_feature_snapshot_rows,
         "skipped_not_newer": skipped_not_newer,
         "skipped_asof": skipped_asof,
         "skipped_not_today": skipped_not_today,

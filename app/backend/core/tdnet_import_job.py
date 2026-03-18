@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.backend.core.jobs import job_manager
-from app.backend.services.tdnet_mcp_import import import_tdnet_from_mcp
+from app.backend.services.data.tdnet_mcp_import import import_tdnet_from_mcp
 
 TDNET_IMPORT_JOB_TYPE = "tdnet_import"
 

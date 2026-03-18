@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 
 import type { TdnetDisclosureItem, TdnetReactionSummary } from "./detailTypes";
+import { formatTdnetEventTypeLabel, formatTdnetSentimentLabel } from "./detailHelpers";
 
 type FormatNumber = (value: number | null | undefined, digits?: number) => string;
 type FormatSignedPercentLabel = (value: number | null | undefined, digits?: number) => string;
@@ -74,8 +75,9 @@ export function DetailTdnetCard(props: Props) {
         <div className="detail-tdnet-card-headline">{activeTdnetDisclosure.title ?? "--"}</div>
         <div className="detail-analysis-meta">
           {[
-            activeTdnetDisclosure.eventType ? `種別 ${activeTdnetDisclosure.eventType}` : null,
-            activeTdnetDisclosure.sentiment ? `方向 ${activeTdnetDisclosure.sentiment}` : null,
+            activeTdnetDisclosure.eventType ? `種別 ${formatTdnetEventTypeLabel(activeTdnetDisclosure.eventType)}` : null,
+            activeTdnetDisclosure.sentiment ? `評価 ${formatTdnetSentimentLabel(activeTdnetDisclosure.sentiment)}` : null,
+            activeTdnetDisclosure.importanceScore != null ? `重要度 ${formatNumber(activeTdnetDisclosure.importanceScore, 2)}` : null,
             activeTdnetDisclosure.publishedAt
               ? `開示 ${new Date(activeTdnetDisclosure.publishedAt).toLocaleString("ja-JP")}`
               : null,

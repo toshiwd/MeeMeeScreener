@@ -1,0 +1,107 @@
+{
+  "asOf": "2011-07-26",
+  "metrics": {
+    "asOf": "2011-07-26",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 12704508.18547,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -268600.786785,
+        "net_cum_return_pct": -2.686008
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -1233600.786785,
+        "net_cum_return_pct": -12.336008
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -2198600.786785,
+        "net_cum_return_pct": -21.986008
+      }
+    ],
+    "cum_pnl": 696399.213215,
+    "cum_return_pct": 6.963992,
+    "daily_pnl": -13890.49036,
+    "equity": 10696399.213215,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 696399.213215,
+    "gross_cum_return_pct": 6.963992,
+    "gross_daily_pnl": -13890.49036,
+    "gross_units": 6,
+    "holdings_count": 3,
+    "long_units": 2,
+    "max_drawdown_pct": -0.926783,
+    "net_cum_pnl": 696399.213215,
+    "net_cum_return_pct": 6.963992,
+    "net_daily_pnl": -13890.49036,
+    "net_exposure_pct": -20.0,
+    "net_units": -2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -0.926783,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 592.35365,
+        "worstMonthPct": -1.542236307036271
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "toredex_multiframe_20260318",
+    "short_units": 4,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 1930000000.0,
+    "turnover_notional_daily": 0.0,
+    "turnover_pct_daily": 0.0
+  },
+  "positions": [
+    {
+      "avgPrice": 9963.0,
+      "holdingDays": 9,
+      "openedAt": "2011-07-13",
+      "pnlPct": 1.3449764127270902,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1001",
+      "units": 2
+    },
+    {
+      "avgPrice": 865.0,
+      "holdingDays": 9,
+      "openedAt": "2011-07-13",
+      "pnlPct": -0.8092485549132947,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1306",
+      "units": 2
+    },
+    {
+      "avgPrice": 850.0,
+      "holdingDays": 8,
+      "openedAt": "2011-07-14",
+      "pnlPct": -0.9411764705882352,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1308",
+      "units": 2
+    }
+  ],
+  "seasonId": "toredex_multiframe_20260318"
+}

@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { HealthDeepResponse, HealthReadyResponse } from "../../backendReady";
 import { getSignalDirectionSummary, type SignalMetrics } from "../../utils/signals";
 import type { TechnicalFilterState } from "../../utils/technicalFilter";

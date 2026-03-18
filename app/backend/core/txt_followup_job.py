@@ -6,6 +6,10 @@ import time
 from datetime import datetime
 
 from .jobs import job_manager
+from app.backend.core.legacy_analysis_control import (
+    is_legacy_analysis_disabled,
+    legacy_analysis_disabled_log_value,
+)
 from .txt_update_job import (
     _TXT_FOLLOWUP_JOB_TYPE,
     _exit_followup_if_canceled,
@@ -251,8 +255,9 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
         return
 
     force_recompute_due_to_pan_finalize = bool(force_recompute_on_pan_finalize and pan_finalized_rows > 0)
-    effective_auto_ml_train = bool(auto_ml_train or force_recompute_due_to_pan_finalize)
-    effective_auto_ml_predict = bool(auto_ml_predict or force_recompute_due_to_pan_finalize)
+    legacy_analysis_disabled = is_legacy_analysis_disabled()
+    effective_auto_ml_train = False if legacy_analysis_disabled else bool(auto_ml_train or force_recompute_due_to_pan_finalize)
+    effective_auto_ml_predict = False if legacy_analysis_disabled else bool(auto_ml_predict or force_recompute_due_to_pan_finalize)
     effective_auto_walkforward_run = bool(auto_walkforward_run or force_recompute_due_to_pan_finalize)
     effective_auto_walkforward_gate = bool(auto_walkforward_gate or force_recompute_due_to_pan_finalize)
     if force_recompute_due_to_pan_finalize:
@@ -398,7 +403,7 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
     else:
         state.pop("last_ml_error", None)
 
-    if auto_fill_missing_history:
+    if auto_fill_missing_history and not legacy_analysis_disabled:
         try:
             if _exit_followup_if_canceled(
                 job_id,
@@ -425,7 +430,7 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
                 ),
                 progress=ANALYSIS_BACKFILL_PROGRESS,
             )
-            from app.backend.services.analysis_backfill_service import backfill_missing_analysis_history
+            from app.backend.services.analysis.analysis_backfill_service import backfill_missing_analysis_history
 
             analysis_backfill_report = {"message": ""}
 
@@ -470,6 +475,8 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
             logger.exception("Analysis backfill failed during txt_followup: %s", exc)
             state["last_analysis_backfill_error"] = str(exc)
             ml_note_parts.append(f"analysis_backfill=failed({exc})")
+    elif legacy_analysis_disabled:
+        ml_note_parts.append("analysis_backfill=skip(disabled)")
     else:
         ml_note_parts.append("analysis_backfill=skip")
 
@@ -503,6 +510,20 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
 
         rankings_cache.refresh_cache()
         state["last_cache_refresh_at"] = datetime.now().isoformat()
+        try:
+            from app.backend.core.screener_snapshot_job import schedule_screener_snapshot_refresh
+
+            snapshot_job_id = schedule_screener_snapshot_refresh(source=f"txt_followup:{job_id}")
+            state["last_screener_snapshot_submit_at"] = datetime.now().isoformat()
+            state["last_screener_snapshot_job_id"] = snapshot_job_id
+            if snapshot_job_id:
+                ml_note_parts.append(f"screener_snapshot=queued({snapshot_job_id})")
+            else:
+                ml_note_parts.append("screener_snapshot=skip(active)")
+        except Exception as exc:
+            logger.warning("Screener snapshot submit skipped during txt_followup: %s", exc)
+            state["last_screener_snapshot_error"] = str(exc)
+            ml_note_parts.append(f"screener_snapshot=failed({exc})")
     except Exception as exc:
         logger.exception("Rankings cache refresh failed during txt_followup: %s", exc)
         _record_followup_failure(
@@ -700,6 +721,15 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
                 min_oos_worst_max_drawdown_unit=walkforward_gate_min_oos_worst_dd,
                 dry_run=False,
                 note=f"txt_followup_job:{job_id}:run={latest_run_id or 'unknown'}",
+                source_run_id=latest_run_id or None,
+                source_finished_at=None,
+                source_status="success" if latest_run_id else None,
+                source_report={
+                    "summary": state.get("last_walkforward_run_summary") or {},
+                    "windowing": state.get("last_walkforward_run_windowing") or {},
+                }
+                if latest_run_id and isinstance(state.get("last_walkforward_run_summary"), dict)
+                else None,
             )
             source = gate_result.get("source") if isinstance(gate_result.get("source"), dict) else {}
             source_run_id = str(source.get("run_id") or "")
@@ -756,20 +786,27 @@ def handle_txt_followup(job_id: str, payload: dict) -> None:
             )
             return
 
-    try:
-        from app.backend.services import strategy_backtest_service
+    if legacy_analysis_disabled:
+        logger.info(
+            "TXT followup skipping walkforward research snapshot (%s)",
+            legacy_analysis_disabled_log_value(),
+        )
+        ml_note_parts.append("walkforward_research_snapshot=skip(legacy_analysis_disabled)")
+    else:
+        try:
+            from app.backend.services import strategy_backtest_service
 
-        research_snapshot = strategy_backtest_service.save_daily_walkforward_research_snapshot()
-        if bool(research_snapshot.get("saved")):
-            state["last_walkforward_research_snapshot_at"] = datetime.now().isoformat()
-            state["last_walkforward_research_source_run_id"] = str(research_snapshot.get("source_run_id") or "")
-            state["last_walkforward_research_snapshot_date"] = research_snapshot.get("snapshot_date")
-            ml_note_parts.append(
-                f"walkforward_research_snapshot=ok(date={research_snapshot.get('snapshot_date')})"
-            )
-    except Exception as exc:
-        logger.warning("Walkforward research snapshot skipped during txt_followup: %s", exc)
-        ml_note_parts.append(f"walkforward_research_snapshot=skip({exc})")
+            research_snapshot = strategy_backtest_service.save_daily_walkforward_research_snapshot()
+            if bool(research_snapshot.get("saved")):
+                state["last_walkforward_research_snapshot_at"] = datetime.now().isoformat()
+                state["last_walkforward_research_source_run_id"] = str(research_snapshot.get("source_run_id") or "")
+                state["last_walkforward_research_snapshot_date"] = research_snapshot.get("snapshot_date")
+                ml_note_parts.append(
+                    f"walkforward_research_snapshot=ok(date={research_snapshot.get('snapshot_date')})"
+                )
+        except Exception as exc:
+            logger.warning("Walkforward research snapshot skipped during txt_followup: %s", exc)
+            ml_note_parts.append(f"walkforward_research_snapshot=skip({exc})")
 
     if _exit_followup_if_canceled(job_id, state, stage="finalize", message="Canceled before finalize"):
         return

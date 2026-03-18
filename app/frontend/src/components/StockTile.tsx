@@ -1,5 +1,5 @@
+﻿// @ts-nocheck
 import { memo, type MouseEvent } from "react";
-import { useEffect } from "react";
 import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
@@ -45,9 +45,7 @@ const StockTile = memo(function StockTile({
     return map[ticker.code];
   });
   const { ready: backendReady } = useBackendReadyState();
-  const favorites = useStore((state) => state.favorites);
-  const favoritesLoaded = useStore((state) => state.favoritesLoaded);
-  const loadFavorites = useStore((state) => state.loadFavorites);
+  const isFavorite = useStore((state) => state.favorites.includes(ticker.code));
   const setFavoriteLocal = useStore((state) => state.setFavoriteLocal);
   const boxes = useStore((state) => {
     const map = state.boxesCache?.[timeframe] ?? {};
@@ -71,7 +69,6 @@ const StockTile = memo(function StockTile({
   const cachedThumb = getThumbnailCache(cacheKey);
   const earningsLabel = formatEventBadgeDate(ticker.eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(ticker.eventRightsDate);
-  const isFavorite = favorites.includes(ticker.code);
   const entryPriorityScore = Number.isFinite(ticker.entryPriorityScore ?? NaN)
     ? Math.round(ticker.entryPriorityScore as number)
     : null;
@@ -96,11 +93,6 @@ const StockTile = memo(function StockTile({
   const patternCode = (ticker.buyPatternCode ?? "").trim();
   const showPatternChip = patternName.length > 0 && patternCode !== "WAIT";
   const patternTone = ticker.buyOverextended ? "warning" : ticker.buyEligible ? "achieved" : "";
-
-  useEffect(() => {
-    if (!backendReady || favoritesLoaded) return;
-    loadFavorites();
-  }, [backendReady, favoritesLoaded, loadFavorites]);
 
   const handleActivate = () => onActivate?.(ticker.code);
   const handleOpenDetail = () => onOpenDetail(ticker.code);

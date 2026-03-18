@@ -1,0 +1,97 @@
+{
+  "asOf": "2009-10-15",
+  "metrics": {
+    "asOf": "2009-10-15",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 10227675.945425,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -516324.054575,
+        "net_cum_return_pct": -5.163241
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -1260324.054575,
+        "net_cum_return_pct": -12.603241
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -2004324.054575,
+        "net_cum_return_pct": -20.043241
+      }
+    ],
+    "cum_pnl": 227675.945425,
+    "cum_return_pct": 2.276759,
+    "daily_pnl": -36799.669216,
+    "equity": 10227675.945425,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 227675.945425,
+    "gross_cum_return_pct": 2.276759,
+    "gross_daily_pnl": -36799.669216,
+    "gross_units": 4,
+    "holdings_count": 2,
+    "long_units": 2,
+    "max_drawdown_pct": -0.785655,
+    "net_cum_pnl": 227675.945425,
+    "net_cum_return_pct": 2.276759,
+    "net_daily_pnl": -36799.669216,
+    "net_exposure_pct": 0.0,
+    "net_units": 0,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -0.785655,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 592.35365,
+        "worstMonthPct": -1.4450893049988145
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "toredex_multiframe_20260318",
+    "short_units": 2,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 1488000000.0,
+    "turnover_notional_daily": 6000000.0,
+    "turnover_pct_daily": 58.454033
+  },
+  "positions": [
+    {
+      "avgPrice": 10238.0,
+      "holdingDays": 1,
+      "openedAt": "2009-10-15",
+      "pnlPct": 0.0,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1001",
+      "units": 2
+    },
+    {
+      "avgPrice": 900.0,
+      "holdingDays": 1,
+      "openedAt": "2009-10-15",
+      "pnlPct": 0.0,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1308",
+      "units": 2
+    }
+  ],
+  "seasonId": "toredex_multiframe_20260318"
+}

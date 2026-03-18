@@ -1,0 +1,71 @@
+{
+  "asOf": "2023-12-21",
+  "borrow_cost_cum": 0.0,
+  "borrow_cost_daily": 0.0,
+  "cash": 11162059.382457,
+  "cost_sensitivity": [
+    {
+      "fees_bps": 5.0,
+      "net_cum_pnl": -1183940.617543,
+      "net_cum_return_pct": -11.839406
+    },
+    {
+      "fees_bps": 10.0,
+      "net_cum_pnl": -3529940.617543,
+      "net_cum_return_pct": -35.299406
+    },
+    {
+      "fees_bps": 15.0,
+      "net_cum_pnl": -5875940.617543,
+      "net_cum_return_pct": -58.759406
+    }
+  ],
+  "cum_pnl": 1162059.382457,
+  "cum_return_pct": 11.620594,
+  "daily_pnl": -12379.977338,
+  "equity": 11162059.382457,
+  "fees_cost_cum": 0.0,
+  "fees_cost_daily": 0.0,
+  "game_over": false,
+  "goal20_reached": false,
+  "goal30_reached": false,
+  "gross_cum_pnl": 1162059.382457,
+  "gross_cum_return_pct": 11.620594,
+  "gross_daily_pnl": -12379.977338,
+  "gross_units": 0,
+  "holdings_count": 0,
+  "long_units": 0,
+  "max_drawdown_pct": -1.406464,
+  "net_cum_pnl": 1162059.382457,
+  "net_cum_return_pct": 11.620594,
+  "net_daily_pnl": -12379.977338,
+  "net_exposure_pct": 0.0,
+  "net_units": 0,
+  "risk_gate_details": {
+    "enabled": true,
+    "mode": "challenger",
+    "observed": {
+      "maxDrawdownPct": -1.406464,
+      "maxNetExposureUnits": 2.0,
+      "maxTurnoverPctPerMonth": 803.325335,
+      "worstMonthPct": -2.0366229530532354
+    },
+    "pass": false,
+    "reason": "TURNOVER(803.3253> 600.0000)",
+    "thresholds": {
+      "maxDrawdownPct": -15.0,
+      "maxNetExposureUnits": 4.0,
+      "maxTurnoverPctPerMonth": 600.0,
+      "worstMonthPct": -12.0
+    }
+  },
+  "risk_gate_pass": false,
+  "risk_gate_reason": "TURNOVER(803.3253> 600.0000)",
+  "season_id": "toredex_multiframe_20260318",
+  "short_units": 0,
+  "slippage_cost_cum": 0.0,
+  "slippage_cost_daily": 0.0,
+  "turnover_notional_cum": 4692000000.0,
+  "turnover_notional_daily": 6000000.0,
+  "turnover_pct_daily": 53.693969
+}

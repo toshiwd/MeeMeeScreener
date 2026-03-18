@@ -73,6 +73,7 @@ def _write_synthetic_inputs(tmp_path: Path) -> dict[str, Path]:
 def _build_paths(tmp_path: Path) -> ResearchPaths:
     return ResearchPaths.build(
         repo_root=tmp_path,
+        research_home=tmp_path / "research_home",
         workspace_root=tmp_path / "workspace",
         published_root=tmp_path / "published",
     )

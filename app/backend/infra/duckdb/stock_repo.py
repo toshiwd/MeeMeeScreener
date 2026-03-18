@@ -9,6 +9,15 @@ from typing import List, Optional, Tuple, Any, Dict
 import json
 from datetime import datetime, timezone
 
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
+from app.backend.core.bar_segments import (
+    build_monthly_rows_from_daily,
+    needs_history_backfill,
+    prefer_richer_history,
+    should_replace_monthly_with_daily,
+    trim_to_latest_continuous_segment,
+)
+from app.backend.core.yahoo_history_rows import get_historical_daily_rows_from_chart
 from app.db.session import get_conn_for_path
 
 logger = logging.getLogger(__name__)
@@ -36,6 +45,9 @@ class StockRepository:
     def _get_write_conn(self):
         # Use the shared retry/connect policy from app.db.session.
         return get_conn_for_path(self._db_path, timeout_sec=2.5, read_only=False)
+
+    def _legacy_analysis_reads_disabled(self) -> bool:
+        return is_legacy_analysis_disabled()
 
     def get_all_codes(self) -> List[str]:
         with self._get_read_conn() as conn:
@@ -67,7 +79,9 @@ class StockRepository:
         with self._get_read_conn() as conn:
             rows = conn.execute(query, params).fetchall()
         # Return valid sort order (ASC)
-        return sorted(rows, key=lambda x: x[0])
+        rows = sorted(rows, key=lambda x: x[0])
+        rows = trim_to_latest_continuous_segment(rows)
+        return self._maybe_fill_sparse_daily_history(code, rows, limit=limit, asof_dt=asof_dt)
 
     def get_daily_bars_batch(
         self,
@@ -114,7 +128,28 @@ class StockRepository:
         for row in rows:
             code = str(row[0])
             grouped.setdefault(code, []).append(tuple(row[1:]))
+        for code, code_rows in list(grouped.items()):
+            trimmed_rows = trim_to_latest_continuous_segment(code_rows)
+            grouped[code] = self._maybe_fill_sparse_daily_history(code, trimmed_rows, limit=limit, asof_dt=asof_dt)
         return grouped
+
+    def _maybe_fill_sparse_daily_history(
+        self,
+        code: str,
+        rows: List[Tuple],
+        *,
+        limit: int,
+        asof_dt: int | None,
+    ) -> List[Tuple]:
+        if not needs_history_backfill(rows):
+            return rows
+        yahoo_rows = get_historical_daily_rows_from_chart(code)
+        if asof_dt is not None:
+            yahoo_rows = [row for row in yahoo_rows if int(row[0]) <= int(asof_dt)]
+        preferred = prefer_richer_history(rows, yahoo_rows)
+        if limit > 0 and len(preferred) > limit:
+            return preferred[-limit:]
+        return preferred
 
     def get_monthly_bars(
         self,
@@ -174,7 +209,12 @@ class StockRepository:
                     fallback_query,
                     fallback_params,
                 ).fetchall()
-        return sorted(rows, key=lambda x: x[0])
+        rows = sorted(rows, key=lambda x: x[0])
+        rows = trim_to_latest_continuous_segment(rows)
+        recent_daily_rows = self.get_daily_bars(code, limit=max(limit * 25, 260), asof_dt=asof_dt)
+        if should_replace_monthly_with_daily(recent_daily_rows, rows):
+            rows = build_monthly_rows_from_daily(recent_daily_rows, limit=limit)
+        return rows
 
     def get_monthly_bars_batch(
         self,
@@ -275,6 +315,14 @@ class StockRepository:
             for row in fallback_rows:
                 code = str(row[0])
                 grouped.setdefault(code, []).append(tuple(row[1:]))
+        recent_daily_rows_by_code = self.get_daily_bars_batch(unique_codes, limit=max(limit * 25, 260), asof_dt=asof_dt)
+        for code, code_rows in list(grouped.items()):
+            trimmed_monthly = trim_to_latest_continuous_segment(code_rows)
+            recent_daily = recent_daily_rows_by_code.get(code, [])
+            if should_replace_monthly_with_daily(recent_daily, trimmed_monthly):
+                grouped[code] = build_monthly_rows_from_daily(recent_daily, limit=limit)
+            else:
+                grouped[code] = trimmed_monthly
         return grouped
 
     def get_latest_params_for_screening(self, codes: Optional[List[str]] = None) -> List[Tuple]:
@@ -368,6 +416,46 @@ class StockRepository:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            row = conn.execute(
+                "SELECT sql FROM duckdb_tables() WHERE table_name = 'stock_scores'"
+            ).fetchone()
+            table_sql = str(row[0]).lower() if row and row[0] is not None else ""
+            if "primary key" not in table_sql:
+                conn.execute("DROP TABLE IF EXISTS _tmp_stock_scores_migration")
+                try:
+                    conn.execute("""
+                        CREATE TABLE _tmp_stock_scores_migration (
+                            code VARCHAR PRIMARY KEY,
+                            score_a FLOAT,
+                            score_b FLOAT,
+                            reasons VARCHAR,
+                            badges VARCHAR,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                    conn.execute("""
+                        INSERT INTO _tmp_stock_scores_migration (
+                            code,
+                            score_a,
+                            score_b,
+                            reasons,
+                            badges,
+                            updated_at
+                        )
+                        SELECT
+                            code,
+                            ANY_VALUE(score_a) AS score_a,
+                            ANY_VALUE(score_b) AS score_b,
+                            ANY_VALUE(reasons) AS reasons,
+                            ANY_VALUE(badges) AS badges,
+                            MAX(updated_at) AS updated_at
+                        FROM stock_scores
+                        GROUP BY code
+                    """)
+                    conn.execute("DROP TABLE stock_scores")
+                    conn.execute("ALTER TABLE _tmp_stock_scores_migration RENAME TO stock_scores")
+                finally:
+                    conn.execute("DROP TABLE IF EXISTS _tmp_stock_scores_migration")
 
     def save_scores(self, scores: List[Dict[str, Any]], *, replace: bool = False):
         self.ensure_score_table()
@@ -392,8 +480,14 @@ class StockRepository:
                 ))
             
             conn.executemany("""
-                INSERT OR REPLACE INTO stock_scores (code, score_a, score_b, reasons, badges, updated_at)
+                INSERT INTO stock_scores (code, score_a, score_b, reasons, badges, updated_at)
                 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(code) DO UPDATE SET
+                    score_a = excluded.score_a,
+                    score_b = excluded.score_b,
+                    reasons = excluded.reasons,
+                    badges = excluded.badges,
+                    updated_at = excluded.updated_at
             """, data)
 
     def get_scores(self) -> Dict[str, Dict]:
@@ -413,6 +507,8 @@ class StockRepository:
         return result
 
     def get_phase_pred(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
+        if self._legacy_analysis_reads_disabled():
+            return None
         query = """
             SELECT dt, early_score, late_score, body_score, n, reasons_top3
             FROM phase_pred_daily
@@ -542,6 +638,8 @@ class StockRepository:
         return None
 
     def get_ml_analysis_pred(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
+        if self._legacy_analysis_reads_disabled():
+            return None
         with self._get_read_conn() as conn:
             if not self._table_exists(conn, "ml_pred_20d"):
                 return None
@@ -604,6 +702,8 @@ class StockRepository:
         *,
         limit: int = 400,
     ) -> List[Dict[str, Any]]:
+        if self._legacy_analysis_reads_disabled():
+            return []
         resolved_limit = max(1, min(2000, int(limit)))
 
         def _to_float_or_none(value: Any) -> float | None:
@@ -775,6 +875,8 @@ class StockRepository:
         lookback_bars: int = 360,
         horizon: int = 20,
     ) -> Dict[str, Any] | None:
+        if self._legacy_analysis_reads_disabled():
+            return None
         horizon = max(1, int(horizon))
         lookback_bars = max(60, int(lookback_bars))
         limit_bars = max(lookback_bars + horizon + 120, 240)
@@ -1046,6 +1148,8 @@ class StockRepository:
         }
 
     def get_sell_analysis_snapshot(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
+        if self._legacy_analysis_reads_disabled():
+            return None
         with self._get_read_conn() as conn:
             if not self._table_exists(conn, "sell_analysis_daily"):
                 return None
@@ -1123,6 +1227,8 @@ class StockRepository:
         return row
 
     def get_latest_ml_pred_map(self, codes: List[str]) -> Dict[str, Dict[str, Any]]:
+        if self._legacy_analysis_reads_disabled():
+            return {}
         unique_codes = sorted({str(code).strip() for code in codes if str(code).strip()})
         if not unique_codes:
             return {}

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-import csv
 from datetime import datetime, timedelta, timezone
 import json
 import math
@@ -14,6 +13,7 @@ from typing import Any, Literal
 
 import duckdb
 
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 from app.core.config import config as core_config
 from app.db.session import get_conn, is_transient_duckdb_error
 from app.backend.core.text_encoding import repair_cp932_mojibake
@@ -36,7 +36,7 @@ RankDir = Literal["up", "down"]
 RankMode = Literal["rule", "ml", "hybrid", "turn"]
 RankRiskMode = Literal["defensive", "balanced", "aggressive"]
 RankBaseCacheKey = tuple[RankTimeframe, RankWhich, RankDir]
-RankResultCacheKey = tuple[RankTimeframe, RankWhich, RankDir, RankMode, RankRiskMode, int]
+RankResultCacheKey = tuple[RankTimeframe, RankWhich, RankDir, RankMode, RankRiskMode, int, str | None, str, bool]
 RefreshSignature = tuple[Any, ...]
 
 _CACHE: dict[RankBaseCacheKey, list[dict]] = {}
@@ -182,8 +182,8 @@ _MONTHLY_EDINET_AUDIT_REALIZED_REFRESH_COOLDOWN_SEC = max(
     int(os.getenv("MEEMEE_EDINET_AUDIT_REALIZED_REFRESH_COOLDOWN_SEC", "900")),
 )
 _MONTHLY_EDINET_AUDIT_LOCK = Lock()
-_MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO: dict[tuple[int, str, str, str, str, str], float] = {}
-_MONTHLY_EDINET_AUDIT_LAST_REALIZED_REFRESH_MONO = 0.0
+_MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO: dict[tuple[int, str, str, str, str, str, str], float] = {}
+_MONTHLY_EDINET_AUDIT_LAST_REALIZED_REFRESH_MONO: dict[str, float] = {}
 _EDINET_ITEM_DEFAULTS: dict[str, Any] = {
     "edinetStatus": None,
     "edinetMapped": None,
@@ -200,6 +200,15 @@ _EDINET_ITEM_DEFAULTS: dict[str, Any] = {
     "edinetOperatingCfMargin": None,
     "edinetRevenueGrowthYoy": None,
 }
+
+
+def _resolve_effective_rank_mode(mode: RankMode) -> RankMode:
+    requested_mode = str(mode).strip().lower()
+    if requested_mode not in {"rule", "ml", "hybrid", "turn"}:
+        return "rule"
+    if is_legacy_analysis_disabled() and requested_mode != "rule":
+        return "rule"
+    return requested_mode  # type: ignore[return-value]
 
 
 def _parse_date_value(value: int | str | None) -> datetime | None:
@@ -287,6 +296,13 @@ def _is_edinet_bonus_enabled() -> bool:
         "yes",
         "on",
     }
+
+
+def _current_result_cache_variant() -> tuple[str | None, str, bool]:
+    with _LOCK:
+        last_updated = _LAST_UPDATED.isoformat() if _LAST_UPDATED is not None else None
+    db_path = str(os.getenv("STOCKS_DB_PATH", "") or "")
+    return last_updated, db_path, _is_edinet_bonus_enabled()
 
 
 def _apply_edinet_defaults(item: dict, *, flag_applied: bool) -> dict:
@@ -483,7 +499,7 @@ def _resolve_refresh_signature() -> tuple[RefreshSignature, float | None, int | 
 
 
 def _cache_needs_refresh() -> bool:
-    return (not _CACHE) or _LAST_UPDATED is None or _LAST_REFRESH_SIGNATURE is None
+    return (not _CACHE) or _LAST_UPDATED is None
 
 
 def _store_built_cache(
@@ -808,58 +824,47 @@ def _load_research_prior_snapshot() -> dict[str, Any]:
         ):
             return payload
 
-    latest_dir = Path(core_config.REPO_ROOT) / "published" / "latest"
+    latest_dir = Path(core_config.RESEARCH_BRIDGE_DIR) / "latest"
     out: dict[str, Any] = {
         "run_id": None,
         "up": {"asof": None, "codes": [], "rank_map": {}},
         "down": {"asof": None, "codes": [], "rank_map": {}},
     }
 
-    manifest_path = latest_dir / "manifest.json"
+    prior_path = latest_dir / "research_prior_snapshot.json"
+    if not prior_path.exists():
+        with _RESEARCH_PRIOR_CACHE_LOCK:
+            _RESEARCH_PRIOR_CACHE["loaded_at"] = now
+            _RESEARCH_PRIOR_CACHE["payload"] = out
+        return out
+
+    manifest_path = latest_dir / "bridge_manifest.json"
     if manifest_path.exists():
         try:
             with manifest_path.open("r", encoding="utf-8") as handle:
                 manifest = json.load(handle)
-            run_id = str(manifest.get("run_id") or "").strip()
+            slot = manifest.get("artifacts", {}).get("research_prior_snapshot.json", {}) if isinstance(manifest, dict) else {}
+            run_id = str(slot.get("source_id") or "").strip()
             out["run_id"] = run_id or None
         except Exception:
             pass
-
-    def _read_latest_codes(path: Path) -> tuple[str | None, list[str]]:
-        if not path.exists():
-            return None, []
-        rows_by_asof: dict[str, list[str]] = {}
-        latest_asof: str | None = None
-        try:
-            with path.open("r", encoding="utf-8", newline="") as handle:
-                reader = csv.DictReader(handle)
-                for row in reader:
-                    if not isinstance(row, dict):
-                        continue
-                    asof = str(row.get("asof_date") or "").strip()
-                    code = str(row.get("code") or "").strip()
-                    if not asof or not code:
-                        continue
-                    rows_by_asof.setdefault(asof, []).append(code)
-                    if latest_asof is None or asof > latest_asof:
-                        latest_asof = asof
-        except Exception:
-            return None, []
-        if latest_asof is None:
-            return None, []
-        seen: set[str] = set()
-        codes: list[str] = []
-        for code in rows_by_asof.get(latest_asof, []):
-            if code in seen:
-                continue
-            seen.add(code)
-            codes.append(code)
-        return latest_asof, codes
-
-    for side, name in (("up", "long_top20.csv"), ("down", "short_top20.csv")):
-        asof, codes = _read_latest_codes(latest_dir / name)
-        rank_map = {code: idx + 1 for idx, code in enumerate(codes)}
-        out[side] = {"asof": asof, "codes": codes, "rank_map": rank_map}
+    try:
+        with prior_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if isinstance(payload, dict):
+            run_id = str(payload.get("run_id") or "").strip()
+            out["run_id"] = run_id or out["run_id"]
+            for key, side in (("up", "up"), ("down", "down")):
+                side_payload = payload.get(key) if isinstance(payload.get(key), dict) else {}
+                codes = side_payload.get("codes") if isinstance(side_payload.get("codes"), list) else []
+                rank_map = side_payload.get("rank_map") if isinstance(side_payload.get("rank_map"), dict) else {}
+                out[side] = {
+                    "asof": str(side_payload.get("asof") or "").strip() or None,
+                    "codes": [str(code).strip() for code in codes if str(code).strip()],
+                    "rank_map": {str(code).strip(): int(rank) for code, rank in rank_map.items()},
+                }
+    except Exception:
+        pass
 
     with _RESEARCH_PRIOR_CACHE_LOCK:
         _RESEARCH_PRIOR_CACHE["loaded_at"] = now
@@ -1048,7 +1053,7 @@ def _build_monthly_edinet_audit_signature(
     mode: RankMode,
     risk_mode: RankRiskMode,
     items: list[dict],
-) -> tuple[int, str, str, str, str, str] | None:
+) -> tuple[int, str, str, str, str, str, str] | None:
     as_of_values = [_iso_date_to_int(str(item.get("asOf") or "")) for item in items]
     as_of_ymd = max((value for value in as_of_values if isinstance(value, int)), default=None)
     if as_of_ymd is None:
@@ -1060,10 +1065,11 @@ def _build_monthly_edinet_audit_signature(
         str(direction),
         str(mode),
         str(risk_mode),
+        str(os.getenv("STOCKS_DB_PATH", "") or ""),
     )
 
 
-def _acquire_monthly_edinet_audit_persist_window(signature: tuple[int, str, str, str, str, str]) -> bool:
+def _acquire_monthly_edinet_audit_persist_window(signature: tuple[int, str, str, str, str, str, str]) -> bool:
     now_mono = time.monotonic()
     with _MONTHLY_EDINET_AUDIT_LOCK:
         prev = _MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO.get(signature)
@@ -1082,19 +1088,19 @@ def _acquire_monthly_edinet_audit_persist_window(signature: tuple[int, str, str,
     return True
 
 
-def _release_monthly_edinet_audit_persist_window(signature: tuple[int, str, str, str, str, str]) -> None:
+def _release_monthly_edinet_audit_persist_window(signature: tuple[int, str, str, str, str, str, str]) -> None:
     with _MONTHLY_EDINET_AUDIT_LOCK:
         _MONTHLY_EDINET_AUDIT_LAST_PERSIST_MONO.pop(signature, None)
 
 
 def _acquire_monthly_edinet_realized_refresh_window() -> bool:
-    global _MONTHLY_EDINET_AUDIT_LAST_REALIZED_REFRESH_MONO
     now_mono = time.monotonic()
+    db_key = str(os.getenv("STOCKS_DB_PATH", "") or "")
     with _MONTHLY_EDINET_AUDIT_LOCK:
-        elapsed = now_mono - float(_MONTHLY_EDINET_AUDIT_LAST_REALIZED_REFRESH_MONO)
+        elapsed = now_mono - float(_MONTHLY_EDINET_AUDIT_LAST_REALIZED_REFRESH_MONO.get(db_key, 0.0))
         if elapsed < float(_MONTHLY_EDINET_AUDIT_REALIZED_REFRESH_COOLDOWN_SEC):
             return False
-        _MONTHLY_EDINET_AUDIT_LAST_REALIZED_REFRESH_MONO = now_mono
+        _MONTHLY_EDINET_AUDIT_LAST_REALIZED_REFRESH_MONO[db_key] = now_mono
     return True
 
 
@@ -5465,19 +5471,20 @@ def _build_rankings_response(
     risk_mode: RankRiskMode,
     cache_generation: int,
 ) -> dict[str, Any]:
+    effective_mode = _resolve_effective_rank_mode(mode)
     cache_key: RankBaseCacheKey = (tf, which, direction)
     items, last_updated = _load_live_cache_items(cache_key)
     source_items = _copy_rank_items(items)
 
     pred_dt = None
     model_version = None
-    if mode == "rule":
+    if effective_mode == "rule":
         out_items = _decorate_rule_items_with_entry_gate(
             source_items[:limit],
             direction=direction,
             risk_mode=risk_mode,
         )
-    elif tf == "M" and mode == "hybrid":
+    elif tf == "M" and effective_mode == "hybrid":
         out_items, pred_dt, model_version = _call_apply_monthly_ml_mode(
             source_items,
             direction=direction,
@@ -5488,14 +5495,14 @@ def _build_rankings_response(
         out_items, pred_dt, model_version = _call_apply_ml_mode(
             source_items,
             direction=direction,
-            mode=mode,
+            mode=effective_mode,
             limit=limit,
             risk_mode=risk_mode,
         )
     out_items, pred_dt, model_version = _fallback_down_ml_items_when_empty(
         tf=tf,
         direction=direction,
-        mode=mode,
+        mode=effective_mode,
         limit=limit,
         risk_mode=risk_mode,
         items=source_items,
@@ -5503,20 +5510,20 @@ def _build_rankings_response(
         pred_dt=pred_dt,
         model_version=model_version,
     )
-    if tf == "M" and mode == "hybrid":
+    if tf == "M" and effective_mode == "hybrid":
         flag_applied = _is_edinet_bonus_enabled()
         out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
         _persist_monthly_edinet_audit(
             tf=tf,
             which=which,
             direction=direction,
-            mode=mode,
+            mode=effective_mode,
             risk_mode=risk_mode,
             items=out_items,
         )
     out_items = _attach_quality_flags(
         out_items,
-        mode=mode,
+        mode=effective_mode,
         direction=direction,
     )
     out_items = _attach_swing_fields(
@@ -5532,7 +5539,7 @@ def _build_rankings_response(
             "tf": tf,
             "which": which,
             "direction": direction,
-            "mode": mode,
+            "mode": effective_mode,
             "risk_mode": risk_mode,
             "limit": limit,
             "pred_dt": pred_dt,
@@ -5562,7 +5569,7 @@ def _build_rankings_response(
         "tf": tf,
         "which": which,
         "dir": direction,
-        "mode": mode,
+        "mode": effective_mode,
         "risk_mode": risk_mode,
         "pred_dt": pred_dt,
         "model_version": model_version,
@@ -5581,7 +5588,18 @@ def _get_cached_rankings_response(
     mode: RankMode,
     risk_mode: RankRiskMode,
 ) -> dict[str, Any]:
-    result_key: RankResultCacheKey = (tf, which, direction, mode, risk_mode, limit)
+    last_updated_key, db_path_key, edinet_flag_key = _current_result_cache_variant()
+    result_key: RankResultCacheKey = (
+        tf,
+        which,
+        direction,
+        mode,
+        risk_mode,
+        limit,
+        last_updated_key,
+        db_path_key,
+        edinet_flag_key,
+    )
     base_cache_key: RankBaseCacheKey = (tf, which, direction)
     while True:
         _ensure_cache_fresh_stale_ok(key=base_cache_key)
@@ -5646,12 +5664,13 @@ def get_rankings(
     risk_mode: RankRiskMode = "balanced",
 ) -> dict:
     limit = max(1, min(int(limit or 50), 200))
+    effective_mode = _resolve_effective_rank_mode(mode)
     return _get_cached_rankings_response(
         tf,
         which,
         direction,
         limit,
-        mode=mode,
+        mode=effective_mode,
         risk_mode=risk_mode,
     )
 
@@ -5679,6 +5698,7 @@ def get_rankings_asof(
     mode: RankMode = "hybrid",
     risk_mode: RankRiskMode = "balanced",
 ) -> dict:
+    effective_mode = _resolve_effective_rank_mode(mode)
     as_of_int = _coerce_as_of_int(as_of)
     if as_of_int is None:
         raise ValueError("as_of must be YYYY-MM-DD or YYYYMMDD")
@@ -5704,13 +5724,13 @@ def get_rankings_asof(
 
     pred_dt = None
     model_version = None
-    if mode == "rule" or not source_items:
+    if effective_mode == "rule" or not source_items:
         out_items = _decorate_rule_items_with_entry_gate(
             source_items[:limit],
             direction=direction,
             risk_mode=risk_mode,
         )
-    elif tf == "M" and mode == "hybrid":
+    elif tf == "M" and effective_mode == "hybrid":
         out_items, pred_dt, model_version = _call_apply_monthly_ml_mode(
             source_items,
             direction=direction,
@@ -5721,14 +5741,14 @@ def get_rankings_asof(
         out_items, pred_dt, model_version = _call_apply_ml_mode(
             source_items,
             direction=direction,
-            mode=mode,
+            mode=effective_mode,
             limit=limit,
             risk_mode=risk_mode,
         )
     out_items, pred_dt, model_version = _fallback_down_ml_items_when_empty(
         tf=tf,
         direction=direction,
-        mode=mode,
+        mode=effective_mode,
         limit=limit,
         risk_mode=risk_mode,
         items=source_items,
@@ -5736,12 +5756,12 @@ def get_rankings_asof(
         pred_dt=pred_dt,
         model_version=model_version,
     )
-    if tf == "M" and mode == "hybrid":
+    if tf == "M" and effective_mode == "hybrid":
         flag_applied = _is_edinet_bonus_enabled()
         out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
     out_items = _attach_quality_flags(
         out_items,
-        mode=mode,
+        mode=effective_mode,
         direction=direction,
         now_ymd=as_of_int,
     )
@@ -5771,7 +5791,7 @@ def get_rankings_asof(
                 direction=direction,
                 now_ymd=as_of_int,
             )
-            if tf == "M" and mode == "hybrid":
+            if tf == "M" and effective_mode == "hybrid":
                 flag_applied = _is_edinet_bonus_enabled()
                 out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
             out_items = _attach_swing_fields(
@@ -5790,7 +5810,7 @@ def get_rankings_asof(
         "tf": tf,
         "which": which,
         "dir": direction,
-        "mode": mode,
+        "mode": effective_mode,
         "risk_mode": risk_mode,
         "requested_as_of": f"{as_of_int:08d}",
         "pred_dt": pred_dt,
@@ -5805,6 +5825,8 @@ def _fetch_recent_asof_dates(
     as_of_int: int | None,
     lookback_days: int,
 ) -> list[int]:
+    if is_legacy_analysis_disabled():
+        return []
     where_parts = ["ymd IS NOT NULL"]
     params: list[Any] = []
     if as_of_int is not None:

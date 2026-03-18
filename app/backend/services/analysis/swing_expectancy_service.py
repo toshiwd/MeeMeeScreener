@@ -5,6 +5,7 @@ from functools import lru_cache
 from threading import Lock
 from typing import Any
 
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 from app.db.session import get_conn
 
 _TABLE_NAME = "swing_setup_stats_daily"
@@ -220,6 +221,8 @@ def refresh_swing_setup_stats(
     lookback_days: int = _DEFAULT_LOOKBACK_DAYS,
     horizons: tuple[int, ...] = _DEFAULT_HORIZONS,
 ) -> dict[str, Any]:
+    if is_legacy_analysis_disabled():
+        return {"ok": False, "reason": "legacy_analysis_disabled", "as_of_ymd": None, "rows": 0}
     with _REFRESH_RUN_LOCK:
         with get_conn() as conn:
             ensure_swing_setup_stats_schema(conn)
@@ -252,6 +255,8 @@ def ensure_latest_swing_setup_stats(
     *,
     min_interval_sec: float = _LATEST_ENSURE_MIN_INTERVAL_SEC,
 ) -> dict[str, Any]:
+    if is_legacy_analysis_disabled():
+        return {"ok": False, "reason": "legacy_analysis_disabled", "as_of_ymd": None, "rows": 0}
     interval = float(max(1.0, min_interval_sec))
     now_ts = datetime.now(timezone.utc).timestamp()
     with _LATEST_ENSURE_LOCK:

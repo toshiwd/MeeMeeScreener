@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from app.backend.core.jobs import job_manager
-from app.backend.services.toredex_runner import run_live
+from app.backend.services.toredex.toredex_runner import run_live
 
 
 def _to_bool(value: object) -> bool:

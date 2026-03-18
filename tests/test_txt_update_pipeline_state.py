@@ -107,7 +107,7 @@ def test_txt_update_success_records_cache_refresh_stage():
     assert any(call.args[2] == "success" for call in mock_update_db.call_args_list)
 
 
-def test_txt_update_forces_recompute_when_pan_finalize_detected():
+def test_txt_update_skips_legacy_recompute_when_pan_finalize_detected():
     state_store: dict = {}
     with (
         patch("app.backend.core.txt_update_job.os.path.isfile", return_value=True),
@@ -153,7 +153,7 @@ def test_txt_update_forces_recompute_when_pan_finalize_detected():
         patch(
             "app.backend.services.strategy_backtest_service.save_daily_walkforward_research_snapshot",
             return_value={"saved": True, "snapshot_date": 20260306, "source_run_id": "swf_1"},
-        ),
+        ) as mock_research_snapshot,
     ):
         txt_update_job.handle_txt_update(
             "job-pan-finalize",
@@ -166,19 +166,21 @@ def test_txt_update_forces_recompute_when_pan_finalize_detected():
             },
         )
 
-    assert mock_train.call_count == 1
-    assert mock_predict.call_count == 1
-    assert mock_guard.call_count == 1
+    assert mock_train.call_count == 0
+    assert mock_predict.call_count == 0
+    assert mock_guard.call_count == 0
     assert mock_walkforward_run.call_count == 1
     assert mock_walkforward_gate.call_count == 1
+    assert mock_research_snapshot.call_count == 0
     assert mock_save_state.call_count > 0
     saved_state = mock_save_state.call_args[0][0]
     assert saved_state["last_pan_finalize_rows"] == 1
     assert "last_forced_recompute_at" in saved_state
+    assert saved_state["last_phase_skip_reason"] == "legacy_analysis_disabled"
     assert any(call.args[2] == "success" for call in mock_update_db.call_args_list)
 
 
-def test_txt_update_practical_fast_queues_followup_after_initial_cache_refresh():
+def test_txt_update_practical_fast_skips_legacy_followup_after_initial_cache_refresh():
     state_store: dict = {}
     stage_trace: list[str] = []
     patches = _build_common_patches()
@@ -226,21 +228,12 @@ def test_txt_update_practical_fast_queues_followup_after_initial_cache_refresh()
         )
 
     assert stage_trace == ["cache_refresh"]
-    mock_submit.assert_called_once()
-    submit_args = mock_submit.call_args.args
-    assert submit_args[0] == "txt_followup"
-    assert mock_submit.call_args.kwargs["unique"] is False
-    submit_payload = submit_args[1]
-    assert submit_payload["source_txt_job_id"] == "job-fast"
-    assert submit_payload["phase_dt"] == 20260101
-    assert submit_payload["changed_files"] == 0
-    assert submit_payload["pan_finalized_rows"] == 0
-    assert "summary_line" in submit_payload
+    mock_submit.assert_not_called()
     assert mock_save_state.call_count > 0
     saved_state = mock_save_state.call_args[0][0]
     assert saved_state["last_pipeline_status"] == "success"
-    assert saved_state["last_followup_job_id"] == "followup-1"
-    assert saved_state["last_followup_source_txt_job_id"] == "job-fast"
+    assert "last_followup_job_id" not in saved_state
+    assert "last_followup_source_txt_job_id" not in saved_state
     assert any(call.args[2] == "success" for call in mock_update_db.call_args_list)
 
 
@@ -306,7 +299,7 @@ def test_txt_followup_monthly_walkforward_skip_preserves_skip_state():
         patch(
             "app.backend.services.strategy_backtest_service.save_daily_walkforward_research_snapshot",
             return_value={"saved": False},
-        ),
+        ) as mock_research_snapshot,
     ):
         txt_followup_job.handle_txt_followup(
             "followup-skip",
@@ -324,6 +317,7 @@ def test_txt_followup_monthly_walkforward_skip_preserves_skip_state():
 
     mock_run.assert_not_called()
     mock_gate.assert_not_called()
+    mock_research_snapshot.assert_not_called()
     assert state_store["last_walkforward_run_skipped_reason"] == f"already_ran_month:{current_month}"
     assert state_store["last_walkforward_gate_skipped_reason"] == f"already_ran_month:{current_month}"
     assert state_store["last_followup_status"] == "success"

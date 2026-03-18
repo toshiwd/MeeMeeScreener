@@ -1,0 +1,25 @@
+# TOREDEX Narrative 2002-06-28
+
+- season_id: toredex_multiframe_20260318
+- mode: BACKTEST
+- policy_version: toredex.v8
+
+## Buy Top 3
+1. 1001 ev=0.03508429977585031 upProb=0.459195773076154 revRisk=0.5233879128141452 frame=MIXED Wup=0.459195773076154 Mup=None Wdn=0.5233879128141452 Mdn=None gate=False:SETUP_reject
+2. 1308 ev=0.026 upProb=0.48629629629629634 revRisk=0.5562962962962963 frame=MIXED Wup=0.48629629629629634 Mup=None Wdn=0.5562962962962963 Mdn=None gate=False:SETUP_reject
+3. 1306 ev=0.026 upProb=0.48115042431161836 revRisk=0.5667887221839587 frame=BEARISH Wup=0.48115042431161836 Mup=None Wdn=0.5667887221839587 Mdn=None gate=False:SETUP_reject
+
+## Sell Top 3
+1. 1306 ev=0.026 upProb=0.5667887221839587 revRisk=0.5667887221839587 frame=BEARISH Wup=0.48115042431161836 Mup=None Wdn=0.5667887221839587 Mdn=None gate=False:SETUP_reject
+2. 1308 ev=0.026 upProb=0.5562962962962963 revRisk=0.5562962962962963 frame=MIXED Wup=0.48629629629629634 Mup=None Wdn=0.5562962962962963 Mdn=None gate=False:SETUP_reject
+3. 1001 ev=0.03508429977585031 upProb=0.5233879128141452 revRisk=0.5233879128141452 frame=MIXED Wup=0.459195773076154 Mup=None Wdn=0.5233879128141452 Mdn=None gate=False:SETUP_reject
+
+## Actions
+- no actions
+
+## Metrics
+- equity: 10063355.65327
+- cum_return_pct: 0.633557
+- max_drawdown_pct: -0.578233
+- holdings_count: 0
+- game_over: False

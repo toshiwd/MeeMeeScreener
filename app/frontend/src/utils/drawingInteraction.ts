@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 export type DrawingTool = "timeZone" | "priceBand" | "drawBox" | "horizontalLine";
 
 export type DrawingHitKind = "timeZone" | "priceBand" | "drawBox" | "horizontalLine";

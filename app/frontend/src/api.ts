@@ -65,7 +65,7 @@ api.interceptors.response.use(
     return response;
   },
   (error: AxiosError) => {
-    const config = error.config ?? {};
+    const config: AxiosRequestConfig = error.config ?? {};
     const response = error.response;
     const info: ApiErrorInfo = {
       url: resolveUrl(config),

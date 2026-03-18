@@ -1,0 +1,414 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e19]:
+    - banner [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - generic [ref=e23]:
+            - generic [ref=e24]:
+              - generic [ref=e25]: MeeMee
+              - generic [ref=e26]: Screener
+            - navigation [ref=e27]:
+              - link "一覧に戻る" [ref=e28] [cursor=pointer]:
+                - /url: /
+              - link "ランキング" [ref=e29] [cursor=pointer]:
+                - /url: /ranking
+              - link "市場概況" [ref=e30] [cursor=pointer]:
+                - /url: /market
+              - link "保有" [ref=e31] [cursor=pointer]:
+                - /url: /positions
+              - link "お気に入り" [ref=e32] [cursor=pointer]:
+                - /url: /favorites
+              - link "候補" [ref=e33] [cursor=pointer]:
+                - /url: /candidates
+          - generic [ref=e35]:
+            - button "並び替えメニューを開く" [ref=e37] [cursor=pointer]:
+              - generic [ref=e38]: "並び: 仕込み優先度(A/B/C)"
+            - button "表示設定メニューを開く" [ref=e40] [cursor=pointer]:
+              - generic [ref=e41]: 表示
+            - button "フィルタ" [ref=e43] [cursor=pointer]:
+              - generic [ref=e44]: フィルタ
+            - button "日次更新" [ref=e46] [cursor=pointer]:
+              - generic [ref=e47]: 日次更新
+            - generic [ref=e48]:
+              - button "ウォークフォワード検証パネルを開く" [ref=e49] [cursor=pointer]:
+                - generic [ref=e50]: 検証
+              - button "設定メニューを開く" [ref=e51] [cursor=pointer]:
+                - img [ref=e53]
+        - generic [ref=e56]:
+          - generic [ref=e57]:
+            - button "月足" [ref=e58] [cursor=pointer]
+            - button "週足" [ref=e59] [cursor=pointer]
+            - button "日足" [ref=e60] [cursor=pointer]
+          - generic [ref=e61]:
+            - button "60本" [ref=e62] [cursor=pointer]
+            - button "120本" [ref=e63] [cursor=pointer]
+            - button "240本" [ref=e64] [cursor=pointer]
+            - button "360本" [ref=e65] [cursor=pointer]
+          - button "業種" [ref=e67] [cursor=pointer]:
+            - generic [ref=e68]: 業種
+          - searchbox "コード / 銘柄名で検索" [ref=e70]
+          - generic [ref=e71]:
+            - generic [ref=e72]: "状態: 待機中"
+            - generic [ref=e73]: "イベント最終更新: 2026/03/13"
+            - generic [ref=e74]: "権利データ範囲: ～2026/03/19"
+    - generic [ref=e78]:
+      - 'button "6758 ソニーG お気に入り解除 候補に追加 除外 詳細を開く 仕込A:54 A: 今週仕込み候補 / 買い候補スコア 47 / 下値リスク 0.10ATR 売りC:33 C: observe / short_score 49 / risk 1.32ATR / cnt60 0 買い:ボックス上放れ初動 100上:137 60上:140 20上:35 日付 26/03/01 終値 5,208" [ref=e80] [cursor=pointer]':
+        - generic [ref=e81]:
+          - generic [ref=e82]:
+            - generic [ref=e83]: "6758"
+            - generic [ref=e84]: ソニーG
+          - generic [ref=e85]:
+            - button "お気に入り解除" [ref=e86]:
+              - img [ref=e87]
+            - button "候補に追加" [ref=e89]: +
+            - button "除外" [ref=e90]: x
+            - button "詳細を開く" [ref=e91]: ">"
+        - generic [ref=e93]:
+          - generic [ref=e94]: "仕込A:54 A: 今週仕込み候補 / 買い候補スコア 47 / 下値リスク 0.10ATR"
+          - generic [ref=e95]: "売りC:33 C: observe / short_score 49 / risk 1.32ATR / cnt60 0"
+          - generic [ref=e96]: 買い:ボックス上放れ初動
+          - generic [ref=e97]: 100上:137
+          - generic [ref=e98]: 60上:140
+          - generic [ref=e99]: 20上:35
+        - generic [ref=e101]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 5,208
+      - 'button "6701 NEC(日本電気) お気に入り追加 候補に追加 除外 詳細を開く 仕込A:48 A: 今週仕込み候補 / 買い候補スコア 32 / 下値リスク 0.22ATR 売りC:33 C: observe / short_score 52 / risk 1.70ATR / cnt60 0 買い:MA20再上抜け初動 100上:113 60上:90 20上:37 日付 26/03/01 終値 4,246" [ref=e104] [cursor=pointer]':
+        - generic [ref=e105]:
+          - generic [ref=e106]:
+            - generic [ref=e107]: "6701"
+            - generic [ref=e108]: NEC(日本電気)
+          - generic [ref=e109]:
+            - button "お気に入り追加" [ref=e110]:
+              - img [ref=e111]
+            - button "候補に追加" [ref=e113]: +
+            - button "除外" [ref=e114]: x
+            - button "詳細を開く" [ref=e115]: ">"
+        - generic [ref=e117]:
+          - generic [ref=e118]: "仕込A:48 A: 今週仕込み候補 / 買い候補スコア 32 / 下値リスク 0.22ATR"
+          - generic [ref=e119]: "売りC:33 C: observe / short_score 52 / risk 1.70ATR / cnt60 0"
+          - generic [ref=e120]: 買い:MA20再上抜け初動
+          - generic [ref=e121]: 100上:113
+          - generic [ref=e122]: 60上:90
+          - generic [ref=e123]: 20上:37
+        - generic [ref=e125]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 4,246
+      - 'button "7203 トヨタ自動車 お気に入り追加 候補に追加 除外 詳細を開く 仕込A:41 A: 今週仕込み候補 / 買い候補スコア 30 / 下値リスク 0.10ATR / 初動未成立（押し目待ち） 売りC:39 C: observe / short_score 63 / risk 0.71ATR / cnt60 0 買い:ボックス持ち合い 100上:157 60上:68 7上:8 日付 26/03/01 終値 3,426" [ref=e128] [cursor=pointer]':
+        - generic [ref=e129]:
+          - generic [ref=e130]:
+            - generic [ref=e131]: "7203"
+            - generic [ref=e132]: トヨタ自動車
+          - generic [ref=e133]:
+            - button "お気に入り追加" [ref=e134]:
+              - img [ref=e135]
+            - button "候補に追加" [ref=e137]: +
+            - button "除外" [ref=e138]: x
+            - button "詳細を開く" [ref=e139]: ">"
+        - generic [ref=e141]:
+          - generic [ref=e142]: "仕込A:41 A: 今週仕込み候補 / 買い候補スコア 30 / 下値リスク 0.10ATR / 初動未成立（押し目待ち）"
+          - generic [ref=e143]: "売りC:39 C: observe / short_score 63 / risk 0.71ATR / cnt60 0"
+          - generic [ref=e144]: 買い:ボックス持ち合い
+          - generic [ref=e145]: 100上:157
+          - generic [ref=e146]: 60上:68
+          - generic [ref=e147]: 7上:8
+        - generic [ref=e149]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 3,426
+      - 'button "8316 三井住友FG お気に入り追加 候補に追加 除外 詳細を開く 仕込A:41 A: 今週仕込み候補 / 買い候補スコア 29 / 下値リスク 0.52ATR / 初動未成立（押し目待ち） 売りC:37 C: observe / short_score 63 / risk 1.27ATR / cnt60 0 買い:ボックス持ち合い 60上:52 20上:62 7上:9 日付 26/03/01 終値 5,117" [ref=e152] [cursor=pointer]':
+        - generic [ref=e153]:
+          - generic [ref=e154]:
+            - generic [ref=e155]: "8316"
+            - generic [ref=e156]: 三井住友FG
+          - generic [ref=e157]:
+            - button "お気に入り追加" [ref=e158]:
+              - img [ref=e159]
+            - button "候補に追加" [ref=e161]: +
+            - button "除外" [ref=e162]: x
+            - button "詳細を開く" [ref=e163]: ">"
+        - generic [ref=e165]:
+          - generic [ref=e166]: "仕込A:41 A: 今週仕込み候補 / 買い候補スコア 29 / 下値リスク 0.52ATR / 初動未成立（押し目待ち）"
+          - generic [ref=e167]: "売りC:37 C: observe / short_score 63 / risk 1.27ATR / cnt60 0"
+          - generic [ref=e168]: 買い:ボックス持ち合い
+          - generic [ref=e169]: 60上:52
+          - generic [ref=e170]: 20上:62
+          - generic [ref=e171]: 7上:9
+        - generic [ref=e173]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 5,117
+      - 'button "9984 ソフトバンクグループ お気に入り追加 候補に追加 除外 詳細を開く 仕込A:41 A: 今週仕込み候補 / 買い候補スコア 31 / 下値リスク 0.60ATR / 初動未成立（押し目待ち） 売りC:37 C: observe / short_score 72 / risk 1.97ATR / cnt60 0 買い:ボックス持ち合い 100上:160 日付 26/03/01 終値 2,392" [ref=e176] [cursor=pointer]':
+        - generic [ref=e177]:
+          - generic [ref=e178]:
+            - generic [ref=e179]: "9984"
+            - generic [ref=e180]: ソフトバンクグループ
+          - generic [ref=e181]:
+            - button "お気に入り追加" [ref=e182]:
+              - img [ref=e183]
+            - button "候補に追加" [ref=e185]: +
+            - button "除外" [ref=e186]: x
+            - button "詳細を開く" [ref=e187]: ">"
+        - generic [ref=e189]:
+          - generic [ref=e190]: "仕込A:41 A: 今週仕込み候補 / 買い候補スコア 31 / 下値リスク 0.60ATR / 初動未成立（押し目待ち）"
+          - generic [ref=e191]: "売りC:37 C: observe / short_score 72 / risk 1.97ATR / cnt60 0"
+          - generic [ref=e192]: 買い:ボックス持ち合い
+          - generic [ref=e193]: 100上:160
+        - generic [ref=e195]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 2,392
+      - 'button "1375 ユキグニ(雪国まいたけ) お気に入り追加 候補に追加 除外 詳細を開く 仕込C:40 C: 監視 / 流動性不足 売りC:43 C: observe / cnt60 53 / short_score 30 / risk 1.26ATR 買い:ボックス持ち合い 日付 26/03/01 終値 1,070" [ref=e198] [cursor=pointer]':
+        - generic [ref=e199]:
+          - generic [ref=e200]:
+            - generic [ref=e201]: "1375"
+            - generic [ref=e202]: ユキグニ(雪国まいたけ)
+          - generic [ref=e203]:
+            - button "お気に入り追加" [ref=e204]:
+              - img [ref=e205]
+            - button "候補に追加" [ref=e207]: +
+            - button "除外" [ref=e208]: x
+            - button "詳細を開く" [ref=e209]: ">"
+        - generic [ref=e211]:
+          - generic [ref=e212]: "仕込C:40 C: 監視 / 流動性不足"
+          - generic [ref=e213]: "売りC:43 C: observe / cnt60 53 / short_score 30 / risk 1.26ATR"
+          - generic [ref=e214]: 買い:ボックス持ち合い
+        - generic [ref=e216]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 1,070
+      - 'button "1911 住友林業 お気に入り追加 候補に追加 除外 詳細を開く 仕込C:40 C: 監視 / 流動性不足 売りC:29 C: observe / short_score 45 / cnt60 0 / risk 2.63ATR 買い:ボックス持ち合い 60上:68 7上:7 日付 26/03/01 終値 1,472" [ref=e219] [cursor=pointer]':
+        - generic [ref=e220]:
+          - generic [ref=e221]:
+            - generic [ref=e222]: "1911"
+            - generic [ref=e223]: 住友林業
+          - generic [ref=e224]:
+            - button "お気に入り追加" [ref=e225]:
+              - img [ref=e226]
+            - button "候補に追加" [ref=e228]: +
+            - button "除外" [ref=e229]: x
+            - button "詳細を開く" [ref=e230]: ">"
+        - generic [ref=e232]:
+          - generic [ref=e233]: "仕込C:40 C: 監視 / 流動性不足"
+          - generic [ref=e234]: "売りC:29 C: observe / short_score 45 / cnt60 0 / risk 2.63ATR"
+          - generic [ref=e235]: 買い:ボックス持ち合い
+          - generic [ref=e236]: 60上:68
+          - generic [ref=e237]: 7上:7
+        - generic [ref=e239]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 1,472
+      - 'button "2267 ヤクルト お気に入り追加 候補に追加 除外 詳細を開く 仕込C:40 C: 監視 / 流動性不足 売りC:40 C: observe / short_score 30 / risk 0.83ATR / cnt60 28 買い:ボックス持ち合い 20下:33 日付 26/03/01 終値 2,567" [ref=e242] [cursor=pointer]':
+        - generic [ref=e243]:
+          - generic [ref=e244]:
+            - generic [ref=e245]: "2267"
+            - generic [ref=e246]: ヤクルト
+          - generic [ref=e247]:
+            - button "お気に入り追加" [ref=e248]:
+              - img [ref=e249]
+            - button "候補に追加" [ref=e251]: +
+            - button "除外" [ref=e252]: x
+            - button "詳細を開く" [ref=e253]: ">"
+        - generic [ref=e255]:
+          - generic [ref=e256]: "仕込C:40 C: 監視 / 流動性不足"
+          - generic [ref=e257]: "売りC:40 C: observe / short_score 30 / risk 0.83ATR / cnt60 28"
+          - generic [ref=e258]: 買い:ボックス持ち合い
+          - generic [ref=e259]: 20下:33
+        - generic [ref=e261]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 2,567
+      - 'button "2433 博報堂DY お気に入り追加 候補に追加 除外 詳細を開く 仕込C:40 C: 監視 / 流動性不足 売りC:29 C: observe / short_score 48 / cnt60 0 / risk 2.60ATR 買い:ボックス持ち合い 60下:48 20下:22 日付 26/03/01 終値 1,040" [ref=e264] [cursor=pointer]':
+        - generic [ref=e265]:
+          - generic [ref=e266]:
+            - generic [ref=e267]: "2433"
+            - generic [ref=e268]: 博報堂DY
+          - generic [ref=e269]:
+            - button "お気に入り追加" [ref=e270]:
+              - img [ref=e271]
+            - button "候補に追加" [ref=e273]: +
+            - button "除外" [ref=e274]: x
+            - button "詳細を開く" [ref=e275]: ">"
+        - generic [ref=e277]:
+          - generic [ref=e278]: "仕込C:40 C: 監視 / 流動性不足"
+          - generic [ref=e279]: "売りC:29 C: observe / short_score 48 / cnt60 0 / risk 2.60ATR"
+          - generic [ref=e280]: 買い:ボックス持ち合い
+          - generic [ref=e281]: 60下:48
+          - generic [ref=e282]: 20下:22
+        - generic [ref=e284]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 1,040
+      - 'button "2471 エスプール お気に入り追加 候補に追加 除外 詳細を開く 仕込C:40 C: 監視 / 流動性不足 売りC:33 C: observe / short_score 47 / risk 1.32ATR / cnt60 0 買い:ボックス持ち合い 7下:6 日付 26/03/01 終値 245" [ref=e287] [cursor=pointer]':
+        - generic [ref=e288]:
+          - generic [ref=e289]:
+            - generic [ref=e290]: "2471"
+            - generic [ref=e291]: エスプール
+          - generic [ref=e292]:
+            - button "お気に入り追加" [ref=e293]:
+              - img [ref=e294]
+            - button "候補に追加" [ref=e296]: +
+            - button "除外" [ref=e297]: x
+            - button "詳細を開く" [ref=e298]: ">"
+        - generic [ref=e300]:
+          - generic [ref=e301]: "仕込C:40 C: 監視 / 流動性不足"
+          - generic [ref=e302]: "売りC:33 C: observe / short_score 47 / risk 1.32ATR / cnt60 0"
+          - generic [ref=e303]: 買い:ボックス持ち合い
+          - generic [ref=e304]: 7下:6
+        - generic [ref=e306]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: "245"
+      - 'button "2502 アサヒグループHD お気に入り追加 候補に追加 除外 詳細を開く 仕込C:40 C: 監視 / 流動性不足 売りC:28 C: observe / short_score 32 / risk 1.73ATR / cnt60 0 買い:ボックス持ち合い 7下:8 日付 26/03/01 終値 1,611" [ref=e309] [cursor=pointer]':
+        - generic [ref=e310]:
+          - generic [ref=e311]:
+            - generic [ref=e312]: "2502"
+            - generic [ref=e313]: アサヒグループHD
+          - generic [ref=e314]:
+            - button "お気に入り追加" [ref=e315]:
+              - img [ref=e316]
+            - button "候補に追加" [ref=e318]: +
+            - button "除外" [ref=e319]: x
+            - button "詳細を開く" [ref=e320]: ">"
+        - generic [ref=e322]:
+          - generic [ref=e323]: "仕込C:40 C: 監視 / 流動性不足"
+          - generic [ref=e324]: "売りC:28 C: observe / short_score 32 / risk 1.73ATR / cnt60 0"
+          - generic [ref=e325]: 買い:ボックス持ち合い
+          - generic [ref=e326]: 7下:8
+        - generic [ref=e328]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 1,611
+      - 'button "2510 NEXT NOMURA-BPI総合 お気に入り追加 候補に追加 除外 詳細を開く 仕込C:40 C: 監視 / 流動性不足 売りC:39 C: observe / short_score 47 / risk 0.92ATR / cnt60 0 買い:ボックス持ち合い 20下:73 7下:31 日付 26/03/01 終値 831" [ref=e331] [cursor=pointer]':
+        - generic [ref=e332]:
+          - generic [ref=e333]:
+            - generic [ref=e334]: "2510"
+            - generic [ref=e335]: NEXT NOMURA-BPI総合
+          - generic [ref=e336]:
+            - button "お気に入り追加" [ref=e337]:
+              - img [ref=e338]
+            - button "候補に追加" [ref=e340]: +
+            - button "除外" [ref=e341]: x
+            - button "詳細を開く" [ref=e342]: ">"
+        - generic [ref=e344]:
+          - generic [ref=e345]: "仕込C:40 C: 監視 / 流動性不足"
+          - generic [ref=e346]: "売りC:39 C: observe / short_score 47 / risk 0.92ATR / cnt60 0"
+          - generic [ref=e347]: 買い:ボックス持ち合い
+          - generic [ref=e348]: 20下:73
+          - generic [ref=e349]: 7下:31
+        - generic [ref=e351]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: "831"
+      - 'button "2678 アスクル お気に入り追加 候補に追加 除外 詳細を開く 仕込C:40 C: 監視 / 流動性不足 売りC:31 C: observe / short_score 43 / risk 1.44ATR / cnt60 0 買い:ボックス持ち合い 20下:18 7下:21 日付 26/03/01 終値 1,220" [ref=e354] [cursor=pointer]':
+        - generic [ref=e355]:
+          - generic [ref=e356]:
+            - generic [ref=e357]: "2678"
+            - generic [ref=e358]: アスクル
+          - generic [ref=e359]:
+            - button "お気に入り追加" [ref=e360]:
+              - img [ref=e361]
+            - button "候補に追加" [ref=e363]: +
+            - button "除外" [ref=e364]: x
+            - button "詳細を開く" [ref=e365]: ">"
+        - generic [ref=e367]:
+          - generic [ref=e368]: "仕込C:40 C: 監視 / 流動性不足"
+          - generic [ref=e369]: "売りC:31 C: observe / short_score 43 / risk 1.44ATR / cnt60 0"
+          - generic [ref=e370]: 買い:ボックス持ち合い
+          - generic [ref=e371]: 20下:18
+          - generic [ref=e372]: 7下:21
+        - generic [ref=e374]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 1,220
+      - 'button "2897 日清食品HD お気に入り追加 候補に追加 除外 詳細を開く 仕込C:40 C: 監視 / 流動性不足 売りC:30 C: observe / short_score 42 / risk 1.88ATR / cnt60 0 買い:ボックス持ち合い 20下:22 日付 26/03/01 終値 2,927" [ref=e377] [cursor=pointer]':
+        - generic [ref=e378]:
+          - generic [ref=e379]:
+            - generic [ref=e380]: "2897"
+            - generic [ref=e381]: 日清食品HD
+          - generic [ref=e382]:
+            - button "お気に入り追加" [ref=e383]:
+              - img [ref=e384]
+            - button "候補に追加" [ref=e386]: +
+            - button "除外" [ref=e387]: x
+            - button "詳細を開く" [ref=e388]: ">"
+        - generic [ref=e390]:
+          - generic [ref=e391]: "仕込C:40 C: 監視 / 流動性不足"
+          - generic [ref=e392]: "売りC:30 C: observe / short_score 42 / risk 1.88ATR / cnt60 0"
+          - generic [ref=e393]: 買い:ボックス持ち合い
+          - generic [ref=e394]: 20下:22
+        - generic [ref=e396]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 2,927
+      - 'button "2931 ユーグレナ お気に入り追加 候補に追加 除外 詳細を開く 仕込C:40 C: 監視 / 流動性不足 売りC:39 C: observe / short_score 41 / risk 0.56ATR / cnt60 0 買い:ボックス持ち合い 20下:33 7下:10 日付 26/03/01 終値 376" [ref=e399] [cursor=pointer]':
+        - generic [ref=e400]:
+          - generic [ref=e401]:
+            - generic [ref=e402]: "2931"
+            - generic [ref=e403]: ユーグレナ
+          - generic [ref=e404]:
+            - button "お気に入り追加" [ref=e405]:
+              - img [ref=e406]
+            - button "候補に追加" [ref=e408]: +
+            - button "除外" [ref=e409]: x
+            - button "詳細を開く" [ref=e410]: ">"
+        - generic [ref=e412]:
+          - generic [ref=e413]: "仕込C:40 C: 監視 / 流動性不足"
+          - generic [ref=e414]: "売りC:39 C: observe / short_score 41 / risk 0.56ATR / cnt60 0"
+          - generic [ref=e415]: 買い:ボックス持ち合い
+          - generic [ref=e416]: 20下:33
+          - generic [ref=e417]: 7下:10
+        - generic [ref=e419]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: "376"
+    - generic:
+      - button "相談バーを展開する"
+      - generic:
+        - generic:
+          - generic: 候補 0件
+        - generic:
+          - button "相談作成" [disabled]
+          - button "コピー" [disabled]
+          - button "閉じる"

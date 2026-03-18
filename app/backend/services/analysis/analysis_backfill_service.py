@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+import sys
 from typing import Any, Callable
 
+from app.backend.core.legacy_analysis_control import (
+    is_legacy_analysis_disabled,
+    legacy_analysis_disabled_log_value,
+    legacy_analysis_disabled_payload,
+)
+from app.db.schema import ensure_legacy_analysis_schema
 from app.db.session import get_conn
 from ..ml import ml_service
+from . import legacy_backfill_runtime
 from .sell_analysis_accumulator import (
     SELL_ANALYSIS_CALC_VERSION,
     accumulate_sell_analysis_for_dates,
@@ -20,6 +28,66 @@ except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from
 logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[int, str], None]
 _SUPPORTED_DATE_TABLES = {"ml_pred_20d", "sell_analysis_daily", "phase_pred_daily"}
+
+
+def _legacy_analysis_coverage_disabled_result(
+    *,
+    lookback_days: int,
+    force_recompute: bool,
+) -> dict[str, Any]:
+    payload = legacy_analysis_disabled_payload(
+        job_type="analysis_backfill",
+        source="analysis_backfill_service.inspect_analysis_backfill_coverage",
+    )
+    payload.update(
+        {
+            "anchor_dt": None,
+            "start_dt": None,
+            "end_dt": None,
+            "lookback_days": int(lookback_days),
+            "target_dates": [],
+            "target_count": 0,
+            "missing_ml_dates": [],
+            "missing_sell_dates": [],
+            "missing_phase_dates": [],
+            "active_ml_model_version": None,
+            "sell_calc_version": SELL_ANALYSIS_CALC_VERSION,
+            "covered": True,
+            "force_recompute": bool(force_recompute),
+        }
+    )
+    return payload
+
+
+def _legacy_analysis_backfill_disabled_result(
+    *,
+    lookback_days: int,
+    force_recompute: bool,
+) -> dict[str, Any]:
+    payload = legacy_analysis_disabled_payload(
+        job_type="analysis_backfill",
+        source="analysis_backfill_service.backfill_missing_analysis_history",
+    )
+    payload.update(
+        {
+            "ok": True,
+            "anchor_dt": None,
+            "start_dt": None,
+            "end_dt": None,
+            "lookback_days": int(lookback_days),
+            "target_dates": [],
+            "missing_ml_total": 0,
+            "missing_ml_selected": 0,
+            "predicted_dates": [],
+            "predicted_rows_total": 0,
+            "sell_refreshed_dates": [],
+            "phase_refreshed_range": None,
+            "errors": [],
+            "message": "Legacy analysis is disabled. External analysis publish is the active path.",
+            "force_recompute": bool(force_recompute),
+        }
+    )
+    return payload
 
 
 def _normalized_date_sql(column_name: str) -> str:
@@ -60,11 +128,11 @@ def _resolve_anchor_dt(conn, anchor_dt: int | None) -> int | None:
 
 def _resolve_target_dates(conn, *, lookback_days: int, anchor_dt: int) -> list[int]:
     rows = conn.execute(
-        """
-        SELECT DISTINCT dt
+        f"""
+        SELECT DISTINCT {_normalized_date_sql('dt')} AS dt_key
         FROM ml_feature_daily
-        WHERE dt <= ?
-        ORDER BY dt DESC
+        WHERE {_normalized_date_sql('dt')} <= ?
+        ORDER BY dt_key DESC
         LIMIT ?
         """,
         [int(anchor_dt), int(lookback_days)],
@@ -99,10 +167,10 @@ def _resolve_target_dates_in_range(conn, *, start_dt: int, end_dt: int) -> list[
     upper = max(int(start_dt), int(end_dt))
     rows = conn.execute(
         f"""
-        SELECT DISTINCT dt
+        SELECT DISTINCT {_normalized_date_sql('dt')} AS dt_key
         FROM ml_feature_daily
         WHERE {_normalized_date_sql('dt')} BETWEEN ? AND ?
-        ORDER BY dt ASC
+        ORDER BY dt_key ASC
         """,
         [int(lower), int(upper)],
     ).fetchall()
@@ -169,7 +237,11 @@ def _query_existing_dates(conn, *, table_name: str, target_dates: list[int]) -> 
         return set()
     placeholders = ", ".join("?" for _ in target_dates)
     rows = conn.execute(
-        f"SELECT DISTINCT dt FROM {table_name} WHERE dt IN ({placeholders})",
+        f"""
+        SELECT DISTINCT {_normalized_date_sql('dt')} AS dt_key
+        FROM {table_name}
+        WHERE {_normalized_date_sql('dt')} IN ({placeholders})
+        """,
         [int(value) for value in target_dates],
     ).fetchall()
     return {int(row[0]) for row in rows if row and row[0] is not None}
@@ -206,9 +278,9 @@ def _query_existing_ml_dates(
     placeholders = ", ".join("?" for _ in target_dates)
     rows = conn.execute(
         f"""
-        SELECT DISTINCT dt
+        SELECT DISTINCT {_normalized_date_sql('dt')} AS dt_key
         FROM ml_pred_20d
-        WHERE dt IN ({placeholders})
+        WHERE {_normalized_date_sql('dt')} IN ({placeholders})
           AND model_version = ?
         """,
         [int(value) for value in target_dates] + [str(active_model_version)],
@@ -227,9 +299,9 @@ def _query_existing_sell_dates(
     try:
         rows = conn.execute(
             f"""
-            SELECT DISTINCT dt
+            SELECT DISTINCT {_normalized_date_sql('dt')} AS dt_key
             FROM sell_analysis_daily
-            WHERE dt IN ({placeholders})
+            WHERE {_normalized_date_sql('dt')} IN ({placeholders})
               AND calc_version = ?
             """,
             [int(value) for value in target_dates] + [SELL_ANALYSIS_CALC_VERSION],
@@ -333,8 +405,17 @@ def inspect_analysis_backfill_coverage(
     force_recompute: bool = False,
 ) -> dict[str, Any]:
     lookback_days = max(1, int(lookback_days))
+    if is_legacy_analysis_disabled():
+        logger.info(
+            "Skipping inspect_analysis_backfill_coverage because %s",
+            legacy_analysis_disabled_log_value(),
+        )
+        return _legacy_analysis_coverage_disabled_result(
+            lookback_days=lookback_days,
+            force_recompute=bool(force_recompute),
+        )
     with get_conn() as conn:
-        ml_service._ensure_ml_schema(conn)
+        ensure_legacy_analysis_schema(conn)
         feature_count_row = conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()
         feature_count = int(feature_count_row[0]) if feature_count_row and feature_count_row[0] is not None else 0
         if feature_count <= 0:
@@ -398,10 +479,19 @@ def backfill_missing_analysis_history(
 ) -> dict[str, Any]:
     lookback_days = max(1, int(lookback_days))
     max_missing_days = None if max_missing_days is None else max(1, int(max_missing_days))
+    if is_legacy_analysis_disabled():
+        logger.info(
+            "Skipping backfill_missing_analysis_history because %s",
+            legacy_analysis_disabled_log_value(),
+        )
+        return _legacy_analysis_backfill_disabled_result(
+            lookback_days=lookback_days,
+            force_recompute=bool(force_recompute),
+        )
 
     _notify(progress_cb, 2, "Checking backfill targets...")
     with get_conn() as conn:
-        ml_service._ensure_ml_schema(conn)
+        ensure_legacy_analysis_schema(conn)
         feature_count_row = conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()
         feature_count = int(feature_count_row[0]) if feature_count_row and feature_count_row[0] is not None else 0
         if feature_count <= 0:
@@ -534,3 +624,51 @@ def backfill_missing_analysis_history(
             f"sell={len(sell_refreshed_dates)} phase={'ok' if phase_refreshed_range else 'skip'}"
         ),
     }
+
+
+def inspect_analysis_backfill_coverage(
+    *,
+    lookback_days: int = 130,
+    anchor_dt: int | None = None,
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+    include_sell: bool = True,
+    include_phase: bool = False,
+    force_recompute: bool = False,
+) -> dict[str, Any]:
+    return legacy_backfill_runtime.inspect_analysis_backfill_coverage(
+        svc=sys.modules[__name__],
+        lookback_days=lookback_days,
+        anchor_dt=anchor_dt,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        include_sell=include_sell,
+        include_phase=include_phase,
+        force_recompute=force_recompute,
+    )
+
+
+def backfill_missing_analysis_history(
+    *,
+    lookback_days: int = 130,
+    anchor_dt: int | None = None,
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+    max_missing_days: int | None = None,
+    include_sell: bool = True,
+    include_phase: bool = False,
+    force_recompute: bool = False,
+    progress_cb: ProgressCallback | None = None,
+) -> dict[str, Any]:
+    return legacy_backfill_runtime.backfill_missing_analysis_history(
+        svc=sys.modules[__name__],
+        lookback_days=lookback_days,
+        anchor_dt=anchor_dt,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        max_missing_days=max_missing_days,
+        include_sell=include_sell,
+        include_phase=include_phase,
+        force_recompute=force_recompute,
+        progress_cb=progress_cb,
+    )

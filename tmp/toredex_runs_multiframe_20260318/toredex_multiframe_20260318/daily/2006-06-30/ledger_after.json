@@ -1,0 +1,87 @@
+{
+  "asOf": "2006-06-30",
+  "metrics": {
+    "asOf": "2006-06-30",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 12975250.651305,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": 469230.243142,
+        "net_cum_return_pct": 4.692302
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": 14230.243142,
+        "net_cum_return_pct": 0.142302
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -440769.756858,
+        "net_cum_return_pct": -4.407698
+      }
+    ],
+    "cum_pnl": 924230.243142,
+    "cum_return_pct": 9.242302,
+    "daily_pnl": -51020.408163,
+    "equity": 10924230.243142,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 924230.243142,
+    "gross_cum_return_pct": 9.242302,
+    "gross_daily_pnl": -51020.408163,
+    "gross_units": 2,
+    "holdings_count": 1,
+    "long_units": 0,
+    "max_drawdown_pct": -0.639934,
+    "net_cum_pnl": 924230.243142,
+    "net_cum_return_pct": 9.242302,
+    "net_daily_pnl": -51020.408163,
+    "net_exposure_pct": -20.0,
+    "net_units": -2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -0.639934,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 592.35365,
+        "worstMonthPct": -1.0863630405431812
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "toredex_multiframe_20260318",
+    "short_units": 2,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 910000000.0,
+    "turnover_notional_daily": 0.0,
+    "turnover_pct_daily": 0.0
+  },
+  "positions": [
+    {
+      "avgPrice": 1568.0,
+      "holdingDays": 2,
+      "openedAt": "2006-06-29",
+      "pnlPct": -2.5510204081632653,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1306",
+      "units": 2
+    }
+  ],
+  "seasonId": "toredex_multiframe_20260318"
+}

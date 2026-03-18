@@ -1,0 +1,290 @@
+{
+  "asOf": "2019-05-14",
+  "configHash": "a1f27d7d0c379a5624463feb7d72defc5c93b677ca716722c536942a2ac71b3c",
+  "meta": {
+    "noFutureLeakOk": true,
+    "predDtBuy": null,
+    "predDtSell": null,
+    "requestedAsOf": "2019-05-14"
+  },
+  "mode": "LIVE",
+  "policyVersion": "toredex.v8",
+  "positions": [
+    {
+      "avgPrice": 21402.0,
+      "holdingDays": 3,
+      "openedAt": "2019-05-09",
+      "pnlPct": -1.5652742734323895,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1001",
+      "units": 2
+    },
+    {
+      "avgPrice": 1618.0,
+      "holdingDays": 2,
+      "openedAt": "2019-05-10",
+      "pnlPct": 0.8034610630407911,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1306",
+      "units": 2
+    },
+    {
+      "avgPrice": 1603.0,
+      "holdingDays": 2,
+      "openedAt": "2019-05-10",
+      "pnlPct": 0.8733624454148471,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1308",
+      "units": 2
+    }
+  ],
+  "rankings": {
+    "buy": [
+      {
+        "changePct": -0.005851540748430938,
+        "close": 21067.0,
+        "entryScore": 0.5338078896233416,
+        "ev": -0.005851540748430938,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 2769771946.9,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5205167094770523,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2019-05-14",
+        "ticker": "1001",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 7.0,
+          "monthlyBoxPos": 0.47478143913920645,
+          "monthlyBoxRangePct": 0.1513100992113966,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6021795664387019,
+          "monthlyBreakoutUpProb": 0.43169734529890647,
+          "monthlyRangePos": 0.2564539698002923,
+          "monthlyRangeProb": 0.5836268630687913,
+          "monthlyRangeWidth": 0.17023217247097844,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5205167094770523,
+          "weeklyBreakoutUpProb": 0.6332901614607379,
+          "weeklyRangeProb": 0.712203335388645,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.6332901614607379
+      },
+      {
+        "changePct": -0.003136762860727729,
+        "close": 1589.0,
+        "entryScore": 0.5227316583760743,
+        "ev": -0.003136762860727729,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 333232.55,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5771474786532789,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2019-05-14",
+        "ticker": "1308",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 7.0,
+          "monthlyBoxPos": 0.425531914893617,
+          "monthlyBoxRangePct": 0.15782404298186703,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6204421728356004,
+          "monthlyBreakoutUpProb": 0.3988825398080776,
+          "monthlyRangePos": 0.1834862385321101,
+          "monthlyRangeProb": 0.5239504244437414,
+          "monthlyRangeWidth": 0.17618534482758622,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5771474786532789,
+          "weeklyBreakoutUpProb": 0.616920205926006,
+          "weeklyRangeProb": 0.8089945408877592,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.616920205926006
+      },
+      {
+        "changePct": -0.0037243947858473,
+        "close": 1605.0,
+        "entryScore": 0.5211630878445825,
+        "ev": -0.0037243947858473,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 3262012.1,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5771369869866556,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2019-05-14",
+        "ticker": "1306",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 7.0,
+          "monthlyBoxPos": 0.4152542372881356,
+          "monthlyBoxRangePct": 0.15660252156602522,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6239529303835434,
+          "monthlyBreakoutUpProb": 0.39735718570269224,
+          "monthlyRangePos": 0.1762917933130699,
+          "monthlyRangeProb": 0.5200875057337426,
+          "monthlyRangeWidth": 0.17537313432835822,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5771369869866556,
+          "weeklyBreakoutUpProb": 0.6164628296832848,
+          "weeklyRangeProb": 0.809164958062881,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.6164628296832848
+      }
+    ],
+    "sell": [
+      {
+        "changePct": -0.0037243947858473,
+        "close": 1605.0,
+        "entryScore": 0.5572291184221169,
+        "ev": -0.0037243947858473,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 3262012.1,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5771369869866556,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2019-05-14",
+        "ticker": "1306",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 7.0,
+          "monthlyBoxPos": 0.4152542372881356,
+          "monthlyBoxRangePct": 0.15660252156602522,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6239529303835434,
+          "monthlyBreakoutUpProb": 0.39735718570269224,
+          "monthlyRangePos": 0.1762917933130699,
+          "monthlyRangeProb": 0.5200875057337426,
+          "monthlyRangeWidth": 0.17537313432835822,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5771369869866556,
+          "weeklyBreakoutUpProb": 0.6164628296832848,
+          "weeklyRangeProb": 0.809164958062881,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.5771369869866556
+      },
+      {
+        "changePct": -0.003136762860727729,
+        "close": 1589.0,
+        "entryScore": 0.5555254732313466,
+        "ev": -0.003136762860727729,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 333232.55,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5771474786532789,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2019-05-14",
+        "ticker": "1308",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 7.0,
+          "monthlyBoxPos": 0.425531914893617,
+          "monthlyBoxRangePct": 0.15782404298186703,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6204421728356004,
+          "monthlyBreakoutUpProb": 0.3988825398080776,
+          "monthlyRangePos": 0.1834862385321101,
+          "monthlyRangeProb": 0.5239504244437414,
+          "monthlyRangeWidth": 0.17618534482758622,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5771474786532789,
+          "weeklyBreakoutUpProb": 0.616920205926006,
+          "weeklyRangeProb": 0.8089945408877592,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.5771474786532789
+      },
+      {
+        "changePct": -0.005851540748430938,
+        "close": 21067.0,
+        "entryScore": 0.5248136261636284,
+        "ev": -0.005851540748430938,
+        "ev20Net": null,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 2769771946.9,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5205167094770523,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2019-05-14",
+        "ticker": "1001",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 7.0,
+          "monthlyBoxPos": 0.47478143913920645,
+          "monthlyBoxRangePct": 0.1513100992113966,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6021795664387019,
+          "monthlyBreakoutUpProb": 0.43169734529890647,
+          "monthlyRangePos": 0.2564539698002923,
+          "monthlyRangeProb": 0.5836268630687913,
+          "monthlyRangeWidth": 0.17023217247097844,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5205167094770523,
+          "weeklyBreakoutUpProb": 0.6332901614607379,
+          "weeklyRangeProb": 0.712203335388645,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.5205167094770523
+      }
+    ]
+  },
+  "seasonId": "toredex_multiframe_20260318",
+  "universe": [
+    "1001",
+    "1306",
+    "1308"
+  ]
+}

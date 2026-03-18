@@ -37,8 +37,8 @@ export type Ticker = {
   boxState?: "NONE" | "IN_BOX" | "JUST_BREAKOUT" | "BREAKOUT_UP" | "BREAKOUT_DOWN";
   boxEndMonth?: string | null;
   breakoutMonth?: string | null;
-  boxActive?: boolean;
-  hasBox?: boolean;
+  boxActive?: boolean | null;
+  hasBox?: boolean | null;
   // Buy Fields
   buyState?: string | null;
   buyPatternName?: string | null;
@@ -56,7 +56,7 @@ export type Ticker = {
   buyTimingScore?: number | null;
   buyRiskScore?: number | null;
   buyStateReason?: string | null;
-  buyEligible?: boolean;
+  buyEligible?: boolean | null;
   buyOverextended?: boolean | null;
   buySignalRecencyDays?: number | null;
   buyRiskAtr?: number | null;
@@ -110,7 +110,7 @@ export type Ticker = {
   shortPriorityReasons?: string[] | null;
   shortHardExcluded?: boolean | null;
   shortHardExcludeReasons?: string[] | null;
-  shortEligible?: boolean;
+  shortEligible?: boolean | null;
   shortEnvScore?: number | null;
   shortRiskScore?: number | null;
   shortType?: "A" | "B" | null;
@@ -141,6 +141,14 @@ export type EventsMeta = {
   dataCoverage?: {
     rightsMaxDate?: string | null;
   };
+};
+
+export type ListSnapshotMeta = {
+  stale: boolean;
+  asOf: string | null;
+  updatedAt: string | null;
+  generation: string | null;
+  lastError: string | null;
 };
 
 export type GridTimeframe = "monthly" | "weekly" | "daily";
@@ -245,6 +253,9 @@ export type StoreState = {
   barsLoading: LoadingMap;
   barsStatus: StatusMap;
   loadingList: boolean;
+  listLoadError: string | null;
+  listSnapshotMeta: ListSnapshotMeta | null;
+  listLoadedAt: number | null;
   backendReady: boolean;
   lastApiError: ApiErrorInfo | null;
   eventsMeta: EventsMeta | null;
@@ -253,6 +264,7 @@ export type StoreState = {
   compareMaSettings: MaSettings;
   settings: Settings;
   setLastApiError: (info: ApiErrorInfo | null) => void;
+  ensureListLoaded: () => Promise<void>;
   loadList: () => Promise<void>;
   loadFavorites: () => Promise<void>;
   replaceFavorites: (codes: string[]) => void;

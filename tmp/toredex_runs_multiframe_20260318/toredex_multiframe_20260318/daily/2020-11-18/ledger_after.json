@@ -1,0 +1,87 @@
+{
+  "asOf": "2020-11-18",
+  "metrics": {
+    "asOf": "2020-11-18",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 9034957.470822,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -848042.529178,
+        "net_cum_return_pct": -8.480425
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -2731042.529178,
+        "net_cum_return_pct": -27.310425
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -4614042.529178,
+        "net_cum_return_pct": -46.140425
+      }
+    ],
+    "cum_pnl": 1034957.470822,
+    "cum_return_pct": 10.349575,
+    "daily_pnl": -24554.625457,
+    "equity": 11034957.470822,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 1034957.470822,
+    "gross_cum_return_pct": 10.349575,
+    "gross_daily_pnl": -24554.625457,
+    "gross_units": 2,
+    "holdings_count": 1,
+    "long_units": 2,
+    "max_drawdown_pct": -1.406464,
+    "net_cum_pnl": 1034957.470822,
+    "net_cum_return_pct": 10.349575,
+    "net_daily_pnl": -24554.625457,
+    "net_exposure_pct": 20.0,
+    "net_units": 2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -1.406464,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 656.210542,
+        "worstMonthPct": -2.0366229530532354
+      },
+      "pass": false,
+      "reason": "TURNOVER(656.2105> 600.0000)",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": false,
+    "risk_gate_reason": "TURNOVER(656.2105> 600.0000)",
+    "season_id": "toredex_multiframe_20260318",
+    "short_units": 0,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 3766000000.0,
+    "turnover_notional_daily": 4000000.0,
+    "turnover_pct_daily": 36.167961
+  },
+  "positions": [
+    {
+      "avgPrice": 1769.0,
+      "holdingDays": 1,
+      "openedAt": "2020-11-18",
+      "pnlPct": 0.0,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1308",
+      "units": 2
+    }
+  ],
+  "seasonId": "toredex_multiframe_20260318"
+}

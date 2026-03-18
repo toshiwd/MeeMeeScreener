@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "db_paths": [
+      ".local\\meemee\\research_db\\stocks_research_20160226_20191231.duckdb",
+      ".local\\meemee\\research_db\\stocks_research_20200101_20221231.duckdb",
+      ".local\\meemee\\research_db\\stocks_research_20230101_20260226.duckdb",
+      "data\\stocks.duckdb"
+    ],
+    "codes": 685,
+    "date_min": "2016-05-02",
+    "date_max": "2026-02-26",
+    "round_trip_cost": 0.002,
+    "min_samples": 120,
+    "study_rows": 409953
+  },
+  "pattern_study": {
+    "pattern_2": [
+      {
+        "regime_key": "up_init|wk_up|neutral|below20|above60|7d_1_3|20d_1_3|atr_mid|vol_mid|box_upper",
+        "pattern_2": "DL-N-NG-LB>DL-N-NG-LB",
+        "n": 171,
+        "mean_ret_3d": 0.0020326488395437897,
+        "mean_ret_5d": 0.01005230734692524,
+        "mean_ret_10d": 0.01724737201171841,
+        "mean_ret_20d": 0.027526862142758828,
+        "win_rate_10d": 0.5730994152046783,
+        "mfe_20d": 0.07922814829633887,
+        "mae_20d": -0.04416529573041086,
+        "up5_before_dn5_20d": 0.4678362573099415,
+        "dn5_before_up5_20d": 0.2807017543859649,
+        "regime_n": 4218,
+        "regime_mean": 0.004558151089003357,
+        "regime_win_rate": 0.5241820768136558,
+        "delta_mean_10d_vs_regime": 0.012689220922715055,
+        "pattern_len": 2
+      },
+      {
+        "regime_key": "up_init|wk_up|neutral|below20|above60|7d_1_3|20d_1_3|atr_mid|vol_mid|box_na",
+        "pattern_2": "DL-N-NG-LB>DL-N-NG-LB",
+        "n": 193,
+        "mean_ret_3d": 0.011726755838410706,
+        "mean_ret_5d": 0.012297254383065085,
+        "mean_ret_10d": 0.02189618772613213,
+        "mean_ret_20d": 0.03394707983626035,
+        "win_rate_10d": 0.6373056994818653,
+        "mfe_20d": 0.10808349183584831,
+        "mae_20d": -0.06118881480336425,
+        "up5_before_dn5_20d": 0.6269430051813472,
+        "dn5_before_up5_20d": 0.3316062176165803,
+        "regime_n": 4089,
+        "regime_mean": 0.013103762734120578,
+        "regime_win_rate": 0.549767669356811,
+        "delta_mean_10d_vs_regime": 0.008792424992011553,
+        "pattern_len": 2
+      }
+    ],
+    "pattern_3": [],
+    "pattern_4": []
+  }
+}

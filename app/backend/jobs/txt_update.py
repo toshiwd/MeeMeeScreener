@@ -3,6 +3,7 @@ import os
 import datetime
 from app.backend.infra.panrolling.client import PanRollingClient
 from app.backend.infra.files.config_repo import ConfigRepository
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 # We will reuse the existing ingest logic for now as it's complex to refactor in one go
 # Assuming ingest_txt is still available or moved. 
 # For this step, we keep the import but might need to adjust path if we moved it.
@@ -72,9 +73,12 @@ def run_txt_update_workflow(
         raise
 
     # 3. Update Phase predictions
-    logger.info("Starting Phase batch...")
-    phase_dt = _run_phase_batch_latest()
-    logger.info("Phase batch completed (dt=%s)", phase_dt)
+    if is_legacy_analysis_disabled():
+        logger.info("Skipping legacy phase batch because external analysis is active.")
+    else:
+        logger.info("Starting Phase batch...")
+        phase_dt = _run_phase_batch_latest()
+        logger.info("Phase batch completed (dt=%s)", phase_dt)
     
     # 4. Update State
     state = config_repo.load_update_state()

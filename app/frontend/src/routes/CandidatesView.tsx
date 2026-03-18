@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import ChartListCard from "../components/ChartListCard";
 import Toast from "../components/Toast";
@@ -21,7 +22,73 @@ type CandidateItem = {
 
 type CandidateSortKey = "code" | "change" | "scoreUp" | "scoreDown";
 const CANDIDATES_VIEW_STATE_KEY = "candidatesViewState";
-const SCREENSHOT_LIMIT = 10;
+
+type StateEvalRow = {
+  code: string;
+  side: string;
+  holding_band?: string;
+  strategy_tags?: string;
+  decision_3way: string;
+  confidence: number | null;
+  reason_text_top3: string;
+};
+
+type TrendRow = {
+  side: string;
+  holding_band: string;
+  strategy_tag: string;
+  expectancy_delta: number;
+  risk_delta: number;
+};
+
+type TrendSummaryResponse = {
+  trends?: {
+    improving?: TrendRow[];
+    weakening?: TrendRow[];
+    persistent_risk?: TrendRow[];
+  };
+};
+
+const parseReasonTexts = (value: string | null | undefined): string[] => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+};
+
+const parseStrategyTags = (value: string | null | undefined): string[] => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+};
+
+const buildTrendReason = (trend: { label: string } | null | undefined) => {
+  if (!trend) return null;
+  if (trend.label === "Improving") return "Trend improving";
+  if (trend.label === "Weakening") return "Trend weakening";
+  if (trend.label === "Persistent Risk") return "Persistent risk";
+  return trend.label;
+};
+
+const classifyPriorReason = (reason: string) => {
+  if (/^Combo strength:/i.test(reason)) {
+    return { label: reason.replace(/^Combo strength:\s*/i, ""), tone: "combo" as const };
+  }
+  if (/^Historically strong:/i.test(reason)) {
+    return { label: reason.replace(/^Historically strong:\s*/i, ""), tone: "prior-strong" as const };
+  }
+  if (/^Historical caution:/i.test(reason)) {
+    return { label: reason.replace(/^Historical caution:\s*/i, ""), tone: "prior-caution" as const };
+  }
+  return null;
+};
 
 export default function CandidatesView() {
   const location = useLocation();
@@ -30,7 +97,7 @@ export default function CandidatesView() {
   const keepList = useStore((state) => state.keepList);
   const removeKeep = useStore((state) => state.removeKeep);
   const tickers = useStore((state) => state.tickers);
-  const loadList = useStore((state) => state.loadList);
+  const ensureListLoaded = useStore((state) => state.ensureListLoaded);
   const loadingList = useStore((state) => state.loadingList);
   const ensureBarsForVisible = useStore((state) => state.ensureBarsForVisible);
   const barsCache = useStore((state) => state.barsCache);
@@ -60,8 +127,9 @@ export default function CandidatesView() {
   const [consultText, setConsultText] = useState("");
   const [consultSort, setConsultSort] = useState<ConsultationSort>("score");
   const [consultBusy, setConsultBusy] = useState(false);
-  const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
+  const [stateEvalRows, setStateEvalRows] = useState<StateEvalRow[]>([]);
+  const [trendSummary, setTrendSummary] = useState<TrendSummaryResponse | null>(null);
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
   const consultPaddingClass = consultVisible
@@ -71,7 +139,7 @@ export default function CandidatesView() {
     : "";
 
   // Use the screenshot hook
-  const { generateScreenshots } = useConsultScreenshot();
+  const { generateScreenshots, isProcessing: screenshotBusy } = useConsultScreenshot();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -184,8 +252,33 @@ export default function CandidatesView() {
   useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
-    loadList().catch(() => setToastMessage("候補一覧の読み込みに失敗しました。"));
-  }, [backendReady, loadList, tickers.length]);
+    ensureListLoaded().catch(() => setToastMessage("候補一覧の読み込みに失敗しました。"));
+  }, [backendReady, ensureListLoaded, tickers.length]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    let active = true;
+    const run = async () => {
+      try {
+        const [stateEvalResponse, trendResponse] = await Promise.all([
+          api.get<{ rows?: StateEvalRow[] }>("/analysis-bridge/state-eval", { params: { limit: 200 } }),
+          api.get<TrendSummaryResponse>("/analysis-bridge/internal/state-eval-trends", { params: { lookback: 14, limit: 20 } })
+        ]);
+        if (!active) return;
+        setStateEvalRows(Array.isArray(stateEvalResponse.data?.rows) ? stateEvalResponse.data.rows : []);
+        setTrendSummary(trendResponse.data ?? null);
+      } catch {
+        if (active) {
+          setStateEvalRows([]);
+          setTrendSummary(null);
+        }
+      }
+    };
+    void run();
+    return () => {
+      active = false;
+    };
+  }, [backendReady]);
 
   const tickerMap = useMemo(() => {
     return new Map(tickers.map((ticker) => [ticker.code, ticker]));
@@ -219,6 +312,24 @@ export default function CandidatesView() {
     });
     return map;
   }, [searchResults, barsCache, listTimeframe]);
+  const stateEvalMap = useMemo(
+    () => new Map(stateEvalRows.map((row) => [row.code, row])),
+    [stateEvalRows]
+  );
+  const trendTagMap = useMemo(() => {
+    const map = new Map<string, { label: string; tone: "improving" | "weakening" | "risk" }>();
+    const improving = trendSummary?.trends?.improving ?? [];
+    const weakening = trendSummary?.trends?.weakening ?? [];
+    const persistentRisk = trendSummary?.trends?.persistent_risk ?? [];
+    improving.forEach((row) => map.set(row.strategy_tag, { label: "Improving", tone: "improving" }));
+    weakening.forEach((row) => {
+      if (!map.has(row.strategy_tag)) map.set(row.strategy_tag, { label: "Weakening", tone: "weakening" });
+    });
+    persistentRisk.forEach((row) => {
+      if (!map.has(row.strategy_tag)) map.set(row.strategy_tag, { label: "Persistent Risk", tone: "risk" });
+    });
+    return map;
+  }, [trendSummary]);
 
   const signalMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
@@ -313,14 +424,6 @@ export default function CandidatesView() {
 
   const consultTargets = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
 
-  const searchCodes = useMemo(() => searchResults.map((item) => item.code), [searchResults]);
-
-  useEffect(() => {
-    if (!backendReady) return;
-    if (!searchCodes.length) return;
-    ensureBarsForVisible(listTimeframe, searchCodes, "candidates");
-  }, [backendReady, ensureBarsForVisible, searchCodes, listTimeframe]);
-
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && consultVisible) {
@@ -388,6 +491,14 @@ export default function CandidatesView() {
     consultSort,
     tickerMap
   ]);
+
+  const handleEnsureVisibleItem = useCallback(
+    (code: string) => {
+      if (!backendReady) return;
+      void ensureBarsForVisible(listTimeframe, [code], "candidates-visible");
+    },
+    [backendReady, ensureBarsForVisible, listTimeframe]
+  );
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
@@ -492,6 +603,14 @@ export default function CandidatesView() {
             const payload = barsCache[listTimeframe]?.[item.code] ?? null;
             const status = barsStatus[listTimeframe][item.code];
             const ticker = tickerMap.get(item.code);
+            const stateEval = stateEvalMap.get(item.code);
+            const trendTag = parseStrategyTags(stateEval?.strategy_tags).map((tag) => trendTagMap.get(tag)).find(Boolean);
+            const displayReasons = [...parseReasonTexts(stateEval?.reason_text_top3).slice(0, 2)];
+            const trendReason = buildTrendReason(trendTag);
+            const priorReason = displayReasons.map(classifyPriorReason).find(Boolean) ?? null;
+            if (trendReason && !displayReasons.includes(trendReason)) {
+              displayReasons.push(trendReason);
+            }
             return (
               <ChartListCard
                 key={item.code}
@@ -505,7 +624,33 @@ export default function CandidatesView() {
                 eventRightsDate={ticker?.eventRightsDate ?? null}
                 densityKey={densityKey}
                 signals={signalMap.get(item.code) ?? []}
+                annotation={
+                  stateEval ? (
+                    <div className="candidate-ai-annotation">
+                      <span className={`candidate-ai-badge is-${String(stateEval.decision_3way || "wait")}`}>
+                        {String(stateEval.decision_3way || "wait").toUpperCase()}
+                      </span>
+                      <span className="candidate-ai-confidence">
+                        AI {typeof stateEval.confidence === "number" ? `${Math.round(stateEval.confidence * 100)}%` : "--"}
+                      </span>
+                      {priorReason ? (
+                        <span className={`candidate-ai-prior-badge is-${priorReason.tone}`}>
+                          {priorReason.tone === "combo" ? "COMBO" : priorReason.tone === "prior-caution" ? "CAUTION" : "PRIOR"} {priorReason.label}
+                        </span>
+                      ) : null}
+                      <div className="candidate-ai-reasons">
+                        {displayReasons.map((reason) => (
+                          <span key={`${item.code}:${reason}`} className="candidate-ai-reason">
+                            {reason}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null
+                }
                 onOpenDetail={handleOpenDetail}
+                deferUntilInView
+                onEnterView={handleEnsureVisibleItem}
                 phaseBody={ticker?.bodyScore ?? null}
                 phaseEarly={ticker?.earlyScore ?? null}
                 phaseLate={ticker?.lateScore ?? null}

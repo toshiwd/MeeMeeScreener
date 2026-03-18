@@ -1,0 +1,107 @@
+{
+  "asOf": "2005-01-05",
+  "metrics": {
+    "asOf": "2005-01-05",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 12523069.62542,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": 148200.089189,
+        "net_cum_return_pct": 1.482001
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -160799.910811,
+        "net_cum_return_pct": -1.607999
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -469799.910811,
+        "net_cum_return_pct": -4.697999
+      }
+    ],
+    "cum_pnl": 457200.089189,
+    "cum_return_pct": 4.572001,
+    "daily_pnl": 12802.330478,
+    "equity": 10457200.089189,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 457200.089189,
+    "gross_cum_return_pct": 4.572001,
+    "gross_daily_pnl": 12802.330478,
+    "gross_units": 6,
+    "holdings_count": 3,
+    "long_units": 2,
+    "max_drawdown_pct": -0.639934,
+    "net_cum_pnl": 457200.089189,
+    "net_cum_return_pct": 4.572001,
+    "net_daily_pnl": 12802.330478,
+    "net_exposure_pct": -20.0,
+    "net_units": -2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -0.639934,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 571.457534,
+        "worstMonthPct": -1.0863630405431812
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "toredex_multiframe_20260318",
+    "short_units": 4,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 618000000.0,
+    "turnover_notional_daily": 0.0,
+    "turnover_pct_daily": 0.0
+  },
+  "positions": [
+    {
+      "avgPrice": 11103.0,
+      "holdingDays": 10,
+      "openedAt": "2004-12-20",
+      "pnlPct": -3.0081959830676395,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1001",
+      "units": 2
+    },
+    {
+      "avgPrice": 1134.0,
+      "holdingDays": 8,
+      "openedAt": "2004-12-22",
+      "pnlPct": 1.8518518518518516,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1306",
+      "units": 2
+    },
+    {
+      "avgPrice": 1123.0,
+      "holdingDays": 8,
+      "openedAt": "2004-12-22",
+      "pnlPct": -2.13713268032057,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1308",
+      "units": 2
+    }
+  ],
+  "seasonId": "toredex_multiframe_20260318"
+}

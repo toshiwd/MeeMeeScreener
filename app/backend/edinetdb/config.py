@@ -30,6 +30,13 @@ def _to_int(name: str, default: int, minimum: int = 1) -> int:
     return max(minimum, value)
 
 
+def _to_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _default_daily_budget(now_jst: datetime) -> int:
     return 100 if now_jst.date() >= _FREE_CUTOVER_DATE else 1000
 
@@ -61,6 +68,9 @@ class EdinetdbConfig:
     api_keys: tuple[str, ...]
     base_url: str
     daily_budget: int
+    daily_watch_analysis_enabled: bool
+    daily_watch_analysis_reserve: int
+    daily_watch_analysis_max_calls: int
     text_years_max: int
     raw_dir: Path
     db_path: Path
@@ -102,6 +112,9 @@ def load_config(now: datetime | None = None) -> EdinetdbConfig:
         api_keys=_load_api_keys(),
         base_url="https://edinetdb.jp/v1",
         daily_budget=daily_budget,
+        daily_watch_analysis_enabled=_to_bool("EDINETDB_DAILY_WATCH_ANALYSIS_ENABLED", True),
+        daily_watch_analysis_reserve=_to_int("EDINETDB_DAILY_WATCH_ANALYSIS_RESERVE", 12, minimum=0),
+        daily_watch_analysis_max_calls=_to_int("EDINETDB_DAILY_WATCH_ANALYSIS_MAX_CALLS", 8, minimum=0),
         text_years_max=_to_int("EDINETDB_TEXT_YEARS_MAX", 6, minimum=1),
         raw_dir=_resolve_raw_dir(),
         db_path=_resolve_db_path(),

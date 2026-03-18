@@ -1,0 +1,107 @@
+{
+  "asOf": "2022-11-30",
+  "metrics": {
+    "asOf": "2022-11-30",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 8921833.22845,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -1243440.233664,
+        "net_cum_return_pct": -12.434402
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -3448440.233664,
+        "net_cum_return_pct": -34.484402
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -5653440.233664,
+        "net_cum_return_pct": -56.534402
+      }
+    ],
+    "cum_pnl": 961559.766336,
+    "cum_return_pct": 9.615598,
+    "daily_pnl": -15449.690593,
+    "equity": 10961559.766336,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 961559.766336,
+    "gross_cum_return_pct": 9.615598,
+    "gross_daily_pnl": -15449.690593,
+    "gross_units": 6,
+    "holdings_count": 3,
+    "long_units": 4,
+    "max_drawdown_pct": -1.406464,
+    "net_cum_pnl": 961559.766336,
+    "net_cum_return_pct": 9.615598,
+    "net_daily_pnl": -15449.690593,
+    "net_exposure_pct": 20.0,
+    "net_units": 2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -1.406464,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 803.325335,
+        "worstMonthPct": -2.0366229530532354
+      },
+      "pass": false,
+      "reason": "TURNOVER(803.3253> 600.0000)",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": false,
+    "risk_gate_reason": "TURNOVER(803.3253> 600.0000)",
+    "season_id": "toredex_multiframe_20260318",
+    "short_units": 2,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 4410000000.0,
+    "turnover_notional_daily": 0.0,
+    "turnover_pct_daily": 0.0
+  },
+  "positions": [
+    {
+      "avgPrice": 27944.0,
+      "holdingDays": 7,
+      "openedAt": "2022-11-21",
+      "pnlPct": -0.08588605782994561,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1001",
+      "units": 2
+    },
+    {
+      "avgPrice": 2013.5,
+      "holdingDays": 17,
+      "openedAt": "2022-11-07",
+      "pnlPct": 2.6322324310901415,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1306",
+      "units": 2
+    },
+    {
+      "avgPrice": 2053.5,
+      "holdingDays": 6,
+      "openedAt": "2022-11-22",
+      "pnlPct": -0.5600194789383979,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1308",
+      "units": 2
+    }
+  ],
+  "seasonId": "toredex_multiframe_20260318"
+}
