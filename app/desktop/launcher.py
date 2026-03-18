@@ -22,6 +22,8 @@ _repo_root = Path(__file__).resolve().parents[2]
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
+from app.desktop import legacy_ml_seed
 from app.desktop.runtime_paths import base_path, local_app_dir, resolve_path
 
 APP_NAME = "MeeMeeScreener"
@@ -138,6 +140,24 @@ def _can_bind_port(port: int) -> bool:
         return True
     except OSError:
         return False
+
+
+def _wait_for_port_release(port: int, timeout_seconds: float = 0.4) -> bool:
+    deadline = time.monotonic() + max(0.05, float(timeout_seconds))
+    while time.monotonic() < deadline:
+        if _can_bind_port(port):
+            return True
+        time.sleep(0.05)
+    return _can_bind_port(port)
+
+
+def _health_poll_sleep_seconds(started_at: float) -> float:
+    elapsed = time.monotonic() - started_at
+    if elapsed < 1.0:
+        return 0.05
+    if elapsed < 3.0:
+        return 0.1
+    return 0.2
 
 
 def _tasklist_rows(*, image_name: str | None = None, pid: int | None = None) -> list[list[str]]:
@@ -465,7 +485,7 @@ def _wait_for_health_detail(
             rc = proc.poll()
             if rc is not None:
                 proc_exit_detail = f"backend_exit={rc}"
-        time.sleep(0.2)
+        time.sleep(_health_poll_sleep_seconds(started_at))
     if last_err is not None:
         print(f"[launcher] Health check failed for {url}: {last_err}")
     return False, (last_detail or proc_exit_detail or (str(last_err) if last_err else None))
@@ -978,125 +998,16 @@ def _latest_model_version(model_dir: Path) -> str | None:
 
 
 def _has_active_ml_model(stocks_db: str) -> bool:
-    if not os.path.isfile(stocks_db):
-        return False
-    try:
-        import duckdb
-    except Exception:
-        return False
-    try:
-        with duckdb.connect(stocks_db) as conn:
-            row = conn.execute(
-                "SELECT 1 FROM ml_model_registry WHERE is_active = TRUE LIMIT 1"
-            ).fetchone()
-        return row is not None
-    except Exception:
-        return False
+    return legacy_ml_seed.has_active_ml_model(stocks_db)
 
 
 def _register_seed_model(stocks_db: str, model_dir: Path, model_version: str) -> None:
-    try:
-        import duckdb
-    except Exception:
-        return
-    cls_path = model_dir / f"{model_version}_cls.txt"
-    reg_path = model_dir / f"{model_version}_reg.txt"
-    if (not cls_path.exists()) or (not reg_path.exists()):
-        return
-
-    turn_up_path = model_dir / f"{model_version}_turn_up.txt"
-    turn_down_path = model_dir / f"{model_version}_turn_down.txt"
-
-    horizon_models: dict[str, dict[str, str | None]] = {}
-    for horizon in (5, 10, 20):
-        cls_h = model_dir / f"{model_version}_cls_{horizon}.txt"
-        reg_h = model_dir / f"{model_version}_reg_{horizon}.txt"
-        turn_down_h = model_dir / f"{model_version}_turn_down_{horizon}.txt"
-        horizon_models[str(horizon)] = {
-            "cls_model_path": str(cls_h) if cls_h.exists() else None,
-            "reg_model_path": str(reg_h) if reg_h.exists() else None,
-            "turn_down_model_path": str(turn_down_h) if turn_down_h.exists() else None,
-        }
-
-    artifact = {
-        "cls_model_path": str(cls_path),
-        "reg_model_path": str(reg_path),
-        "turn_up_model_path": str(turn_up_path) if turn_up_path.exists() else None,
-        "turn_down_model_path": str(turn_down_path) if turn_down_path.exists() else None,
-        "horizon_models": horizon_models,
-    }
-
-    # Keep model registration portable across machines.
-    model_key = "ml_ev20_simple_v1"
-    objective = "ret20_regression_with_p_up_gate"
-    feature_version = 2
-    label_version = 3
-
-    try:
-        with duckdb.connect(stocks_db) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ml_model_registry (
-                    model_version TEXT PRIMARY KEY,
-                    model_key TEXT,
-                    objective TEXT,
-                    feature_version INTEGER,
-                    label_version INTEGER,
-                    train_start_dt INTEGER,
-                    train_end_dt INTEGER,
-                    metrics_json TEXT,
-                    artifact_path TEXT,
-                    n_train INTEGER,
-                    created_at TIMESTAMP,
-                    is_active BOOLEAN
-                );
-                """
-            )
-            row = conn.execute(
-                "SELECT model_version FROM ml_model_registry WHERE is_active = TRUE LIMIT 1"
-            ).fetchone()
-            if row:
-                return
-            conn.execute(
-                "UPDATE ml_model_registry SET is_active = FALSE WHERE model_key = ?",
-                [model_key],
-            )
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO ml_model_registry (
-                    model_version,
-                    model_key,
-                    objective,
-                    feature_version,
-                    label_version,
-                    train_start_dt,
-                    train_end_dt,
-                    metrics_json,
-                    artifact_path,
-                    n_train,
-                    created_at,
-                    is_active
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, TRUE)
-                """,
-                [
-                    model_version,
-                    model_key,
-                    objective,
-                    feature_version,
-                    label_version,
-                    None,
-                    None,
-                    "{}",
-                    json.dumps(artifact, ensure_ascii=False),
-                    0,
-                ],
-            )
-    except Exception:
-        return
+    legacy_ml_seed.register_seed_model(stocks_db, model_dir, model_version)
 
 
 def _seed_ml_models(paths: dict[str, str]) -> None:
+    if is_legacy_analysis_disabled():
+        return
     seed_dir = Path(resolve_path("seed", "models", "ml"))
     if not seed_dir.is_dir():
         return
@@ -1816,7 +1727,7 @@ def main() -> None:
             elif locked_backend_pid is not None and _is_backend_process(locked_backend_pid):
                 if _terminate_pid(locked_backend_pid):
                     print(f"[launcher] Terminated stale locked backend PID={locked_backend_pid}")
-                    time.sleep(0.4)
+                    _wait_for_port_release(final_port)
             if not _can_bind_port(final_port):
                 existing_ok, existing_err = _wait_for_health_detail(final_port, 3)
                 if existing_ok:
@@ -1830,7 +1741,7 @@ def main() -> None:
                 else:
                     killed = _terminate_unhealthy_backend_on_port(final_port)
                     if killed > 0:
-                        time.sleep(0.4)
+                        _wait_for_port_release(final_port)
                     if _can_bind_port(final_port):
                         print(f"[launcher] Reclaimed backend port {final_port} after terminating stale process")
                     else:

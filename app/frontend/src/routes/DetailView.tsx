@@ -1,14 +1,15 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿// @ts-nocheck
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from "react";
+import { useCallback } from "react";
+import { startTransition } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   IconAdjustments,
-  IconArrowBackUp,
   IconArrowLeft,
   IconArrowRight,
   IconBox,
   IconCamera,
-  IconCurrencyYen,
   IconHeart,
   IconHeartFilled,
   IconMinus,
@@ -32,8 +33,8 @@ import { computeSignalMetrics } from "../utils/signals";
 import type { TradeEvent, CurrentPosition, DailyPosition } from "../utils/positions";
 import { buildCurrentPositions, buildDailyPositions, buildPositionLedger } from "../utils/positions";
 import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
-import { buildAIExport, copyToClipboard, saveAsFile } from "../utils/aiExport";
-import { formatEventBadgeDate, formatEventDateYmd, parseEventDateMs } from "../utils/events";
+import { buildAIExport, copyToClipboard } from "../utils/aiExport";
+import { formatEventBadgeDate, parseEventDateMs } from "../utils/events";
 import DailyMemoPanel from "../components/DailyMemoPanel";
 import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from "../utils/consultCopy";
 import { useChartSync } from "../hooks/useChartSync";
@@ -56,13 +57,13 @@ import type {
   JobStatusPayload,
   ApiWarnings,
   BarsMeta,
-  BarsResponse,
   CompareListPayload,
   AnalysisHorizonKey,
   RankRiskMode,
   SellAnalysisFallback,
   PhaseFallback,
   EdinetFinancialPanel,
+  TaisyakuSnapshot,
   TdnetDisclosureItem,
   AnalysisFallback,
 } from "./detail/detailTypes";
@@ -73,6 +74,8 @@ import {
   isCanceledRequestError,
   DEFAULT_LIMITS,
   LIMIT_STEP,
+  MAX_DAILY_BATCH_BARS_LIMIT,
+  MAX_MONTHLY_BATCH_BARS_LIMIT,
   RANGE_PRESETS,
   ANALYSIS_DECISION_WINDOW_BARS,
   buildMonthBoundaries,
@@ -86,9 +89,11 @@ import {
   formatSignedNumber,
   formatPercentLabel,
   formatFinancialAmountLabel,
-  formatPerLabel,
   formatSignedPercentLabel,
+  buildEdinetFinancialDisplay,
+  buildTaisyakuDisplay,
   buildTdnetReactionSummary,
+  buildTdnetHighlights,
   formatResearchPriorMetaLine,
   formatEdinetStatus,
   isNonEmptyString,
@@ -115,15 +120,21 @@ import {
   buildVolume,
   buildWeekly,
   clamp,
+  incrementBarLimit,
   computeEnvironmentTone,
   normalizeEdinetFinancialPanel,
+  normalizeTaisyakuSnapshot,
   normalizeTdnetDisclosureItem,
+  shouldAutoRefreshTaisyaku,
+  shouldAutoRefreshTdnet,
   buildRange,
   buildRangeEndingAt,
   buildRangeFromEndTime,
   hasSignificantRangeChange,
   formatDateLabel,
   resolveAnalysisBaseAsOfTime,
+  resolveAutoAnalysisBackfillRequest,
+  resolveLatestAnalysisAvailableAsOfTime,
   resolveLatestResolvedMetaDate,
   toDateKey,
   countInRange,
@@ -132,6 +143,253 @@ import {
   findNearestCandleIndex,
   findNearestCandleTime,
 } from "./detail/detailHelpers";
+
+const buildDetailMaLines = (candles: Candle[], settings: MaSetting[]) =>
+  settings.map((setting) => {
+    const data = computeMA(candles, setting.period);
+    return {
+      key: setting.key,
+      label: setting.label,
+      period: setting.period,
+      color: setting.color,
+      visible: setting.visible,
+      lineWidth: setting.lineWidth,
+      data,
+      chartData: setting.visible ? data : []
+    };
+  });
+
+const toDetailChartMaLines = (lines: ReturnType<typeof buildDetailMaLines>) =>
+  lines.map(({ chartData, data, ...line }) => ({
+    ...line,
+    data: chartData ?? data
+  }));
+
+type BatchBarsFramePayload = {
+  bars?: number[][];
+  boxes?: Box[];
+};
+
+type BatchBarsV3Response = {
+  items?: Record<string, Partial<Record<"daily" | "weekly" | "monthly", BatchBarsFramePayload>>>;
+};
+
+type TradesResponsePayload = {
+  events?: TradeEvent[];
+  warnings?: ApiWarnings;
+  errors?: string[];
+  currentPosition?: { longLots: number; shortLots: number };
+  currentPositions?: CurrentPosition[];
+  retryable?: boolean;
+  message?: string;
+};
+
+type RouteReadyPhase = "chart" | "analysis";
+
+type ChartPrefetchEntry = {
+  rows: number[][];
+  boxes: Box[];
+  fetchedAt: number;
+};
+
+const CHART_PREFETCH_TTL_MS = 60_000;
+const chartPrefetchCache = new Map<string, ChartPrefetchEntry>();
+const chartPrefetchInFlight = new Map<string, Promise<void>>();
+const tradesCache = new Map<
+  string,
+  {
+    events: TradeEvent[];
+    warnings: ApiWarnings;
+    errors: string[];
+    currentPositions: CurrentPosition[] | null;
+    fetchedAt: number;
+  }
+>();
+const COMPARE_FOCUS_MONTHS = 12;
+const RANGE_SETTLE_MS = 2_000;
+
+const buildChartPrefetchKey = (
+  symbol: string,
+  timeframe: "daily" | "monthly",
+  limit: number,
+  asof?: string | null
+) => `${symbol}|${timeframe}|${limit}|${asof ?? ""}`;
+
+const readChartPrefetch = (
+  symbol: string,
+  timeframe: "daily" | "monthly",
+  limit: number,
+  asof?: string | null
+) => {
+  const key = buildChartPrefetchKey(symbol, timeframe, limit, asof);
+  const cached = chartPrefetchCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.fetchedAt > CHART_PREFETCH_TTL_MS) {
+    chartPrefetchCache.delete(key);
+    return null;
+  }
+  return cached;
+};
+
+const prefetchChartFrame = async ({
+  code,
+  timeframe,
+  limit,
+  asof,
+}: {
+  code: string;
+  timeframe: "daily" | "monthly";
+  limit: number;
+  asof?: string | null;
+}) => {
+  const key = buildChartPrefetchKey(code, timeframe, limit, asof);
+  if (readChartPrefetch(code, timeframe, limit, asof) != null) return;
+  if (chartPrefetchInFlight.has(key)) return;
+  const payload: {
+    codes: string[];
+    timeframes: string[];
+    limit: number;
+    includeProvisional: boolean;
+    includeBoxes?: boolean;
+    asof?: string;
+  } = {
+    codes: [code],
+    timeframes: [timeframe],
+    limit,
+    includeProvisional: true,
+  };
+  if (timeframe === "monthly") {
+    payload.includeBoxes = false;
+  }
+  if (asof) {
+    payload.asof = asof;
+  }
+  const request = api
+    .post("/batch_bars_v3", payload)
+    .then((res) => {
+      const items = (res.data as BatchBarsV3Response | null)?.items ?? {};
+      const item = items[code] ?? {};
+      const frame = item[timeframe];
+      const rows = Array.isArray(frame?.bars) ? frame.bars : [];
+      const boxes = timeframe === "monthly" && Array.isArray(frame?.boxes) ? frame.boxes : [];
+      chartPrefetchCache.set(key, {
+        rows,
+        boxes,
+        fetchedAt: Date.now(),
+      });
+    })
+    .catch(() => {
+      // ignore prefetch failures
+    })
+    .finally(() => {
+      chartPrefetchInFlight.delete(key);
+    });
+  chartPrefetchInFlight.set(key, request);
+  await request;
+};
+
+const fetchMonthlyBoxesFrame = async ({
+  code,
+  limit,
+  asof,
+}: {
+  code: string;
+  limit: number;
+  asof?: string | null;
+}) => {
+  const payload: {
+    codes: string[];
+    timeframes: string[];
+    limit: number;
+    includeProvisional: boolean;
+    includeBoxes: boolean;
+    asof?: string;
+  } = {
+    codes: [code],
+    timeframes: ["monthly"],
+    limit,
+    includeProvisional: true,
+    includeBoxes: true,
+  };
+  if (asof) {
+    payload.asof = asof;
+  }
+  const res = await api.post("/batch_bars_v3", payload);
+  const items = (res.data as BatchBarsV3Response | null)?.items ?? {};
+  const item = items[code] ?? {};
+  const frame = item.monthly;
+  const rows = Array.isArray(frame?.bars) ? frame.bars : [];
+  const boxes = Array.isArray(frame?.boxes) ? frame.boxes : [];
+  chartPrefetchCache.set(buildChartPrefetchKey(code, "monthly", limit, asof), {
+    rows,
+    boxes,
+    fetchedAt: Date.now(),
+  });
+  return { rows, boxes };
+};
+
+const getRetryDelayMs = (error: unknown) => {
+  const retryAfterHeader = (error as { response?: { headers?: Record<string, unknown> } })?.response?.headers?.[
+    "retry-after"
+  ];
+  const retryAfter =
+    typeof retryAfterHeader === "string"
+      ? Number.parseInt(retryAfterHeader, 10)
+      : typeof retryAfterHeader === "number"
+        ? retryAfterHeader
+        : null;
+  if (retryAfter != null && Number.isFinite(retryAfter) && retryAfter > 0) {
+    return retryAfter * 1000;
+  }
+  return 1000;
+};
+
+const isRetryableTradesError = (error: unknown) => {
+  const status = (error as { response?: { status?: number } })?.response?.status;
+  const payload = (error as { response?: { data?: { retryable?: boolean } } })?.response?.data;
+  return status === 503 && payload?.retryable === true;
+};
+
+const parseStateEvalReasonTexts = (value: string | null | undefined) => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+};
+
+const classifyStateEvalPriorReason = (reason: string) => {
+  if (/^Combo strength:/i.test(reason)) {
+    return { label: reason.replace(/^Combo strength:\s*/i, ""), tone: "combo" as const };
+  }
+  if (/^Historically strong:/i.test(reason)) {
+    return { label: reason.replace(/^Historically strong:\s*/i, ""), tone: "prior-strong" as const };
+  }
+  if (/^Historical caution:/i.test(reason)) {
+    return { label: reason.replace(/^Historical caution:\s*/i, ""), tone: "prior-caution" as const };
+  }
+  return null;
+};
+
+const parseStateEvalStrategyTags = (value: string | null | undefined) => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+};
+
+const buildStateEvalTrendReason = (trend: { label: string } | null | undefined) => {
+  if (!trend) return null;
+  if (trend.label === "Improving") return "Trend improving";
+  if (trend.label === "Weakening") return "Trend weakening";
+  if (trend.label === "Persistent Risk") return "Persistent risk";
+  return trend.label;
+};
 
 export default function DetailView() {
   const { code } = useParams();
@@ -146,22 +404,18 @@ export default function DetailView() {
   const bottomRowRef = useRef<HTMLDivElement | null>(null);
   const financialPanelRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
-  const hoverTimeRef = useRef<number | null>(null);
-  const hoverTimePendingRef = useRef<number | null>(null);
-  const hoverRafRef = useRef<number | null>(null);
   const manualDailyRangeRef = useRef<{ from: number; to: number } | null>(null);
   const manualWeeklyRangeRef = useRef<{ from: number; to: number } | null>(null);
   const manualMonthlyRangeRef = useRef<{ from: number; to: number } | null>(null);
   const manualCompareDailyRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const manualCompareMonthlyRangeRef = useRef<{ from: number; to: number } | null>(null);
   const analysisBaseAsOfRef = useRef<number | null>(null);
   // Guard: suppress programmatic visible-range events from resetting rangeMonths
   const rangeSettleRef = useRef(0);
 
   const tickers = useStore((state) => state.tickers);
-  const loadList = useStore((state) => state.loadList);
+  const ensureListLoaded = useStore((state) => state.ensureListLoaded);
   const loadingList = useStore((state) => state.loadingList);
-  const eventsMeta = useStore((state) => state.eventsMeta);
-  const favorites = useStore((state) => state.favorites);
   const favoritesLoaded = useStore((state) => state.favoritesLoaded);
   const loadFavorites = useStore((state) => state.loadFavorites);
   const setFavoriteLocal = useStore((state) => state.setFavoriteLocal);
@@ -187,6 +441,7 @@ export default function DetailView() {
   const [showVolumeEnabled, setShowVolumeEnabled] = useState(true);
   const [showDecisionMarkers, setShowDecisionMarkers] = useState(true);
   const [showTdnetMarkers, setShowTdnetMarkers] = useState(true);
+  const [routeReadyPhase, setRouteReadyPhase] = useState<RouteReadyPhase>("chart");
   const [showTradeMarkers, setShowTradeMarkers] = useState(true);
   const [activeDrawTool, setActiveDrawTool] = useState<DrawTool | null>(null);
   const [, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
@@ -225,10 +480,9 @@ export default function DetailView() {
   const [maEditMode, setMaEditMode] = useState<"main" | "compare">("main");
   const [weeklyRatio, setWeeklyRatio] = useState(DEFAULT_WEEKLY_RATIO);
   const [rangeMonths, setRangeMonths] = useState<number | null>(12);
-  const [showTradesOverlay, setShowTradesOverlay] = useState(true);
-  const [showPnLPanel, setShowPnLPanel] = useState(true);
+  const [showTradesOverlay] = useState(true);
+  const [showPnLPanel] = useState(true);
   const [syncRanges, setSyncRanges] = useState(true);
-  const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [focusPanel, setFocusPanel] = useState<FocusPanel>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
@@ -237,9 +491,16 @@ export default function DetailView() {
   const [showPositionLedger, setShowPositionLedger] = useState(false);
   const [financialPanel, setFinancialPanel] = useState<EdinetFinancialPanel | null>(null);
   const [financialLoading, setFinancialLoading] = useState(false);
+  const [taisyakuSnapshot, setTaisyakuSnapshot] = useState<TaisyakuSnapshot | null>(null);
+  const [taisyakuLoading, setTaisyakuLoading] = useState(false);
+  const [taisyakuFetchedOnce, setTaisyakuFetchedOnce] = useState(false);
   const [tdnetDisclosures, setTdnetDisclosures] = useState<TdnetDisclosureItem[]>([]);
+  const [tdnetLoading, setTdnetLoading] = useState(false);
+  const [tdnetFetchedOnce, setTdnetFetchedOnce] = useState(false);
   const [selectedTdnetDisclosures, setSelectedTdnetDisclosures] = useState<TdnetDisclosureItem[]>([]);
   const [selectedTdnetDisclosureIndex, setSelectedTdnetDisclosureIndex] = useState(0);
+  const [taisyakuRefreshToken, setTaisyakuRefreshToken] = useState(0);
+  const [tdnetRefreshToken, setTdnetRefreshToken] = useState(0);
   const [positionLedgerExpanded, setPositionLedgerExpanded] = useState(false);
   const [ledgerViewMode, setLedgerViewMode] = useState<"iizuka" | "stock">(() => {
     try {
@@ -258,18 +519,50 @@ export default function DetailView() {
   const [analysisCursorTime, setAnalysisCursorTime] = useState<number | null>(null);
   const [analysisBackfillJob, setAnalysisBackfillJob] = useState<JobStatusPayload | null>(null);
   const [analysisFetchRefreshToken, setAnalysisFetchRefreshToken] = useState(0);
-  const [analysisRecalcSubmitting, setAnalysisRecalcSubmitting] = useState<"current" | "auto" | null>(null);
+  const [analysisRecalcSubmitting, setAnalysisRecalcSubmitting] = useState<"current" | "auto" | "batch" | null>(null);
+  const [legacyAnalysisDisabled, setLegacyAnalysisDisabled] = useState(false);
+  const [legacyAnalysisDisabledReason, setLegacyAnalysisDisabledReason] = useState<string | null>(null);
   const [exactDecisionToneCacheByScope, setExactDecisionToneCacheByScope] = useState<
     Map<string, Map<number, ExactDecisionTone>>
   >(() => new Map(EXACT_DECISION_TONE_CACHE_BY_SCOPE));
   const analysisBackfillActiveRef = useRef(false);
+  const taisyakuAutoImportRequestedRef = useRef(new Set<string>());
+  const tdnetAutoImportRequestedRef = useRef(new Set<string>());
   const analysisAutoBackfillRequestKeyRef = useRef<string | null>(null);
   const prevShowAnalysisPanelRef = useRef(false);
 
   const syncRangesRef = useRef(syncRanges);
-  const pendingRangeRef = useRef<{ from: number; to: number } | null>(null);
-  const syncRafRef = useRef<number | null>(null);
   const [showSimilar, setShowSimilar] = useState(false);
+  const [stateEvalRow, setStateEvalRow] = useState<any | null>(null);
+  const [stateEvalTrend, setStateEvalTrend] = useState<{ label: string; tone: "improving" | "weakening" | "risk" } | null>(null);
+  const resetMainChartState = useCallback(() => {
+    setDailyLimit(DEFAULT_LIMITS.daily);
+    setMonthlyLimit(DEFAULT_LIMITS.monthly);
+    setDailyData([]);
+    setMonthlyData([]);
+    setBoxes([]);
+    setDailyErrors([]);
+    setMonthlyErrors([]);
+    setDailyBarsMeta(null);
+    setMonthlyBarsMeta(null);
+    setDailyFetch({ status: "idle", responseCount: 0, errorMessage: null });
+    setMonthlyFetch({ status: "idle", responseCount: 0, errorMessage: null });
+    setLoadingDaily(false);
+    setLoadingMonthly(false);
+    setHasMoreDaily(true);
+    setHasMoreMonthly(true);
+  }, []);
+  const resetCompareChartState = useCallback(() => {
+    setCompareDailyLimit(DEFAULT_LIMITS.daily);
+    setCompareMonthlyData([]);
+    setCompareMonthlyErrors([]);
+    setCompareLoading(false);
+    setCompareDailyData([]);
+    setCompareDailyErrors([]);
+    setCompareDailyLoading(false);
+    setCompareBoxes([]);
+    setCompareTrades([]);
+  }, []);
   const compareCode = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const raw = params.get("compare");
@@ -279,6 +572,7 @@ export default function DetailView() {
     return trimmed;
   }, [location.search, code]);
   const analysisFetchEnabled = headerMode === "analysis" && !compareCode;
+  const analysisNetworkReady = analysisFetchEnabled && routeReadyPhase === "analysis";
   const compareAsOf = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const raw = params.get("compareAsOf");
@@ -297,6 +591,7 @@ export default function DetailView() {
     if (!mainAsOf) return null;
     return normalizeTime(mainAsOf);
   }, [mainAsOf]);
+  const isFavorite = useStore((state) => (code ? state.favorites.includes(code) : false));
   const [compareMonthlyData, setCompareMonthlyData] = useState<number[][]>([]);
   const [compareMonthlyErrors, setCompareMonthlyErrors] = useState<string[]>([]);
   const [compareLoading, setCompareLoading] = useState(false);
@@ -386,46 +681,26 @@ export default function DetailView() {
   }, [headerMode]);
 
   useEffect(() => {
-    if (compareCode) return;
-    setCompareMonthlyData([]);
-    setCompareMonthlyErrors([]);
-    setCompareLoading(false);
-    setCompareDailyData([]);
-    setCompareDailyErrors([]);
-    setCompareDailyLoading(false);
-    setCompareBoxes([]);
-    setCompareTrades([]);
-    setCompareDailyLimit(DEFAULT_LIMITS.daily);
-  }, [compareCode]);
-
-  useEffect(() => {
-    if (!compareCode) return;
-    setCompareMonthlyData([]);
-    setCompareMonthlyErrors([]);
-    setCompareLoading(false);
-    setCompareDailyData([]);
-    setCompareDailyErrors([]);
-    setCompareDailyLoading(false);
-    setCompareBoxes([]);
-    setCompareTrades([]);
-    setCompareDailyLimit(DEFAULT_LIMITS.daily);
-  }, [compareCode]);
+    resetCompareChartState();
+  }, [compareCode, resetCompareChartState]);
 
   useEffect(() => {
     if (!compareCode) return;
     manualCompareDailyRangeRef.current = null;
+    manualCompareMonthlyRangeRef.current = null;
   }, [compareCode, compareAsOf]);
 
   useEffect(() => {
     setAnalysisAsOfTime(null);
     analysisBaseAsOfRef.current = null;
-    setDailyData([]);
+    setRouteReadyPhase("chart");
+    resetMainChartState();
     // Reset cursor selection – will be re-initialized once dailyCandles load
     setSelectedBarIndex(null);
     setSelectedBarData(null);
     setAnalysisCursorTime(null);
     // Keep selectedDate so we can restore cursor position in new candle data
-  }, [code]);
+  }, [code, resetMainChartState]);
 
   useEffect(() => {
     if (cursorMode) return;
@@ -438,8 +713,9 @@ export default function DetailView() {
     manualWeeklyRangeRef.current = null;
     manualMonthlyRangeRef.current = null;
     manualCompareDailyRangeRef.current = null;
+    manualCompareMonthlyRangeRef.current = null;
     // Suppress programmatic range events after code change
-    rangeSettleRef.current = Date.now() + 500;
+    rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
   }, [code]);
 
   const tickerByCode = useMemo(() => {
@@ -458,22 +734,14 @@ export default function DetailView() {
     () => formatEventBadgeDate(activeTicker?.eventRightsDate),
     [activeTicker?.eventRightsDate]
   );
-  const rightsCoverageLabel = useMemo(() => {
-    const rightsMaxDate = eventsMeta?.dataCoverage?.rightsMaxDate ?? null;
-    const maxMs = parseEventDateMs(rightsMaxDate);
-    if (!rightsMaxDate || maxMs == null) return null;
-    const thresholdMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
-    if (maxMs >= thresholdMs) return null;
-    const formatted = formatEventDateYmd(rightsMaxDate);
-    return formatted ? `権利データ範囲: ～${formatted}` : null;
-  }, [eventsMeta]);
   const compareTickerName = useMemo(() => {
     if (!compareCode) return "";
     return normalizeTickerName(tickerByCode.get(compareCode)?.name);
   }, [tickerByCode, compareCode]);
+  const sharedDailyParse = useMemo(() => buildCandlesWithStats(dailyData), [dailyData]);
   const analysisPrefetchCandles = useMemo(
-    () => filterCandlesByAsOf(buildCandlesWithStats(dailyData).candles, mainAsOfTime),
-    [dailyData, mainAsOfTime]
+    () => filterCandlesByAsOf(sharedDailyParse.candles, mainAsOfTime),
+    [sharedDailyParse.candles, mainAsOfTime]
   );
   const analysisPrefetchAsofs = useMemo(() => {
     if (!cursorMode || selectedBarIndex == null) return [];
@@ -499,9 +767,11 @@ export default function DetailView() {
     code,
     asof: analysisAsOfTime,
     prefetchAsofs: analysisPrefetchAsofs,
+    readyToFetch: analysisNetworkReady,
     endpoint: "/ticker/phase",
     timeoutMs: 10000,
     enabled:
+      analysisFetchEnabled &&
       !(
         activeTicker?.bodyScore != null ||
         activeTicker?.earlyScore != null ||
@@ -540,6 +810,7 @@ export default function DetailView() {
     asof: analysisAsOfTime,
     prefetchAsofs: analysisPrefetchAsofs,
     enabled: analysisFetchEnabled,
+    readyToFetch: analysisNetworkReady,
     endpoint: "/ticker/analysis",
     timeoutMs: 30000,
     maxRetries: 4,
@@ -585,6 +856,7 @@ export default function DetailView() {
     asof: analysisAsOfTime,
     prefetchAsofs: analysisPrefetchAsofs,
     enabled: analysisFetchEnabled,
+    readyToFetch: analysisNetworkReady,
     endpoint: "/ticker/analysis/sell",
     timeoutMs: 30000,
     maxRetries: 4,
@@ -662,8 +934,60 @@ export default function DetailView() {
   }, [code, compareCode, headerMode]);
 
   useEffect(() => {
+    if (!backendReady || !code || headerMode !== "financial") return;
+    let cancelled = false;
+    setTaisyakuLoading(true);
+    setTaisyakuFetchedOnce(false);
+    void api
+      .get("/ticker/taisyaku/snapshot", { params: { code, history_limit: 10 } })
+      .then((response) => {
+        if (cancelled) return;
+        const item = response.data && typeof response.data === "object"
+          ? (response.data as { item?: unknown }).item
+          : null;
+        setTaisyakuSnapshot(normalizeTaisyakuSnapshot(item));
+      })
+      .catch(() => {
+        if (!cancelled) setTaisyakuSnapshot(null);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setTaisyakuLoading(false);
+          setTaisyakuFetchedOnce(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backendReady, code, headerMode, taisyakuRefreshToken]);
+
+  useEffect(() => {
+    if (!backendReady || !code || headerMode !== "financial") return;
+    if (!taisyakuFetchedOnce || taisyakuLoading) return;
+    if (!shouldAutoRefreshTaisyaku(taisyakuSnapshot)) return;
+    const requestKey = `${code}:${taisyakuSnapshot ? "stale" : "empty"}`;
+    if (taisyakuAutoImportRequestedRef.current.has(requestKey)) return;
+    taisyakuAutoImportRequestedRef.current.add(requestKey);
+    let cancelled = false;
+    void api
+      .post("/jobs/taisyaku/import")
+      .catch(() => null)
+      .finally(() => {
+        if (cancelled) return;
+        window.setTimeout(() => {
+          if (!cancelled) setTaisyakuRefreshToken((prev) => prev + 1);
+        }, 3500);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backendReady, code, headerMode, taisyakuFetchedOnce, taisyakuLoading, taisyakuSnapshot]);
+
+  useEffect(() => {
     if (!backendReady || !code) return;
     let cancelled = false;
+    setTdnetLoading(true);
+    setTdnetFetchedOnce(false);
     void api
       .get("/ticker/tdnet/disclosures", { params: { code, limit: 30 } })
       .then((response) => {
@@ -678,11 +1002,39 @@ export default function DetailView() {
       })
       .catch(() => {
         if (!cancelled) setTdnetDisclosures([]);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setTdnetLoading(false);
+          setTdnetFetchedOnce(true);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [backendReady, code]);
+  }, [backendReady, code, tdnetRefreshToken]);
+
+  useEffect(() => {
+    if (!backendReady || !code) return;
+    if (!tdnetFetchedOnce || tdnetLoading) return;
+    if (!shouldAutoRefreshTdnet(tdnetDisclosures)) return;
+    const requestKey = `${code}:${tdnetDisclosures.length > 0 ? "stale" : "empty"}`;
+    if (tdnetAutoImportRequestedRef.current.has(requestKey)) return;
+    tdnetAutoImportRequestedRef.current.add(requestKey);
+    let cancelled = false;
+    void api
+      .post("/jobs/tdnet/import", null, { params: { code, limit: 30 } })
+      .catch(() => null)
+      .finally(() => {
+        if (cancelled) return;
+        window.setTimeout(() => {
+          if (!cancelled) setTdnetRefreshToken((prev) => prev + 1);
+        }, 3500);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backendReady, code, tdnetDisclosures, tdnetFetchedOnce, tdnetLoading]);
 
   useEffect(() => {
     setSelectedTdnetDisclosures([]);
@@ -695,10 +1047,6 @@ export default function DetailView() {
       ? String(Math.min(10, Math.max(0, Math.round(value! * 10))))
       : "--";
   };
-  const formatPhaseN = (value: number | null | undefined) => {
-    if (phaseFallbackLoading) return "読込中...";
-    return typeof value === "number" ? String(value) : "--";
-  };
   const getPhaseTone = (value: number | null | undefined) => {
     if (!Number.isFinite(value)) return "neutral";
     if (value! > 0) return "up";
@@ -710,7 +1058,6 @@ export default function DetailView() {
     activeTicker?.earlyScore != null ||
     activeTicker?.lateScore != null ||
     typeof activeTicker?.phaseN === "number";
-  const needsPhaseReasons = !(activeTicker?.phaseReasons?.length);
   const phaseScores = hasPhaseScores ? activeTicker : phaseFallback;
   const phaseReasons = activeTicker?.phaseReasons?.length
     ? activeTicker.phaseReasons
@@ -743,10 +1090,14 @@ export default function DetailView() {
       analysisBaseAsOfRef.current = mainAsOfTime;
       return;
     }
-    if (analysisBaseAsOfRef.current != null) return;
-    const nextBaseAsOfTime = latestResolvedMetaDate ?? latestDailyAsOfTime;
+    const nextBaseAsOfTime = resolveLatestAnalysisAvailableAsOfTime({
+      latestResolvedMetaDate,
+      latestDailyAsOfTime,
+    });
     if (nextBaseAsOfTime == null) return;
-    analysisBaseAsOfRef.current = nextBaseAsOfTime;
+    if (analysisBaseAsOfRef.current == null || analysisBaseAsOfRef.current < nextBaseAsOfTime) {
+      analysisBaseAsOfRef.current = nextBaseAsOfTime;
+    }
   }, [mainAsOfTime, latestDailyAsOfTime, latestResolvedMetaDate]);
   const resolvedCursorAsOfTime = useMemo(() => {
     if (!cursorMode) return null;
@@ -814,15 +1165,32 @@ export default function DetailView() {
     sellAnalysisFallback?.shortRet5 != null ||
     sellAnalysisFallback?.shortRet10 != null ||
     sellAnalysisFallback?.shortRet20 != null;
+  const analysisFallbackDtTime = normalizeTime(analysisFallback?.dt ?? null);
+  const sellAnalysisFallbackDtTime = normalizeTime(sellAnalysisFallback?.dt ?? null);
+  const analysisDataStale =
+    analysisFetchEnabled &&
+    analysisAsOfTime != null &&
+    !analysisLoading &&
+    analysisFallbackDtTime != null &&
+    analysisFallbackDtTime < analysisAsOfTime;
+  const sellAnalysisDataStale =
+    analysisFetchEnabled &&
+    analysisAsOfTime != null &&
+    !sellAnalysisLoading &&
+    sellAnalysisFallbackDtTime != null &&
+    sellAnalysisFallbackDtTime < analysisAsOfTime;
   const analysisCacheIncomplete =
     analysisFetchEnabled &&
     analysisAsOfTime != null &&
     !analysisLoading &&
     !sellAnalysisLoading &&
-    (!hasAnalysisData || !hasSellAnalysisData);
+    (!hasAnalysisData || !hasSellAnalysisData || analysisDataStale || sellAnalysisDataStale);
   const analysisBackfillActive =
     analysisBackfillJob?.type === "analysis_backfill" &&
     ANALYSIS_BACKFILL_ACTIVE_STATUSES.has(analysisBackfillJob.status ?? "");
+  const analysisRecalcDisabled = legacyAnalysisDisabled;
+  const analysisRecalcDisabledReason =
+    legacyAnalysisDisabledReason ?? "Phase 1 では売買判定更新を利用します。";
   const analysisPreparationVisible = analysisBackfillActive || analysisRecalcSubmitting === "auto";
   const analysisMissingDataVisible = analysisCacheIncomplete && !analysisPreparationVisible;
   const analysisBackfillProgressLabel = analysisBackfillActive
@@ -902,23 +1270,8 @@ export default function DetailView() {
     analysisPTurnDown,
     analysisFallback?.entryPolicy?.up?.playbookScoreBonus,
     analysisFallback?.entryPolicy?.down?.playbookScoreBonus,
-    analysisAdditive?.bonusEstimate,
-    analysisAdditive?.trendUpStrict,
-    analysisAdditive?.mtfStrongAligned,
-    analysisAdditive?.monthlyBreakoutUpProb,
-    analysisAdditive?.monthlyRangeProb,
-    analysisAdditive?.monthlyRangePos,
-    analysisAdditive?.boxBottomAligned,
-    sellAnalysisFallback?.shortScore,
-    sellAnalysisFallback?.aScore,
-    sellAnalysisFallback?.bScore,
-    sellAnalysisFallback?.distMa20Signed,
-    sellAnalysisFallback?.ma20Slope,
-    sellAnalysisFallback?.ma60Slope,
-    sellAnalysisFallback?.pDown,
-    sellAnalysisFallback?.pTurnDown,
-    sellAnalysisFallback?.trendDown,
-    sellAnalysisFallback?.trendDownStrict
+    analysisAdditive,
+    sellAnalysisFallback
   ]);
   const analysisDecision = useMemo(() => {
     if (analysisDecisionFromBackend) {
@@ -957,14 +1310,16 @@ export default function DetailView() {
       neutralProb: neutralScenario?.score ?? null
     };
   }, [analysisDecisionFromBackend, patternSummary.environmentTone, patternSummary.scenarios]);
+  const analysisEntryPolicy = analysisFallback?.entryPolicy ?? null;
+  const analysisStagePrecision = analysisFallback?.buyStagePrecision ?? null;
   const analysisGuidance = useMemo(() => {
     const buyProb = clamp(analysisDecision.buyProb ?? 0, 0, 1);
     const sellProb = clamp(analysisDecision.sellProb ?? 0, 0, 1);
     const neutralProb = clamp(analysisDecision.neutralProb ?? 0, 0, 1);
-    const entryPolicy = analysisFallback?.entryPolicy ?? null;
+    const entryPolicy = analysisEntryPolicy;
     const upPolicy = entryPolicy?.up ?? null;
     const downPolicy = entryPolicy?.down ?? null;
-    const stagePrecision = analysisFallback?.buyStagePrecision ?? null;
+    const stagePrecision = analysisStagePrecision;
     const strategyBacktest = stagePrecision?.strategy ?? null;
     const strategySamples = strategyBacktest?.samples ?? 0;
     const coreSamples = stagePrecision?.core?.samples ?? 0;
@@ -1014,7 +1369,7 @@ export default function DetailView() {
         : tone === "down"
           ? "売り監視"
           : "中立監視";
-    let buyTimingTitle = "仕込み状態";
+    const buyTimingTitle = "仕込み状態";
     if (tone === "up") {
       action = "買い寄り";
       watchpoint = "買い仕込みを優先監視。";
@@ -1198,23 +1553,12 @@ export default function DetailView() {
     analysisDecision.neutralProb,
     analysisDecision.confidence,
     analysisDecision.tone,
-    analysisFallback?.entryPolicy?.up?.playbookScoreBonus,
-    analysisFallback?.entryPolicy?.down?.playbookScoreBonus,
-    analysisFallback?.buyStagePrecision?.strategy?.samples,
-    analysisFallback?.buyStagePrecision?.strategy?.precision,
-    analysisFallback?.buyStagePrecision?.core?.samples,
-    analysisFallback?.buyStagePrecision?.core?.precision,
+    analysisEntryPolicy,
+    analysisStagePrecision,
     analysisPTurnUp,
     analysisPTurnDown,
     analysisEvNet,
-    sellAnalysisFallback?.shortScore,
-    sellAnalysisFallback?.aScore,
-    sellAnalysisFallback?.bScore,
-    sellAnalysisFallback?.distMa20Signed,
-    sellAnalysisFallback?.ma20Slope,
-    sellAnalysisFallback?.ma60Slope,
-    sellAnalysisFallback?.trendDown,
-    sellAnalysisFallback?.trendDownStrict
+    sellAnalysisFallback
   ]);
   const canShowPhase = hasPhasePanelData;
   const showBuyAnalysis = hasAnalysisData || analysisLoading;
@@ -1297,30 +1641,36 @@ export default function DetailView() {
   const financialSeries = financialPanel?.series ?? [];
   const latestFinancialPoint = financialSeries.length > 0 ? financialSeries[financialSeries.length - 1] : null;
   const latestPrice = activeTicker?.close ?? null;
-  const financialPer =
-    latestPrice != null &&
-    latestFinancialPoint?.eps != null &&
-    Math.abs(latestFinancialPoint.eps) > 0
-      ? latestPrice / latestFinancialPoint.eps
-      : null;
   const financialFetchedLabel = financialPanel?.fetchedAt
     ? new Date(financialPanel.fetchedAt).toLocaleDateString("ja-JP")
     : null;
-  const financialCards = [
-    { label: "自己資本比率", value: formatPercentLabel(latestFinancialPoint?.equityRatio), tone: "neutral" },
-    { label: "1株利益(EPS)", value: formatNumber(latestFinancialPoint?.eps, 1), tone: "neutral" },
-    { label: "PER", value: formatPerLabel(financialPer), tone: "neutral" },
-    { label: "1株純資産(BPS)", value: formatNumber(latestFinancialPoint?.bps, 2), tone: "neutral" },
-    { label: "1株配当", value: latestFinancialPoint?.dividendPerShare == null ? "--" : `${formatNumber(latestFinancialPoint.dividendPerShare, 0)}円`, tone: "neutral" },
-    {
-      label: "純有利子負債",
-      value: formatFinancialAmountLabel(latestFinancialPoint?.netInterestBearingDebt),
-      tone:
-        latestFinancialPoint?.netInterestBearingDebt != null && latestFinancialPoint.netInterestBearingDebt < 0
-          ? "up"
-          : "neutral"
-    },
-  ] as const;
+  const financialDisplay = useMemo(
+    () =>
+      buildEdinetFinancialDisplay({
+        latestFinancialPoint,
+        latestPrice,
+        edinetSummary: analysisEdinetSummary,
+      }),
+    [analysisEdinetSummary, latestFinancialPoint, latestPrice]
+  );
+  const taisyakuDisplay = useMemo(() => buildTaisyakuDisplay(taisyakuSnapshot), [taisyakuSnapshot]);
+  const taisyakuStatusLabel = useMemo(() => {
+    if (!taisyakuSnapshot?.fetchedAt) {
+      return taisyakuLoading ? "貸借データ補完取得を確認中です。" : null;
+    }
+    return `貸借最終取得 ${new Date(taisyakuSnapshot.fetchedAt).toLocaleString("ja-JP")}`;
+  }, [taisyakuLoading, taisyakuSnapshot]);
+  const tdnetHighlights = useMemo(() => buildTdnetHighlights(tdnetDisclosures, 3), [tdnetDisclosures]);
+  const tdnetStatusLabel = useMemo(() => {
+    const fetchedValues = tdnetDisclosures
+      .map((item) => (item.fetchedAt ? Date.parse(item.fetchedAt) : Number.NaN))
+      .filter((value) => Number.isFinite(value));
+    if (fetchedValues.length === 0) {
+      return tdnetLoading ? "TDNET補完取得を確認中です。" : null;
+    }
+    const latestFetched = Math.max(...fetchedValues);
+    return `TDNET最終取得 ${new Date(latestFetched).toLocaleString("ja-JP")}`;
+  }, [tdnetDisclosures, tdnetLoading]);
   const showFinancialPanel = headerMode === "financial" && !compareCode;
   const swingPlan = analysisFallback?.swingPlan ?? null;
   const swingDiagnostics = analysisFallback?.swingDiagnostics ?? null;
@@ -1361,10 +1711,11 @@ export default function DetailView() {
           setAnalysisFetchRefreshToken((prev) => prev + 1);
         }
       } catch {
-        if (disposed) return;
+        if (disposed) {
+          return;
+        }
       } finally {
-        if (disposed) return;
-        if (analysisBackfillActiveRef.current) {
+        if (!disposed && analysisBackfillActiveRef.current) {
           timerId = window.setTimeout(pollCurrentJob, 1500);
         }
       }
@@ -1383,15 +1734,12 @@ export default function DetailView() {
     analysisBackfillActive,
   ]);
 
-  const favoritesSet = useMemo(() => new Set(favorites), [favorites]);
-  const isFavorite = useMemo(() => (code ? favoritesSet.has(code) : false), [favoritesSet, code]);
-
   useEffect(() => {
     if (!backendReady) return;
     if (!tickers.length && !loadingList) {
-      loadList();
+      void ensureListLoaded();
     }
-  }, [backendReady, tickers.length, loadingList, loadList]);
+  }, [backendReady, tickers.length, loadingList, ensureListLoaded]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1403,32 +1751,60 @@ export default function DetailView() {
   useEffect(() => {
     if (!backendReady) return;
     if (!code) return;
+    const prefetched = readChartPrefetch(code, "daily", dailyLimit, mainAsOf);
+    if (prefetched) {
+      setLoadingDaily(false);
+      setDailyErrors([]);
+      setDailyBarsMeta(null);
+      setDailyData(prefetched.rows);
+      setHasMoreDaily(prefetched.rows.length >= dailyLimit);
+      setDailyFetch({ status: "success", responseCount: prefetched.rows.length, errorMessage: null });
+      rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
+      return;
+    }
     const controller = new AbortController();
     let active = true;
     setLoadingDaily(true);
     setDailyErrors([]);
     setDailyBarsMeta(null);
     setDailyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
-    const params: Record<string, string | number> = { code, limit: dailyLimit };
+    const payload: {
+      codes: string[];
+      timeframes: string[];
+      limit: number;
+      includeProvisional: boolean;
+      asof?: string;
+    } = {
+      codes: [code],
+      timeframes: ["daily"],
+      limit: dailyLimit,
+      includeProvisional: true
+    };
     if (mainAsOf) {
-      params.asof = mainAsOf;
+      payload.asof = mainAsOf;
     }
     api
-      .get("/ticker/daily", { params, signal: controller.signal })
+      .post("/batch_bars_v3", payload, { signal: controller.signal })
       .then((res) => {
         if (!active) return;
-        const { rows, errors, meta } = parseBarsResponse(res.data as BarsResponse | number[][], "daily");
-        setDailyData(rows);
-        setDailyErrors(errors);
-        setDailyBarsMeta(meta);
-        setHasMoreDaily(rows.length >= dailyLimit);
-        setDailyFetch({ status: "success", responseCount: rows.length, errorMessage: null });
+        const items = (res.data as BatchBarsV3Response | null)?.items ?? {};
+        const item = items[code] ?? {};
+        const dailyPayload = item.daily;
+        const dailyRows = Array.isArray(dailyPayload?.bars) ? dailyPayload.bars : [];
+        chartPrefetchCache.set(buildChartPrefetchKey(code, "daily", dailyLimit, mainAsOf), {
+          rows: dailyRows,
+          boxes: [],
+          fetchedAt: Date.now(),
+        });
+        setDailyData(dailyRows);
+        setDailyErrors(Array.isArray(dailyPayload?.bars) ? [] : ["daily_response_invalid"]);
+        setHasMoreDaily(dailyRows.length >= dailyLimit);
+        setDailyFetch({ status: "success", responseCount: dailyRows.length, errorMessage: null });
       })
       .catch((error) => {
         if (!active || isCanceledRequestError(error)) return;
-        const message = error?.message || "Daily fetch failed";
+        const message = error?.message || "Bars fetch failed";
         setDailyErrors([message]);
-        setDailyBarsMeta(null);
         setDailyFetch((prev) => ({
           status: "error",
           responseCount: prev.responseCount,
@@ -1439,7 +1815,7 @@ export default function DetailView() {
         if (!active) return;
         setLoadingDaily(false);
         // Suppress programmatic range events after new data arrives
-        rangeSettleRef.current = Date.now() + 500;
+        rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
       });
     return () => {
       active = false;
@@ -1450,32 +1826,66 @@ export default function DetailView() {
   useEffect(() => {
     if (!backendReady) return;
     if (!code) return;
+    const prefetched = readChartPrefetch(code, "monthly", monthlyLimit, mainAsOf);
+    if (prefetched) {
+      setLoadingMonthly(false);
+      setMonthlyErrors([]);
+      setMonthlyBarsMeta(null);
+      setMonthlyData(prefetched.rows);
+      setBoxes(prefetched.boxes);
+      setHasMoreMonthly(prefetched.rows.length >= monthlyLimit);
+      setMonthlyFetch({ status: "success", responseCount: prefetched.rows.length, errorMessage: null });
+      rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
+      return;
+    }
     const controller = new AbortController();
     let active = true;
     setLoadingMonthly(true);
     setMonthlyErrors([]);
     setMonthlyBarsMeta(null);
     setMonthlyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
-    const params: Record<string, string | number> = { code, limit: monthlyLimit };
+    const payload: {
+      codes: string[];
+      timeframes: string[];
+      limit: number;
+      includeProvisional: boolean;
+      includeBoxes?: boolean;
+      asof?: string;
+    } = {
+      codes: [code],
+      timeframes: ["monthly"],
+      limit: monthlyLimit,
+      includeProvisional: true
+    };
+    payload.includeBoxes = false;
     if (mainAsOf) {
-      params.asof = mainAsOf;
+      payload.asof = mainAsOf;
     }
     api
-      .get("/ticker/monthly", { params, signal: controller.signal })
+      .post("/batch_bars_v3", payload, { signal: controller.signal })
       .then((res) => {
         if (!active) return;
-        const { rows, errors, meta } = parseBarsResponse(res.data as BarsResponse | number[][], "monthly");
-        setMonthlyData(rows);
-        setMonthlyErrors(errors);
-        setMonthlyBarsMeta(meta);
-        setHasMoreMonthly(rows.length >= monthlyLimit);
-        setMonthlyFetch({ status: "success", responseCount: rows.length, errorMessage: null });
+        const items = (res.data as BatchBarsV3Response | null)?.items ?? {};
+        const item = items[code] ?? {};
+        const monthlyPayload = item.monthly;
+        const monthlyRows = Array.isArray(monthlyPayload?.bars) ? monthlyPayload.bars : [];
+        const nextBoxes = Array.isArray(monthlyPayload?.boxes) ? monthlyPayload.boxes : [];
+        chartPrefetchCache.set(buildChartPrefetchKey(code, "monthly", monthlyLimit, mainAsOf), {
+          rows: monthlyRows,
+          boxes: nextBoxes,
+          fetchedAt: Date.now(),
+        });
+        setMonthlyData(monthlyRows);
+        setBoxes(nextBoxes);
+        setMonthlyErrors(Array.isArray(monthlyPayload?.bars) ? [] : ["monthly_response_invalid"]);
+        setHasMoreMonthly(monthlyRows.length >= monthlyLimit);
+        setMonthlyFetch({ status: "success", responseCount: monthlyRows.length, errorMessage: null });
       })
       .catch((error) => {
         if (!active || isCanceledRequestError(error)) return;
-        const message = error?.message || "Monthly fetch failed";
+        const message = error?.message || "Bars fetch failed";
         setMonthlyErrors([message]);
-        setMonthlyBarsMeta(null);
+        setBoxes([]);
         setMonthlyFetch((prev) => ({
           status: "error",
           responseCount: prev.responseCount,
@@ -1485,12 +1895,93 @@ export default function DetailView() {
       .finally(() => {
         if (!active) return;
         setLoadingMonthly(false);
+        rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
       });
     return () => {
       active = false;
       controller.abort();
     };
-  }, [backendReady, code, monthlyLimit, mainAsOf]);
+  }, [backendReady, code, mainAsOf, monthlyLimit]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!code) return;
+    if (!monthlyData.length) return;
+    if (boxes.length > 0) return;
+    let active = true;
+    const timerId = window.setTimeout(() => {
+      void fetchMonthlyBoxesFrame({ code, limit: monthlyLimit, asof: mainAsOf })
+        .then((result) => {
+          if (!active) return;
+          setBoxes(result.boxes);
+        })
+        .catch(() => {
+          // keep lightweight monthly result when box refresh fails
+        });
+    }, 120);
+    return () => {
+      active = false;
+      window.clearTimeout(timerId);
+    };
+  }, [backendReady, boxes.length, code, mainAsOf, monthlyData.length, monthlyLimit]);
+
+  useEffect(() => {
+    if (!analysisFetchEnabled) {
+      setRouteReadyPhase("chart");
+      return;
+    }
+    if (routeReadyPhase === "analysis") return;
+    if (dailyFetch.status !== "success" && dailyFetch.status !== "error") return;
+    startTransition(() => {
+      setRouteReadyPhase("analysis");
+    });
+  }, [analysisFetchEnabled, dailyFetch.status, routeReadyPhase]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!compareCode) return;
+    const controller = new AbortController();
+    let active = true;
+    setCompareDailyLoading(true);
+    setCompareDailyErrors([]);
+    const payload: {
+      codes: string[];
+      timeframes: string[];
+      limit: number;
+      includeProvisional: boolean;
+    } = {
+      codes: [compareCode],
+      timeframes: ["daily"],
+      limit: compareDailyLimit,
+      includeProvisional: true
+    };
+    api
+      .post("/batch_bars_v3", payload, { signal: controller.signal })
+      .then((res) => {
+        if (!active) return;
+        const items = (res.data as BatchBarsV3Response | null)?.items ?? {};
+        const item = items[compareCode] ?? {};
+        const dailyPayload = item.daily;
+        const dailyRows = Array.isArray(dailyPayload?.bars) ? dailyPayload.bars : [];
+        setCompareDailyData(dailyRows);
+        setCompareDailyErrors(Array.isArray(dailyPayload?.bars) ? [] : ["daily_response_invalid"]);
+      })
+      .catch((error) => {
+        if (!active || isCanceledRequestError(error)) return;
+        const message = error?.message || "Bars fetch failed";
+        setCompareDailyErrors([message]);
+        setCompareDailyData([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setCompareDailyLoading(false);
+        rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [backendReady, compareCode, compareDailyLimit]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1499,24 +1990,43 @@ export default function DetailView() {
     let active = true;
     setCompareLoading(true);
     setCompareMonthlyErrors([]);
-    const params: Record<string, string | number> = { code: compareCode, limit: monthlyLimit };
+    const payload: {
+      codes: string[];
+      timeframes: string[];
+      limit: number;
+      includeProvisional: boolean;
+      includeBoxes?: boolean;
+    } = {
+      codes: [compareCode],
+      timeframes: ["monthly"],
+      limit: monthlyLimit,
+      includeProvisional: true
+    };
+    payload.includeBoxes = false;
     api
-      .get("/ticker/monthly", { params, signal: controller.signal })
+      .post("/batch_bars_v3", payload, { signal: controller.signal })
       .then((res) => {
         if (!active) return;
-        const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "monthly");
-        setCompareMonthlyData(rows);
-        setCompareMonthlyErrors(errors);
+        const items = (res.data as BatchBarsV3Response | null)?.items ?? {};
+        const item = items[compareCode] ?? {};
+        const monthlyPayload = item.monthly;
+        const monthlyRows = Array.isArray(monthlyPayload?.bars) ? monthlyPayload.bars : [];
+        const nextBoxes = Array.isArray(monthlyPayload?.boxes) ? monthlyPayload.boxes : [];
+        setCompareMonthlyData(monthlyRows);
+        setCompareBoxes(nextBoxes);
+        setCompareMonthlyErrors(Array.isArray(monthlyPayload?.bars) ? [] : ["monthly_response_invalid"]);
       })
       .catch((error) => {
         if (!active || isCanceledRequestError(error)) return;
-        const message = error?.message || "Monthly fetch failed";
+        const message = error?.message || "Bars fetch failed";
         setCompareMonthlyErrors([message]);
         setCompareMonthlyData([]);
+        setCompareBoxes([]);
       })
       .finally(() => {
         if (!active) return;
         setCompareLoading(false);
+        rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
       });
     return () => {
       active = false;
@@ -1527,55 +2037,24 @@ export default function DetailView() {
   useEffect(() => {
     if (!backendReady) return;
     if (!compareCode) return;
-    const controller = new AbortController();
+    if (!compareMonthlyData.length) return;
+    if (compareBoxes.length > 0) return;
     let active = true;
-    setCompareDailyLoading(true);
-    setCompareDailyErrors([]);
-    const params: Record<string, string | number> = {
-      code: compareCode,
-      limit: compareDailyLimit
-    };
-    api
-      .get("/ticker/daily", { params, signal: controller.signal })
-      .then((res) => {
-        if (!active) return;
-        const { rows, errors } = parseBarsResponse(res.data as BarsResponse | number[][], "daily");
-        setCompareDailyData(rows);
-        setCompareDailyErrors(errors);
-      })
-      .catch((error) => {
-        if (!active || isCanceledRequestError(error)) return;
-        const message = error?.message || "Daily fetch failed";
-        setCompareDailyErrors([message]);
-        setCompareDailyData([]);
-      })
-      .finally(() => {
-        if (!active) return;
-        setCompareDailyLoading(false);
-      });
+    const timerId = window.setTimeout(() => {
+      void fetchMonthlyBoxesFrame({ code: compareCode, limit: monthlyLimit })
+        .then((result) => {
+          if (!active) return;
+          setCompareBoxes(result.boxes);
+        })
+        .catch(() => {
+          // keep lightweight monthly result when box refresh fails
+        });
+    }, 120);
     return () => {
       active = false;
-      controller.abort();
+      window.clearTimeout(timerId);
     };
-  }, [backendReady, compareCode, compareDailyLimit]);
-
-  useEffect(() => {
-    if (!backendReady) return;
-    if (!code) return;
-    const params: Record<string, string> = { code };
-    if (mainAsOf) {
-      params.asof = mainAsOf;
-    }
-    api
-      .get("/ticker/boxes", { params })
-      .then((res) => {
-        const rows = (res.data || []) as Box[];
-        setBoxes(rows);
-      })
-      .catch(() => {
-        setBoxes([]);
-      });
-  }, [backendReady, code, mainAsOf]);
+  }, [backendReady, compareBoxes.length, compareCode, compareMonthlyData.length, monthlyLimit]);
 
   useEffect(() => {
     if (!compareCode) return;
@@ -1588,82 +2067,144 @@ export default function DetailView() {
 
   useEffect(() => {
     if (!backendReady) return;
-    if (!compareCode) return;
-    const params: Record<string, string> = { code: compareCode };
-    if (compareAsOf) {
-      params.asof = compareAsOf;
-    }
-    api
-      .get("/ticker/boxes", { params })
-      .then((res) => {
-        const rows = (res.data || []) as Box[];
-        setCompareBoxes(rows);
-      })
-      .catch(() => {
-        setCompareBoxes([]);
-      });
-  }, [backendReady, compareCode, compareAsOf]);
-
-  useEffect(() => {
-    if (!backendReady) return;
     if (!code) return;
+    const cached = tradesCache.get(code);
     setTradeErrors([]);
-    setTradeWarnings({ items: [] });
-    setCurrentPositionsFromApi(null);
-    api
-      .get(`/trades/${code}`)
-      .then((res) => {
-        const payload = res.data as {
-          events?: TradeEvent[];
-          warnings?: ApiWarnings;
-          errors?: string[];
-          currentPosition?: { longLots: number; shortLots: number };
-          currentPositions?: CurrentPosition[];
-        };
-        if (!payload || !Array.isArray(payload.events)) {
-          throw new Error("Trades response is invalid");
-        }
-        setTrades(payload.events ?? []);
-        if (Array.isArray(payload.currentPositions)) {
-          setCurrentPositionsFromApi(payload.currentPositions);
-        } else {
-          setCurrentPositionsFromApi(null);
-        }
-        setTradeWarnings(normalizeWarnings(payload.warnings));
-        setTradeErrors(Array.isArray(payload.errors) ? payload.errors : []);
-      })
-      .catch((error) => {
-        const message = error?.message || "Trades fetch failed";
-        setTradeErrors([message]);
-        setTrades([]);
-        setTradeWarnings({ items: [] });
-        setCurrentPositionsFromApi(null);
-      });
+    if (cached) {
+      setTrades(cached.events);
+      setTradeWarnings(cached.warnings);
+      setCurrentPositionsFromApi(cached.currentPositions);
+    } else {
+      setTradeWarnings({ items: [] });
+      setCurrentPositionsFromApi(null);
+      setTrades([]);
+    }
+    let cancelled = false;
+    let retryTimerId: number | null = null;
+    const fetchTrades = (attempt: number) => {
+      void api
+        .get(`/trades/${code}`)
+        .then((res) => {
+          if (cancelled) return;
+          const payload = res.data as TradesResponsePayload;
+          if (!payload || !Array.isArray(payload.events)) {
+            throw new Error("Trades response is invalid");
+          }
+          const nextWarnings = normalizeWarnings(payload.warnings);
+          const nextErrors = Array.isArray(payload.errors) ? payload.errors : [];
+          const nextCurrentPositions = Array.isArray(payload.currentPositions) ? payload.currentPositions : null;
+          tradesCache.set(code, {
+            events: payload.events ?? [],
+            warnings: nextWarnings,
+            errors: nextErrors,
+            currentPositions: nextCurrentPositions,
+            fetchedAt: Date.now(),
+          });
+          setTrades(payload.events ?? []);
+          setCurrentPositionsFromApi(nextCurrentPositions);
+          setTradeWarnings(nextWarnings);
+          setTradeErrors(nextErrors);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          if (isRetryableTradesError(error)) {
+            if (attempt < 2) {
+              retryTimerId = window.setTimeout(() => {
+                retryTimerId = null;
+                fetchTrades(attempt + 1);
+              }, getRetryDelayMs(error));
+            }
+            const retryableMessage = cached
+              ? "建玉データを再接続中です。前回取得済みの内容を表示しています。"
+              : "建玉データを再接続中です。";
+            setTradeWarnings({ items: [], info: [retryableMessage] });
+            setTradeErrors([]);
+            if (!cached) {
+              setTrades([]);
+              setCurrentPositionsFromApi(null);
+            }
+            return;
+          }
+          const message = error?.message || "Trades fetch failed";
+          setTradeErrors([message]);
+          if (!cached) {
+            setTrades([]);
+            setTradeWarnings({ items: [] });
+            setCurrentPositionsFromApi(null);
+          }
+        });
+    };
+    fetchTrades(0);
+    return () => {
+      cancelled = true;
+      if (retryTimerId != null) {
+        window.clearTimeout(retryTimerId);
+      }
+    };
   }, [backendReady, code]);
 
 
   useEffect(() => {
     if (!backendReady) return;
     if (!compareCode) return;
-    api
-      .get(`/trades/${compareCode}`)
-      .then((res) => {
-        const payload = res.data as {
-          events?: TradeEvent[];
-          errors?: string[];
-        };
-        if (!payload || !Array.isArray(payload.events)) {
-          throw new Error("Trades response is invalid");
-        }
-        setCompareTrades(payload.events ?? []);
-      })
-      .catch((error) => {
-        const message = error?.message || "Trades fetch failed";
-        setCompareTrades([]);
-      });
+    const cached = tradesCache.get(compareCode);
+    if (cached) {
+      setCompareTrades(cached.events);
+    } else {
+      setCompareTrades([]);
+    }
+    let cancelled = false;
+    let retryTimerId: number | null = null;
+    const fetchCompareTrades = (attempt: number) => {
+      void api
+        .get(`/trades/${compareCode}`)
+        .then((res) => {
+          if (cancelled) return;
+          const payload = res.data as TradesResponsePayload;
+          if (!payload || !Array.isArray(payload.events)) {
+            throw new Error("Trades response is invalid");
+          }
+          const nextWarnings = normalizeWarnings(payload.warnings);
+          const nextErrors = Array.isArray(payload.errors) ? payload.errors : [];
+          const nextCurrentPositions = Array.isArray(payload.currentPositions) ? payload.currentPositions : null;
+          tradesCache.set(compareCode, {
+            events: payload.events ?? [],
+            warnings: nextWarnings,
+            errors: nextErrors,
+            currentPositions: nextCurrentPositions,
+            fetchedAt: Date.now(),
+          });
+          setCompareTrades(payload.events ?? []);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          if (isRetryableTradesError(error)) {
+            if (attempt < 2) {
+              retryTimerId = window.setTimeout(() => {
+                retryTimerId = null;
+                fetchCompareTrades(attempt + 1);
+              }, getRetryDelayMs(error));
+            }
+            if (!cached) {
+              setCompareTrades([]);
+            }
+            return;
+          }
+          if (!cached) {
+            setCompareTrades([]);
+          }
+        });
+    };
+    fetchCompareTrades(0);
+    return () => {
+      cancelled = true;
+      if (retryTimerId != null) {
+        window.clearTimeout(retryTimerId);
+      }
+    };
   }, [backendReady, compareCode]);
 
-  const dailyParse = useMemo(() => buildCandlesWithStats(dailyData), [dailyData]);
+  const dailyParse = sharedDailyParse;
   const monthlyParse = useMemo(() => buildCandlesWithStats(monthlyData), [monthlyData]);
   const compareDailyParse = useMemo(() => buildCandlesWithStats(compareDailyData), [compareDailyData]);
   const compareMonthlyParse = useMemo(
@@ -2066,7 +2607,7 @@ export default function DetailView() {
       : weeklyHasEmpty
         ? "No data"
         : null;
-  const tradeWarningItems = tradeWarnings.items ?? [];
+  const tradeWarningItems = useMemo(() => tradeWarnings.items ?? [], [tradeWarnings.items]);
   const marketDataStatusMeta =
     mainAsOf
       ? null
@@ -2076,9 +2617,12 @@ export default function DetailView() {
         monthlyBarsMeta;
   const marketDataStatusMessage = marketDataStatusMeta?.message ?? null;
   const marketDataStatusDelayed = Boolean(marketDataStatusMeta?.panDelayed);
-  const tradeInfoItems = tradeWarnings.info ?? [];
+  const tradeInfoItems = useMemo(() => tradeWarnings.info ?? [], [tradeWarnings.info]);
   const unrecognizedCount = tradeWarnings.unrecognized_labels?.count ?? 0;
-  const errors = [...dailyErrors, ...monthlyErrors, ...tradeErrors];
+  const errors = useMemo(
+    () => [...dailyErrors, ...monthlyErrors, ...tradeErrors],
+    [dailyErrors, monthlyErrors, tradeErrors]
+  );
   const otherWarningsCount = tradeWarningItems.length;
   const infoCount = tradeInfoItems.length;
   const warningCount = errors.length + unrecognizedCount + otherWarningsCount;
@@ -2188,15 +2732,105 @@ export default function DetailView() {
     }, 800);
   };
 
+  useEffect(() => {
+    if (!backendReady) return;
+    let cancelled = false;
+    api
+      .get("/jobs/ml/status", { timeout: 10000 })
+      .then((res) => {
+        if (cancelled) return;
+        const payload = (res.data ?? {}) as { disabled?: unknown; message?: unknown };
+        const disabled = payload?.disabled === true;
+        setLegacyAnalysisDisabled(disabled);
+        setLegacyAnalysisDisabledReason(
+          disabled && typeof payload?.message === "string" && payload.message.trim().length > 0
+            ? payload.message
+            : null
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backendReady]);
+
+  const submitUniverseAnalysisPublish = async () => {
+    if (!backendReady || analysisRecalcSubmitting != null) {
+      return;
+    }
+    const asOf =
+      analysisAsOfTime != null
+        ? toDateKey(analysisAsOfTime)
+        : dailyCandles.length > 0
+          ? toDateKey(dailyCandles[dailyCandles.length - 1].time)
+          : null;
+    setAnalysisRecalcSubmitting("batch");
+    setToastAction(null);
+    try {
+      const res = await api.post("/jobs/analysis/publish-latest", null, {
+        params: asOf != null ? { as_of: asOf } : undefined,
+        timeout: 10000,
+      });
+      const payload = (res.data ?? {}) as {
+        ok?: boolean;
+        started?: boolean;
+        skipped?: boolean;
+        reason?: string;
+        message?: string;
+        job_id?: string;
+        jobId?: string;
+        error?: string;
+      };
+      if (payload.ok !== true) {
+        throw new Error(typeof payload.error === "string" ? payload.error : "売買判定更新ジョブの開始に失敗しました。");
+      }
+      if (payload.started === false || payload.skipped === true) {
+        setToastMessage(
+          typeof payload.message === "string" && payload.message.trim().length > 0
+            ? payload.message
+            : `as_of=${asOf ?? "latest"} は既に publish 済みです。`
+        );
+        return;
+      }
+      setToastMessage(
+        `売買判定更新を開始しました。${asOf != null ? `(as_of=${asOf})` : ""}`
+      );
+    } catch (error: unknown) {
+      const response = (error as {
+        response?: { status?: number; data?: { error?: unknown; message?: unknown; detail?: unknown } };
+        message?: string;
+      }).response;
+      const detail =
+        response?.data?.message ??
+        response?.data?.error ??
+        response?.data?.detail ??
+        (error as { message?: string }).message ??
+        "詳細不明";
+      if (response?.status === 409) {
+        setToastMessage("売買判定更新はすでに実行中です。");
+      } else {
+        setToastMessage(`売買判定更新の開始に失敗しました。(${String(detail)})`);
+      }
+    } finally {
+      setAnalysisRecalcSubmitting((current) => (current === "batch" ? null : current));
+    }
+  };
+
   const submitAnalysisRecalc = async () => {
     if (!backendReady) {
       setToastAction(null);
-      setToastMessage("backend 未接続のため再計算できません。");
+      setToastMessage("backend 未接続のため売買判定を更新できません。");
+      return;
+    }
+    if (analysisRecalcDisabled) {
+      await submitUniverseAnalysisPublish();
       return;
     }
     if (analysisBackfillActive || analysisRecalcSubmitting != null) {
       setToastAction(null);
-      setToastMessage("解析再計算はすでに実行中です。");
+      setToastMessage("売買判定更新はすでに実行中です。");
       return;
     }
 
@@ -2232,7 +2866,7 @@ export default function DetailView() {
       });
       const payload = (res.data ?? {}) as JobStatusPayload & { ok?: boolean; job_id?: string; jobId?: string };
       if (payload.ok !== true) {
-        throw new Error("解析再計算ジョブの開始に失敗しました。");
+        throw new Error("売買判定更新ジョブの開始に失敗しました。");
       }
       setAnalysisBackfillJob({
         id: typeof payload.job_id === "string" ? payload.job_id : payload.jobId,
@@ -2242,14 +2876,25 @@ export default function DetailView() {
         message: "解析データを再計算しています。",
       });
       analysisBackfillActiveRef.current = true;
-      setToastMessage(`解析再計算を開始しました。(${requestLabel})`);
+      setToastMessage(`売買判定更新を開始しました。(${requestLabel})`);
     } catch (error: unknown) {
       const response = (error as {
         response?: { status?: number; data?: { error?: unknown; message?: unknown; detail?: unknown } };
         message?: string;
       }).response;
       if (response?.status === 409) {
-        setToastMessage("解析再計算はすでに実行中です。");
+        setToastMessage("売買判定更新はすでに実行中です。");
+      } else if (
+        response?.status === 410 &&
+        (response?.data?.error === "legacy_analysis_disabled" ||
+          typeof response?.data?.message === "string")
+      ) {
+        const detail =
+          response?.data?.message ??
+          "Phase 1 では外部 publish 済みの売買判定更新を利用してください。";
+        setLegacyAnalysisDisabled(true);
+        setLegacyAnalysisDisabledReason(String(detail));
+        setToastMessage(String(detail));
       } else {
         const detail =
           response?.data?.message ??
@@ -2257,52 +2902,62 @@ export default function DetailView() {
           response?.data?.detail ??
           (error as { message?: string }).message ??
           "詳細不明";
-        setToastMessage(`解析再計算の開始に失敗しました。(${String(detail)})`);
+        setToastMessage(`売買判定更新の開始に失敗しました。(${String(detail)})`);
       }
     } finally {
       setAnalysisRecalcSubmitting((current) => (current === "current" ? null : current));
     }
   };
 
-  // Cursor mode functions
-  const toggleCursorMode = () => {
-    setCursorMode(prev => !prev);
-    if (!cursorMode && dailyCandles.length > 0) {
-      // Initialize with last bar when turning on
-      updateSelectedBar(dailyCandles.length - 1);
+  const mainDailyTargetRange = useMemo(
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
+    [rangeMonths, mainAsOfTime]
+  );
+  const compareDailyTargetRange = useMemo(
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, compareAsOfTime) : null),
+    [rangeMonths, compareAsOfTime]
+  );
+  const mainMonthlyTargetRange = useMemo(
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
+    [rangeMonths, mainAsOfTime]
+  );
+  const compareMonthlyTargetRange = useMemo(
+    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, compareAsOfTime) : null),
+    [rangeMonths, compareAsOfTime]
+  );
+  const dailyVisibleRange = useMemo(() => {
+    if (!rangeMonths) return null;
+    if (mainDailyTargetRange) {
+      return mainDailyTargetRange;
     }
-  };
+    return buildRange(dailyCandles, rangeMonths);
+  }, [dailyCandles, rangeMonths, mainDailyTargetRange]);
+  const weeklyVisibleRange = useMemo(
+    () => (rangeMonths ? buildRange(weeklyCandles, rangeMonths) : null),
+    [weeklyCandles, rangeMonths]
+  );
+  const monthlyVisibleRange = useMemo(() => {
+    if (!rangeMonths) return null;
+    if (mainAsOfTime) {
+      return buildRangeEndingAt(monthlyCandles, rangeMonths, mainAsOfTime);
+    }
+    return buildRange(monthlyCandles, rangeMonths);
+  }, [monthlyCandles, rangeMonths, mainAsOfTime]);
+  const resolvedDailyVisibleRange = rangeMonths ? dailyVisibleRange : manualDailyRangeRef.current;
+  const resolvedWeeklyVisibleRange = rangeMonths ? weeklyVisibleRange : manualWeeklyRangeRef.current;
+  const resolvedMonthlyVisibleRange = rangeMonths ? monthlyVisibleRange : manualMonthlyRangeRef.current;
 
-  const updateSelectedBar = (index: number) => {
-    if (index < 0 || index >= dailyCandles.length) return;
-
-    const bar = dailyCandles[index];
-    setSelectedBarIndex(index);
-    setSelectedBarData(bar);
-    setAnalysisCursorTime(bar.time);
-
-    // Convert time to date string (YYYY-MM-DD)
-    const date = new Date(bar.time * 1000);
-    const dateStr = date.toISOString().split('T')[0];
-    setSelectedDate(dateStr);
-
-    // Auto-pan if needed
-    autoPanToBar(bar.time);
-  };
-
-  const autoPanToBar = (time: number) => {
+  // Cursor mode functions
+  const autoPanToBar = useCallback((time: number) => {
     if (!dailyChartRef.current) return;
 
-    // Get current visible range from resolvedDailyVisibleRange
     if (!resolvedDailyVisibleRange) return;
 
     const { from, to } = resolvedDailyVisibleRange;
     const rangeSize = to - from;
-    const margin = rangeSize * 0.1; // 10% margin
+    const margin = rangeSize * 0.1;
 
-    // Check if time is outside visible range
     if (time < from + margin || time > to - margin) {
-      // Pan to center the selected bar
       let newFrom = time - rangeSize / 2;
       let newTo = time + rangeSize / 2;
       const minTime = dailyCandles[0]?.time ?? null;
@@ -2327,17 +2982,39 @@ export default function DetailView() {
       }
       dailyChartRef.current.setVisibleRange({ from: newFrom, to: newTo });
     }
-  };
+  }, [resolvedDailyVisibleRange, dailyCandles]);
 
-  const moveToPrevDay = () => {
+  const updateSelectedBar = useCallback((index: number) => {
+    if (index < 0 || index >= dailyCandles.length) return;
+
+    const bar = dailyCandles[index];
+    setSelectedBarIndex(index);
+    setSelectedBarData(bar);
+    setAnalysisCursorTime(bar.time);
+
+    const date = new Date(bar.time * 1000);
+    const dateStr = date.toISOString().split("T")[0];
+    setSelectedDate(dateStr);
+
+    autoPanToBar(bar.time);
+  }, [dailyCandles, autoPanToBar]);
+
+  const moveToPrevDay = useCallback(() => {
     if (selectedBarIndex === null || selectedBarIndex <= 0) return;
     updateSelectedBar(selectedBarIndex - 1);
-  };
+  }, [selectedBarIndex, updateSelectedBar]);
 
-  const moveToNextDay = () => {
+  const moveToNextDay = useCallback(() => {
     if (selectedBarIndex === null || selectedBarIndex >= dailyCandles.length - 1) return;
     updateSelectedBar(selectedBarIndex + 1);
-  };
+  }, [selectedBarIndex, dailyCandles.length, updateSelectedBar]);
+
+  const toggleCursorMode = useCallback(() => {
+    setCursorMode((prev) => !prev);
+    if (!cursorMode && dailyCandles.length > 0) {
+      updateSelectedBar(dailyCandles.length - 1);
+    }
+  }, [cursorMode, dailyCandles.length, updateSelectedBar]);
 
   // Re-initialize cursor when dailyCandles change (e.g. after stock navigation)
   useEffect(() => {
@@ -2364,7 +3041,7 @@ export default function DetailView() {
     }
     // Fallback: select last bar
     updateSelectedBar(dailyCandles.length - 1);
-  }, [cursorMode, dailyCandles]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cursorMode, dailyCandles, selectedBarIndex, selectedBarData, selectedDate, updateSelectedBar]);
 
   const handleDailyChartClick = (time: number | null) => {
     if (time === null) return;
@@ -2415,15 +3092,15 @@ export default function DetailView() {
 
     // Get MA values and trends for selected date
     const maData: any = {};
-    const ma7Line = dailyMaLines.find(line => line.period === 7);
-    const ma20Line = dailyMaLines.find(line => line.period === 20);
-    const ma60Line = dailyMaLines.find(line => line.period === 60);
+    const ma7Line = dailyMaLineByPeriod.get(7);
+    const ma20Line = dailyMaLineByPeriod.get(20);
+    const ma60Line = dailyMaLineByPeriod.get(60);
 
     const getMaTrend = (maLine: typeof ma7Line, barIndex: number | null) => {
       if (!maLine || barIndex == null || barIndex < 1) return "--";
-      const currentValue = maLine.data.find(d => d.time === selectedBarData.time)?.value;
+      const currentValue = dailyMaValueMapByPeriod.get(maLine.period)?.get(selectedBarData.time);
       const prevBar = dailyCandles[barIndex - 1];
-      const prevValue = prevBar ? maLine.data.find(d => d.time === prevBar.time)?.value : null;
+      const prevValue = prevBar ? (dailyMaValueMapByPeriod.get(maLine.period)?.get(prevBar.time) ?? null) : null;
       if (currentValue == null || prevValue == null) return "--";
       if (selectedBarData.close > currentValue && prevBar.close > prevValue) return "UP";
       if (selectedBarData.close < currentValue && prevBar.close < prevValue) return "DOWN";
@@ -2433,19 +3110,19 @@ export default function DetailView() {
     const barIndex = findNearestCandleIndex(dailyCandles, selectedTime);
 
     if (ma7Line?.visible) {
-      const value = ma7Line.data.find(d => d.time === selectedTime)?.value;
+      const value = dailyMaValueMapByPeriod.get(7)?.get(selectedTime);
       if (value != null) {
         maData.ma7 = { value, trend: getMaTrend(ma7Line, barIndex) };
       }
     }
     if (ma20Line?.visible) {
-      const value = ma20Line.data.find(d => d.time === selectedTime)?.value;
+      const value = dailyMaValueMapByPeriod.get(20)?.get(selectedTime);
       if (value != null) {
         maData.ma20 = { value, trend: getMaTrend(ma20Line, barIndex) };
       }
     }
     if (ma60Line?.visible) {
-      const value = ma60Line.data.find(d => d.time === selectedTime)?.value;
+      const value = dailyMaValueMapByPeriod.get(60)?.get(selectedTime);
       if (value != null) {
         maData.ma60 = { value, trend: getMaTrend(ma60Line, barIndex) };
       }
@@ -2471,7 +3148,7 @@ export default function DetailView() {
         low: selectedBarData.low,
         close: selectedBarData.close,
       },
-      volume: dailyVolume.find(v => v.time === selectedBarData.time)?.value,
+      volume: dailyVolumeByTime.get(selectedBarData.time),
       position: totalLong > 0 || totalShort > 0 ? { sell: totalShort, buy: totalLong } : undefined,
       ma: Object.keys(maData).length > 0 ? maData : undefined,
       signals: signalLabels.length > 0 ? signalLabels : undefined,
@@ -2532,27 +3209,28 @@ export default function DetailView() {
 
 
   const dailyMaLines = useMemo(() => {
-    return maSettings.daily.map((setting) => ({
-      key: setting.key,
-      label: setting.label,
-      period: setting.period,
-      color: setting.color,
-      visible: setting.visible,
-      lineWidth: setting.lineWidth,
-      data: computeMA(dailyCandles, setting.period)
-    }));
+    return buildDetailMaLines(dailyCandles, maSettings.daily);
   }, [dailyCandles, maSettings.daily]);
+  const dailyChartMaLines = useMemo(() => toDetailChartMaLines(dailyMaLines), [dailyMaLines]);
+  const dailyMaLineByPeriod = useMemo(
+    () => new Map(dailyMaLines.map((line) => [line.period, line])),
+    [dailyMaLines]
+  );
+  const dailyMaValueMapByPeriod = useMemo(
+    () => new Map(dailyMaLines.map((line) => [line.period, new Map(line.data.map((point) => [point.time, point.value]))])),
+    [dailyMaLines]
+  );
+  const dailyVolumeByTime = useMemo(
+    () => new Map(dailyVolume.map((item) => [item.time, item.value])),
+    [dailyVolume]
+  );
   const compareDailyMaLines = useMemo(() => {
-    return compareMaSettings.daily.map((setting) => ({
-      key: setting.key,
-      label: setting.label,
-      period: setting.period,
-      color: setting.color,
-      visible: setting.visible,
-      lineWidth: setting.lineWidth,
-      data: computeMA(compareDailyCandles, setting.period)
-    }));
+    return buildDetailMaLines(compareDailyCandles, compareMaSettings.daily);
   }, [compareDailyCandles, compareMaSettings.daily]);
+  const compareDailyChartMaLines = useMemo(
+    () => toDetailChartMaLines(compareDailyMaLines),
+    [compareDailyMaLines]
+  );
   const memoPanelData = useDetailInfo(
     selectedBarData,
     selectedBarIndex ?? -1,
@@ -2562,79 +3240,22 @@ export default function DetailView() {
   );
 
   const weeklyMaLines = useMemo(() => {
-    return maSettings.weekly.map((setting) => ({
-      key: setting.key,
-      label: setting.label,
-      period: setting.period,
-      color: setting.color,
-      visible: setting.visible,
-      lineWidth: setting.lineWidth,
-      data: computeMA(weeklyCandles, setting.period)
-    }));
+    return buildDetailMaLines(weeklyCandles, maSettings.weekly);
   }, [weeklyCandles, maSettings.weekly]);
+  const weeklyChartMaLines = useMemo(() => toDetailChartMaLines(weeklyMaLines), [weeklyMaLines]);
 
   const monthlyMaLines = useMemo(() => {
-    return maSettings.monthly.map((setting) => ({
-      key: setting.key,
-      label: setting.label,
-      period: setting.period,
-      color: setting.color,
-      visible: setting.visible,
-      lineWidth: setting.lineWidth,
-      data: computeMA(monthlyCandles, setting.period)
-    }));
+    return buildDetailMaLines(monthlyCandles, maSettings.monthly);
   }, [monthlyCandles, maSettings.monthly]);
+  const monthlyChartMaLines = useMemo(() => toDetailChartMaLines(monthlyMaLines), [monthlyMaLines]);
   const compareMonthlyMaLines = useMemo(() => {
-    return compareMaSettings.monthly.map((setting) => ({
-      key: setting.key,
-      label: setting.label,
-      period: setting.period,
-      color: setting.color,
-      visible: setting.visible,
-      lineWidth: setting.lineWidth,
-      data: computeMA(compareMonthlyCandles, setting.period)
-    }));
+    return buildDetailMaLines(compareMonthlyCandles, compareMaSettings.monthly);
   }, [compareMonthlyCandles, compareMaSettings.monthly]);
-
-  const mainDailyTargetRange = useMemo(
-    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
-    [rangeMonths, mainAsOfTime]
-  );
-  const compareDailyTargetRange = useMemo(
-    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, compareAsOfTime) : null),
-    [rangeMonths, compareAsOfTime]
-  );
-  const mainMonthlyTargetRange = useMemo(
-    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
-    [rangeMonths, mainAsOfTime]
-  );
-  const compareMonthlyTargetRange = useMemo(
-    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, compareAsOfTime) : null),
-    [rangeMonths, compareAsOfTime]
-  );
-  const dailyVisibleRange = useMemo(() => {
-    if (!rangeMonths) return null;
-    if (mainDailyTargetRange) {
-      return mainDailyTargetRange;
-    }
-    return buildRange(dailyCandles, rangeMonths);
-  }, [dailyCandles, rangeMonths, mainDailyTargetRange]);
-
-  const weeklyVisibleRange = useMemo(
-    () => (rangeMonths ? buildRange(weeklyCandles, rangeMonths) : null),
-    [weeklyCandles, rangeMonths]
+  const compareMonthlyChartMaLines = useMemo(
+    () => toDetailChartMaLines(compareMonthlyMaLines),
+    [compareMonthlyMaLines]
   );
 
-  const monthlyVisibleRange = useMemo(() => {
-    if (!rangeMonths) return null;
-    if (mainAsOfTime) {
-      return buildRangeEndingAt(monthlyCandles, rangeMonths, mainAsOfTime);
-    }
-    return buildRange(monthlyCandles, rangeMonths);
-  }, [monthlyCandles, rangeMonths, mainAsOfTime]);
-  const resolvedDailyVisibleRange = rangeMonths ? dailyVisibleRange : manualDailyRangeRef.current;
-  const resolvedWeeklyVisibleRange = rangeMonths ? weeklyVisibleRange : manualWeeklyRangeRef.current;
-  const resolvedMonthlyVisibleRange = rangeMonths ? monthlyVisibleRange : manualMonthlyRangeRef.current;
   const visibleAnalysisRecalcRange = useMemo(() => {
     if (!dailyCandles.length) return null;
     const anchorTime =
@@ -2649,7 +3270,7 @@ export default function DetailView() {
         : (findNearestCandleIndex(dailyCandles, anchorTime) ?? (dailyCandles.length - 1));
     const halfWindow = Math.floor(ANALYSIS_DECISION_WINDOW_BARS / 2);
     let startIndex = Math.max(0, anchorIndex - halfWindow);
-    let endIndex = Math.min(dailyCandles.length - 1, startIndex + ANALYSIS_DECISION_WINDOW_BARS - 1);
+    const endIndex = Math.min(dailyCandles.length - 1, startIndex + ANALYSIS_DECISION_WINDOW_BARS - 1);
     startIndex = Math.max(0, endIndex - (ANALYSIS_DECISION_WINDOW_BARS - 1));
     const startTime = dailyCandles[startIndex]?.time ?? null;
     const endTime = dailyCandles[endIndex]?.time ?? null;
@@ -2664,16 +3285,14 @@ export default function DetailView() {
       bars: Math.max(1, endIndex - startIndex + 1),
     };
   }, [analysisAsOfTime, dailyCandles, detailAsOfTime, latestDailyAsOfTime]);
-  const {
-    items: exactDecisionRange,
-    loading: exactDecisionRangeLoading,
-  } = useExactDecisionRange({
+  const { items: exactDecisionRange } = useExactDecisionRange({
     backendReady,
     code,
     startDt: visibleAnalysisRecalcRange?.startDt ?? null,
     endDt: visibleAnalysisRecalcRange?.endDt ?? null,
     riskMode: analysisRiskMode,
     enabled: analysisFetchEnabled && showDecisionMarkers && visibleAnalysisRecalcRange != null,
+    readyToFetch: analysisNetworkReady,
     cacheKeyExtra: analysisFetchRefreshToken,
   });
   const exactDecisionToneScopeKey = code ? `${code}|${analysisRiskMode}` : "";
@@ -2715,53 +3334,27 @@ export default function DetailView() {
     });
     return fallback;
   }, [exactDecisionRange, exactDecisionToneCacheByScope, exactDecisionToneScopeKey]);
-  const visibleExactDecisionCoverage = useMemo(() => {
-    if (!visibleAnalysisRecalcRange) {
-      return { expectedCount: 0, resolvedCount: 0, missingCount: 0 };
-    }
-    const dtKeys = new Set<number>();
-    dailyCandles.forEach((candle) => {
-      const dtKey = toDateKey(candle.time);
-      if (dtKey >= visibleAnalysisRecalcRange.startDt && dtKey <= visibleAnalysisRecalcRange.endDt) {
-        dtKeys.add(dtKey);
-      }
-    });
-    let resolvedCount = 0;
-    dtKeys.forEach((dtKey) => {
-      if (exactDecisionToneByDate.has(dtKey)) {
-        resolvedCount += 1;
-      }
-    });
-    const expectedCount = dtKeys.size;
-    return {
-      expectedCount,
-      resolvedCount,
-      missingCount: Math.max(0, expectedCount - resolvedCount),
-    };
-  }, [dailyCandles, exactDecisionToneByDate, visibleAnalysisRecalcRange]);
-  const currentExactDecisionMissing =
-    showDecisionMarkers &&
-    visibleAnalysisRecalcRange != null &&
-    !exactDecisionRangeLoading &&
-    visibleExactDecisionCoverage.expectedCount > 0 &&
-    visibleExactDecisionCoverage.missingCount > 0;
-  const holdDailyChartUntilDecisionReady =
-    analysisFetchEnabled &&
-    showDecisionMarkers &&
-    dailyCandles.length > 0 &&
-    exactDecisionRangeLoading &&
-    exactDecisionToneByDate.size === 0;
-  const visibleExactDecisionMissing =
-    showDecisionMarkers &&
-    visibleAnalysisRecalcRange != null &&
-    visibleExactDecisionCoverage.expectedCount > 0 &&
-    visibleExactDecisionCoverage.missingCount > 0;
+  const holdDailyChartUntilDecisionReady = false;
+  const shouldRenderCompareMonthlyChart = !compareLoading && compareMonthlyCandles.length > 0;
+  const autoAnalysisBackfillRequest = useMemo(
+    () =>
+      resolveAutoAnalysisBackfillRequest({
+        code,
+        analysisAsOfTime,
+        analysisMissingDataVisible,
+      }),
+    [analysisAsOfTime, analysisMissingDataVisible, code]
+  );
   const analysisPanelJustOpened = showAnalysisPanel && !prevShowAnalysisPanelRef.current;
   useEffect(() => {
     prevShowAnalysisPanelRef.current = showAnalysisPanel;
   }, [showAnalysisPanel]);
   useEffect(() => {
-    if (!backendReady || !showAnalysisPanel || !analysisPanelJustOpened || !code) {
+    if (!backendReady || !analysisNetworkReady || !showAnalysisPanel || !analysisPanelJustOpened || !code) {
+      analysisAutoBackfillRequestKeyRef.current = null;
+      return;
+    }
+    if (analysisRecalcDisabled) {
       analysisAutoBackfillRequestKeyRef.current = null;
       return;
     }
@@ -2773,18 +3366,10 @@ export default function DetailView() {
     let params: Record<string, string | number | boolean> | null = null;
     let queuedMessage = "未計算の解析データを準備しています。";
 
-    if ((visibleExactDecisionMissing || analysisMissingDataVisible) && visibleAnalysisRecalcRange) {
-      requestKey = `window:${code}:${visibleAnalysisRecalcRange.startDt}:${visibleAnalysisRecalcRange.endDt}`;
-      params = {
-        start_dt: visibleAnalysisRecalcRange.startDt,
-        end_dt: visibleAnalysisRecalcRange.endDt,
-        include_sell: true,
-        include_phase: false,
-        force_recompute: false,
-      };
-      if (visibleExactDecisionMissing) {
-        queuedMessage = "未計算の判定データを基準日を中心に130本分準備しています。";
-      }
+    if (autoAnalysisBackfillRequest) {
+      requestKey = autoAnalysisBackfillRequest.requestKey;
+      params = autoAnalysisBackfillRequest.params;
+      queuedMessage = autoAnalysisBackfillRequest.queuedMessage;
     } else {
       analysisAutoBackfillRequestKeyRef.current = null;
       return;
@@ -2818,9 +3403,24 @@ export default function DetailView() {
         });
         analysisBackfillActiveRef.current = true;
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (cancelled) return;
         setToastAction(null);
+        const response = (error as {
+          response?: { status?: number; data?: { error?: unknown; message?: unknown } };
+        }).response;
+        if (
+          response?.status === 410 &&
+          (response?.data?.error === "legacy_analysis_disabled" ||
+            typeof response?.data?.message === "string")
+        ) {
+          const detail =
+            response?.data?.message ??
+            "Phase 1 では外部 publish 済みの売買判定更新を利用してください。";
+          setLegacyAnalysisDisabled(true);
+          setLegacyAnalysisDisabledReason(String(detail));
+          return;
+        }
         setToastMessage("未計算の解析データを自動準備できませんでした。必要なら再計算を実行してください。");
       })
       .finally(() => {
@@ -2833,14 +3433,14 @@ export default function DetailView() {
     };
   }, [
     backendReady,
+    analysisNetworkReady,
     showAnalysisPanel,
     analysisPanelJustOpened,
     code,
+    analysisRecalcDisabled,
     analysisBackfillActive,
     analysisRecalcSubmitting,
-    visibleExactDecisionMissing,
-    visibleAnalysisRecalcRange,
-    analysisMissingDataVisible,
+    autoAnalysisBackfillRequest,
   ]);
   const mergedDailyEventMarkers = useMemo(() => {
     const merged = [...dailyEventMarkers];
@@ -2866,26 +3466,34 @@ export default function DetailView() {
     });
     return [...deduped.values()].sort((a, b) => a.time - b.time);
   }, [dailyEventMarkers, dailyCandles, exactDecisionToneByDate, showDecisionMarkers]);
-  const compareMonthlyVisibleRange = useMemo(() => {
-    if (!rangeMonths) return null;
-    if (compareMonthlyTargetRange) return compareMonthlyTargetRange;
-    return buildRange(compareMonthlyCandles, rangeMonths);
-  }, [rangeMonths, compareMonthlyTargetRange, compareMonthlyCandles]);
+  const compareMonthlyInitialRange = useMemo(() => {
+    const months = rangeMonths ?? (compareAsOfTime ? COMPARE_FOCUS_MONTHS : null);
+    if (!months) return null;
+    return buildRangeEndingAt(compareMonthlyCandles, months, compareAsOfTime);
+  }, [rangeMonths, compareMonthlyCandles, compareAsOfTime]);
   const compareMonthlyBaseRange = useMemo(() => {
     if (!rangeMonths) return null;
     if (mainMonthlyTargetRange) return mainMonthlyTargetRange;
     return buildRange(monthlyCandles, rangeMonths);
   }, [rangeMonths, mainMonthlyTargetRange, monthlyCandles]);
-  const compareRequiredFrom = useMemo(
-    () => compareDailyTargetRange?.from ?? null,
-    [compareDailyTargetRange]
-  );
-  const compareDailyVisibleRange = useMemo(() => {
-    if (manualCompareDailyRangeRef.current) return manualCompareDailyRangeRef.current;
-    if (!compareDailyTargetRange) return null;
+  const compareDailyInitialRange = useMemo(() => {
     if (!compareDailyCandles.length) return null;
-    return compareDailyTargetRange;
-  }, [compareDailyTargetRange, compareDailyCandles]);
+    const months = rangeMonths ?? (compareAsOfTime ? COMPARE_FOCUS_MONTHS : null);
+    if (!months) return null;
+    return buildRangeEndingAt(compareDailyCandles, months, compareAsOfTime);
+  }, [compareDailyCandles, rangeMonths, compareAsOfTime]);
+  const compareMonthlyVisibleRange = useMemo(
+    () => manualCompareMonthlyRangeRef.current ?? compareMonthlyInitialRange,
+    [compareMonthlyInitialRange]
+  );
+  const compareDailyVisibleRange = useMemo(
+    () => manualCompareDailyRangeRef.current ?? compareDailyInitialRange,
+    [compareDailyInitialRange]
+  );
+  const compareRequiredFrom = useMemo(
+    () => compareMonthlyVisibleRange?.from ?? compareDailyVisibleRange?.from ?? null,
+    [compareMonthlyVisibleRange, compareDailyVisibleRange]
+  );
   const dailyRangeLabel = useMemo(() => {
     if (!rangeMonths) return "全期間";
     if (rangeMonths === 3) return "3M";
@@ -2901,14 +3509,29 @@ export default function DetailView() {
     return `表示期間: ${dailyRangeLabel}`;
   }, [mainDailyTargetRange, dailyRangeLabel]);
   const rightDailyRangeLabel = useMemo(() => {
-    if (compareDailyTargetRange) {
-      return `一致期間: ${formatDateLabel(compareDailyTargetRange.from)} - ${formatDateLabel(compareDailyTargetRange.to)}`;
+    if (compareDailyVisibleRange) {
+      const base = `表示期間: ${formatDateLabel(compareDailyVisibleRange.from)} - ${formatDateLabel(compareDailyVisibleRange.to)}`;
+      if (
+        compareDailyInitialRange &&
+        (compareDailyInitialRange.from !== compareDailyVisibleRange.from ||
+          compareDailyInitialRange.to !== compareDailyVisibleRange.to)
+      ) {
+        const compareBase = `比較期間: ${formatDateLabel(compareDailyInitialRange.from)} - ${formatDateLabel(compareDailyInitialRange.to)}`;
+        if (compareAsOfTime) {
+          return `${base} / ${compareBase} / 類似日: ${formatDateLabel(compareAsOfTime)}`;
+        }
+        return `${base} / ${compareBase}`;
+      }
+      if (compareAsOfTime) {
+        return `${base} / 類似日: ${formatDateLabel(compareAsOfTime)}`;
+      }
+      return base;
     }
     if (compareAsOfTime) {
       return `一致日: ${formatDateLabel(compareAsOfTime)}`;
     }
     return "一致期間: --";
-  }, [compareDailyTargetRange, compareAsOfTime]);
+  }, [compareDailyVisibleRange, compareDailyInitialRange, compareAsOfTime]);
   const leftMonthlyRangeLabel = useMemo(() => {
     if (mainMonthlyTargetRange) {
       return `対象期間: ${formatDateLabel(mainMonthlyTargetRange.from)} - ${formatDateLabel(mainMonthlyTargetRange.to)}`;
@@ -2917,17 +3540,36 @@ export default function DetailView() {
   }, [mainMonthlyTargetRange, dailyRangeLabel]);
   const rightMonthlyRangeLabel = useMemo(() => {
     if (compareMonthlyVisibleRange) {
-      return `一致期間: ${formatDateLabel(compareMonthlyVisibleRange.from)} - ${formatDateLabel(compareMonthlyVisibleRange.to)}`;
+      const base = `表示期間: ${formatDateLabel(compareMonthlyVisibleRange.from)} - ${formatDateLabel(compareMonthlyVisibleRange.to)}`;
+      if (
+        compareMonthlyInitialRange &&
+        (compareMonthlyInitialRange.from !== compareMonthlyVisibleRange.from ||
+          compareMonthlyInitialRange.to !== compareMonthlyVisibleRange.to)
+      ) {
+        const compareBase = `比較期間: ${formatDateLabel(compareMonthlyInitialRange.from)} - ${formatDateLabel(compareMonthlyInitialRange.to)}`;
+        if (compareAsOfTime) {
+          return `${base} / ${compareBase} / 類似日: ${formatDateLabel(compareAsOfTime)}`;
+        }
+        return `${base} / ${compareBase}`;
+      }
+      if (compareAsOfTime) {
+        return `${base} / 類似日: ${formatDateLabel(compareAsOfTime)}`;
+      }
+      return base;
     }
     return `表示期間: ${dailyRangeLabel}`;
-  }, [compareMonthlyVisibleRange, dailyRangeLabel]);
+  }, [compareMonthlyVisibleRange, compareMonthlyInitialRange, compareAsOfTime, dailyRangeLabel]);
   const compareDailyNeedsMore = useMemo(() => {
-    if (!compareDailyTargetRange || !compareDailyCandles.length) return false;
+    if (!compareDailyVisibleRange || !compareDailyCandles.length) return false;
     const earliest = compareDailyCandles[0]?.time;
     if (!earliest) return false;
     const hasMore = compareDailyData.length >= compareDailyLimit;
-    return compareDailyTargetRange.from < earliest && hasMore;
-  }, [compareDailyTargetRange, compareDailyCandles, compareDailyData.length, compareDailyLimit]);
+    return compareDailyVisibleRange.from < earliest && hasMore;
+  }, [compareDailyVisibleRange, compareDailyCandles, compareDailyData.length, compareDailyLimit]);
+  const shouldRenderCompareDailyChart =
+    !compareDailyLoading &&
+    !compareDailyNeedsMore &&
+    compareDailyCandles.length > 0;
   const mainMonthlyNeedsMore = useMemo(() => {
     if (!compareCode || !compareRequiredFrom || !monthlyCandles.length) return false;
     const earliest = monthlyCandles[0]?.time;
@@ -2953,13 +3595,13 @@ export default function DetailView() {
     if (!compareCode) return;
     if (compareDailyLoading) return;
     if (!compareDailyNeedsMore) return;
-    setCompareDailyLimit((prev) => prev + LIMIT_STEP.daily);
+    setCompareDailyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.daily, MAX_DAILY_BATCH_BARS_LIMIT));
   }, [compareCode, compareDailyLoading, compareDailyNeedsMore]);
   useEffect(() => {
     if (!compareCode) return;
     if (loadingMonthly || compareLoading) return;
     if (!mainMonthlyNeedsMore && !compareMonthlyNeedsMore) return;
-    setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly);
+    setMonthlyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.monthly, MAX_MONTHLY_BATCH_BARS_LIMIT));
   }, [
     compareCode,
     loadingMonthly,
@@ -3055,20 +3697,25 @@ export default function DetailView() {
 
     window.addEventListener('keydown', handleCursorKeyDown);
     return () => window.removeEventListener('keydown', handleCursorKeyDown);
-  }, [cursorMode, selectedBarIndex, dailyCandles]);
+  }, [cursorMode, moveToNextDay, moveToPrevDay, toggleCursorMode]);
 
 
   const compareHasMoreDaily = compareDailyData.length >= compareDailyLimit;
   const compareHasMoreMonthly = compareMonthlyData.length >= monthlyLimit; // monthlyLimit is shared
+  const canLoadMoreDaily = hasMoreDaily && dailyLimit < MAX_DAILY_BATCH_BARS_LIMIT;
+  const canLoadMoreMonthly = hasMoreMonthly && monthlyLimit < MAX_MONTHLY_BATCH_BARS_LIMIT;
+  const canLoadMoreCompareDaily = compareHasMoreDaily && compareDailyLimit < MAX_DAILY_BATCH_BARS_LIMIT;
+  const canLoadMoreCompareMonthly = compareHasMoreMonthly && monthlyLimit < MAX_MONTHLY_BATCH_BARS_LIMIT;
 
   const mainSync = useChartSync(dailyChartRef, monthlyChartRef, weeklyChartRef, {
     enabled: syncRanges ?? true,
     cursorEnabled: true,
-    onLoadMoreDaily: () => setDailyLimit((prev) => prev + LIMIT_STEP.daily),
-    onLoadMoreMonthly: () => setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly),
-    hasMoreDaily,
+    onLoadMoreDaily: () => setDailyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.daily, MAX_DAILY_BATCH_BARS_LIMIT)),
+    onLoadMoreMonthly: () =>
+      setMonthlyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.monthly, MAX_MONTHLY_BATCH_BARS_LIMIT)),
+    hasMoreDaily: canLoadMoreDaily,
     loadingDaily,
-    hasMoreMonthly,
+    hasMoreMonthly: canLoadMoreMonthly,
     loadingMonthly,
     dailyCandles,
     monthlyCandles
@@ -3077,12 +3724,14 @@ export default function DetailView() {
   const compareSync = useChartSync(compareDailyChartRef, compareMonthlyChartRef, undefined, {
     enabled: syncRanges ?? true,
     cursorEnabled: true,
-    onLoadMoreDaily: () => setCompareDailyLimit((prev) => prev + LIMIT_STEP.daily),
+    onLoadMoreDaily: () =>
+      setCompareDailyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.daily, MAX_DAILY_BATCH_BARS_LIMIT)),
     // compare monthly load more is implicitly handled by shared monthlyLimit, but comparing data length:
-    onLoadMoreMonthly: () => setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly),
-    hasMoreDaily: compareHasMoreDaily,
+    onLoadMoreMonthly: () =>
+      setMonthlyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.monthly, MAX_MONTHLY_BATCH_BARS_LIMIT)),
+    hasMoreDaily: canLoadMoreCompareDaily,
     loadingDaily: compareDailyLoading,
-    hasMoreMonthly: compareHasMoreMonthly,
+    hasMoreMonthly: canLoadMoreCompareMonthly,
     loadingMonthly: compareLoading, // compareLoading is for monthly
     dailyCandles: compareDailyCandles,
     monthlyCandles: compareMonthlyCandles
@@ -3098,6 +3747,10 @@ export default function DetailView() {
       // Suppress programmatic range events (chart init, data load, setVisibleRange)
       // for a short settling window after data/range changes.
       if (Date.now() < rangeSettleRef.current) {
+        mainSync.handleDailyVisibleRangeChange(range);
+        return;
+      }
+      if (compareCode) {
         mainSync.handleDailyVisibleRangeChange(range);
         return;
       }
@@ -3133,11 +3786,25 @@ export default function DetailView() {
   };
 
   const handleCompareMonthlyVisibleRangeChange = (range: { from: number; to: number } | null) => {
-    if (rangeMonths) return;
+    if (rangeMonths && range) {
+      if (Date.now() >= rangeSettleRef.current) {
+        const shouldTrackManualRange = hasSignificantRangeChange(compareMonthlyInitialRange, range);
+        manualCompareMonthlyRangeRef.current = shouldTrackManualRange ? range : null;
+      }
+      compareSync.handleMonthlyVisibleRangeChange(range);
+      return;
+    }
     compareSync.handleMonthlyVisibleRangeChange(range);
+    if (!rangeMonths) {
+      manualCompareMonthlyRangeRef.current = range;
+    }
   };
 
   const handleCompareDailyVisibleRangeChange = (range: { from: number; to: number } | null) => {
+    if (rangeMonths && range && Date.now() >= rangeSettleRef.current) {
+      const shouldTrackManualRange = hasSignificantRangeChange(compareDailyInitialRange, range);
+      manualCompareDailyRangeRef.current = shouldTrackManualRange ? range : null;
+    }
     compareSync.handleDailyVisibleRangeChange(range);
     if (!rangeMonths && range) {
       manualCompareDailyRangeRef.current = range;
@@ -3145,42 +3812,30 @@ export default function DetailView() {
   };
 
   const loadMoreDailyAndMonthly = () => {
-    if (hasMoreDaily) {
-      setDailyLimit((prev) => prev + LIMIT_STEP.daily);
+    if (canLoadMoreDaily) {
+      setDailyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.daily, MAX_DAILY_BATCH_BARS_LIMIT));
     }
-    if (hasMoreMonthly) {
-      setMonthlyLimit((prev) => prev + LIMIT_STEP.monthly);
+    if (canLoadMoreMonthly) {
+      setMonthlyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.monthly, MAX_MONTHLY_BATCH_BARS_LIMIT));
     }
   };
-  const loadMoreDisabled = loadingDaily || loadingMonthly || (!hasMoreDaily && !hasMoreMonthly);
+  const loadMoreDisabled = loadingDaily || loadingMonthly || (!canLoadMoreDaily && !canLoadMoreMonthly);
   const loadMoreLabel =
     loadingDaily || loadingMonthly
       ? "Loading..."
-      : hasMoreDaily || hasMoreMonthly
+      : canLoadMoreDaily || canLoadMoreMonthly
         ? "Load more daily/monthly"
         : "All loaded";
 
   const toggleRange = (months: number) => {
     setRangeMonths((prev) => (prev === months ? null : months));
+    manualCompareDailyRangeRef.current = null;
+    manualCompareMonthlyRangeRef.current = null;
     // Suppress programmatic visible-range events after preset change
-    rangeSettleRef.current = Date.now() + 500;
+    rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
   };
 
   // Visible range sync is handled by hook; wrapper keeps manual range for load-more.
-
-  const parseBarsResponse = (payload: BarsResponse | number[][], label: string) => {
-    if (Array.isArray(payload)) {
-      return { rows: payload, errors: [] as string[], meta: null as BarsMeta | null };
-    }
-    if (payload && Array.isArray(payload.data)) {
-      return {
-        rows: payload.data,
-        errors: Array.isArray(payload.errors) ? payload.errors : [],
-        meta: payload.meta && typeof payload.meta === "object" ? payload.meta : null
-      };
-    }
-    return { rows: [], errors: [`${label}_response_invalid`], meta: null as BarsMeta | null };
-  };
 
   const normalizeWarnings = (value: unknown): ApiWarnings => {
     if (Array.isArray(value)) return { items: value.filter((item) => typeof item === "string") };
@@ -3302,7 +3957,7 @@ export default function DetailView() {
       } else {
         navigate(listBackPath);
       }
-    } catch (error) {
+    } catch {
       setToastMessage("削除に失敗しました");
     } finally {
       setDeleteBusy(false);
@@ -3371,9 +4026,21 @@ export default function DetailView() {
     }
   };
 
-  const dailyEmptyMessage = dailyCandles.length === 0 ? dailyError ?? "No data" : null;
-  const weeklyEmptyMessage = weeklyCandles.length === 0 ? weeklyError : null;
-  const monthlyEmptyMessage = monthlyCandles.length === 0 ? monthlyError ?? "No data" : null;
+  const dailyEmptyMessage = loadingDaily
+    ? "Loading..."
+    : dailyCandles.length === 0
+      ? dailyError ?? "No data"
+      : null;
+  const weeklyEmptyMessage = loadingDaily
+    ? "Loading..."
+    : weeklyCandles.length === 0
+      ? weeklyError
+      : null;
+  const monthlyEmptyMessage = loadingMonthly
+    ? "Loading..."
+    : monthlyCandles.length === 0
+      ? monthlyError ?? "No data"
+      : null;
 
   const monthlyRatio = 1 - weeklyRatio;
   const focusTitle =
@@ -3394,12 +4061,55 @@ export default function DetailView() {
       candidate === "/" ||
       candidate === "/ranking" ||
       candidate === "/favorites" ||
-      candidate === "/candidates"
+      candidate === "/candidates" ||
+      candidate === "/tradex-tags"
     ) {
       return candidate;
     }
     return "/";
   }, [location.state]);
+  useEffect(() => {
+    if (!backendReady || !code) return;
+    let active = true;
+    const run = async () => {
+      try {
+        const [stateEvalResponse, trendResponse] = await Promise.all([
+          api.get("/analysis-bridge/state-eval", {
+            params: { code, limit: 5 }
+          }),
+          api.get("/analysis-bridge/internal/state-eval-trends", {
+            params: { lookback: 14, limit: 20 }
+          }),
+        ]);
+        if (!active) return;
+        const rows = Array.isArray(stateEvalResponse.data?.rows) ? stateEvalResponse.data.rows : [];
+        const first = rows[0] ?? null;
+        setStateEvalRow(first);
+        const trendMap = new Map<string, { label: string; tone: "improving" | "weakening" | "risk" }>();
+        const improving = Array.isArray(trendResponse.data?.trends?.improving) ? trendResponse.data.trends.improving : [];
+        const weakening = Array.isArray(trendResponse.data?.trends?.weakening) ? trendResponse.data.trends.weakening : [];
+        const persistentRisk = Array.isArray(trendResponse.data?.trends?.persistent_risk) ? trendResponse.data.trends.persistent_risk : [];
+        improving.forEach((row: { strategy_tag: string }) => trendMap.set(String(row.strategy_tag), { label: "Improving", tone: "improving" }));
+        weakening.forEach((row: { strategy_tag: string }) => {
+          if (!trendMap.has(String(row.strategy_tag))) trendMap.set(String(row.strategy_tag), { label: "Weakening", tone: "weakening" });
+        });
+        persistentRisk.forEach((row: { strategy_tag: string }) => {
+          if (!trendMap.has(String(row.strategy_tag))) trendMap.set(String(row.strategy_tag), { label: "Persistent Risk", tone: "risk" });
+        });
+        const matchedTrend = parseStateEvalStrategyTags(first?.strategy_tags).map((tag) => trendMap.get(tag)).find(Boolean) ?? null;
+        setStateEvalTrend(matchedTrend);
+      } catch {
+        if (active) {
+          setStateEvalRow(null);
+          setStateEvalTrend(null);
+        }
+      }
+    };
+    void run();
+    return () => {
+      active = false;
+    };
+  }, [backendReady, code]);
   const listCodes = useMemo(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -3411,7 +4121,7 @@ export default function DetailView() {
     } catch {
       return [];
     }
-  }, [code]);
+  }, []);
   const compareList = useMemo(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -3434,8 +4144,8 @@ export default function DetailView() {
     } catch {
       return null;
     }
-  }, [code, compareCode, mainAsOf]);
-  const compareListItems = compareList?.items ?? [];
+  }, [location.search]);
+  const compareListItems = useMemo(() => compareList?.items ?? [], [compareList]);
   const compareListEligible = useMemo(() => {
     if (!compareList) return false;
     if (compareList.queryTicker !== code) return false;
@@ -3464,6 +4174,37 @@ export default function DetailView() {
     if (index < 0) return null;
     return listCodes[index + 1] ?? null;
   }, [listCodes, code]);
+  useEffect(() => {
+    if (!backendReady || compareCode) return;
+    if (!nextCode) return;
+    const timerId = window.setTimeout(() => {
+      void prefetchChartFrame({
+        code: nextCode,
+        timeframe: "daily",
+        limit: DEFAULT_LIMITS.daily,
+      });
+      void prefetchChartFrame({
+        code: nextCode,
+        timeframe: "monthly",
+        limit: DEFAULT_LIMITS.monthly,
+      });
+    }, 150);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [backendReady, compareCode, nextCode]);
+  const stateEvalDisplayReasons = useMemo(() => {
+    const reasons = parseStateEvalReasonTexts(stateEvalRow?.reason_text_top3).slice(0, 3);
+    const trendReason = buildStateEvalTrendReason(stateEvalTrend);
+    if (trendReason && !reasons.includes(trendReason)) {
+      reasons.push(trendReason);
+    }
+    return reasons.slice(0, 3);
+  }, [stateEvalRow, stateEvalTrend]);
+  const stateEvalPriorReason = useMemo(
+    () => stateEvalDisplayReasons.map(classifyStateEvalPriorReason).find(Boolean) ?? null,
+    [stateEvalDisplayReasons]
+  );
   const showDrawSettings = headerMode === "draw" && activeDrawTool !== null;
   const chartActionControls = (
     <div className="detail-controls-group detail-controls-icons">
@@ -3566,10 +4307,9 @@ export default function DetailView() {
             }
           }
 
-          const dailyVolumeMap = new Map(dailyVolume.map((item) => [item.time, item.value]));
           const weeklyVolumeCounts = new Map<number, number>();
           dailyCandles.forEach((candle) => {
-            if (!dailyVolumeMap.has(candle.time)) return;
+            if (!dailyVolumeByTime.has(candle.time)) return;
             const date = new Date(candle.time * 1000);
             const day = date.getUTCDay();
             const diff = (day + 6) % 7;
@@ -3588,7 +4328,7 @@ export default function DetailView() {
           });
           const monthlyVolumeSums = new Map<number, number>();
           dailyCandles.forEach((candle) => {
-            const volume = dailyVolumeMap.get(candle.time);
+            const volume = dailyVolumeByTime.get(candle.time);
             if (volume == null || !Number.isFinite(volume)) return;
             const date = new Date(candle.time * 1000);
             const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
@@ -3611,7 +4351,7 @@ export default function DetailView() {
               high: c.high,
               low: c.low,
               close: c.close,
-              volume: dailyVolumeMap.get(c.time) ?? null
+              volume: dailyVolumeByTime.get(c.time) ?? null
             })),
             weeklyBars: weeklyCandles.map((c) => ({
               time: c.time,
@@ -3645,14 +4385,22 @@ export default function DetailView() {
           }
         }}
       />
-        <IconButton
-          label="再計算"
-          icon={<IconRefresh size={18} />}
-          disabled={analysisAsOfTime == null || analysisBackfillActive || analysisRecalcSubmitting != null}
-          tooltip="基準日を中心に130本分の解析を再計算"
-          onClick={() => {
-            void submitAnalysisRecalc();
-          }}
+      <IconButton
+        label={analysisRecalcDisabled ? "判定更新" : "再計算"}
+        icon={<IconRefresh size={18} />}
+        disabled={
+          (!analysisRecalcDisabled && analysisAsOfTime == null) ||
+          analysisBackfillActive ||
+          analysisRecalcSubmitting != null
+        }
+        tooltip={
+          analysisRecalcDisabled
+            ? "現在の基準日で売買判定を更新"
+            : "基準日を中心に130本分の解析を再計算"
+        }
+        onClick={() => {
+          void submitAnalysisRecalc();
+        }}
       />
       <IconButton
         label="類似"
@@ -3931,6 +4679,38 @@ export default function DetailView() {
                 </div>
               )}
             </div>
+            {stateEvalRow && (
+              <div className="detail-ai-state-panel">
+                <div className="detail-ai-state-head">
+                  <span className={`candidate-ai-badge is-${String(stateEvalRow.decision_3way || "wait")}`}>
+                    {String(stateEvalRow.decision_3way || "wait").toUpperCase()}
+                  </span>
+                  <span className="detail-ai-state-meta">
+                    AI {typeof stateEvalRow.confidence === "number" ? `${Math.round(stateEvalRow.confidence * 100)}%` : "--"}
+                  </span>
+                  <span className="detail-ai-state-meta">{stateEvalRow.holding_band ?? "--"}</span>
+                  {stateEvalTrend ? (
+                    <span className={`detail-ai-state-meta detail-ai-state-trend is-${stateEvalTrend.tone}`}>{stateEvalTrend.label}</span>
+                  ) : null}
+                  {stateEvalPriorReason ? (
+                    <span className={`candidate-ai-prior-badge is-${stateEvalPriorReason.tone}`}>
+                      {stateEvalPriorReason.tone === "combo"
+                        ? `COMBO ${stateEvalPriorReason.label}`
+                        : stateEvalPriorReason.tone === "prior-caution"
+                          ? `CAUTION ${stateEvalPriorReason.label}`
+                          : `PRIOR ${stateEvalPriorReason.label}`}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="detail-ai-state-reasons">
+                  {stateEvalDisplayReasons.map((reason) => (
+                    <span key={reason} className="detail-ai-state-reason">
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           {headerMode !== "draw" && (
             <div className="detail-controls detail-summary-inline-controls">{headerControls}</div>
@@ -4313,7 +5093,7 @@ export default function DetailView() {
                       ref={monthlyChartRef}
                       candles={monthlyCandles}
                       volume={monthlyVolume}
-                      maLines={monthlyMaLines}
+                      maLines={monthlyChartMaLines}
                       showVolume={false}
                       boxes={boxes}
                       showBoxes={showBoxes}
@@ -4359,44 +5139,46 @@ export default function DetailView() {
                     <div className="detail-compare-cell-meta">月足 ({rightMonthlyRangeLabel})</div>
                   </div>
                   <div className="detail-chart detail-compare-chart">
-                    <DetailChart
-                      ref={compareMonthlyChartRef}
-                      candles={compareMonthlyCandles}
-                      volume={[]}
-                      maLines={compareMonthlyMaLines}
-                      showVolume={false}
-                      boxes={compareBoxes}
-                      showBoxes={showBoxes}
-                      gapBands={gapBandsOverride}
-                      drawingEnabled={headerMode === "draw"}
-                      timeZones={compareMonthlyDrawings.timeZones}
-                      priceBands={compareMonthlyDrawings.priceBands}
-                      drawBoxes={compareMonthlyDrawings.drawBoxes}
-                      horizontalLines={compareMonthlyDrawings.horizontalLines}
-                      showPriceBands
-                      activeTool={activeDrawTool}
-                      activeDrawColor={activeDrawColor}
-                      activeLineOpacity={activeLineOpacity}
-                      activeLineWidth={activeLineWidth}
-                      onSelectShape={setSelectedDrawing}
-                      onAddTimeZone={addTimeZone(compareMonthlyDrawingKey)}
-                      onUpdateTimeZone={updateTimeZone(compareMonthlyDrawingKey)}
-                      onDeleteTimeZone={deleteTimeZone(compareMonthlyDrawingKey)}
-                      onAddPriceBand={addPriceBand(compareMonthlyDrawingKey)}
-                      onUpdatePriceBand={updatePriceBand(compareMonthlyDrawingKey)}
-                      onDeletePriceBand={deletePriceBand(compareMonthlyDrawingKey)}
-                      onAddDrawBox={addDrawBox(compareMonthlyDrawingKey)}
-                      onUpdateDrawBox={updateDrawBox(compareMonthlyDrawingKey)}
-                      onDeleteDrawBox={deleteDrawBox(compareMonthlyDrawingKey)}
-                      onAddHorizontalLine={addHorizontalLine(compareMonthlyDrawingKey)}
-                      onUpdateHorizontalLine={updateHorizontalLine(compareMonthlyDrawingKey)}
-                      onDeleteHorizontalLine={deleteHorizontalLine(compareMonthlyDrawingKey)}
-                      visibleRange={compareMonthlyCandles.length ? compareMonthlyVisibleRange : null}
-                      onCrosshairMove={(time, point) =>
-                        handleCompareMonthlyCrosshair(time, "right", point)
-                      }
-                      onVisibleRangeChange={handleCompareMonthlyVisibleRangeChange}
-                    />
+                    {shouldRenderCompareMonthlyChart && (
+                      <DetailChart
+                        ref={compareMonthlyChartRef}
+                        candles={compareMonthlyCandles}
+                        volume={[]}
+                        maLines={compareMonthlyChartMaLines}
+                        showVolume={false}
+                        boxes={compareBoxes}
+                        showBoxes={showBoxes}
+                        gapBands={gapBandsOverride}
+                        drawingEnabled={headerMode === "draw"}
+                        timeZones={compareMonthlyDrawings.timeZones}
+                        priceBands={compareMonthlyDrawings.priceBands}
+                        drawBoxes={compareMonthlyDrawings.drawBoxes}
+                        horizontalLines={compareMonthlyDrawings.horizontalLines}
+                        showPriceBands
+                        activeTool={activeDrawTool}
+                        activeDrawColor={activeDrawColor}
+                        activeLineOpacity={activeLineOpacity}
+                        activeLineWidth={activeLineWidth}
+                        onSelectShape={setSelectedDrawing}
+                        onAddTimeZone={addTimeZone(compareMonthlyDrawingKey)}
+                        onUpdateTimeZone={updateTimeZone(compareMonthlyDrawingKey)}
+                        onDeleteTimeZone={deleteTimeZone(compareMonthlyDrawingKey)}
+                        onAddPriceBand={addPriceBand(compareMonthlyDrawingKey)}
+                        onUpdatePriceBand={updatePriceBand(compareMonthlyDrawingKey)}
+                        onDeletePriceBand={deletePriceBand(compareMonthlyDrawingKey)}
+                        onAddDrawBox={addDrawBox(compareMonthlyDrawingKey)}
+                        onUpdateDrawBox={updateDrawBox(compareMonthlyDrawingKey)}
+                        onDeleteDrawBox={deleteDrawBox(compareMonthlyDrawingKey)}
+                        onAddHorizontalLine={addHorizontalLine(compareMonthlyDrawingKey)}
+                        onUpdateHorizontalLine={updateHorizontalLine(compareMonthlyDrawingKey)}
+                        onDeleteHorizontalLine={deleteHorizontalLine(compareMonthlyDrawingKey)}
+                        visibleRange={compareMonthlyVisibleRange}
+                        onCrosshairMove={(time, point) =>
+                          handleCompareMonthlyCrosshair(time, "right", point)
+                        }
+                        onVisibleRangeChange={handleCompareMonthlyVisibleRangeChange}
+                      />
+                    )}
                     {compareLoading && (
                       <div className="detail-chart-empty">Loading...</div>
                     )}
@@ -4419,7 +5201,7 @@ export default function DetailView() {
                         ref={dailyChartRef}
                         candles={dailyCandles}
                         volume={dailyVolume}
-                        maLines={dailyMaLines}
+                        maLines={dailyChartMaLines}
                         showVolume={showVolumeDaily}
                         eventMarkers={mergedDailyEventMarkers}
                         boxes={boxes}
@@ -4481,52 +5263,54 @@ export default function DetailView() {
                     <div className="detail-compare-cell-meta">日足 ({rightDailyRangeLabel})</div>
                   </div>
                   <div className="detail-chart detail-compare-chart">
-                    <DetailChart
-                      ref={compareDailyChartRef}
-                      candles={compareDailyCandles}
-                      volume={compareDailyVolume}
-                      maLines={compareDailyMaLines}
-                      showVolume={showVolumeEnabled && compareDailyVolume.length > 0}
-                      boxes={compareBoxes}
-                      showBoxes={showBoxes}
-                      gapBands={gapBandsOverride}
-                      drawingEnabled={headerMode === "draw"}
-                      timeZones={compareDailyDrawings.timeZones}
-                      priceBands={compareDailyDrawings.priceBands}
-                      drawBoxes={compareDailyDrawings.drawBoxes}
-                      horizontalLines={compareDailyDrawings.horizontalLines}
-                      showPriceBands
-                      activeTool={activeDrawTool}
-                      activeDrawColor={activeDrawColor}
-                      activeLineOpacity={activeLineOpacity}
-                      activeLineWidth={activeLineWidth}
-                      onSelectShape={setSelectedDrawing}
-                      onAddTimeZone={addTimeZone(compareDailyDrawingKey)}
-                      onUpdateTimeZone={updateTimeZone(compareDailyDrawingKey)}
-                      onDeleteTimeZone={deleteTimeZone(compareDailyDrawingKey)}
-                      onAddPriceBand={addPriceBand(compareDailyDrawingKey)}
-                      onUpdatePriceBand={updatePriceBand(compareDailyDrawingKey)}
-                      onDeletePriceBand={deletePriceBand(compareDailyDrawingKey)}
-                      onAddDrawBox={addDrawBox(compareDailyDrawingKey)}
-                      onUpdateDrawBox={updateDrawBox(compareDailyDrawingKey)}
-                      onDeleteDrawBox={deleteDrawBox(compareDailyDrawingKey)}
-                      onAddHorizontalLine={addHorizontalLine(compareDailyDrawingKey)}
-                      onUpdateHorizontalLine={updateHorizontalLine(compareDailyDrawingKey)}
-                      onDeleteHorizontalLine={deleteHorizontalLine(compareDailyDrawingKey)}
-                      visibleRange={compareDailyVisibleRange}
-                      positionOverlay={{
-                        dailyPositions: compareDailyPositions,
-                        tradeMarkers: compareTradeMarkers,
-                        showOverlay: showTradesOverlay,
-                        showMarkers: showTradeMarkers,
-                        showPnL: showPnLPanel,
-                        hoverTime: compareSync.hoverTime
-                      }}
-                      onCrosshairMove={(time, point) =>
-                        handleCompareDailyCrosshair(time, "right", point)
-                      }
-                      onVisibleRangeChange={handleCompareDailyVisibleRangeChange}
-                    />
+                    {shouldRenderCompareDailyChart && (
+                      <DetailChart
+                        ref={compareDailyChartRef}
+                        candles={compareDailyCandles}
+                        volume={compareDailyVolume}
+                        maLines={compareDailyChartMaLines}
+                        showVolume={showVolumeEnabled && compareDailyVolume.length > 0}
+                        boxes={compareBoxes}
+                        showBoxes={showBoxes}
+                        gapBands={gapBandsOverride}
+                        drawingEnabled={headerMode === "draw"}
+                        timeZones={compareDailyDrawings.timeZones}
+                        priceBands={compareDailyDrawings.priceBands}
+                        drawBoxes={compareDailyDrawings.drawBoxes}
+                        horizontalLines={compareDailyDrawings.horizontalLines}
+                        showPriceBands
+                        activeTool={activeDrawTool}
+                        activeDrawColor={activeDrawColor}
+                        activeLineOpacity={activeLineOpacity}
+                        activeLineWidth={activeLineWidth}
+                        onSelectShape={setSelectedDrawing}
+                        onAddTimeZone={addTimeZone(compareDailyDrawingKey)}
+                        onUpdateTimeZone={updateTimeZone(compareDailyDrawingKey)}
+                        onDeleteTimeZone={deleteTimeZone(compareDailyDrawingKey)}
+                        onAddPriceBand={addPriceBand(compareDailyDrawingKey)}
+                        onUpdatePriceBand={updatePriceBand(compareDailyDrawingKey)}
+                        onDeletePriceBand={deletePriceBand(compareDailyDrawingKey)}
+                        onAddDrawBox={addDrawBox(compareDailyDrawingKey)}
+                        onUpdateDrawBox={updateDrawBox(compareDailyDrawingKey)}
+                        onDeleteDrawBox={deleteDrawBox(compareDailyDrawingKey)}
+                        onAddHorizontalLine={addHorizontalLine(compareDailyDrawingKey)}
+                        onUpdateHorizontalLine={updateHorizontalLine(compareDailyDrawingKey)}
+                        onDeleteHorizontalLine={deleteHorizontalLine(compareDailyDrawingKey)}
+                        visibleRange={compareDailyVisibleRange}
+                        positionOverlay={{
+                          dailyPositions: compareDailyPositions,
+                          tradeMarkers: compareTradeMarkers,
+                          showOverlay: showTradesOverlay,
+                          showMarkers: showTradeMarkers,
+                          showPnL: showPnLPanel,
+                          hoverTime: compareSync.hoverTime
+                        }}
+                        onCrosshairMove={(time, point) =>
+                          handleCompareDailyCrosshair(time, "right", point)
+                        }
+                        onVisibleRangeChange={handleCompareDailyVisibleRangeChange}
+                      />
+                    )}
                     {(compareDailyLoading || compareDailyNeedsMore) && (
                       <div className="detail-chart-empty">一致期間のデータを読み込み中...</div>
                     )}
@@ -4554,7 +5338,7 @@ export default function DetailView() {
                       ref={dailyChartRef}
                       candles={dailyCandles}
                       volume={dailyVolume}
-                      maLines={dailyMaLines}
+                      maLines={dailyChartMaLines}
                       showVolume={showVolumeDaily}
                       eventMarkers={mergedDailyEventMarkers}
                       boxes={boxes}
@@ -4606,7 +5390,7 @@ export default function DetailView() {
                     ref={weeklyChartRef}
                     candles={weeklyCandles}
                     volume={weeklyVolume}
-                    maLines={weeklyMaLines}
+                    maLines={weeklyChartMaLines}
                     showVolume={false}
                     boxes={boxes}
                     showBoxes={showBoxes}
@@ -4656,7 +5440,7 @@ export default function DetailView() {
                     ref={monthlyChartRef}
                     candles={monthlyCandles}
                     volume={monthlyVolume}
-                    maLines={monthlyMaLines}
+                    maLines={monthlyChartMaLines}
                     showVolume={false}
                     boxes={boxes}
                     showBoxes={showBoxes}
@@ -4735,7 +5519,7 @@ export default function DetailView() {
                       ref={dailyChartRef}
                       candles={dailyCandles}
                       volume={dailyVolume}
-                      maLines={dailyMaLines}
+                      maLines={dailyChartMaLines}
                       showVolume={showVolumeDaily}
                       eventMarkers={mergedDailyEventMarkers}
                       boxes={boxes}
@@ -4805,7 +5589,7 @@ export default function DetailView() {
                       ref={weeklyChartRef}
                       candles={weeklyCandles}
                       volume={weeklyVolume}
-                      maLines={weeklyMaLines}
+                      maLines={weeklyChartMaLines}
                       showVolume={false}
                       boxes={boxes}
                       showBoxes={showBoxes}
@@ -4859,7 +5643,7 @@ export default function DetailView() {
                       ref={monthlyChartRef}
                       candles={monthlyCandles}
                       volume={monthlyVolume}
-                      maLines={monthlyMaLines}
+                      maLines={monthlyChartMaLines}
                       showVolume={false}
                       boxes={boxes}
                       showBoxes={showBoxes}
@@ -4920,6 +5704,8 @@ export default function DetailView() {
             analysisAsOfTime={analysisAsOfTime}
             analysisBackfillActive={analysisBackfillActive}
             analysisRecalcSubmitting={analysisRecalcSubmitting}
+            analysisRecalcDisabled={analysisRecalcDisabled}
+            analysisRecalcDisabledReason={analysisRecalcDisabledReason}
             submitAnalysisRecalc={submitAnalysisRecalc}
             analysisDtLabel={analysisDtLabel}
             cursorMode={cursorMode}
@@ -4930,6 +5716,7 @@ export default function DetailView() {
             analysisDecision={analysisDecision}
             analysisSummaryLoading={analysisSummaryLoading}
             analysisGuidance={analysisGuidance}
+            analysisEntryPolicy={analysisEntryPolicy}
             patternSummary={patternSummary}
             analysisPreparationVisible={analysisPreparationVisible}
             analysisBackfillProgressLabel={analysisBackfillProgressLabel}
@@ -4963,7 +5750,17 @@ export default function DetailView() {
             financialFetchedLabel={financialFetchedLabel}
             financialLoading={financialLoading}
             financialSeries={financialSeries}
-            financialCards={financialCards}
+            financialCards={financialDisplay.cards}
+            financialKeyStats={financialDisplay.stats}
+            tdnetHighlights={tdnetHighlights}
+            tdnetLoading={tdnetLoading}
+            tdnetStatusLabel={tdnetStatusLabel}
+            taisyakuCards={taisyakuDisplay.cards}
+            taisyakuHistory={taisyakuDisplay.history}
+            taisyakuRestrictions={taisyakuSnapshot?.restrictions ?? []}
+            taisyakuLoading={taisyakuLoading}
+            taisyakuStatusLabel={taisyakuStatusLabel}
+            taisyakuWatchLabel={taisyakuDisplay.watchLabel}
             formatNumber={formatNumber}
             formatPercentLabel={formatPercentLabel}
             formatFinancialAmountLabel={formatFinancialAmountLabel}

@@ -1,7 +1,7 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { IconX, IconTrendingUp, IconChartArrows } from "@tabler/icons-react";
+import { IconX, IconChartArrows } from "@tabler/icons-react";
 import { api } from "../api";
 
 type SimilarSearchPanelProps = {
@@ -37,6 +37,8 @@ type RefreshStatus = {
     mode?: string | null;
 };
 
+const SEARCH_DEBOUNCE_MS = 250;
+
 export default function SimilarSearchPanel({
     isOpen,
     onClose,
@@ -67,6 +69,14 @@ export default function SimilarSearchPanel({
         if (queryAsOf) return queryAsOf;
         return getTodayInputValue();
     });
+    const [debouncedTargetDate, setDebouncedTargetDate] = useState<string>(() => {
+        if (queryAsOf) return queryAsOf;
+        return getTodayInputValue();
+    });
+    const [debouncedAlpha, setDebouncedAlpha] = useState(alpha);
+    const lastResolvedSearchKeyRef = useRef<string | null>(null);
+    const lastFinishedAtRef = useRef<string | null>(null);
+    const [refreshNonce, setRefreshNonce] = useState(0);
 
     useEffect(() => {
         if (queryAsOf) {
@@ -75,6 +85,20 @@ export default function SimilarSearchPanel({
         }
         setTargetDate(getTodayInputValue());
     }, [queryAsOf]);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            setDebouncedTargetDate(targetDate);
+        }, SEARCH_DEBOUNCE_MS);
+        return () => window.clearTimeout(timer);
+    }, [targetDate]);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            setDebouncedAlpha(alpha);
+        }, SEARCH_DEBOUNCE_MS);
+        return () => window.clearTimeout(timer);
+    }, [alpha]);
 
     const fetchRefreshStatus = () => {
         api
@@ -93,27 +117,59 @@ export default function SimilarSearchPanel({
     }, [isOpen]);
 
     useEffect(() => {
+        if (!isOpen || !refreshStatus?.running) return;
+        const timer = window.setInterval(() => {
+            fetchRefreshStatus();
+        }, 2000);
+        return () => window.clearInterval(timer);
+    }, [isOpen, refreshStatus?.running]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            lastFinishedAtRef.current = null;
+            return;
+        }
+        const finishedAt = refreshStatus?.finished_at ?? null;
+        if (!finishedAt) return;
+        if (lastFinishedAtRef.current && lastFinishedAtRef.current !== finishedAt) {
+            lastResolvedSearchKeyRef.current = null;
+            setRefreshNonce((value) => value + 1);
+        }
+        lastFinishedAtRef.current = finishedAt;
+    }, [isOpen, refreshStatus?.finished_at]);
+
+    useEffect(() => {
         if (!isOpen || !queryTicker) return;
+        const searchKey = JSON.stringify({
+            ticker: queryTicker,
+            asof: debouncedTargetDate || null,
+            alpha: debouncedAlpha
+        });
+        if (lastResolvedSearchKeyRef.current === searchKey) return;
+        const controller = new AbortController();
+        let active = true;
 
         setLoading(true);
         setError(null);
-        setResults([]);
 
         const params: any = {
             ticker: queryTicker,
-            alpha,
+            alpha: debouncedAlpha,
             k: 30
         };
-        if (targetDate) {
-            params.asof = targetDate;
+        if (debouncedTargetDate) {
+            params.asof = debouncedTargetDate;
         }
 
         api
-            .get("/search/similar", { params })
+            .get("/search/similar", { params, signal: controller.signal })
             .then((res) => {
+                if (!active) return;
+                lastResolvedSearchKeyRef.current = searchKey;
                 setResults(res.data);
             })
             .catch((err) => {
+                if (!active || err?.code === "ERR_CANCELED") return;
                 const detail = err.response?.data?.detail as string | undefined;
                 if (err.response && err.response.status === 404) {
                     // Custom message for not indexed
@@ -123,9 +179,20 @@ export default function SimilarSearchPanel({
                 }
             })
             .finally(() => {
+                if (!active) return;
                 setLoading(false);
             });
-    }, [isOpen, queryTicker, targetDate, alpha]);
+        return () => {
+            active = false;
+            controller.abort();
+        };
+    }, [isOpen, queryTicker, debouncedTargetDate, debouncedAlpha, refreshNonce]);
+
+    useEffect(() => {
+        if (isOpen) return;
+        lastResolvedSearchKeyRef.current = null;
+        lastFinishedAtRef.current = null;
+    }, [isOpen]);
 
     const handleJump = (item: SearchResult) => {
         const params = new URLSearchParams();

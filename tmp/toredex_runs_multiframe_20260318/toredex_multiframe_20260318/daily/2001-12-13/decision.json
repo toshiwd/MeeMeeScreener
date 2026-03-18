@@ -1,0 +1,129 @@
+{
+  "actions": [],
+  "asOf": "2001-12-13",
+  "checks": {
+    "exposureOk": true,
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v8",
+  "seasonId": "toredex_multiframe_20260318",
+  "signals": {
+    "buy": [
+      {
+        "frameSignals": {
+          "effectiveRevRisk": null,
+          "effectiveUpProb": 0.4364952982772888,
+          "frameState": "UNKNOWN",
+          "monthlyBoxMonths": 3.0,
+          "monthlyBoxPos": 0.0,
+          "monthlyBoxRangePct": 0.05691854759568204,
+          "monthlyBoxState": "box_lower",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": null,
+          "monthlyBreakoutUpProb": null,
+          "monthlyRangePos": null,
+          "monthlyRangeProb": null,
+          "monthlyRangeWidth": null,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": null,
+          "weeklyBreakoutUpProb": null,
+          "weeklyRangeProb": null,
+          "weeklyRegimeAligned": null
+        },
+        "frameState": "UNKNOWN",
+        "revRisk": null,
+        "ticker": "1306",
+        "upProb": 0.4364952982772888
+      },
+      {
+        "frameSignals": {
+          "effectiveRevRisk": null,
+          "effectiveUpProb": 0.3750573733260442,
+          "frameState": "UNKNOWN",
+          "monthlyBoxMonths": 3.0,
+          "monthlyBoxPos": 0.7164339419978518,
+          "monthlyBoxRangePct": 0.09533073929961089,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": null,
+          "monthlyBreakoutUpProb": null,
+          "monthlyRangePos": null,
+          "monthlyRangeProb": null,
+          "monthlyRangeWidth": null,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": null,
+          "weeklyBreakoutUpProb": null,
+          "weeklyRangeProb": null,
+          "weeklyRegimeAligned": null
+        },
+        "frameState": "UNKNOWN",
+        "revRisk": null,
+        "ticker": "1001",
+        "upProb": 0.3750573733260442
+      }
+    ],
+    "sell": [
+      {
+        "frameSignals": {
+          "effectiveRevRisk": null,
+          "effectiveUpProb": 0.3302645509550337,
+          "frameState": "UNKNOWN",
+          "monthlyBoxMonths": 3.0,
+          "monthlyBoxPos": 0.7164339419978518,
+          "monthlyBoxRangePct": 0.09533073929961089,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": null,
+          "monthlyBreakoutUpProb": null,
+          "monthlyRangePos": null,
+          "monthlyRangeProb": null,
+          "monthlyRangeWidth": null,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": null,
+          "weeklyBreakoutUpProb": null,
+          "weeklyRangeProb": null,
+          "weeklyRegimeAligned": null
+        },
+        "frameState": "UNKNOWN",
+        "revRisk": null,
+        "ticker": "1001",
+        "upProb": 0.3302645509550337
+      },
+      {
+        "frameSignals": {
+          "effectiveRevRisk": null,
+          "effectiveUpProb": 0.3037702139882235,
+          "frameState": "UNKNOWN",
+          "monthlyBoxMonths": 3.0,
+          "monthlyBoxPos": 0.0,
+          "monthlyBoxRangePct": 0.05691854759568204,
+          "monthlyBoxState": "box_lower",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": null,
+          "monthlyBreakoutUpProb": null,
+          "monthlyRangePos": null,
+          "monthlyRangeProb": null,
+          "monthlyRangeWidth": null,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": null,
+          "weeklyBreakoutUpProb": null,
+          "weeklyRangeProb": null,
+          "weeklyRegimeAligned": null
+        },
+        "frameState": "UNKNOWN",
+        "revRisk": null,
+        "ticker": "1306",
+        "upProb": 0.3037702139882235
+      }
+    ]
+  },
+  "stage": {
+    "goal20Reached": false,
+    "goal30Reached": false,
+    "stage2Active": false
+  }
+}

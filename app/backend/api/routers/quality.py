@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.backend.services.ranking_analysis_quality import (
+from app.backend.services.ml.ranking_analysis_quality import (
     compute_ranking_analysis_quality_snapshot,
     get_ranking_analysis_review,
 )

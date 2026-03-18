@@ -16,6 +16,10 @@ from typing import Any, Callable
 
 from .config import config
 from .jobs import job_manager
+from app.backend.core.legacy_analysis_control import (
+    is_legacy_analysis_disabled,
+    legacy_analysis_disabled_log_value,
+)
 
 try:
     from app.backend import ingest_txt
@@ -569,6 +573,8 @@ def _classify_ingest_error_text(error_text: str) -> str:
     if _is_transient_db_lock_error(RuntimeError(error_text)):
         return "db_lock"
     lowered = error_text.lower()
+    if "incremental history validation failed" in lowered:
+        return "history_guard"
     if "module not found" in lowered:
         return "missing_module"
     if "permission" in lowered:
@@ -1428,6 +1434,28 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         run_id=job_id,
         progress_cb=_on_ingest_progress,
     )
+    if ingest_err and ingest_error_kind == "history_guard":
+        logger.warning("TXT update incremental ingest blocked by history guard; retrying with full ingest.")
+        state["last_ingest_guard_triggered_at"] = datetime.now().isoformat()
+        state["last_ingest_guard_reason"] = str(ingest_err)
+        _set_pipeline_stage(state, "ingest", message="Incremental ingest blocked; retrying full rebuild...")
+        job_manager._update_db(
+            job_id,
+            "txt_update",
+            "running",
+            message="Incremental ingest blocked; retrying full rebuild...",
+            progress=78,
+        )
+        _ingest_out, ingest_err, ingest_stats, full_ingest_attempts, ingest_error_kind = _run_ingest_with_retry(
+            incremental=False,
+            max_attempts=max(1, ingest_retry),
+            sleep_seconds=ingest_retry_sleep,
+            state=state,
+            stage="ingest_full_recovery",
+            run_id=job_id,
+            progress_cb=_on_ingest_progress,
+        )
+        ingest_attempts += int(full_ingest_attempts)
     state["last_ingest_attempts"] = int(ingest_attempts)
     state["last_ingest_retry_sleep_sec"] = float(ingest_retry_sleep)
     state["last_ingest_error_kind"] = ingest_error_kind
@@ -1461,46 +1489,53 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
     if pan_finalized_rows > 0:
         state["last_pan_finalize_at"] = datetime.now().isoformat()
 
+    phase_dt = _to_optional_int(state.get("last_phase_dt"))
     force_recompute_due_to_pan_finalize = bool(force_recompute_on_pan_finalize and pan_finalized_rows > 0)
-    effective_auto_ml_train = bool(auto_ml_train or force_recompute_due_to_pan_finalize)
-    effective_auto_ml_predict = bool(auto_ml_predict or force_recompute_due_to_pan_finalize)
+    legacy_analysis_disabled = is_legacy_analysis_disabled()
+    effective_auto_ml_train = False if legacy_analysis_disabled else bool(auto_ml_train or force_recompute_due_to_pan_finalize)
+    effective_auto_ml_predict = False if legacy_analysis_disabled else bool(auto_ml_predict or force_recompute_due_to_pan_finalize)
     effective_auto_walkforward_run = bool(auto_walkforward_run or force_recompute_due_to_pan_finalize)
     effective_auto_walkforward_gate = bool(auto_walkforward_gate or force_recompute_due_to_pan_finalize)
     if force_recompute_due_to_pan_finalize:
         state["last_forced_recompute_at"] = datetime.now().isoformat()
 
-    if _exit_if_canceled(job_id, state, stage="phase", message="Canceled before phase update"):
-        return
+    if legacy_analysis_disabled:
+        logger.info("TXT update skipping legacy phase refresh (%s)", legacy_analysis_disabled_log_value())
+        _set_pipeline_stage(state, "phase", message="Skipping legacy phase update (external analysis active)...")
+        state["last_phase_skip_reason"] = "legacy_analysis_disabled"
+    else:
+        if _exit_if_canceled(job_id, state, stage="phase", message="Canceled before phase update"):
+            return
 
-    _set_pipeline_stage(state, "phase", message="Rebuilding latest phase snapshot...")
-    job_manager._update_db(job_id, "txt_update", "running", message="Refreshing phase snapshot...", progress=92)
-    try:
-        phase_dt = _run_phase_with_retry(
-            max_attempts=phase_retry,
-            sleep_seconds=phase_retry_sleep,
-            state=state,
-            stage="phase",
-        )
-        state["last_phase_dt"] = int(phase_dt)
-        state["last_phase_at"] = datetime.now().isoformat()
-        job_manager._update_db(
-            job_id,
-            "txt_update",
-            "running",
-            message=f"Phase snapshot refreshed (dt={phase_dt})",
-            progress=95,
-        )
-    except Exception as exc:
-        _record_pipeline_failure(state, stage="phase", error=str(exc), message="Phase update failed")
-        job_manager._update_db(
-            job_id,
-            "txt_update",
-            "failed",
-            error="Phase update failed",
-            message=f"Phase update failed: {exc}",
-            finished_at=datetime.now(),
-        )
-        return
+        _set_pipeline_stage(state, "phase", message="Rebuilding latest phase snapshot...")
+        job_manager._update_db(job_id, "txt_update", "running", message="Refreshing phase snapshot...", progress=92)
+        try:
+            phase_dt = _run_phase_with_retry(
+                max_attempts=phase_retry,
+                sleep_seconds=phase_retry_sleep,
+                state=state,
+                stage="phase",
+            )
+            state["last_phase_dt"] = int(phase_dt)
+            state["last_phase_at"] = datetime.now().isoformat()
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "running",
+                message=f"Phase snapshot refreshed (dt={phase_dt})",
+                progress=95,
+            )
+        except Exception as exc:
+            _record_pipeline_failure(state, stage="phase", error=str(exc), message="Phase update failed")
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "failed",
+                error="Phase update failed",
+                message=f"Phase update failed: {exc}",
+                finished_at=datetime.now(),
+            )
+            return
 
     if _exit_if_canceled(job_id, state, stage="phase", message="Canceled after phase update"):
         return
@@ -1685,40 +1720,44 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         )
         return
 
-    try:
-        if _exit_if_canceled(
-            job_id,
-            state,
-            stage="sell_analysis_accum",
-            message="Canceled before sell analysis accumulation",
-        ):
-            return
-        _set_pipeline_stage(state, "sell_analysis_accum", message="Accumulating sell analysis data...")
-        job_manager._update_db(
-            job_id,
-            "txt_update",
-            "running",
-            message="Accumulating sell analysis data...",
-            progress=SELL_ANALYSIS_PROGRESS,
-        )
-        from app.backend.services.sell_analysis_accumulator import accumulate_sell_analysis
+    if legacy_analysis_disabled:
+        logger.info("TXT update skipping legacy sell analysis accumulation (%s)", legacy_analysis_disabled_log_value())
+        ml_note_parts.append("sell_analysis=skip(disabled)")
+    else:
+        try:
+            if _exit_if_canceled(
+                job_id,
+                state,
+                stage="sell_analysis_accum",
+                message="Canceled before sell analysis accumulation",
+            ):
+                return
+            _set_pipeline_stage(state, "sell_analysis_accum", message="Accumulating sell analysis data...")
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "running",
+                message="Accumulating sell analysis data...",
+                progress=SELL_ANALYSIS_PROGRESS,
+            )
+            from app.backend.services.analysis.sell_analysis_accumulator import accumulate_sell_analysis
 
-        sell_result = accumulate_sell_analysis(lookback_days=3)
-        sell_rows = int(sell_result.get("rows_last_dt") or 0)
-        sell_dt = sell_result.get("last_dt")
-        state["last_sell_analysis_at"] = datetime.now().isoformat()
-        state["last_sell_analysis_rows"] = sell_rows
-        state["last_sell_analysis_dt"] = int(sell_dt) if sell_dt is not None else None
-        state.pop("last_sell_analysis_error", None)
-        ml_note_parts.append(
-            f"sell_analysis=ok(dt={state.get('last_sell_analysis_dt')},rows={sell_rows})"
-        )
-    except Exception as exc:
-        logger.exception("Sell analysis accumulation failed: %s", exc)
-        state["last_sell_analysis_error"] = str(exc)
-        ml_note_parts.append(f"sell_analysis=failed({exc})")
+            sell_result = accumulate_sell_analysis(lookback_days=3)
+            sell_rows = int(sell_result.get("rows_last_dt") or 0)
+            sell_dt = sell_result.get("last_dt")
+            state["last_sell_analysis_at"] = datetime.now().isoformat()
+            state["last_sell_analysis_rows"] = sell_rows
+            state["last_sell_analysis_dt"] = int(sell_dt) if sell_dt is not None else None
+            state.pop("last_sell_analysis_error", None)
+            ml_note_parts.append(
+                f"sell_analysis=ok(dt={state.get('last_sell_analysis_dt')},rows={sell_rows})"
+            )
+        except Exception as exc:
+            logger.exception("Sell analysis accumulation failed: %s", exc)
+            state["last_sell_analysis_error"] = str(exc)
+            ml_note_parts.append(f"sell_analysis=failed({exc})")
 
-    if completion_mode != _COMPLETION_MODE_PRACTICAL_FAST and auto_fill_missing_history:
+    if completion_mode != _COMPLETION_MODE_PRACTICAL_FAST and auto_fill_missing_history and not legacy_analysis_disabled:
         try:
             if _exit_if_canceled(
                 job_id,
@@ -1745,7 +1784,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 ),
                 progress=ANALYSIS_BACKFILL_PROGRESS,
             )
-            from app.backend.services.analysis_backfill_service import backfill_missing_analysis_history
+            from app.backend.services.analysis.analysis_backfill_service import backfill_missing_analysis_history
 
             analysis_backfill_report = {"message": ""}
 
@@ -1790,6 +1829,9 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             logger.exception("Analysis backfill failed: %s", exc)
             state["last_analysis_backfill_error"] = str(exc)
             ml_note_parts.append(f"analysis_backfill=failed({exc})")
+    elif legacy_analysis_disabled:
+        logger.info("TXT update skipping legacy analysis backfill (%s)", legacy_analysis_disabled_log_value())
+        ml_note_parts.append("analysis_backfill=skip(disabled)")
 
     if completion_mode != _COMPLETION_MODE_PRACTICAL_FAST:
         try:
@@ -1854,7 +1896,7 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             followup_payload.update(
                 {
                     "source_txt_job_id": str(job_id),
-                    "phase_dt": int(phase_dt),
+                    "phase_dt": int(phase_dt) if phase_dt is not None else None,
                     "changed_files": int(changed_files),
                     "pan_finalized_rows": int(pan_finalized_rows),
                     "summary_line": str(summary_line),
@@ -2082,6 +2124,15 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
                 min_oos_worst_max_drawdown_unit=walkforward_gate_min_oos_worst_dd,
                 dry_run=False,
                 note=f"txt_update_job:{job_id}:run={latest_run_id or 'unknown'}",
+                source_run_id=latest_run_id or None,
+                source_finished_at=None,
+                source_status="success" if latest_run_id else None,
+                source_report={
+                    "summary": state.get("last_walkforward_run_summary") or {},
+                    "windowing": state.get("last_walkforward_run_windowing") or {},
+                }
+                if latest_run_id and isinstance(state.get("last_walkforward_run_summary"), dict)
+                else None,
             )
             source = gate_result.get("source") if isinstance(gate_result.get("source"), dict) else {}
             source_run_id = str(source.get("run_id") or "")
@@ -2141,20 +2192,27 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
             )
             return
 
-    try:
-        from app.backend.services import strategy_backtest_service
+    if legacy_analysis_disabled:
+        logger.info(
+            "TXT update skipping walkforward research snapshot (%s)",
+            legacy_analysis_disabled_log_value(),
+        )
+        ml_note_parts.append("walkforward_research_snapshot=skip(legacy_analysis_disabled)")
+    else:
+        try:
+            from app.backend.services import strategy_backtest_service
 
-        research_snapshot = strategy_backtest_service.save_daily_walkforward_research_snapshot()
-        if bool(research_snapshot.get("saved")):
-            state["last_walkforward_research_snapshot_at"] = datetime.now().isoformat()
-            state["last_walkforward_research_source_run_id"] = str(research_snapshot.get("source_run_id") or "")
-            state["last_walkforward_research_snapshot_date"] = research_snapshot.get("snapshot_date")
-            ml_note_parts.append(
-                f"walkforward_research_snapshot=ok(date={research_snapshot.get('snapshot_date')})"
-            )
-    except Exception as exc:
-        logger.warning("Walkforward research snapshot skipped: %s", exc)
-        ml_note_parts.append(f"walkforward_research_snapshot=skip({exc})")
+            research_snapshot = strategy_backtest_service.save_daily_walkforward_research_snapshot()
+            if bool(research_snapshot.get("saved")):
+                state["last_walkforward_research_snapshot_at"] = datetime.now().isoformat()
+                state["last_walkforward_research_source_run_id"] = str(research_snapshot.get("source_run_id") or "")
+                state["last_walkforward_research_snapshot_date"] = research_snapshot.get("snapshot_date")
+                ml_note_parts.append(
+                    f"walkforward_research_snapshot=ok(date={research_snapshot.get('snapshot_date')})"
+                )
+        except Exception as exc:
+            logger.warning("Walkforward research snapshot skipped: %s", exc)
+            ml_note_parts.append(f"walkforward_research_snapshot=skip({exc})")
 
     if _exit_if_canceled(job_id, state, stage="finalize", message="Canceled before finalize"):
         return

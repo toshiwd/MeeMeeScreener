@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 from research.agent import run_agent_cycle, run_agent_init, run_agent_loop
+from research.bridge import export_bridge_run, export_bridge_study
 from research.config import load_config
 from research.evaluate import run_evaluate
 from research.features import build_features_for_asof
@@ -13,6 +14,7 @@ from research.ingest import run_ingest
 from research.labels import build_labels_for_asof
 from research.loop import run_loop, run_loop_all
 from research.publish import run_publish
+from research.source_sync import sync_source_mirror
 from research.study_build import build_study_dataset
 from research.study_report import run_study_report
 from research.study_search import run_study_loop, run_study_search
@@ -25,8 +27,8 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="research",
         description="Isolated monthly Top20 research pipeline",
     )
-    parser.add_argument("--workspace-root", default="research_workspace", help="Internal research workspace root")
-    parser.add_argument("--published-root", default="published", help="Published snapshot root")
+    parser.add_argument("--workspace-root", default=None, help="Internal research workspace root")
+    parser.add_argument("--published-root", default=None, help="Legacy published output root")
     parser.add_argument("--config", default=None, help="Config JSON path (default: research/default_config.json)")
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -67,6 +69,11 @@ def _build_parser() -> argparse.ArgumentParser:
     publish.add_argument("--allow-non-pareto", action="store_true")
     publish.add_argument("--allow-quality-gate-fail", action="store_true")
     publish.add_argument("--publish-phases", default="test,inference")
+    publish.add_argument("--legacy-publish", action="store_true")
+
+    sync_source = sub.add_parser("sync_source", help="Sync source DuckDB into research mirror")
+    sync_source.add_argument("--source-db", default=None)
+    sync_source.add_argument("--force", action="store_true")
 
     loop = sub.add_parser("loop", help="Run challenger loop (train+evaluate repeated)")
     loop.add_argument("--asof", required=True)
@@ -96,6 +103,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     study_report = sub.add_parser("study_report", help="Summarize one study result")
     study_report.add_argument("--study-id", required=True)
+
+    export_bridge_run_cmd = sub.add_parser("export_bridge_run", help="Export one run into research bridge JSON")
+    export_bridge_run_cmd.add_argument("--run-id", required=True)
+
+    export_bridge_study_cmd = sub.add_parser("export_bridge_study", help="Export one study into research bridge JSON")
+    export_bridge_study_cmd.add_argument("--study-id", required=True)
 
     study_loop = sub.add_parser("study_loop", help="Build datasets and search all study combinations")
     study_loop.add_argument("--snapshot-id", default=None)
@@ -136,15 +149,26 @@ def _resolve_snapshot_id(paths: ResearchPaths, snapshot_id: str | None) -> str:
     return paths.get_latest_snapshot_id()
 
 
+def _resolve_cli_path(repo_root: Path, raw: str | None) -> Path | None:
+    if not raw or not str(raw).strip():
+        return None
+    path = Path(str(raw).strip()).expanduser()
+    return path.resolve() if path.is_absolute() else (repo_root / path).resolve()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
     repo_root = Path(__file__).resolve().parents[1]
+    workspace_root = _resolve_cli_path(repo_root, getattr(args, "workspace_root", None))
+    published_root = _resolve_cli_path(repo_root, getattr(args, "published_root", None))
+    if args.command == "publish" and bool(getattr(args, "legacy_publish", False)) and published_root is None:
+        published_root = (repo_root / "published").resolve()
     paths = ResearchPaths.build(
         repo_root=repo_root,
-        workspace_root=repo_root / str(args.workspace_root),
-        published_root=repo_root / str(args.published_root),
+        workspace_root=workspace_root,
+        published_root=published_root,
     )
 
     try:
@@ -156,6 +180,15 @@ def main(argv: list[str] | None = None) -> int:
                 calendar_csv=str(args.calendar_csv) if args.calendar_csv else None,
                 sector_csv=str(args.sector_csv) if args.sector_csv else None,
                 snapshot_id=str(args.snapshot_id) if args.snapshot_id else None,
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "sync_source":
+            result = sync_source_mirror(
+                paths=paths,
+                source_db=str(args.source_db) if args.source_db else None,
+                force=bool(args.force),
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
@@ -218,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
                 allow_non_pareto=bool(args.allow_non_pareto),
                 allow_quality_gate_fail=bool(args.allow_quality_gate_fail),
                 publish_phases=phases if phases else ("test", "inference"),
+                legacy_publish=bool(args.legacy_publish),
                 config=config,
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -250,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "study_build":
+            sync_source_mirror(paths=paths)
             snapshot_id = _resolve_snapshot_id(paths, args.snapshot_id)
             result = build_study_dataset(
                 paths=paths,
@@ -283,7 +318,18 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
 
+        if args.command == "export_bridge_run":
+            result = export_bridge_run(paths=paths, run_id=str(args.run_id))
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "export_bridge_study":
+            result = export_bridge_study(paths=paths, study_id=str(args.study_id))
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
         if args.command == "study_loop":
+            sync_source_mirror(paths=paths)
             snapshot_id = _resolve_snapshot_id(paths, args.snapshot_id)
             timeframes = tuple([x.strip() for x in str(args.timeframes or "").split(",") if x.strip()])
             families = tuple([x.strip() for x in str(args.families or "").split(",") if x.strip()])

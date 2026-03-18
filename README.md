@@ -79,8 +79,12 @@ tools\build_release.cmd
 
 ## 関連ドキュメント
 
+- `AGENTS.md`（作業時の基本ルール）
+- `app/backend/AGENTS.md`（Backend 作業ルール）
+- `app/frontend/AGENTS.md`（Frontend 作業ルール）
+- `docs/MEEMEE_PRINCIPLES.md`（MeeMee 固有のプロダクト原則）
 - `docs/README.md`（ドキュメント索引）
-- `docs/CODEX.md`（詳細仕様 / Runbook）
+- `docs/CODEX.md`（必要時のみ参照する詳細仕様 / Runbook）
 - `docs/TXT_UPDATE_RUNBOOK.md`（TXT 更新ジョブ運用）
 - `SMOKE_TEST.md`（最小回帰テスト手順）
 - `tools/README.md`（ツール類の概要）

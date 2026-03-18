@@ -10,6 +10,7 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 from app.db.session import get_conn
 
 
@@ -329,7 +330,7 @@ def _load_market_frame(
 ) -> pd.DataFrame:
     has_sector = _table_exists(conn, "industry_master")
     has_daily_ma = _table_exists(conn, "daily_ma")
-    has_ml_pred = _table_exists(conn, "ml_pred_20d")
+    has_ml_pred = (not is_legacy_analysis_disabled()) and _table_exists(conn, "ml_pred_20d")
     ma_select = (
         "m.ma7 AS ma7, m.ma20 AS ma20, m.ma60 AS ma60"
         if has_daily_ma
@@ -1977,11 +1978,14 @@ def run_strategy_walkforward(
 
     features = _prepare_feature_frame(market, cfg)
     _notify(15, "Preparing feature frame...")
+    signal_ready_features = features[features["signal_ready"]].copy()
     features["bar_index"] = features.groupby("code", sort=False).cumcount() + 1
     features = features[
         (features["signal_ready"])
         & (features["bar_index"] >= int(max(1, cfg.min_history_bars)))
     ].copy()
+    if features.empty and not signal_ready_features.empty:
+        features = signal_ready_features
     if features.empty:
         raise RuntimeError("No rows with enough history for walkforward computation")
 
@@ -2160,7 +2164,7 @@ def run_strategy_walkforward(
     }
     report["dry_run"] = bool(dry_run)
 
-    if not dry_run:
+    if not dry_run and not is_legacy_analysis_disabled():
         _notify(98, "Saving walk-forward report...")
         with get_conn() as conn:
             _save_walkforward_run(
@@ -2191,57 +2195,71 @@ def run_strategy_walkforward_gate(
     min_oos_worst_max_drawdown_unit: float = -0.12,
     dry_run: bool = False,
     note: str | None = None,
+    source_run_id: str | None = None,
+    source_finished_at: datetime | None = None,
+    source_status: str | None = None,
+    source_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     gate_id = datetime.now(tz=timezone.utc).strftime("swfg_%Y%m%d%H%M%S_%f")
     created_at = datetime.now(tz=timezone.utc)
 
-    with get_conn() as conn:
-        _ensure_walkforward_schema(conn)
-        row = conn.execute(
-            """
-            SELECT
-                run_id,
-                finished_at,
-                status,
-                report_json
-            FROM strategy_walkforward_runs
-            ORDER BY finished_at DESC
-            LIMIT 1
-            """
-        ).fetchone()
-        if not row:
-            raise RuntimeError("No strategy_walkforward_runs found")
+    conn = None
+    report_json = source_report if isinstance(source_report, dict) else None
+    resolved_source_run_id = str(source_run_id or "")
+    resolved_source_finished_at = source_finished_at
+    resolved_source_status = str(source_status) if source_status is not None else None
 
-        source_run_id = str(row[0])
-        source_finished_at = row[1]
-        source_status = str(row[2]) if row[2] is not None else None
-        try:
-            report_json = json.loads(row[3]) if row[3] else {}
-        except Exception:
-            report_json = {}
-        source_summary = (report_json.get("summary") or {})
-        source_windowing = (report_json.get("windowing") or {})
-        report = _build_walkforward_gate_report(
-            gate_id=gate_id,
-            created_at=created_at,
-            source_run_id=source_run_id,
-            source_finished_at=source_finished_at,
-            source_status=source_status,
-            source_summary=source_summary,
-            source_windowing=source_windowing,
-            min_oos_total_realized_unit_pnl=float(min_oos_total_realized_unit_pnl),
-            min_oos_mean_profit_factor=float(min_oos_mean_profit_factor),
-            min_oos_positive_window_ratio=float(min_oos_positive_window_ratio),
-            min_oos_worst_max_drawdown_unit=float(min_oos_worst_max_drawdown_unit),
-            note=note,
-        )
-        if not dry_run:
+    if report_json is None:
+        with get_conn() as conn:
+            _ensure_walkforward_schema(conn)
+            row = conn.execute(
+                """
+                SELECT
+                    run_id,
+                    finished_at,
+                    status,
+                    report_json
+                FROM strategy_walkforward_runs
+                ORDER BY finished_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if not row:
+                raise RuntimeError("No strategy_walkforward_runs found")
+
+            resolved_source_run_id = str(row[0])
+            resolved_source_finished_at = row[1]
+            resolved_source_status = str(row[2]) if row[2] is not None else None
+            try:
+                report_json = json.loads(row[3]) if row[3] else {}
+            except Exception:
+                report_json = {}
+    source_summary = (report_json.get("summary") or {}) if isinstance(report_json, dict) else {}
+    source_windowing = (report_json.get("windowing") or {}) if isinstance(report_json, dict) else {}
+    if not resolved_source_run_id:
+        resolved_source_run_id = "unknown"
+    report = _build_walkforward_gate_report(
+        gate_id=gate_id,
+        created_at=created_at,
+        source_run_id=resolved_source_run_id,
+        source_finished_at=resolved_source_finished_at,
+        source_status=resolved_source_status,
+        source_summary=source_summary,
+        source_windowing=source_windowing,
+        min_oos_total_realized_unit_pnl=float(min_oos_total_realized_unit_pnl),
+        min_oos_mean_profit_factor=float(min_oos_mean_profit_factor),
+        min_oos_positive_window_ratio=float(min_oos_positive_window_ratio),
+        min_oos_worst_max_drawdown_unit=float(min_oos_worst_max_drawdown_unit),
+        note=note,
+    )
+    if not dry_run and not is_legacy_analysis_disabled():
+        with get_conn() as conn:
             _save_walkforward_gate_report(
                 conn,
                 gate_id=gate_id,
                 created_at=created_at,
-                source_run_id=source_run_id,
-                source_finished_at=source_finished_at,
+                source_run_id=resolved_source_run_id,
+                source_finished_at=resolved_source_finished_at,
                 status=str(report.get("status") or "fail"),
                 thresholds=report.get("thresholds") or {},
                 report=report,
@@ -2252,6 +2270,12 @@ def run_strategy_walkforward_gate(
 
 
 def get_latest_strategy_walkforward() -> dict[str, Any]:
+    if is_legacy_analysis_disabled():
+        return {
+            "has_run": False,
+            "disabled_reason": "legacy_analysis_disabled",
+            "latest": None,
+        }
     with get_conn() as conn:
         _ensure_walkforward_schema(conn)
         row = conn.execute(
@@ -2307,6 +2331,12 @@ def get_latest_strategy_walkforward() -> dict[str, Any]:
 
 
 def get_latest_strategy_walkforward_gate() -> dict[str, Any]:
+    if is_legacy_analysis_disabled():
+        return {
+            "has_run": False,
+            "disabled_reason": "legacy_analysis_disabled",
+            "latest": None,
+        }
     with get_conn() as conn:
         _ensure_walkforward_gate_schema(conn)
         row = conn.execute(
@@ -2431,6 +2461,13 @@ def _build_walkforward_research_snapshot(
 
 def save_daily_walkforward_research_snapshot(*, snapshot_date: int | None = None) -> dict[str, Any]:
     snap_date = int(snapshot_date) if snapshot_date is not None else int(datetime.now(tz=timezone.utc).strftime("%Y%m%d"))
+    if is_legacy_analysis_disabled():
+        return {
+            "saved": False,
+            "snapshot_date": int(snap_date),
+            "source_run_id": None,
+            "reason": "legacy_analysis_disabled",
+        }
     with get_conn() as conn:
         _ensure_walkforward_schema(conn)
         _ensure_walkforward_research_schema(conn)
@@ -2497,6 +2534,12 @@ def save_daily_walkforward_research_snapshot(*, snapshot_date: int | None = None
 
 
 def get_latest_strategy_walkforward_research_snapshot() -> dict[str, Any]:
+    if is_legacy_analysis_disabled():
+        return {
+            "has_snapshot": False,
+            "disabled_reason": "legacy_analysis_disabled",
+            "latest": None,
+        }
     with get_conn() as conn:
         _ensure_walkforward_research_schema(conn)
         row = conn.execute(
@@ -2580,6 +2623,16 @@ def prune_strategy_walkforward_history(
     keep_latest_snapshots: int = 45,
     reclaim_space: bool = False,
 ) -> dict[str, Any]:
+    if is_legacy_analysis_disabled():
+        return {
+            "runs": {"before": 0, "after": 0, "deleted": 0},
+            "gates": {"before": 0, "after": 0, "deleted": 0},
+            "snapshots": {"before": 0, "after": 0, "deleted": 0},
+            "deleted_total": 0,
+            "reclaim_space_requested": bool(reclaim_space),
+            "space_reclaimed": False,
+            "skipped_reason": "legacy_analysis_disabled",
+        }
     with get_conn() as conn:
         _ensure_walkforward_schema(conn)
         _ensure_walkforward_gate_schema(conn)

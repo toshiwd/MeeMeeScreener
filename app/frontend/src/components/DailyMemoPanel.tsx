@@ -70,6 +70,14 @@ export default function DailyMemoPanel({
 
     const saveTimeoutRef = useRef<number | null>(null);
     const lastSavedKeyRef = useRef<string | null>(null);
+    const latestMemoRef = useRef("");
+    const latestCodeRef = useRef(code);
+    const latestSelectedDateRef = useRef<string | null>(selectedDate);
+    const saveMemoRef = useRef<((memoText: string, forceKey?: string) => Promise<void>) | null>(null);
+
+    latestMemoRef.current = memo;
+    latestCodeRef.current = code;
+    latestSelectedDateRef.current = selectedDate;
 
     // Load memo when date changes
     useEffect(() => {
@@ -139,6 +147,7 @@ export default function DailyMemoPanel({
             setErrorMessage(error.response?.data?.error || "保存に失敗しました");
         }
     };
+    saveMemoRef.current = saveMemo;
 
     // Auto-save with debounce
     const handleMemoChange = (value: string) => {
@@ -183,7 +192,10 @@ export default function DailyMemoPanel({
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
                 // Note: We can't await here, but the save will still execute
-                saveMemo(memo, `${code}-${selectedDate}`);
+                void saveMemoRef.current?.(
+                    latestMemoRef.current,
+                    `${latestCodeRef.current}-${latestSelectedDateRef.current}`
+                );
             }
         };
     }, []);

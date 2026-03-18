@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import {
     IconArrowLeft,
     IconArrowBackUp,
@@ -44,13 +43,13 @@ export const OffscreenDetailView = ({
     code,
     tickerName,
     dailyCandles,
-    weeklyCandles,
+    weeklyCandles: _weeklyCandles,
     monthlyCandles,
     dailyVolume,
-    weeklyVolume,
+    weeklyVolume: _weeklyVolume,
     monthlyVolume,
     dailyMaLines,
-    weeklyMaLines,
+    weeklyMaLines: _weeklyMaLines,
     monthlyMaLines,
     boxes,
     showBoxes,
@@ -73,9 +72,6 @@ export const OffscreenDetailView = ({
 
     // Hardcoded layout constants
     const DAILY_ROW_RATIO = 0.60;
-    const weeklyRatio = 1;
-    const monthlyRatio = 1;
-
     return (
         <div className="detail-shell" style={{ width: 1400, height: 900, background: '#0f172a' }}>
             <div className="detail-header">

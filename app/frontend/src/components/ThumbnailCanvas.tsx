@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+/* eslint-disable react-refresh/only-export-components */
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { BarsPayload, Box, MaSetting } from "../store";
 import { getDomTheme } from "../utils/theme";
@@ -49,6 +50,16 @@ const formatPrice = (value: number) => {
   if (!Number.isFinite(value)) return "--";
   return Math.round(value).toLocaleString("ja-JP");
 };
+
+function buildTimeTickIndexes(barCount: number, plotWidth: number) {
+  if (barCount <= 0) return [];
+  const requestedTickCount = Math.max(3, Math.min(6, Math.round(plotWidth / 140)));
+  const tickCount = Math.min(barCount, requestedTickCount);
+  const lastIndex = barCount - 1;
+  return Array.from({ length: tickCount }, (_, i) =>
+    Math.round(lastIndex * (i / Math.max(1, tickCount - 1)))
+  ).filter((index, position, indexes) => position === 0 || indexes[position - 1] !== index);
+}
 
 function buildMaMap(bars: number[][], period: number) {
   const map = new Map<number, number>();
@@ -145,10 +156,7 @@ export function drawChart(
   let timeTickIndexes: number[] = [];
   let priceTicks: number[] = [];
   if (showAxes) {
-    const timeTickCount = Math.max(3, Math.min(6, Math.round(plotWidth / 140)));
-    timeTickIndexes = Array.from({ length: timeTickCount }, (_, i) =>
-      Math.round((bars.length - 1) * (i / Math.max(1, timeTickCount - 1)))
-    );
+    timeTickIndexes = buildTimeTickIndexes(bars.length, plotWidth);
     const priceTickCount = Math.max(3, Math.min(6, Math.round(plotHeight / 80)));
     priceTicks = Array.from({ length: priceTickCount }, (_, i) => {
       const ratio = priceTickCount === 1 ? 0 : i / (priceTickCount - 1);
@@ -176,7 +184,7 @@ export function drawChart(
   }
 
   bars.forEach((bar, index) => {
-    const [t, o, h, l, c] = bar;
+    const [, o, h, l, c] = bar;
     const x = step * index + step / 2;
     const color = c >= o ? COLORS.up : COLORS.down;
     ctx.strokeStyle = color;
@@ -409,6 +417,11 @@ export default function ThumbnailCanvas({
       const snapshotKey = `${cacheKey}:${renderKey}:${width}x${height}`;
       if (lastSnapshotRef.current !== snapshotKey) {
         lastSnapshotRef.current = snapshotKey;
+        const existingSnapshot = getThumbnailCache(cacheKey);
+        if (existingSnapshot) {
+          setCachedSnapshot(existingSnapshot);
+          return true;
+        }
         try {
           const dataUrl = canvas.toDataURL("image/png");
           setThumbnailCache(cacheKey, dataUrl);

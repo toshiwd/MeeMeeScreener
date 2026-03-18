@@ -58,6 +58,8 @@ def _seed_monthly_label_inputs(conn: duckdb.DuckDBPyConnection) -> None:
 
 
 def test_refresh_ml_monthly_label_table_quantile_labels() -> None:
+    previous = os.environ.get("MEEMEE_DISABLE_LEGACY_ANALYSIS")
+    os.environ["MEEMEE_DISABLE_LEGACY_ANALYSIS"] = "0"
     with duckdb.connect(":memory:") as conn:
         _seed_monthly_label_inputs(conn)
         inserted = ml_service.refresh_ml_monthly_label_table(conn)
@@ -83,9 +85,15 @@ def test_refresh_ml_monthly_label_table_quantile_labels() -> None:
     excluded = labels[labels["liquidity_pass"] == 0]
     assert int(excluded["up_big"].sum()) == 0
     assert int(excluded["down_big"].sum()) == 0
+    if previous is None:
+        os.environ.pop("MEEMEE_DISABLE_LEGACY_ANALYSIS", None)
+    else:
+        os.environ["MEEMEE_DISABLE_LEGACY_ANALYSIS"] = previous
 
 
 def test_refresh_ml_monthly_label_table_liquidity_filter_bottom30() -> None:
+    previous = os.environ.get("MEEMEE_DISABLE_LEGACY_ANALYSIS")
+    os.environ["MEEMEE_DISABLE_LEGACY_ANALYSIS"] = "0"
     with duckdb.connect(":memory:") as conn:
         _seed_monthly_label_inputs(conn)
         ml_service.refresh_ml_monthly_label_table(conn)
@@ -93,6 +101,10 @@ def test_refresh_ml_monthly_label_table_liquidity_filter_bottom30() -> None:
             "SELECT COUNT(*) FROM ml_monthly_label WHERE dt = 20240101 AND liquidity_pass = 0"
         ).fetchone()
     assert int(row[0]) == 6
+    if previous is None:
+        os.environ.pop("MEEMEE_DISABLE_LEGACY_ANALYSIS", None)
+    else:
+        os.environ["MEEMEE_DISABLE_LEGACY_ANALYSIS"] = previous
 
 
 class _FakeBooster:

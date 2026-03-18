@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 from app.backend.db import get_conn
 
 
@@ -48,6 +49,12 @@ def _parse_dt(value: str | int | None) -> int | None:
             return int(value_int / 1000)
         return value_int
     return None
+
+
+def _normalize_dt_arg(value: int | None) -> int | None:
+    if value is None:
+        return None
+    return _parse_dt(value)
 
 
 def _load_feature_snapshot(conn, start_dt: int | None, end_dt: int | None) -> pd.DataFrame:
@@ -344,7 +351,16 @@ def run_batch(
     end_dt: int,
     dry_run: bool = False,
 ) -> None:
+    if is_legacy_analysis_disabled():
+        logger.info("Skipping phase batch because legacy analysis is disabled.")
+        return
     with get_conn() as conn:
+        normalized_start_dt = _normalize_dt_arg(start_dt)
+        normalized_end_dt = _normalize_dt_arg(end_dt)
+        if normalized_start_dt is None or normalized_end_dt is None:
+            raise ValueError("start_dt/end_dt is invalid")
+        start_dt = int(normalized_start_dt)
+        end_dt = int(normalized_end_dt)
         feature_df = _load_feature_snapshot(conn, None, None)
         if feature_df.empty:
             logger.info("feature_snapshot_daily is empty. Nothing to do.")

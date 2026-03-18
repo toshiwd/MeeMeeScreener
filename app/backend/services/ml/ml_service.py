@@ -1,19 +1,30 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from bisect import bisect_right
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
 
+from app.backend.core.legacy_analysis_control import (
+    is_legacy_analysis_disabled,
+    legacy_analysis_disabled_log_value,
+    legacy_analysis_disabled_payload,
+)
 from app.core.config import config as core_config
 from app.db.session import get_conn
+from . import legacy_predict_runtime
+from . import legacy_train_runtime
 from .ml_config import MLConfig, load_ml_config
+from .legacy_schema_runtime import ensure_ml_runtime_schema
+
+logger = logging.getLogger(__name__)
 
 FEATURE_VERSION = 4
 LABEL_VERSION = 4
@@ -79,6 +90,52 @@ RET_COL_BY_HORIZON: dict[int, str] = {
     10: "ret10",
     20: "ret20",
 }
+
+
+def _legacy_monthly_prediction_disabled_result(dt: int | None = None) -> dict[str, Any]:
+    payload = legacy_analysis_disabled_payload(job_type="ml_predict", source="ml_service.predict_monthly_for_dt")
+    payload.update(
+        {
+            "dt": int(dt) if dt is not None else None,
+            "pred_dt": None,
+            "rows": 0,
+            "model_version": None,
+            "n_train_abs": 0,
+            "n_train_dir": 0,
+            "disabled_reason": "legacy_analysis_disabled",
+        }
+    )
+    return payload
+
+
+def _legacy_bulk_prediction_disabled_result(requested_dates: list[int]) -> dict[str, Any]:
+    payload = legacy_analysis_disabled_payload(job_type="ml_predict", source="ml_service.predict_for_dates_bulk")
+    payload.update(
+        {
+            "requested_dates": [int(value) for value in requested_dates],
+            "resolved_dates": [],
+            "predicted_dates": [],
+            "rows_total": 0,
+            "model_version": None,
+            "n_train": 0,
+            "skipped_dates": [int(value) for value in requested_dates],
+            "monthly": None,
+        }
+    )
+    return payload
+
+
+def _legacy_prediction_disabled_result(dt: int | None = None) -> dict[str, Any]:
+    payload = legacy_analysis_disabled_payload(job_type="ml_predict", source="ml_service.predict_for_dt")
+    payload.update(
+        {
+            "dt": int(dt) if dt is not None else None,
+            "rows": 0,
+            "model_version": None,
+            "monthly": _legacy_monthly_prediction_disabled_result(dt),
+        }
+    )
+    return payload
 UP_LABEL_COL_BY_HORIZON: dict[int, str] = {
     5: "up5_label",
     10: "up10_label",
@@ -234,323 +291,8 @@ def _table_exists(conn, table_name: str) -> bool:
 
 
 def _ensure_ml_schema(conn) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ml_feature_daily (
-            dt INTEGER,
-            code TEXT,
-            close DOUBLE,
-            ma7 DOUBLE,
-            ma20 DOUBLE,
-            ma60 DOUBLE,
-            atr14 DOUBLE,
-            atr14_pct DOUBLE,
-            range_pct DOUBLE,
-            gap_pct DOUBLE,
-            diff20_pct DOUBLE,
-            cnt_20_above INTEGER,
-            cnt_7_above INTEGER,
-            close_prev1 DOUBLE,
-            close_prev5 DOUBLE,
-            close_prev10 DOUBLE,
-            close_ret2 DOUBLE,
-            close_ret3 DOUBLE,
-            close_ret20 DOUBLE,
-            close_ret60 DOUBLE,
-            ma7_prev1 DOUBLE,
-            ma20_prev1 DOUBLE,
-            ma60_prev1 DOUBLE,
-            diff20_prev1 DOUBLE,
-            cnt_20_prev1 INTEGER,
-            cnt_7_prev1 INTEGER,
-            vol_ret5 DOUBLE,
-            vol_ret20 DOUBLE,
-            vol_ratio5_20 DOUBLE,
-            turnover20 DOUBLE,
-            turnover_z20 DOUBLE,
-            high20_dist DOUBLE,
-            low20_dist DOUBLE,
-            breakout20_up DOUBLE,
-            breakout20_down DOUBLE,
-            drawdown60 DOUBLE,
-            rebound60 DOUBLE,
-            market_ret1 DOUBLE,
-            market_ret5 DOUBLE,
-            market_ret20 DOUBLE,
-            rel_ret5 DOUBLE,
-            rel_ret20 DOUBLE,
-            breadth_above_ma20 DOUBLE,
-            breadth_above_ma60 DOUBLE,
-            sector_ret5 DOUBLE,
-            sector_ret20 DOUBLE,
-            rel_sector_ret5 DOUBLE,
-            rel_sector_ret20 DOUBLE,
-            sector_breadth_ma20 DOUBLE,
-            weekly_breakout_up_prob DOUBLE,
-            weekly_breakout_down_prob DOUBLE,
-            weekly_range_prob DOUBLE,
-            monthly_breakout_up_prob DOUBLE,
-            monthly_breakout_down_prob DOUBLE,
-            monthly_range_prob DOUBLE,
-            candle_triplet_up_prob DOUBLE,
-            candle_triplet_down_prob DOUBLE,
-            candle_body_ratio DOUBLE,
-            candle_upper_wick_ratio DOUBLE,
-            candle_lower_wick_ratio DOUBLE,
-            feature_version INTEGER,
-            computed_at TIMESTAMP,
-            PRIMARY KEY(code, dt)
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ml_label_20d (
-            dt INTEGER,
-            code TEXT,
-            ret20 DOUBLE,
-            up20_label INTEGER,
-            train_mask_cls INTEGER,
-            turn_up_label INTEGER,
-            turn_down_label INTEGER,
-            turn_down_reversion_label_5 INTEGER,
-            turn_down_reversion_label_10 INTEGER,
-            turn_down_reversion_label_20 INTEGER,
-            turn_down_break_label_5 INTEGER,
-            turn_down_break_label_10 INTEGER,
-            turn_down_break_label_20 INTEGER,
-            train_mask_turn INTEGER,
-            n_forward INTEGER,
-            label_version INTEGER,
-            computed_at TIMESTAMP,
-            PRIMARY KEY(code, dt)
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ml_pred_20d (
-            dt INTEGER,
-            code TEXT,
-            p_up DOUBLE,
-            p_down DOUBLE,
-            p_turn_up DOUBLE,
-            p_turn_down DOUBLE,
-            rank_up_20 DOUBLE,
-            rank_down_20 DOUBLE,
-            ret_pred20 DOUBLE,
-            ev20 DOUBLE,
-            ev20_net DOUBLE,
-            model_version TEXT,
-            n_train INTEGER,
-            computed_at TIMESTAMP,
-            PRIMARY KEY(code, dt)
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ml_monthly_label (
-            dt INTEGER,
-            code TEXT,
-            ret1m DOUBLE,
-            up_big INTEGER,
-            down_big INTEGER,
-            abs_big INTEGER,
-            dir_up INTEGER,
-            liquidity_proxy DOUBLE,
-            liquidity_pass INTEGER,
-            label_version INTEGER,
-            computed_at TIMESTAMP,
-            PRIMARY KEY(code, dt)
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ml_monthly_pred (
-            dt INTEGER,
-            code TEXT,
-            p_abs_big DOUBLE,
-            p_up_given_big DOUBLE,
-            p_up_big DOUBLE,
-            p_down_big DOUBLE,
-            score_up DOUBLE,
-            score_down DOUBLE,
-            model_version TEXT,
-            n_train_abs INTEGER,
-            n_train_dir INTEGER,
-            computed_at TIMESTAMP,
-            PRIMARY KEY(code, dt)
-        );
-        """
-    )
-    # Backward-compatible schema migrations.
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS close_prev1 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS close_prev5 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS close_prev10 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS close_ret2 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS close_ret3 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS close_ret20 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS close_ret60 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS ma7_prev1 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS ma20_prev1 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS ma60_prev1 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS atr14_pct DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS range_pct DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS gap_pct DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS diff20_prev1 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS cnt_20_prev1 INTEGER")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS cnt_7_prev1 INTEGER")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS vol_ret5 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS vol_ret20 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS vol_ratio5_20 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS turnover20 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS turnover_z20 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS high20_dist DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS low20_dist DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS breakout20_up DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS breakout20_down DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS drawdown60 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS rebound60 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS market_ret1 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS market_ret5 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS market_ret20 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS rel_ret5 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS rel_ret20 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS breadth_above_ma20 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS breadth_above_ma60 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS sector_ret5 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS sector_ret20 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS rel_sector_ret5 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS rel_sector_ret20 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS sector_breadth_ma20 DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS weekly_breakout_up_prob DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS weekly_breakout_down_prob DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS weekly_range_prob DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS monthly_breakout_up_prob DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS monthly_breakout_down_prob DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS monthly_range_prob DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS candle_triplet_up_prob DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS candle_triplet_down_prob DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS candle_body_ratio DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS candle_upper_wick_ratio DOUBLE")
-    conn.execute("ALTER TABLE ml_feature_daily ADD COLUMN IF NOT EXISTS candle_lower_wick_ratio DOUBLE")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_up_label INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_down_label INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS train_mask_turn INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS ret5 DOUBLE")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS ret10 DOUBLE")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS up5_label INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS up10_label INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS train_mask_cls_5 INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS train_mask_cls_10 INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_down_label_5 INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_down_label_20 INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_down_reversion_label_5 INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_down_reversion_label_10 INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_down_reversion_label_20 INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_down_break_label_5 INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_down_break_label_10 INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS turn_down_break_label_20 INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS train_mask_turn_5 INTEGER")
-    conn.execute("ALTER TABLE ml_label_20d ADD COLUMN IF NOT EXISTS train_mask_turn_20 INTEGER")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS p_turn_up DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS p_turn_down DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS p_down DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS rank_up_20 DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS rank_down_20 DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS p_up_5 DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS p_up_10 DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS ret_pred5 DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS ret_pred10 DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS ev5 DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS ev10 DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS ev5_net DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS ev10_net DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS p_turn_down_5 DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS p_turn_down_10 DOUBLE")
-    conn.execute("ALTER TABLE ml_pred_20d ADD COLUMN IF NOT EXISTS p_turn_down_20 DOUBLE")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ml_model_registry (
-            model_version TEXT PRIMARY KEY,
-            model_key TEXT,
-            objective TEXT,
-            feature_version INTEGER,
-            label_version INTEGER,
-            train_start_dt INTEGER,
-            train_end_dt INTEGER,
-            metrics_json TEXT,
-            artifact_path TEXT,
-            n_train INTEGER,
-            created_at TIMESTAMP,
-            is_active BOOLEAN
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ml_monthly_model_registry (
-            model_version TEXT PRIMARY KEY,
-            model_key TEXT,
-            label_version INTEGER,
-            metrics_json TEXT,
-            artifact_path TEXT,
-            n_train_abs INTEGER,
-            n_train_dir INTEGER,
-            created_at TIMESTAMP,
-            is_active BOOLEAN
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ml_training_audit (
-            run_id TEXT PRIMARY KEY,
-            trained_at TIMESTAMP,
-            model_version TEXT,
-            promoted BOOLEAN,
-            reason TEXT,
-            wf_fold_count INTEGER,
-            wf_daily_count INTEGER,
-            wf_mean_ret20_net DOUBLE,
-            wf_win_rate DOUBLE,
-            wf_p05_ret20_net DOUBLE,
-            wf_cvar05_ret20_net DOUBLE,
-            wf_lcb95_ret20_net DOUBLE,
-            wf_p_value_mean_gt0 DOUBLE,
-            wf_robust_lb DOUBLE,
-            gate_json TEXT,
-            metrics_json TEXT
-        );
-        """
-    )
-    conn.execute("ALTER TABLE ml_training_audit ADD COLUMN IF NOT EXISTS wf_lcb95_ret20_net DOUBLE")
-    conn.execute("ALTER TABLE ml_training_audit ADD COLUMN IF NOT EXISTS wf_p_value_mean_gt0 DOUBLE")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ml_live_guard_audit (
-            run_id TEXT PRIMARY KEY,
-            checked_at TIMESTAMP,
-            active_model_version TEXT,
-            passed BOOLEAN,
-            action TEXT,
-            reason TEXT,
-            daily_count INTEGER,
-            mean_ret20_net DOUBLE,
-            win_rate DOUBLE,
-            p05_ret20_net DOUBLE,
-            cvar05_ret20_net DOUBLE,
-            lcb95_ret20_net DOUBLE,
-            p_value_mean_gt0 DOUBLE,
-            robust_lb DOUBLE,
-            fallback_model_version TEXT,
-            checks_json TEXT,
-            metrics_json TEXT
-        );
-        """
-    )
+    legacy_schema_enabled = not is_legacy_analysis_disabled()
+    ensure_ml_runtime_schema(conn, legacy_schema_enabled=legacy_schema_enabled)
 
 
 def _safe_float(value: object) -> float | None:
@@ -561,6 +303,207 @@ def _safe_float(value: object) -> float | None:
     if not math.isfinite(f):
         return None
     return f
+
+
+def _normalize_daily_dt_key(value: int | str | float | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        raw = int(value)
+    except (TypeError, ValueError):
+        return None
+    if raw >= 1_000_000_000:
+        try:
+            return int(datetime.fromtimestamp(raw, tz=timezone.utc).strftime("%Y%m%d"))
+        except Exception:
+            return None
+    if 19_000_101 <= raw <= 21_001_231:
+        return raw
+    return None
+
+
+def _normalized_daily_dt_sql(column_name: str) -> str:
+    return (
+        f"CASE "
+        f"WHEN {column_name} >= 1000000000 THEN CAST(strftime(to_timestamp({column_name}), '%Y%m%d') AS BIGINT) "
+        f"ELSE {column_name} "
+        f"END"
+    )
+
+
+def _yyyymmdd_to_utc_epoch(date_key: int) -> int:
+    dt = datetime.strptime(str(int(date_key)), "%Y%m%d").replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())
+
+
+def _offset_yyyymmdd(date_key: int, days: int) -> int:
+    dt = datetime.strptime(str(int(date_key)), "%Y%m%d").replace(tzinfo=timezone.utc) + timedelta(days=int(days))
+    return int(dt.strftime("%Y%m%d"))
+
+
+def _feature_dt_uses_epoch(conn) -> bool:
+    try:
+        row = conn.execute("SELECT MAX(dt) FROM ml_feature_daily").fetchone()
+    except Exception:
+        row = None
+    value = row[0] if row and row[0] is not None else None
+    if value is None:
+        try:
+            row = conn.execute("SELECT MAX(dt) FROM feature_snapshot_daily").fetchone()
+        except Exception:
+            row = None
+        value = row[0] if row and row[0] is not None else None
+    try:
+        return int(value) >= 1_000_000_000 if value is not None else False
+    except Exception:
+        return False
+
+
+def _feature_refresh_bounds(conn, *, start_key: int, end_key: int) -> tuple[int, int]:
+    end_date = datetime.strptime(str(int(end_key)), "%Y%m%d").replace(tzinfo=timezone.utc)
+    start_date = datetime.strptime(str(int(start_key)), "%Y%m%d").replace(tzinfo=timezone.utc) - timedelta(days=365 * 6)
+    if _feature_dt_uses_epoch(conn):
+        return int(start_date.timestamp()), int(end_date.timestamp())
+    return int(start_date.strftime("%Y%m%d")), int(end_date.strftime("%Y%m%d"))
+
+
+def _feature_input_repair_dates(conn, *, target_date_keys: list[int]) -> list[int]:
+    normalized_targets = sorted({int(value) for value in target_date_keys if value is not None})
+    if not normalized_targets:
+        return []
+    placeholders = ", ".join("?" for _ in normalized_targets)
+    daily_dt_sql = _normalized_daily_dt_sql("date")
+    feature_dt_sql = _normalized_daily_dt_sql("dt")
+    daily_rows = conn.execute(
+        f"""
+        SELECT {daily_dt_sql} AS dt_key, COUNT(DISTINCT code) AS code_count
+        FROM daily_bars
+        WHERE {daily_dt_sql} IN ({placeholders})
+        GROUP BY 1
+        """,
+        [int(value) for value in normalized_targets],
+    ).fetchall()
+    feature_rows = conn.execute(
+        f"""
+        SELECT {feature_dt_sql} AS dt_key, COUNT(DISTINCT code) AS code_count
+        FROM feature_snapshot_daily
+        WHERE {feature_dt_sql} IN ({placeholders})
+        GROUP BY 1
+        """,
+        [int(value) for value in normalized_targets],
+    ).fetchall()
+    daily_counts = {int(row[0]): int(row[1]) for row in daily_rows if row and row[0] is not None}
+    feature_counts = {int(row[0]): int(row[1]) for row in feature_rows if row and row[0] is not None}
+    repair_dates: list[int] = []
+    for dt_key in normalized_targets:
+        expected = int(daily_counts.get(int(dt_key), 0))
+        if expected < 30:
+            continue
+        actual = int(feature_counts.get(int(dt_key), 0))
+        minimum_expected = max(10, int(expected * 0.8))
+        if actual < minimum_expected:
+            repair_dates.append(int(dt_key))
+    return repair_dates
+
+
+def _rebuild_feature_inputs_from_daily_bars(
+    conn,
+    *,
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+) -> dict[str, int]:
+    from app.backend.ingest_txt import build_daily_ma, build_feature_snapshot_daily
+
+    filters: list[str] = []
+    params: list[object] = []
+    if start_dt is not None:
+        filters.append("date >= ?")
+        params.append(int(start_dt))
+    if end_dt is not None:
+        filters.append("date <= ?")
+        params.append(int(end_dt))
+    where_sql = f"WHERE {' AND '.join(filters)}" if filters else ""
+    daily_rows = conn.execute(
+        f"""
+        SELECT code, date, o, h, l, c, v
+        FROM daily_bars
+        {where_sql}
+        ORDER BY code, date
+        """,
+        params,
+    ).fetchall()
+    if not daily_rows:
+        return {"daily_rows": 0, "daily_ma_rows": 0, "feature_rows": 0}
+
+    daily = pd.DataFrame(daily_rows, columns=["code", "date", "o", "h", "l", "c", "v"])
+    daily_ma = build_daily_ma(daily)
+    feature_snapshot = build_feature_snapshot_daily(daily, daily_ma)
+
+    delete_filters: list[str] = []
+    delete_params: list[object] = []
+    if start_dt is not None:
+        delete_filters.append("date >= ?")
+        delete_params.append(int(start_dt))
+    if end_dt is not None:
+        delete_filters.append("date <= ?")
+        delete_params.append(int(end_dt))
+    delete_where_sql = f"WHERE {' AND '.join(delete_filters)}" if delete_filters else ""
+    feature_delete_where_sql = delete_where_sql.replace("date", "dt")
+
+    if delete_where_sql:
+        conn.execute(f"DELETE FROM daily_ma {delete_where_sql}", delete_params)
+        conn.execute(f"DELETE FROM feature_snapshot_daily {feature_delete_where_sql}", delete_params)
+    else:
+        conn.execute("DELETE FROM daily_ma")
+        conn.execute("DELETE FROM feature_snapshot_daily")
+
+    conn.register("repair_daily_ma_df", daily_ma)
+    conn.register("repair_feature_snapshot_df", feature_snapshot)
+    try:
+        conn.execute("INSERT INTO daily_ma SELECT code, date, ma7, ma20, ma60 FROM repair_daily_ma_df")
+        conn.execute(
+            """
+            INSERT INTO feature_snapshot_daily (
+                dt,
+                code,
+                close,
+                ma7,
+                ma20,
+                ma60,
+                atr14,
+                diff20_pct,
+                diff20_atr,
+                cnt_20_above,
+                cnt_7_above,
+                day_count,
+                candle_flags
+            )
+            SELECT
+                dt,
+                code,
+                close,
+                ma7,
+                ma20,
+                ma60,
+                atr14,
+                diff20_pct,
+                diff20_atr,
+                cnt_20_above,
+                cnt_7_above,
+                day_count,
+                candle_flags
+            FROM repair_feature_snapshot_df
+            """
+        )
+    finally:
+        conn.unregister("repair_daily_ma_df")
+        conn.unregister("repair_feature_snapshot_df")
+
+    return {
+        "daily_rows": int(len(daily)),
+        "daily_ma_rows": int(len(daily_ma)),
+        "feature_rows": int(len(feature_snapshot)),
+    }
 
 
 def _to_month_start_int(value: int | str | float | None) -> int | None:
@@ -1586,15 +1529,17 @@ def refresh_ml_label_table(
         return 0
 
     close_col = _get_close_column(conn)
+    daily_dt_sql = _normalized_daily_dt_sql("date")
+    label_dt_sql = _normalized_daily_dt_sql("dt")
     where: list[str] = [f"{close_col} IS NOT NULL"]
     params: list[object] = []
     if start_dt is not None:
-        where.append("date >= ?")
+        where.append(f"{daily_dt_sql} >= ?")
         params.append(int(start_dt))
     if end_dt is not None:
         # Keep a forward margin for 20 business-day labels.
-        where.append("date <= ?")
-        params.append(int(end_dt) + 90 * 86400)
+        where.append(f"{daily_dt_sql} <= ?")
+        params.append(_offset_yyyymmdd(int(end_dt), 90))
     where_sql = " AND ".join(where)
     rows = conn.execute(
         f"""
@@ -1609,10 +1554,10 @@ def refresh_ml_label_table(
         del_where: list[str] = []
         del_params: list[object] = []
         if start_dt is not None:
-            del_where.append("dt >= ?")
+            del_where.append(f"{label_dt_sql} >= ?")
             del_params.append(int(start_dt))
         if end_dt is not None:
-            del_where.append("dt <= ?")
+            del_where.append(f"{label_dt_sql} <= ?")
             del_params.append(int(end_dt))
         conn.execute(f"DELETE FROM ml_label_20d WHERE {' AND '.join(del_where)}", del_params)
     else:
@@ -1681,9 +1626,12 @@ def refresh_ml_label_table(
         ma20_series = _rolling_mean(closes, 20)
         for i in range(max_i):
             dt_i = int(dates[i])
-            if start_dt is not None and dt_i < int(start_dt):
+            dt_key = _normalize_daily_dt_key(dt_i)
+            if dt_key is None:
                 continue
-            if end_dt is not None and dt_i > int(end_dt):
+            if start_dt is not None and dt_key < int(start_dt):
+                continue
+            if end_dt is not None and dt_key > int(end_dt):
                 continue
             base = closes[i]
             if base == 0:
@@ -2635,13 +2583,14 @@ def _derive_monthly_ret20_lookup(
 
 
 def _load_training_df(conn, start_dt: int | None = None, end_dt: int | None = None) -> pd.DataFrame:
+    feature_dt_sql = _normalized_daily_dt_sql("f.dt")
     where = ["l.ret20 IS NOT NULL"]
     params: list[object] = []
     if start_dt is not None:
-        where.append("f.dt >= ?")
+        where.append(f"{feature_dt_sql} >= ?")
         params.append(int(start_dt))
     if end_dt is not None:
-        where.append("f.dt <= ?")
+        where.append(f"{feature_dt_sql} <= ?")
         params.append(int(end_dt))
     where_sql = " AND ".join(where)
     sql = (
@@ -4263,31 +4212,11 @@ def _apply_live_guard(
 
 
 def enforce_live_guard() -> dict[str, Any]:
-    cfg = load_ml_config()
-    with get_conn() as conn:
-        _ensure_ml_schema(conn)
-        if not bool(cfg.live_guard_enabled):
-            return {
-                "checked": False,
-                "passed": True,
-                "action": "disabled",
-                "reason": "live_guard_disabled",
-                "active_model_version": None,
-                "rolled_back_to": None,
-                "metrics": _summarize_daily_scores([]),
-                "checks": [],
-            }
-        return _apply_live_guard(conn, cfg=cfg)
+    return legacy_predict_runtime.enforce_live_guard()
 
 
 def get_latest_live_guard_status() -> dict[str, Any]:
-    with get_conn() as conn:
-        _ensure_ml_schema(conn)
-        latest = _load_latest_live_guard_audit(conn)
-    return {
-        "has_check": bool(latest),
-        "latest": latest,
-    }
+    return legacy_predict_runtime.get_latest_live_guard_status()
 
 
 def _evaluate_promotion_policy(
@@ -4925,7 +4854,7 @@ def _train_monthly_models_with_conn(
     }
 
 
-def train_models(
+def _train_models_impl(
     *,
     start_dt: int | None = None,
     end_dt: int | None = None,
@@ -5717,6 +5646,12 @@ def _predict_monthly_for_dt_with_conn(conn, target_dt: int) -> dict[str, Any]:
 
 
 def predict_monthly_for_dt(dt: int | None = None) -> dict[str, Any]:
+    if is_legacy_analysis_disabled():
+        logger.info(
+            "Skipping predict_monthly_for_dt because %s",
+            legacy_analysis_disabled_log_value(),
+        )
+        return _legacy_monthly_prediction_disabled_result(dt)
     with get_conn() as conn:
         _ensure_ml_schema(conn)
         if conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()[0] == 0:
@@ -5896,7 +5831,13 @@ def predict_for_dates_bulk(
     include_monthly: bool = False,
     progress_cb: Callable[[int, int, int], None] | None = None,
 ) -> dict[str, Any]:
-    requested_dates = sorted({int(value) for value in dates if value is not None})
+    requested_dates = sorted(
+        {
+            int(value)
+            for value in (_normalize_daily_dt_key(item) for item in dates)
+            if value is not None
+        }
+    )
     if not requested_dates:
         return {
             "requested_dates": [],
@@ -5908,45 +5849,113 @@ def predict_for_dates_bulk(
             "skipped_dates": [],
             "monthly": None,
         }
+    if is_legacy_analysis_disabled():
+        logger.info(
+            "Skipping predict_for_dates_bulk because %s dates=%s",
+            legacy_analysis_disabled_log_value(),
+            len(requested_dates),
+        )
+        return _legacy_bulk_prediction_disabled_result(requested_dates)
     chunk_size_days = max(1, int(chunk_size_days))
     cfg = load_ml_config()
     with get_conn() as conn:
         _ensure_ml_schema(conn)
         feature_rows = int(conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()[0] or 0)
+        refresh_start_dt: int | None = None
+        refresh_end_dt: int | None = None
+        repair_dates = _feature_input_repair_dates(conn, target_date_keys=requested_dates)
+        if repair_dates:
+            refresh_start_dt, refresh_end_dt = _feature_refresh_bounds(
+                conn,
+                start_key=repair_dates[0],
+                end_key=repair_dates[-1],
+            )
+            _rebuild_feature_inputs_from_daily_bars(
+                conn,
+                start_dt=refresh_start_dt,
+                end_dt=refresh_end_dt,
+            )
+            refresh_ml_feature_table(
+                conn,
+                feature_version=FEATURE_VERSION,
+                start_dt=refresh_start_dt,
+                end_dt=refresh_end_dt,
+            )
+            feature_rows = int(conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()[0] or 0)
         if feature_rows <= 0:
             if requested_dates:
+                refresh_start_dt, refresh_end_dt = _feature_refresh_bounds(
+                    conn,
+                    start_key=requested_dates[0],
+                    end_key=requested_dates[-1],
+                )
                 refresh_ml_feature_table(
                     conn,
                     feature_version=FEATURE_VERSION,
-                    start_dt=requested_dates[0] - 50000,
-                    end_dt=requested_dates[-1],
+                    start_dt=refresh_start_dt,
+                    end_dt=refresh_end_dt,
                 )
             else:
                 refresh_ml_feature_table(conn, feature_version=FEATURE_VERSION)
+        elif requested_dates:
+            placeholders = ", ".join("?" for _ in requested_dates)
+            dt_key_sql = _normalized_daily_dt_sql("dt")
+            existing_rows = conn.execute(
+                f"""
+                SELECT DISTINCT {dt_key_sql} AS dt_key
+                FROM ml_feature_daily
+                WHERE {dt_key_sql} IN ({placeholders})
+                """,
+                [int(value) for value in requested_dates],
+            ).fetchall()
+            existing_requested_dates = {
+                int(row[0]) for row in existing_rows if row and row[0] is not None
+            }
+            missing_requested_dates = [
+                int(value) for value in requested_dates if int(value) not in existing_requested_dates
+            ]
+            if missing_requested_dates:
+                refresh_start_dt, refresh_end_dt = _feature_refresh_bounds(
+                    conn,
+                    start_key=missing_requested_dates[0],
+                    end_key=missing_requested_dates[-1],
+                )
+                refresh_ml_feature_table(
+                    conn,
+                    feature_version=FEATURE_VERSION,
+                    start_dt=refresh_start_dt,
+                    end_dt=refresh_end_dt,
+                )
 
+        dt_key_sql = _normalized_daily_dt_sql("dt")
         available_rows = conn.execute(
-            """
-            SELECT DISTINCT dt
+            f"""
+            SELECT DISTINCT dt, {dt_key_sql} AS dt_key
             FROM ml_feature_daily
-            WHERE dt <= ?
-            ORDER BY dt
+            WHERE {dt_key_sql} <= ?
+            ORDER BY dt_key, dt
             """,
             [int(requested_dates[-1])],
         ).fetchall()
-        available_dates = [int(row[0]) for row in available_rows if row and row[0] is not None]
-        if not available_dates:
+        available_by_key: dict[int, int] = {}
+        for row in available_rows:
+            if not row or row[0] is None or row[1] is None:
+                continue
+            available_by_key[int(row[1])] = int(row[0])
+        available_date_keys = sorted(available_by_key)
+        if not available_date_keys:
             raise RuntimeError("ml_feature_daily is empty")
-        available_set = set(available_dates)
+        available_set = set(available_date_keys)
 
         resolved_dates_raw: list[int] = []
         skipped_dates: list[int] = []
         for req_dt in requested_dates:
             if req_dt in available_set:
-                resolved_dates_raw.append(int(req_dt))
+                resolved_dates_raw.append(int(available_by_key[int(req_dt)]))
                 continue
-            idx = bisect_right(available_dates, int(req_dt)) - 1
+            idx = bisect_right(available_date_keys, int(req_dt)) - 1
             if idx >= 0:
-                resolved_dates_raw.append(int(available_dates[idx]))
+                resolved_dates_raw.append(int(available_by_key[int(available_date_keys[idx])]))
             else:
                 skipped_dates.append(int(req_dt))
         resolved_dates = sorted(set(resolved_dates_raw))
@@ -6033,26 +6042,62 @@ def predict_for_dates_bulk(
 
 
 def predict_for_dt(dt: int | None = None) -> dict[str, Any]:
+    if is_legacy_analysis_disabled():
+        logger.info(
+            "Skipping predict_for_dt because %s dt=%s",
+            legacy_analysis_disabled_log_value(),
+            dt,
+        )
+        return _legacy_prediction_disabled_result(dt)
     cfg = load_ml_config()
     with get_conn() as conn:
         _ensure_ml_schema(conn)
 
         target_dt = int(dt) if dt is not None else None
+        target_dt_key = _normalize_daily_dt_key(target_dt)
         feature_rows = int(conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()[0] or 0)
+        repair_dates = _feature_input_repair_dates(
+            conn,
+            target_date_keys=[int(target_dt_key)] if target_dt_key is not None else [],
+        )
+        if repair_dates:
+            refresh_start_dt, refresh_end_dt = _feature_refresh_bounds(
+                conn,
+                start_key=repair_dates[0],
+                end_key=repair_dates[-1],
+            )
+            _rebuild_feature_inputs_from_daily_bars(
+                conn,
+                start_dt=refresh_start_dt,
+                end_dt=refresh_end_dt,
+            )
+            refresh_ml_feature_table(
+                conn,
+                feature_version=FEATURE_VERSION,
+                start_dt=refresh_start_dt,
+                end_dt=refresh_end_dt,
+            )
+            feature_rows = int(conn.execute("SELECT COUNT(*) FROM ml_feature_daily").fetchone()[0] or 0)
         needs_feature_refresh = feature_rows == 0
-        if not needs_feature_refresh and target_dt is not None:
+        dt_key_sql = _normalized_daily_dt_sql("dt")
+        if not needs_feature_refresh and target_dt_key is not None:
             has_target = conn.execute(
-                "SELECT 1 FROM ml_feature_daily WHERE dt = ? LIMIT 1",
-                [target_dt],
+                f"SELECT 1 FROM ml_feature_daily WHERE {dt_key_sql} = ? LIMIT 1",
+                [int(target_dt_key)],
             ).fetchone()
             needs_feature_refresh = has_target is None
         if needs_feature_refresh:
-            if target_dt is not None and feature_rows > 0:
+            if target_dt_key is not None and feature_rows > 0:
+                refresh_start_dt, refresh_end_dt = _feature_refresh_bounds(
+                    conn,
+                    start_key=int(target_dt_key),
+                    end_key=int(target_dt_key),
+                )
                 refresh_ml_feature_table(
                     conn,
                     feature_version=FEATURE_VERSION,
-                    start_dt=target_dt - 50000,
-                    end_dt=target_dt,
+                    start_dt=refresh_start_dt,
+                    end_dt=refresh_end_dt,
                 )
             else:
                 refresh_ml_feature_table(conn, feature_version=FEATURE_VERSION)
@@ -6064,17 +6109,19 @@ def predict_for_dt(dt: int | None = None) -> dict[str, Any]:
             target_dt = int(row[0])
         else:
             has_target = conn.execute(
-                "SELECT 1 FROM ml_feature_daily WHERE dt = ? LIMIT 1",
-                [target_dt],
+                f"SELECT MAX(dt) FROM ml_feature_daily WHERE {dt_key_sql} = ?",
+                [int(target_dt_key)] if target_dt_key is not None else [int(target_dt)],
             ).fetchone()
-            if has_target is None:
+            if not has_target or has_target[0] is None:
                 fallback_row = conn.execute(
-                    "SELECT MAX(dt) FROM ml_feature_daily WHERE dt <= ?",
-                    [target_dt],
+                    f"SELECT MAX(dt) FROM ml_feature_daily WHERE {dt_key_sql} <= ?",
+                    [int(target_dt_key)] if target_dt_key is not None else [int(target_dt)],
                 ).fetchone()
                 if not fallback_row or fallback_row[0] is None:
                     raise RuntimeError(f"No features found for dt={target_dt}")
                 target_dt = int(fallback_row[0])
+            else:
+                target_dt = int(has_target[0])
 
         frame = _load_prediction_feature_frame(conn, [int(target_dt)])
         if frame.empty:
@@ -6120,6 +6167,74 @@ def predict_latest() -> dict[str, Any]:
 
 
 def get_ml_status() -> dict[str, Any]:
+    if is_legacy_analysis_disabled():
+        cfg = load_ml_config()
+        return {
+            "has_active_model": False,
+            "disabled_reason": "legacy_analysis_disabled",
+            "config": {
+                "neutral_band_pct": cfg.neutral_band_pct,
+                "p_up_threshold": cfg.p_up_threshold,
+                "top_n": cfg.top_n,
+                "cost_bps": cfg.cost_bps,
+                "train_days": cfg.train_days,
+                "test_days": cfg.test_days,
+                "step_days": cfg.step_days,
+                "embargo_days": cfg.embargo_days,
+                "rank_boost_round": cfg.rank_boost_round,
+                "rule_weight": cfg.rule_weight,
+                "ev_weight": cfg.ev_weight,
+                "prob_weight": cfg.prob_weight,
+                "rank_weight": cfg.rank_weight,
+                "turn_weight": cfg.turn_weight,
+                "min_prob_up": cfg.min_prob_up,
+                "min_prob_down": cfg.min_prob_down,
+                "min_turn_prob_up": cfg.min_turn_prob_up,
+                "min_turn_prob_down": cfg.min_turn_prob_down,
+                "min_turn_margin": cfg.min_turn_margin,
+                "auto_promote": cfg.auto_promote,
+                "allow_bootstrap_promotion": cfg.allow_bootstrap_promotion,
+                "min_wf_fold_count": cfg.min_wf_fold_count,
+                "min_wf_daily_count": cfg.min_wf_daily_count,
+                "min_wf_mean_ret20_net": cfg.min_wf_mean_ret20_net,
+                "min_wf_win_rate": cfg.min_wf_win_rate,
+                "min_wf_p05_ret20_net": cfg.min_wf_p05_ret20_net,
+                "min_wf_cvar05_ret20_net": cfg.min_wf_cvar05_ret20_net,
+                "robust_lb_lambda": cfg.robust_lb_lambda,
+                "min_wf_robust_lb": cfg.min_wf_robust_lb,
+                "max_wf_p_value_mean_gt0": cfg.max_wf_p_value_mean_gt0,
+                "min_wf_lcb95_ret20_net": cfg.min_wf_lcb95_ret20_net,
+                "min_wf_up_mean_ret20_net": cfg.min_wf_up_mean_ret20_net,
+                "min_wf_down_mean_ret20_net": cfg.min_wf_down_mean_ret20_net,
+                "min_wf_combined_mean_ret20_net": cfg.min_wf_combined_mean_ret20_net,
+                "require_champion_improvement": cfg.require_champion_improvement,
+                "min_delta_mean_ret20_net": cfg.min_delta_mean_ret20_net,
+                "min_delta_robust_lb": cfg.min_delta_robust_lb,
+                "min_delta_lcb95_ret20_net": cfg.min_delta_lcb95_ret20_net,
+                "live_guard_enabled": cfg.live_guard_enabled,
+                "live_guard_lookback_days": cfg.live_guard_lookback_days,
+                "live_guard_min_daily_count": cfg.live_guard_min_daily_count,
+                "live_guard_min_mean_ret20_net": cfg.live_guard_min_mean_ret20_net,
+                "live_guard_min_robust_lb": cfg.live_guard_min_robust_lb,
+                "live_guard_max_p_value_mean_gt0": cfg.live_guard_max_p_value_mean_gt0,
+                "live_guard_min_lcb95_ret20_net": cfg.live_guard_min_lcb95_ret20_net,
+                "live_guard_allow_rollback": cfg.live_guard_allow_rollback,
+                "wf_use_expanding_train": cfg.wf_use_expanding_train,
+                "wf_max_train_days": cfg.wf_max_train_days,
+            },
+            "monthly": {
+                "model_version": None,
+                "pred_dt": None,
+                "n_train_abs": None,
+                "n_train_dir": None,
+                "label_rows": 0,
+            },
+            "active_model": None,
+            "metrics": {},
+            "latest_prediction": None,
+            "latest_training_audit": None,
+            "latest_live_guard_audit": None,
+        }
     cfg = load_ml_config()
     with get_conn() as conn:
         _ensure_ml_schema(conn)
@@ -6242,3 +6357,52 @@ def get_ml_status() -> dict[str, Any]:
         payload["latest_training_audit"] = _load_latest_training_audit(conn)
         payload["latest_live_guard_audit"] = _load_latest_live_guard_audit(conn)
         return payload
+
+
+def train_models(
+    *,
+    start_dt: int | None = None,
+    end_dt: int | None = None,
+    dry_run: bool = False,
+    progress_cb: Callable[[int, str], None] | None = None,
+) -> dict[str, Any]:
+    return _train_models_impl(
+        start_dt=start_dt,
+        end_dt=end_dt,
+        dry_run=dry_run,
+        progress_cb=progress_cb,
+    )
+
+def enforce_live_guard() -> dict[str, Any]:
+    return legacy_predict_runtime.enforce_live_guard()
+
+
+def get_latest_live_guard_status() -> dict[str, Any]:
+    return legacy_predict_runtime.get_latest_live_guard_status()
+
+
+def predict_monthly_for_dt(dt: int | None = None) -> dict[str, Any]:
+    return legacy_predict_runtime.predict_monthly_for_dt(dt)
+
+
+def predict_for_dates_bulk(
+    *,
+    dates: list[int],
+    chunk_size_days: int = 40,
+    include_monthly: bool = False,
+    progress_cb: Callable[[int, int, int], None] | None = None,
+) -> dict[str, Any]:
+    return legacy_predict_runtime.predict_for_dates_bulk(
+        dates=dates,
+        chunk_size_days=chunk_size_days,
+        include_monthly=include_monthly,
+        progress_cb=progress_cb,
+    )
+
+
+def predict_for_dt(dt: int | None = None) -> dict[str, Any]:
+    return legacy_predict_runtime.predict_for_dt(dt)
+
+
+def predict_latest() -> dict[str, Any]:
+    return legacy_predict_runtime.predict_latest()

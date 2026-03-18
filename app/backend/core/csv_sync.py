@@ -14,6 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from
     from core.config import config  # type: ignore
 
 logger = logging.getLogger(__name__)
+_TRADE_EVENTS_BACKUP_TABLE = "trade_events_backup_sync"
 
 def resolve_trade_csv_paths() -> list[str]:
     paths = []
@@ -84,10 +85,10 @@ def sync_trade_csvs() -> dict:
     with get_conn() as conn:
         try:
             # 1. Backup existing data
-            conn.execute("DROP TABLE IF EXISTS trade_events_bak")
-            conn.execute("CREATE TABLE trade_events_bak AS SELECT * FROM trade_events")
-            count_before = conn.execute("SELECT COUNT(*) FROM trade_events_bak").fetchone()[0]
-            logger.info(f"Backed up {count_before} rows to trade_events_bak")
+            conn.execute(f"DROP TABLE IF EXISTS temp.{_TRADE_EVENTS_BACKUP_TABLE}")
+            conn.execute(f"CREATE TEMP TABLE {_TRADE_EVENTS_BACKUP_TABLE} AS SELECT * FROM trade_events")
+            count_before = conn.execute(f"SELECT COUNT(*) FROM temp.{_TRADE_EVENTS_BACKUP_TABLE}").fetchone()[0]
+            logger.info("Backed up %s rows to temp.%s", count_before, _TRADE_EVENTS_BACKUP_TABLE)
 
             # 2. Clear table
             conn.execute("DELETE FROM trade_events")
@@ -148,7 +149,7 @@ def sync_trade_csvs() -> dict:
             if total_imported == 0 and count_before > 0:
                 logger.warning("Force sync resulted in 0 rows but backup had data. Rolling back.")
                 conn.execute("DELETE FROM trade_events")
-                conn.execute("INSERT INTO trade_events SELECT * FROM trade_events_bak")
+                conn.execute(f"INSERT INTO trade_events SELECT * FROM temp.{_TRADE_EVENTS_BACKUP_TABLE}")
                 results["warnings"].append("Rolled back: No trades found in new files.")
                 results["imported"] = count_before  # Restored count
             else:
@@ -159,9 +160,14 @@ def sync_trade_csvs() -> dict:
             # Try rollback
             try:
                 conn.execute("DELETE FROM trade_events")
-                conn.execute("INSERT INTO trade_events SELECT * FROM trade_events_bak")
+                conn.execute(f"INSERT INTO trade_events SELECT * FROM temp.{_TRADE_EVENTS_BACKUP_TABLE}")
                 results["warnings"].append(f"Critical Error: {e}. Rolled back.")
             except Exception:
                 results["warnings"].append(f"Critical Error: {e}. Rollback FAILED.")
+        finally:
+            try:
+                conn.execute(f"DROP TABLE IF EXISTS temp.{_TRADE_EVENTS_BACKUP_TABLE}")
+            except Exception:
+                pass
 
     return results

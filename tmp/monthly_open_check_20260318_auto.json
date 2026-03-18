@@ -1,0 +1,497 @@
+{
+  "generated_at_utc": "2026-03-17T23:45:01.697828+00:00",
+  "asof_date": "2026-03-18",
+  "phase": 3,
+  "phase_date": "2026-03-16",
+  "latest_daily_dt": 1773360000,
+  "source_plan_file": "tmp/monthly_execution_plan_202603_strictplus_backups.json",
+  "source_base_plan_file": "tmp/monthly_execution_plan_202603.json",
+  "thresholds": {
+    "primary_strict": {
+      "p_up_min": 0.47,
+      "ev20_net_min": -0.005,
+      "turnover20_min": 12000000
+    },
+    "strict": {
+      "p_up_min": 0.46,
+      "ev20_net_min": -0.005,
+      "turnover20_min": 5000000
+    },
+    "strict_plus": {
+      "p_up_min": 0.45,
+      "ev20_net_min": -0.005,
+      "turnover20_min": 5000000
+    },
+    "relaxed": {
+      "p_up_min": 0.44,
+      "ev20_net_min": -0.01,
+      "turnover20_min": 3000000
+    }
+  },
+  "candidate_count": 11,
+  "evaluated_candidates": [
+    {
+      "code": "2768",
+      "name": "双日HD(ニチメン日商岩井)",
+      "sector": "卸売業",
+      "tier": "primary",
+      "source_bucket": "primary",
+      "source_rank": 8,
+      "base_priority_rank": 8,
+      "base_composite": 1.0742218908012455,
+      "monthly_score_up": 0.5923618002268868,
+      "live": {
+        "p_up": null,
+        "ev20_net": null,
+        "rank_up_20": null,
+        "turnover20": null,
+        "latest_daily_dt": 1773360000
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.47,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 12000000
+      },
+      "eligible": false,
+      "ineligible_reasons": [
+        "missing_p_up",
+        "missing_ev20_net",
+        "missing_turnover20"
+      ],
+      "live_score": 0.32579899012478775
+    },
+    {
+      "code": "6504",
+      "name": "富士電機",
+      "sector": "電気機器",
+      "tier": "primary",
+      "source_bucket": "primary",
+      "source_rank": 9,
+      "base_priority_rank": 9,
+      "base_composite": 1.028917058155392,
+      "monthly_score_up": 0.5464890660312334,
+      "live": {
+        "p_up": null,
+        "ev20_net": null,
+        "rank_up_20": null,
+        "turnover20": null,
+        "latest_daily_dt": 1773360000
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.47,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 12000000
+      },
+      "eligible": false,
+      "ineligible_reasons": [
+        "missing_p_up",
+        "missing_ev20_net",
+        "missing_turnover20"
+      ],
+      "live_score": 0.3005689863171784
+    },
+    {
+      "code": "7014",
+      "name": "名村造船所",
+      "sector": "輸送用機器",
+      "tier": "primary",
+      "source_bucket": "primary",
+      "source_rank": 10,
+      "base_priority_rank": 10,
+      "base_composite": 0.6352028229292701,
+      "monthly_score_up": 0.6352028229292701,
+      "live": {
+        "p_up": null,
+        "ev20_net": null,
+        "rank_up_20": null,
+        "turnover20": null,
+        "latest_daily_dt": 1773360000
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.47,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 12000000
+      },
+      "eligible": false,
+      "ineligible_reasons": [
+        "missing_p_up",
+        "missing_ev20_net",
+        "missing_turnover20"
+      ],
+      "live_score": 0.3493615526110986
+    },
+    {
+      "code": "6324",
+      "name": "ハーモニックドライブ",
+      "sector": "機械",
+      "tier": "strict",
+      "source_bucket": "strict_plus_first",
+      "source_rank": 1,
+      "base_priority_rank": null,
+      "base_composite": 1.277805385562085,
+      "monthly_score_up": 0.7724223742706872,
+      "live": {
+        "p_up": null,
+        "ev20_net": null,
+        "rank_up_20": null,
+        "turnover20": null,
+        "latest_daily_dt": 1773360000
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.46,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 5000000
+      },
+      "eligible": false,
+      "ineligible_reasons": [
+        "missing_p_up",
+        "missing_ev20_net",
+        "missing_turnover20"
+      ],
+      "live_score": 0.424832305848878
+    },
+    {
+      "code": "5802",
+      "name": "住友電気工業",
+      "sector": "非鉄金属",
+      "tier": "strict_plus",
+      "source_bucket": "strict_plus_first",
+      "source_rank": 2,
+      "base_priority_rank": null,
+      "base_composite": 1.0947549315825646,
+      "monthly_score_up": 0.6184870556138231,
+      "live": {
+        "p_up": null,
+        "ev20_net": null,
+        "rank_up_20": null,
+        "turnover20": null,
+        "latest_daily_dt": 1773360000
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.45,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 5000000
+      },
+      "eligible": false,
+      "ineligible_reasons": [
+        "missing_p_up",
+        "missing_ev20_net",
+        "missing_turnover20"
+      ],
+      "live_score": 0.3401678805876027
+    },
+    {
+      "code": "4186",
+      "name": "東京応化工業",
+      "sector": "化学",
+      "tier": "strict_plus",
+      "source_bucket": "strict_plus_first",
+      "source_rank": 3,
+      "base_priority_rank": null,
+      "base_composite": 1.030756374390456,
+      "monthly_score_up": 0.519220946458837,
+      "live": {
+        "p_up": null,
+        "ev20_net": null,
+        "rank_up_20": null,
+        "turnover20": null,
+        "latest_daily_dt": 1773360000
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.45,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 5000000
+      },
+      "eligible": false,
+      "ineligible_reasons": [
+        "missing_p_up",
+        "missing_ev20_net",
+        "missing_turnover20"
+      ],
+      "live_score": 0.28557152055236035
+    },
+    {
+      "code": "9503",
+      "name": "関西電力",
+      "sector": "電気・ガス業",
+      "tier": "strict_plus",
+      "source_bucket": "strict_plus_first",
+      "source_rank": 4,
+      "base_priority_rank": null,
+      "base_composite": 1.0103210422632312,
+      "monthly_score_up": 0.512597277832763,
+      "live": {
+        "p_up": null,
+        "ev20_net": null,
+        "rank_up_20": null,
+        "turnover20": null,
+        "latest_daily_dt": 1773360000
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.45,
+        "ev20_net_min": -0.005,
+        "turnover20_min": 5000000
+      },
+      "eligible": false,
+      "ineligible_reasons": [
+        "missing_p_up",
+        "missing_ev20_net",
+        "missing_turnover20"
+      ],
+      "live_score": 0.2819285028080197
+    },
+    {
+      "code": "6814",
+      "name": "古野電気",
+      "sector": "電気機器",
+      "tier": "relaxed",
+      "source_bucket": "relaxed_reserve",
+      "source_rank": 1,
+      "base_priority_rank": null,
+      "base_composite": 1.2854303791876496,
+      "monthly_score_up": 0.8118089192976465,
+      "live": {
+        "p_up": null,
+        "ev20_net": null,
+        "rank_up_20": null,
+        "turnover20": null,
+        "latest_daily_dt": 1773360000
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.44,
+        "ev20_net_min": -0.01,
+        "turnover20_min": 3000000
+      },
+      "eligible": false,
+      "ineligible_reasons": [
+        "missing_p_up",
+        "missing_ev20_net",
+        "missing_turnover20"
+      ],
+      "live_score": 0.44649490561370564
+    },
+    {
+      "code": "5726",
+      "name": "大阪チタニウム(住友チタ)",
+      "sector": "非鉄金属",
+      "tier": "relaxed",
+      "source_bucket": "relaxed_reserve",
+      "source_rank": 2,
+      "base_priority_rank": null,
+      "base_composite": 1.084980610700544,
+      "monthly_score_up": 0.6398156344154736,
+      "live": {
+        "p_up": null,
+        "ev20_net": null,
+        "rank_up_20": null,
+        "turnover20": null,
+        "latest_daily_dt": 1773360000
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.44,
+        "ev20_net_min": -0.01,
+        "turnover20_min": 3000000
+      },
+      "eligible": false,
+      "ineligible_reasons": [
+        "missing_p_up",
+        "missing_ev20_net",
+        "missing_turnover20"
+      ],
+      "live_score": 0.3518985989285105
+    },
+    {
+      "code": "1801",
+      "name": "大成建設",
+      "sector": "建設業",
+      "tier": "relaxed",
+      "source_bucket": "relaxed_reserve",
+      "source_rank": 3,
+      "base_priority_rank": null,
+      "base_composite": 1.0499142528949374,
+      "monthly_score_up": 0.5069588347060295,
+      "live": {
+        "p_up": null,
+        "ev20_net": null,
+        "rank_up_20": null,
+        "turnover20": null,
+        "latest_daily_dt": 1773360000
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.44,
+        "ev20_net_min": -0.01,
+        "turnover20_min": 3000000
+      },
+      "eligible": false,
+      "ineligible_reasons": [
+        "missing_p_up",
+        "missing_ev20_net",
+        "missing_turnover20"
+      ],
+      "live_score": 0.2788273590883163
+    },
+    {
+      "code": "7202",
+      "name": "いすゞ自動車",
+      "sector": "輸送用機器",
+      "tier": "relaxed",
+      "source_bucket": "relaxed_reserve",
+      "source_rank": 4,
+      "base_priority_rank": null,
+      "base_composite": 1.002864943143142,
+      "monthly_score_up": 0.49826626716617006,
+      "live": {
+        "p_up": null,
+        "ev20_net": null,
+        "rank_up_20": null,
+        "turnover20": null,
+        "latest_daily_dt": 1773360000
+      },
+      "events": [],
+      "thresholds": {
+        "p_up_min": 0.44,
+        "ev20_net_min": -0.01,
+        "turnover20_min": 3000000
+      },
+      "eligible": false,
+      "ineligible_reasons": [
+        "missing_p_up",
+        "missing_ev20_net",
+        "missing_turnover20"
+      ],
+      "live_score": 0.2740464469413936
+    }
+  ],
+  "recommendation": {
+    "slots": [
+      {
+        "slot": 1,
+        "action": "vacant_no_replacement",
+        "selected": null,
+        "replaced_primary": {
+          "code": "2768",
+          "name": "双日HD(ニチメン日商岩井)",
+          "sector": "卸売業",
+          "tier": "primary",
+          "source_bucket": "primary",
+          "source_rank": 8,
+          "base_priority_rank": 8,
+          "base_composite": 1.0742218908012455,
+          "monthly_score_up": 0.5923618002268868,
+          "live": {
+            "p_up": null,
+            "ev20_net": null,
+            "rank_up_20": null,
+            "turnover20": null,
+            "latest_daily_dt": 1773360000
+          },
+          "events": [],
+          "thresholds": {
+            "p_up_min": 0.47,
+            "ev20_net_min": -0.005,
+            "turnover20_min": 12000000
+          },
+          "eligible": false,
+          "ineligible_reasons": [
+            "missing_p_up",
+            "missing_ev20_net",
+            "missing_turnover20"
+          ],
+          "live_score": 0.32579899012478775
+        }
+      },
+      {
+        "slot": 2,
+        "action": "vacant_no_replacement",
+        "selected": null,
+        "replaced_primary": {
+          "code": "6504",
+          "name": "富士電機",
+          "sector": "電気機器",
+          "tier": "primary",
+          "source_bucket": "primary",
+          "source_rank": 9,
+          "base_priority_rank": 9,
+          "base_composite": 1.028917058155392,
+          "monthly_score_up": 0.5464890660312334,
+          "live": {
+            "p_up": null,
+            "ev20_net": null,
+            "rank_up_20": null,
+            "turnover20": null,
+            "latest_daily_dt": 1773360000
+          },
+          "events": [],
+          "thresholds": {
+            "p_up_min": 0.47,
+            "ev20_net_min": -0.005,
+            "turnover20_min": 12000000
+          },
+          "eligible": false,
+          "ineligible_reasons": [
+            "missing_p_up",
+            "missing_ev20_net",
+            "missing_turnover20"
+          ],
+          "live_score": 0.3005689863171784
+        }
+      },
+      {
+        "slot": 3,
+        "action": "vacant_no_replacement",
+        "selected": null,
+        "replaced_primary": {
+          "code": "7014",
+          "name": "名村造船所",
+          "sector": "輸送用機器",
+          "tier": "primary",
+          "source_bucket": "primary",
+          "source_rank": 10,
+          "base_priority_rank": 10,
+          "base_composite": 0.6352028229292701,
+          "monthly_score_up": 0.6352028229292701,
+          "live": {
+            "p_up": null,
+            "ev20_net": null,
+            "rank_up_20": null,
+            "turnover20": null,
+            "latest_daily_dt": 1773360000
+          },
+          "events": [],
+          "thresholds": {
+            "p_up_min": 0.47,
+            "ev20_net_min": -0.005,
+            "turnover20_min": 12000000
+          },
+          "eligible": false,
+          "ineligible_reasons": [
+            "missing_p_up",
+            "missing_ev20_net",
+            "missing_turnover20"
+          ],
+          "live_score": 0.3493615526110986
+        }
+      }
+    ],
+    "summary": {
+      "primary_slots": 3,
+      "kept_primary": 0,
+      "replaced_primary": 0,
+      "vacant_slots": 3,
+      "strict_plus_eligible": 0,
+      "relaxed_eligible": 0,
+      "rotation_offset_strict_plus": 2,
+      "rotation_offset_relaxed": 3
+    }
+  }
+}

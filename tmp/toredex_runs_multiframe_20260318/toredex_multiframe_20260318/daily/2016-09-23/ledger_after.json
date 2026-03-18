@@ -1,0 +1,107 @@
+{
+  "asOf": "2016-09-23",
+  "metrics": {
+    "asOf": "2016-09-23",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 9108079.949766,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -397706.448246,
+        "net_cum_return_pct": -3.977064
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -1926706.448246,
+        "net_cum_return_pct": -19.267064
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -3455706.448246,
+        "net_cum_return_pct": -34.557064
+      }
+    ],
+    "cum_pnl": 1131293.551754,
+    "cum_return_pct": 11.312936,
+    "daily_pnl": -4840.552192,
+    "equity": 11131293.551754,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 1131293.551754,
+    "gross_cum_return_pct": 11.312936,
+    "gross_daily_pnl": -4840.552192,
+    "gross_units": 6,
+    "holdings_count": 3,
+    "long_units": 4,
+    "max_drawdown_pct": -1.406464,
+    "net_cum_pnl": 1131293.551754,
+    "net_cum_return_pct": 11.312936,
+    "net_daily_pnl": -4840.552192,
+    "net_exposure_pct": 20.0,
+    "net_units": 2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -1.406464,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 656.210542,
+        "worstMonthPct": -2.0366229530532354
+      },
+      "pass": false,
+      "reason": "TURNOVER(656.2105> 600.0000)",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": false,
+    "risk_gate_reason": "TURNOVER(656.2105> 600.0000)",
+    "season_id": "toredex_multiframe_20260318",
+    "short_units": 2,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 3058000000.0,
+    "turnover_notional_daily": 0.0,
+    "turnover_pct_daily": 0.0
+  },
+  "positions": [
+    {
+      "avgPrice": 16519.0,
+      "holdingDays": 4,
+      "openedAt": "2016-09-16",
+      "pnlPct": 1.4226042738664568,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1001",
+      "units": 2
+    },
+    {
+      "avgPrice": 1338.0,
+      "holdingDays": 3,
+      "openedAt": "2016-09-20",
+      "pnlPct": 2.5411061285500747,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1306",
+      "units": 2
+    },
+    {
+      "avgPrice": 1320.0,
+      "holdingDays": 4,
+      "openedAt": "2016-09-16",
+      "pnlPct": -2.803030303030303,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1308",
+      "units": 2
+    }
+  ],
+  "seasonId": "toredex_multiframe_20260318"
+}

@@ -5,8 +5,9 @@ import os
 import threading
 from datetime import datetime
 
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 from app.backend.core.jobs import job_manager
-from app.backend.services.ranking_analysis_quality import compute_ranking_analysis_quality_snapshot
+from app.backend.services.ml.ranking_analysis_quality import compute_ranking_analysis_quality_snapshot
 from app.utils.date_utils import jst_now
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,16 @@ def _to_int(value: object | None) -> int | None:
 
 
 def handle_ranking_analysis_quality(job_id: str, payload: dict) -> None:
+    if is_legacy_analysis_disabled():
+        job_manager._update_db(
+            job_id,
+            RANKING_ANALYSIS_QUALITY_JOB_TYPE,
+            "success",
+            progress=100,
+            finished_at=datetime.now(),
+            message="Ranking-analysis quality skipped because legacy analysis is disabled.",
+        )
+        return
     as_of = _to_int(payload.get("as_of"))
     persist = bool(payload.get("persist", _default_persist()))
     job_manager._update_db(
@@ -142,6 +153,9 @@ def _scheduler_loop() -> None:
 
 
 def start_ranking_analysis_quality_scheduler() -> None:
+    if is_legacy_analysis_disabled():
+        logger.info("Ranking quality scheduler is disabled because legacy analysis is disabled.")
+        return
     if not _quality_enabled():
         logger.info("Ranking quality scheduler is disabled by env.")
         return

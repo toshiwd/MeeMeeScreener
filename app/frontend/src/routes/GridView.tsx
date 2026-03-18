@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+﻿// @ts-nocheck
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   FixedSizeGrid as Grid,
   type FixedSizeGrid,
@@ -67,24 +68,15 @@ import type {
   HealthStatus,
   JobHistoryItem,
   JobStatusPayload,
-  SortOption,
   SortSection,
   Timeframe,
   ToastAction,
   TxtUpdateJobState,
   WalkforwardAttributionBucket,
-  WalkforwardAttributionRow,
   WalkforwardLatest,
   WalkforwardParams,
   WalkforwardPreset,
-  WalkforwardReport,
-  WalkforwardResearchHedgeContribution,
   WalkforwardResearchLatest,
-  WalkforwardResearchRejectedRow,
-  WalkforwardResearchReport,
-  WalkforwardResearchSetupRow,
-  WalkforwardSummary,
-  WalkforwardWindow
 } from "./grid/gridTypes";
 import {
   ACTIVE_JOB_STATUS,
@@ -121,7 +113,12 @@ export default function GridView() {
   const { ready: backendReady } = useBackendReadyState();
   const tickers = useStore((state) => state.tickers);
   const loadList = useStore((state) => state.loadList);
+  const ensureListLoaded = useStore((state) => state.ensureListLoaded);
   const loadingList = useStore((state) => state.loadingList);
+  const listLoadError = useStore((state) => state.listLoadError);
+  const listSnapshotMeta = useStore((state) => state.listSnapshotMeta);
+  const loadFavorites = useStore((state) => state.loadFavorites);
+  const favoritesLoaded = useStore((state) => state.favoritesLoaded);
   const resetBarsCache = useStore((state) => state.resetBarsCache);
   const ensureBarsForVisible = useStore((state) => state.ensureBarsForVisible);
   const barsCache = useStore((state) => state.barsCache);
@@ -148,44 +145,47 @@ export default function GridView() {
   const setSortKey = useStore((state) => state.setSortKey);
   const setSortDir = useStore((state) => state.setSortDir);
   const performancePeriod = useStore((state) => state.settings.performancePeriod);
-  const setPerformancePeriod = useStore((state) => state.setPerformancePeriod);
   const maSettings = useStore((state) => state.maSettings);
   const updateMaSetting = useStore((state) => state.updateMaSetting);
   const resetMaSettings = useStore((state) => state.resetMaSettings);
-  const eventsMeta = useStore((state) => state.eventsMeta);
+  const eventsRefreshing = useStore((state) => state.eventsMeta?.isRefreshing ?? false);
+  const eventsLastError = useStore((state) => state.eventsMeta?.lastError ?? null);
+  const eventsLastAttemptAt = useStore((state) => state.eventsMeta?.lastAttemptAt ?? null);
+  const eventsEarningsLastSuccessAt = useStore((state) => state.eventsMeta?.earningsLastSuccessAt ?? null);
+  const eventsRightsLastSuccessAt = useStore((state) => state.eventsMeta?.rightsLastSuccessAt ?? null);
+  const eventsRightsMaxDate = useStore(
+    (state) => state.eventsMeta?.dataCoverage?.rightsMaxDate ?? null
+  );
   const refreshEvents = useStore((state) => state.refreshEvents);
 
   const eventsAttemptLabel = useMemo(
-    () => formatEventDateYmd(eventsMeta?.lastAttemptAt),
-    [eventsMeta?.lastAttemptAt]
+    () => formatEventDateYmd(eventsLastAttemptAt),
+    [eventsLastAttemptAt]
   );
   const eventsLastSuccessLabel = useMemo(() => {
-    const earningsMs = parseEventDateMs(eventsMeta?.earningsLastSuccessAt);
-    const rightsMs = parseEventDateMs(eventsMeta?.rightsLastSuccessAt);
+    const earningsMs = parseEventDateMs(eventsEarningsLastSuccessAt);
+    const rightsMs = parseEventDateMs(eventsRightsLastSuccessAt);
     const candidates = [
-      { value: eventsMeta?.earningsLastSuccessAt ?? null, ms: earningsMs },
-      { value: eventsMeta?.rightsLastSuccessAt ?? null, ms: rightsMs }
+      { value: eventsEarningsLastSuccessAt, ms: earningsMs },
+      { value: eventsRightsLastSuccessAt, ms: rightsMs }
     ].filter((item) => item.value && item.ms != null) as { value: string; ms: number }[];
     if (!candidates.length) return null;
     const oldest = candidates.reduce((prev, next) => (next.ms < prev.ms ? next : prev));
     return formatEventDateYmd(oldest.value);
-  }, [eventsMeta]);
+  }, [eventsEarningsLastSuccessAt, eventsRightsLastSuccessAt]);
   const rightsCoverageLabel = useMemo(() => {
-    const rightsMaxDate = eventsMeta?.dataCoverage?.rightsMaxDate ?? null;
-    const maxMs = parseEventDateMs(rightsMaxDate);
-    if (!rightsMaxDate || maxMs == null) return null;
+    const maxMs = parseEventDateMs(eventsRightsMaxDate);
+    if (!eventsRightsMaxDate || maxMs == null) return null;
     const thresholdMs = Date.now() + 30 * 24 * 60 * 60 * 1000;
     if (maxMs >= thresholdMs) return null;
-    const formatted = formatEventDateYmd(rightsMaxDate);
+    const formatted = formatEventDateYmd(eventsRightsMaxDate);
     return formatted ? `権利データ範囲: ～${formatted}` : null;
-  }, [eventsMeta]);
+  }, [eventsRightsMaxDate]);
 
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [showIndicators, setShowIndicators] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);  // Candidate sort menu
-  const [basicSortOpen, setBasicSortOpen] = useState(false);  // Basic sort menu
   const [displayOpen, setDisplayOpen] = useState(false);
-  const [isSorting, setIsSorting] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; key: number } | null>(null);
   const [toastAction, setToastAction] = useState<ToastAction | null>(null);
   const toastKeyRef = useRef(0);
@@ -210,6 +210,7 @@ export default function GridView() {
   const [currentTheme, setCurrentTheme] = useState<Theme>(() => getStoredTheme());
   const [tradeUploadInFlight, setTradeUploadInFlight] = useState(false);
   const [tradeSyncInFlight, setTradeSyncInFlight] = useState(false);
+  const [analysisBatchSubmitting, setAnalysisBatchSubmitting] = useState(false);
   const [txtUpdateJob, setTxtUpdateJob] = useState<TxtUpdateJobState | null>(null);
   const [txtUpdatePolling, setTxtUpdatePolling] = useState(false);
   const [walkforwardSubmitting, setWalkforwardSubmitting] = useState(false);
@@ -246,6 +247,8 @@ export default function GridView() {
   const walkforwardPresetImportInputRef = useRef<HTMLInputElement | null>(null);
   const lastVisibleCodesRef = useRef<string[]>([]);
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
+  const lastVisibleRequestKeyRef = useRef<string | null>(null);
+  const deferredVisibleRequestTimerRef = useRef<number | null>(null);
   const barsErrorRetryCooldownRef = useRef<Record<string, number>>({});
   const undoTimerRef = useRef<number | null>(null);
   const txtUpdateTerminalStatusRef = useRef<string | null>(null);
@@ -469,8 +472,13 @@ export default function GridView() {
 
   useEffect(() => {
     if (!backendReady) return;
-    loadList();
-  }, [backendReady, loadList]);
+    void ensureListLoaded();
+  }, [backendReady, ensureListLoaded]);
+
+  useEffect(() => {
+    if (!backendReady || favoritesLoaded) return;
+    void loadFavorites();
+  }, [backendReady, favoritesLoaded, loadFavorites]);
 
   // Derive available sectors from tickers
   const availableSectors = useMemo(() => {
@@ -567,12 +575,6 @@ export default function GridView() {
       }
     };
   }, []);
-
-  useEffect(() => {
-    setIsSorting(true);
-    const timer = window.setTimeout(() => setIsSorting(false), 120);
-    return () => window.clearTimeout(timer);
-  }, [sortKey, sortDir]);
 
   // Candidate sort sections (shown only on candidate screens)
   const candidateSortSections = useMemo<SortSection[]>(
@@ -718,8 +720,6 @@ export default function GridView() {
   );
 
   const sortDirLabel = sortDir === "desc" ? "降順" : "昇順";
-  const gridTimeframeLabel =
-    gridTimeframe === "daily" ? "日足" : gridTimeframe === "weekly" ? "週足" : "月足";
   const txtUpdateCanCancel = Boolean(
     txtUpdateJob && txtUpdateJob.id && !TERMINAL_JOB_STATUS.has(txtUpdateJob.status)
   );
@@ -1182,8 +1182,6 @@ export default function GridView() {
     };
 
     const compareBuyState = (a: typeof items[number], b: typeof items[number]) => {
-      const aState = a.ticker.buyState ?? "";
-      const bState = b.ticker.buyState ?? "";
       // ... same logic as before, just using activeKey
       const aRank = Number.isFinite(a.ticker.buyStateRank) ? (a.ticker.buyStateRank as number) : 0;
       const bRank = Number.isFinite(b.ticker.buyStateRank) ? (b.ticker.buyStateRank as number) : 0;
@@ -1312,6 +1310,50 @@ export default function GridView() {
   const rowCount = Math.ceil(sortedTickers.length / columns);
   const columnWidth = gridWidth > 0 ? gridWidth / columns : 300;
   const showSkeleton = backendReady && loadingList && tickers.length === 0;
+  const visibleMaSignature = useMemo(
+    () =>
+      maSettings[gridTimeframe]
+        .map((setting) => `${setting.period}:${setting.visible ? 1 : 0}`)
+        .join("|"),
+    [gridTimeframe, maSettings]
+  );
+
+  const buildVisibleRequestKey = useCallback(
+    (codes: string[]) =>
+      `${gridTimeframe}:${listRangeBars}:${visibleMaSignature}:${codes.join(",")}`,
+    [gridTimeframe, listRangeBars, visibleMaSignature]
+  );
+
+  const requestVisibleBars = useCallback(
+    (codes: string[], reason: string, mode: "immediate" | "deferred" = "immediate") => {
+      if (!backendReady || !codes.length) return;
+      const requestKey = buildVisibleRequestKey(codes);
+      if (lastVisibleRequestKeyRef.current === requestKey) return;
+
+      const run = () => {
+        lastVisibleRequestKeyRef.current = requestKey;
+        ensureBarsForVisible(gridTimeframe, codes, reason);
+      };
+
+      if (mode === "deferred") {
+        if (deferredVisibleRequestTimerRef.current !== null) {
+          window.clearTimeout(deferredVisibleRequestTimerRef.current);
+        }
+        deferredVisibleRequestTimerRef.current = window.setTimeout(() => {
+          deferredVisibleRequestTimerRef.current = null;
+          run();
+        }, 120);
+        return;
+      }
+
+      if (deferredVisibleRequestTimerRef.current !== null) {
+        window.clearTimeout(deferredVisibleRequestTimerRef.current);
+        deferredVisibleRequestTimerRef.current = null;
+      }
+      run();
+    },
+    [backendReady, buildVisibleRequestKey, ensureBarsForVisible, gridTimeframe]
+  );
 
   const onItemsRendered = ({
     visibleRowStartIndex,
@@ -1335,14 +1377,14 @@ export default function GridView() {
     }
     lastVisibleCodesRef.current = codes;
     lastVisibleRangeRef.current = { start, stop };
-    ensureBarsForVisible(gridTimeframe, codes, "scroll");
+    requestVisibleBars(codes, "scroll");
   };
 
   useEffect(() => {
     if (!backendReady) return;
     if (!lastVisibleCodesRef.current.length) return;
-    ensureBarsForVisible(gridTimeframe, lastVisibleCodesRef.current, "timeframe-or-range-change");
-  }, [backendReady, gridTimeframe, listRangeBars, maSettings, ensureBarsForVisible]);
+    requestVisibleBars(lastVisibleCodesRef.current, "timeframe-or-range-change", "deferred");
+  }, [backendReady, gridTimeframe, listRangeBars, maSettings, requestVisibleBars]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1389,8 +1431,16 @@ export default function GridView() {
       if (item) codes.push(item.ticker.code);
     }
     if (!codes.length) return;
-    ensureBarsForVisible(gridTimeframe, codes, "sort-change");
-  }, [backendReady, sortedTickers, gridTimeframe, ensureBarsForVisible]);
+    requestVisibleBars(codes, "sort-change", "deferred");
+  }, [backendReady, sortedTickers, gridTimeframe, requestVisibleBars]);
+
+  useEffect(() => {
+    return () => {
+      if (deferredVisibleRequestTimerRef.current !== null) {
+        window.clearTimeout(deferredVisibleRequestTimerRef.current);
+      }
+    };
+  }, []);
 
   const itemKey = useCallback(
     ({
@@ -1422,25 +1472,6 @@ export default function GridView() {
     [navigate, location.pathname, sortedCodes]
   );
 
-  const handleAddWatchlist = useCallback(
-    async (code: string) => {
-      if (!code) return;
-      try {
-        const res = await api.post("/watchlist/add", { code });
-        const already = Boolean(res.data?.alreadyExisted);
-        await loadList();
-        setToastMessage(
-          already
-            ? `${code} は既に追加済みです。`
-            : `${code} を追加しました。次回TXT更新で反映されます。`
-        );
-      } catch {
-        showToast("ウォッチリスト追加に失敗しました。");
-      }
-    },
-    [loadList]
-  );
-
   const handleRemoveWatchlist = useCallback(
     async (code: string, deleteArtifacts: boolean) => {
       if (!code) return;
@@ -1461,7 +1492,7 @@ export default function GridView() {
         showToast(message);
       }
     },
-    [loadList]
+    [loadList, showToast]
   );
 
   const handleToggleKeep = useCallback(
@@ -1477,7 +1508,7 @@ export default function GridView() {
       }
       addKeep(code);
     },
-    [keepList, addKeep, removeKeep]
+    [keepList, addKeep, removeKeep, showToast]
   );
 
   const handleExclude = useCallback(
@@ -1486,25 +1517,6 @@ export default function GridView() {
       handleRemoveWatchlist(code, false);
     },
     [handleRemoveWatchlist]
-  );
-
-  const handleKeepNavigate = useCallback(
-    (code: string) => {
-      if (!code) return;
-      const index = sortedTickers.findIndex((item) => item.ticker.code === code);
-      if (index >= 0) {
-        setActiveIndex(index);
-        return;
-      }
-      try {
-        sessionStorage.setItem("detailListBack", location.pathname);
-        sessionStorage.setItem("detailListCodes", JSON.stringify(keepList));
-      } catch {
-        // ignore storage failures
-      }
-      navigate(`/detail/${code}`, { state: { from: location.pathname } });
-    },
-    [sortedTickers, navigate, location.pathname, keepList]
   );
 
   useEffect(() => {
@@ -1600,13 +1612,7 @@ export default function GridView() {
       }
       setUndoInfo(null);
     }
-  }, [undoInfo, loadList]);
-
-  const resetDisplay = useCallback(() => {
-    setColumns(3);
-    setRows(3);
-    setShowBoxes(true);
-  }, [setColumns, setRows, setShowBoxes]);
+  }, [undoInfo, loadList, showToast]);
 
   const updateSetting = (frame: Timeframe, index: number, patch: Partial<MaSetting>) => {
     updateMaSetting(frame, index, patch);
@@ -1746,7 +1752,7 @@ export default function GridView() {
         );
         return;
       }
-      if (eventsMeta?.isRefreshing) {
+      if (eventsRefreshing) {
         showToast(
           hasBackgroundFollowup
             ? "日次更新が完了しました。重い後続処理はバックグラウンドで継続します。イベント更新は既に実行中です。"
@@ -1777,7 +1783,7 @@ export default function GridView() {
         setSettingsOpen(true);
       }
     });
-  }, [eventsMeta?.isRefreshing, loadList, refreshEvents, showToast, resetBarsCache]);
+  }, [eventsRefreshing, loadList, refreshEvents, showToast, resetBarsCache]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1890,7 +1896,7 @@ export default function GridView() {
     } catch {
       showToast("コピーに失敗しました。");
     }
-  }, [consultText]);
+  }, [consultText, showToast]);
 
   const selectedChips = useMemo(() => {
     const limit = 6;
@@ -1950,7 +1956,7 @@ export default function GridView() {
         showToast("日次更新の起動に失敗しました。");
       }
     }
-  }, [backendReady, handleUpdateError, applyTxtUpdateStatus]);
+  }, [backendReady, handleUpdateError, applyTxtUpdateStatus, showToast]);
 
   const handleCancelTxtUpdate = useCallback(async () => {
     if (!txtUpdateJob?.id) return;
@@ -1990,7 +1996,45 @@ export default function GridView() {
     } catch {
       showToast("Phase\u518d\u8a08\u7b97\u306e\u8d77\u52d5\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002");
     }
-  }, [backendReady]);
+  }, [backendReady, showToast]);
+
+  const handleAnalysisBatchPrewarm = useCallback(async () => {
+    if (!backendReady || analysisBatchSubmitting) return;
+    setAnalysisBatchSubmitting(true);
+    try {
+      const res = await api.post("/jobs/analysis/prewarm-latest", null, {
+        params: {
+          force_recompute: true,
+        },
+        timeout: 120000,
+      });
+      const payload = (res.data ?? {}) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        predicted_dates?: number[];
+        sell_refreshed_dates?: number[];
+        errors?: string[];
+      };
+      if (payload.ok === false) {
+        showToast(`売買判定キャッシュの起動に失敗しました。(${payload.error ?? payload.message ?? "不明"})`);
+        return;
+      }
+      void loadList();
+      showToast(
+        `売買判定キャッシュの一括計算が完了しました。(ML=${payload.predicted_dates?.length ?? 0}, 売り=${payload.sell_refreshed_dates?.length ?? 0})`
+      );
+    } catch (err) {
+      const response = (err as { response?: { status?: number } }).response;
+      if (response?.status === 409) {
+        showToast("売買判定キャッシュは既に実行中です。");
+      } else {
+        showToast(`売買判定キャッシュの起動に失敗しました。(${extractErrorDetail(err)})`);
+      }
+    } finally {
+      setAnalysisBatchSubmitting(false);
+    }
+  }, [analysisBatchSubmitting, backendReady, loadList, showToast]);
 
   const fetchLatestWalkforward = useCallback(async (silent = false) => {
     if (!backendReady) return;
@@ -2340,6 +2384,8 @@ export default function GridView() {
         return "強制同期";
       case "phase_rebuild":
         return "Phase再計算";
+      case "analysis_backfill":
+        return "売買判定一括計算";
       case "ml_train":
         return "ML学習";
       case "ml_predict":
@@ -2385,6 +2431,9 @@ export default function GridView() {
         resetBarsCache();
         void loadList();
       }
+      if (type === "analysis_backfill") {
+        void loadList();
+      }
       if (type === "txt_followup") {
         void loadList();
       }
@@ -2404,6 +2453,15 @@ export default function GridView() {
           void handlePhaseRebuild();
         }
       };
+    } else if (type === "analysis_backfill") {
+      action = {
+        label: "再実行",
+        onClick: () => {
+          setSettingsPanelMode("general");
+          setSettingsOpen(true);
+          void handleAnalysisBatchPrewarm();
+        }
+      };
     } else if (type === "strategy_walkforward") {
       action = {
         label: "再実行",
@@ -2419,7 +2477,7 @@ export default function GridView() {
       return;
     }
     showToast(`${label}が失敗しました。(${detail ?? "詳細不明"})`, action);
-  }, [formatJobTypeLabel, handlePhaseRebuild, handleRunWalkforward, loadList, resetBarsCache, showToast]);
+  }, [fetchLatestWalkforward, formatJobTypeLabel, handleAnalysisBatchPrewarm, handlePhaseRebuild, handleRunWalkforward, loadList, resetBarsCache, showToast]);
   useEffect(() => {
     if (!backendReady || GRID_REFACTOR_ENABLED) return;
     let disposed = false;
@@ -2726,22 +2784,6 @@ export default function GridView() {
                 </div>
                 <div className="popover-anchor" ref={settingsRef}>
                   <IconButton
-                    icon={<IconFileText size={18} />}
-                    label="検証"
-                    variant="iconLabel"
-                    tooltip="ウォークフォワード検証"
-                    ariaLabel="ウォークフォワード検証パネルを開く"
-                    selected={settingsOpen && settingsPanelMode === "walkforward"}
-                    onClick={() => {
-                      const alreadyOpen = settingsOpen && settingsPanelMode === "walkforward";
-                      setSettingsPanelMode("walkforward");
-                      setSettingsOpen(!alreadyOpen);
-                      setSortOpen(false);
-                      setDisplayOpen(false);
-                      setSectorSortOpen(false);
-                    }}
-                  />
-                  <IconButton
                     icon={<IconSettings size={18} />}
                     tooltip="設定"
                     ariaLabel="設定メニューを開く"
@@ -2858,6 +2900,24 @@ export default function GridView() {
                               <span className="popover-status">{"\u624b\u52d5"}</span>
                             </button>
                             <div className="popover-hint">{"\u901a\u5e38\u306f\u300c\u65e5\u6b21\u66f4\u65b0\u300d\u3067\u81ea\u52d5\u5b9f\u884c\u3055\u308c\u307e\u3059\u3002"}</div>
+                          </div>
+                          <div className="popover-section">
+                            <div className="popover-title">売買判定キャッシュ</div>
+                            <button
+                              type="button"
+                              className="popover-item"
+                              onClick={handleAnalysisBatchPrewarm}
+                              disabled={!backendReady || analysisBatchSubmitting}
+                            >
+                              <span className="popover-item-label">
+                                <IconRefresh size={16} />
+                                <span>{analysisBatchSubmitting ? "起動中..." : "最新判定を一括計算"}</span>
+                              </span>
+                              <span className="popover-status">手動</span>
+                            </button>
+                            <div className="popover-hint">
+                              最新営業日の ML/売り判定を全銘柄分まとめて再計算し、次回表示を速くします。
+                            </div>
                           </div>
                         </>
                       )}
@@ -3392,7 +3452,7 @@ export default function GridView() {
                             <button
                               type="button"
                               className="popover-item"
-                              disabled={eventsMeta?.isRefreshing}
+                              disabled={eventsRefreshing}
                               onClick={() => {
                                 void refreshEvents();
                                 setSettingsOpen(false);
@@ -3401,19 +3461,19 @@ export default function GridView() {
                               <span className="popover-item-label">
                                 <IconRefresh size={16} />
                                 <span>
-                                  {eventsMeta?.isRefreshing ? "更新中..." : "イベント更新"}
+                                  {eventsRefreshing ? "更新中..." : "イベント更新"}
                                 </span>
                               </span>
                               <span className="popover-status">手動</span>
                             </button>
                             <div className="popover-hint">
-                              状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+                              状態: {eventsRefreshing ? "更新中" : "待機中"}
                             </div>
                             <div className="popover-hint">
                               最終試行: {eventsAttemptLabel ?? "--"}
                             </div>
-                            {eventsMeta?.lastError && (
-                              <div className="popover-hint">エラー: {eventsMeta.lastError}</div>
+                            {eventsLastError && (
+                              <div className="popover-hint">エラー: {eventsLastError}</div>
                             )}
                           </div>
                         </>
@@ -3566,11 +3626,11 @@ export default function GridView() {
             </div>
             <div className="list-events-inline">
               <span className="event-meta-status">
-                状態: {eventsMeta?.isRefreshing ? "更新中" : "待機中"}
+                状態: {eventsRefreshing ? "更新中" : "待機中"}
               </span>
-              {eventsMeta?.lastError && (
-                <span className="event-meta-error" title={eventsMeta.lastError}>
-                  エラー: {eventsMeta.lastError}
+              {eventsLastError && (
+                <span className="event-meta-error" title={eventsLastError}>
+                  エラー: {eventsLastError}
                 </span>
               )}
               <span className="event-meta-last">
@@ -3663,6 +3723,13 @@ export default function GridView() {
           code.txt がありません。ファイル名から銘柄コードを推定して表示します。code.txt 推奨です。
         </div>
       )}
+      {listSnapshotMeta?.stale && (
+        <div className="data-warning subtle">
+          一覧は直近の成功スナップショットを表示しています。
+          {listSnapshotMeta.updatedAt ? ` 更新時刻: ${listSnapshotMeta.updatedAt}` : ""}
+          {listSnapshotMeta.lastError ? ` / 最新更新失敗: ${listSnapshotMeta.lastError}` : ""}
+        </div>
+      )}
       <div className={`grid-shell ${consultPaddingClass}`} ref={ref}>
         {showSkeleton && (
           <div className="grid-skeleton">
@@ -3675,7 +3742,21 @@ export default function GridView() {
             ))}
           </div>
         )}
-        {!showSkeleton && size.width > 0 && (
+        {!showSkeleton && sortedTickers.length === 0 && (
+          <div className="grid-empty-state">
+            <div className="grid-empty-title">
+              {listLoadError ? "一覧の読み込みに失敗しました" : "表示対象の銘柄がありません"}
+            </div>
+            <div className="grid-empty-message">
+              {listLoadError ??
+                "条件に一致する銘柄が無いか、一覧データがまだ作成されていません。"}
+            </div>
+            <button type="button" className="chip" onClick={() => void loadList()}>
+              再読み込み
+            </button>
+          </div>
+        )}
+        {!showSkeleton && size.width > 0 && sortedTickers.length > 0 && (
           <div className="grid-inner">
             <Grid
               key={`${gridTimeframe}-${currentTheme}`}

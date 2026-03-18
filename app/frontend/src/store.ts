@@ -1,10 +1,10 @@
 ﻿import { create } from "zustand";
 import { api, setApiErrorReporter } from "./api";
+import { normalizeScreenerListResponse } from "./listSnapshot";
 import type {
   BarsPayload,
   Box,
-  EventsMeta,
-  GridTimeframe,
+  ListSnapshotMeta,
   MaSetting,
   MultiTimeframeBarsPayload,
   Settings,
@@ -19,13 +19,11 @@ import {
   ENSURE_COALESCE_MS,
   GRID_COLS_KEY,
   GRID_ROWS_KEY,
-  KEEP_STORAGE_KEY,
   LIST_COLS_KEY,
   LIST_RANGE_KEY,
   LIST_RANGE_VALUES,
   LIST_ROWS_KEY,
   LIST_TIMEFRAME_KEY,
-  MA_STORAGE_PREFIX,
   WATCHLIST_AUTO_REPAIR_COOLDOWN_MS,
   WATCHLIST_AUTO_REPAIR_MIN_MISSING,
   WATCHLIST_AUTO_REPAIR_MIN_RATIO,
@@ -69,6 +67,23 @@ import {
 
 
 
+const SHOULD_LOG_BACKGROUND_ERRORS = import.meta.env.DEV;
+const LIST_CACHE_TTL_MS = 30_000;
+let listLoadPromise: Promise<void> | null = null;
+
+const logBackgroundError = (scope: string, error: unknown) => {
+  if (!SHOULD_LOG_BACKGROUND_ERRORS) return;
+  const err = error as {
+    message?: string;
+    response?: { status?: number; data?: unknown };
+  };
+  console.error(`[${scope}] background request failed`, {
+    status: err?.response?.status ?? null,
+    data: err?.response?.data ?? null,
+    message: err?.message ?? String(error ?? "")
+  });
+};
+
 export const useStore = create<StoreState>((set, get) => ({
   tickers: [],
   favorites: [],
@@ -80,6 +95,9 @@ export const useStore = create<StoreState>((set, get) => ({
   barsLoading: { monthly: {}, weekly: {}, daily: {} },
   barsStatus: { monthly: {}, weekly: {}, daily: {} },
   loadingList: false,
+  listLoadError: null,
+  listSnapshotMeta: null,
+  listLoadedAt: null,
   backendReady: false,
   lastApiError: null,
   eventsMeta: {
@@ -198,22 +216,32 @@ export const useStore = create<StoreState>((set, get) => ({
       if (!state.keepList.length) return state;
       persistKeepList([]);
       return { keepList: [] };
-    }),
+  }),
   replaceKeep: (codes) => {
     persistKeepList(codes);
     set({ keepList: codes });
   },
   setBackendReady: (ready) => set({ backendReady: ready }),
+  ensureListLoaded: async () => {
+    const state = get();
+    const now = Date.now();
+    const isFresh =
+      state.listLoadedAt != null &&
+      now - state.listLoadedAt < LIST_CACHE_TTL_MS &&
+      state.tickers.length > 0 &&
+      !state.listLoadError;
+    if (isFresh) return;
+    return get().loadList();
+  },
   loadList: async () => {
-    if (get().loadingList) return;
-    set({ loadingList: true });
-    try {
+    if (listLoadPromise) return listLoadPromise;
+    set({ loadingList: true, listLoadError: null });
+    listLoadPromise = (async () => {
+      try {
       const res = await api.get("/grid/screener");
-      const payload = res.data as { items?: Ticker[] } | Ticker[];
-      const items = Array.isArray(payload) ? payload : payload.items ?? [];
-      if (!items.length) {
-        throw new Error("Empty screener payload");
-      }
+      const normalized = normalizeScreenerListResponse(res.data as { items?: Ticker[] } | Ticker[]);
+      const items = normalized.items;
+      const listSnapshotMeta: ListSnapshotMeta | null = normalized.meta;
       const parseReasons = (value: unknown): string[] => {
         if (Array.isArray(value)) {
           return value.filter((item) => typeof item === "string") as string[];
@@ -618,24 +646,24 @@ export const useStore = create<StoreState>((set, get) => ({
       } catch {
         // ignore watchlist failures for now
       }
-      set({ tickers });
-    } catch {
-      const res = await api.get("/list");
-      const items = (res.data || []) as [string, string, string, number | null, string][];
-      const tickers = items.map(([code, name, stage, score, reason]) => ({
-        code,
-        name,
-        stage,
-        score: Number.isFinite(score) ? score : null,
-        reason,
-        scoreStatus: Number.isFinite(score) ? "OK" : "INSUFFICIENT_DATA",
-        missingReasons: null,
-        scoreBreakdown: null
-      }));
-      set({ tickers });
+      set({ tickers, listLoadError: null, listSnapshotMeta, listLoadedAt: Date.now() });
+    } catch (gridError) {
+      const gridMessage =
+        gridError instanceof Error && gridError.message.trim()
+          ? gridError.message.trim()
+          : "grid/screener request failed";
+      set({
+        tickers: [],
+        listSnapshotMeta: null,
+        listLoadedAt: null,
+        listLoadError: `一覧の読み込みに失敗しました。${gridMessage}`
+      });
     } finally {
       set({ loadingList: false });
+      listLoadPromise = null;
     }
+    })();
+    return listLoadPromise;
   },
   loadBarsBatch: async (timeframe, codes, limitOverride, reason) => {
     const state = get();
@@ -1227,7 +1255,8 @@ export const useStore = create<StoreState>((set, get) => ({
         set({ eventsMeta: meta });
       }
       return meta;
-    } catch {
+    } catch (error) {
+      logBackgroundError("eventsMeta", error);
       return get().eventsMeta;
     } finally {
       set({ eventsMetaLoading: false });
@@ -1278,8 +1307,8 @@ export const useStore = create<StoreState>((set, get) => ({
           }
         }));
       }
-    } catch {
-      // ignore refresh failures
+    } catch (error) {
+      logBackgroundError("eventsRefresh", error);
     }
   },
   refreshEvents: async () => {

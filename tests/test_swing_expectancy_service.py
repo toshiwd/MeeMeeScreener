@@ -94,6 +94,7 @@ def test_refresh_and_resolve_expectancy(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "swing_expectancy.duckdb"
     _prepare_db(db_path)
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "0")
     swing_expectancy_service._load_snapshot_cached.cache_clear()  # type: ignore[attr-defined]
 
     refreshed = swing_expectancy_service.refresh_swing_setup_stats(
@@ -124,6 +125,7 @@ def test_refresh_works_without_p_down_column(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "swing_expectancy_without_p_down.duckdb"
     _prepare_db(db_path, include_p_down=False)
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "0")
     swing_expectancy_service._load_snapshot_cached.cache_clear()  # type: ignore[attr-defined]
 
     refreshed = swing_expectancy_service.refresh_swing_setup_stats(

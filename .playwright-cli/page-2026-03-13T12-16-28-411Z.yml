@@ -1,0 +1,63 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - banner [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e7]:
+            - generic [ref=e8]:
+              - generic [ref=e9]: MeeMee
+              - generic [ref=e10]: Screener
+            - navigation [ref=e11]:
+              - link "一覧に戻る" [ref=e12] [cursor=pointer]:
+                - /url: /
+              - link "ランキング" [ref=e13] [cursor=pointer]:
+                - /url: /ranking
+              - link "市場概況" [ref=e14] [cursor=pointer]:
+                - /url: /market
+              - link "保有" [ref=e15] [cursor=pointer]:
+                - /url: /positions
+              - link "お気に入り" [ref=e16] [cursor=pointer]:
+                - /url: /favorites
+              - link "候補" [ref=e17] [cursor=pointer]:
+                - /url: /candidates
+          - generic [ref=e18]:
+            - generic [ref=e19]:
+              - button "月足" [ref=e20] [cursor=pointer]
+              - button "週足" [ref=e21] [cursor=pointer]
+              - button "日足" [ref=e22] [cursor=pointer]
+            - generic [ref=e23]:
+              - button "60本" [ref=e24] [cursor=pointer]
+              - button "120本" [ref=e25] [cursor=pointer]
+              - button "240本" [ref=e26] [cursor=pointer]
+              - button "360本" [ref=e27] [cursor=pointer]
+            - button "業種" [ref=e29] [cursor=pointer]:
+              - generic [ref=e30]: 業種
+            - searchbox "コード / 銘柄名で検索" [ref=e32]
+            - generic [ref=e33]:
+              - generic [ref=e34]: "状態: 待機中"
+              - generic [ref=e35]: "イベント最終更新: --"
+      - generic:
+        - button "相談バーを展開する"
+        - generic:
+          - generic:
+            - generic: 候補 0件
+          - generic:
+            - button "相談作成" [disabled]
+            - button "コピー" [disabled]
+            - button "閉じる"
+    - status [ref=e71]:
+      - generic [ref=e72]:
+        - generic [ref=e76]: M
+        - generic [ref=e77]: MeeMee Screener
+      - generic [ref=e78]:
+        - generic [ref=e79]: 準備完了
+        - generic [ref=e81]: 試行 1 回 · 経過 0s

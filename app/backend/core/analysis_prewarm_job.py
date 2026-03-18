@@ -4,8 +4,9 @@ import logging
 import os
 import threading
 
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 from app.backend.core.jobs import job_manager
-from app.backend.services.analysis_backfill_service import inspect_analysis_backfill_coverage
+from app.backend.services.analysis.analysis_backfill_service import inspect_analysis_backfill_coverage
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,9 @@ def _build_payload(*, source: str) -> dict[str, object]:
 
 
 def _submit_if_needed(*, source: str) -> str | None:
+    if is_legacy_analysis_disabled():
+        logger.info("Analysis prewarm submit skipped because legacy analysis is disabled.")
+        return None
     payload = _build_payload(source=source)
     coverage = inspect_analysis_backfill_coverage(
         lookback_days=int(payload["lookback_days"]),
@@ -124,12 +128,17 @@ def _scheduler_loop() -> None:
 
 
 def schedule_analysis_prewarm_if_needed(*, source: str) -> str | None:
+    if is_legacy_analysis_disabled():
+        return None
     if not _prewarm_enabled():
         return None
     return _submit_if_needed(source=source)
 
 
 def start_analysis_prewarm_scheduler() -> None:
+    if is_legacy_analysis_disabled():
+        logger.info("Analysis prewarm scheduler is disabled because legacy analysis is disabled.")
+        return
     if not _prewarm_enabled():
         logger.info("Analysis prewarm scheduler is disabled by env.")
         return

@@ -21,11 +21,29 @@ export default function Toast({ message, onClose, action, duration = 4000 }: Toa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message, duration]);
 
+  const copyMessage = async () => {
+    if (!message) return;
+    try {
+      await navigator.clipboard.writeText(message);
+    } catch {
+      // Ignore copy failures; the original toast is still visible.
+    }
+  };
+
   if (!message) return null;
 
   return (
     <div className="toast" role="status" aria-live="polite">
       <span className="toast-message">{message}</span>
+      <button
+        className="toast-action"
+        onClick={(e) => {
+          e.stopPropagation();
+          void copyMessage();
+        }}
+      >
+        コピー
+      </button>
       {action && (
         <button
           className="toast-action"

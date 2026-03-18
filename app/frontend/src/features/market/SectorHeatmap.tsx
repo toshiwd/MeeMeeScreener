@@ -1,9 +1,11 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ResponsiveContainer, Treemap, Tooltip } from "recharts";
 import { api } from "../../api";
 
 type PeriodKey = "1d" | "1w" | "1m";
+type ViewMode = "rate" | "flow";
+type Momentum = "heating" | "cooling" | "neutral";
 const HEATMAP_VIEW_STATE_KEY = "heatmapViewState";
 
 type SectorItem = {
@@ -18,6 +20,7 @@ type SectorItem = {
   count?: number;
   industryName?: string;
   sector33Name?: string;
+  momentum?: Momentum;
 };
 
 type HeatmapFrame = {
@@ -61,27 +64,6 @@ const PERIOD_OPTIONS: { key: PeriodKey; label: string }[] = [
   { key: "1w", label: "1週" },
   { key: "1d", label: "1日" }
 ];
-
-const getColorScale = (value: number) => {
-  // Positive (Red) - Darker means higher rise
-  if (value >= 7) return "#7f1d1d"; // Very dark red
-  if (value >= 5) return "#991b1b"; // Dark red
-  if (value >= 3) return "#b91c1c"; // Red
-  if (value >= 2) return "#dc2626"; // Bright red
-  if (value >= 1) return "#ef4444"; // Light red
-  if (value > 0) return "#f87171";  // Pale red
-
-  // Zero
-  if (value === 0) return "#6b7280"; // Neutral gray
-
-  // Negative (Green) - Darker means deeper fall
-  if (value <= -7) return "#064e3b"; // Very dark green
-  if (value <= -5) return "#14532d"; // Dark green
-  if (value <= -3) return "#15803d"; // Green
-  if (value <= -2) return "#16a34a"; // Bright green
-  if (value <= -1) return "#22c55e"; // Light green
-  return "#4ade80";                  // Pale green
-};
 
 const resolveTileData = (payload: any) => {
   let current = payload;
@@ -156,10 +138,33 @@ const formatFlow = (value: number) => {
 type RenderSectorTileProps = {
   onClick?: (item: SectorItem) => void;
   colorScale: (value: number) => string;
+  viewMode: ViewMode;
+};
+
+const MomentumIcon = ({ momentum }: { momentum?: Momentum }) => {
+  if (momentum === "heating") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#ef4444" }}>
+        <path d="M12 5l0 14" />
+        <path d="M18 11l-6 -6" />
+        <path d="M6 11l6 -6" />
+      </svg>
+    );
+  }
+  if (momentum === "cooling") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#3b82f6" }}>
+        <path d="M12 5l0 14" />
+        <path d="M18 13l-6 6" />
+        <path d="M6 13l6 6" />
+      </svg>
+    );
+  }
+  return null;
 };
 
 const RenderSectorTile = (props: any & RenderSectorTileProps) => {
-  const { x, y, width, height, onClick, colorScale } = props;
+  const { x, y, width, height, onClick, colorScale, viewMode } = props;
 
   // Recharts Treemap spreads the original data item into props.
   // We explicitly set 'tile' property in treemapData with all the data we need.
@@ -185,6 +190,7 @@ const RenderSectorTile = (props: any & RenderSectorTileProps) => {
       weight: props.weight ?? props.size ?? 0,
       tickerCount: props.tickerCount ?? props.count ?? 0,
       flow: props.flow ?? 0,
+      momentum: props.momentum ?? "neutral",
     };
   }
   // 3. Check props.root (Recharts 2.x internal structure)
@@ -208,9 +214,14 @@ const RenderSectorTile = (props: any & RenderSectorTileProps) => {
   const count = Number(data?.tickerCount ?? data?.count ?? 0);
   const weight = Number(data?.weight ?? data?.size ?? 0);
   const flow = Number(data?.flow ?? 0);
-  const hasData =
-    (Number.isFinite(weight) && weight > 0) || (Number.isFinite(count) && count > 0);
-  const bgColor = hasData ? colorScale(rate) : "#374151";
+  const momentum = data?.momentum;
+  
+  const hasData = viewMode === "flow" 
+    ? (Number.isFinite(weight) && weight > 0)
+    : ((Number.isFinite(weight) && weight > 0) || (Number.isFinite(count) && count > 0));
+    
+  const metricValue = viewMode === "flow" ? flow : rate;
+  const bgColor = hasData ? colorScale(metricValue) : "#374151";
   const textColor = getTextColor(bgColor);
   const minWidth = 56;
   const minHeight = 34;
@@ -261,14 +272,24 @@ const RenderSectorTile = (props: any & RenderSectorTileProps) => {
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
                 fontSize,
-                fontWeight: 600
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: "2px",
+                justifyContent: "center"
               }}
             >
+              <MomentumIcon momentum={momentum} />
               {industryLabel}
             </div>
             <div style={{ fontSize: Math.max(10, fontSize - 2), opacity: 0.88, marginTop: 4 }}>
-              {detailValue} / {flowLabel} / {valueLabel}
+              {viewMode === "flow" ? `${flowLabel}` : `${detailValue}`}
             </div>
+            {viewMode === "flow" && fontSize >= 12 && (
+              <div style={{ fontSize: Math.max(9, fontSize - 4), opacity: 0.7, marginTop: 2 }}>
+                代金: {valueLabel}
+              </div>
+            )}
           </div>
         </foreignObject>
       )}
@@ -325,6 +346,7 @@ export default function SectorHeatmap() {
     return map;
   }, []);
   const [period, setPeriod] = useState<PeriodKey>("1d");
+  const [viewMode, setViewMode] = useState<ViewMode>("rate");
   const [frames, setFrames] = useState<HeatmapFrame[]>([]);
   const [cursorIndex, setCursorIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -335,9 +357,12 @@ export default function SectorHeatmap() {
     try {
       const stored = window.sessionStorage.getItem(HEATMAP_VIEW_STATE_KEY);
       if (!stored) return;
-      const parsed = JSON.parse(stored) as { period?: PeriodKey };
+      const parsed = JSON.parse(stored) as { period?: PeriodKey; viewMode?: ViewMode };
       if (parsed.period === "1d" || parsed.period === "1w" || parsed.period === "1m") {
         setPeriod(parsed.period);
+      }
+      if (parsed.viewMode === "rate" || parsed.viewMode === "flow") {
+        setViewMode(parsed.viewMode);
       }
     } catch {
       // ignore storage failures
@@ -347,11 +372,11 @@ export default function SectorHeatmap() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      window.sessionStorage.setItem(HEATMAP_VIEW_STATE_KEY, JSON.stringify({ period }));
+      window.sessionStorage.setItem(HEATMAP_VIEW_STATE_KEY, JSON.stringify({ period, viewMode }));
     } catch {
       // ignore storage failures
     }
-  }, [period]);
+  }, [period, viewMode]);
 
   useEffect(() => {
     let canceled = false;
@@ -444,9 +469,26 @@ export default function SectorHeatmap() {
     return normalizeHeatmapItems(activeFrame.items ?? []);
   }, [activeFrame]);
 
+  const prevFrame = useMemo(() => {
+    if (!frames.length || clampedIndex === 0) return null;
+    return frames[clampedIndex - 1] ?? null;
+  }, [frames, clampedIndex]);
+
+  const prevItemsMap = useMemo(() => {
+    const map = new Map<string, SectorItem>();
+    if (!prevFrame) return map;
+    normalizeHeatmapItems(prevFrame.items ?? []).forEach((item) => {
+      if (item.sector33_code) map.set(item.sector33_code, item);
+    });
+    return map;
+  }, [prevFrame]);
+
   const valueRange = useMemo(() => {
     const values = activeItems
-      .map((item) => Number(item.value ?? 0))
+      .map((item) => {
+        if (viewMode === "flow") return Number(item.flow ?? 0);
+        return Number(item.value ?? 0);
+      })
       .filter((value) => Number.isFinite(value));
     if (!values.length) {
       return { min: 0, max: 0, maxAbs: 1 };
@@ -455,20 +497,35 @@ export default function SectorHeatmap() {
     const max = Math.max(...values);
     const maxAbs = Math.max(Math.abs(min), Math.abs(max)) || 1;
     return { min, max, maxAbs };
-  }, [activeItems]);
+  }, [activeItems, viewMode]);
 
   const colorScale = useCallback(
     (value: number) => {
       if (!Number.isFinite(value)) return "#6b7280";
+      if (viewMode === "rate") {
+        // Original step-based color scale for rate (騰落率)
+        if (value >= 2) return "#d32f2f";
+        if (value >= 0.5) return "#f44336";
+        if (value > -0.5 && value < 0.5) return "#424242";
+        if (value > -2) return "#4caf50";
+        return "#388e3c";
+      }
+      // Flow mode: blue (outflow) ← gray → red (inflow)
       const maxAbs = valueRange.maxAbs || 1;
-      const normalized = Math.max(-maxAbs, Math.min(maxAbs, value)) / maxAbs;
-      if (normalized === 0) return "#6b7280";
-      const hue = normalized > 0 ? 0 : 135;
+      const normalized = Math.max(-1, Math.min(1, value / maxAbs));
+      if (Math.abs(normalized) < 0.05) return "#6b7280";
+      if (normalized > 0) {
+        // Inflow → red tones
+        const intensity = normalized;
+        const lightness = 65 - intensity * 30;
+        return `hsl(0 70% ${lightness}%)`;
+      }
+      // Outflow → blue tones
       const intensity = Math.abs(normalized);
-      const lightness = 75 - intensity * 40;
-      return `hsl(${hue} 75% ${lightness}%)`;
+      const lightness = 65 - intensity * 30;
+      return `hsl(220 70% ${lightness}%)`;
     },
-    [valueRange.maxAbs]
+    [valueRange.maxAbs, viewMode]
   );
 
   const treemapData = useMemo(() => {
@@ -483,6 +540,12 @@ export default function SectorHeatmap() {
     return sorted.map((item) => {
       const weight = Number(item.weight ?? 0);
       const flow = Number(item.flow ?? 0);
+      const prevItem = prevItemsMap.get(item.sector33_code ?? "");
+      const prevFlow = Number(prevItem?.flow ?? flow);
+      let momentum: Momentum = "neutral";
+      if (flow < prevFlow) momentum = "cooling";
+      else if (flow > prevFlow) momentum = "heating";
+
       const resolvedName =
         item.name ??
         item.industryName ??
@@ -499,18 +562,20 @@ export default function SectorHeatmap() {
           industryName: resolvedName,
           weight,
           flow,
+          momentum,
           tickerCount: Number(item.tickerCount ?? 0),
           value: Number(item.value ?? 0)
         },
-        rawSize: 1,
-        size: 1,
-        color: Number(item.value ?? 0),
+        rawSize: viewMode === "flow" ? weight : 1,
+        size: viewMode === "flow" ? weight : 1,
+        color: viewMode === "flow" ? flow : Number(item.value ?? 0),
         count: Number(item.tickerCount ?? 0),
         weight,
-        flow
+        flow,
+        momentum
       };
     });
-  }, [activeItems]);
+  }, [activeItems, sectorNameMap, prevItemsMap, viewMode]);
 
   const sectorSummary = useMemo(() => {
     if (!activeItems.length) return null;
@@ -518,12 +583,15 @@ export default function SectorHeatmap() {
       (item) => Number(item.tickerCount ?? 0) > 0 && Number(item.weight ?? 0) > 0
     );
     if (!withData.length) return null;
+    
+    const getter = (item: SectorItem) => viewMode === "flow" ? Number(item.flow ?? 0) : Number(item.value ?? 0);
+    
     const best = withData.reduce(
-      (prev, next) => (Number(next.value ?? 0) > Number(prev.value ?? 0) ? next : prev),
+      (prev, next) => (getter(next) > getter(prev) ? next : prev),
       withData[0]
     );
     const worst = withData.reduce(
-      (prev, next) => (Number(next.value ?? 0) < Number(prev.value ?? 0) ? next : prev),
+      (prev, next) => (getter(next) < getter(prev) ? next : prev),
       withData[0]
     );
     const totalWeight = withData.reduce((sum, item) => sum + Number(item.weight ?? 0), 0);
@@ -543,10 +611,6 @@ export default function SectorHeatmap() {
   const renderState = error ? "error" : rendered ? "ready" : loading ? "loading" : "empty";
   const timelineLabel = activeFrame?.label ?? "";
   const frameCount = frames.length;
-
-  if (import.meta.env.MODE === "development") {
-  }
-
 
   return (
     <div className="market-heatmap">
@@ -569,7 +633,40 @@ export default function SectorHeatmap() {
             {option.label}
           </button>
         ))}
-        <span style={{ fontSize: 12, color: "var(--theme-text-muted)" }}>{loading ? "読み込み中..." : ""}</span>
+        <div style={{ width: "1px", height: "20px", background: "var(--theme-border)", margin: "0 8px" }} />
+        <button
+          type="button"
+          onClick={() => setViewMode("rate")}
+          style={{
+            border: "1px solid var(--theme-border)",
+            background: viewMode === "rate" ? "var(--theme-accent)" : "var(--theme-bg-secondary)",
+            color: viewMode === "rate" ? "#fff" : "var(--theme-text-primary)",
+            padding: "6px 12px",
+            borderRadius: 999,
+            fontWeight: 600,
+            cursor: "pointer"
+          }}
+        >
+          騰落率
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode("flow")}
+          style={{
+            border: "1px solid var(--theme-border)",
+            background: viewMode === "flow" ? "var(--theme-accent)" : "var(--theme-bg-secondary)",
+            color: viewMode === "flow" ? "#fff" : "var(--theme-text-primary)",
+            padding: "6px 12px",
+            borderRadius: 999,
+            fontWeight: 600,
+            cursor: "pointer"
+          }}
+        >
+          資金フロー
+        </button>
+        <span style={{ fontSize: 12, color: "var(--theme-text-muted)", marginLeft: "auto" }}>
+          {loading ? "読み込み中..." : ""}
+        </span>
       </div>
       {frameCount > 0 && (
         <div className="heatmap-timeline">
@@ -618,7 +715,7 @@ export default function SectorHeatmap() {
                 dataKey="size"
                 stroke="#fff"
                 animationDuration={240}
-                content={<RenderSectorTile onClick={handleSectorClick} colorScale={colorScale} />}
+                content={<RenderSectorTile onClick={handleSectorClick} colorScale={colorScale} viewMode={viewMode} />}
               >
                 <Tooltip content={<CustomTooltip />} />
               </Treemap>
@@ -628,14 +725,14 @@ export default function SectorHeatmap() {
         {sectorSummary && (
           <div className="sector-summary">
             <div className="sector-summary-row">
-              <strong>トップ騰落セクター</strong>
+              <strong>トップセクター</strong>
               <span>{sectorSummary.best.name ?? sectorSummary.best.industryName}</span>
-              <span>{formatRate(Number(sectorSummary.best.value ?? 0))}</span>
+              <span>{viewMode === "flow" ? formatFlow(Number(sectorSummary.best.flow ?? 0)) : formatRate(Number(sectorSummary.best.value ?? 0))}</span>
             </div>
             <div className="sector-summary-row">
-              <strong>ボトム騰落セクター</strong>
+              <strong>ボトムセクター</strong>
               <span>{sectorSummary.worst.name ?? sectorSummary.worst.industryName}</span>
-              <span>{formatRate(Number(sectorSummary.worst.value ?? 0))}</span>
+              <span>{viewMode === "flow" ? formatFlow(Number(sectorSummary.worst.flow ?? 0)) : formatRate(Number(sectorSummary.worst.value ?? 0))}</span>
             </div>
             <div className="sector-summary-row">
               <strong>平均騰落率</strong>

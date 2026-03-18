@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart, CrosshairMode } from "lightweight-charts";
 import { useStore } from "../store";

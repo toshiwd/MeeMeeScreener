@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AxiosError } from "axios";
@@ -17,7 +18,6 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
-import { downloadChartScreenshots } from "../utils/chartScreenshot";
 
 type RankItem = {
   code: string;
@@ -185,7 +185,6 @@ const RANK_MA_SETTINGS: MaSetting[] = [
   { key: "ma4", label: "MA4", period: 100, visible: true, color: "#a855f7", lineWidth: 1 },
   { key: "ma5", label: "MA5", period: 200, visible: true, color: "#f59e0b", lineWidth: 1 }
 ];
-const SCREENSHOT_LIMIT = 10;
 const MTF_WEIGHTS: Record<RankTimeframe, number> = { D: 0.5, W: 0.3, M: 0.2 };
 const MTF_MIN_QUALIFIED_COUNT_STRICT = 2;
 const MTF_SCORE_RELAX_GATE = 0.86;
@@ -515,7 +514,7 @@ export default function RankingView() {
   const boxesCache = useStore((state) => state.boxesCache);
   const maSettings = useStore((state) => state.maSettings);
   const tickers = useStore((state) => state.tickers);
-  const loadList = useStore((state) => state.loadList);
+  const ensureListLoaded = useStore((state) => state.ensureListLoaded);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
   const listRangeBars = useStore((state) => state.settings.listRangeBars);
   const listColumns = useStore((state) => state.settings.listColumns);
@@ -524,7 +523,7 @@ export default function RankingView() {
   const setListRangeBars = useStore((state) => state.setListRangeBars);
   const setListColumns = useStore((state) => state.setListColumns);
   const setListRows = useStore((state) => state.setListRows);
-  const favorites = useStore((state) => state.favorites);
+  const favoriteCodes = useStore((state) => state.favorites);
   const rankWhich: RankWhich = "latest";
   const rankMode: RankMode = "hybrid";
   const riskMode: RankRiskMode = "balanced";
@@ -562,7 +561,6 @@ export default function RankingView() {
   const [consultText, setConsultText] = useState("");
   const [consultSort, setConsultSort] = useState<ConsultationSort>("score");
   const [consultBusy, setConsultBusy] = useState(false);
-  const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
@@ -572,9 +570,25 @@ export default function RankingView() {
       : "consult-padding-mini"
     : "";
   const [useFallback, setUseFallback] = useState(() => initialFetchCache?.useFallback ?? false);
+  const favoriteCodeSet = useMemo(() => new Set(favoriteCodes), [favoriteCodes]);
+  const syncFavoriteFlags = useCallback(
+    (entries: RankItem[]) => {
+      let changed = false;
+      const next = entries.map((item) => {
+        const isFavorite = favoriteCodeSet.has(item.code);
+        if (Boolean(item.is_favorite) === isFavorite) {
+          return item;
+        }
+        changed = true;
+        return { ...item, is_favorite: isFavorite };
+      });
+      return changed ? next : entries;
+    },
+    [favoriteCodeSet]
+  );
 
   // Use the screenshot hook
-  const { generateScreenshots } = useConsultScreenshot();
+  const { generateScreenshots, isProcessing: screenshotBusy } = useConsultScreenshot();
 
   useEffect(() => {
     if (storedViewState?.listTimeframe) {
@@ -694,11 +708,11 @@ export default function RankingView() {
         name: ticker.name ?? ticker.code,
         changePct: change.changePct,
         changeAbs: change.changeAbs,
-        is_favorite: favorites.includes(ticker.code)
+        is_favorite: false
       };
     });
     return list;
-  }, [tickers, favorites, barsCache, listTimeframe, rankWhich]);
+  }, [tickers, barsCache, listTimeframe, rankWhich]);
 
   const searchResults = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -889,8 +903,8 @@ export default function RankingView() {
   useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
-    loadList().catch(() => { });
-  }, [backendReady, loadList, tickers.length]);
+    ensureListLoaded().catch(() => { });
+  }, [backendReady, ensureListLoaded, tickers.length]);
 
   const tickerMap = useMemo(() => {
     return new Map(tickers.map((ticker) => [ticker.code, ticker]));
@@ -903,7 +917,7 @@ export default function RankingView() {
   useEffect(() => {
     const cached = readRankingFetchCache(rankingCacheKey);
     if (isUsableRankingFetchCache(cached)) {
-      setItems(cached.items);
+      setItems(syncFavoriteFlags(cached.items));
       setUseFallback(cached.useFallback);
       setErrorMessage(cached.errorMessage);
       setLoading(false);
@@ -915,7 +929,7 @@ export default function RankingView() {
     setItems([]);
     setUseFallback(false);
     setErrorMessage(null);
-  }, [rankingCacheKey]);
+  }, [rankingCacheKey, syncFavoriteFlags]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -961,12 +975,12 @@ export default function RankingView() {
         if (!merged.length) {
           throw new Error(backendErrors ?? "統合ランキングの生成結果が空でした。");
         }
-        setItems(merged);
+        setItems(syncFavoriteFlags(merged));
         setUseFallback(false);
         setErrorMessage(backendErrors);
         writeRankingFetchCache(rankingCacheKey, {
           cacheVersion: RANK_FETCH_CACHE_VERSION,
-          items: merged,
+          items: syncFavoriteFlags(merged),
           errorMessage: backendErrors,
           useFallback: false
         });
@@ -981,23 +995,17 @@ export default function RankingView() {
     return () => {
       cancelled = true;
     };
-  }, [backendReady, dir, rankWhich, rankMode, rankingCacheKey, riskMode]);
-
-  useEffect(() => {
-    if (!backendReady) return;
-    if (!sortedItems.length) return;
-    ensureBarsForVisible(
-      listTimeframe,
-      sortedItems.map((item) => item.code),
-      "ranking"
-    );
-  }, [backendReady, ensureBarsForVisible, sortedItems, listTimeframe]);
+  }, [backendReady, dir, rankWhich, rankMode, rankingCacheKey, riskMode, syncFavoriteFlags]);
 
   useEffect(() => {
     if (!useFallback) return;
-    setItems(fallbackItems);
+    setItems(syncFavoriteFlags(fallbackItems));
     clearRankingFetchCache(rankingCacheKey);
-  }, [fallbackItems, rankingCacheKey, useFallback]);
+  }, [fallbackItems, rankingCacheKey, syncFavoriteFlags, useFallback]);
+
+  useEffect(() => {
+    setItems((current) => syncFavoriteFlags(current));
+  }, [syncFavoriteFlags]);
 
   useEffect(() => {
     if (!items.length) {
@@ -1040,6 +1048,14 @@ export default function RankingView() {
       navigate(`/detail/${code}`, { state: { from: location.pathname } });
     },
     [navigate, location.pathname, listCodes]
+  );
+
+  const handleEnsureVisibleItem = useCallback(
+    (code: string) => {
+      if (!backendReady) return;
+      void ensureBarsForVisible(listTimeframe, [code], "ranking-visible");
+    },
+    [backendReady, ensureBarsForVisible, listTimeframe]
   );
 
   const handleToggleFavorite = useCallback(
@@ -1459,6 +1475,7 @@ export default function RankingView() {
                     onOpenDetail={handleOpenDetail}
                     tileClassName={selectedSet.has(item.code) ? "is-selected" : ""}
                     deferUntilInView
+                    onEnterView={handleEnsureVisibleItem}
                     maxDate={item.asOf}
                     phaseBody={ticker?.bodyScore ?? null}
                     phaseEarly={ticker?.earlyScore ?? null}

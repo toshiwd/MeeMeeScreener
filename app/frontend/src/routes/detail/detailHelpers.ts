@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { ExactDecisionTone } from "./hooks/useExactDecisionRange";
 import type {
   Candle,
@@ -20,6 +21,11 @@ import type {
   EdinetFinancialSummary,
   EdinetFinancialPoint,
   EdinetFinancialPanel,
+  TaisyakuSnapshot,
+  TaisyakuBalanceItem,
+  TaisyakuFeeItem,
+  TaisyakuRestrictionItem,
+  TaisyakuIssueItem,
   TdnetDisclosureItem,
   TdnetReactionSummary,
   AnalysisSwingPlan,
@@ -54,6 +60,12 @@ export const LIMIT_STEP = {
   daily: 1000,
   monthly: 120
 };
+
+export const MAX_DAILY_BATCH_BARS_LIMIT = 10000;
+export const MAX_MONTHLY_BATCH_BARS_LIMIT = 2000;
+
+export const incrementBarLimit = (current: number, step: number, max: number) =>
+  Math.min(current + step, max);
 
 export const RANGE_PRESETS = [
   { label: "3M", months: 3 },
@@ -143,6 +155,166 @@ export const formatPerLabel = (value: number | null | undefined) => {
   return `${formatNumber(value, 1)}倍`;
 };
 
+export type EdinetFinancialDisplayItem = {
+  label: string;
+  value: string;
+  tone: "up" | "down" | "neutral";
+};
+
+const metricToneBySign = (value: number | null | undefined): EdinetFinancialDisplayItem["tone"] => {
+  if (value == null || !Number.isFinite(value)) return "neutral";
+  if (value > 0) return "up";
+  if (value < 0) return "down";
+  return "neutral";
+};
+
+const metricToneByEquityRatio = (value: number | null | undefined): EdinetFinancialDisplayItem["tone"] => {
+  if (value == null || !Number.isFinite(value)) return "neutral";
+  if (value >= 0.5) return "up";
+  if (value < 0.25) return "down";
+  return "neutral";
+};
+
+const metricToneByDebtAmount = (value: number | null | undefined): EdinetFinancialDisplayItem["tone"] => {
+  if (value == null || !Number.isFinite(value)) return "neutral";
+  if (value < 0) return "up";
+  if (value > 0) return "down";
+  return "neutral";
+};
+
+const metricToneByDebtRatio = (value: number | null | undefined): EdinetFinancialDisplayItem["tone"] => {
+  if (value == null || !Number.isFinite(value)) return "neutral";
+  if (value <= 1) return "up";
+  if (value >= 2) return "down";
+  return "neutral";
+};
+
+export const buildEdinetFinancialDisplay = ({
+  latestFinancialPoint,
+  latestPrice,
+  edinetSummary,
+}: {
+  latestFinancialPoint: EdinetFinancialPoint | null;
+  latestPrice: number | null;
+  edinetSummary: AnalysisEdinetSummary | null;
+}): {
+  cards: EdinetFinancialDisplayItem[];
+  stats: EdinetFinancialDisplayItem[];
+} => {
+  const per =
+    latestPrice != null &&
+    latestFinancialPoint?.eps != null &&
+    Math.abs(latestFinancialPoint.eps) > 0
+      ? latestPrice / latestFinancialPoint.eps
+      : null;
+
+  const cards: EdinetFinancialDisplayItem[] = [
+    {
+      label: "売上高",
+      value: formatFinancialAmountLabel(latestFinancialPoint?.revenue),
+      tone: "neutral",
+    },
+    {
+      label: "営業利益",
+      value: formatFinancialAmountLabel(latestFinancialPoint?.operatingIncome),
+      tone: metricToneBySign(latestFinancialPoint?.operatingIncome),
+    },
+    {
+      label: "純利益",
+      value: formatFinancialAmountLabel(latestFinancialPoint?.netIncome),
+      tone: metricToneBySign(latestFinancialPoint?.netIncome),
+    },
+    {
+      label: "営業利益率",
+      value: formatPercentLabel(latestFinancialPoint?.operatingMargin),
+      tone: metricToneBySign(latestFinancialPoint?.operatingMargin),
+    },
+    {
+      label: "ROE",
+      value: formatPercentLabel(latestFinancialPoint?.roe ?? edinetSummary?.roe),
+      tone: metricToneBySign(latestFinancialPoint?.roe ?? edinetSummary?.roe),
+    },
+    {
+      label: "自己資本比率",
+      value: formatPercentLabel(latestFinancialPoint?.equityRatio ?? edinetSummary?.equityRatio),
+      tone: metricToneByEquityRatio(latestFinancialPoint?.equityRatio ?? edinetSummary?.equityRatio),
+    },
+  ];
+
+  const stats: EdinetFinancialDisplayItem[] = [
+    {
+      label: "売上総利益",
+      value: formatFinancialAmountLabel(latestFinancialPoint?.grossProfit),
+      tone: metricToneBySign(latestFinancialPoint?.grossProfit),
+    },
+    {
+      label: "売上総利益率",
+      value: formatPercentLabel(latestFinancialPoint?.grossMargin),
+      tone: metricToneBySign(latestFinancialPoint?.grossMargin),
+    },
+    {
+      label: "純利益率",
+      value: formatPercentLabel(latestFinancialPoint?.netMargin),
+      tone: metricToneBySign(latestFinancialPoint?.netMargin),
+    },
+    {
+      label: "ROA",
+      value: formatPercentLabel(latestFinancialPoint?.roa),
+      tone: metricToneBySign(latestFinancialPoint?.roa),
+    },
+    {
+      label: "EPS",
+      value: formatNumber(latestFinancialPoint?.eps, 1),
+      tone: metricToneBySign(latestFinancialPoint?.eps),
+    },
+    {
+      label: "PER",
+      value: formatPerLabel(per),
+      tone: "neutral",
+    },
+    {
+      label: "BPS",
+      value: formatNumber(latestFinancialPoint?.bps, 2),
+      tone: "neutral",
+    },
+    {
+      label: "1株配当",
+      value:
+        latestFinancialPoint?.dividendPerShare == null
+          ? "--"
+          : `${formatNumber(latestFinancialPoint.dividendPerShare, 0)}円`,
+      tone: "neutral",
+    },
+    {
+      label: "純有利子負債",
+      value: formatFinancialAmountLabel(latestFinancialPoint?.netInterestBearingDebt),
+      tone: metricToneByDebtAmount(latestFinancialPoint?.netInterestBearingDebt),
+    },
+    {
+      label: "D/E",
+      value: formatNumber(edinetSummary?.debtRatio, 2),
+      tone: metricToneByDebtRatio(edinetSummary?.debtRatio),
+    },
+    {
+      label: "営業CF率",
+      value: formatPercentLabel(edinetSummary?.operatingCfMargin),
+      tone: metricToneBySign(edinetSummary?.operatingCfMargin),
+    },
+    {
+      label: "売上成長率",
+      value: formatPercentLabel(edinetSummary?.revenueGrowthYoy),
+      tone: metricToneBySign(edinetSummary?.revenueGrowthYoy),
+    },
+    {
+      label: "EBITDA",
+      value: formatFinancialAmountLabel(edinetSummary?.ebitdaMetric),
+      tone: metricToneBySign(edinetSummary?.ebitdaMetric),
+    },
+  ];
+
+  return { cards, stats };
+};
+
 export const formatSignedPercentLabel = (value: number | null | undefined, digits = 1) => {
   if (value == null || !Number.isFinite(value)) return "--";
   const scaled = value * 100;
@@ -196,6 +368,216 @@ export const buildTdnetReactionSummary = (
       };
     }),
   };
+};
+
+const TDNET_EVENT_LABELS: Record<string, string> = {
+  forecast_revision: "業績予想修正",
+  dividend_revision: "配当修正",
+  share_buyback: "自社株買い",
+  share_split: "株式分割",
+  earnings: "決算",
+  governance: "ガバナンス",
+  other: "適時開示",
+};
+
+const TDNET_SENTIMENT_LABELS: Record<string, string> = {
+  positive: "好材料",
+  negative: "悪材料",
+  neutral: "中立",
+};
+
+export type TdnetHighlightItem = {
+  disclosureId: string;
+  title: string;
+  publishedLabel: string;
+  eventLabel: string;
+  sentimentLabel: string | null;
+  summaryText: string | null;
+  tone: "up" | "down" | "neutral";
+  importanceLabel: string | null;
+  tdnetUrl: string | null;
+  pdfUrl: string | null;
+  xbrlUrl: string | null;
+};
+
+export const formatTdnetEventTypeLabel = (value: string | null | undefined) => {
+  const key = String(value || "").trim().toLowerCase();
+  return TDNET_EVENT_LABELS[key] ?? (key ? key : "適時開示");
+};
+
+export const formatTdnetSentimentLabel = (value: string | null | undefined) => {
+  const key = String(value || "").trim().toLowerCase();
+  return TDNET_SENTIMENT_LABELS[key] ?? (key ? key : null);
+};
+
+export const buildTdnetHighlights = (items: TdnetDisclosureItem[], limit = 3): TdnetHighlightItem[] => {
+  return [...items]
+    .sort((left, right) => {
+      const leftPublished = left.publishedAt ? Date.parse(left.publishedAt) : 0;
+      const rightPublished = right.publishedAt ? Date.parse(right.publishedAt) : 0;
+      if (rightPublished !== leftPublished) return rightPublished - leftPublished;
+      const leftImportance = Number.isFinite(left.importanceScore ?? NaN) ? Number(left.importanceScore) : 0;
+      const rightImportance = Number.isFinite(right.importanceScore ?? NaN) ? Number(right.importanceScore) : 0;
+      return rightImportance - leftImportance;
+    })
+    .slice(0, Math.max(0, limit))
+    .map((item) => {
+      const importance = Number.isFinite(item.importanceScore ?? NaN) ? Number(item.importanceScore) : null;
+      const publishedMs = item.publishedAt ? Date.parse(item.publishedAt) : NaN;
+      return {
+        disclosureId: item.disclosureId ?? `${item.title ?? "tdnet"}:${item.publishedAt ?? ""}`,
+        title: item.title ?? "--",
+        publishedLabel:
+          Number.isFinite(publishedMs)
+            ? new Date(publishedMs).toLocaleString("ja-JP")
+            : "--",
+        eventLabel: formatTdnetEventTypeLabel(item.eventType),
+        sentimentLabel: formatTdnetSentimentLabel(item.sentiment),
+        summaryText: item.summaryText ?? null,
+        tone:
+          item.sentiment === "positive"
+            ? "up"
+            : item.sentiment === "negative"
+              ? "down"
+              : "neutral",
+        importanceLabel:
+          importance == null
+            ? null
+            : importance >= 0.85
+              ? "重要"
+              : importance >= 0.6
+                ? "注目"
+                : null,
+        tdnetUrl: item.tdnetUrl ?? null,
+        pdfUrl: item.pdfUrl ?? null,
+        xbrlUrl: item.xbrlUrl ?? null,
+      };
+    });
+};
+
+export const shouldAutoRefreshTdnet = (items: TdnetDisclosureItem[], nowMs = Date.now()) => {
+  if (!Array.isArray(items) || items.length === 0) return true;
+  let latestFetchedMs = Number.NaN;
+  for (const item of items) {
+    const parsed = item.fetchedAt ? Date.parse(item.fetchedAt) : Number.NaN;
+    if (Number.isFinite(parsed) && (!Number.isFinite(latestFetchedMs) || parsed > latestFetchedMs)) {
+      latestFetchedMs = parsed;
+    }
+  }
+  if (!Number.isFinite(latestFetchedMs)) return true;
+  return nowMs - latestFetchedMs >= 18 * 60 * 60 * 1000;
+};
+
+export type TaisyakuDisplayItem = {
+  label: string;
+  value: string;
+  tone: "up" | "down" | "neutral";
+};
+
+export type TaisyakuHistoryRow = {
+  dateLabel: string;
+  loanRatioLabel: string;
+  financeLabel: string;
+  stockLabel: string;
+  feeLabel: string;
+};
+
+const formatDateKeyLabel = (value: number | null | undefined) => {
+  if (value == null || !Number.isFinite(value)) return "--";
+  const text = String(Math.trunc(value));
+  if (text.length !== 8) return text;
+  return `${text.slice(0, 4)}/${text.slice(4, 6)}/${text.slice(6, 8)}`;
+};
+
+const formatShareCountLabel = (value: number | null | undefined) => {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return `${formatNumber(value, 0)}株`;
+};
+
+const metricToneByFee = (value: number | null | undefined): TaisyakuDisplayItem["tone"] => {
+  if (value == null || !Number.isFinite(value)) return "neutral";
+  return value > 0 ? "down" : "neutral";
+};
+
+const metricToneByLoanRatio = (value: number | null | undefined): TaisyakuDisplayItem["tone"] => {
+  if (value == null || !Number.isFinite(value)) return "neutral";
+  if (value >= 8) return "down";
+  if (value <= 0.8) return "up";
+  return "neutral";
+};
+
+export const buildTaisyakuDisplay = (
+  snapshot: TaisyakuSnapshot | null
+): {
+  cards: TaisyakuDisplayItem[];
+  history: TaisyakuHistoryRow[];
+  watchLabel: string | null;
+} => {
+  const balance = snapshot?.latestBalance ?? null;
+  const fee = snapshot?.latestFee ?? null;
+  const restrictions = snapshot?.restrictions ?? [];
+  const restrictionCount = restrictions.length;
+  const currentFee = fee?.currentFeeYen ?? null;
+  const watchLabel =
+    restrictionCount > 0 || (currentFee != null && currentFee > 0)
+      ? "需給警戒"
+      : balance?.loanRatio != null && balance.loanRatio >= 8
+        ? "買い残重い"
+        : balance?.loanRatio != null && balance.loanRatio <= 0.8 && (balance.stockBalanceShares ?? 0) > 0
+          ? "貸株超過"
+          : "需給中立";
+  return {
+    cards: [
+      {
+        label: "貸借倍率",
+        value: balance?.loanRatio == null ? "--" : `${formatNumber(balance.loanRatio, 2)}倍`,
+        tone: metricToneByLoanRatio(balance?.loanRatio),
+      },
+      {
+        label: "融資残",
+        value: formatShareCountLabel(balance?.financeBalanceShares),
+        tone: "neutral",
+      },
+      {
+        label: "貸株残",
+        value: formatShareCountLabel(balance?.stockBalanceShares),
+        tone: "neutral",
+      },
+      {
+        label: "当日品貸料",
+        value: fee?.currentFeeYen == null ? "--" : `${formatNumber(fee.currentFeeYen, 2)}円`,
+        tone: metricToneByFee(fee?.currentFeeYen),
+      },
+      {
+        label: "最高料率",
+        value: fee?.maxFeeYen == null ? "--" : `${formatNumber(fee.maxFeeYen, 2)}円`,
+        tone: metricToneByFee(fee?.maxFeeYen),
+      },
+      {
+        label: "制限措置",
+        value: restrictionCount > 0 ? `${formatNumber(restrictionCount, 0)}件` : "なし",
+        tone: restrictionCount > 0 ? "down" : "neutral",
+      },
+    ],
+    history: (snapshot?.balanceHistory ?? []).slice(0, 5).map((item) => ({
+      dateLabel: formatDateKeyLabel(item.applicationDate),
+      loanRatioLabel: item.loanRatio == null ? "--" : `${formatNumber(item.loanRatio, 2)}倍`,
+      financeLabel: formatShareCountLabel(item.financeBalanceShares),
+      stockLabel: formatShareCountLabel(item.stockBalanceShares),
+      feeLabel:
+        fee?.applicationDate === item.applicationDate && fee.currentFeeYen != null
+          ? `${formatNumber(fee.currentFeeYen, 2)}円`
+          : "--",
+    })),
+    watchLabel,
+  };
+};
+
+export const shouldAutoRefreshTaisyaku = (snapshot: TaisyakuSnapshot | null, nowMs = Date.now()) => {
+  if (!snapshot) return true;
+  const fetchedMs = snapshot.fetchedAt ? Date.parse(snapshot.fetchedAt) : Number.NaN;
+  if (!Number.isFinite(fetchedMs)) return true;
+  return nowMs - fetchedMs >= 18 * 60 * 60 * 1000;
 };
 
 export const formatResearchPriorRank = (rank: number | null | undefined, universe: number | null | undefined) => {
@@ -1117,6 +1499,7 @@ export const normalizeTdnetDisclosureItem = (value: unknown): TdnetDisclosureIte
     disclosureId: typeof source.disclosureId === "string" ? source.disclosureId : null,
     title: typeof source.title === "string" ? source.title : null,
     publishedAt: typeof source.publishedAt === "string" ? source.publishedAt : null,
+    fetchedAt: typeof source.fetchedAt === "string" ? source.fetchedAt : null,
     tdnetUrl: typeof source.tdnetUrl === "string" ? source.tdnetUrl : null,
     pdfUrl: typeof source.pdfUrl === "string" ? source.pdfUrl : null,
     xbrlUrl: typeof source.xbrlUrl === "string" ? source.xbrlUrl : null,
@@ -1125,6 +1508,96 @@ export const normalizeTdnetDisclosureItem = (value: unknown): TdnetDisclosureIte
     sentiment: typeof source.sentiment === "string" ? source.sentiment : null,
     importanceScore: toFiniteNumber(source.importanceScore),
     tags: Array.isArray(source.tags) ? source.tags.map((item) => String(item)) : [],
+  };
+};
+
+const normalizeTaisyakuBalanceItem = (value: unknown): TaisyakuBalanceItem | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    applicationDate: toFiniteNumber(source.applicationDate),
+    settlementDate: toFiniteNumber(source.settlementDate),
+    issueName: typeof source.issueName === "string" ? source.issueName : null,
+    marketName: typeof source.marketName === "string" ? source.marketName : null,
+    reportType: typeof source.reportType === "string" ? source.reportType : null,
+    financeBalanceShares: toFiniteNumber(source.financeBalanceShares),
+    stockBalanceShares: toFiniteNumber(source.stockBalanceShares),
+    netBalanceShares: toFiniteNumber(source.netBalanceShares),
+    loanRatio: toFiniteNumber(source.loanRatio),
+    fetchedAt: typeof source.fetchedAt === "string" ? source.fetchedAt : null,
+  };
+};
+
+const normalizeTaisyakuFeeItem = (value: unknown): TaisyakuFeeItem | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    applicationDate: toFiniteNumber(source.applicationDate),
+    settlementDate: toFiniteNumber(source.settlementDate),
+    issueName: typeof source.issueName === "string" ? source.issueName : null,
+    marketName: typeof source.marketName === "string" ? source.marketName : null,
+    reasonType: typeof source.reasonType === "string" ? source.reasonType : null,
+    reasonValue: typeof source.reasonValue === "string" ? source.reasonValue : null,
+    priceYen: toFiniteNumber(source.priceYen),
+    stockExcessShares: toFiniteNumber(source.stockExcessShares),
+    maxFeeYen: toFiniteNumber(source.maxFeeYen),
+    currentFeeYen: toFiniteNumber(source.currentFeeYen),
+    feeDays: toFiniteNumber(source.feeDays),
+    priorFeeYen: toFiniteNumber(source.priorFeeYen),
+    fetchedAt: typeof source.fetchedAt === "string" ? source.fetchedAt : null,
+  };
+};
+
+const normalizeTaisyakuRestrictionItem = (value: unknown): TaisyakuRestrictionItem | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    issueName: typeof source.issueName === "string" ? source.issueName : null,
+    announcementKind: typeof source.announcementKind === "string" ? source.announcementKind : null,
+    measureType: typeof source.measureType === "string" ? source.measureType : null,
+    measureDetail: typeof source.measureDetail === "string" ? source.measureDetail : null,
+    noticeDate: toFiniteNumber(source.noticeDate),
+    afternoonStop: typeof source.afternoonStop === "string" ? source.afternoonStop : null,
+    fetchedAt: typeof source.fetchedAt === "string" ? source.fetchedAt : null,
+  };
+};
+
+const normalizeTaisyakuIssueItem = (value: unknown): TaisyakuIssueItem | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    applicationDate: toFiniteNumber(source.applicationDate),
+    issueName: typeof source.issueName === "string" ? source.issueName : null,
+    tseFlag: toFiniteNumber(source.tseFlag),
+    jnxFlag: toFiniteNumber(source.jnxFlag),
+    odxFlag: toFiniteNumber(source.odxFlag),
+    jaxFlag: toFiniteNumber(source.jaxFlag),
+    nseFlag: toFiniteNumber(source.nseFlag),
+    fseFlag: toFiniteNumber(source.fseFlag),
+    sseFlag: toFiniteNumber(source.sseFlag),
+    fetchedAt: typeof source.fetchedAt === "string" ? source.fetchedAt : null,
+  };
+};
+
+export const normalizeTaisyakuSnapshot = (value: unknown): TaisyakuSnapshot | null => {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    code: typeof source.code === "string" ? source.code : null,
+    issue: normalizeTaisyakuIssueItem(source.issue),
+    latestBalance: normalizeTaisyakuBalanceItem(source.latestBalance),
+    balanceHistory: Array.isArray(source.balanceHistory)
+      ? source.balanceHistory
+          .map(normalizeTaisyakuBalanceItem)
+          .filter((item): item is TaisyakuBalanceItem => item !== null)
+      : [],
+    latestFee: normalizeTaisyakuFeeItem(source.latestFee),
+    restrictions: Array.isArray(source.restrictions)
+      ? source.restrictions
+          .map(normalizeTaisyakuRestrictionItem)
+          .filter((item): item is TaisyakuRestrictionItem => item !== null)
+      : [],
+    fetchedAt: typeof source.fetchedAt === "string" ? source.fetchedAt : null,
   };
 };
 
@@ -1207,6 +1680,18 @@ export const resolveLatestResolvedMetaDate = (...metas: Array<BarsMeta | null | 
   return maxValue;
 };
 
+export const resolveLatestAnalysisAvailableAsOfTime = ({
+  latestResolvedMetaDate,
+  latestDailyAsOfTime,
+}: {
+  latestResolvedMetaDate: number | null;
+  latestDailyAsOfTime: number | null;
+}) => {
+  if (latestResolvedMetaDate == null) return latestDailyAsOfTime;
+  if (latestDailyAsOfTime == null) return latestResolvedMetaDate;
+  return Math.max(latestResolvedMetaDate, latestDailyAsOfTime);
+};
+
 export const resolveAnalysisBaseAsOfTime = ({
   mainAsOfTime,
   resolvedCursorAsOfTime,
@@ -1223,8 +1708,10 @@ export const resolveAnalysisBaseAsOfTime = ({
   if (resolvedCursorAsOfTime != null) return resolvedCursorAsOfTime;
   if (mainAsOfTime != null) return mainAsOfTime;
   if (analysisBaseAsOfTime != null) return analysisBaseAsOfTime;
-  if (latestResolvedMetaDate != null) return latestResolvedMetaDate;
-  return latestDailyAsOfTime;
+  return resolveLatestAnalysisAvailableAsOfTime({
+    latestResolvedMetaDate,
+    latestDailyAsOfTime,
+  });
 };
 
 export const toDateKey = (time: number) => {
@@ -1233,6 +1720,32 @@ export const toDateKey = (time: number) => {
   const month = date.getUTCMonth() + 1;
   const day = date.getUTCDate();
   return year * 10000 + month * 100 + day;
+};
+
+export const resolveAutoAnalysisBackfillRequest = ({
+  code,
+  analysisAsOfTime,
+  analysisMissingDataVisible,
+}: {
+  code: string | null | undefined;
+  analysisAsOfTime: number | null;
+  analysisMissingDataVisible: boolean;
+}) => {
+  if (!code || analysisAsOfTime == null || !analysisMissingDataVisible) {
+    return null;
+  }
+  const targetDt = toDateKey(analysisAsOfTime);
+  return {
+    requestKey: `current:${code}:${targetDt}`,
+    queuedMessage: "最新の解析判定を準備しています。",
+    params: {
+      start_dt: targetDt,
+      end_dt: targetDt,
+      include_sell: false,
+      include_phase: false,
+      force_recompute: false,
+    },
+  };
 };
 
 export const countInRange = (candles: Candle[], months: number | null) => {

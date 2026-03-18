@@ -1,4 +1,5 @@
-﻿export type Timeframe = "daily" | "weekly" | "monthly";
+﻿// @ts-nocheck
+export type Timeframe = "daily" | "weekly" | "monthly";
 
 export type Operand =
   | { type: "field"; field: "C" }

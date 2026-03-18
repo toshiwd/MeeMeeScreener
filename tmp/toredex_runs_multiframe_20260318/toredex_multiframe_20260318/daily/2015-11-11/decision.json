@@ -1,0 +1,181 @@
+{
+  "actions": [],
+  "asOf": "2015-11-11",
+  "checks": {
+    "exposureOk": true,
+    "lossLimitOk": true,
+    "maxHoldingsOk": true,
+    "noFutureLeakOk": true,
+    "unitRuleOk": true
+  },
+  "mode": "BACKTEST",
+  "policyVersion": "toredex.v8",
+  "seasonId": "toredex_multiframe_20260318",
+  "signals": {
+    "buy": [
+      {
+        "frameSignals": {
+          "effectiveRevRisk": 0.5331458988826129,
+          "effectiveUpProb": 0.598419678994282,
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 9.0,
+          "monthlyBoxPos": 0.7028985507246377,
+          "monthlyBoxRangePct": 0.1908713692946058,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.4526901416277339,
+          "monthlyBreakoutUpProb": 0.598419678994282,
+          "monthlyRangePos": 0.708185053380783,
+          "monthlyRangeProb": 0.6185626293646431,
+          "monthlyRangeWidth": 0.16318234610917537,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5331458988826129,
+          "weeklyBreakoutUpProb": 0.564194285979387,
+          "weeklyRangeProb": 0.7605617221398622,
+          "weeklyRegimeAligned": null
+        },
+        "frameState": "MIXED",
+        "revRisk": 0.5331458988826129,
+        "ticker": "1306",
+        "upProb": 0.598419678994282
+      },
+      {
+        "frameSignals": {
+          "effectiveRevRisk": 0.5329780648528741,
+          "effectiveUpProb": 0.5966653625456443,
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 9.0,
+          "monthlyBoxPos": 0.6996336996336996,
+          "monthlyBoxRangePct": 0.19077568134171907,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.45166536254564427,
+          "monthlyBreakoutUpProb": 0.5966653625456443,
+          "monthlyRangePos": 0.7071428571428572,
+          "monthlyRangeProb": 0.6176499739175796,
+          "monthlyRangeWidth": 0.1643192488262911,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5329780648528741,
+          "weeklyBreakoutUpProb": 0.558178064852874,
+          "weeklyRangeProb": 0.7627558948261239,
+          "weeklyRegimeAligned": null
+        },
+        "frameState": "MIXED",
+        "revRisk": 0.5329780648528741,
+        "ticker": "1308",
+        "upProb": 0.5966653625456443
+      },
+      {
+        "frameSignals": {
+          "effectiveRevRisk": 0.5434038797708853,
+          "effectiveUpProb": 0.6123070064715777,
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 12.0,
+          "monthlyBoxPos": 0.7257668711656442,
+          "monthlyBoxRangePct": 0.18816738816738818,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.45805301835772094,
+          "monthlyBreakoutUpProb": 0.6123070064715777,
+          "monthlyRangePos": 0.7203628401626525,
+          "monthlyRangeProb": 0.6214132992852742,
+          "monthlyRangeWidth": 0.1553072625698324,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5434038797708853,
+          "weeklyBreakoutUpProb": 0.5528570308212355,
+          "weeklyRangeProb": 0.7815192052086304,
+          "weeklyRegimeAligned": null
+        },
+        "frameState": "MIXED",
+        "revRisk": 0.5434038797708853,
+        "ticker": "1001",
+        "upProb": 0.6123070064715777
+      }
+    ],
+    "sell": [
+      {
+        "frameSignals": {
+          "effectiveRevRisk": 0.5434038797708853,
+          "effectiveUpProb": 0.6123070064715777,
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 12.0,
+          "monthlyBoxPos": 0.7257668711656442,
+          "monthlyBoxRangePct": 0.18816738816738818,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.45805301835772094,
+          "monthlyBreakoutUpProb": 0.6123070064715777,
+          "monthlyRangePos": 0.7203628401626525,
+          "monthlyRangeProb": 0.6214132992852742,
+          "monthlyRangeWidth": 0.1553072625698324,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5434038797708853,
+          "weeklyBreakoutUpProb": 0.5528570308212355,
+          "weeklyRangeProb": 0.7815192052086304,
+          "weeklyRegimeAligned": null
+        },
+        "frameState": "MIXED",
+        "revRisk": 0.5434038797708853,
+        "ticker": "1001",
+        "upProb": 0.6123070064715777
+      },
+      {
+        "frameSignals": {
+          "effectiveRevRisk": 0.5329780648528741,
+          "effectiveUpProb": 0.5966653625456443,
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 9.0,
+          "monthlyBoxPos": 0.6996336996336996,
+          "monthlyBoxRangePct": 0.19077568134171907,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.45166536254564427,
+          "monthlyBreakoutUpProb": 0.5966653625456443,
+          "monthlyRangePos": 0.7071428571428572,
+          "monthlyRangeProb": 0.6176499739175796,
+          "monthlyRangeWidth": 0.1643192488262911,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5329780648528741,
+          "weeklyBreakoutUpProb": 0.558178064852874,
+          "weeklyRangeProb": 0.7627558948261239,
+          "weeklyRegimeAligned": null
+        },
+        "frameState": "MIXED",
+        "revRisk": 0.5329780648528741,
+        "ticker": "1308",
+        "upProb": 0.5966653625456443
+      },
+      {
+        "frameSignals": {
+          "effectiveRevRisk": 0.5331458988826129,
+          "effectiveUpProb": 0.598419678994282,
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 9.0,
+          "monthlyBoxPos": 0.7028985507246377,
+          "monthlyBoxRangePct": 0.1908713692946058,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.4526901416277339,
+          "monthlyBreakoutUpProb": 0.598419678994282,
+          "monthlyRangePos": 0.708185053380783,
+          "monthlyRangeProb": 0.6185626293646431,
+          "monthlyRangeWidth": 0.16318234610917537,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5331458988826129,
+          "weeklyBreakoutUpProb": 0.564194285979387,
+          "weeklyRangeProb": 0.7605617221398622,
+          "weeklyRegimeAligned": null
+        },
+        "frameState": "MIXED",
+        "revRisk": 0.5331458988826129,
+        "ticker": "1306",
+        "upProb": 0.598419678994282
+      }
+    ]
+  },
+  "stage": {
+    "goal20Reached": false,
+    "goal30Reached": false,
+    "stage2Active": false
+  }
+}

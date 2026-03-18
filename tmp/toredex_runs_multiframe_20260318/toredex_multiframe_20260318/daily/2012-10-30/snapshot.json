@@ -1,0 +1,280 @@
+{
+  "asOf": "2012-10-30",
+  "configHash": "a1f27d7d0c379a5624463feb7d72defc5c93b677ca716722c536942a2ac71b3c",
+  "meta": {
+    "noFutureLeakOk": true,
+    "predDtBuy": null,
+    "predDtSell": null,
+    "requestedAsOf": "2012-10-30"
+  },
+  "mode": "LIVE",
+  "policyVersion": "toredex.v8",
+  "positions": [
+    {
+      "avgPrice": 8929.0,
+      "holdingDays": 1,
+      "openedAt": "2012-10-29",
+      "pnlPct": -0.9855526934707135,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1001",
+      "units": 2
+    },
+    {
+      "avgPrice": 743.0,
+      "holdingDays": 1,
+      "openedAt": "2012-10-29",
+      "pnlPct": 0.8075370121130552,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1308",
+      "units": 2
+    }
+  ],
+  "rankings": {
+    "buy": [
+      {
+        "changePct": -0.009855526934707134,
+        "close": 8841.0,
+        "entryScore": 0.5608982368658326,
+        "ev": -0.009855526934707134,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 1463353123.4,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5702303033740665,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2012-10-30",
+        "ticker": "1001",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 6.0,
+          "monthlyBoxPos": 0.37375745526838966,
+          "monthlyBoxRangePct": 0.11884229178972239,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6137289160436005,
+          "monthlyBreakoutUpProb": 0.4365002926354744,
+          "monthlyRangePos": 0.24681625227410553,
+          "monthlyRangeProb": 0.5865431817204181,
+          "monthlyRangeWidth": 0.1635425964494694,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5702303033740665,
+          "weeklyBreakoutUpProb": 0.6922075437723596,
+          "weeklyRangeProb": 0.7671905783700497,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.6922075437723596
+      },
+      {
+        "changePct": -0.008075370121130552,
+        "close": 737.0,
+        "entryScore": 0.5007045873530223,
+        "ev": -0.008075370121130552,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 147942.2,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.6650582982190215,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2012-10-30",
+        "ticker": "1308",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 6.0,
+          "monthlyBoxPos": 0.17647058823529413,
+          "monthlyBoxRangePct": 0.11772853185595568,
+          "monthlyBoxState": "box_lower",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6786435978238194,
+          "monthlyBreakoutUpProb": 0.3790033100540353,
+          "monthlyRangePos": 0.07194244604316546,
+          "monthlyRangeProb": 0.46851470324894817,
+          "monthlyRangeWidth": 0.1605080831408776,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.6650582982190215,
+          "weeklyBreakoutUpProb": 0.5998040609308859,
+          "weeklyRangeProb": 0.8253462476640825,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.5998040609308859
+      },
+      {
+        "changePct": -0.00796812749003984,
+        "close": 747.0,
+        "entryScore": 0.4987505893572384,
+        "ev": -0.00796812749003984,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 1538891.85,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.6591716144738686,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2012-10-30",
+        "ticker": "1306",
+        "timeframeSignals": {
+          "frameState": "BEARISH",
+          "monthlyBoxMonths": 6.0,
+          "monthlyBoxPos": 0.17708333333333334,
+          "monthlyBoxRangePct": 0.13150684931506848,
+          "monthlyBoxState": "box_lower",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6754032929262996,
+          "monthlyBreakoutUpProb": 0.3858349476025587,
+          "monthlyRangePos": 0.08633093525179857,
+          "monthlyRangeProb": 0.48070879680694806,
+          "monthlyRangeWidth": 0.15903890160183065,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.6591716144738686,
+          "weeklyBreakoutUpProb": 0.5935466144738686,
+          "weeklyRangeProb": 0.8177994080145718,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.5935466144738686
+      }
+    ],
+    "sell": [
+      {
+        "changePct": -0.008075370121130552,
+        "close": 737.0,
+        "entryScore": 0.6248620010607826,
+        "ev": -0.008075370121130552,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 147942.2,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.6650582982190215,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2012-10-30",
+        "ticker": "1308",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 6.0,
+          "monthlyBoxPos": 0.17647058823529413,
+          "monthlyBoxRangePct": 0.11772853185595568,
+          "monthlyBoxState": "box_lower",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6786435978238194,
+          "monthlyBreakoutUpProb": 0.3790033100540353,
+          "monthlyRangePos": 0.07194244604316546,
+          "monthlyRangeProb": 0.46851470324894817,
+          "monthlyRangeWidth": 0.1605080831408776,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.6650582982190215,
+          "weeklyBreakoutUpProb": 0.5998040609308859,
+          "weeklyRangeProb": 0.8253462476640825,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.6650582982190215
+      },
+      {
+        "changePct": -0.00796812749003984,
+        "close": 747.0,
+        "entryScore": 0.6207335526735518,
+        "ev": -0.00796812749003984,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 1538891.85,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.6591716144738686,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2012-10-30",
+        "ticker": "1306",
+        "timeframeSignals": {
+          "frameState": "BEARISH",
+          "monthlyBoxMonths": 6.0,
+          "monthlyBoxPos": 0.17708333333333334,
+          "monthlyBoxRangePct": 0.13150684931506848,
+          "monthlyBoxState": "box_lower",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6754032929262996,
+          "monthlyBreakoutUpProb": 0.3858349476025587,
+          "monthlyRangePos": 0.08633093525179857,
+          "monthlyRangeProb": 0.48070879680694806,
+          "monthlyRangeWidth": 0.15903890160183065,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.6591716144738686,
+          "weeklyBreakoutUpProb": 0.5935466144738686,
+          "weeklyRangeProb": 0.8177994080145718,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.6591716144738686
+      },
+      {
+        "changePct": -0.009855526934707134,
+        "close": 8841.0,
+        "entryScore": 0.5618270849862668,
+        "ev": -0.009855526934707134,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 1463353123.4,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5702303033740665,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2012-10-30",
+        "ticker": "1001",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 6.0,
+          "monthlyBoxPos": 0.37375745526838966,
+          "monthlyBoxRangePct": 0.11884229178972239,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6137289160436005,
+          "monthlyBreakoutUpProb": 0.4365002926354744,
+          "monthlyRangePos": 0.24681625227410553,
+          "monthlyRangeProb": 0.5865431817204181,
+          "monthlyRangeWidth": 0.1635425964494694,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5702303033740665,
+          "weeklyBreakoutUpProb": 0.6922075437723596,
+          "weeklyRangeProb": 0.7671905783700497,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.5702303033740665
+      }
+    ]
+  },
+  "seasonId": "toredex_multiframe_20260318",
+  "universe": [
+    "1001",
+    "1306",
+    "1308"
+  ]
+}

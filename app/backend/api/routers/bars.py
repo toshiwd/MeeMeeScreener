@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 
 from app.backend.api.dependencies import get_stock_repo
 from app.backend.infra.duckdb.stock_repo import StockRepository
-from app.backend.services.bar_aggregation import merge_monthly_rows_with_daily
-from app.backend.services.yahoo_provisional import (
+from app.backend.services.data.bar_aggregation import merge_monthly_rows_with_daily
+from app.backend.services.data.yahoo_provisional import (
     apply_split_gap_adjustment,
     get_provisional_daily_rows_from_spark,
     merge_daily_rows_with_provisional,
@@ -27,14 +27,16 @@ _SUPPORTED_TIMEFRAMES = {"daily", "weekly", "monthly"}
 class BatchBarsRequest(BaseModel):
     timeframe: str = Field(..., description="daily or monthly")
     codes: List[str] = Field(default_factory=list)
-    limit: int = Field(..., ge=1, le=2000)
+    limit: int = Field(..., ge=1, le=10000)
 
 
 class BatchBarsV3Request(BaseModel):
     codes: List[str] = Field(default_factory=list)
     timeframes: List[str] = Field(default_factory=list, description="daily/weekly/monthly")
-    limit: int = Field(..., ge=1, le=2000)
+    limit: int = Field(..., ge=1, le=10000)
     includeProvisional: bool = True
+    includeBoxes: bool = True
+    asof: str | int | None = None
 
 
 def _normalize_bar_time(value: Any) -> int | None:
@@ -92,6 +94,32 @@ def _build_weekly_bars_from_daily(rows: List[tuple]) -> List[tuple]:
     ]
 
 
+def _parse_asof(value: str | int | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        raw = str(value)
+    else:
+        raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.isdigit() and len(raw) == 8:
+        parsed = datetime.strptime(raw, "%Y%m%d").replace(tzinfo=timezone.utc)
+        return int(parsed.timestamp())
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            parsed = datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+            return int(parsed.timestamp())
+        except ValueError:
+            continue
+    if raw.isdigit():
+        value_int = int(raw)
+        if value_int > 1_000_000_000_000:
+            return int(value_int / 1000)
+        return value_int
+    return None
+
+
 def _to_payload_rows(rows: List[tuple], *, boxes_enabled: bool) -> Dict[str, Any]:
     return {
         "bars": [list(row) for row in rows],
@@ -139,13 +167,15 @@ def _fetch_multi_timeframe_items(
     requested_frames: List[str],
     limit: int,
     include_provisional: bool,
+    include_boxes: bool,
+    asof_dt: int | None,
 ) -> Dict[str, Dict[str, Dict[str, Any]]]:
     items: Dict[str, Dict[str, Dict[str, Any]]] = {code: {} for code in codes}
     if not codes:
         return items
 
     provisional_map: Dict[str, tuple] = {}
-    if include_provisional and (
+    if include_provisional and asof_dt is None and (
         "daily" in requested_frames or "weekly" in requested_frames or "monthly" in requested_frames
     ):
         try:
@@ -164,7 +194,7 @@ def _fetch_multi_timeframe_items(
 
     daily_rows_by_code: Dict[str, List[tuple]] | None = None
     if "daily" in requested_frames or "weekly" in requested_frames:
-        raw_daily = repo.get_daily_bars_batch(codes, limit)
+        raw_daily = repo.get_daily_bars_batch(codes, limit, asof_dt=asof_dt)
         daily_rows_by_code = {}
         for code in codes:
             merged = merge_daily_rows_with_provisional(
@@ -179,7 +209,7 @@ def _fetch_multi_timeframe_items(
     monthly_patch_daily_rows: Dict[str, List[tuple]] | None = None
     if "monthly" in requested_frames:
         patch_limit = max(62, min(200, limit))
-        raw_monthly_daily = repo.get_daily_bars_batch(codes, patch_limit)
+        raw_monthly_daily = repo.get_daily_bars_batch(codes, patch_limit, asof_dt=asof_dt)
         monthly_patch_daily_rows = {}
         for code in codes:
             merged = merge_daily_rows_with_provisional(
@@ -198,7 +228,7 @@ def _fetch_multi_timeframe_items(
             items[code]["weekly"] = _to_payload_rows(weekly_rows, boxes_enabled=False)
 
     if "monthly" in requested_frames:
-        monthly_rows_by_code = repo.get_monthly_bars_batch(codes, limit)
+        monthly_rows_by_code = repo.get_monthly_bars_batch(codes, limit, asof_dt=asof_dt)
         for code in codes:
             monthly_rows = monthly_rows_by_code.get(code, [])
             monthly_rows = merge_monthly_rows_with_daily(
@@ -206,7 +236,10 @@ def _fetch_multi_timeframe_items(
                 (monthly_patch_daily_rows or {}).get(code, []),
             )
             monthly_rows = apply_split_gap_adjustment(monthly_rows)
-            items[code]["monthly"] = _to_payload_rows(monthly_rows, boxes_enabled=True)
+            items[code]["monthly"] = _to_payload_rows(
+                monthly_rows,
+                boxes_enabled=include_boxes,
+            )
 
     return items
 
@@ -230,6 +263,8 @@ def batch_bars(
         requested_frames=[timeframe],
         limit=int(payload.limit),
         include_provisional=True,
+        include_boxes=True,
+        asof_dt=None,
     )
     items: Dict[str, Dict] = {}
     for code in valid_codes:
@@ -250,11 +285,14 @@ def batch_bars_v3(
     valid_codes = _normalize_codes(payload.codes)
     if not valid_codes:
         return {"items": {}}
+    asof_dt = _parse_asof(payload.asof)
     items = _fetch_multi_timeframe_items(
         repo=repo,
         codes=valid_codes,
         requested_frames=requested_frames,
         limit=int(payload.limit),
         include_provisional=bool(payload.includeProvisional),
+        include_boxes=bool(payload.includeBoxes),
+        asof_dt=asof_dt,
     )
     return {"items": items}

@@ -1,0 +1,150 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e19]:
+    - banner [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - generic [ref=e23]:
+            - generic [ref=e24]:
+              - generic [ref=e25]: MeeMee
+              - generic [ref=e26]: Screener
+            - navigation [ref=e27]:
+              - link "一覧に戻る" [ref=e28] [cursor=pointer]:
+                - /url: /
+              - link "ランキング" [ref=e29] [cursor=pointer]:
+                - /url: /ranking
+              - link "市場概況" [ref=e30] [cursor=pointer]:
+                - /url: /market
+              - link "保有" [ref=e31] [cursor=pointer]:
+                - /url: /positions
+              - link "お気に入り" [ref=e32] [cursor=pointer]:
+                - /url: /favorites
+              - link "候補" [ref=e33] [cursor=pointer]:
+                - /url: /candidates
+          - generic [ref=e35]:
+            - button "並び替えメニューを開く" [ref=e37] [cursor=pointer]:
+              - generic [ref=e38]: "並び: 仕込み優先度(A/B/C)"
+            - button "表示設定メニューを開く" [ref=e40] [cursor=pointer]:
+              - generic [ref=e41]: 表示
+            - button "フィルタ" [ref=e43] [cursor=pointer]:
+              - generic [ref=e44]: フィルタ
+            - button "日次更新" [ref=e46] [cursor=pointer]:
+              - generic [ref=e47]: 日次更新
+            - generic [ref=e48]:
+              - button "ウォークフォワード検証パネルを開く" [ref=e49] [cursor=pointer]:
+                - generic [ref=e50]: 検証
+              - button "設定メニューを開く" [ref=e51] [cursor=pointer]:
+                - img [ref=e53]
+              - generic [ref=e421]:
+                - generic [ref=e422]:
+                  - generic [ref=e423]: 外観設定
+                  - generic [ref=e424]:
+                    - button "ダーク" [ref=e425] [cursor=pointer]:
+                      - img [ref=e426]
+                      - generic [ref=e428]: ダーク
+                    - button "ライト" [ref=e429] [cursor=pointer]:
+                      - img [ref=e430]
+                      - generic [ref=e433]: ライト
+                - generic [ref=e434]:
+                  - generic [ref=e435]: 取引CSV
+                  - button "CSV取り込み 手動" [ref=e436] [cursor=pointer]:
+                    - generic [ref=e437]:
+                      - img [ref=e438]
+                      - generic [ref=e441]: CSV取り込み
+                    - generic [ref=e442]: 手動
+                  - button "強制同期(全件取込) 強制" [ref=e443] [cursor=pointer]:
+                    - generic [ref=e444]:
+                      - img [ref=e445]
+                      - generic [ref=e448]: 強制同期(全件取込)
+                    - generic [ref=e449]: 強制
+                  - generic [ref=e450]: "保存先: %LOCALAPPDATA%\\\\MeeMeeScreener\\\\data\\\\"
+                - generic [ref=e451]:
+                  - generic [ref=e452]: MM_DATA_DIR
+                  - generic [ref=e453]:
+                    - textbox "%LOCALAPPDATA%\\\\MeeMeeScreener\\\\data" [ref=e454]: C:\Users\enish\AppData\Local\MeeMeeScreener\data
+                    - button "保存" [ref=e455] [cursor=pointer]
+                  - generic [ref=e456]: "現在: C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data"
+                - generic [ref=e457]:
+                  - generic [ref=e458]: TXT参照フォルダ
+                  - generic [ref=e459]: "現在: C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\txt"
+                - generic [ref=e460]:
+                  - generic [ref=e461]: Phase
+                  - button "Phase再計算 手動" [ref=e462] [cursor=pointer]:
+                    - generic [ref=e463]:
+                      - img [ref=e464]
+                      - generic [ref=e467]: Phase再計算
+                    - generic [ref=e468]: 手動
+                  - generic [ref=e469]: 通常は「日次更新」で自動実行されます。
+                - generic [ref=e470]:
+                  - generic [ref=e471]: 売買判定キャッシュ
+                  - button "最新判定を一括計算 手動" [ref=e472] [cursor=pointer]:
+                    - generic [ref=e473]:
+                      - img [ref=e474]
+                      - generic [ref=e477]: 最新判定を一括計算
+                    - generic [ref=e478]: 手動
+                  - generic [ref=e479]: 最新営業日の ML/売り判定を全銘柄分まとめて再計算し、次回表示を速くします。
+                - generic [ref=e480]:
+                  - generic [ref=e481]: スクショ
+                  - generic [ref=e482]: "保存先: %USERPROFILE%\\\\Downloads\\\\MeeMeeScreener"
+                - generic [ref=e483]:
+                  - generic [ref=e484]: 銘柄一覧
+                  - button "書き出し BK" [ref=e485] [cursor=pointer]:
+                    - generic [ref=e486]:
+                      - img [ref=e487]
+                      - generic [ref=e490]: 書き出し
+                    - generic [ref=e491]: BK
+                  - button "code.txt 編集" [ref=e492] [cursor=pointer]:
+                    - generic [ref=e493]:
+                      - img [ref=e494]
+                      - generic [ref=e497]: code.txt
+                    - generic [ref=e498]: 編集
+                - generic [ref=e499]:
+                  - generic [ref=e500]: イベント
+                  - button "イベント更新 手動" [ref=e501] [cursor=pointer]:
+                    - generic [ref=e502]:
+                      - img [ref=e503]
+                      - generic [ref=e506]: イベント更新
+                    - generic [ref=e507]: 手動
+                  - generic [ref=e508]: "状態: 待機中"
+                  - generic [ref=e509]: "最終試行: 2026/03/13"
+                - generic [ref=e510]: MeeMee v0.0.2
+        - generic [ref=e56]:
+          - generic [ref=e57]:
+            - button "月足" [ref=e58] [cursor=pointer]
+            - button "週足" [ref=e59] [cursor=pointer]
+            - button "日足" [ref=e60] [cursor=pointer]
+          - generic [ref=e61]:
+            - button "60本" [ref=e62] [cursor=pointer]
+            - button "120本" [ref=e63] [cursor=pointer]
+            - button "240本" [ref=e64] [cursor=pointer]
+            - button "360本" [ref=e65] [cursor=pointer]
+          - button "業種" [ref=e67] [cursor=pointer]:
+            - generic [ref=e68]: 業種
+          - searchbox "コード / 銘柄名で検索" [ref=e70]
+          - generic [ref=e71]:
+            - generic [ref=e72]: "状態: 待機中"
+            - generic [ref=e73]: "イベント最終更新: 2026/03/13"
+            - generic [ref=e74]: "権利データ範囲: ～2026/03/19"
+    - generic [ref=e855]:
+      - generic [ref=e856]: 一覧の読み込みに失敗しました
+      - generic [ref=e857]: 一覧の読み込みに失敗しました。timeout of 15000ms exceeded / Request failed with status code 404
+      - button "再読み込み" [ref=e858]
+    - generic:
+      - button "相談バーを展開する"
+      - generic:
+        - generic:
+          - generic: 候補 0件
+        - generic:
+          - button "相談作成" [disabled]
+          - button "コピー" [disabled]
+          - button "閉じる"
+    - status [ref=e859]:
+      - generic [ref=e860]: 売買判定キャッシュの一括計算を開始しました。最新営業日の約700銘柄分を事前計算します。

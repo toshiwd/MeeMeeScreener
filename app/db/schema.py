@@ -4,7 +4,6 @@ import sqlite3
 import threading
 
 import duckdb
-
 from app.core.config import FAVORITES_DB_PATH, PRACTICE_DB_PATH, config
 
 _SCHEMA_INIT_LOCK = threading.Lock()
@@ -18,77 +17,67 @@ def _try_alter_table(conn: duckdb.DuckDBPyConnection, sql: str) -> None:
         pass
 
 
+def _table_sql(conn: duckdb.DuckDBPyConnection, table_name: str) -> str:
+    row = conn.execute(
+        "SELECT sql FROM duckdb_tables() WHERE table_name = ?",
+        [str(table_name)],
+    ).fetchone()
+    return str(row[0]) if row and row[0] is not None else ""
 
-def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS tickers (
-            code TEXT PRIMARY KEY,
-            name TEXT
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS daily_bars (
-            code TEXT,
-            date INTEGER,
-            o DOUBLE,
-            h DOUBLE,
-            l DOUBLE,
-            c DOUBLE,
-            v BIGINT,
-            source TEXT DEFAULT 'pan',
-            PRIMARY KEY(code, date)
-        );
-        """
-    )
-    _try_alter_table(conn, "ALTER TABLE daily_bars ADD COLUMN source TEXT DEFAULT 'pan'")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS daily_bar_source_revision_log (
-            run_id TEXT,
-            code TEXT,
-            date INTEGER,
-            old_source TEXT,
-            new_source TEXT,
-            detected_at TIMESTAMP,
-            PRIMARY KEY(run_id, code, date, old_source, new_source)
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS daily_ma (
-            code TEXT,
-            date INTEGER,
-            ma7 DOUBLE,
-            ma20 DOUBLE,
-            ma60 DOUBLE,
-            PRIMARY KEY(code, date)
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS feature_snapshot_daily (
-            dt INTEGER,
-            code TEXT,
-            close DOUBLE,
-            ma7 DOUBLE,
-            ma20 DOUBLE,
-            ma60 DOUBLE,
-            atr14 DOUBLE,
-            diff20_pct DOUBLE,
-            diff20_atr DOUBLE,
-            cnt_20_above INTEGER,
-            cnt_7_above INTEGER,
-            day_count INTEGER,
-            candle_flags TEXT,
-            PRIMARY KEY(code, dt)
-        );
-        """
-    )
+
+def _ensure_daily_bar_source_revision_log_pk(conn: duckdb.DuckDBPyConnection) -> None:
+    sql = _table_sql(conn, "daily_bar_source_revision_log")
+    if not sql:
+        return
+    normalized = sql.lower()
+    if "primary key(run_id, code, date, old_source, new_source)" in normalized:
+        return
+
+    conn.execute("DROP TABLE IF EXISTS _tmp_daily_bar_source_revision_log_migration")
+    try:
+        conn.execute(
+            """
+            CREATE TABLE _tmp_daily_bar_source_revision_log_migration (
+                run_id TEXT,
+                code TEXT,
+                date INTEGER,
+                old_source TEXT,
+                new_source TEXT,
+                detected_at TIMESTAMP,
+                PRIMARY KEY(run_id, code, date, old_source, new_source)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO _tmp_daily_bar_source_revision_log_migration (
+                run_id,
+                code,
+                date,
+                old_source,
+                new_source,
+                detected_at
+            )
+            SELECT
+                run_id,
+                code,
+                date,
+                old_source,
+                new_source,
+                MAX(detected_at) AS detected_at
+            FROM daily_bar_source_revision_log
+            GROUP BY run_id, code, date, old_source, new_source
+            """
+        )
+        conn.execute("DROP TABLE daily_bar_source_revision_log")
+        conn.execute(
+            "ALTER TABLE _tmp_daily_bar_source_revision_log_migration RENAME TO daily_bar_source_revision_log"
+        )
+    finally:
+        conn.execute("DROP TABLE IF EXISTS _tmp_daily_bar_source_revision_log_migration")
+
+
+def _init_legacy_analysis_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS label_20d (
@@ -198,6 +187,128 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
             n_train INTEGER,
             created_at TIMESTAMP,
             is_active BOOLEAN
+        );
+        """
+    )
+
+
+
+def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tickers (
+            code TEXT PRIMARY KEY,
+            name TEXT
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_bars (
+            code TEXT,
+            date INTEGER,
+            o DOUBLE,
+            h DOUBLE,
+            l DOUBLE,
+            c DOUBLE,
+            v BIGINT,
+            source TEXT DEFAULT 'pan',
+            PRIMARY KEY(code, date)
+        );
+        """
+    )
+    _try_alter_table(conn, "ALTER TABLE daily_bars ADD COLUMN source TEXT DEFAULT 'pan'")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_bar_source_revision_log (
+            run_id TEXT,
+            code TEXT,
+            date INTEGER,
+            old_source TEXT,
+            new_source TEXT,
+            detected_at TIMESTAMP,
+            PRIMARY KEY(run_id, code, date, old_source, new_source)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_ma (
+            code TEXT,
+            date INTEGER,
+            ma7 DOUBLE,
+            ma20 DOUBLE,
+            ma60 DOUBLE,
+            PRIMARY KEY(code, date)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS stock_meta (
+            code TEXT PRIMARY KEY,
+            name TEXT,
+            stage TEXT,
+            score DOUBLE,
+            reason TEXT,
+            score_status TEXT,
+            missing_reasons_json TEXT,
+            score_breakdown_json TEXT,
+            latest_close DOUBLE,
+            monthly_box_status TEXT,
+            box_duration INTEGER,
+            box_upper DOUBLE,
+            box_lower DOUBLE,
+            ma20_monthly_trend TEXT,
+            days_since_peak INTEGER,
+            days_since_bottom INTEGER,
+            signal_flags TEXT,
+            updated_at TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS earnings_planned (
+            code TEXT,
+            planned_date DATE,
+            kind TEXT,
+            company_name TEXT,
+            source TEXT,
+            fetched_at TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ex_rights (
+            code TEXT,
+            ex_date DATE,
+            record_date DATE,
+            category TEXT,
+            last_rights_date DATE,
+            source TEXT,
+            fetched_at TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS feature_snapshot_daily (
+            dt INTEGER,
+            code TEXT,
+            close DOUBLE,
+            ma7 DOUBLE,
+            ma20 DOUBLE,
+            ma60 DOUBLE,
+            atr14 DOUBLE,
+            diff20_pct DOUBLE,
+            diff20_atr DOUBLE,
+            cnt_20_above INTEGER,
+            cnt_7_above INTEGER,
+            day_count INTEGER,
+            candle_flags TEXT,
+            PRIMARY KEY(code, dt)
         );
         """
     )
@@ -445,6 +556,82 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS taisyaku_issue_master (
+            application_date INTEGER,
+            code TEXT,
+            issue_name TEXT,
+            tse_flag INTEGER,
+            jnx_flag INTEGER,
+            odx_flag INTEGER,
+            jax_flag INTEGER,
+            nse_flag INTEGER,
+            fse_flag INTEGER,
+            sse_flag INTEGER,
+            fetched_at TIMESTAMP,
+            PRIMARY KEY(code, application_date)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS taisyaku_balance_daily (
+            application_date INTEGER,
+            settlement_date INTEGER,
+            code TEXT,
+            issue_name TEXT,
+            market_name TEXT,
+            report_type TEXT,
+            finance_new_shares BIGINT,
+            finance_repay_shares BIGINT,
+            finance_balance_shares BIGINT,
+            stock_new_shares BIGINT,
+            stock_repay_shares BIGINT,
+            stock_balance_shares BIGINT,
+            net_balance_shares BIGINT,
+            loan_ratio DOUBLE,
+            fetched_at TIMESTAMP,
+            PRIMARY KEY(code, application_date, market_name, report_type)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS taisyaku_fee_daily (
+            application_date INTEGER,
+            settlement_date INTEGER,
+            code TEXT,
+            issue_name TEXT,
+            market_name TEXT,
+            reason_type TEXT,
+            reason_value TEXT,
+            price_yen DOUBLE,
+            stock_excess_shares BIGINT,
+            max_fee_yen DOUBLE,
+            current_fee_yen DOUBLE,
+            fee_days INTEGER,
+            prior_fee_yen DOUBLE,
+            fetched_at TIMESTAMP,
+            PRIMARY KEY(code, application_date, market_name)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS taisyaku_restriction_notices (
+            code TEXT,
+            issue_name TEXT,
+            announcement_kind TEXT,
+            measure_type TEXT,
+            measure_detail TEXT,
+            notice_date INTEGER,
+            afternoon_stop TEXT,
+            fetched_at TIMESTAMP,
+            PRIMARY KEY(code, measure_type, measure_detail, notice_date)
+        );
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS sys_jobs (
             id TEXT PRIMARY KEY,
             type TEXT,
@@ -593,50 +780,6 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ranking_analysis_quality_daily (
-            as_of_ymd INTEGER,
-            scope TEXT,
-            precision_top30_20d DOUBLE,
-            avg_ret20_net DOUBLE,
-            ece DOUBLE,
-            samples INTEGER,
-            decision_match_rate DOUBLE,
-            decision_match_samples INTEGER,
-            rolling_precision_delta_pt DOUBLE,
-            rolling_avg_ret_delta DOUBLE,
-            rolling_target_met BOOLEAN,
-            up_gate_defensive DOUBLE,
-            up_gate_balanced DOUBLE,
-            up_gate_aggressive DOUBLE,
-            table_health_json TEXT,
-            alerts_json TEXT,
-            computed_at TIMESTAMP,
-            updated_at TIMESTAMP,
-            PRIMARY KEY(as_of_ymd, scope)
-        );
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS swing_setup_stats_daily (
-            as_of_ymd INTEGER,
-            side TEXT,
-            setup_type TEXT,
-            horizon_days INTEGER,
-            samples INTEGER,
-            win_rate DOUBLE,
-            mean_ret DOUBLE,
-            p25_ret DOUBLE,
-            p10_ret DOUBLE,
-            max_adverse DOUBLE,
-            computed_at TIMESTAMP,
-            PRIMARY KEY(as_of_ymd, side, setup_type, horizon_days)
-        );
-        """
-    )
-
     # Trade history / positions (used by /api/trades and Positions UI).
     # Keep schemas compatible with legacy inserts from `app.backend.import_positions`.
     conn.execute(
@@ -708,6 +851,12 @@ def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     # the target DB has all required tables.
     with _SCHEMA_INIT_LOCK:
         _init_duckdb_schema(conn)
+        _ensure_daily_bar_source_revision_log_pk(conn)
+
+
+def ensure_legacy_analysis_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    with _SCHEMA_INIT_LOCK:
+        _init_legacy_analysis_schema(conn)
 
 
 def init_schema() -> None:

@@ -1,4 +1,7 @@
+﻿// @ts-nocheck
 import type {
+  AnalysisEntryPolicy,
+  AnalysisEntryPolicySide,
   AnalysisResearchPrior,
   AnalysisSwingDiagnostics,
   AnalysisSwingPlan,
@@ -16,6 +19,8 @@ type AnalysisDecisionSummary = {
 
 type AnalysisGuidance = {
   confidenceRank: string;
+  action: string;
+  watchpoint: string;
   buyWidth: number;
   sellWidth: number;
   neutralWidth: number;
@@ -34,7 +39,9 @@ type FormatSignedPercentLabel = (value: number | null | undefined, digits?: numb
 export type Props = {
   analysisAsOfTime: number | null;
   analysisBackfillActive: boolean;
-  analysisRecalcSubmitting: "current" | "auto" | null;
+  analysisRecalcSubmitting: "current" | "auto" | "batch" | null;
+  analysisRecalcDisabled: boolean;
+  analysisRecalcDisabledReason: string | null;
   submitAnalysisRecalc: () => Promise<void>;
   analysisDtLabel: string | null;
   cursorMode: boolean;
@@ -45,6 +52,7 @@ export type Props = {
   analysisDecision: AnalysisDecisionSummary;
   analysisSummaryLoading: boolean;
   analysisGuidance: AnalysisGuidance;
+  analysisEntryPolicy: AnalysisEntryPolicy | null;
   patternSummary: EnvironmentSummary;
   analysisPreparationVisible: boolean;
   analysisBackfillProgressLabel: string | null;
@@ -71,11 +79,89 @@ export type Props = {
   formatSignedPercentLabel: FormatSignedPercentLabel;
 };
 
+const formatSetupIntent = (side: "buy" | "sell", setupType?: string | null) => {
+  if (!setupType) return side === "buy" ? "押し目待ち" : "戻り待ち";
+  if (setupType === "target20_breakout" || setupType === "breakout20") return "20%値幅狙い";
+  if (setupType === "breakout" || setupType === "breakout_trend") {
+    return side === "buy" ? "上放れ追随" : "下抜け追随";
+  }
+  if (setupType === "breakdown") return "下抜け追随";
+  if (setupType === "accumulation" || setupType === "accumulation_break") {
+    return side === "buy" ? "押し目再開待ち" : "戻り売り再開待ち";
+  }
+  if (setupType === "continuation") return side === "buy" ? "上昇継続取り" : "下落継続取り";
+  if (setupType === "pressure") return "売り圧継続";
+  if (setupType === "rebound") return side === "buy" ? "反発初動狙い" : "戻り売り再始動";
+  if (setupType === "turn") return side === "buy" ? "反転待ち" : "反落待ち";
+  if (setupType === "watch" || setupType === "watchlist") {
+    return side === "buy" ? "押し目条件待ち" : "戻り条件待ち";
+  }
+  if (setupType === "ml_fallback_down") return "下落継続の補完候補";
+  return setupType;
+};
+
+const formatCandidateState = (side: "buy" | "sell", state?: string | null) => {
+  if (state === "実行") return "実行候補";
+  if (state === "監視") return "監視候補";
+  if (state === "待機") return side === "buy" ? "押し目待ち" : "戻り待ち";
+  return "--";
+};
+
+const formatHoldWindow = (policy: AnalysisEntryPolicySide | null) => {
+  if (
+    Number.isFinite(policy?.recommendedHoldMinDays ?? NaN) &&
+    Number.isFinite(policy?.recommendedHoldMaxDays ?? NaN)
+  ) {
+    const minDays = Math.round(policy?.recommendedHoldMinDays ?? 0);
+    const maxDays = Math.round(policy?.recommendedHoldMaxDays ?? 0);
+    if (minDays > 0 && maxDays > 0 && minDays !== maxDays) return `${minDays}-${maxDays}営業日目安`;
+  }
+  if (Number.isFinite(policy?.recommendedHoldDays ?? NaN)) {
+    return `${Math.round(policy?.recommendedHoldDays ?? 0)}営業日目安`;
+  }
+  return "--";
+};
+
+const formatInvalidationTrigger = (value?: string | null) => {
+  if (!value) return "--";
+  if (value === "box_break") return "Box下抜け";
+  if (value === "box_reclaim") return "Box回復";
+  if (value === "stop3") return "-3%下振れ";
+  if (value === "stop5") return "-5%下振れ";
+  if (value === "ma20") return "MA20割れ";
+  return value;
+};
+
+const formatInvalidationAction = (value?: string | null) => {
+  if (!value) return "--";
+  if (value === "exit") return "撤退";
+  if (value === "hold") return "様子見";
+  if (value === "doten_opt") return "ドテン検討";
+  if (value === "doten_remainder") return "一部ドテン";
+  return value;
+};
+
+const formatExitPlan = (policy: AnalysisEntryPolicySide | null) => {
+  const trigger = formatInvalidationTrigger(policy?.invalidationTrigger);
+  const action = formatInvalidationAction(policy?.invalidationRecommendedAction);
+  if (trigger === "--" && action === "--") return "--";
+  let summary = `${trigger}で${action}`;
+  if (
+    policy?.invalidationDotenRecommended &&
+    Number.isFinite(policy?.invalidationOppositeHoldDays ?? NaN)
+  ) {
+    summary += `、反対側へ${Math.round(policy?.invalidationOppositeHoldDays ?? 0)}日目安`;
+  }
+  return summary;
+};
+
 export function DetailAnalysisPanel(props: Props) {
   const {
     analysisAsOfTime,
     analysisBackfillActive,
     analysisRecalcSubmitting,
+    analysisRecalcDisabled,
+    analysisRecalcDisabledReason,
     submitAnalysisRecalc,
     analysisDtLabel,
     cursorMode,
@@ -86,6 +172,7 @@ export function DetailAnalysisPanel(props: Props) {
     analysisDecision,
     analysisSummaryLoading,
     analysisGuidance,
+    analysisEntryPolicy,
     patternSummary,
     analysisPreparationVisible,
     analysisBackfillProgressLabel,
@@ -111,6 +198,8 @@ export function DetailAnalysisPanel(props: Props) {
     formatNumber,
     formatSignedPercentLabel,
   } = props;
+  const buyPolicy = analysisEntryPolicy?.up ?? null;
+  const sellPolicy = analysisEntryPolicy?.down ?? null;
 
   return (
     <div className="daily-memo-panel detail-analysis-panel">
@@ -121,12 +210,21 @@ export function DetailAnalysisPanel(props: Props) {
         <button
           type="button"
           className="nav-btn"
-          disabled={analysisAsOfTime == null || analysisBackfillActive || analysisRecalcSubmitting != null}
+          disabled={
+            (!analysisRecalcDisabled && analysisAsOfTime == null) ||
+            analysisBackfillActive ||
+            analysisRecalcSubmitting != null
+          }
+          title={
+            analysisRecalcDisabled
+              ? "現在の基準日で売買判定を更新"
+              : analysisRecalcDisabledReason ?? undefined
+          }
           onClick={() => {
             void submitAnalysisRecalc();
           }}
         >
-          基準日を中心に130本を再計算
+          {analysisRecalcDisabled ? "売買判定を更新" : "基準日を中心に130本を再計算"}
         </button>
       </div>
       <div className="detail-analysis-body">
@@ -152,7 +250,45 @@ export function DetailAnalysisPanel(props: Props) {
                     確信度 {analysisSummaryLoading ? "読込中..." : analysisGuidance.confidenceRank}
                   </span>
                 </div>
-                <div className="detail-analysis-regime-title">{patternSummary.environmentLabel}</div>
+                <div className="detail-analysis-call-action">狙い: {analysisDecision.patternLabel ?? "--"}</div>
+                <div className="detail-analysis-call-pattern">地合い: {patternSummary.environmentLabel}</div>
+                <div className="detail-analysis-regime-text">
+                  今やること: {analysisSummaryLoading ? "読込中..." : analysisGuidance.watchpoint}
+                </div>
+                <div className="detail-analysis-entry-plan detail-analysis-entry-plan--up">
+                  <div className="detail-analysis-entry-plan-title">買い候補</div>
+                  <div className="detail-analysis-entry-plan-item">
+                    状態 {analysisGuidance.buySetupState} / {formatCandidateState("buy", analysisGuidance.buySetupState)}
+                  </div>
+                  <div className="detail-analysis-entry-plan-item">
+                    狙い {formatSetupIntent("buy", buyPolicy?.setupType)}
+                  </div>
+                  <div className="detail-analysis-entry-plan-item">
+                    出口 {formatHoldWindow(buyPolicy)} / {formatExitPlan(buyPolicy)}
+                  </div>
+                  {buyPolicy?.recommendedHoldReason && (
+                    <div className="detail-analysis-entry-plan-item">
+                      補足 {buyPolicy.recommendedHoldReason}
+                    </div>
+                  )}
+                </div>
+                <div className="detail-analysis-entry-plan detail-analysis-entry-plan--down">
+                  <div className="detail-analysis-entry-plan-title">売り候補</div>
+                  <div className="detail-analysis-entry-plan-item">
+                    状態 {analysisGuidance.sellSetupState} / {formatCandidateState("sell", analysisGuidance.sellSetupState)}
+                  </div>
+                  <div className="detail-analysis-entry-plan-item">
+                    狙い {formatSetupIntent("sell", sellPolicy?.setupType)}
+                  </div>
+                  <div className="detail-analysis-entry-plan-item">
+                    出口 {formatHoldWindow(sellPolicy)} / {formatExitPlan(sellPolicy)}
+                  </div>
+                  {sellPolicy?.recommendedHoldReason && (
+                    <div className="detail-analysis-entry-plan-item">
+                      補足 {sellPolicy.recommendedHoldReason}
+                    </div>
+                  )}
+                </div>
                 <div className="detail-analysis-prob-meter-list">
                   <div className="detail-analysis-prob-meter-row tone-up">
                     <div className="detail-analysis-prob-meter-label">

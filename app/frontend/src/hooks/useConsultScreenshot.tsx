@@ -5,7 +5,7 @@ import { OffscreenDetailView } from "../components/OffscreenDetailView";
 import { api } from "../api";
 
 import { useStore } from "../store";
-import { captureWindowBlob, saveBlobToFile } from "../utils/windowScreenshot";
+import { saveBlobToFile } from "../utils/windowScreenshot";
 
 const WAIT_FRAMES = 20; // Increased for chart rendering
 
@@ -78,7 +78,9 @@ export const useConsultScreenshot = () => {
                     try {
                         const metaRes = await api.get(`/stocks/${code}`);
                         tickerName = metaRes.data?.name ?? code;
-                    } catch { }
+                    } catch {
+                        // Fallback to the ticker code when metadata lookup fails.
+                    }
 
                     // Fetch daily/weekly/monthly in one round-trip.
                     const barsRes = await api.post("/batch_bars_v3", {

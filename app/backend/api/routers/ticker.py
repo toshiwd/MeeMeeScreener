@@ -18,12 +18,13 @@ from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.domain.screening import ranking
 from app.backend.tdnetdb.repository import TdnetdbRepository
 from app.backend.services import rankings_cache
-from app.backend.services.bar_aggregation import merge_monthly_rows_with_daily
-from app.backend.services.edinet_rank_features import load_edinet_rank_features
+from app.backend.services.data.bar_aggregation import merge_monthly_rows_with_daily
+from app.backend.services.ml.edinet_rank_features import load_edinet_rank_features
+from app.backend.services.data.taisyaku_import import load_taisyaku_snapshot
 from app.backend.services.jpx_calendar import get_jpx_session_info, should_pan_be_finalized_for_date
-from app.backend.services.analysis_decision import build_analysis_decision
+from app.backend.services.analysis.analysis_decision import build_analysis_decision
 from app.backend.services import swing_expectancy_service, swing_plan_service
-from app.backend.services.yahoo_provisional import (
+from app.backend.services.data.yahoo_provisional import (
     apply_split_gap_adjustment,
     get_provisional_daily_row_from_chart,
     merge_daily_rows_with_provisional,
@@ -108,10 +109,45 @@ def _format_date_key(date_key: int | None) -> str | None:
     return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
 
 
+def _format_jst_timestamp(ts: int | float | None) -> str | None:
+    if ts is None:
+        return None
+    try:
+        jst = timezone(timedelta(hours=9))
+        return datetime.fromtimestamp(float(ts), tz=jst).strftime("%Y-%m-%d %H:%M JST")
+    except Exception:
+        return None
+
+
+def _build_market_data_status_message(
+    *,
+    has_provisional: bool,
+    pan_delayed: bool,
+    delayed_pending_date: int | None,
+    pending_yahoo_date: int | None,
+    session: Any,
+    provisional_fetched_at_text: str | None = None,
+) -> str | None:
+    if not has_provisional:
+        return None
+    delayed_date_text = _format_date_key(delayed_pending_date)
+    pending_date_text = _format_date_key(pending_yahoo_date)
+    fetched_suffix = f"（最終取得 {provisional_fetched_at_text}）" if provisional_fetched_at_text else ""
+    if pan_delayed and delayed_date_text:
+        return f"PAN取込遅延中: {delayed_date_text} は Yahoo 仮データ{fetched_suffix}を表示しています。"
+    suffix = "（半日取引）" if session.day_type == "half_day" else ""
+    pending_suffix = f" [{pending_date_text}]" if pending_date_text else ""
+    return (
+        f"Yahoo 仮データ{fetched_suffix}を表示しています{pending_suffix}{suffix}。"
+        " PAN取込完了後に正データへ切り替わります。"
+    )
+
+
 def _load_market_data_meta(
     code: str,
     *,
     intraday_provisional_key: int | None,
+    provisional_fetched_at_ts: int | None,
     asof_dt: int | None,
 ) -> dict[str, Any] | None:
     if asof_dt is not None or not code:
@@ -165,6 +201,28 @@ def _load_market_data_meta(
     )
     pan_delayed = delayed_pending_date is not None
     has_provisional = pending_yahoo_date is not None
+    message = _build_market_data_status_message(
+        has_provisional=has_provisional,
+        pan_delayed=pan_delayed,
+        delayed_pending_date=delayed_pending_date,
+        pending_yahoo_date=pending_yahoo_date,
+        session=session,
+        provisional_fetched_at_text=_format_jst_timestamp(provisional_fetched_at_ts),
+    )
+    return {
+        "hasProvisional": has_provisional,
+        "panDelayed": pan_delayed,
+        "latestPanDate": latest_pan_date,
+        "latestYahooDate": latest_yahoo_date,
+        "latestResolvedDate": latest_resolved_date,
+        "pendingYahooDate": pending_yahoo_date,
+        "delayedPendingDate": delayed_pending_date,
+        "todayDayType": session.day_type,
+        "todayIsTradingDay": session.is_trading_day,
+        "closeTimeJst": session.close_time_jst,
+        "panFinalizeAfterJst": session.pan_finalize_after_jst,
+        "message": message,
+    }
     message: str | None = None
     delayed_date_text = _format_date_key(delayed_pending_date)
     pending_date_text = _format_date_key(pending_yahoo_date)
@@ -199,10 +257,11 @@ def _load_monthly_rows_with_provisional(
     *,
     limit: int,
     asof_dt: int | None,
-) -> tuple[List[tuple], int | None]:
+) -> tuple[List[tuple], int | None, int | None]:
     rows = repo.get_monthly_bars(code, limit, asof_dt)
     patch_daily_rows = repo.get_daily_bars(code, 62, asof_dt)
     intraday_provisional_key: int | None = None
+    provisional_fetched_at_ts: int | None = None
     if asof_dt is None:
         try:
             provisional_row = get_provisional_daily_row_from_chart(code)
@@ -210,12 +269,13 @@ def _load_monthly_rows_with_provisional(
             if provisional_key == _today_jst_key():
                 patch_daily_rows = merge_daily_rows_with_provisional(patch_daily_rows, provisional_row)
                 intraday_provisional_key = provisional_key
+                provisional_fetched_at_ts = int(time.time())
         except Exception as exc:
             logger.debug("Yahoo provisional monthly merge skipped for code=%s: %s", code, exc)
     patch_daily_rows = apply_split_gap_adjustment(patch_daily_rows)
     rows = merge_monthly_rows_with_daily(rows, patch_daily_rows)
     rows = apply_split_gap_adjustment(rows)
-    return rows, intraday_provisional_key
+    return rows, intraday_provisional_key, provisional_fetched_at_ts
 
 
 @router.get("/daily", response_model=None)
@@ -230,6 +290,7 @@ def get_daily_bars(
     asof_dt = _parse_dt(asof)
     rows = repo.get_daily_bars(code, limit, asof_dt)
     intraday_provisional_key: int | None = None
+    provisional_fetched_at_ts: int | None = None
     try:
         provisional_row = get_provisional_daily_row_from_chart(code)
         today_key_jst = _today_jst_key()
@@ -237,12 +298,14 @@ def get_daily_bars(
         if provisional_key == today_key_jst:
             rows = merge_daily_rows_with_provisional(rows, provisional_row, asof_dt=asof_dt)
             intraday_provisional_key = provisional_key
+            provisional_fetched_at_ts = int(time.time())
     except Exception as exc:
         logger.debug("Yahoo provisional merge skipped for code=%s: %s", code, exc)
     rows = apply_split_gap_adjustment(rows)
     meta = _load_market_data_meta(
         code,
         intraday_provisional_key=intraday_provisional_key,
+        provisional_fetched_at_ts=provisional_fetched_at_ts,
         asof_dt=asof_dt,
     )
     return {"data": _normalize_rows(rows, fill_volume=True), "errors": [], "meta": meta}
@@ -258,7 +321,7 @@ def get_monthly_bars(
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
     asof_dt = _parse_dt(asof)
-    rows, intraday_provisional_key = _load_monthly_rows_with_provisional(
+    rows, intraday_provisional_key, provisional_fetched_at_ts = _load_monthly_rows_with_provisional(
         repo,
         code,
         limit=limit,
@@ -267,6 +330,7 @@ def get_monthly_bars(
     meta = _load_market_data_meta(
         code,
         intraday_provisional_key=intraday_provisional_key,
+        provisional_fetched_at_ts=provisional_fetched_at_ts,
         asof_dt=asof_dt,
     )
     return {"data": _normalize_rows(rows, fill_volume=True), "errors": [], "meta": meta}
@@ -282,7 +346,7 @@ def get_boxes(
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
     asof_dt = _parse_dt(asof)
-    rows, _ = _load_monthly_rows_with_provisional(
+    rows, _, _ = _load_monthly_rows_with_provisional(
         repo,
         code,
         limit=limit,
@@ -491,6 +555,42 @@ def _build_exact_analysis_decision(
         else None,
         additive_signals=additive_signals if isinstance(additive_signals, dict) else None,
         sell_analysis=sell_context if isinstance(sell_context, dict) else None,
+    )
+
+
+def _build_cached_analysis_decision(
+    *,
+    analysis_point: Dict[str, Any],
+) -> Dict[str, Any]:
+    p_up = _to_float_or_none(analysis_point.get("pUp"))
+    p_down = _to_float_or_none(analysis_point.get("pDown"))
+    if p_down is None and p_up is not None:
+        p_down = 1.0 - p_up
+    p_turn_up = _to_float_or_none(analysis_point.get("pTurnUp"))
+    p_turn_down = _to_float_or_none(analysis_point.get("pTurnDown"))
+    ev20_net = _to_float_or_none(analysis_point.get("ev20Net"))
+    sell_context = {
+        "pDown": _to_float_or_none(analysis_point.get("sellPDown")),
+        "pTurnDown": _to_float_or_none(analysis_point.get("sellPTurnDown")),
+        "trendDown": analysis_point.get("trendDown"),
+        "trendDownStrict": analysis_point.get("trendDownStrict"),
+        "shortRet5": _to_float_or_none(analysis_point.get("shortRet5")),
+        "shortRet10": _to_float_or_none(analysis_point.get("shortRet10")),
+        "shortRet20": _to_float_or_none(analysis_point.get("shortRet20")),
+        "shortWin5": analysis_point.get("shortWin5"),
+        "shortWin10": analysis_point.get("shortWin10"),
+        "shortWin20": analysis_point.get("shortWin20"),
+    }
+    return build_analysis_decision(
+        analysis_p_up=p_up,
+        analysis_p_down=p_down,
+        analysis_p_turn_up=p_turn_up,
+        analysis_p_turn_down=p_turn_down,
+        analysis_ev_net=ev20_net,
+        playbook_up_score_bonus=None,
+        playbook_down_score_bonus=None,
+        additive_signals=None,
+        sell_analysis=sell_context,
     )
 
 
@@ -1669,6 +1769,16 @@ def get_tdnet_disclosures(code: str, limit: int = Query(10, ge=1, le=100)) -> Di
     return {"items": repo.list_disclosures_by_code(code, limit=limit)}
 
 
+@router.get("/taisyaku/snapshot", response_model=None)
+def get_taisyaku_snapshot(
+    code: str,
+    history_limit: int = Query(10, ge=1, le=60),
+) -> Dict[str, Any]:
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+    return {"item": load_taisyaku_snapshot(code, history_limit=history_limit)}
+
+
 @router.post("/tdnet/disclosures/import", response_model=None)
 def import_tdnet_disclosures(
     payload: Dict[str, Any] | list[Dict[str, Any]] = Body(...),
@@ -1741,57 +1851,19 @@ def get_exact_analysis_decisions(
     if start_key is None or end_key is None:
         return {"items": []}
 
-    daily_rows_all = repo.get_daily_bars(code, limit=2000, asof_dt=end_asof)
-    if not daily_rows_all:
-        return {"items": []}
-    monthly_rows_all = repo.get_monthly_bars(code, limit=120, asof_dt=end_asof)
-    timeline_limit = min(2000, max(400, len(daily_rows_all) + 32))
+    timeline_limit = 400
     timeline_items = repo.get_analysis_timeline(code, end_asof, limit=timeline_limit)
-    analysis_by_key: Dict[int, Dict[str, Any]] = {}
-    for item in timeline_items:
-        dt_key = _normalize_date_key(item.get("dt"))
-        if dt_key is None:
-            continue
-        analysis_by_key[dt_key] = item
-
-    candidate_daily_rows: list[tuple[int, int, int]] = []
-    for index, row in enumerate(daily_rows_all):
-        asof_row = _parse_dt(row[0] if row else None)
-        dt_key = _normalize_date_key(row[0] if row else None)
-        if asof_row is None or dt_key is None:
-            continue
-        if dt_key < start_key or dt_key > end_key:
-            continue
-        candidate_daily_rows.append((index, asof_row, dt_key))
-
-    if not candidate_daily_rows:
-        return {"items": []}
-
-    monthly_prefix_end = 0
     items: list[Dict[str, Any]] = []
-    for index, asof_row, dt_key in candidate_daily_rows:
-        analysis_point = analysis_by_key.get(dt_key)
+    for analysis_point in timeline_items:
         if not isinstance(analysis_point, dict):
             continue
-        asof_month_key = int(datetime.fromtimestamp(asof_row, tz=timezone.utc).strftime("%Y%m"))
-        while monthly_prefix_end < len(monthly_rows_all):
-            month_key = _normalize_month_key(monthly_rows_all[monthly_prefix_end][0])
-            if month_key is None:
-                monthly_prefix_end += 1
-                continue
-            if month_key > asof_month_key:
-                break
-            monthly_prefix_end += 1
-        sell_row = repo.get_sell_analysis_snapshot(code, asof_row)
-        decision = _build_exact_analysis_decision(
-            analysis_point=analysis_point,
-            daily_rows=daily_rows_all[: index + 1],
-            monthly_rows=monthly_rows_all[:monthly_prefix_end],
-            sell_row=sell_row,
-            risk_mode=resolved_risk_mode,
-        )
+        dt_key = _normalize_date_key(analysis_point.get("dt"))
+        if dt_key is None or dt_key < start_key or dt_key > end_key:
+            continue
+        # Detail markers only need decision tone. Use the warmed timeline cache
+        # instead of rebuilding entry policy/additive signals for every bar.
+        decision = _build_cached_analysis_decision(analysis_point=analysis_point)
         items.append({"dt": dt_key, "decision": decision})
-
     return {"items": items}
 
 

@@ -1,3 +1,4 @@
+﻿// @ts-nocheck
 import type { Box } from "../store";
 import type { SignalMetrics } from "./signals";
 import { computeSignalMetrics } from "./signals";

@@ -10,6 +10,7 @@ APP_NAME = "MeeMeeScreener"
 DEFAULT_DATA_DIR_NAME = "data"
 CONFIG_FILENAME = "meemee.config.json"
 PORTABLE_FLAG_FILENAME = "portable.flag"
+DEFAULT_RESEARCH_HOME_NAME = "MeeMeeResearch"
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,29 @@ class AppConfig:
         self.DATA_DIR.mkdir(parents=True, exist_ok=True)
         (self.DATA_DIR / "txt").mkdir(exist_ok=True)
         (self.DATA_DIR / "logs").mkdir(exist_ok=True)
+        (self.DATA_DIR / "external_analysis").mkdir(exist_ok=True)
+
+    @property
+    def RESEARCH_HOME(self) -> Path:
+        env = os.getenv("MEEMEE_RESEARCH_HOME")
+        if env:
+            return Path(env).expanduser().resolve()
+        local_app_data = os.getenv("LOCALAPPDATA") or str(Path.home())
+        return (Path(local_app_data) / DEFAULT_RESEARCH_HOME_NAME).resolve()
+
+    @property
+    def RESEARCH_BRIDGE_DIR(self) -> Path:
+        env = os.getenv("MEEMEE_RESEARCH_BRIDGE_DIR")
+        if env:
+            return Path(env).expanduser().resolve()
+        return (self.RESEARCH_HOME / "bridge").resolve()
+
+    @property
+    def RESULT_DB_PATH(self) -> Path:
+        env = os.getenv("MEEMEE_RESULT_DB_PATH")
+        if env:
+            return Path(env).expanduser().resolve()
+        return (self.DATA_DIR / "external_analysis" / "result.duckdb").resolve()
 
     @property
     def DB_PATH(self) -> Path:

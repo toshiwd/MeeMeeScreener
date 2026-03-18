@@ -1,0 +1,70 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - generic [ref=e7]:
+            - generic [ref=e8]:
+              - generic [ref=e9]: MeeMee
+              - generic [ref=e10]: Screener
+            - navigation [ref=e11]:
+              - link "一覧に戻る" [ref=e12] [cursor=pointer]:
+                - /url: /
+              - link "ランキング" [ref=e13] [cursor=pointer]:
+                - /url: /ranking
+              - link "市場概況" [ref=e14] [cursor=pointer]:
+                - /url: /market
+              - link "保有" [ref=e15] [cursor=pointer]:
+                - /url: /positions
+              - link "お気に入り" [ref=e16] [cursor=pointer]:
+                - /url: /favorites
+              - link "候補" [ref=e17] [cursor=pointer]:
+                - /url: /candidates
+          - generic [ref=e19]:
+            - button "並び替えメニューを開く" [ref=e21] [cursor=pointer]:
+              - generic [ref=e22]: "並び: 仕込み優先度(A/B/C)"
+            - button "表示設定メニューを開く" [ref=e24] [cursor=pointer]:
+              - generic [ref=e25]: 表示
+            - button "フィルタ" [ref=e27] [cursor=pointer]:
+              - generic [ref=e28]: フィルタ
+            - button "日次更新" [ref=e30] [cursor=pointer]:
+              - generic [ref=e31]: 日次更新
+            - generic [ref=e32]:
+              - button "ウォークフォワード検証パネルを開く" [ref=e33] [cursor=pointer]:
+                - generic [ref=e34]: 検証
+              - button "設定メニューを開く" [ref=e35] [cursor=pointer]:
+                - img [ref=e37]
+        - generic [ref=e40]:
+          - generic [ref=e41]:
+            - button "月足" [ref=e42] [cursor=pointer]
+            - button "週足" [ref=e43] [cursor=pointer]
+            - button "日足" [ref=e44] [cursor=pointer]
+          - generic [ref=e45]:
+            - button "60本" [ref=e46] [cursor=pointer]
+            - button "120本" [ref=e47] [cursor=pointer]
+            - button "240本" [ref=e48] [cursor=pointer]
+            - button "360本" [ref=e49] [cursor=pointer]
+          - button "業種" [ref=e51] [cursor=pointer]:
+            - generic [ref=e52]: 業種
+          - searchbox "コード / 銘柄名で検索" [ref=e54]
+          - generic [ref=e55]:
+            - generic [ref=e56]: "状態: 待機中"
+            - generic [ref=e57]: "イベント最終更新: --"
+    - generic:
+      - button "相談バーを展開する"
+      - generic:
+        - generic:
+          - generic: 候補 0件
+        - generic:
+          - button "相談作成" [disabled]
+          - button "コピー" [disabled]
+          - button "閉じる"

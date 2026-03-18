@@ -10,6 +10,7 @@ from typing import Any
 
 import duckdb
 
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 from app.core.config import config as core_config
 from app.db.session import get_conn_for_path
 
@@ -883,6 +884,14 @@ def compute_ranking_analysis_quality_snapshot(
     persist: bool = True,
 ) -> dict[str, Any]:
     as_of = int(as_of_ymd) if as_of_ymd is not None else _ymd_int(_now_jst())
+    if is_legacy_analysis_disabled():
+        return {
+            "as_of": as_of,
+            "disabled_reason": "legacy_analysis_disabled",
+            "table_health": [],
+            "kpi_snapshot": {},
+            "alerts": [],
+        }
     with _connect_quality_db(read_only=(not persist)) as conn:
         table_health = _table_health_snapshot(conn, as_of_ymd=as_of)
         kpi_snapshot = _compute_kpi_snapshot(conn, as_of_ymd=as_of)
@@ -911,6 +920,8 @@ def compute_ranking_analysis_quality_snapshot(
 
 
 def get_latest_prob_up_gates() -> dict[str, float] | None:
+    if is_legacy_analysis_disabled():
+        return None
     now = datetime.now(timezone.utc)
     with _GATE_CACHE_LOCK:
         loaded_at = _GATE_CACHE.get("loaded_at")
@@ -957,6 +968,16 @@ def get_ranking_analysis_review(
 ) -> dict[str, Any]:
     window_days = max(1, min(int(days or 7), 90))
     threshold = max(1, int(min_occurrence or 2))
+    if is_legacy_analysis_disabled():
+        return {
+            "as_of": None,
+            "disabled_reason": "legacy_analysis_disabled",
+            "windowDays": window_days,
+            "minOccurrence": threshold,
+            "snapshots": [],
+            "reviewTargets": [],
+            "alertsFrequency": [],
+        }
     snapshots: list[dict[str, Any]] = []
     alert_count_map: dict[str, int] = {}
     table_count_map: dict[str, int] = {}

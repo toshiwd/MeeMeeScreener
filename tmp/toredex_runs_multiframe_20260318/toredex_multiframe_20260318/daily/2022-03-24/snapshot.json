@@ -1,0 +1,290 @@
+{
+  "asOf": "2022-03-24",
+  "configHash": "a1f27d7d0c379a5624463feb7d72defc5c93b677ca716722c536942a2ac71b3c",
+  "meta": {
+    "noFutureLeakOk": true,
+    "predDtBuy": null,
+    "predDtSell": null,
+    "requestedAsOf": "2022-03-24"
+  },
+  "mode": "LIVE",
+  "policyVersion": "toredex.v8",
+  "positions": [
+    {
+      "avgPrice": 28040.0,
+      "holdingDays": 1,
+      "openedAt": "2022-03-23",
+      "pnlPct": -0.24964336661911554,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1001",
+      "units": 2
+    },
+    {
+      "avgPrice": 2011.5,
+      "holdingDays": 2,
+      "openedAt": "2022-03-22",
+      "pnlPct": -2.7094208302261995,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1306",
+      "units": 2
+    },
+    {
+      "avgPrice": 1988.5,
+      "holdingDays": 2,
+      "openedAt": "2022-03-22",
+      "pnlPct": 2.74075936635655,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1308",
+      "units": 2
+    }
+  ],
+  "rankings": {
+    "buy": [
+      {
+        "changePct": 0.0031917505524183647,
+        "close": 2043.0,
+        "entryScore": 0.5645473048657605,
+        "ev": 0.0031917505524183647,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 1063608.2,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.598582683409827,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2022-03-24",
+        "ticker": "1308",
+        "timeframeSignals": {
+          "frameState": "BULLISH",
+          "monthlyBoxMonths": 14.0,
+          "monthlyBoxPos": 0.7923728813559322,
+          "monthlyBoxRangePct": 0.1271551724137931,
+          "monthlyBoxState": "box_upper",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.5686734204942159,
+          "monthlyBreakoutUpProb": 0.7091496109704064,
+          "monthlyRangePos": 0.7006802721088435,
+          "monthlyRangeProb": 0.7577828735710863,
+          "monthlyRangeWidth": 0.07043603258265453,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.598582683409827,
+          "weeklyBreakoutUpProb": 0.5614083347124322,
+          "weeklyRangeProb": 0.7914567074657584,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.5614083347124322
+      },
+      {
+        "changePct": 0.0031561058509346927,
+        "close": 2066.0,
+        "entryScore": 0.564388974032182,
+        "ev": 0.0031561058509346927,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 4584039.425,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.600744319963511,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2022-03-24",
+        "ticker": "1306",
+        "timeframeSignals": {
+          "frameState": "BULLISH",
+          "monthlyBoxMonths": 14.0,
+          "monthlyBoxPos": 0.7892561983471075,
+          "monthlyBoxRangePct": 0.12906666666666666,
+          "monthlyBoxState": "box_upper",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.5736754276178556,
+          "monthlyBreakoutUpProb": 0.699492421081908,
+          "monthlyRangePos": 0.6797385620915033,
+          "monthlyRangeProb": 0.7696912807676262,
+          "monthlyRangeWidth": 0.07234042553191489,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.600744319963511,
+          "weeklyBreakoutUpProb": 0.5646837139029048,
+          "weeklyRangeProb": 0.795783232133185,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.5646837139029048
+      },
+      {
+        "changePct": 0.0024964336661911554,
+        "close": 28110.0,
+        "entryScore": 0.5044963463105352,
+        "ev": 0.0024964336661911554,
+        "ev20Net": null,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 3803261102.3,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5845298013044775,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2022-03-24",
+        "ticker": "1001",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 14.0,
+          "monthlyBoxPos": 0.5413533834586466,
+          "monthlyBoxRangePct": 0.11030686873256428,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.5891008702434251,
+          "monthlyBreakoutUpProb": 0.6180482386644777,
+          "monthlyRangePos": 0.5413533834586466,
+          "monthlyRangeProb": 0.8275498322972535,
+          "monthlyRangeWidth": 0.09934809181040337,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5845298013044775,
+          "weeklyBreakoutUpProb": 0.4888392056247918,
+          "weeklyRangeProb": 0.6817547265967006,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.4888392056247918
+      }
+    ],
+    "sell": [
+      {
+        "changePct": 0.0031561058509346927,
+        "close": 2066.0,
+        "entryScore": 0.5485985803872492,
+        "ev": 0.0031561058509346927,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 4584039.425,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.600744319963511,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2022-03-24",
+        "ticker": "1306",
+        "timeframeSignals": {
+          "frameState": "BULLISH",
+          "monthlyBoxMonths": 14.0,
+          "monthlyBoxPos": 0.7892561983471075,
+          "monthlyBoxRangePct": 0.12906666666666666,
+          "monthlyBoxState": "box_upper",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.5736754276178556,
+          "monthlyBreakoutUpProb": 0.699492421081908,
+          "monthlyRangePos": 0.6797385620915033,
+          "monthlyRangeProb": 0.7696912807676262,
+          "monthlyRangeWidth": 0.07234042553191489,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.600744319963511,
+          "weeklyBreakoutUpProb": 0.5646837139029048,
+          "weeklyRangeProb": 0.795783232133185,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.600744319963511
+      },
+      {
+        "changePct": 0.0031917505524183647,
+        "close": 2043.0,
+        "entryScore": 0.5463265572899147,
+        "ev": 0.0031917505524183647,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 1063608.2,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.598582683409827,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2022-03-24",
+        "ticker": "1308",
+        "timeframeSignals": {
+          "frameState": "BULLISH",
+          "monthlyBoxMonths": 14.0,
+          "monthlyBoxPos": 0.7923728813559322,
+          "monthlyBoxRangePct": 0.1271551724137931,
+          "monthlyBoxState": "box_upper",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.5686734204942159,
+          "monthlyBreakoutUpProb": 0.7091496109704064,
+          "monthlyRangePos": 0.7006802721088435,
+          "monthlyRangeProb": 0.7577828735710863,
+          "monthlyRangeWidth": 0.07043603258265453,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.598582683409827,
+          "weeklyBreakoutUpProb": 0.5614083347124322,
+          "weeklyRangeProb": 0.7914567074657584,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.598582683409827
+      },
+      {
+        "changePct": 0.0024964336661911554,
+        "close": 28110.0,
+        "entryScore": 0.5437344050657219,
+        "ev": 0.0024964336661911554,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 3803261102.3,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5845298013044775,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2022-03-24",
+        "ticker": "1001",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 14.0,
+          "monthlyBoxPos": 0.5413533834586466,
+          "monthlyBoxRangePct": 0.11030686873256428,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.5891008702434251,
+          "monthlyBreakoutUpProb": 0.6180482386644777,
+          "monthlyRangePos": 0.5413533834586466,
+          "monthlyRangeProb": 0.8275498322972535,
+          "monthlyRangeWidth": 0.09934809181040337,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5845298013044775,
+          "weeklyBreakoutUpProb": 0.4888392056247918,
+          "weeklyRangeProb": 0.6817547265967006,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.5845298013044775
+      }
+    ]
+  },
+  "seasonId": "toredex_multiframe_20260318",
+  "universe": [
+    "1001",
+    "1306",
+    "1308"
+  ]
+}

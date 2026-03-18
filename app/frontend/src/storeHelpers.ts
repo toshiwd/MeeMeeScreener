@@ -288,7 +288,6 @@ export const startEventsMetaPolling = (
   if (eventsPollPromise) return eventsPollPromise;
   setEventsPollPromise(
     (async () => {
-      let sawRefreshing = false;
       let attempts = 0;
       const maxAttempts = EVENTS_POLL_MAX_ATTEMPTS;
       const intervalMs = EVENTS_POLL_INTERVAL_MS;
@@ -316,13 +315,6 @@ export const startEventsMetaPolling = (
                   lastError: payload?.error ?? prev.eventsMeta?.lastError ?? null
                 }
               }));
-              if (status === "success") {
-                try {
-                  await get().loadList();
-                } catch {
-                  // ignore list reload failures after events refresh
-                }
-              }
               try {
                 await get().loadEventsMeta();
               } catch {
@@ -335,16 +327,7 @@ export const startEventsMetaPolling = (
           }
         }
 
-        if (meta?.isRefreshing) {
-          sawRefreshing = true;
-        } else {
-          if (sawRefreshing) {
-            try {
-              await get().loadList();
-            } catch {
-              // ignore list reload failures after refresh completes
-            }
-          }
+        if (!meta?.isRefreshing) {
           break;
         }
 

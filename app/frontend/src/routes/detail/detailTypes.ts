@@ -277,6 +277,7 @@ export type TdnetDisclosureItem = {
   disclosureId: string | null;
   title: string | null;
   publishedAt: string | null;
+  fetchedAt: string | null;
   tdnetUrl: string | null;
   pdfUrl: string | null;
   xbrlUrl: string | null;
@@ -285,6 +286,68 @@ export type TdnetDisclosureItem = {
   sentiment: string | null;
   importanceScore: number | null;
   tags: string[];
+};
+
+export type TaisyakuBalanceItem = {
+  applicationDate: number | null;
+  settlementDate: number | null;
+  issueName: string | null;
+  marketName: string | null;
+  reportType: string | null;
+  financeBalanceShares: number | null;
+  stockBalanceShares: number | null;
+  netBalanceShares: number | null;
+  loanRatio: number | null;
+  fetchedAt: string | null;
+};
+
+export type TaisyakuFeeItem = {
+  applicationDate: number | null;
+  settlementDate: number | null;
+  issueName: string | null;
+  marketName: string | null;
+  reasonType: string | null;
+  reasonValue: string | null;
+  priceYen: number | null;
+  stockExcessShares: number | null;
+  maxFeeYen: number | null;
+  currentFeeYen: number | null;
+  feeDays: number | null;
+  priorFeeYen: number | null;
+  fetchedAt: string | null;
+};
+
+export type TaisyakuRestrictionItem = {
+  issueName: string | null;
+  announcementKind: string | null;
+  measureType: string | null;
+  measureDetail: string | null;
+  noticeDate: number | null;
+  afternoonStop: string | null;
+  fetchedAt: string | null;
+};
+
+export type TaisyakuIssueItem = {
+  applicationDate: number | null;
+  issueName: string | null;
+  tseFlag: number | null;
+  jnxFlag: number | null;
+  odxFlag: number | null;
+  jaxFlag: number | null;
+  nseFlag: number | null;
+  fseFlag: number | null;
+  sseFlag: number | null;
+  fetchedAt: string | null;
+};
+
+export type TaisyakuSnapshot = {
+  code: string | null;
+  issue: TaisyakuIssueItem | null;
+  latestBalance: TaisyakuBalanceItem | null;
+  balanceHistory: TaisyakuBalanceItem[];
+  latestFee: TaisyakuFeeItem | null;
+  restrictions: TaisyakuRestrictionItem[];
+  fetchedAt: string | null;
 };
 
 export type TdnetReactionPoint = {

@@ -267,6 +267,150 @@ def _commit_trial(
         )
 
 
+def _build_trial_summary(
+    timeframe: str,
+    family: str,
+    trial_id: str,
+    params: dict[str, Any],
+    evaluation: Any,
+    config: ResearchConfig,
+) -> dict[str, Any]:
+    summary = dict(evaluation.summary)
+    summary["trial_id"] = trial_id
+    summary["params_json"] = json.dumps(params, ensure_ascii=False, sort_keys=True)
+    summary["timeframe"] = timeframe
+    summary["family"] = family
+
+    retained, retained_reasons = retention_gate(summary, config)
+    adopted, adopted_reasons = adoption_gate(summary, config)
+    summary["retained"] = bool(retained)
+    summary["adopted"] = bool(retained and adopted)
+    summary["retention_failed_reasons"] = ",".join(retained_reasons)
+    summary["adoption_failed_reasons"] = ",".join(adopted_reasons if retained else retained_reasons)
+    return summary
+
+
+def _append_summary_rows(
+    results: list[dict[str, Any]],
+    bad_rows: list[dict[str, Any]],
+    summary: dict[str, Any],
+) -> None:
+    results.append(summary)
+    if bool(summary.get("retained")):
+        return
+    bad_rows.append(
+        {
+            "trial_id": str(summary.get("trial_id") or ""),
+            "timeframe": str(summary.get("timeframe") or ""),
+            "family": str(summary.get("family") or ""),
+            "samples": int(summary.get("samples", 0)),
+            "oos_return": float(summary.get("oos_return", 0.0)),
+            "profit_factor": float(summary.get("profit_factor", 0.0)),
+            "positive_window_ratio": float(summary.get("positive_window_ratio", 0.0)),
+            "worst_drawdown": float(summary.get("worst_drawdown", 0.0)),
+            "reasons": str(summary.get("retention_failed_reasons") or ""),
+        }
+    )
+
+
+def _result_trial_ids(results: list[dict[str, Any]], timeframe: str, family: str) -> set[str]:
+    out: set[str] = set()
+    for row in results:
+        if str(row.get("timeframe") or "") != timeframe or str(row.get("family") or "") != family:
+            continue
+        trial_id = str(row.get("trial_id") or "").strip()
+        if trial_id:
+            out.add(trial_id)
+    return out
+
+
+def _replay_completed_trials(
+    *,
+    results: list[dict[str, Any]],
+    bad_rows: list[dict[str, Any]],
+    dataset: pd.DataFrame,
+    timeframe: str,
+    family: str,
+    combo: dict[str, Any],
+    config: ResearchConfig,
+) -> int:
+    rebuilt = 0
+    existing_ids = _result_trial_ids(results, timeframe, family)
+    base_ids = [str(item).strip() for item in combo.get("base_completed_ids", []) if str(item).strip()]
+    refine_ids = [str(item).strip() for item in combo.get("refine_completed_ids", []) if str(item).strip()]
+    if not base_ids and not refine_ids:
+        return 0
+
+    base_trials = generate_base_trials(
+        config,
+        timeframe,
+        family,
+        completed_hashes=set(),
+        target_count=max(len(base_ids), int(config.study.trials_per_family.get(timeframe, 0))),
+    )
+    base_map = {str(trial["param_hash"]): trial for trial in base_trials}
+
+    for trial_id in base_ids:
+        if trial_id in existing_ids:
+            continue
+        trial = base_map.get(trial_id)
+        if trial is None:
+            raise ValueError(f"resume reconstruction failed: missing base params for trial_id={trial_id}")
+        evaluation = evaluate_trial(dataset.copy(), config, timeframe, family, trial["params"])
+        summary = _build_trial_summary(timeframe, family, trial_id, trial["params"], evaluation, config)
+        _append_summary_rows(results, bad_rows, summary)
+        existing_ids.add(trial_id)
+        rebuilt += 1
+
+    preferred_ids = [str(item).strip() for item in combo.get("best_trial_ids", []) if str(item).strip()]
+    base_frame = pd.DataFrame(
+        [
+            row
+            for row in results
+            if str(row.get("timeframe") or "") == timeframe
+            and str(row.get("family") or "") == family
+            and str(row.get("trial_id") or "") in set(base_ids)
+        ]
+    )
+    ranked_base_frame = _rank_trials(base_frame)
+    parent_trials = _resolve_parent_trials(
+        ranked_base_frame,
+        preferred_ids,
+        fallback_limit=max(1, int(config.study.top_refinement_parents)),
+    )
+    if not preferred_ids:
+        combo["best_trial_ids"] = [str(item.get("trial_id") or "") for item in parent_trials if str(item.get("trial_id") or "")]
+
+    if not refine_ids:
+        return rebuilt
+
+    refine_trials = generate_refinement_trials(
+        config,
+        timeframe,
+        family,
+        parent_trials,
+        completed_hashes=set(base_ids),
+        target_count=max(
+            len(refine_ids),
+            len(combo.get("queued_refinements", [])),
+            int(config.study.refinement_trials_per_family.get(timeframe, 0)),
+        ),
+    )
+    refine_map = {str(trial["param_hash"]): trial for trial in refine_trials}
+    for trial_id in refine_ids:
+        if trial_id in existing_ids:
+            continue
+        trial = refine_map.get(trial_id)
+        if trial is None:
+            raise ValueError(f"resume reconstruction failed: missing refine params for trial_id={trial_id}")
+        evaluation = evaluate_trial(dataset.copy(), config, timeframe, family, trial["params"])
+        summary = _build_trial_summary(timeframe, family, trial_id, trial["params"], evaluation, config)
+        _append_summary_rows(results, bad_rows, summary)
+        existing_ids.add(trial_id)
+        rebuilt += 1
+    return rebuilt
+
+
 def run_study_search(
     paths: ResearchPaths,
     config: ResearchConfig,
@@ -315,6 +459,20 @@ def run_study_search(
             )
             if resume and str(combo.get("status", "")) == "completed":
                 continue
+            rebuilt = 0
+            if resume:
+                rebuilt = _replay_completed_trials(
+                    results=results,
+                    bad_rows=bad_rows,
+                    dataset=dataset,
+                    timeframe=timeframe,
+                    family=family,
+                    combo=combo,
+                    config=config,
+                )
+                if rebuilt > 0:
+                    save_trial_state(paths, resolved_study_id, state)
+                    write_frame(paths, resolved_study_id, "search_trace", _rank_trials(pd.DataFrame(results)))
             seen_hashes = set(str(x) for x in combo.get("seen_param_hashes", []))
             base_target = max(
                 0,
@@ -419,7 +577,7 @@ def run_study_search(
             )
             combo["best_trial_ids"] = combo_ranked.head(
                 int(config.study.retention_gates.top_hypotheses_per_combo)
-            )["trial_id"].astype(str).tolist()
+            )["trial_id"].astype(str).tolist() if "trial_id" in combo_ranked.columns else []
             combo["queued_refinements"] = []
             combo["status"] = "completed"
             save_trial_state(paths, resolved_study_id, state)

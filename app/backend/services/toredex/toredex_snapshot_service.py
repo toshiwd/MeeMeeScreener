@@ -67,6 +67,55 @@ def _map_gate(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _frame_state(weekly_up: float | None, monthly_up: float | None, weekly_down: float | None, monthly_down: float | None) -> str:
+    bullish = max((value for value in (weekly_up, monthly_up) if value is not None), default=None)
+    bearish = max((value for value in (weekly_down, monthly_down) if value is not None), default=None)
+    if bullish is None and bearish is None:
+        return "UNKNOWN"
+    if bullish is not None and bearish is None:
+        return "BULLISH"
+    if bullish is None and bearish is not None:
+        return "BEARISH"
+    if bullish is not None and bearish is not None:
+        if bullish - bearish >= 0.08:
+            return "BULLISH"
+        if bearish - bullish >= 0.08:
+            return "BEARISH"
+    return "MIXED"
+
+
+def _map_timeframe_signals(item: dict[str, Any]) -> dict[str, Any]:
+    weekly_up = _first_finite(item.get("weeklyBreakoutUpProb"))
+    weekly_down = _first_finite(item.get("weeklyBreakoutDownProb"))
+    weekly_range = _first_finite(item.get("weeklyRangeProb"))
+    monthly_up = _first_finite(item.get("monthlyBreakoutUpProb"))
+    monthly_down = _first_finite(item.get("monthlyBreakoutDownProb"))
+    monthly_range = _first_finite(item.get("monthlyRangeProb"))
+    monthly_range_width = _first_finite(item.get("monthlyRangeWidth"))
+    monthly_range_pos = _first_finite(item.get("monthlyRangePos"))
+    monthly_box_pos = _first_finite(item.get("monthlyBoxPos"))
+    monthly_box_months = _first_finite(item.get("monthlyBoxMonths"))
+    monthly_box_range_pct = _first_finite(item.get("monthlyBoxRangePct"))
+    return {
+        "weeklyBreakoutUpProb": weekly_up,
+        "weeklyBreakoutDownProb": weekly_down,
+        "weeklyRangeProb": weekly_range,
+        "weeklyRegimeAligned": bool(item.get("weeklyRegimeAligned")) if item.get("weeklyRegimeAligned") is not None else None,
+        "monthlyBreakoutUpProb": monthly_up,
+        "monthlyBreakoutDownProb": monthly_down,
+        "monthlyRangeProb": monthly_range,
+        "monthlyRangeWidth": monthly_range_width,
+        "monthlyRangePos": monthly_range_pos,
+        "monthlyBoxState": str(item.get("monthlyBoxState") or ""),
+        "monthlyBoxPos": monthly_box_pos,
+        "monthlyBoxMonths": monthly_box_months,
+        "monthlyBoxRangePct": monthly_box_range_pct,
+        "monthlyBoxWild": bool(item.get("monthlyBoxWild")) if item.get("monthlyBoxWild") is not None else None,
+        "monthlyRegimeAligned": bool(item.get("monthlyRegimeAligned")) if item.get("monthlyRegimeAligned") is not None else None,
+        "frameState": _frame_state(weekly_up, monthly_up, weekly_down, monthly_down),
+    }
+
+
 def _map_rank_item(item: dict[str, Any]) -> dict[str, Any]:
     code = str(item.get("code") or "")
     if not code:
@@ -101,6 +150,7 @@ def _map_rank_item(item: dict[str, Any]) -> dict[str, Any]:
         "shortable": bool(item.get("shortable", True)),
         "entryScore": _first_finite(item.get("entryScore"), item.get("hybridScore")),
         "sourceAsOf": item.get("asOf"),
+        "timeframeSignals": _map_timeframe_signals(item),
     }
 
 

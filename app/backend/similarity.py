@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 import duckdb
 from threading import RLock
 try:
@@ -37,6 +38,8 @@ from pydantic import BaseModel
 
 LONG_TERM_WINDOW = 60
 SHORT_TERM_WINDOW = 24
+SEARCH_CACHE_TTL_SEC = max(1.0, float(os.getenv("MEEMEE_SIMILAR_SEARCH_CACHE_TTL_SEC", "15")))
+SEARCH_CACHE_MAX_ENTRIES = max(16, int(os.getenv("MEEMEE_SIMILAR_SEARCH_CACHE_MAX_ENTRIES", "128")))
 
 class SearchResult(BaseModel):
     ticker: str
@@ -66,8 +69,64 @@ class SimilarityService:
         self.df_vec24: Optional["pd.DataFrame"] = None
         self.df_env: Optional["pd.DataFrame"] = None
         self.tag_index: Optional[Dict[str, List[int]]] = None
+        self.tag_prefix_index: Dict[str, List[int]] = {}
+        self.tag_ma60_index: Dict[str, List[int]] = {}
         self.loaded = False
         self._state_lock = RLock()
+        self._search_cache: Dict[tuple[str, Optional[str], int, float, bool], tuple[float, List[dict[str, Any]]]] = {}
+
+    def _clear_search_cache(self) -> None:
+        self._search_cache.clear()
+
+    def _rebuild_tag_lookup_indexes(self) -> None:
+        prefix_index: Dict[str, List[int]] = {}
+        ma60_index: Dict[str, List[int]] = {}
+        source = self.tag_index or {}
+        for tag_id, indices in source.items():
+            parts = str(tag_id).split("_")
+            if len(parts) >= 3:
+                prefix_level1 = "_".join(parts[:3])
+                prefix_index.setdefault(prefix_level1, []).extend(indices)
+            if len(parts) >= 2:
+                prefix_level2 = "_".join(parts[:2])
+                prefix_index.setdefault(prefix_level2, []).extend(indices)
+                ma60_index.setdefault(parts[1], []).extend(indices)
+        self.tag_prefix_index = prefix_index
+        self.tag_ma60_index = ma60_index
+
+    def _get_cached_search(
+        self, key: tuple[str, Optional[str], int, float, bool]
+    ) -> Optional[List[SearchResult]]:
+        cached = self._search_cache.get(key)
+        if cached is None:
+            return None
+        expires_at, payload = cached
+        if expires_at <= time.monotonic():
+            self._search_cache.pop(key, None)
+            return None
+        return [SearchResult(**item) for item in payload]
+
+    def _store_cached_search(
+        self,
+        key: tuple[str, Optional[str], int, float, bool],
+        results: List[SearchResult],
+    ) -> None:
+        if len(self._search_cache) >= SEARCH_CACHE_MAX_ENTRIES:
+            expired_keys = [
+                cache_key
+                for cache_key, (expires_at, _) in self._search_cache.items()
+                if expires_at <= time.monotonic()
+            ]
+            for expired_key in expired_keys:
+                self._search_cache.pop(expired_key, None)
+            if len(self._search_cache) >= SEARCH_CACHE_MAX_ENTRIES:
+                oldest_key = next(iter(self._search_cache), None)
+                if oldest_key is not None:
+                    self._search_cache.pop(oldest_key, None)
+        self._search_cache[key] = (
+            time.monotonic() + SEARCH_CACHE_TTL_SEC,
+            [item.model_dump() for item in results],
+        )
 
     def _month_values_to_compare_keys(self, values: "pd.Series") -> "pd.Series":
         if pd is None:
@@ -240,6 +299,7 @@ class SimilarityService:
             pickle.dump(tag_map, f)
 
         self.tag_index = tag_map
+        self._rebuild_tag_lookup_indexes()
         self.loaded = True
 
     def load_artifacts(self):
@@ -288,12 +348,15 @@ class SimilarityService:
             except Exception as exc:
                 raise RuntimeError(f"Failed to load tag index: {exc}") from exc
 
+            self._rebuild_tag_lookup_indexes()
             self.loaded = True
+            self._clear_search_cache()
 
     def refresh_data(self, incremental: bool = False):
         """Rebuilds the similarity dataset from DuckDB. Incremental updates are supported."""
         with self._state_lock:
             print("Starting Refresh Data...")
+            self._clear_search_cache()
             if pd is None:
                 raise RuntimeError("pandas_missing")
 
@@ -406,8 +469,12 @@ class SimilarityService:
             raise RuntimeError("pandas_missing")
         if np is None:
             raise RuntimeError("numpy_missing")
+        cache_key = (ticker, asof, int(k), round(float(alpha), 4), bool(match_tag))
 
         with self._state_lock:
+            cached = self._get_cached_search(cache_key)
+            if cached is not None:
+                return cached
             if not self.loaded:
                 self.load_artifacts()
             if (
@@ -493,14 +560,14 @@ class SimilarityService:
             # Level 1: Ignore Range
             # Pattern: MA20_MA60_DIR_*
             prefix = "_".join(parts[:3])
-            candidates_indices = self._find_indices_prefix(prefix, tag_index)
+            candidates_indices = self._find_indices_prefix(prefix)
             level_desc = "Level 1 (Ignore Range)"
             
         if len(candidates_indices) < k:
             # Level 2: Ignore Dir
             # Pattern: MA20_MA60_*
             prefix = "_".join(parts[:2])
-            candidates_indices = self._find_indices_prefix(prefix, tag_index)
+            candidates_indices = self._find_indices_prefix(prefix)
             level_desc = "Level 2 (Ignore Dir)"
             
         if len(candidates_indices) < k:
@@ -510,7 +577,7 @@ class SimilarityService:
             # Tag: MA20_MA60_DIR_RANGE.
             # So we match the 2nd part.
             target_ma60 = parts[1]
-            candidates_indices = self._find_indices_ma60(target_ma60, tag_index)
+            candidates_indices = self._find_indices_ma60(target_ma60)
             level_desc = "Level 3 (MA60 Only)"
             
         if len(candidates_indices) < k:
@@ -630,29 +697,25 @@ class SimilarityService:
                 vec60=[float(x) for x in df_vec60.iloc[idx]["vec60"]],
                 vec24=[float(x) for x in df_vec24.iloc[idx]["vec24"]]
             ))
-            
+
+        with self._state_lock:
+            self._store_cached_search(cache_key, final_results)
         return final_results
 
     def _find_indices_prefix(self, prefix, tag_index: Optional[Dict[str, List[int]]] = None):
-        # Scan keys?
-        # Optimization: Pre-group by prefix if needed.
-        # For now, iterate keys.
+        if tag_index is None:
+            return list(self.tag_prefix_index.get(str(prefix), []))
         res = []
-        source = tag_index if tag_index is not None else self.tag_index
-        if not source:
-            return res
-        for k, v in source.items():
+        for k, v in tag_index.items():
             if k.startswith(prefix):
                 res.extend(v)
         return res
 
     def _find_indices_ma60(self, ma60_val, tag_index: Optional[Dict[str, List[int]]] = None):
-        # ma60 is 2nd part.
+        if tag_index is None:
+            return list(self.tag_ma60_index.get(str(ma60_val), []))
         res = []
-        source = tag_index if tag_index is not None else self.tag_index
-        if not source:
-            return res
-        for k, v in source.items():
+        for k, v in tag_index.items():
             parts = k.split("_")
             if len(parts) >= 2 and parts[1] == ma60_val:
                 res.extend(v)

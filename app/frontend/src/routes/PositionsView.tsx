@@ -87,7 +87,7 @@ export default function PositionsView() {
   const boxesCache = useStore((state) => state.boxesCache);
   const maSettings = useStore((state) => state.maSettings);
   const tickers = useStore((state) => state.tickers);
-  const loadList = useStore((state) => state.loadList);
+  const ensureListLoaded = useStore((state) => state.ensureListLoaded);
 
   // Settings
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
@@ -189,8 +189,8 @@ export default function PositionsView() {
   useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
-    loadList().catch(() => { });
-  }, [backendReady, loadList, tickers.length]);
+    ensureListLoaded().catch(() => { });
+  }, [backendReady, ensureListLoaded, tickers.length]);
 
   const tickerMap = useMemo(() => {
     return new Map(tickers.map((ticker) => [ticker.code, ticker]));
@@ -356,15 +356,6 @@ export default function PositionsView() {
     [tab, sortedHeldItems]
   );
 
-  useEffect(() => {
-    if (!backendReady) return;
-    if (tab !== "held") return;
-    if (!heldItems.length) return;
-    const codes = heldItems.map((item) => item.symbol);
-    const uniqueCodes = [...new Set(codes)];
-    ensureBarsForVisible(listTimeframe, uniqueCodes, "positions-held");
-  }, [backendReady, tab, heldItems, ensureBarsForVisible, listTimeframe]);
-
   // Load detail for selected round
   useEffect(() => {
     if (!selectedRound) return;
@@ -377,15 +368,6 @@ export default function PositionsView() {
       .catch(() => setRoundEvents([]))
       .finally(() => setEventsLoading(false));
   }, [selectedRound]);
-
-  // Ensure bars are loaded for visible items
-  useEffect(() => {
-    if (!backendReady || activeItems.length === 0) return;
-    const codes = activeItems.map((item) => item.symbol);
-    // Unique list
-    const uniqueCodes = [...new Set(codes)];
-    ensureBarsForVisible(listTimeframe, uniqueCodes, "positions");
-  }, [backendReady, activeItems, ensureBarsForVisible, listTimeframe]);
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
@@ -436,6 +418,15 @@ export default function PositionsView() {
       navigate(`/detail/${code}`, { state: { from: location.pathname } });
     },
     [navigate, location.pathname, listCodes]
+  );
+
+  const handleEnsureVisibleItem = useCallback(
+    (code: string) => {
+      if (!backendReady) return;
+      const reason = tab === "held" ? "positions-held-visible" : "positions-visible";
+      void ensureBarsForVisible(listTimeframe, [code], reason);
+    },
+    [backendReady, ensureBarsForVisible, listTimeframe, tab]
   );
 
 
@@ -646,8 +637,8 @@ export default function PositionsView() {
     const status = statusMap ? statusMap[code] : undefined;
     const signals = "buy_qty" in item ? (signalMap.get(code) ?? []) : [];
     const ticker = tickerMap.get(code);
+    const displayName = ticker?.name || item.name || code;
 
-    let displayName = item.name;
     let extraInfo = "";
 
     if ("sell_buy_text" in item) {
@@ -674,6 +665,8 @@ export default function PositionsView() {
         densityKey={densityKey}
         signals={signals}
         onOpenDetail={handleOpenDetail}
+        deferUntilInView
+        onEnterView={handleEnsureVisibleItem}
         phaseBody={ticker?.bodyScore ?? null}
         phaseEarly={ticker?.earlyScore ?? null}
         phaseLate={ticker?.lateScore ?? null}
@@ -826,7 +819,7 @@ export default function PositionsView() {
                 try {
                   const res = await api.get("/debug/trade-sync");
                   alert(JSON.stringify(res.data, null, 2));
-                } catch (e) {
+                } catch {
                   alert("Debug fetch failed");
                 }
               }}

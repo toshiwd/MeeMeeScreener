@@ -1,0 +1,87 @@
+{
+  "asOf": "2013-02-22",
+  "metrics": {
+    "asOf": "2013-02-22",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 9238900.749807,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": 15900.749807,
+        "net_cum_return_pct": 0.159007
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -1207099.250193,
+        "net_cum_return_pct": -12.070993
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -2430099.250193,
+        "net_cum_return_pct": -24.300993
+      }
+    ],
+    "cum_pnl": 1238900.749807,
+    "cum_return_pct": 12.389007,
+    "daily_pnl": 0.0,
+    "equity": 11238900.749807,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 1238900.749807,
+    "gross_cum_return_pct": 12.389007,
+    "gross_daily_pnl": 0.0,
+    "gross_units": 2,
+    "holdings_count": 1,
+    "long_units": 2,
+    "max_drawdown_pct": -0.926783,
+    "net_cum_pnl": 1238900.749807,
+    "net_cum_return_pct": 12.389007,
+    "net_daily_pnl": 0.0,
+    "net_exposure_pct": 20.0,
+    "net_units": 2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "challenger",
+      "observed": {
+        "maxDrawdownPct": -0.926783,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 656.210542,
+        "worstMonthPct": -1.542236307036271
+      },
+      "pass": false,
+      "reason": "TURNOVER(656.2105> 600.0000)",
+      "thresholds": {
+        "maxDrawdownPct": -15.0,
+        "maxNetExposureUnits": 4.0,
+        "maxTurnoverPctPerMonth": 600.0,
+        "worstMonthPct": -12.0
+      }
+    },
+    "risk_gate_pass": false,
+    "risk_gate_reason": "TURNOVER(656.2105> 600.0000)",
+    "season_id": "toredex_multiframe_20260318",
+    "short_units": 0,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 2446000000.0,
+    "turnover_notional_daily": 2000000.0,
+    "turnover_pct_daily": 17.795335
+  },
+  "positions": [
+    {
+      "avgPrice": 11385.0,
+      "holdingDays": 1,
+      "openedAt": "2013-02-22",
+      "pnlPct": 0.0,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1001",
+      "units": 2
+    }
+  ],
+  "seasonId": "toredex_multiframe_20260318"
+}

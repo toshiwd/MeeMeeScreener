@@ -94,6 +94,7 @@ def test_run_ingest_writes_industry_master_with_and_without_sector_csv(tmp_path:
     inputs = _write_synthetic_inputs(tmp_path)
     paths = ResearchPaths.build(
         repo_root=tmp_path,
+        research_home=tmp_path / "research_home",
         workspace_root=tmp_path / "workspace",
         published_root=tmp_path / "published",
     )
@@ -125,6 +126,7 @@ def test_build_study_dataset_generates_context_and_outcome_columns(tmp_path: Pat
     inputs = _write_synthetic_inputs(tmp_path)
     paths = ResearchPaths.build(
         repo_root=tmp_path,
+        research_home=tmp_path / "research_home",
         workspace_root=tmp_path / "workspace",
         published_root=tmp_path / "published",
     )
@@ -168,6 +170,7 @@ def test_study_search_resume_keeps_trial_ids_stable_and_writes_outputs(tmp_path:
     inputs = _write_synthetic_inputs(tmp_path)
     paths = ResearchPaths.build(
         repo_root=tmp_path,
+        research_home=tmp_path / "research_home",
         workspace_root=tmp_path / "workspace",
         published_root=tmp_path / "published",
     )
@@ -226,6 +229,7 @@ def test_study_loop_and_report_produce_top_and_adopted_outputs(tmp_path: Path) -
     inputs = _write_synthetic_inputs(tmp_path)
     paths = ResearchPaths.build(
         repo_root=tmp_path,
+        research_home=tmp_path / "research_home",
         workspace_root=tmp_path / "workspace",
         published_root=tmp_path / "published",
     )

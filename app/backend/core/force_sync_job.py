@@ -2,7 +2,9 @@
 import io
 import logging
 import os
+import queue
 import subprocess
+import threading
 import time
 import traceback
 from contextlib import redirect_stdout, redirect_stderr
@@ -10,6 +12,7 @@ from datetime import datetime
 
 from .config import config
 from .jobs import job_manager
+from .screener_snapshot_job import schedule_screener_snapshot_refresh
 from .code_ops import normalize_code_txt
 
 try:
@@ -54,31 +57,68 @@ def _run_vbs_export(code_path: str, out_dir: str, timeout: int = 1800) -> tuple[
         logger.exception("Failed to start VBS process")
         return -1, [f"Failed to start VBS: {exc}"]
 
-    start_ts = time.time()
+    output_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
+
+    def _pump_stdout() -> None:
+        try:
+            if not process.stdout:
+                output_queue.put(("error", "VBS stdout pipe is not available"))
+                return
+            for line in process.stdout:
+                output_queue.put(("line", line.rstrip("\r\n")))
+        except Exception as exc:
+            output_queue.put(("error", str(exc)))
+        finally:
+            output_queue.put(("eof", None))
+
+    reader_thread = threading.Thread(target=_pump_stdout, daemon=True, name="ForceSyncVbsStdout")
+    reader_thread.start()
+    deadline = time.monotonic() + max(0.1, float(timeout))
+    saw_eof = False
     try:
-        if not process.stdout:
-            raise RuntimeError("VBS stdout pipe is not available")
         while True:
-            line = process.stdout.readline()
-            if not line:
-                break
-            text = line.rstrip("\r\n")
-            output_lines.append(text)
-            print(f"[force_sync_job] {text}")
-            if time.time() - start_ts > timeout:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
                 process.kill()
                 raise subprocess.TimeoutExpired(cmd, timeout)
-        return_code = process.wait()
+            try:
+                kind, payload = output_queue.get(timeout=min(0.25, remaining))
+            except queue.Empty:
+                if process.poll() is not None and (saw_eof or not reader_thread.is_alive()):
+                    break
+                continue
+
+            if kind == "line" and payload is not None:
+                output_lines.append(payload)
+                print(f"[force_sync_job] {payload}")
+                continue
+            if kind == "error":
+                raise RuntimeError(payload or "VBS stdout pump failed")
+            if kind == "eof":
+                saw_eof = True
+                if process.poll() is not None:
+                    break
+
+        wait_timeout = max(0.1, deadline - time.monotonic())
+        return_code = process.wait(timeout=wait_timeout)
         output_lines.append(f"[force_sync_job] VBS exit code {return_code}")
         return return_code, output_lines
     except subprocess.TimeoutExpired:
         logger.error("VBS export timed out")
         process.kill()
+        try:
+            process.wait(timeout=1)
+        except Exception:
+            pass
         output_lines.append("Timeout expired")
         return -1, output_lines
     except Exception:
         logger.exception("VBS export failed")
         process.kill()
+        try:
+            process.wait(timeout=1)
+        except Exception:
+            pass
         output_lines.append("VBS export failed")
         return -1, output_lines
 
@@ -318,6 +358,10 @@ def handle_force_sync(job_id: str, payload: dict):
             message=f"Complete. {csv_msg}{recalc_msg}",
             finished_at=datetime.now(),
         )
+        try:
+            schedule_screener_snapshot_refresh(source=f"force_sync:{job_id}", force=True)
+        except Exception as exc:
+            logger.warning("Screener snapshot refresh submit skipped after force_sync: %s", exc)
 
     except Exception as e:
         logger.error(f"Force sync failed: {e}")

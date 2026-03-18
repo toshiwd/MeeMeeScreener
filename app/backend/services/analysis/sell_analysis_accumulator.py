@@ -6,6 +6,7 @@ from typing import Any, Callable
 import duckdb
 import pandas as pd
 
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 from app.db.session import get_conn
 
 
@@ -662,6 +663,14 @@ def accumulate_sell_analysis(
     anchor_dt: int | None = None,
     progress_cb: ProgressCallback | None = None,
 ) -> dict[str, Any]:
+    if is_legacy_analysis_disabled():
+        logger.info("Skipping sell analysis accumulation because legacy analysis is disabled.")
+        return {
+            "target_dates": [],
+            "last_dt": None,
+            "rows_last_dt": 0,
+            "disabled": True,
+        }
     with get_conn() as conn:
         _ensure_table(conn)
         target_dates = _resolve_target_dates(
@@ -693,6 +702,14 @@ def accumulate_sell_analysis_for_dates(
     progress_cb: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     values = sorted({int(value) for value in target_dates if value is not None})
+    if is_legacy_analysis_disabled():
+        logger.info("Skipping sell analysis accumulation for explicit dates because legacy analysis is disabled.")
+        return {
+            "target_dates": values,
+            "last_dt": int(values[-1]) if values else None,
+            "rows_last_dt": 0,
+            "disabled": True,
+        }
     with get_conn() as conn:
         _ensure_table(conn)
         if not values:

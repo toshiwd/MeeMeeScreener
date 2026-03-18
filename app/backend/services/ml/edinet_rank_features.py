@@ -294,6 +294,18 @@ def load_edinet_rank_features(
         for code in unique_codes:
             out[code]["edinetStatus"] = "missing_tables"
         return out
+    table_counts = conn.execute(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM edinetdb_company_map),
+            (SELECT COUNT(*) FROM edinetdb_ratios),
+            (SELECT COUNT(*) FROM edinetdb_financials)
+        """
+    ).fetchone()
+    if table_counts and all(int(value or 0) == 0 for value in table_counts):
+        for code in unique_codes:
+            out[code]["edinetStatus"] = "missing_tables"
+        return out
 
     placeholders = ",".join(["?"] * len(unique_codes))
     rows = conn.execute(

@@ -12,7 +12,7 @@ from app.backend.services.system_status import (
     _get_last_updated_timestamp,
     get_readiness_state,
 )
-from app.backend.services.txt_update import get_txt_status
+from app.backend.services.data.txt_update import get_txt_status
 from app.core.config import (
     APP_ENV,
     APP_VERSION,
@@ -71,6 +71,20 @@ def health_check():
         errors=[],
         retry_after_ms=None,
         extra={"last_updated": _get_last_updated_timestamp()},
+    )
+
+
+@router.get("/api/health/live")
+def health_live():
+    # API-scoped liveness endpoint for frontend keepalive checks.
+    return _health_payload(
+        ok=True,
+        status="ok",
+        ready=True,
+        phase="alive",
+        message="alive",
+        errors=[],
+        retry_after_ms=None,
     )
 
 

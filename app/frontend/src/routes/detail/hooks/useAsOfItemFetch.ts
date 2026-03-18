@@ -7,6 +7,7 @@ type Params<T> = {
   asof: number | null;
   prefetchAsofs?: number[];
   enabled?: boolean;
+  readyToFetch?: boolean;
   endpoint: string;
   timeoutMs?: number;
   requestKeyExtra?: string | null;
@@ -23,12 +24,16 @@ type CacheEntry<T> = {
   fetchedAt: number;
 };
 
+const asOfItemCache = new Map<string, CacheEntry<unknown>>();
+const asOfItemInFlight = new Map<string, Promise<unknown>>();
+
 export function useAsOfItemFetch<T>({
   backendReady,
   code,
   asof,
   prefetchAsofs,
   enabled = true,
+  readyToFetch = true,
   endpoint,
   timeoutMs = 30000,
   requestKeyExtra = null,
@@ -42,7 +47,6 @@ export function useAsOfItemFetch<T>({
   const [item, setItem] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
-  const cacheRef = useRef<Map<string, CacheEntry<T>>>(new Map());
   const requestKeyRef = useRef<string | null>(null);
   const attemptCountRef = useRef<Map<string, number>>(new Map());
   const retryTimerRef = useRef<number | null>(null);
@@ -67,7 +71,6 @@ export function useAsOfItemFetch<T>({
       window.clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
     }
-    cacheRef.current.clear();
   }, [code]);
 
   useEffect(() => {
@@ -98,21 +101,23 @@ export function useAsOfItemFetch<T>({
     if (!enabled || !backendReady || !code) {
       clearRetryTimer();
       requestKeyRef.current = null;
+      setItem(null);
       setLoading(false);
       return;
     }
     if (asof == null) {
       clearRetryTimer();
       requestKeyRef.current = null;
+      setItem(null);
       setLoading(false);
       return;
     }
 
     const requestKey = requestKeyExtra
-      ? `${code}|${asof}|${requestKeyExtra}`
-      : `${code}|${asof}`;
+      ? `${endpoint}|${code}|${asof}|${requestKeyExtra}`
+      : `${endpoint}|${code}|${asof}`;
 
-    const cached = cacheRef.current.get(requestKey);
+    const cached = asOfItemCache.get(requestKey) as CacheEntry<T> | undefined;
     if (cached) {
       const isNegative = cached.value == null;
       const negativeFresh =
@@ -125,7 +130,15 @@ export function useAsOfItemFetch<T>({
         attemptCountRef.current.delete(requestKey);
         return;
       }
-      cacheRef.current.delete(requestKey);
+      asOfItemCache.delete(requestKey);
+    }
+
+    if (!readyToFetch) {
+      clearRetryTimer();
+      requestKeyRef.current = requestKey;
+      setItem(null);
+      setLoading(false);
+      return;
     }
 
     clearRetryTimer();
@@ -133,12 +146,22 @@ export function useAsOfItemFetch<T>({
     requestKeyRef.current = requestKey;
     const attempt = attemptCountRef.current.get(requestKey) ?? 0;
     const params = buildParamsRef.current ? buildParamsRef.current(code, asof) : { code, asof };
-
-    api
-      .get(endpoint, { params, timeout: timeoutMs })
+    const existingRequest = asOfItemInFlight.get(requestKey) as Promise<T | null> | undefined;
+    const request =
+      existingRequest ??
+      api
+        .get(endpoint, { params, timeout: timeoutMs })
+        .then((res) => parseItemRef.current(res.data?.item ?? null))
+        .finally(() => {
+          asOfItemInFlight.delete(requestKey);
+        });
+    if (!existingRequest) {
+      asOfItemInFlight.set(requestKey, request);
+    }
+    request
       .then((res) => {
         if (requestKeyRef.current !== requestKey) return;
-        const parsed = parseItemRef.current(res.data?.item ?? null);
+        const parsed = res;
         const shouldRetry =
           parsed == null &&
           retryOnNull &&
@@ -148,7 +171,7 @@ export function useAsOfItemFetch<T>({
           return;
         }
         attemptCountRef.current.delete(requestKey);
-        cacheRef.current.set(requestKey, { value: parsed, fetchedAt: Date.now() });
+        asOfItemCache.set(requestKey, { value: parsed, fetchedAt: Date.now() });
         setItem(parsed ?? null);
         setLoading(false);
       })
@@ -160,7 +183,7 @@ export function useAsOfItemFetch<T>({
           return;
         }
         attemptCountRef.current.delete(requestKey);
-        cacheRef.current.set(requestKey, { value: null, fetchedAt: Date.now() });
+        asOfItemCache.set(requestKey, { value: null, fetchedAt: Date.now() });
         setItem(null);
         setLoading(false);
       });
@@ -176,6 +199,7 @@ export function useAsOfItemFetch<T>({
     retryDelayMs,
     retryOnNull,
     negativeCacheTtlMs,
+    readyToFetch,
     retryToken,
   ]);
 
@@ -187,11 +211,11 @@ export function useAsOfItemFetch<T>({
     prefetchAsofs.forEach((candidate) => {
       if (candidate == null) return;
       const requestKey = requestKeyExtra
-        ? `${code}|${candidate}|${requestKeyExtra}`
-        : `${code}|${candidate}`;
+        ? `${endpoint}|${code}|${candidate}|${requestKeyExtra}`
+        : `${endpoint}|${code}|${candidate}`;
       if (prefetchKeys.has(requestKey)) return;
       prefetchKeys.add(requestKey);
-      const cached = cacheRef.current.get(requestKey);
+      const cached = asOfItemCache.get(requestKey) as CacheEntry<T> | undefined;
       if (cached) {
         const isNegative = cached.value == null;
         const negativeFresh =
@@ -201,21 +225,29 @@ export function useAsOfItemFetch<T>({
         if (!isNegative || negativeFresh) {
           return;
         }
-        cacheRef.current.delete(requestKey);
+        asOfItemCache.delete(requestKey);
+      }
+      if (asOfItemInFlight.has(requestKey)) {
+        return;
       }
       const params = buildParamsRef.current
         ? buildParamsRef.current(code, candidate)
         : { code, asof: candidate };
-      api
+      const request = api
         .get(endpoint, { params, timeout: timeoutMs })
+        .then((res) => parseItemRef.current(res.data?.item ?? null))
+        .finally(() => {
+          asOfItemInFlight.delete(requestKey);
+        });
+      asOfItemInFlight.set(requestKey, request);
+      request
         .then((res) => {
           if (cancelled) return;
-          const parsed = parseItemRef.current(res.data?.item ?? null);
-          cacheRef.current.set(requestKey, { value: parsed ?? null, fetchedAt: Date.now() });
+          asOfItemCache.set(requestKey, { value: res ?? null, fetchedAt: Date.now() });
         })
         .catch(() => {
           if (cancelled) return;
-          cacheRef.current.set(requestKey, { value: null, fetchedAt: Date.now() });
+          asOfItemCache.set(requestKey, { value: null, fetchedAt: Date.now() });
         });
     });
     return () => {

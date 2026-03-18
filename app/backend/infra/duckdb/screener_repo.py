@@ -5,7 +5,16 @@ from typing import List, Tuple, Dict, Any, Optional
 import pandas as pd
 
 import duckdb
+from app.backend.core.legacy_analysis_control import is_legacy_analysis_disabled
 from app.backend.core.text_encoding import repair_cp932_mojibake
+from app.backend.core.bar_segments import (
+    build_monthly_rows_from_daily,
+    needs_history_backfill,
+    prefer_richer_history,
+    should_replace_monthly_with_daily,
+    trim_to_latest_continuous_segment,
+)
+from app.backend.core.yahoo_history_rows import get_historical_daily_rows_from_chart
 from app.db.session import get_conn_for_path
 
 class ScreenerRepository:
@@ -22,6 +31,9 @@ class ScreenerRepository:
             [name],
         ).fetchone()
         return bool(row and row[0])
+
+    def _legacy_analysis_reads_disabled(self) -> bool:
+        return is_legacy_analysis_disabled()
 
     def fetch_screener_batch(
         self,
@@ -141,7 +153,36 @@ class ScreenerRepository:
                 [rights_min_date]
             ).fetchall()
 
-            return codes, meta_rows, daily_rows, monthly_rows, earnings_rows, rights_rows
+            daily_grouped: Dict[str, List[Tuple]] = {}
+            for row in daily_rows:
+                daily_grouped.setdefault(str(row[0]), []).append(tuple(row))
+            monthly_grouped: Dict[str, List[Tuple]] = {}
+            for row in monthly_rows:
+                monthly_grouped.setdefault(str(row[0]), []).append(tuple(row))
+
+            normalized_daily_rows: List[Tuple] = []
+            normalized_monthly_rows: List[Tuple] = []
+            for code in codes:
+                latest_daily = trim_to_latest_continuous_segment(daily_grouped.get(code, []), key_index=1)
+                if needs_history_backfill([row[1:] for row in latest_daily]):
+                    yahoo_rows = get_historical_daily_rows_from_chart(code)
+                    preferred_daily = prefer_richer_history([row[1:] for row in latest_daily], yahoo_rows)
+                    latest_daily = [(code, *row) for row in preferred_daily]
+                latest_monthly = trim_to_latest_continuous_segment(monthly_grouped.get(code, []), key_index=1)
+                normalized_daily_rows.extend(latest_daily)
+                if should_replace_monthly_with_daily(
+                    [row[1:] for row in latest_daily],
+                    [row[1:] for row in latest_monthly],
+                ):
+                    rebuilt_monthly = build_monthly_rows_from_daily(
+                        [row[1:] for row in latest_daily],
+                        limit=monthly_limit,
+                    )
+                    normalized_monthly_rows.extend([(code, *row) for row in rebuilt_monthly])
+                else:
+                    normalized_monthly_rows.extend(latest_monthly)
+
+            return codes, meta_rows, normalized_daily_rows, normalized_monthly_rows, earnings_rows, rights_rows
 
     def fetch_sector_map(
         self, codes: List[str]
@@ -170,6 +211,8 @@ class ScreenerRepository:
             }
 
     def fetch_phase_pred_map(self, asof_map: Dict[str, int | None]) -> Dict[str, Dict[str, Any]]:
+        if self._legacy_analysis_reads_disabled():
+            return {}
         with self._get_read_conn() as conn:
             if not self._table_exists(conn, "phase_pred_daily"):
                 return {}

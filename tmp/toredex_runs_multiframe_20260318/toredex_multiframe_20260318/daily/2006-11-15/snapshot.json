@@ -1,0 +1,290 @@
+{
+  "asOf": "2006-11-15",
+  "configHash": "a1f27d7d0c379a5624463feb7d72defc5c93b677ca716722c536942a2ac71b3c",
+  "meta": {
+    "noFutureLeakOk": true,
+    "predDtBuy": null,
+    "predDtSell": null,
+    "requestedAsOf": "2006-11-15"
+  },
+  "mode": "LIVE",
+  "policyVersion": "toredex.v8",
+  "positions": [
+    {
+      "avgPrice": 16198.0,
+      "holdingDays": 4,
+      "openedAt": "2006-11-09",
+      "pnlPct": 0.2778120755648845,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "1001",
+      "units": 2
+    },
+    {
+      "avgPrice": 1611.0,
+      "holdingDays": 1,
+      "openedAt": "2006-11-14",
+      "pnlPct": 0.2482929857231533,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1306",
+      "units": 2
+    },
+    {
+      "avgPrice": 1607.0,
+      "holdingDays": 1,
+      "openedAt": "2006-11-14",
+      "pnlPct": 0.43559427504667086,
+      "side": "SHORT",
+      "stage": "PROBE",
+      "ticker": "1308",
+      "units": 2
+    }
+  ],
+  "rankings": {
+    "buy": [
+      {
+        "changePct": -0.002823991650807293,
+        "close": 16243.0,
+        "entryScore": 0.5896034136958304,
+        "ev": -0.002823991650807293,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 2767086764.85,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5199913943866041,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2006-11-15",
+        "ticker": "1001",
+        "timeframeSignals": {
+          "frameState": "BULLISH",
+          "monthlyBoxMonths": 12.0,
+          "monthlyBoxPos": 0.6005422503389065,
+          "monthlyBoxRangePct": 0.14838406866031917,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.5238983666064625,
+          "monthlyBreakoutUpProb": 0.6127186683897272,
+          "monthlyRangePos": 0.6268861454046639,
+          "monthlyRangeProb": 0.7259988552599383,
+          "monthlyRangeWidth": 0.1282021220470133,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5199913943866041,
+          "weeklyBreakoutUpProb": 0.6590065459017556,
+          "weeklyRangeProb": 0.7008472677461519,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.6590065459017556
+      },
+      {
+        "changePct": -0.002482929857231533,
+        "close": 1607.0,
+        "entryScore": 0.5490980995931662,
+        "ev": -0.002482929857231533,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 4260479.35,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.620887489168833,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2006-11-15",
+        "ticker": "1306",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 13.0,
+          "monthlyBoxPos": 0.4657039711191336,
+          "monthlyBoxRangePct": 0.18741542625169147,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6589515648760068,
+          "monthlyBreakoutUpProb": 0.5140020699265119,
+          "monthlyRangePos": 0.29292929292929293,
+          "monthlyRangeProb": 0.6913412892519933,
+          "monthlyRangeWidth": 0.11333714939896966,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.620887489168833,
+          "weeklyBreakoutUpProb": 0.620887489168833,
+          "weeklyRangeProb": 0.8769579417449843,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.620887489168833
+      },
+      {
+        "changePct": -0.0043559427504667085,
+        "close": 1600.0,
+        "entryScore": 0.541742473393819,
+        "ev": -0.0043559427504667085,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 339130.6,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.625033071323109,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2006-11-15",
+        "ticker": "1308",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 13.0,
+          "monthlyBoxPos": 0.4551971326164875,
+          "monthlyBoxRangePct": 0.1894093686354379,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6757176452439798,
+          "monthlyBreakoutUpProb": 0.50252176895532,
+          "monthlyRangePos": 0.25257731958762886,
+          "monthlyRangeProb": 0.6662183230109264,
+          "monthlyRangeWidth": 0.11117478510028653,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.625033071323109,
+          "weeklyBreakoutUpProb": 0.6175862628124706,
+          "weeklyRangeProb": 0.8700100707512951,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.6175862628124706
+      }
+    ],
+    "sell": [
+      {
+        "changePct": -0.0043559427504667085,
+        "close": 1600.0,
+        "entryScore": 0.5954865222762514,
+        "ev": -0.0043559427504667085,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 339130.6,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.625033071323109,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2006-11-15",
+        "ticker": "1308",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 13.0,
+          "monthlyBoxPos": 0.4551971326164875,
+          "monthlyBoxRangePct": 0.1894093686354379,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6757176452439798,
+          "monthlyBreakoutUpProb": 0.50252176895532,
+          "monthlyRangePos": 0.25257731958762886,
+          "monthlyRangeProb": 0.6662183230109264,
+          "monthlyRangeWidth": 0.11117478510028653,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.625033071323109,
+          "weeklyBreakoutUpProb": 0.6175862628124706,
+          "weeklyRangeProb": 0.8700100707512951,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.625033071323109
+      },
+      {
+        "changePct": -0.002482929857231533,
+        "close": 1607.0,
+        "entryScore": 0.5866009009507162,
+        "ev": -0.002482929857231533,
+        "ev20Net": null,
+        "gate": {
+          "ok": true,
+          "reason": "ENTRY_OK"
+        },
+        "liquidity20d": 4260479.35,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.620887489168833,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2006-11-15",
+        "ticker": "1306",
+        "timeframeSignals": {
+          "frameState": "MIXED",
+          "monthlyBoxMonths": 13.0,
+          "monthlyBoxPos": 0.4657039711191336,
+          "monthlyBoxRangePct": 0.18741542625169147,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.6589515648760068,
+          "monthlyBreakoutUpProb": 0.5140020699265119,
+          "monthlyRangePos": 0.29292929292929293,
+          "monthlyRangeProb": 0.6913412892519933,
+          "monthlyRangeWidth": 0.11333714939896966,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.620887489168833,
+          "weeklyBreakoutUpProb": 0.620887489168833,
+          "weeklyRangeProb": 0.8769579417449843,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.620887489168833
+      },
+      {
+        "changePct": -0.002823991650807293,
+        "close": 16243.0,
+        "entryScore": 0.4536731255791748,
+        "ev": -0.002823991650807293,
+        "ev20Net": null,
+        "gate": {
+          "ok": false,
+          "reason": "SETUP_reject"
+        },
+        "liquidity20d": 2767086764.85,
+        "pDown": null,
+        "pTurnDown": null,
+        "regime": "RANGE",
+        "revRisk": 0.5199913943866041,
+        "sector": "",
+        "shortable": true,
+        "sourceAsOf": "2006-11-15",
+        "ticker": "1001",
+        "timeframeSignals": {
+          "frameState": "BULLISH",
+          "monthlyBoxMonths": 12.0,
+          "monthlyBoxPos": 0.6005422503389065,
+          "monthlyBoxRangePct": 0.14838406866031917,
+          "monthlyBoxState": "box_mid",
+          "monthlyBoxWild": false,
+          "monthlyBreakoutDownProb": 0.5238983666064625,
+          "monthlyBreakoutUpProb": 0.6127186683897272,
+          "monthlyRangePos": 0.6268861454046639,
+          "monthlyRangeProb": 0.7259988552599383,
+          "monthlyRangeWidth": 0.1282021220470133,
+          "monthlyRegimeAligned": null,
+          "weeklyBreakoutDownProb": 0.5199913943866041,
+          "weeklyBreakoutUpProb": 0.6590065459017556,
+          "weeklyRangeProb": 0.7008472677461519,
+          "weeklyRegimeAligned": null
+        },
+        "upProb": 0.5199913943866041
+      }
+    ]
+  },
+  "seasonId": "toredex_multiframe_20260318",
+  "universe": [
+    "1001",
+    "1306",
+    "1308"
+  ]
+}

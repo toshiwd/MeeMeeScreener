@@ -11,11 +11,23 @@ from fastapi.responses import JSONResponse
 from app.backend.core.jobs import cleanup_stale_jobs, job_manager
 from app.backend.core.yahoo_daily_ingest_job import YF_DAILY_INGEST_JOB_TYPE
 from app.backend.core.ranking_quality_job import RANKING_ANALYSIS_QUALITY_JOB_TYPE
+from app.backend.core.external_analysis_publish_job import (
+    EXTERNAL_ANALYSIS_PUBLISH_JOB_TYPE,
+    resolve_latest_external_analysis_as_of_date,
+)
+from app.backend.core.taisyaku_import_job import TAISYAKU_IMPORT_JOB_TYPE
 from app.backend.core.tdnet_import_job import TDNET_IMPORT_JOB_TYPE
 from app.backend.core.config import config
+from app.backend.core.legacy_analysis_control import (
+    is_legacy_analysis_disabled,
+    legacy_analysis_disabled_response,
+    legacy_analysis_disabled_log_value,
+    legacy_analysis_status_payload,
+)
 from app.backend.services import ml_service, strategy_backtest_service
-from app.backend.services.yahoo_daily_ingest import get_daily_ingest_coverage
-from app.backend.services.yahoo_provisional import normalize_date_key
+from app.backend.services.analysis_bridge.reader import get_analysis_bridge_snapshot
+from app.backend.services.data.yahoo_daily_ingest import get_daily_ingest_coverage
+from app.backend.services.data.yahoo_provisional import normalize_date_key
 from app.db.session import try_get_conn
 
 router = APIRouter()
@@ -88,6 +100,16 @@ def _submit_job(job_type: str, payload: dict | None = None):
         return JSONResponse(status_code=409, content=body)
     job_id = job_manager.submit(job_type, payload or {})
     return {"ok": True, "job_id": job_id}
+
+
+def _normalize_as_of_text(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    digits = text.replace("-", "").replace("/", "")
+    if len(digits) == 8 and digits.isdigit():
+        return digits
+    return None
 
 
 def _txt_update_conflict_response(
@@ -449,6 +471,12 @@ def submit_ranking_analysis_quality(
     persist: bool = True,
 ):
     try:
+        if is_legacy_analysis_disabled():
+            logger.info("Rejecting ranking analysis quality request (%s)", legacy_analysis_disabled_log_value())
+            return legacy_analysis_disabled_response(
+                job_type=RANKING_ANALYSIS_QUALITY_JOB_TYPE,
+                source="/api/jobs/quality/ranking-analysis",
+            )
         if as_of is not None and not (19_000_101 <= int(as_of) <= 21_001_231):
             return JSONResponse(status_code=400, content={"error": "as_of must be YYYYMMDD"})
         payload = {
@@ -478,6 +506,15 @@ def submit_tdnet_import(
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@router.post("/api/jobs/taisyaku/import")
+def submit_taisyaku_import():
+    try:
+        return _submit_job(TAISYAKU_IMPORT_JOB_TYPE, {})
+    except Exception as exc:
+        logger.exception("Error submitting taisyaku import job: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
 @router.get("/api/jobs/yahoo/daily-ingest/coverage")
 def get_yahoo_daily_ingest_coverage(
     target_dt: int | None = None,
@@ -499,6 +536,9 @@ def get_yahoo_daily_ingest_coverage(
 @router.post("/api/phase/rebuild")
 def submit_phase_rebuild():
     try:
+        if is_legacy_analysis_disabled():
+            logger.info("Rejecting legacy phase rebuild request (%s)", legacy_analysis_disabled_log_value())
+            return legacy_analysis_disabled_response(job_type="phase_rebuild", source="/api/phase/rebuild")
         return _submit_job("phase_rebuild")
     except Exception as exc:
         logger.exception("Error submitting phase_rebuild: %s", exc)
@@ -512,6 +552,9 @@ def submit_ml_train(
     dry_run: bool = False,
 ):
     try:
+        if is_legacy_analysis_disabled():
+            logger.info("Rejecting legacy ml_train request (%s)", legacy_analysis_disabled_log_value())
+            return legacy_analysis_disabled_response(job_type="ml_train", source="/api/jobs/ml/train")
         return _submit_job(
             "ml_train",
             {
@@ -528,6 +571,9 @@ def submit_ml_train(
 @router.post("/api/jobs/ml/predict")
 def submit_ml_predict(dt: int | None = None):
     try:
+        if is_legacy_analysis_disabled():
+            logger.info("Rejecting legacy ml_predict request (%s)", legacy_analysis_disabled_log_value())
+            return legacy_analysis_disabled_response(job_type="ml_predict", source="/api/jobs/ml/predict")
         return _submit_job("ml_predict", {"dt": dt})
     except Exception as exc:
         logger.exception("Error submitting ml_predict: %s", exc)
@@ -546,6 +592,12 @@ def submit_analysis_backfill(
     force_recompute: bool = False,
 ):
     try:
+        if is_legacy_analysis_disabled():
+            logger.info("Rejecting legacy analysis_backfill request (%s)", legacy_analysis_disabled_log_value())
+            return legacy_analysis_disabled_response(
+                job_type="analysis_backfill",
+                source="/api/jobs/analysis/backfill-missing",
+            )
         return _submit_job(
             "analysis_backfill",
             {
@@ -564,9 +616,86 @@ def submit_analysis_backfill(
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 
+@router.post("/api/jobs/analysis/prewarm-latest")
+def submit_analysis_prewarm_latest(
+    force_recompute: bool = True,
+):
+    try:
+        from app.backend.services.analysis.analysis_backfill_service import (
+            backfill_missing_analysis_history,
+        )
+
+        result = backfill_missing_analysis_history(
+            lookback_days=1,
+            include_sell=True,
+            include_phase=False,
+            force_recompute=bool(force_recompute),
+        )
+        return {
+            "ok": bool(result.get("ok", False)),
+            "mode": "sync",
+            "message": result.get("message") or "",
+            "predicted_dates": result.get("predicted_dates") or [],
+            "sell_refreshed_dates": result.get("sell_refreshed_dates") or [],
+            "errors": result.get("errors") or [],
+        }
+    except Exception as exc:
+        logger.exception("Error submitting analysis_prewarm_latest: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/jobs/analysis/publish-latest")
+def submit_external_analysis_publish_latest(
+    as_of: int | None = Query(default=None),
+    freshness_state: str = "fresh",
+):
+    try:
+        if as_of is not None and not (19_000_101 <= int(as_of) <= 21_001_231):
+            return JSONResponse(status_code=400, content={"error": "as_of must be YYYYMMDD"})
+        resolved_as_of = int(as_of) if as_of is not None else resolve_latest_external_analysis_as_of_date()
+        requested_as_of = _normalize_as_of_text(resolved_as_of)
+        snapshot = get_analysis_bridge_snapshot()
+        publish = snapshot.get("publish") if isinstance(snapshot, dict) else None
+        published_as_of = _normalize_as_of_text((publish or {}).get("as_of_date"))
+        if requested_as_of is not None and published_as_of == requested_as_of:
+            return {
+                "ok": True,
+                "started": False,
+                "skipped": True,
+                "reason": "already_published_for_as_of",
+                "message": f"as_of={requested_as_of} は既に publish 済みです。",
+                "publish": publish,
+            }
+        if requested_as_of is not None:
+            snapshot = get_analysis_bridge_snapshot()
+            publish = snapshot.get("publish") if isinstance(snapshot, dict) else None
+            published_as_of = _normalize_as_of_text((publish or {}).get("as_of_date"))
+            if published_as_of == requested_as_of:
+                return {
+                    "ok": True,
+                    "started": False,
+                    "skipped": True,
+                    "reason": "already_published_for_as_of",
+                    "message": f"as_of={requested_as_of} は既に publish 済みです。",
+                    "publish": publish,
+                }
+        payload = {
+            "as_of": resolved_as_of,
+            "freshness_state": str(freshness_state or "fresh"),
+            "source": "manual_api",
+        }
+        return _submit_job(EXTERNAL_ANALYSIS_PUBLISH_JOB_TYPE, payload)
+    except Exception as exc:
+        logger.exception("Error submitting external analysis publish latest job: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
 @router.post("/api/jobs/ml/live-guard")
 def submit_ml_live_guard():
     try:
+        if is_legacy_analysis_disabled():
+            logger.info("Rejecting legacy ml_live_guard request (%s)", legacy_analysis_disabled_log_value())
+            return legacy_analysis_disabled_response(job_type="ml_live_guard", source="/api/jobs/ml/live-guard")
         return _submit_job("ml_live_guard")
     except Exception as exc:
         logger.exception("Error submitting ml_live_guard: %s", exc)
@@ -576,6 +705,9 @@ def submit_ml_live_guard():
 @router.get("/api/jobs/ml/status")
 def get_ml_job_status():
     try:
+        if is_legacy_analysis_disabled():
+            logger.info("Serving disabled legacy ml status payload (%s)", legacy_analysis_disabled_log_value())
+            return legacy_analysis_status_payload(source="/api/jobs/ml/status")
         return ml_service.get_ml_status()
     except Exception as exc:
         logger.exception("Error fetching ml status: %s", exc)
@@ -585,6 +717,9 @@ def get_ml_job_status():
 @router.get("/api/jobs/ml/live-guard/latest")
 def get_ml_live_guard_latest():
     try:
+        if is_legacy_analysis_disabled():
+            logger.info("Serving disabled legacy ml live guard payload (%s)", legacy_analysis_disabled_log_value())
+            return legacy_analysis_status_payload(source="/api/jobs/ml/live-guard/latest")
         return ml_service.get_latest_live_guard_status()
     except Exception as exc:
         logger.exception("Error fetching ml live guard status: %s", exc)
@@ -915,6 +1050,11 @@ def submit_strategy_walkforward_gate(
     note: str | None = None,
 ):
     try:
+        if is_legacy_analysis_disabled():
+            return legacy_analysis_disabled_response(
+                job_type="analysis_backfill",
+                source="/api/jobs/analysis/backfill-missing",
+            )
         return _submit_job(
             "strategy_walkforward_gate",
             {

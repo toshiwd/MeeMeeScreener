@@ -1,0 +1,87 @@
+{
+  "adopted_hypotheses_file": "adopted_hypotheses.json",
+  "config": {
+    "split": {
+      "test_months": 1,
+      "train_years": 1,
+      "valid_months": 1
+    },
+    "study": {
+      "adoption_gates": {
+        "max_worst_drawdown": 1.0,
+        "min_cluster_consistency": -1.0,
+        "min_fold_months": 1,
+        "min_oos_return": -1.0,
+        "min_pf": 0.0,
+        "min_positive_window_ratio": 0.0,
+        "min_stability": -1.0
+      },
+      "negation_penalties": [
+        -0.2,
+        -0.3,
+        -0.45
+      ],
+      "random_seed": 42,
+      "refinement_trials_per_family": {
+        "daily": 1,
+        "monthly": 0,
+        "weekly": 0
+      },
+      "retention_gates": {
+        "max_worst_drawdown": 1.0,
+        "min_positive_window_ratio": 0.0,
+        "min_profit_factor": 0.0,
+        "min_samples": 1,
+        "top_hypotheses_per_combo": 2
+      },
+      "seed_weights": {
+        "continuation": {
+          "BreakoutShape": 0.12,
+          "Cluster": 0.06,
+          "MA": 0.24,
+          "MonthlyContext": 0.06,
+          "Pivot": 0.06,
+          "Regime": 0.12,
+          "Volume": 0.18,
+          "WeeklyContext": 0.16
+        },
+        "reversal": {
+          "Candle": 0.12,
+          "Cluster": 0.06,
+          "MA": 0.2,
+          "MonthlyContext": 0.1,
+          "Pivot": 0.1,
+          "Regime": 0.08,
+          "Volume": 0.16,
+          "WeeklyContext": 0.18
+        }
+      },
+      "selection_cutoffs": [
+        0.005,
+        0.01,
+        0.02,
+        0.05,
+        0.1
+      ],
+      "top_refinement_parents": 1,
+      "trials_per_family": {
+        "daily": 2,
+        "monthly": 1,
+        "weekly": 1
+      }
+    }
+  },
+  "created_at": "2026-03-09T07:48:24Z",
+  "families": [
+    "bottom"
+  ],
+  "resume_enabled": true,
+  "snapshot_id": "smoke",
+  "status": "searched",
+  "study_id": "study_smoke_20260309074824",
+  "timeframes": [
+    "daily"
+  ],
+  "top_hypotheses_file": "top_hypotheses.json",
+  "updated_at": "2026-03-09T07:48:25Z"
+}

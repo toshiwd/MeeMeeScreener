@@ -1,0 +1,246 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - generic [ref=e7]:
+            - generic [ref=e8]:
+              - generic [ref=e9]: MeeMee
+              - generic [ref=e10]: Screener
+            - navigation [ref=e11]:
+              - link "一覧に戻る" [ref=e12] [cursor=pointer]:
+                - /url: /
+              - link "ランキング" [ref=e13] [cursor=pointer]:
+                - /url: /ranking
+              - link "市場概況" [ref=e14] [cursor=pointer]:
+                - /url: /market
+              - link "保有" [ref=e15] [cursor=pointer]:
+                - /url: /positions
+              - link "お気に入り" [ref=e16] [cursor=pointer]:
+                - /url: /favorites
+              - link "候補" [ref=e17] [cursor=pointer]:
+                - /url: /candidates
+          - generic [ref=e70]:
+            - button "並び替え：コード順 ▼" [ref=e72] [cursor=pointer]:
+              - text: 並び替え：コード順
+              - generic [ref=e73]: ▼
+            - button "表示密度 3x3 ▼" [ref=e75] [cursor=pointer]:
+              - text: 表示密度 3x3
+              - generic [ref=e76]: ▼
+            - button "フィルタ" [ref=e78] [cursor=pointer]
+            - button "相談" [ref=e79] [cursor=pointer]
+        - generic [ref=e21]:
+          - generic [ref=e22]:
+            - button "月" [ref=e23] [cursor=pointer]
+            - button "週" [ref=e24] [cursor=pointer]
+            - button "日" [ref=e25] [cursor=pointer]
+          - generic [ref=e26]:
+            - button "60本" [ref=e27] [cursor=pointer]
+            - button "120本" [ref=e28] [cursor=pointer]
+            - button "240本" [ref=e29] [cursor=pointer]
+            - button "360本" [ref=e30] [cursor=pointer]
+          - textbox "コード/銘柄名で検索" [ref=e32]
+          - generic [ref=e33]:
+            - generic [ref=e34]: "状態: 待機中"
+            - generic [ref=e35]: "イベント最終更新: 2026/03/13"
+            - generic [ref=e80]: "権利データ範囲: ～2026/03/19"
+    - generic [ref=e36]:
+      - generic [ref=e37]:
+        - button "保有" [ref=e38] [cursor=pointer]
+        - button "履歴" [ref=e39] [cursor=pointer]
+      - button "再計算" [ref=e40] [cursor=pointer]:
+        - img [ref=e41]
+        - generic [ref=e44]: 再計算
+      - generic [ref=e45] [cursor=pointer]:
+        - img [ref=e46]
+        - generic [ref=e49]: インポート
+    - generic [ref=e81]:
+      - button "1234 1234 0-1 データなし" [ref=e82] [cursor=pointer]:
+        - generic [ref=e85]:
+          - generic [ref=e86]: "1234"
+          - generic [ref=e87]: 1234 0-1
+        - generic [ref=e89]: データなし
+      - button "1489 NEXT日経平均高配当50ETF 0-1 100上:160 60上:192 7下:8 日付 26/03/13 終値 3,118" [ref=e90] [cursor=pointer]:
+        - generic [ref=e93]:
+          - generic [ref=e94]: "1489"
+          - generic [ref=e95]: NEXT日経平均高配当50ETF 0-1
+        - generic [ref=e97]:
+          - generic [ref=e98]: 100上:160
+          - generic [ref=e99]: 60上:192
+          - generic [ref=e100]: 7下:8
+        - generic [ref=e102]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/13
+            - generic: 終値
+            - generic: 3,118
+      - button "1514 住石HD 0-1 7上:8 日付 26/03/13 終値 1,138" [ref=e104] [cursor=pointer]:
+        - generic [ref=e107]:
+          - generic [ref=e108]: "1514"
+          - generic [ref=e109]: 住石HD 0-1
+        - generic [ref=e112]: 7上:8
+        - generic [ref=e114]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/13
+            - generic: 終値
+            - generic: 1,138
+      - button "1605 INPEX(国際石油開発帝石) 0-1 100上:160 60上:194 20上:41 7上:15 日付 26/03/13 終値 4,390" [ref=e116] [cursor=pointer]:
+        - generic [ref=e119]:
+          - generic [ref=e120]: "1605"
+          - generic [ref=e121]: INPEX(国際石油開発帝石) 0-1
+        - generic [ref=e123]:
+          - generic [ref=e124]: 100上:160
+          - generic [ref=e125]: 60上:194
+          - generic [ref=e126]: 20上:41
+          - generic [ref=e127]: 7上:15
+        - generic [ref=e129]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/13
+            - generic: 終値
+            - generic: 4,390
+      - button "2267 ヤクルト 0-1 7下:6 日付 26/03/13 終値 2,567" [ref=e131] [cursor=pointer]:
+        - generic [ref=e134]:
+          - generic [ref=e135]: "2267"
+          - generic [ref=e136]: ヤクルト 0-1
+        - generic [ref=e139]: 7下:6
+        - generic [ref=e141]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/13
+            - generic: 終値
+            - generic: 2,567
+      - button "2413 エムスリー 10-10 60下:65 日付 26/03/13 終値 1,663" [ref=e143] [cursor=pointer]:
+        - generic [ref=e146]:
+          - generic [ref=e147]: "2413"
+          - generic [ref=e148]: エムスリー 10-10
+        - generic [ref=e151]: 60下:65
+        - generic [ref=e153]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/13
+            - generic: 終値
+            - generic: 1,663
+      - button "3063 ジェイプロジェクト 0-1 決算 4/10 7下:11 日付 26/03/13 終値 779" [ref=e155] [cursor=pointer]:
+        - generic [ref=e158]:
+          - generic [ref=e159]: "3063"
+          - generic [ref=e160]: ジェイプロジェクト 0-1
+          - generic [ref=e162]: 決算 4/10
+        - generic [ref=e165]: 7下:11
+        - generic [ref=e167]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/13
+            - generic: 終値
+            - generic: "779"
+      - button "3197 すかいらーくHD 0-1 7下:12 日付 26/03/13 終値 3,378" [ref=e169] [cursor=pointer]:
+        - generic [ref=e172]:
+          - generic [ref=e173]: "3197"
+          - generic [ref=e174]: すかいらーくHD 0-1
+        - generic [ref=e177]: 7下:12
+        - generic [ref=e179]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/13
+            - generic: 終値
+            - generic: 3,378
+      - button "3293 アズマハウス 0-1 60上:49 日付 26/03/13 終値 791" [ref=e181] [cursor=pointer]:
+        - generic [ref=e184]:
+          - generic [ref=e185]: "3293"
+          - generic [ref=e186]: アズマハウス 0-1
+        - generic [ref=e189]: 60上:49
+        - generic [ref=e191]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/13
+            - generic: 終値
+            - generic: "791"
+      - button "3474 G-FACTORY 0-1" [ref=e193] [cursor=pointer]:
+        - generic [ref=e196]:
+          - generic [ref=e197]: "3474"
+          - generic [ref=e198]: G-FACTORY 0-1
+      - button "4259 エクサウィザーズ 0-2" [ref=e201] [cursor=pointer]:
+        - generic [ref=e204]:
+          - generic [ref=e205]: "4259"
+          - generic [ref=e206]: エクサウィザーズ 0-2
+      - button "4755 楽天G 0-1" [ref=e209] [cursor=pointer]:
+        - generic [ref=e212]:
+          - generic [ref=e213]: "4755"
+          - generic [ref=e214]: 楽天G 0-1
+      - button "5411 JFE HD 0-1" [ref=e217] [cursor=pointer]:
+        - generic [ref=e220]:
+          - generic [ref=e221]: "5411"
+          - generic [ref=e222]: JFE HD 0-1
+      - button "5938 LIXIL G(トステム) 5-7" [ref=e225] [cursor=pointer]:
+        - generic [ref=e228]:
+          - generic [ref=e229]: "5938"
+          - generic [ref=e230]: LIXIL G(トステム) 5-7
+      - button "6594 ニデック(日本電産) 0-1" [ref=e233] [cursor=pointer]:
+        - generic [ref=e236]:
+          - generic [ref=e237]: "6594"
+          - generic [ref=e238]: ニデック(日本電産) 0-1
+      - button "7552 ハピネット 0-2" [ref=e241] [cursor=pointer]:
+        - generic [ref=e244]:
+          - generic [ref=e245]: "7552"
+          - generic [ref=e246]: ハピネット 0-2
+      - button "7630 壱番屋 0-1 決算 4/6" [ref=e249] [cursor=pointer]:
+        - generic [ref=e252]:
+          - generic [ref=e253]: "7630"
+          - generic [ref=e254]: 壱番屋 0-1
+          - generic [ref=e256]: 決算 4/6
+      - button "7936 アシックス 0-1" [ref=e259] [cursor=pointer]:
+        - generic [ref=e262]:
+          - generic [ref=e263]: "7936"
+          - generic [ref=e264]: アシックス 0-1
+      - button "8015 豊田通商 0-1" [ref=e267] [cursor=pointer]:
+        - generic [ref=e270]:
+          - generic [ref=e271]: "8015"
+          - generic [ref=e272]: 豊田通商 0-1
+      - button "8153 モスフード 0-1" [ref=e275] [cursor=pointer]:
+        - generic [ref=e278]:
+          - generic [ref=e279]: "8153"
+          - generic [ref=e280]: モスフード 0-1
+      - button "8410 セブン銀行 0-12" [ref=e283] [cursor=pointer]:
+        - generic [ref=e286]:
+          - generic [ref=e287]: "8410"
+          - generic [ref=e288]: セブン銀行 0-12
+      - button "8801 三井不動産 0-1" [ref=e291] [cursor=pointer]:
+        - generic [ref=e294]:
+          - generic [ref=e295]: "8801"
+          - generic [ref=e296]: 三井不動産 0-1
+      - button "9107 川崎汽船 0-1" [ref=e299] [cursor=pointer]:
+        - generic [ref=e302]:
+          - generic [ref=e303]: "9107"
+          - generic [ref=e304]: 川崎汽船 0-1
+      - button "9418 U-NEXT HD(USEN) 0-1" [ref=e307] [cursor=pointer]:
+        - generic [ref=e310]:
+          - generic [ref=e311]: "9418"
+          - generic [ref=e312]: U-NEXT HD(USEN) 0-1
+    - generic:
+      - button "相談バーを展開する"
+      - generic:
+        - generic:
+          - generic: 保有 24件
+          - generic:
+            - generic: "1234"
+            - generic: "1489"
+            - generic: "1514"
+            - generic: "1605"
+            - generic: "2267"
+            - generic: "2413"
+            - generic: "+18"
+        - generic:
+          - button "相談作成"
+          - button "スクショ作成"
+          - button "コピー" [disabled]
+          - button "閉じる"
