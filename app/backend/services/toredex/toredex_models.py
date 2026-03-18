@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 
-from typing import TypedDict
+from typing import Any, TypedDict
 
 
 ALLOWED_UNIT_SET = {2, 3, 5, -2, -3, -5}
@@ -11,6 +11,7 @@ class SnapshotRankingItem(TypedDict, total=False):
     ev: float | None
     upProb: float | None
     revRisk: float | None
+    timeframeSignals: dict[str, Any]
     regime: str
     gate: dict
     close: float | None
@@ -61,6 +62,7 @@ REASON_ID_SET: set[str] = {
     "S_SWITCH_CAPACITY",
     "R_CUT_LOSS_WARN",
     "R_CUT_LOSS_HARD",
+    "R_EXPOSURE_TRIM",
     "R_GAME_OVER",
     "R_MAX_HOLDINGS_BLOCK",
     "K_NO_SNAPSHOT",
