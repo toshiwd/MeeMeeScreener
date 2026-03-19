@@ -59,6 +59,15 @@ def test_public_empty_schema_has_expected_columns_and_publish_id(tmp_path) -> No
                 "previous_status": "VARCHAR",
                 "new_status": "VARCHAR",
             },
+            "publish_maintenance_state": {
+                "maintenance_name": "VARCHAR",
+                "schema_version": "VARCHAR",
+                "candidate_backfill_last_run": "TIMESTAMP",
+                "snapshot_sweep_last_run": "TIMESTAMP",
+                "non_promotable_legacy_count": "BIGINT",
+                "maintenance_degraded": "BOOLEAN",
+                "updated_at": "TIMESTAMP",
+            },
             "state_eval_daily": {
                 "publish_id": "VARCHAR",
                 "as_of_date": "DATE",

@@ -8,9 +8,11 @@ import duckdb
 from fastapi.testclient import TestClient
 
 from app.backend.infra.files.config_repo import ConfigRepository, PUBLISH_REGISTRY_SCHEMA_VERSION
+from app.backend.core.publish_candidate_maintenance_job import run_publish_candidate_maintenance_cycle
 from external_analysis.ops.ops_schema import ensure_ops_db
 from external_analysis.results.publish_candidates import (
     backfill_publish_candidate_bundles,
+    cleanup_publish_candidate_maintenance_state,
     build_publish_candidate_bundle,
     load_publish_candidate_maintenance_state,
     sweep_publish_candidate_snapshots,
@@ -572,9 +574,8 @@ def test_publish_candidate_validation_summary_required(monkeypatch, tmp_path) ->
         assert detail["reason"] in {"candidate_bundle_invalid", "candidate_validation_invalid"}
 
 
-def test_publish_candidate_backfill_repairs_missing_validation_summary(monkeypatch, tmp_path) -> None:
+def test_publish_candidate_backfill_leaves_missing_validation_summary_non_promotable(monkeypatch, tmp_path) -> None:
     data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
-    monkeypatch.setenv("MEEMEE_ENABLE_OPS_FALLBACK", "1")
     conn = duckdb.connect(str(result_db))
     try:
         conn.execute(
@@ -584,9 +585,10 @@ def test_publish_candidate_backfill_repairs_missing_validation_summary(monkeypat
     finally:
         conn.close()
 
-    result = backfill_publish_candidate_bundles(db_path=str(result_db), ops_db_path=str(ops_db))
+    result = backfill_publish_candidate_bundles(db_path=str(result_db))
     assert result["ok"] is True
-    assert result["repaired"] >= 1
+    assert result["repaired"] == 0
+    assert result["failed"] >= 1
 
     conn = duckdb.connect(str(result_db))
     try:
@@ -599,16 +601,17 @@ def test_publish_candidate_backfill_repairs_missing_validation_summary(monkeypat
     assert row is not None
     assert row[0] == "candidate"
     assert isinstance(json.loads(row[1]), dict)
-    assert "metrics" in json.loads(row[1])
+    assert json.loads(row[1]) == {}
 
     maintenance = load_publish_candidate_maintenance_state(db_path=str(result_db))
     assert maintenance["candidate_backfill_last_run"] is not None
-    assert maintenance["candidate_backfill_summary"]["updated"] >= 1
+    assert maintenance["candidate_backfill_summary"]["updated"] == 0
+    assert maintenance["candidate_backfill_summary"]["failed"] >= 1
+    assert maintenance["non_promotable_legacy_count"] >= 1
 
 
 def test_publish_candidate_maintenance_dry_run_tracks_state_without_mutation(monkeypatch, tmp_path) -> None:
     data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
-    monkeypatch.setenv("MEEMEE_ENABLE_OPS_FALLBACK", "1")
     conn = duckdb.connect(str(result_db))
     try:
         conn.execute(
@@ -628,7 +631,8 @@ def test_publish_candidate_maintenance_dry_run_tracks_state_without_mutation(mon
         result = response.json()
         assert result["ok"] is True
         assert result["dry_run"] is True
-        assert result["updated"] >= 1
+        assert result["updated"] == 0
+        assert result["failed"] >= 1
 
     conn = duckdb.connect(str(result_db))
     try:
@@ -645,9 +649,128 @@ def test_publish_candidate_maintenance_dry_run_tracks_state_without_mutation(mon
         state_response = client.get("/api/system/publish/state")
         assert state_response.status_code == 200
         state_payload = state_response.json()
-        assert "ops_fallback_enabled" in state_payload
         assert "candidate_backfill_last_run" in state_payload
+        assert "non_promotable_legacy_count" in state_payload
         assert "maintenance_degraded" in state_payload
+
+
+def test_publish_candidate_non_promotable_legacy_count_is_observable(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+    conn = duckdb.connect(str(result_db))
+    try:
+        conn.execute(
+            "UPDATE publish_candidate_bundle SET validation_summary = '{}' WHERE candidate_id = ?",
+            [challenger_key],
+        )
+    finally:
+        conn.close()
+
+    result = backfill_publish_candidate_bundles(db_path=str(result_db))
+    assert result["ok"] is True
+    assert result["failed"] >= 1
+
+    with TestClient(main_module.create_app()) as client:
+        state_response = client.get("/api/system/publish/state")
+        assert state_response.status_code == 200
+        state_payload = state_response.json()
+        assert state_payload["non_promotable_legacy_count"] >= 1
+        assert state_payload["maintenance_state"]["non_promotable_legacy_count"] >= 1
+        assert state_payload["maintenance_degraded"] is True
+        assert state_payload["registry_sync_state"] in {"in_sync", "mirror_stale", "mirror_legacy", "external_unreachable", "external_invalid"}
+
+
+def test_publish_candidate_maintenance_cycle_records_last_run(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    conn = duckdb.connect(str(result_db))
+    try:
+        conn.execute(
+            "UPDATE publish_candidate_bundle SET validation_summary = '{}' WHERE candidate_id = ?",
+            [challenger_key],
+        )
+    finally:
+        conn.close()
+
+    result = run_publish_candidate_maintenance_cycle(
+        result_db_path=str(result_db),
+        dry_run=True,
+        source="test_cycle",
+    )
+    assert result["ok"] is True
+    assert result["dry_run"] is True
+    assert result["backfill"]["dry_run"] is True
+    assert result["snapshot_sweep"]["dry_run"] is True
+
+    maintenance = load_publish_candidate_maintenance_state(db_path=str(result_db))
+    assert maintenance["candidate_backfill_last_run"] is not None
+    assert maintenance["snapshot_sweep_last_run"] is not None
+    assert maintenance["non_promotable_legacy_count"] >= 0
+    assert maintenance["details_json"]["last_cycle"]["source"] == "test_cycle"
+
+
+def test_publish_candidate_cleanup_removes_deprecated_ops_residue(tmp_path) -> None:
+    _, result_db, _, _, challenger_key = _seed_publish_state(tmp_path)
+    conn = duckdb.connect(str(result_db))
+    try:
+        conn.execute(
+            "UPDATE publish_candidate_bundle SET validation_summary = '{}' WHERE candidate_id = ?",
+            [challenger_key],
+        )
+    finally:
+        conn.close()
+    conn = duckdb.connect(str(result_db))
+    try:
+        conn.execute("ALTER TABLE publish_maintenance_state ADD COLUMN IF NOT EXISTS ops_fallback_enabled BOOLEAN")
+        conn.execute("ALTER TABLE publish_maintenance_state ADD COLUMN IF NOT EXISTS ops_fallback_hit_count BIGINT")
+        conn.execute("ALTER TABLE publish_maintenance_state ADD COLUMN IF NOT EXISTS ops_fallback_last_used_at TIMESTAMP")
+        conn.execute("ALTER TABLE publish_maintenance_state ADD COLUMN IF NOT EXISTS ops_fallback_last_target TEXT")
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO publish_maintenance_state (
+                maintenance_name, schema_version, candidate_backfill_last_run, candidate_backfill_summary,
+                snapshot_sweep_last_run, snapshot_sweep_summary, non_promotable_legacy_count,
+                maintenance_degraded, updated_at, details_json, ops_fallback_enabled,
+                ops_fallback_hit_count, ops_fallback_last_used_at, ops_fallback_last_target
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                "publish_candidates",
+                "publish_candidate_bundle_v1",
+                None,
+                "{}",
+                None,
+                "{}",
+                1,
+                False,
+                "2026-03-19T00:00:00Z",
+                json.dumps({"ops_fallback_enabled": True, "ops_fallback_hit_count": 3}),
+                True,
+                3,
+                "2026-03-19T00:00:00Z",
+                challenger_key,
+            ],
+        )
+    finally:
+        conn.close()
+
+    result = cleanup_publish_candidate_maintenance_state(db_path=str(result_db))
+    assert result["ok"] is True
+    assert result["updated"] == 1
+    assert "ops_fallback_enabled" in result["dropped_columns"] or result["failed_columns"] == []
+
+    conn = duckdb.connect(str(result_db), read_only=True)
+    try:
+        columns = {str(row[1]) for row in conn.execute("PRAGMA table_info('publish_maintenance_state')").fetchall()}
+        assert "ops_fallback_enabled" not in columns
+        assert "ops_fallback_hit_count" not in columns
+        assert "ops_fallback_last_used_at" not in columns
+        assert "ops_fallback_last_target" not in columns
+    finally:
+        conn.close()
+
+    maintenance = load_publish_candidate_maintenance_state(db_path=str(result_db))
+    assert maintenance["details_json"] == {}
+    assert maintenance["non_promotable_legacy_count"] >= 1
 
 
 def test_publish_candidate_snapshot_retention_sweeps_old_rejected_snapshot(monkeypatch, tmp_path) -> None:

@@ -79,14 +79,9 @@ The bundle is the source of truth for candidate review data and contains:
 - `validation_summary`
 - optional `published_ranking_snapshot`
 
-The bundle is assembled from `external_analysis` results first.
-`ops_db` readiness is only a transitional fallback when external review data is not yet available.
-
-The transitional fallback may be removed once all of the following are true:
-
-- every candidate generation path can produce readiness from `external_analysis` data
-- candidate bundle generation is stable without `ops_db`
-- legacy candidates can be repaired by the external_analysis backfill job
+The bundle is assembled from `external_analysis` results only.
+`ops_db` readiness fallback has been removed.
+Readiness and validation summary are authored from `external_analysis` shadow/result data and are not read from ops.
 
 `published_ranking_snapshot` is captured at bundle creation time when candidate rows exist and is not regenerated on approve/promote.
 It remains a cache / audit artifact only.
@@ -113,6 +108,8 @@ The candidate bundle must already exist in `external_analysis` and must be in `a
 
 Legacy candidates without a complete validation summary remain non-promotable.
 They may be backfilled later, but promotion must still reject them until the summary is complete.
+Backfill never auto-promotes and never consults `ops_db`.
+If cleanup or migration is needed, use the maintenance helper / CLI to normalize legacy state instead of reintroducing fallback reads.
 
 `approve` means "promotion may proceed". It does not mutate champion state.
 `promote` means "candidate becomes champion".
@@ -209,42 +206,61 @@ Repair must copy `external_analysis` to the local mirror. It must not overwrite 
 
 ## Transitional Fallback Removal
 
-`ops_db` readiness fallback is transitional and default-off.
-
-The fallback may be removed when all of the following are true:
-
-- `external_analysis` readiness is available for every active candidate generation path
-- candidate bundle generation is stable without `ops_db`
-- legacy candidates can be repaired by the external_analysis backfill job
-- fallback hit count remains at zero for a sustained operational window
-
-Operationally, the fallback can be disabled explicitly even before removal.
+`ops_db` readiness fallback has been removed.
 The publish maintenance snapshot should expose:
 
-- `ops_fallback_enabled`
-- `ops_fallback_last_used_at`
-- `ops_fallback_hit_count`
+- `maintenance_state`
 - `candidate_backfill_last_run`
 - `snapshot_sweep_last_run`
+- `non_promotable_legacy_count`
 - `maintenance_degraded`
+- `updated_at`
+
+`non_promotable_legacy_count` is a live aggregate derived from candidate bundle state.
+It may be cached in maintenance state for reporting, but the source of truth is the current bundle table.
 
 ## Maintenance Runbook
 
 Backfill and snapshot sweep are maintenance tasks, not auto-promotions.
-They may be executed manually from CLI or internal API before periodic job wiring is added.
+They may be executed manually from CLI or internal API.
+They may also run on a lightweight scheduler in MeeMee runtime when the env flag is enabled.
 
 Maintenance commands:
 
 - `python -m external_analysis publish-maintenance-backfill`
 - `python -m external_analysis publish-maintenance-sweep`
+- `python -m external_analysis publish-maintenance-cycle`
+- `python -m external_analysis publish-maintenance-cleanup`
 
 Both commands support `--dry-run`.
+The same operations may also be triggered from MeeMee internal API or the lightweight scheduler.
 
 Backfill rules:
 
 - never auto-promote
 - incomplete legacy candidates remain non-promotable
 - only repair what can be reconstructed from `external_analysis` data
+- do not use backfill to bypass validation summary gates
+- do not consult `ops_db`
+
+Cleanup rules:
+
+- normalize legacy maintenance state
+- remove deprecated `ops_fallback_*` columns when the engine supports it
+- strip deprecated `ops_fallback_*` JSON residue from maintenance details
+- keep startup tolerant of older files until cleanup has been run
+
+Maintenance cleanup rules:
+
+- legacy `ops_fallback_*` columns or JSON residue may exist in older DuckDB files
+- cleanup helpers may drop or strip them in place
+- startup must remain tolerant of old files and must not require manual intervention
+
+Scheduler note:
+
+- `MEEMEE_PUBLISH_CANDIDATE_MAINTENANCE_ENABLED=1` enables the internal background scheduler
+- `MEEMEE_PUBLISH_CANDIDATE_MAINTENANCE_DRY_RUN=1` runs the scheduler in dry-run mode
+- the scheduler is optional and must not be the only recovery path
 
 Snapshot retention rules remain:
 
@@ -260,3 +276,7 @@ It is not the source of truth for runtime selection.
 `published_logic_artifact`, `published_logic_manifest`, `validation_summary`, and optional `published_ranking_snapshot` are stored together as a candidate bundle before manual promote.
 Snapshot capture happens once at bundle creation time when rows are available.
 Snapshot cleanup is a maintenance task and never changes source of truth state.
+
+TODO for removal phase:
+
+- once the last 7-day and 30-day fallback aggregates stay at zero across a sustained window, remove the ops fallback code path entirely

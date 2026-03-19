@@ -65,7 +65,8 @@ The read order for publish registry does not change the runtime resolution order
 ## Candidate Bundle Relation
 
 `published_logic_artifact` and `published_logic_manifest` are prepared as a candidate bundle in `external_analysis` before manual approve/promote.
-The candidate bundle's validation summary is also authored in `external_analysis` when possible; `ops_db` is a transitional fallback only.
+The candidate bundle's validation summary is authored in `external_analysis` only.
+Legacy `ops_fallback_*` publish-maintenance observations are removed from the runtime snapshot; runtime now exposes maintenance state, last run timestamps, and live non-promotable legacy counts instead.
 
 Runtime selection does not read the candidate bundle directly for choice resolution.
 It still resolves from:
@@ -106,5 +107,6 @@ Current implementation is intentionally minimal:
 - pure-function migration is not included
 - full publish promotion automation is not included
 - mirror normalize / resync is internal only and not a UI flow
+- publish/maintenance cleanup is internal only and not a UI flow
 
 Those can be added later without changing the resolution order.
