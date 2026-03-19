@@ -19,6 +19,7 @@ from external_analysis.results.publish_registry import (
 from external_analysis.results.publish_candidates import (
     approve_publish_candidate_bundle,
     load_publish_candidate_bundle,
+    load_publish_candidate_maintenance_state,
     reject_publish_candidate_bundle,
     promote_publish_candidate_bundle,
     retire_publish_candidate_bundle,
@@ -548,6 +549,7 @@ def build_publish_promotion_snapshot(
     last_sync_time = sync["last_sync_time"]
     degraded = bool(sync["degraded"])
     catalog = load_published_logic_catalog(db_path=db_path)
+    maintenance_state = load_publish_candidate_maintenance_state(db_path=db_path)
     champion = registry.get("champion") if isinstance(registry.get("champion"), dict) else None
     challengers = _registry_challengers(registry)
     challenger = challengers[0] if challengers else None
@@ -572,6 +574,13 @@ def build_publish_promotion_snapshot(
         "local_mirror_version": sync["local_mirror_version"],
         "mirror_schema_version": sync["mirror_schema_version"],
         "mirror_normalized": sync["mirror_normalized"],
+        "ops_fallback_enabled": bool(maintenance_state.get("ops_fallback_enabled")),
+        "ops_fallback_last_used_at": maintenance_state.get("ops_fallback_last_used_at"),
+        "ops_fallback_hit_count": int(maintenance_state.get("ops_fallback_hit_count") or 0),
+        "candidate_backfill_last_run": maintenance_state.get("candidate_backfill_last_run"),
+        "snapshot_sweep_last_run": maintenance_state.get("snapshot_sweep_last_run"),
+        "maintenance_degraded": bool(maintenance_state.get("maintenance_degraded")),
+        "maintenance_state": maintenance_state,
         "default_logic_pointer": default_pointer,
         "champion_logic_key": champion_logic_key,
         "challenger_logic_key": candidate_logic_key,

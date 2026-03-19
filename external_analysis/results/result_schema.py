@@ -32,6 +32,7 @@ INTERNAL_RESULT_TABLES: tuple[str, ...] = (
     "publish_registry_audit",
     "publish_candidate_bundle",
     "publish_candidate_audit",
+    "publish_maintenance_state",
 )
 ALL_RESULT_TABLES: tuple[str, ...] = PUBLIC_RESULT_TABLES + INTERNAL_RESULT_TABLES
 ALLOWED_FRESHNESS_STATES: tuple[str, ...] = ("fresh", "warning", "hard")
@@ -207,6 +208,25 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
             queue_order_before INTEGER,
             queue_order_after INTEGER,
             changed_at TIMESTAMP NOT NULL,
+            details_json JSON NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS publish_maintenance_state (
+            maintenance_name TEXT PRIMARY KEY,
+            schema_version TEXT NOT NULL,
+            ops_fallback_enabled BOOLEAN NOT NULL,
+            ops_fallback_hit_count BIGINT NOT NULL,
+            ops_fallback_last_used_at TIMESTAMP,
+            ops_fallback_last_target TEXT,
+            candidate_backfill_last_run TIMESTAMP,
+            candidate_backfill_summary JSON,
+            snapshot_sweep_last_run TIMESTAMP,
+            snapshot_sweep_summary JSON,
+            maintenance_degraded BOOLEAN NOT NULL,
+            updated_at TIMESTAMP NOT NULL,
             details_json JSON NOT NULL
         )
         """

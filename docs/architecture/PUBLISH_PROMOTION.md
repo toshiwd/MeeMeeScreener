@@ -207,6 +207,51 @@ Repair is one-way:
 
 Repair must copy `external_analysis` to the local mirror. It must not overwrite the external source of truth from the mirror.
 
+## Transitional Fallback Removal
+
+`ops_db` readiness fallback is transitional and default-off.
+
+The fallback may be removed when all of the following are true:
+
+- `external_analysis` readiness is available for every active candidate generation path
+- candidate bundle generation is stable without `ops_db`
+- legacy candidates can be repaired by the external_analysis backfill job
+- fallback hit count remains at zero for a sustained operational window
+
+Operationally, the fallback can be disabled explicitly even before removal.
+The publish maintenance snapshot should expose:
+
+- `ops_fallback_enabled`
+- `ops_fallback_last_used_at`
+- `ops_fallback_hit_count`
+- `candidate_backfill_last_run`
+- `snapshot_sweep_last_run`
+- `maintenance_degraded`
+
+## Maintenance Runbook
+
+Backfill and snapshot sweep are maintenance tasks, not auto-promotions.
+They may be executed manually from CLI or internal API before periodic job wiring is added.
+
+Maintenance commands:
+
+- `python -m external_analysis publish-maintenance-backfill`
+- `python -m external_analysis publish-maintenance-sweep`
+
+Both commands support `--dry-run`.
+
+Backfill rules:
+
+- never auto-promote
+- incomplete legacy candidates remain non-promotable
+- only repair what can be reconstructed from `external_analysis` data
+
+Snapshot retention rules remain:
+
+- `approved` / `promoted`: keep for 90 days by default
+- `rejected` / `retired`: keep for 14 days by default
+- orphaned or stale snapshots are sweep targets
+
 ## Notes
 
 `published_ranking_snapshot` is a cache / audit artifact only.

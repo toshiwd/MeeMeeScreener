@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,9 +32,12 @@ PUBLISH_CANDIDATE_RANKING_SNAPSHOT_POLICY = "creation_time_if_rows_present"
 PUBLISH_CANDIDATE_RETENTION_APPROVED_DAYS = 90
 PUBLISH_CANDIDATE_RETENTION_REJECTED_DAYS = 14
 PUBLISH_CANDIDATE_RETENTION_RETIRED_DAYS = 14
-# Transitional dependency. Remove once all bundle generation paths can supply readiness directly
-# and backfill has repaired legacy candidates without relying on ops-db reads.
-PUBLISH_CANDIDATE_ENABLE_OPS_FALLBACK = True
+# Transitional dependency. Default off. Keep enabled only during explicit operations
+# that still need legacy ops-db readiness. Remove once backfill and bundle generation
+# no longer require ops-db reads on any active path.
+PUBLISH_CANDIDATE_ENABLE_OPS_FALLBACK = False
+PUBLISH_CANDIDATE_MAINTENANCE_NAME = "publish_candidates"
+PUBLISH_CANDIDATE_FALLBACK_HEARTBEAT_WINDOW_DAYS = 30
 
 
 def _now_iso() -> str:
@@ -288,6 +292,182 @@ def _normalize_readiness_payload(readiness: dict[str, Any] | None) -> dict[str, 
     }
 
 
+def _ops_fallback_enabled() -> bool:
+    env_value = _normalize_text(os.getenv("MEEMEE_ENABLE_OPS_FALLBACK"))
+    if env_value is not None:
+        return env_value.lower() in {"1", "true", "yes", "on"}
+    return bool(PUBLISH_CANDIDATE_ENABLE_OPS_FALLBACK)
+
+
+def _maintenance_state_defaults() -> dict[str, Any]:
+    return {
+        "maintenance_name": PUBLISH_CANDIDATE_MAINTENANCE_NAME,
+        "schema_version": PUBLISH_CANDIDATE_BUNDLE_SCHEMA_VERSION,
+        "ops_fallback_enabled": _ops_fallback_enabled(),
+        "ops_fallback_hit_count": 0,
+        "ops_fallback_last_used_at": None,
+        "ops_fallback_last_target": None,
+        "candidate_backfill_last_run": None,
+        "candidate_backfill_summary": {},
+        "snapshot_sweep_last_run": None,
+        "snapshot_sweep_summary": {},
+        "maintenance_degraded": False,
+        "updated_at": _now_iso(),
+        "details_json": {},
+    }
+
+
+def load_publish_candidate_maintenance_state(
+    *,
+    db_path: str | None = None,
+    result_conn: Any | None = None,
+) -> dict[str, Any]:
+    try:
+        conn = result_conn or connect_result_db(db_path=db_path, read_only=True)
+    except Exception:
+        return _maintenance_state_defaults()
+    owns_conn = result_conn is None
+    try:
+        row = conn.execute(
+            """
+            SELECT
+                maintenance_name, schema_version, ops_fallback_enabled, ops_fallback_hit_count,
+                ops_fallback_last_used_at, ops_fallback_last_target, candidate_backfill_last_run,
+                candidate_backfill_summary, snapshot_sweep_last_run, snapshot_sweep_summary,
+                maintenance_degraded, updated_at, details_json
+            FROM publish_maintenance_state
+            WHERE maintenance_name = ?
+            """,
+            [PUBLISH_CANDIDATE_MAINTENANCE_NAME],
+        ).fetchone()
+        if not row:
+            return _maintenance_state_defaults()
+        try:
+            backfill_summary = json.loads(str(row[7] or "{}"))
+        except Exception:
+            backfill_summary = {}
+        try:
+            sweep_summary = json.loads(str(row[9] or "{}"))
+        except Exception:
+            sweep_summary = {}
+        try:
+            details_json = json.loads(str(row[12] or "{}"))
+        except Exception:
+            details_json = {}
+        return {
+            "maintenance_name": _normalize_text(row[0]) or PUBLISH_CANDIDATE_MAINTENANCE_NAME,
+            "schema_version": _normalize_text(row[1]) or PUBLISH_CANDIDATE_BUNDLE_SCHEMA_VERSION,
+            "ops_fallback_enabled": bool(row[2]),
+            "ops_fallback_hit_count": int(row[3] or 0),
+            "ops_fallback_last_used_at": _normalize_text(row[4]),
+            "ops_fallback_last_target": _normalize_text(row[5]),
+            "candidate_backfill_last_run": _normalize_text(row[6]),
+            "candidate_backfill_summary": backfill_summary if isinstance(backfill_summary, dict) else {},
+            "snapshot_sweep_last_run": _normalize_text(row[8]),
+            "snapshot_sweep_summary": sweep_summary if isinstance(sweep_summary, dict) else {},
+            "maintenance_degraded": bool(row[10]),
+            "updated_at": _normalize_text(row[11]),
+            "details_json": details_json if isinstance(details_json, dict) else {},
+        }
+    except Exception:
+        return _maintenance_state_defaults()
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def save_publish_candidate_maintenance_state(
+    *,
+    db_path: str | None = None,
+    state: dict[str, Any],
+    result_conn: Any | None = None,
+    ) -> dict[str, Any]:
+    conn = result_conn or connect_result_db(db_path=db_path, read_only=False)
+    owns_conn = result_conn is None
+    try:
+        ensure_result_schema(conn)
+        payload = _maintenance_state_defaults()
+        payload.update({k: v for k, v in (state or {}).items() if v is not None})
+        payload["maintenance_name"] = PUBLISH_CANDIDATE_MAINTENANCE_NAME
+        payload["schema_version"] = PUBLISH_CANDIDATE_BUNDLE_SCHEMA_VERSION
+        payload["updated_at"] = _now_iso()
+        payload["candidate_backfill_summary"] = dict(payload.get("candidate_backfill_summary") or {})
+        payload["snapshot_sweep_summary"] = dict(payload.get("snapshot_sweep_summary") or {})
+        payload["details_json"] = dict(payload.get("details_json") or {})
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO publish_maintenance_state (
+                maintenance_name, schema_version, ops_fallback_enabled, ops_fallback_hit_count,
+                ops_fallback_last_used_at, ops_fallback_last_target, candidate_backfill_last_run,
+                candidate_backfill_summary, snapshot_sweep_last_run, snapshot_sweep_summary,
+                maintenance_degraded, updated_at, details_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                payload["maintenance_name"],
+                payload["schema_version"],
+                bool(payload["ops_fallback_enabled"]),
+                int(payload["ops_fallback_hit_count"] or 0),
+                payload.get("ops_fallback_last_used_at"),
+                payload.get("ops_fallback_last_target"),
+                payload.get("candidate_backfill_last_run"),
+                _canonical_json(payload["candidate_backfill_summary"]),
+                payload.get("snapshot_sweep_last_run"),
+                _canonical_json(payload["snapshot_sweep_summary"]),
+                bool(payload["maintenance_degraded"]),
+                payload["updated_at"],
+                _canonical_json(payload["details_json"]),
+            ],
+        )
+        conn.execute("CHECKPOINT")
+        if owns_conn:
+            return load_publish_candidate_maintenance_state(db_path=db_path)
+        return dict(payload)
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def record_publish_candidate_ops_fallback_hit(
+    *,
+    db_path: str | None = None,
+    logic_key: str | None = None,
+    result_conn: Any | None = None,
+) -> dict[str, Any]:
+    state = load_publish_candidate_maintenance_state(db_path=db_path, result_conn=result_conn)
+    state["ops_fallback_hit_count"] = int(state.get("ops_fallback_hit_count") or 0) + 1
+    state["ops_fallback_last_used_at"] = _now_iso()
+    state["ops_fallback_last_target"] = _normalize_text(logic_key)
+    state["ops_fallback_enabled"] = _ops_fallback_enabled()
+    state["maintenance_degraded"] = True
+    state["details_json"] = dict(state.get("details_json") or {})
+    state["details_json"]["ops_fallback_last_target"] = _normalize_text(logic_key)
+    state["details_json"]["ops_fallback_used"] = True
+    state["details_json"]["ops_fallback_hit_count"] = state["ops_fallback_hit_count"]
+    return save_publish_candidate_maintenance_state(db_path=db_path, state=state, result_conn=result_conn)
+
+
+def _persist_publish_candidate_maintenance_run(
+    *,
+    db_path: str | None = None,
+    result_conn: Any | None = None,
+    run_name: str,
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    state = load_publish_candidate_maintenance_state(db_path=db_path, result_conn=result_conn)
+    state = dict(state or {})
+    state["details_json"] = dict(state.get("details_json") or {})
+    state["details_json"][run_name] = dict(summary or {})
+    state["maintenance_degraded"] = bool(state.get("ops_fallback_enabled")) or bool(summary.get("failed"))
+    if run_name == "candidate_backfill":
+        state["candidate_backfill_last_run"] = summary.get("ended_at") or _now_iso()
+        state["candidate_backfill_summary"] = dict(summary)
+    elif run_name == "snapshot_sweep":
+        state["snapshot_sweep_last_run"] = summary.get("ended_at") or _now_iso()
+        state["snapshot_sweep_summary"] = dict(summary)
+    return save_publish_candidate_maintenance_state(db_path=db_path, state=state, result_conn=result_conn)
+
+
 def load_publish_candidate_readiness(
     *,
     publish_id: str,
@@ -297,7 +477,7 @@ def load_publish_candidate_readiness(
 ) -> dict[str, Any] | None:
     return _load_readiness_entry(
         publish_id=publish_id,
-        ops_db_path=ops_db_path if PUBLISH_CANDIDATE_ENABLE_OPS_FALLBACK else None,
+        ops_db_path=ops_db_path if _ops_fallback_enabled() else None,
         db_path=db_path,
         result_conn=result_conn,
     )
@@ -487,36 +667,6 @@ def _load_readiness_entry(
     db_path: str | None = None,
     result_conn: Any | None = None,
 ) -> dict[str, Any] | None:
-    if ops_db_path:
-        conn = connect_ops_db(ops_db_path)
-        try:
-            ensure_ops_schema(conn)
-            row = conn.execute(
-                """
-                SELECT
-                    CAST(as_of_date AS VARCHAR),
-                    champion_version,
-                    challenger_version,
-                    sample_count,
-                    expectancy_delta,
-                    improved_expectancy,
-                    mae_non_worse,
-                    adverse_move_non_worse,
-                    stable_window,
-                    alignment_ok,
-                    readiness_pass,
-                    reason_codes,
-                    summary_json,
-                    created_at
-                FROM external_state_eval_readiness
-                WHERE publish_id = ?
-                """,
-                [publish_id],
-            ).fetchone()
-            if row:
-                return _row_to_readiness(row)
-        finally:
-            conn.close()
     if result_conn is not None:
         try:
             row = result_conn.execute(
@@ -544,7 +694,9 @@ def _load_readiness_entry(
         except Exception:
             row = None
         if row:
-            return _row_to_readiness(row)
+            payload = _row_to_readiness(row)
+            payload["source"] = "result_db_readiness"
+            return payload
     elif db_path:
         conn = connect_result_db(db_path=db_path, read_only=True)
         try:
@@ -573,7 +725,41 @@ def _load_readiness_entry(
         finally:
             conn.close()
         if row:
-            return _row_to_readiness(row)
+            payload = _row_to_readiness(row)
+            payload["source"] = "result_db_readiness"
+            return payload
+    if ops_db_path:
+        conn = connect_ops_db(ops_db_path)
+        try:
+            ensure_ops_schema(conn)
+            row = conn.execute(
+                """
+                SELECT
+                    CAST(as_of_date AS VARCHAR),
+                    champion_version,
+                    challenger_version,
+                    sample_count,
+                    expectancy_delta,
+                    improved_expectancy,
+                    mae_non_worse,
+                    adverse_move_non_worse,
+                    stable_window,
+                    alignment_ok,
+                    readiness_pass,
+                    reason_codes,
+                    summary_json,
+                    created_at
+                FROM external_state_eval_readiness
+                WHERE publish_id = ?
+                """,
+                [publish_id],
+            ).fetchone()
+        finally:
+            conn.close()
+        if row:
+            payload = _row_to_readiness(row)
+            payload["source"] = "ops_db_readiness"
+            return payload
     return None
 
 
@@ -843,6 +1029,12 @@ def build_publish_candidate_bundle(
                     result_conn=conn,
                 )
             )
+        if normalized_readiness and _normalize_text(normalized_readiness.get("source")) == "ops_db_readiness":
+            record_publish_candidate_ops_fallback_hit(
+                db_path=db_path,
+                logic_key=_logic_key(manifest.get("logic_id"), manifest.get("logic_version")),
+                result_conn=conn,
+            )
         if normalized_readiness is None:
             return {"ok": False, "reason": "validation_summary_missing", "logic_key": manifest.get("logic_key"), "publish_id": publish_id_value}
 
@@ -873,13 +1065,13 @@ def build_publish_candidate_bundle(
             "validation_summary": validation_summary,
             "published_ranking_snapshot": ranking_snapshot,
             "notes": [f"source_publish_id={publish_id_value}"],
-            "metadata": {
-                "validation_source": _normalize_text(normalized_readiness.get("source")) or "external_analysis_shadow",
-                "ops_db_path_present": bool(ops_db_path),
-                "validation_source_transitional": bool(ops_db_path and _normalize_text(normalized_readiness.get("source")) != "external_analysis_shadow"),
-                "ranking_snapshot_policy": PUBLISH_CANDIDATE_RANKING_SNAPSHOT_POLICY,
-            },
-        }
+                "metadata": {
+                    "validation_source": _normalize_text(normalized_readiness.get("source")) or "external_analysis_shadow",
+                    "ops_db_path_present": bool(ops_db_path),
+                    "validation_source_transitional": _normalize_text(normalized_readiness.get("source")) == "ops_db_readiness",
+                    "ranking_snapshot_policy": PUBLISH_CANDIDATE_RANKING_SNAPSHOT_POLICY,
+                },
+            }
         ok, reasons = _validate_bundle(bundle)
         if not ok:
             return {"ok": False, "reason": "candidate_bundle_invalid", "validation_issues": reasons, "bundle": bundle}
@@ -1051,9 +1243,11 @@ def backfill_publish_candidate_bundles(
     db_path: str | None = None,
     ops_db_path: str | None = None,
     limit: int | None = None,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     conn = connect_result_db(db_path=db_path, read_only=False)
-    repaired = 0
+    scanned = 0
+    updated = 0
     skipped = 0
     failed = 0
     details: list[dict[str, Any]] = []
@@ -1067,8 +1261,9 @@ def backfill_publish_candidate_bundles(
             """
         ).fetchall()
         for row in rows:
-            if limit is not None and repaired >= int(limit):
+            if limit is not None and updated >= int(limit):
                 break
+            scanned += 1
             candidate_id = _normalize_text(row[0])
             logic_key = _normalize_text(row[1])
             source_publish_id = _normalize_text(row[2])
@@ -1129,16 +1324,38 @@ def backfill_publish_candidate_bundles(
                     "backfill_source": "external_analysis",
                 },
             }
-            saved = upsert_publish_candidate_bundle(db_path=db_path, bundle=bundle, result_conn=conn)
-            repaired += 1
+            if not dry_run:
+                saved = upsert_publish_candidate_bundle(db_path=db_path, bundle=bundle, result_conn=conn)
+            else:
+                saved = bundle
+            updated += 1
             details.append(
                 {
                     "candidate_id": candidate_id,
                     "logic_key": logic_key,
                     "status": saved.get("status"),
+                    "dry_run": bool(dry_run),
                 }
             )
-        return {"ok": True, "repaired": repaired, "skipped": skipped, "failed": failed, "details": details}
+        summary = {
+            "ok": True,
+            "scanned": scanned,
+            "updated": updated,
+            "repaired": updated,
+            "skipped": skipped,
+            "failed": failed,
+            "deleted": 0,
+            "pruned_snapshot_count": 0,
+            "dry_run": bool(dry_run),
+            "details": details,
+        }
+        _persist_publish_candidate_maintenance_run(
+            db_path=db_path,
+            result_conn=conn,
+            run_name="candidate_backfill",
+            summary={**summary, "ended_at": _now_iso()},
+        )
+        return summary
     finally:
         conn.close()
 
@@ -1149,10 +1366,13 @@ def sweep_publish_candidate_snapshots(
     keep_approved_days: int = PUBLISH_CANDIDATE_RETENTION_APPROVED_DAYS,
     keep_rejected_days: int = PUBLISH_CANDIDATE_RETENTION_REJECTED_DAYS,
     keep_retired_days: int = PUBLISH_CANDIDATE_RETENTION_RETIRED_DAYS,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     conn = connect_result_db(db_path=db_path, read_only=False)
-    cleared = 0
+    scanned = 0
+    updated = 0
     retained = 0
+    deleted = 0
     now = datetime.now(timezone.utc)
     try:
         ensure_result_schema(conn)
@@ -1163,6 +1383,7 @@ def sweep_publish_candidate_snapshots(
             """
         ).fetchall()
         for row in rows:
+            scanned += 1
             candidate_id = _normalize_text(row[0])
             status = _normalize_text(row[2])
             created_at = _parse_iso_datetime(str(row[3]) if row[3] is not None else None) or _parse_iso_datetime(str(row[4]) if row[4] is not None else None)
@@ -1188,19 +1409,35 @@ def sweep_publish_candidate_snapshots(
             if not bundle:
                 retained += 1
                 continue
-            bundle["published_ranking_snapshot"] = None
-            bundle["metadata"] = dict(bundle.get("metadata") or {})
-            bundle["metadata"]["ranking_snapshot_retained_days"] = keep_days
-            bundle["metadata"]["ranking_snapshot_cleared_at"] = _now_iso()
-            upsert_publish_candidate_bundle(db_path=db_path, bundle=bundle, result_conn=conn)
-            cleared += 1
-        return {
+            updated += 1
+            deleted += 1
+            if not dry_run:
+                bundle["published_ranking_snapshot"] = None
+                bundle["metadata"] = dict(bundle.get("metadata") or {})
+                bundle["metadata"]["ranking_snapshot_retained_days"] = keep_days
+                bundle["metadata"]["ranking_snapshot_cleared_at"] = _now_iso()
+                upsert_publish_candidate_bundle(db_path=db_path, bundle=bundle, result_conn=conn)
+        summary = {
             "ok": True,
-            "cleared": cleared,
+            "scanned": scanned,
+            "updated": updated,
+            "repaired": 0,
+            "skipped": retained,
+            "failed": 0,
+            "deleted": deleted,
+            "pruned_snapshot_count": deleted,
             "retained": retained,
+            "dry_run": bool(dry_run),
             "keep_approved_days": keep_approved_days,
             "keep_rejected_days": keep_rejected_days,
             "keep_retired_days": keep_retired_days,
         }
+        _persist_publish_candidate_maintenance_run(
+            db_path=db_path,
+            result_conn=conn,
+            run_name="snapshot_sweep",
+            summary={**summary, "ended_at": _now_iso()},
+        )
+        return summary
     finally:
         conn.close()

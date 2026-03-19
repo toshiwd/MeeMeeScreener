@@ -22,8 +22,10 @@ from app.backend.services.publish_promotion_service import (
     rollback_logic_key,
 )
 from external_analysis.results.publish_candidates import (
+    backfill_publish_candidate_bundles,
     list_publish_candidate_bundles,
     load_publish_candidate_bundle,
+    sweep_publish_candidate_snapshots,
 )
 from app.backend.services.publish_registry_sync_service import normalize_publish_registry_mirror
 from app.backend.services.runtime_selection_service import (
@@ -75,6 +77,16 @@ class PublishCandidateActionPayload(BaseModel):
 
 
 class PublishMirrorRepairPayload(BaseModel):
+    reason: str | None = None
+    actor: str | None = None
+
+
+class PublishMaintenancePayload(BaseModel):
+    dryRun: bool = False
+    limit: int | None = None
+    keepApprovedDays: int | None = None
+    keepRejectedDays: int | None = None
+    keepRetiredDays: int | None = None
     reason: str | None = None
     actor: str | None = None
 
@@ -334,6 +346,36 @@ def resync_publish_mirror(
         source="api.system.publish.mirror.resync",
         reason=payload.reason,
         actor=payload.actor,
+    )
+
+
+@router.post("/publish/maintenance/backfill")
+def run_publish_candidate_backfill(
+    payload: PublishMaintenancePayload,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    ops_db_path = os.getenv("MEEMEE_OPS_DB_PATH")
+    return backfill_publish_candidate_bundles(
+        db_path=result_db_path,
+        ops_db_path=ops_db_path,
+        limit=payload.limit,
+        dry_run=bool(payload.dryRun),
+    )
+
+
+@router.post("/publish/maintenance/snapshot-sweep")
+def run_publish_candidate_snapshot_sweep(
+    payload: PublishMaintenancePayload,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    return sweep_publish_candidate_snapshots(
+        db_path=result_db_path,
+        keep_approved_days=payload.keepApprovedDays or 90,
+        keep_rejected_days=payload.keepRejectedDays or 14,
+        keep_retired_days=payload.keepRetiredDays or 14,
+        dry_run=bool(payload.dryRun),
     )
 
 

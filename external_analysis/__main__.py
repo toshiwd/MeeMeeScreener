@@ -10,6 +10,10 @@ from external_analysis.labels.store import ensure_label_db
 from external_analysis.models.candidate_baseline import run_candidate_baseline
 from external_analysis.ops.ops_schema import ensure_ops_db
 from external_analysis.results.publish import publish_result
+from external_analysis.results.publish_candidates import (
+    backfill_publish_candidate_bundles,
+    sweep_publish_candidate_snapshots,
+)
 from external_analysis.results.result_schema import ensure_result_db
 from external_analysis.runtime.historical_replay import run_historical_replay, run_replay_core
 from external_analysis.runtime.daily_research import (
@@ -231,6 +235,19 @@ def main() -> int:
     promotion_decision_parser.add_argument("--note", default=None)
     promotion_decision_parser.add_argument("--actor", default="codex_cli")
     promotion_decision_parser.add_argument("--report-path", default=None)
+
+    publish_backfill_parser = sub.add_parser("publish-maintenance-backfill", help="Backfill publish candidate bundles and update maintenance state.")
+    publish_backfill_parser.add_argument("--result-db-path", default=None)
+    publish_backfill_parser.add_argument("--ops-db-path", default=None)
+    publish_backfill_parser.add_argument("--limit", type=int, default=None)
+    publish_backfill_parser.add_argument("--dry-run", action="store_true")
+
+    publish_sweep_parser = sub.add_parser("publish-maintenance-sweep", help="Sweep old published ranking snapshots and update maintenance state.")
+    publish_sweep_parser.add_argument("--result-db-path", default=None)
+    publish_sweep_parser.add_argument("--keep-approved-days", type=int, default=90)
+    publish_sweep_parser.add_argument("--keep-rejected-days", type=int, default=14)
+    publish_sweep_parser.add_argument("--keep-retired-days", type=int, default=14)
+    publish_sweep_parser.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args()
     if args.cmd == "init-result-db":
@@ -535,6 +552,27 @@ def main() -> int:
                 note=args.note,
                 actor=args.actor,
                 report_path=args.report_path,
+            )
+        )
+        return 0
+    if args.cmd == "publish-maintenance-backfill":
+        print(
+            backfill_publish_candidate_bundles(
+                db_path=args.result_db_path,
+                ops_db_path=args.ops_db_path,
+                limit=args.limit,
+                dry_run=bool(args.dry_run),
+            )
+        )
+        return 0
+    if args.cmd == "publish-maintenance-sweep":
+        print(
+            sweep_publish_candidate_snapshots(
+                db_path=args.result_db_path,
+                keep_approved_days=args.keep_approved_days,
+                keep_rejected_days=args.keep_rejected_days,
+                keep_retired_days=args.keep_retired_days,
+                dry_run=bool(args.dry_run),
             )
         )
         return 0
