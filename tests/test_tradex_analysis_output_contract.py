@@ -94,6 +94,7 @@ def test_tradex_analysis_output_contract_maps_existing_result_payload_shape() ->
                 "rank": 1,
                 "reasons": ["validation_ok"],
                 "publish_ready": True,
+                "debug_note": "drop-me",
             }
         ],
         "publish_readiness": {
@@ -128,3 +129,4 @@ def test_tradex_analysis_output_contract_maps_existing_result_payload_shape() ->
     assert len(output.candidate_comparisons) == 1
     assert output.candidate_comparisons[0].candidate_key == "logic_family_a:v2"
     assert output.candidate_comparisons[0].comparison_scope == "external_result"
+    assert "debug_note" not in output.candidate_comparisons[0].to_dict()

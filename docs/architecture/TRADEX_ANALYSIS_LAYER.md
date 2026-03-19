@@ -47,6 +47,8 @@ Responsibilities:
 - comparison across candidate logic
 - validation summary generation
 
+For the current carve-out, execution is split into exactly three responsibilities: input normalization, decision engine adaptation, and output assembly. Inside the decision boundary, the scoring core is further split into axis-based pure scorers for trend/direction, turning/momentum, EV/upside-downside, and short-bias/penalty, with one final aggregator combining those partial scores into the existing decision outcome. The single entrypoint still remains `external_analysis/runtime/orchestrator.py::run_tradex_analysis`.
+
 Execution must be deterministic with respect to declared inputs and manifest versioning.
 It must not own publish governance, runtime selection, or operator UI behavior.
 
