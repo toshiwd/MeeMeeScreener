@@ -103,6 +103,9 @@ The runtime snapshot must make the resolution path explicit:
 - whether the mirror is stale or legacy
 - operator mutation observability
 
+Rollback target resolution itself belongs to publish governance, not runtime selection.
+The operator console must not rely on a stale client-side rollback key; the backend resolves the latest valid rollback target from registry state.
+
 ## Skeleton / Extension Points
 
 Current implementation is intentionally minimal:

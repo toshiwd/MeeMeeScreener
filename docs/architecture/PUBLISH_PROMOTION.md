@@ -120,6 +120,10 @@ Promotion failure must remain a failure. A local-only success must not be report
 
 Rollback restores the previous stable champion from registry metadata.
 
+Operator console rollback requests must not send a stale `logicKey`.
+When the request omits `logicKey`, the backend resolves the latest valid rollback target from the current registry state and rollback candidates recorded in metadata.
+The backend remains the source of truth for rollback target resolution.
+
 Rollback must:
 
 - preserve artifact immutability
@@ -258,6 +262,16 @@ Maintenance cleanup rules:
 
 - legacy `ops_fallback_*` columns or JSON residue may exist in older DuckDB files
 - cleanup helpers may drop or strip them in place
+
+## Hardening Exit Criteria
+
+Operator console hardening stops expanding once all of the following are true:
+
+- 20 consecutive real-backend smoke passes
+- zero final failures after retry
+- zero unexpected 5xx
+
+After that threshold is met, keep `/ops/publish` stable and shift priority to the TRADEX analysis-layer carve-out instead of widening operator hardening further.
 - startup must remain tolerant of old files and must not require manual intervention
 
 Scheduler note:
