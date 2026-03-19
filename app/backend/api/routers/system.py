@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.backend.api.dependencies import get_config_repo
+from app.backend.api.operator_console_gate import require_operator_console_access
 from app.backend.core import config as backend_config
 from app.backend.core.config import write_data_dir_override
 from app.backend.api.routers.jobs import submit_txt_update_job
@@ -38,6 +39,7 @@ from app.backend.services.runtime_selection_service import (
 from app.backend.infra.files.config_repo import LOGIC_SELECTION_SCHEMA_VERSION
 
 router = APIRouter(prefix="/api/system", tags=["system"])
+OPERATOR_CONSOLE_DEPENDENCIES = [Depends(require_operator_console_access)]
 logger = logging.getLogger(__name__)
 
 
@@ -125,7 +127,7 @@ def set_data_dir(payload: DataDirPayload):
     }
 
 
-@router.get("/runtime-selection")
+@router.get("/runtime-selection", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_runtime_selection(
     request: Request,
     config: ConfigRepository = Depends(get_config_repo),
@@ -139,7 +141,7 @@ def get_runtime_selection(
     return snapshot
 
 
-@router.post("/runtime-selection/override")
+@router.post("/runtime-selection/override", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def set_runtime_selection_override(
     payload: RuntimeSelectionOverridePayload,
     request: Request,
@@ -181,7 +183,7 @@ def set_runtime_selection_override(
     }
 
 
-@router.post("/runtime-selection/override/clear")
+@router.post("/runtime-selection/override/clear", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def clear_runtime_selection_override(
     payload: RuntimeSelectionOverrideClearPayload,
     request: Request,
@@ -206,7 +208,7 @@ def clear_runtime_selection_override(
     }
 
 
-@router.get("/publish/state")
+@router.get("/publish/state", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_publish_state(
     config: ConfigRepository = Depends(get_config_repo),
 ):
@@ -219,7 +221,7 @@ def get_publish_state(
     )
 
 
-@router.get("/publish/queue")
+@router.get("/publish/queue", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_publish_queue(
     config: ConfigRepository = Depends(get_config_repo),
 ):
@@ -244,7 +246,7 @@ def get_publish_queue(
     }
 
 
-@router.get("/publish/candidates")
+@router.get("/publish/candidates", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_publish_candidates(
     config: ConfigRepository = Depends(get_config_repo),
 ):
@@ -257,7 +259,7 @@ def get_publish_candidates(
     }
 
 
-@router.get("/publish/candidates/{logic_key}")
+@router.get("/publish/candidates/{logic_key}", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_publish_candidate(
     logic_key: str,
     config: ConfigRepository = Depends(get_config_repo),
@@ -272,7 +274,7 @@ def get_publish_candidate(
     }
 
 
-@router.post("/publish/candidates/{logic_key}/approve")
+@router.post("/publish/candidates/{logic_key}/approve", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def approve_publish_candidate(
     logic_key: str,
     payload: PublishCandidateActionPayload,
@@ -296,7 +298,7 @@ def approve_publish_candidate(
     return result
 
 
-@router.post("/publish/candidates/{logic_key}/reject")
+@router.post("/publish/candidates/{logic_key}/reject", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def reject_publish_candidate(
     logic_key: str,
     payload: PublishCandidateActionPayload,
@@ -320,7 +322,7 @@ def reject_publish_candidate(
     return result
 
 
-@router.post("/publish/mirror/normalize")
+@router.post("/publish/mirror/normalize", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def normalize_publish_mirror(
     payload: PublishMirrorRepairPayload,
     config: ConfigRepository = Depends(get_config_repo),
@@ -335,7 +337,7 @@ def normalize_publish_mirror(
     )
 
 
-@router.post("/publish/mirror/resync")
+@router.post("/publish/mirror/resync", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def resync_publish_mirror(
     payload: PublishMirrorRepairPayload,
     config: ConfigRepository = Depends(get_config_repo),
@@ -350,7 +352,7 @@ def resync_publish_mirror(
     )
 
 
-@router.post("/publish/maintenance/backfill")
+@router.post("/publish/maintenance/backfill", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def run_publish_candidate_backfill(
     payload: PublishMaintenancePayload,
     config: ConfigRepository = Depends(get_config_repo),
@@ -363,7 +365,7 @@ def run_publish_candidate_backfill(
     )
 
 
-@router.post("/publish/maintenance/snapshot-sweep")
+@router.post("/publish/maintenance/snapshot-sweep", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def run_publish_candidate_snapshot_sweep(
     payload: PublishMaintenancePayload,
     config: ConfigRepository = Depends(get_config_repo),
@@ -378,7 +380,7 @@ def run_publish_candidate_snapshot_sweep(
     )
 
 
-@router.post("/publish/maintenance/cleanup")
+@router.post("/publish/maintenance/cleanup", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def run_publish_candidate_cleanup(
     payload: PublishMaintenancePayload,
     config: ConfigRepository = Depends(get_config_repo),
@@ -390,7 +392,7 @@ def run_publish_candidate_cleanup(
     )
 
 
-@router.post("/publish/challenger/enqueue")
+@router.post("/publish/challenger/enqueue", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def enqueue_publish_challenger(
     payload: PublishChallengerPayload,
     request: Request,
@@ -419,7 +421,7 @@ def enqueue_publish_challenger(
     return result
 
 
-@router.post("/publish/challenger/retire")
+@router.post("/publish/challenger/retire", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def retire_publish_challenger(
     payload: PublishChallengerPayload,
     request: Request,
@@ -448,7 +450,7 @@ def retire_publish_challenger(
     return result
 
 
-@router.post("/publish/promote")
+@router.post("/publish/promote", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def promote_publish_logic(
     payload: PublishPromotionPayload,
     request: Request,
@@ -485,7 +487,7 @@ def promote_publish_logic(
     return result
 
 
-@router.post("/publish/demote")
+@router.post("/publish/demote", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def demote_publish_logic(
     payload: PublishPromotionPayload,
     request: Request,
@@ -521,7 +523,7 @@ def demote_publish_logic(
     return result
 
 
-@router.post("/publish/rollback")
+@router.post("/publish/rollback", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def rollback_publish_logic(
     payload: PublishRollbackPayload,
     request: Request,
