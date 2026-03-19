@@ -21,8 +21,9 @@
 ## Architecture / Pages / Features
 
 - `docs/architecture/DATA_CONTRACTS.md`: 価格、財務、取引、派生データの境界と縮退方針
-- `docs/pages/meemee-detail.md`: 個別詳細画面の軽仕様
 - `docs/pages/meemee-grid.md`: 一覧画面の軽仕様
+- `docs/pages/meemee-detail.md`: 個別詳細画面の軽仕様
+- `docs/pages/meemee-trades.md`: 取引履歴と日次建玉を確認するための軽仕様
 - `docs/features/yahoo-provisional-overlay.md`: Yahoo 仮データの表示契約
 - `docs/features/trade-history-import.md`: 楽天 / SBI 取引履歴 CSV の正規化契約
 - `docs/features/event-badges.md`: 決算日、権利日などのイベントバッジ契約
