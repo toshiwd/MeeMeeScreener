@@ -9,7 +9,11 @@ from fastapi.testclient import TestClient
 
 from app.backend.infra.files.config_repo import ConfigRepository, PUBLISH_REGISTRY_SCHEMA_VERSION
 from external_analysis.ops.ops_schema import ensure_ops_db
-from external_analysis.results.publish_candidates import build_publish_candidate_bundle
+from external_analysis.results.publish_candidates import (
+    backfill_publish_candidate_bundles,
+    build_publish_candidate_bundle,
+    sweep_publish_candidate_snapshots,
+)
 from external_analysis.results.publish import publish_result
 from external_analysis.results.publish_registry import save_publish_registry_state as save_external_publish_registry_state
 from external_analysis.results.result_schema import ensure_result_db
@@ -441,6 +445,7 @@ def test_publish_mirror_normalize_repairs_legacy_mirror_from_external(monkeypatc
         candidate_payload = candidate_response.json()
         assert candidate_payload["ok"] is True
         assert candidate_payload["candidate"]["logic_key"] == challenger_key
+        assert candidate_payload["candidate"]["metadata"]["ranking_snapshot_policy"] == "creation_time_if_rows_present"
         assert candidate_payload["candidate"]["published_ranking_snapshot"] is None
 
         response = client.post(
@@ -547,6 +552,70 @@ def test_publish_candidate_validation_summary_required(monkeypatch, tmp_path) ->
         assert approve.status_code == 400
         detail = approve.json()["detail"]
         assert detail["reason"] in {"candidate_bundle_invalid", "candidate_validation_invalid"}
+
+
+def test_publish_candidate_backfill_repairs_missing_validation_summary(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    conn = duckdb.connect(str(result_db))
+    try:
+        conn.execute(
+            "UPDATE publish_candidate_bundle SET validation_summary = '{}' WHERE candidate_id = ?",
+            [challenger_key],
+        )
+    finally:
+        conn.close()
+
+    result = backfill_publish_candidate_bundles(db_path=str(result_db), ops_db_path=str(ops_db))
+    assert result["ok"] is True
+    assert result["repaired"] >= 1
+
+    conn = duckdb.connect(str(result_db))
+    try:
+        row = conn.execute(
+            "SELECT candidate_status, validation_summary FROM publish_candidate_bundle WHERE candidate_id = ?",
+            [challenger_key],
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row[0] == "candidate"
+    assert isinstance(json.loads(row[1]), dict)
+    assert "metrics" in json.loads(row[1])
+
+
+def test_publish_candidate_snapshot_retention_sweeps_old_rejected_snapshot(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    conn = duckdb.connect(str(result_db))
+    try:
+        conn.execute(
+            """
+            UPDATE publish_candidate_bundle
+            SET candidate_status = 'rejected',
+                published_ranking_snapshot = ?,
+                created_at = TIMESTAMP '2025-12-01 00:00:00'
+            WHERE candidate_id = ?
+            """,
+            [json.dumps({"snapshot": True}), challenger_key],
+        )
+    finally:
+        conn.close()
+
+    result = sweep_publish_candidate_snapshots(db_path=str(result_db), keep_approved_days=90, keep_rejected_days=14, keep_retired_days=14)
+    assert result["ok"] is True
+    assert result["cleared"] >= 1
+
+    conn = duckdb.connect(str(result_db))
+    try:
+        row = conn.execute(
+            "SELECT published_ranking_snapshot, metadata FROM publish_candidate_bundle WHERE candidate_id = ?",
+            [challenger_key],
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row[0] is None
+    metadata = json.loads(row[1])
+    assert metadata["ranking_snapshot_retained_days"] == 14
 
 
 def test_publish_queue_supports_multiple_challengers(monkeypatch, tmp_path) -> None:

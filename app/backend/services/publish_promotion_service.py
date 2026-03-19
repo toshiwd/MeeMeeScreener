@@ -199,6 +199,11 @@ def _candidate_bundle_review(bundle: dict[str, Any] | None) -> dict[str, Any] | 
     }
 
 
+def _candidate_bundle_review_for_logic_key(*, logic_key: str, db_path: str | None = None) -> dict[str, Any] | None:
+    bundle = _load_candidate_bundle_for_logic_key(logic_key=logic_key, db_path=db_path)
+    return _candidate_bundle_review(bundle)
+
+
 def _candidate_bundle_gate(bundle: dict[str, Any] | None) -> tuple[bool, list[str]]:
     reasons: list[str] = []
     if not bundle:
@@ -550,6 +555,10 @@ def build_publish_promotion_snapshot(
     candidate_logic_key = _normalize_text(challenger.get("logic_key")) if challenger else None
     champion_logic_key = _normalize_text(champion.get("logic_key")) if champion else None
     default_pointer = _normalize_text(registry.get("default_logic_pointer")) or catalog.get("default_logic_pointer")
+    candidate_review = None if candidate_logic_key is None else _candidate_bundle_review_for_logic_key(
+        logic_key=candidate_logic_key,
+        db_path=db_path,
+    )
     return {
         "schema_version": PUBLISH_REGISTRY_SCHEMA_VERSION,
         "source_of_truth": source_of_truth,
@@ -576,10 +585,11 @@ def build_publish_promotion_snapshot(
         "promotion_history": list(registry.get("promotion_history") or []),
         "registry": registry,
         "catalog": catalog,
-        "ops_review": None if candidate_logic_key is None else _load_review_for_publish_id(
+        "ops_review": None if candidate_logic_key is None else candidate_review or _load_review_for_publish_id(
             publish_id=str(challenger.get("source_publish_id") or ""),
             ops_db_path=ops_db_path,
         ),
+        "candidate_review": candidate_review,
     }
 
 
@@ -611,10 +621,13 @@ def validate_promotion_target(
     if _logic_key(logic_id, logic_version) != normalized_key:
         return {"ok": False, "reason": "manifest_mismatch", "logic_key": normalized_key}
 
-    review = _load_review_for_publish_id(
-        publish_id=str(catalog_entry.get("publish_id") or ""),
-        ops_db_path=ops_db_path,
-    )
+    candidate_bundle = _load_candidate_bundle_for_logic_key(logic_key=normalized_key, db_path=db_path)
+    review = _candidate_bundle_review(candidate_bundle)
+    if review is None:
+        review = _load_review_for_publish_id(
+            publish_id=str(catalog_entry.get("publish_id") or ""),
+            ops_db_path=ops_db_path,
+        )
     gate_pass, gate_reasons = _promotion_gate(review)
     validation_state = _VALIDATION_OK if gate_pass else "promotion_gate_blocked"
     return {

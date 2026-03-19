@@ -27,6 +27,13 @@ PUBLISH_CANDIDATE_VALIDATION_SCOPE = "publish_review"
 PUBLISH_CANDIDATE_VALIDATION_DECISION_CANDIDATE = "candidate"
 PUBLISH_CANDIDATE_VALIDATION_DECISION_APPROVED = "approved"
 PUBLISH_CANDIDATE_VALIDATION_DECISION_REJECTED = "rejected"
+PUBLISH_CANDIDATE_RANKING_SNAPSHOT_POLICY = "creation_time_if_rows_present"
+PUBLISH_CANDIDATE_RETENTION_APPROVED_DAYS = 90
+PUBLISH_CANDIDATE_RETENTION_REJECTED_DAYS = 14
+PUBLISH_CANDIDATE_RETENTION_RETIRED_DAYS = 14
+# Transitional dependency. Remove once all bundle generation paths can supply readiness directly
+# and backfill has repaired legacy candidates without relying on ops-db reads.
+PUBLISH_CANDIDATE_ENABLE_OPS_FALLBACK = True
 
 
 def _now_iso() -> str:
@@ -64,6 +71,19 @@ def _resolve_artifact_path(locator: str | None) -> str | None:
     if candidate.exists():
         return str(candidate.resolve())
     return None
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    text = _normalize_text(value)
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def _checksum_file(path: str) -> str:
@@ -174,6 +194,7 @@ def _candidate_snapshot_from_rows(
         "universe_size": len({str(row.get("code") or "") for row in rows if row.get("code")}),
         "rows": rows,
         "audit_role": PUBLISHED_RANKING_SNAPSHOT_AUDIT_ROLE,
+        "snapshot_policy": PUBLISH_CANDIDATE_RANKING_SNAPSHOT_POLICY,
     }
 
 
@@ -237,6 +258,53 @@ def _build_logic_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         "bootstrap_champion": bool(manifest.get("bootstrap_champion")),
         "last_stable_promoted": bool(manifest.get("last_stable_promoted")),
     }
+
+
+def _normalize_readiness_payload(readiness: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(readiness, dict):
+        return None
+    summary = readiness.get("summary")
+    if not isinstance(summary, dict):
+        summary = {}
+    reason_codes = readiness.get("reason_codes")
+    if not isinstance(reason_codes, list):
+        reason_codes = []
+    return {
+        "as_of_date": _normalize_text(readiness.get("as_of_date")),
+        "champion_version": _normalize_text(readiness.get("champion_version")),
+        "challenger_version": _normalize_text(readiness.get("challenger_version")),
+        "sample_count": int(readiness.get("sample_count") or 0),
+        "expectancy_delta": readiness.get("expectancy_delta"),
+        "improved_expectancy": bool(readiness.get("improved_expectancy")),
+        "mae_non_worse": bool(readiness.get("mae_non_worse")),
+        "adverse_move_non_worse": bool(readiness.get("adverse_move_non_worse")),
+        "stable_window": bool(readiness.get("stable_window")),
+        "alignment_ok": bool(readiness.get("alignment_ok")),
+        "readiness_pass": bool(readiness.get("readiness_pass")),
+        "reason_codes": reason_codes,
+        "summary": summary,
+        "created_at": _normalize_text(readiness.get("created_at")),
+        "source": _normalize_text(readiness.get("source")) or "external_analysis_shadow",
+    }
+
+
+def load_publish_candidate_readiness(
+    *,
+    publish_id: str,
+    ops_db_path: str | None = None,
+    db_path: str | None = None,
+    result_conn: Any | None = None,
+) -> dict[str, Any] | None:
+    return _load_readiness_entry(
+        publish_id=publish_id,
+        ops_db_path=ops_db_path if PUBLISH_CANDIDATE_ENABLE_OPS_FALLBACK else None,
+        db_path=db_path,
+        result_conn=result_conn,
+    )
+
+
+def _bundle_requires_ops_fallback() -> bool:
+    return False
 
 
 def _build_validation_summary(
@@ -634,8 +702,10 @@ def upsert_publish_candidate_bundle(
     *,
     db_path: str | None = None,
     bundle: dict[str, Any],
+    result_conn: Any | None = None,
 ) -> dict[str, Any]:
-    conn = connect_result_db(db_path=db_path, read_only=False)
+    conn = result_conn or connect_result_db(db_path=db_path, read_only=False)
+    owns_conn = result_conn is None
     try:
         ensure_result_schema(conn)
         existing = load_publish_candidate_bundle(
@@ -741,14 +811,11 @@ def upsert_publish_candidate_bundle(
             conn.execute("ROLLBACK")
             raise
         conn.execute("CHECKPOINT")
-        saved = load_publish_candidate_bundle(
-            db_path=db_path,
-            logic_key=payload["logic_key"],
-            result_conn=conn,
-        )
+        saved = load_publish_candidate_bundle(db_path=db_path, logic_key=payload["logic_key"], result_conn=conn)
         return saved or payload
     finally:
-        conn.close()
+        if owns_conn:
+            conn.close()
 
 
 def build_publish_candidate_bundle(
@@ -757,6 +824,7 @@ def build_publish_candidate_bundle(
     ops_db_path: str | None = None,
     logic_key: str | None = None,
     publish_id: str | None = None,
+    readiness: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     conn = connect_result_db(db_path=db_path, read_only=False)
     try:
@@ -765,18 +833,22 @@ def build_publish_candidate_bundle(
         if manifest is None:
             return {"ok": False, "reason": "publish_manifest_not_found", "logic_key": logic_key, "publish_id": publish_id}
         publish_id_value = _normalize_text(publish_id) or _normalize_text(manifest.get("publish_id"))
-        readiness = _load_readiness_entry(
-            publish_id=publish_id_value or "",
-            ops_db_path=ops_db_path,
-            db_path=db_path,
-            result_conn=conn,
-        )
-        if readiness is None:
+        normalized_readiness = _normalize_readiness_payload(readiness)
+        if normalized_readiness is None:
+            normalized_readiness = _normalize_readiness_payload(
+                load_publish_candidate_readiness(
+                    publish_id=publish_id_value or "",
+                    ops_db_path=ops_db_path,
+                    db_path=db_path,
+                    result_conn=conn,
+                )
+            )
+        if normalized_readiness is None:
             return {"ok": False, "reason": "validation_summary_missing", "logic_key": manifest.get("logic_key"), "publish_id": publish_id_value}
 
         artifact = _build_logic_artifact(manifest)
         published_manifest = _build_logic_manifest(manifest)
-        validation_summary = _build_validation_summary(manifest=manifest, readiness=readiness, status=PUBLISH_CANDIDATE_VALIDATION_DECISION_CANDIDATE)
+        validation_summary = _build_validation_summary(manifest=manifest, readiness=normalized_readiness, status=PUBLISH_CANDIDATE_VALIDATION_DECISION_CANDIDATE)
         candidate_rows = _load_candidate_rows(conn, publish_id=publish_id_value or "")
         ranking_snapshot = _candidate_snapshot_from_rows(
             logic_id=_normalize_text(manifest.get("logic_id")) or "",
@@ -791,7 +863,7 @@ def build_publish_candidate_bundle(
             "logic_id": _normalize_text(manifest.get("logic_id")),
             "logic_version": _normalize_text(manifest.get("logic_version")),
             "logic_family": _normalize_text(manifest.get("logic_family")),
-            "created_at": _normalize_text(readiness.get("created_at")) or _now_iso(),
+            "created_at": _normalize_text(normalized_readiness.get("created_at")) or _now_iso(),
             "updated_at": _now_iso(),
             "status": PUBLISH_CANDIDATE_STATUS_CANDIDATE,
             "source_publish_id": publish_id_value,
@@ -802,8 +874,10 @@ def build_publish_candidate_bundle(
             "published_ranking_snapshot": ranking_snapshot,
             "notes": [f"source_publish_id={publish_id_value}"],
             "metadata": {
-                "validation_source": "external_state_eval_readiness",
+                "validation_source": _normalize_text(normalized_readiness.get("source")) or "external_analysis_shadow",
                 "ops_db_path_present": bool(ops_db_path),
+                "validation_source_transitional": bool(ops_db_path and _normalize_text(normalized_readiness.get("source")) != "external_analysis_shadow"),
+                "ranking_snapshot_policy": PUBLISH_CANDIDATE_RANKING_SNAPSHOT_POLICY,
             },
         }
         ok, reasons = _validate_bundle(bundle)
@@ -970,3 +1044,163 @@ def retire_publish_candidate_bundle(
     actor: str | None = None,
 ) -> dict[str, Any]:
     return _update_candidate_status(db_path=db_path, logic_key=logic_key, new_status=PUBLISH_CANDIDATE_STATUS_RETIRED, source=source, reason=reason, actor=actor)
+
+
+def backfill_publish_candidate_bundles(
+    *,
+    db_path: str | None = None,
+    ops_db_path: str | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    conn = connect_result_db(db_path=db_path, read_only=False)
+    repaired = 0
+    skipped = 0
+    failed = 0
+    details: list[dict[str, Any]] = []
+    try:
+        ensure_result_schema(conn)
+        rows = conn.execute(
+            """
+            SELECT candidate_id, logic_key, source_publish_id, candidate_status, validation_summary, metadata
+            FROM publish_candidate_bundle
+            ORDER BY updated_at ASC, created_at ASC
+            """
+        ).fetchall()
+        for row in rows:
+            if limit is not None and repaired >= int(limit):
+                break
+            candidate_id = _normalize_text(row[0])
+            logic_key = _normalize_text(row[1])
+            source_publish_id = _normalize_text(row[2])
+            candidate_status = _normalize_text(row[3])
+            validation_summary = row[4]
+            metadata = row[5]
+            if candidate_status not in {
+                PUBLISH_CANDIDATE_STATUS_CANDIDATE,
+                PUBLISH_CANDIDATE_STATUS_APPROVED,
+                PUBLISH_CANDIDATE_STATUS_REJECTED,
+                PUBLISH_CANDIDATE_STATUS_RETIRED,
+                PUBLISH_CANDIDATE_STATUS_PROMOTED,
+            }:
+                skipped += 1
+                continue
+            if isinstance(validation_summary, dict) and _validation_summary_complete(validation_summary)[0]:
+                skipped += 1
+                continue
+            manifest = _load_manifest_entry(conn, logic_key=logic_key, publish_id=source_publish_id)
+            if not manifest:
+                skipped += 1
+                continue
+            readiness = _normalize_readiness_payload(
+                load_publish_candidate_readiness(
+                    publish_id=source_publish_id or "",
+                    ops_db_path=ops_db_path,
+                    db_path=db_path,
+                    result_conn=conn,
+                )
+            )
+            if readiness is None:
+                failed += 1
+                details.append({"candidate_id": candidate_id, "logic_key": logic_key, "reason": "readiness_missing"})
+                continue
+            bundle = {
+                "candidate_id": candidate_id or logic_key,
+                "logic_key": logic_key,
+                "logic_id": _normalize_text(manifest.get("logic_id")),
+                "logic_version": _normalize_text(manifest.get("logic_version")),
+                "logic_family": _normalize_text(manifest.get("logic_family")),
+                "created_at": _normalize_text(readiness.get("created_at")) or _now_iso(),
+                "updated_at": _now_iso(),
+                "status": candidate_status,
+                "source_publish_id": source_publish_id,
+                "bundle_schema_version": PUBLISH_CANDIDATE_BUNDLE_SCHEMA_VERSION,
+                "published_logic_artifact": _build_logic_artifact(manifest),
+                "published_logic_manifest": _build_logic_manifest(manifest),
+                "validation_summary": _build_validation_summary(
+                    manifest=manifest,
+                    readiness=readiness,
+                    status=candidate_status,
+                ),
+                "published_ranking_snapshot": None,
+                "notes": list((metadata or {}).get("notes") or []) if isinstance(metadata, dict) else [],
+                "metadata": {
+                    **(dict(metadata) if isinstance(metadata, dict) else {}),
+                    "backfilled_at": _now_iso(),
+                    "backfill_source": "external_analysis",
+                },
+            }
+            saved = upsert_publish_candidate_bundle(db_path=db_path, bundle=bundle, result_conn=conn)
+            repaired += 1
+            details.append(
+                {
+                    "candidate_id": candidate_id,
+                    "logic_key": logic_key,
+                    "status": saved.get("status"),
+                }
+            )
+        return {"ok": True, "repaired": repaired, "skipped": skipped, "failed": failed, "details": details}
+    finally:
+        conn.close()
+
+
+def sweep_publish_candidate_snapshots(
+    *,
+    db_path: str | None = None,
+    keep_approved_days: int = PUBLISH_CANDIDATE_RETENTION_APPROVED_DAYS,
+    keep_rejected_days: int = PUBLISH_CANDIDATE_RETENTION_REJECTED_DAYS,
+    keep_retired_days: int = PUBLISH_CANDIDATE_RETENTION_RETIRED_DAYS,
+) -> dict[str, Any]:
+    conn = connect_result_db(db_path=db_path, read_only=False)
+    cleared = 0
+    retained = 0
+    now = datetime.now(timezone.utc)
+    try:
+        ensure_result_schema(conn)
+        rows = conn.execute(
+            """
+            SELECT candidate_id, logic_key, candidate_status, created_at, updated_at, published_ranking_snapshot
+            FROM publish_candidate_bundle
+            """
+        ).fetchall()
+        for row in rows:
+            candidate_id = _normalize_text(row[0])
+            status = _normalize_text(row[2])
+            created_at = _parse_iso_datetime(str(row[3]) if row[3] is not None else None) or _parse_iso_datetime(str(row[4]) if row[4] is not None else None)
+            snapshot = row[5]
+            if snapshot is None:
+                retained += 1
+                continue
+            keep_days = keep_rejected_days
+            if status in {PUBLISH_CANDIDATE_STATUS_APPROVED, PUBLISH_CANDIDATE_STATUS_PROMOTED}:
+                keep_days = keep_approved_days
+            elif status == PUBLISH_CANDIDATE_STATUS_CANDIDATE:
+                keep_days = keep_approved_days
+            elif status == PUBLISH_CANDIDATE_STATUS_RETIRED:
+                keep_days = keep_retired_days
+            if created_at is None:
+                retained += 1
+                continue
+            age_days = (now - created_at).days
+            if age_days <= keep_days:
+                retained += 1
+                continue
+            bundle = load_publish_candidate_bundle(db_path=db_path, candidate_id=candidate_id, result_conn=conn)
+            if not bundle:
+                retained += 1
+                continue
+            bundle["published_ranking_snapshot"] = None
+            bundle["metadata"] = dict(bundle.get("metadata") or {})
+            bundle["metadata"]["ranking_snapshot_retained_days"] = keep_days
+            bundle["metadata"]["ranking_snapshot_cleared_at"] = _now_iso()
+            upsert_publish_candidate_bundle(db_path=db_path, bundle=bundle, result_conn=conn)
+            cleared += 1
+        return {
+            "ok": True,
+            "cleared": cleared,
+            "retained": retained,
+            "keep_approved_days": keep_approved_days,
+            "keep_rejected_days": keep_rejected_days,
+            "keep_retired_days": keep_retired_days,
+        }
+    finally:
+        conn.close()
