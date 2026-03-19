@@ -19,6 +19,9 @@ describe("operator console hardening", () => {
     );
 
     expect(markup).toContain("Operator Console");
+    expect(markup).toContain("Mutation observability");
+    expect(markup).toContain("last_reason");
+    expect(markup).toContain("operator_mutation_busy_count");
     expect(markup).toContain("Candidate bundles");
     expect(markup).toContain("Selected candidate detail");
     expect(markup).not.toContain("<pre>");

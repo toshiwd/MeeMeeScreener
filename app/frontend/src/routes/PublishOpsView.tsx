@@ -280,6 +280,7 @@ export default function PublishOpsView() {
   const sourceOfTruth = runtimeSelection?.source_of_truth ?? publishState?.source_of_truth ?? null;
   const registrySyncState = runtimeSelection?.registry_sync_state ?? publishState?.registry_sync_state ?? null;
   const maintenanceState = runtimeSelection?.maintenance_state ?? publishState?.maintenance_state ?? null;
+  const mutationObservability = runtimeSelection?.operator_mutation_observability ?? publishState?.operator_mutation_observability ?? null;
   const backfillRun = runtimeSelection?.candidate_backfill_last_run ?? publishState?.candidate_backfill_last_run ?? null;
   const sweepRun = runtimeSelection?.snapshot_sweep_last_run ?? publishState?.snapshot_sweep_last_run ?? null;
   const nonPromotableCount = runtimeSelection?.non_promotable_legacy_count ?? publishState?.non_promotable_legacy_count ?? null;
@@ -371,13 +372,18 @@ export default function PublishOpsView() {
       setBusyAction(key);
       setStatusMessage({ level: "info", message: `${title} in progress...` });
       try {
-        try {
-          await action();
-        } catch (error) {
-          if (!isRetryableTransientError(error)) throw error;
-          setStatusMessage({ level: "info", message: `${title} retrying after transient backend error...` });
-          await new Promise((resolve) => window.setTimeout(resolve, 300));
-          await action();
+        const maxRetries = 2;
+        let attempt = 0;
+        while (true) {
+          try {
+            await action();
+            break;
+          } catch (error) {
+            if (!isRetryableTransientError(error) || attempt >= maxRetries) throw error;
+            attempt += 1;
+            setStatusMessage({ level: "info", message: `${title} retrying after transient backend error... (${attempt}/${maxRetries})` });
+            await new Promise((resolve) => window.setTimeout(resolve, 300 * attempt));
+          }
         }
         setStatusMessage({ level: "success", message: `${title} finished` });
       } catch (error) {
@@ -436,6 +442,8 @@ export default function PublishOpsView() {
     async (action: "demote" | "rollback") => {
       const key = action === "demote" ? championKey : publishState?.previous_stable_champion_logic_key ?? championKey;
       if (!key || key === "N/A") return;
+      // rollback は stale な logicKey を送らず、backend に registry state から
+      // 最新の妥当 target を解決させる。
       await confirmRun(
         `${action}:${key}`,
         action === "demote" ? `Demote ${key}` : `Rollback ${key}`,
@@ -642,6 +650,25 @@ export default function PublishOpsView() {
             <button type="button" className="ops-button" disabled={busyAction !== null} onClick={() => void maintenanceAction("mirror-resync", false)}>
               Mirror resync
             </button>
+          </div>
+        </article>
+
+        <article className="ops-card">
+          <div className="ops-card-head">
+            <div>
+              <div className="ops-card-title">Mutation observability</div>
+              <div className="ops-card-caption">last_reason / last_reason_at / busy counters</div>
+            </div>
+            <span className={`ops-badge ${mutationObservability?.last_reason ? badgeClass(String(mutationObservability.last_reason)) : "is-neutral"}`}>
+              {text(mutationObservability?.last_reason)}
+            </span>
+          </div>
+          <div className="ops-status-grid">
+            <StatusItem label="last_reason" value={mutationObservability?.last_reason} />
+            <StatusItem label="last_reason_at" value={mutationObservability?.last_reason_at} />
+            <StatusItem label="operator_mutation_busy_count" value={mutationObservability?.operator_mutation_busy_count} />
+            <StatusItem label="publish_state_refresh_conflict_count" value={mutationObservability?.publish_state_refresh_conflict_count} />
+            <StatusItem label="db_busy_count" value={mutationObservability?.db_busy_count} />
           </div>
         </article>
       </section>
