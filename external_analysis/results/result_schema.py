@@ -4,20 +4,26 @@ from typing import Any
 
 import duckdb
 
+from shared.contracts.analysis_bridge import (
+    ALLOWED_PUBLIC_TABLES,
+    DEGRADE_REASON_HARD_STALE,
+    DEGRADE_REASON_MANIFEST_MISMATCH,
+    DEGRADE_REASON_NO_PUBLISH,
+    DEGRADE_REASON_POINTER_CORRUPTION,
+    DEGRADE_REASON_RESULT_DB_MISSING,
+    DEGRADE_REASON_REGIME_ROW_CORRUPTION,
+    DEGRADE_REASON_SCHEMA_MISMATCH,
+    DEGRADE_REASON_WARNING_STALE,
+    LATEST_POINTER_NAME,
+    allowed_public_columns,
+    is_allowed_public_table,
+)
 from external_analysis.contracts.paths import resolve_result_db_path
 
 SCHEMA_VERSION = "phase1-v1"
 CONTRACT_VERSION = "phase1-v1"
-POINTER_NAME_LATEST_SUCCESSFUL = "latest_successful"
-PUBLIC_RESULT_TABLES: tuple[str, ...] = (
-    "publish_pointer",
-    "publish_manifest",
-    "candidate_daily",
-    "state_eval_daily",
-    "similar_cases_daily",
-    "similar_case_paths",
-    "regime_daily",
-)
+POINTER_NAME_LATEST_SUCCESSFUL = LATEST_POINTER_NAME
+PUBLIC_RESULT_TABLES: tuple[str, ...] = ALLOWED_PUBLIC_TABLES
 INTERNAL_RESULT_TABLES: tuple[str, ...] = (
     "publish_runs",
     "candidate_component_scores",
