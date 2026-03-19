@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import pytest
+
 from app.backend.services.analysis.analysis_decision import build_analysis_decision, compute_analysis_decision_core
 from external_analysis.runtime import analysis_adapter
 from external_analysis.runtime.analysis_adapter import build_tradex_analysis_payload
+from external_analysis.runtime.score_axes import (
+    score_ev_upside_downside,
+    score_short_bias_penalty,
+    score_trend_direction,
+    score_turning_momentum,
+)
 from external_analysis.runtime.score_context import prepare_tradex_score_context
 from external_analysis.runtime.score_finalize import build_tradex_score_reasons, finalize_tradex_score_output
 from external_analysis.runtime.input_normalization import NormalizedTradexAnalysisInput
@@ -197,3 +205,30 @@ def test_build_analysis_decision_wrapper_matches_extracted_pipeline() -> None:
     expected = finalize_tradex_score_output(core)
 
     assert wrapped == expected
+
+
+def test_axis_scores_use_a_stable_small_shape() -> None:
+    score_context = prepare_tradex_score_context(
+        analysis_p_up=0.63,
+        analysis_p_down=0.22,
+        analysis_p_turn_up=0.51,
+        analysis_p_turn_down=0.28,
+        analysis_ev_net=0.007,
+        playbook_up_score_bonus=0.01,
+        playbook_down_score_bonus=0.0,
+        additive_signals={"bonusEstimate": 0.02, "boxBottomAligned": True},
+        sell_analysis={"trendDown": False, "shortScore": 84},
+    )
+
+    for axis in (
+        score_trend_direction(score_context),
+        score_turning_momentum(score_context),
+        score_ev_upside_downside(score_context),
+        score_short_bias_penalty(score_context),
+    ):
+        payload = axis.to_dict()
+        assert tuple(payload.keys()) == ("score", "signals", "components", "reasons")
+        assert isinstance(payload["signals"], dict)
+        assert isinstance(payload["components"], dict)
+        assert isinstance(payload["reasons"], list)
+        assert axis["score"] == pytest.approx(payload["score"])

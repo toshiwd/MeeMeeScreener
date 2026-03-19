@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from external_analysis.contracts.analysis_input import AnalysisInputContract
 from external_analysis.contracts.analysis_output import AnalysisOutputContract

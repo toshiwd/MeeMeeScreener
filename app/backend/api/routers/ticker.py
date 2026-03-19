@@ -24,6 +24,14 @@ from app.backend.services.data.taisyaku_import import load_taisyaku_snapshot
 from app.backend.services.jpx_calendar import get_jpx_session_info, should_pan_be_finalized_for_date
 from app.backend.services.analysis.analysis_decision import build_analysis_decision
 from app.backend.services import swing_expectancy_service, swing_plan_service
+from app.backend.services.tradex_analysis_service import (
+    build_tradex_detail_analysis_snapshot,
+    is_tradex_detail_analysis_enabled,
+)
+from app.backend.services.tradex_list_summary_service import (
+    build_tradex_list_summary_snapshot,
+    is_tradex_list_summary_enabled,
+)
 from app.backend.services.data.yahoo_provisional import (
     apply_split_gap_adjustment,
     get_provisional_daily_row_from_chart,
@@ -1751,6 +1759,40 @@ def get_analysis_pred(
             "swingDiagnostics": swing_eval.get("diagnostics") if isinstance(swing_eval, dict) else None,
         }
     }
+
+
+@router.get("/tradex/analysis", response_model=None)
+def get_tradex_detail_analysis_snapshot(
+    code: str,
+    asof: str | int | None = None,
+    repo: StockRepository = Depends(get_stock_repo),
+) -> Dict[str, Any]:
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+    asof_dt = _parse_dt(asof)
+    return build_tradex_detail_analysis_snapshot(
+        code=code,
+        asof_dt=asof_dt,
+        repo=repo,
+        enabled=is_tradex_detail_analysis_enabled(),
+    )
+
+
+@router.post("/tradex/summary", response_model=None)
+def post_tradex_list_summary_snapshot(
+    payload: Dict[str, Any] | list[Dict[str, Any]] = Body(...),
+    repo: StockRepository = Depends(get_stock_repo),
+) -> Dict[str, Any]:
+    items = payload.get("items") if isinstance(payload, dict) else payload
+    scope = payload.get("scope") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="items must be a list")
+    return build_tradex_list_summary_snapshot(
+        items=[item for item in items if isinstance(item, dict)],
+        repo=repo,
+        enabled=is_tradex_list_summary_enabled(),
+        scope=str(scope).strip() if isinstance(scope, str) and scope.strip() else None,
+    )
 
 
 @router.get("/edinet/financials", response_model=None)
