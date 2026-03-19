@@ -14,15 +14,14 @@ from app.backend.infra.files.config_repo import (
     LOGIC_SELECTION_SCHEMA_VERSION,
 )
 from external_analysis.results.publish import load_published_logic_catalog
-from external_analysis.results.publish_registry import (
-    load_publish_registry_state as load_external_publish_registry_state,
-)
+from external_analysis.results.publish_registry import load_publish_registry_state as load_external_publish_registry_state
 from shared.contracts.logic_selection import (
     DEFAULT_LOGIC_POINTER_NAME,
     LAST_KNOWN_GOOD_ARTIFACT_NAME,
     SELECTED_LOGIC_OVERRIDE_NAME,
 )
 from shared.runtime_selection import SAFE_FALLBACK_SOURCE, resolve_runtime_logic_selection
+from app.backend.services.publish_registry_sync_service import inspect_publish_registry_sync
 
 _SAFE_FALLBACK_KEY = "builtin_safe_fallback"
 _VALIDATION_OK = "ok"
@@ -383,36 +382,23 @@ def build_runtime_selection_snapshot(
     db_path: str | None = None,
 ) -> dict[str, Any]:
     local_state = _current_logic_selection_state(config_repo)
-    external_registry = load_external_publish_registry_state(db_path=db_path)
-    local_registry = config_repo.load_publish_registry_state()
-    external_has_content = any(
-        [
-            _normalize_text(external_registry.get("champion_logic_key")),
-            _normalize_text(external_registry.get("default_logic_pointer")),
-            _normalize_text(external_registry.get("previous_stable_champion_logic_key")),
-            bool(external_registry.get("challengers")),
-            bool(external_registry.get("challenger_logic_keys")),
-            bool(external_registry.get("champion")),
-        ]
+    sync = inspect_publish_registry_sync(
+        config_repo=config_repo,
+        db_path=db_path,
+        external_loader=load_external_publish_registry_state,
     )
-    if external_registry.get("source_of_truth") == "external_analysis" and external_has_content:
+    external_registry = sync["external_state"]
+    local_registry = sync["local_mirror_normalized"]
+    if sync["source_of_truth"] == "external_analysis" and sync["external_has_content"]:
         publish_registry = external_registry
-        registry_source_of_truth = "external_analysis"
-        registry_sync_state = _normalize_text(external_registry.get("registry_sync_state")) or "synced"
-        registry_degraded = bool(external_registry.get("degraded"))
-        last_sync_time = _normalize_text(external_registry.get("last_sync_at")) or _normalize_text(external_registry.get("updated_at"))
-    elif local_registry:
+    elif sync["local_has_content"]:
         publish_registry = local_registry
-        registry_source_of_truth = "local_mirror"
-        registry_sync_state = "mirror_fallback"
-        registry_degraded = True
-        last_sync_time = _normalize_text(local_registry.get("last_sync_at")) or _normalize_text(local_registry.get("updated_at"))
     else:
         publish_registry = {}
-        registry_source_of_truth = "empty"
-        registry_sync_state = "empty"
-        registry_degraded = True
-        last_sync_time = None
+    registry_source_of_truth = sync["source_of_truth"]
+    registry_sync_state = sync["registry_sync_state"]
+    registry_degraded = bool(sync["degraded"])
+    last_sync_time = sync["last_sync_time"]
     publish_catalog = load_published_logic_catalog(db_path=_resolved_result_db_path(db_path))
     raw_catalog_manifest = list(publish_catalog.get("available_logic_manifest") or [])
     catalog_default_logic_pointer = _normalize_text(publish_catalog.get("default_logic_pointer"))
@@ -434,14 +420,18 @@ def build_runtime_selection_snapshot(
         "registry_sync_state": registry_sync_state,
         "degraded": registry_degraded,
         "last_sync_time": last_sync_time,
-        "registry_version": publish_registry.get("registry_version"),
+        "registry_version": sync["external_registry_version"] if registry_source_of_truth == "external_analysis" else sync["local_mirror_version"],
+        "external_registry_version": sync["external_registry_version"],
+        "local_mirror_version": sync["local_mirror_version"],
+        "mirror_schema_version": sync["mirror_schema_version"],
+        "mirror_normalized": sync["mirror_normalized"],
         "source_revision": publish_registry.get("source_revision"),
     }
     snapshot["source_of_truth"] = registry_source_of_truth
     snapshot["registry_sync_state"] = registry_sync_state
     snapshot["degraded"] = registry_degraded
     snapshot["last_sync_time"] = last_sync_time
-    snapshot["registry_version"] = publish_registry.get("registry_version")
+    snapshot["registry_version"] = sync["external_registry_version"] if registry_source_of_truth == "external_analysis" else sync["local_mirror_version"]
     snapshot["source_revision"] = publish_registry.get("source_revision")
     snapshot["publish_registry"] = publish_registry
     publish_challengers = publish_registry.get("challengers") if isinstance(publish_registry.get("challengers"), list) else []
@@ -452,6 +442,10 @@ def build_runtime_selection_snapshot(
         if isinstance(entry, dict) and entry.get("logic_key")
     ]
     snapshot["bootstrap_rule"] = _normalize_text(publish_registry.get("bootstrap_rule"))
+    snapshot["external_registry_version"] = sync["external_registry_version"]
+    snapshot["local_mirror_version"] = sync["local_mirror_version"]
+    snapshot["mirror_schema_version"] = sync["mirror_schema_version"]
+    snapshot["mirror_normalized"] = sync["mirror_normalized"]
     return snapshot
 
 

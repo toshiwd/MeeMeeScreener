@@ -42,6 +42,23 @@ def test_public_empty_schema_has_expected_columns_and_publish_id(tmp_path) -> No
             "candidate_daily": {"publish_id": "VARCHAR", "as_of_date": "DATE", "code": "VARCHAR"},
             "candidate_component_scores": {"publish_id": "VARCHAR", "as_of_date": "DATE", "code": "VARCHAR"},
             "nightly_candidate_metrics": {"run_id": "VARCHAR", "publish_id": "VARCHAR", "as_of_date": "DATE", "baseline_version": "VARCHAR"},
+            "publish_candidate_bundle": {
+                "candidate_id": "VARCHAR",
+                "logic_key": "VARCHAR",
+                "logic_id": "VARCHAR",
+                "logic_version": "VARCHAR",
+                "logic_family": "VARCHAR",
+                "candidate_status": "VARCHAR",
+                "validation_state": "VARCHAR",
+            },
+            "publish_candidate_audit": {
+                "event_id": "VARCHAR",
+                "candidate_id": "VARCHAR",
+                "logic_key": "VARCHAR",
+                "action": "VARCHAR",
+                "previous_status": "VARCHAR",
+                "new_status": "VARCHAR",
+            },
             "state_eval_daily": {
                 "publish_id": "VARCHAR",
                 "as_of_date": "DATE",

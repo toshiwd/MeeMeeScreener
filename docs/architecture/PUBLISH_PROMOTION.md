@@ -70,7 +70,7 @@ Previous champion entries are kept as rollback candidates in registry metadata.
 
 ## Promotion Gate
 
-Promotion uses validation and research evidence from TradeX. Minimum checks include:
+Promotion uses an approved candidate bundle plus validation and research evidence from TradeX. Minimum checks include:
 
 - readiness passed
 - sample count is sufficient
@@ -80,6 +80,11 @@ Promotion uses validation and research evidence from TradeX. Minimum checks incl
 - adverse move is not worse
 - stable window is true
 - alignment is true
+
+The candidate bundle must already exist in `external_analysis` and must be in `approved` state before promote is allowed.
+
+`approve` means "promotion may proceed". It does not mutate champion state.
+`promote` means "candidate becomes champion".
 
 Promotion failure must remain a failure. A local-only success must not be reported if `external_analysis` write fails.
 
@@ -108,6 +113,13 @@ Write APIs:
 - `POST /api/system/publish/rollback`
 - `POST /api/system/publish/challenger/enqueue`
 - `POST /api/system/publish/challenger/retire`
+- `POST /api/system/publish/candidates/{logic_key}/approve`
+- `POST /api/system/publish/candidates/{logic_key}/reject`
+
+Candidate read APIs:
+
+- `GET /api/system/publish/candidates`
+- `GET /api/system/publish/candidates/{logic_key}`
 
 ## Audit Trail
 
@@ -145,8 +157,28 @@ The runtime view must expose:
 - `bootstrap_rule`
 - `last_sync_time`
 
+## Sync / Repair
+
+The sync state should make it obvious which side is authoritative and whether the mirror is stale.
+
+Suggested values:
+
+- `in_sync`
+- `mirror_stale`
+- `mirror_legacy`
+- `external_unreachable`
+- `external_invalid`
+
+Repair is one-way:
+
+- `POST /api/system/publish/mirror/normalize`
+- `POST /api/system/publish/mirror/resync`
+
+Repair must copy `external_analysis` to the local mirror. It must not overwrite the external source of truth from the mirror.
+
 ## Notes
 
 `published_ranking_snapshot` is a cache / audit artifact only.
 It is not the source of truth for runtime selection.
 
+`published_logic_artifact`, `published_logic_manifest`, `validation_summary`, and optional `published_ranking_snapshot` are stored together as a candidate bundle before manual promote.

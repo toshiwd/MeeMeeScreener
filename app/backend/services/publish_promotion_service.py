@@ -16,7 +16,15 @@ from external_analysis.results.publish_registry import (
     load_publish_registry_state as load_external_publish_registry_state,
     save_publish_registry_state as save_external_publish_registry_state,
 )
+from external_analysis.results.publish_candidates import (
+    approve_publish_candidate_bundle,
+    load_publish_candidate_bundle,
+    reject_publish_candidate_bundle,
+    promote_publish_candidate_bundle,
+    retire_publish_candidate_bundle,
+)
 from external_analysis.results.publish import load_published_logic_catalog
+from app.backend.services.publish_registry_sync_service import inspect_publish_registry_sync
 from shared.contracts.publish_registry import (
     PUBLISH_ROLE_CHALLENGER,
     PUBLISH_PROMOTION_ACTION_DEMOTE,
@@ -155,6 +163,70 @@ def _load_review_for_publish_id(*, publish_id: str, ops_db_path: str | None = No
         "summary": summary,
         "approval_decision": approval_decision,
     }
+
+
+def _load_candidate_bundle_for_logic_key(*, logic_key: str, db_path: str | None = None) -> dict[str, Any] | None:
+    bundle = load_publish_candidate_bundle(db_path=db_path, logic_key=logic_key)
+    if not bundle:
+        return None
+    return bundle
+
+
+def _candidate_bundle_review(bundle: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(bundle, dict):
+        return None
+    validation_summary = bundle.get("validation_summary")
+    if not isinstance(validation_summary, dict):
+        return None
+    metrics = validation_summary.get("metrics")
+    if not isinstance(metrics, dict):
+        return None
+    return {
+        "as_of_date": None,
+        "champion_version": validation_summary.get("champion_logic_version"),
+        "challenger_version": validation_summary.get("challenger_logic_version"),
+        "sample_count": int(metrics.get("sample_count") or 0),
+        "expectancy_delta": metrics.get("expectancy_delta"),
+        "improved_expectancy": bool(metrics.get("improved_expectancy")),
+        "mae_non_worse": bool(metrics.get("mae_non_worse")),
+        "adverse_move_non_worse": bool(metrics.get("adverse_move_non_worse")),
+        "stable_window": bool(metrics.get("stable_window")),
+        "alignment_ok": bool(metrics.get("alignment_ok")),
+        "readiness_pass": bool(metrics.get("readiness_pass")),
+        "reason_codes": list(validation_summary.get("notes") or []),
+        "summary": validation_summary,
+        "approval_decision": None,
+    }
+
+
+def _candidate_bundle_gate(bundle: dict[str, Any] | None) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+    if not bundle:
+        return False, ["candidate_bundle_missing"]
+    if _normalize_text(bundle.get("status")) not in {"approved", "promoted"}:
+        reasons.append("candidate_not_approved")
+    validation_summary = bundle.get("validation_summary")
+    if not isinstance(validation_summary, dict):
+        reasons.append("validation_summary_missing")
+        return False, reasons
+    metrics = validation_summary.get("metrics")
+    if not isinstance(metrics, dict):
+        reasons.append("validation_metrics_missing")
+        return False, reasons
+    required = (
+        "readiness_pass",
+        "sample_count",
+        "expectancy_delta",
+        "improved_expectancy",
+        "mae_non_worse",
+        "adverse_move_non_worse",
+        "stable_window",
+        "alignment_ok",
+    )
+    for field in required:
+        if field not in metrics:
+            reasons.append(f"validation_metric_missing_{field}")
+    return len(reasons) == 0, reasons
 
 
 def _promotion_gate(review: dict[str, Any] | None) -> tuple[bool, list[str]]:
@@ -375,23 +447,8 @@ def _history_event(
     }
 
 
-def _has_mutation_details(registry: dict[str, Any]) -> bool:
-    return any(
-        [
-            bool(registry.get("challengers")),
-            bool(registry.get("challenger_logic_keys")),
-            bool(registry.get("promotion_history")),
-            bool(registry.get("retired_logic_keys")),
-            bool(registry.get("demoted_logic_keys")),
-            _normalize_text(registry.get("previous_stable_champion_logic_key")),
-            bool(registry.get("rollback_candidates")),
-        ]
-    )
-
-
 def _load_registry(config_repo: ConfigRepository, db_path: str | None = None) -> dict[str, Any]:
     external_registry = load_external_publish_registry_state(db_path=db_path)
-    local_registry = config_repo.load_publish_registry_state()
     external_has_content = any(
         [
             _normalize_text(external_registry.get("champion_logic_key")),
@@ -402,27 +459,9 @@ def _load_registry(config_repo: ConfigRepository, db_path: str | None = None) ->
             bool(external_registry.get("champion")),
         ]
     )
-    local_has_content = any(
-        [
-            _normalize_text(local_registry.get("champion_logic_key")),
-            _normalize_text(local_registry.get("default_logic_pointer")),
-            _normalize_text(local_registry.get("previous_stable_champion_logic_key")),
-            bool(local_registry.get("challengers")),
-            bool(local_registry.get("challenger_logic_keys")),
-            bool(local_registry.get("champion")),
-        ]
-    )
     if external_registry.get("source_of_truth") == "external_analysis" and external_has_content:
-        if local_has_content and _has_mutation_details(local_registry) and not _has_mutation_details(external_registry):
-            if not _normalize_text(local_registry.get("bootstrap_rule")):
-                local_registry["bootstrap_rule"] = _normalize_text(external_registry.get("bootstrap_rule"))
-            return local_registry if isinstance(local_registry, dict) else {}
         return external_registry if isinstance(external_registry, dict) else {}
-    if local_has_content:
-        if not _normalize_text(local_registry.get("bootstrap_rule")):
-            local_registry["bootstrap_rule"] = _normalize_text(external_registry.get("bootstrap_rule"))
-        return local_registry if isinstance(local_registry, dict) else {}
-    return external_registry if isinstance(external_registry, dict) else {}
+    return {}
 
 
 def _save_registry(config_repo: ConfigRepository, state: dict[str, Any]) -> str:
@@ -488,36 +527,21 @@ def build_publish_promotion_snapshot(
     db_path: str | None = None,
     ops_db_path: str | None = None,
 ) -> dict[str, Any]:
-    external_registry = load_external_publish_registry_state(db_path=db_path)
-    local_registry = _load_registry(config_repo, db_path=db_path)
-    external_has_content = any(
-        [
-            _normalize_text(external_registry.get("champion_logic_key")),
-            _normalize_text(external_registry.get("default_logic_pointer")),
-            _normalize_text(external_registry.get("previous_stable_champion_logic_key")),
-            bool(external_registry.get("challengers")),
-            bool(external_registry.get("challenger_logic_keys")),
-            bool(external_registry.get("champion")),
-        ]
+    sync = inspect_publish_registry_sync(
+        config_repo=config_repo,
+        db_path=db_path,
+        external_loader=load_external_publish_registry_state,
     )
-    if external_registry.get("source_of_truth") == "external_analysis" and external_has_content:
-        registry = external_registry
-        source_of_truth = "external_analysis"
-        registry_sync_state = _normalize_text(external_registry.get("registry_sync_state")) or "synced"
-        last_sync_time = _normalize_text(external_registry.get("last_sync_at")) or _normalize_text(external_registry.get("updated_at"))
-        degraded = bool(external_registry.get("degraded"))
-    elif local_registry:
-        registry = local_registry
-        source_of_truth = "local_mirror"
-        registry_sync_state = "mirror_fallback"
-        last_sync_time = _normalize_text(local_registry.get("last_sync_at")) or _normalize_text(local_registry.get("updated_at"))
-        degraded = True
+    if sync["source_of_truth"] == "external_analysis" and sync["external_has_content"]:
+        registry = sync["external_state"]
+    elif sync["local_has_content"]:
+        registry = sync["local_mirror_normalized"]
     else:
         registry = {}
-        source_of_truth = "empty"
-        registry_sync_state = "empty"
-        last_sync_time = None
-        degraded = True
+    source_of_truth = sync["source_of_truth"]
+    registry_sync_state = sync["registry_sync_state"]
+    last_sync_time = sync["last_sync_time"]
+    degraded = bool(sync["degraded"])
     catalog = load_published_logic_catalog(db_path=db_path)
     champion = registry.get("champion") if isinstance(registry.get("champion"), dict) else None
     challengers = _registry_challengers(registry)
@@ -532,9 +556,13 @@ def build_publish_promotion_snapshot(
         "registry_sync_state": registry_sync_state,
         "degraded": degraded,
         "last_sync_time": last_sync_time,
-        "registry_version": registry.get("registry_version"),
+        "registry_version": sync["external_registry_version"] if source_of_truth == "external_analysis" else sync["local_mirror_version"],
         "source_revision": registry.get("source_revision"),
         "bootstrap_rule": _normalize_text(registry.get("bootstrap_rule")),
+        "external_registry_version": sync["external_registry_version"],
+        "local_mirror_version": sync["local_mirror_version"],
+        "mirror_schema_version": sync["mirror_schema_version"],
+        "mirror_normalized": sync["mirror_normalized"],
         "default_logic_pointer": default_pointer,
         "champion_logic_key": champion_logic_key,
         "challenger_logic_key": candidate_logic_key,
@@ -658,20 +686,53 @@ def promote_logic_key(
     db_path: str | None = None,
     ops_db_path: str | None = None,
 ) -> dict[str, Any]:
-    validation = validate_promotion_target(
-        config_repo=config_repo,
-        logic_key=logic_key,
-        db_path=db_path,
-        ops_db_path=ops_db_path,
-    )
-    if not validation.get("ok"):
+    target_key = _normalize_text(logic_key)
+    if not target_key:
+        return {"ok": False, "reason": "logic_key_required"}
+
+    candidate_bundle = _load_candidate_bundle_for_logic_key(logic_key=target_key, db_path=db_path)
+    if candidate_bundle is None:
+        return {"ok": False, "reason": "candidate_bundle_not_found", "logic_key": target_key}
+
+    validation_ok, validation_issues = _candidate_bundle_gate(candidate_bundle)
+    if not validation_ok:
+        return {
+            "ok": False,
+            "reason": "candidate_bundle_invalid",
+            "logic_key": target_key,
+            "validation_issues": validation_issues,
+        }
+    validation_summary = candidate_bundle.get("validation_summary") or {}
+    review = _candidate_bundle_review(candidate_bundle)
+    if review is None:
+        return {"ok": False, "reason": "candidate_validation_missing", "logic_key": target_key}
+    gate_pass, gate_reasons = _promotion_gate(review)
+    validation = {
+        "ok": True,
+        "reason": None,
+        "logic_key": target_key,
+        "logic_id": candidate_bundle.get("logic_id"),
+        "logic_version": candidate_bundle.get("logic_version"),
+        "artifact_uri": _normalize_text((candidate_bundle.get("published_logic_manifest") or {}).get("artifact_uri")),
+        "artifact_checksum": _normalize_text((candidate_bundle.get("published_logic_manifest") or {}).get("checksum")),
+        "publish_id": candidate_bundle.get("source_publish_id"),
+        "manifest": candidate_bundle.get("published_logic_manifest") or {},
+        "review": review,
+        "gate_pass": gate_pass,
+        "gate_reasons": gate_reasons,
+        "candidate_status": candidate_bundle.get("status"),
+        "validation_summary": validation_summary,
+        "bundle_checksum": candidate_bundle.get("bundle_checksum"),
+    }
+    if not gate_pass:
+        validation["ok"] = False
+        validation["reason"] = "promotion_gate_failed"
         return validation
 
     registry = _load_registry(config_repo, db_path=db_path)
     current_champion = registry.get("champion") if isinstance(registry.get("champion"), dict) else None
     current_champion_key = _normalize_text(current_champion.get("logic_key")) if current_champion else None
     target_entry = validation.get("manifest") or {}
-    target_key = _normalize_text(validation.get("logic_key"))
     challengers = _registry_challengers(registry)
     target_queue_order_before = None
     for challenger in challengers:
@@ -706,7 +767,7 @@ def promote_logic_key(
     champion_entry = _build_registry_entry(
         entry=target_entry,
         role=PUBLISH_ROLE_CHAMPION,
-        review=validation.get("review"),
+        review=review,
         source_publish_id=_normalize_text(validation.get("publish_id")),
         promoted_at=promoted_at,
         promoted_by=actor,
@@ -772,6 +833,20 @@ def promote_logic_key(
         )
     except Exception as exc:
         return {"ok": False, "reason": "external_registry_write_failed", "error": str(exc), "logic_key": target_key}
+    candidate_update = promote_publish_candidate_bundle(
+        db_path=db_path,
+        logic_key=target_key,
+        source=source,
+        reason=reason,
+        actor=actor,
+    )
+    if not candidate_update.get("ok"):
+        return {
+            "ok": False,
+            "reason": "candidate_bundle_update_failed",
+            "logic_key": target_key,
+            "candidate_update": candidate_update,
+        }
     snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
     return {
         "ok": True,
@@ -964,6 +1039,20 @@ def demote_logic_key(
             )
         except Exception as exc:
             return {"ok": False, "reason": "external_registry_write_failed", "error": str(exc), "logic_key": normalized_key}
+        candidate_update = retire_publish_candidate_bundle(
+            db_path=db_path,
+            logic_key=normalized_key,
+            source=source,
+            reason=reason,
+            actor=actor,
+        )
+        if not candidate_update.get("ok") and candidate_update.get("reason") != "candidate_bundle_not_found":
+            return {
+                "ok": False,
+                "reason": "candidate_bundle_update_failed",
+                "logic_key": normalized_key,
+                "candidate_update": candidate_update,
+            }
         snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
         return {
             "ok": True,
@@ -1186,6 +1275,20 @@ def rollback_logic_key(
         )
     except Exception as exc:
         return {"ok": False, "reason": "external_registry_write_failed", "error": str(exc), "logic_key": target_key}
+    candidate_update = promote_publish_candidate_bundle(
+        db_path=db_path,
+        logic_key=target_key,
+        source=source,
+        reason=reason,
+        actor=actor,
+    )
+    if not candidate_update.get("ok") and candidate_update.get("reason") != "candidate_bundle_not_found":
+        return {
+            "ok": False,
+            "reason": "candidate_bundle_update_failed",
+            "logic_key": target_key,
+            "candidate_update": candidate_update,
+        }
     snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
     return {
         "ok": True,

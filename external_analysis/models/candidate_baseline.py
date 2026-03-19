@@ -8,6 +8,7 @@ from typing import Any
 from external_analysis.exporter.export_schema import connect_export_db
 from external_analysis.labels.store import connect_label_db
 from external_analysis.models.state_eval_baseline import build_state_eval_rows, persist_state_eval_shadow
+from external_analysis.results.publish_candidates import build_publish_candidate_bundle
 from external_analysis.results.publish import publish_result
 from external_analysis.results.result_schema import connect_result_db, ensure_result_schema
 
@@ -540,6 +541,11 @@ def run_candidate_baseline(
         tag_prior_support=state_eval_payload["tag_prior_support"],
         label_db_path=label_db_path,
     )
+    candidate_bundle_result = build_publish_candidate_bundle(
+        db_path=result_db_path,
+        ops_db_path=ops_db_path,
+        publish_id=actual_publish_id,
+    )
     return {
         "ok": True,
         "publish": publish_payload,
@@ -562,4 +568,6 @@ def run_candidate_baseline(
         "state_eval_shadow_saved": bool(shadow_result.get("saved")),
         "state_eval_readiness_pass": bool(shadow_result.get("readiness_pass")),
         "state_eval_shadow_summary": shadow_result.get("summary"),
+        "candidate_bundle_saved": bool(candidate_bundle_result.get("ok")),
+        "candidate_bundle": candidate_bundle_result.get("bundle"),
     }
