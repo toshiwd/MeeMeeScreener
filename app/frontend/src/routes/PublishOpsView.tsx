@@ -23,6 +23,7 @@ type RuntimeSelectionSnapshot = {
   snapshot_sweep_last_run?: AnyRecord | null;
   non_promotable_legacy_count?: number | null;
   maintenance_degraded?: boolean;
+  operator_mutation_observability?: AnyRecord | null;
 };
 
 type PublishStateSnapshot = {
@@ -46,6 +47,7 @@ type PublishStateSnapshot = {
   non_promotable_legacy_count?: number | null;
   maintenance_degraded?: boolean;
   maintenance_state?: AnyRecord | null;
+  operator_mutation_observability?: AnyRecord | null;
 };
 
 type CandidateBundle = {
@@ -96,11 +98,41 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   }
   if (!response.ok) {
     const detail = payload && typeof payload === "object" ? (payload as AnyRecord).detail : null;
+    const detailReason = detail && typeof detail === "object" ? (detail as AnyRecord).reason : null;
+    const detailMessage = detail && typeof detail === "object" ? (detail as AnyRecord).message : null;
     const reason = payload && typeof payload === "object" ? (payload as AnyRecord).reason : null;
-    const message = typeof detail === "string" ? detail : typeof reason === "string" ? reason : `${response.status} ${response.statusText}`;
+    const reasonText = typeof detailReason === "string" ? detailReason : typeof reason === "string" ? reason : null;
+    const message =
+      typeof detail === "string"
+        ? detail
+        : reasonText && typeof detailMessage === "string"
+          ? `${reasonText}: ${detailMessage}`
+          : typeof detailMessage === "string"
+            ? detailMessage
+            : reasonText
+              ? reasonText
+              : `${response.status} ${response.statusText}`;
     throw new Error(message);
   }
   return payload as T;
+}
+
+async function fetchJsonWithRetry<T>(url: string, init?: RequestInit, retries = 1): Promise<T> {
+  let attempt = 0;
+  let lastError: unknown = null;
+  while (attempt <= retries) {
+    try {
+      return await fetchJson<T>(url, init);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries || !isRetryableTransientError(error)) {
+        throw error;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+    attempt += 1;
+  }
+  throw lastError instanceof Error ? lastError : new Error("request failed");
 }
 
 function text(value: unknown, fallback = "N/A"): string {
@@ -165,7 +197,19 @@ function shortValue(value: unknown): string {
 function isRetryableTransientError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
-  return message.includes("503") || message.includes("service unavailable") || message.includes("database is locked") || message.includes("retry");
+  return (
+    message.includes("503") ||
+    message.includes("service unavailable") ||
+    message.includes("database is locked") ||
+    message.includes("db_busy") ||
+    message.includes("operator mutation busy") ||
+    message.includes("operator mutation is already running") ||
+    message.includes("publish_state_refresh_conflict") ||
+    message.includes("external_registry_read_conflict") ||
+    message.includes("external_registry_write_conflict") ||
+    message.includes("temporarily unavailable") ||
+    message.includes("retry")
+  );
 }
 
 function JsonBlock({ title, value }: { title: string; value: unknown }) {
@@ -266,23 +310,9 @@ export default function PublishOpsView() {
     setDetailLoading(true);
     setDetailError(null);
     try {
-      const loadOnce = async () => {
-        const payload = await fetchJson<{ candidate?: CandidateBundle }>(`/api/system/publish/candidates/${encodeURIComponent(logicKey)}`);
-        if (!payload.candidate) throw new Error("candidate not found");
-        return payload.candidate;
-      };
-      let candidate: CandidateBundle;
-      try {
-        candidate = await loadOnce();
-      } catch (error) {
-        const message = error instanceof Error ? error.message.toLowerCase() : "";
-        if (requestId === detailSeqRef.current && (message.includes("503") || message.includes("service unavailable"))) {
-          await new Promise((resolve) => window.setTimeout(resolve, 250));
-          candidate = await loadOnce();
-        } else {
-          throw error;
-        }
-      }
+      const payload = await fetchJsonWithRetry<{ candidate?: CandidateBundle }>(`/api/system/publish/candidates/${encodeURIComponent(logicKey)}`);
+      if (!payload.candidate) throw new Error("candidate not found");
+      const candidate = payload.candidate;
       if (requestId !== detailSeqRef.current) return;
       setCandidateDetail(candidate);
     } catch (error) {
@@ -302,9 +332,9 @@ export default function PublishOpsView() {
       const requestId = ++refreshSeqRef.current;
       setRefreshing(true);
       try {
-        const runtime = await fetchJson<RuntimeSelectionSnapshot>("/api/system/runtime-selection");
-        const publish = await fetchJson<PublishStateSnapshot>("/api/system/publish/state");
-        const candidates = await fetchJson<{ items: CandidateBundle[] }>("/api/system/publish/candidates");
+        const runtime = await fetchJsonWithRetry<RuntimeSelectionSnapshot>("/api/system/runtime-selection");
+        const publish = await fetchJsonWithRetry<PublishStateSnapshot>("/api/system/publish/state");
+        const candidates = await fetchJsonWithRetry<{ items: CandidateBundle[] }>("/api/system/publish/candidates");
         if (requestId !== refreshSeqRef.current) return;
         setRuntimeSelection(runtime);
         setPublishState(publish);
@@ -406,11 +436,19 @@ export default function PublishOpsView() {
     async (action: "demote" | "rollback") => {
       const key = action === "demote" ? championKey : publishState?.previous_stable_champion_logic_key ?? championKey;
       if (!key || key === "N/A") return;
-        await confirmRun(
-          `${action}:${key}`,
-          action === "demote" ? `Demote ${key}` : `Rollback ${key}`,
-          action === "demote" ? `Demote champion ${key}?` : `Rollback to ${key}?`,
-          () => fetchJson(`/api/system/publish/${action}`, { method: "POST", body: JSON.stringify({ logicKey: key, reason: reason || undefined, actor: actor || undefined }) }),
+      await confirmRun(
+        `${action}:${key}`,
+        action === "demote" ? `Demote ${key}` : `Rollback ${key}`,
+        action === "demote" ? `Demote champion ${key}?` : `Rollback to ${key}?`,
+        () =>
+          fetchJson(`/api/system/publish/${action}`, {
+            method: "POST",
+            body: JSON.stringify(
+              action === "rollback"
+                ? { reason: reason || undefined, actor: actor || undefined }
+                : { logicKey: key, reason: reason || undefined, actor: actor || undefined }
+            ),
+          }),
         selectedLogicKey
       );
     },
@@ -518,6 +556,7 @@ export default function PublishOpsView() {
           </div>
           <JsonBlock title="selected_logic_override" value={runtimeSelection?.selected_logic_override} />
           <JsonBlock title="last_known_good" value={runtimeSelection?.last_known_good} />
+          <JsonBlock title="operator_mutation_observability" value={runtimeSelection?.operator_mutation_observability ?? publishState?.operator_mutation_observability} />
         </article>
 
         <article className="ops-card">

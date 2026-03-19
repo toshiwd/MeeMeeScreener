@@ -65,7 +65,6 @@ test.describe("operator console real backend smoke", () => {
         MEEMEE_DATA_DIR: dataDir,
         MEEMEE_RESULT_DB_PATH: resultDb,
         STOCKS_DB_PATH: stockDb,
-        MEEMEE_SCREENER_SNAPSHOT_ENABLED: "0",
         MEEMEE_OPS_DB_PATH: opsDb,
         MEEMEE_OPERATOR_CONSOLE_GATE_MODE: "header",
         MEEMEE_PROCESS_LOCK_ENABLED: "0",
@@ -89,9 +88,23 @@ test.describe("operator console real backend smoke", () => {
       await expect(page.getByText("Publish registry", { exact: true })).toBeVisible();
       await expect(page.getByText("Maintenance", { exact: true })).toBeVisible();
       await expect(page.getByText("Candidate bundles", { exact: true })).toBeVisible();
+      await expect(page.locator(".ops-table-card tbody tr")).toHaveCount(4);
 
       await expect(page.locator("tbody tr").filter({ hasText: "logic_family_a:v1" })).toBeVisible();
       await expect(page.locator("tbody tr").filter({ hasText: "logic_family_a:v2" })).toBeVisible();
+      await expect(page.locator("tbody tr").filter({ hasText: "logic_family_a:v3" })).toBeVisible();
+      await expect(page.locator("tbody tr").filter({ hasText: "logic_family_a:v4" })).toBeVisible();
+
+      await page.getByPlaceholder("logic_key contains...").fill("v4");
+      await expect(page.locator(".ops-table-card tbody tr")).toHaveCount(1);
+      await expect(page.locator("tbody tr").filter({ hasText: "logic_family_a:v4" })).toBeVisible();
+      await page.locator("tbody tr").filter({ hasText: "logic_family_a:v4" }).getByRole("button", { name: "Detail" }).click();
+      await expect(page.getByText("Loading candidate detail...")).toBeVisible();
+      await expect(page.getByText("Loading candidate detail...")).toBeHidden();
+      await expect(page.getByText("Selected candidate detail")).toBeVisible();
+      await expect(page.locator(".ops-detail-card").filter({ hasText: "Selected candidate detail" }).getByText("published_logic_manifest", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Clear filters" }).click();
+      await expect(page.locator(".ops-table-card tbody tr")).toHaveCount(4);
 
       await page.locator("tbody tr").filter({ hasText: "logic_family_a:v2" }).getByRole("button", { name: "Detail" }).click();
       await expect(page.getByText("Loading candidate detail...")).toBeVisible();
@@ -112,7 +125,148 @@ test.describe("operator console real backend smoke", () => {
       await page.locator("tbody tr").filter({ hasText: "logic_family_a:v2" }).getByRole("button", { name: "Approve" }).click();
       await expect(page.getByText("Approve logic_family_a:v2 finished")).toBeVisible();
 
-      await expect(page.locator(".ops-card").filter({ hasText: "Publish registry" }).getByText("champion", { exact: true })).toBeVisible();
+      page.once("dialog", async (dialog) => {
+        expect(dialog.message()).toContain("Promote candidate logic_family_a:v2?");
+        await dialog.accept();
+      });
+      const promoteRefresh = Promise.all([
+        page.evaluate(async () => {
+          const response = await fetch("/api/system/publish/state", {
+            headers: { "X-MeeMee-Operator-Mode": "operator" },
+          });
+          return {
+            ok: response.ok,
+            payload: (await response.json()) as Record<string, unknown>,
+          };
+        }),
+        page.evaluate(async () => {
+          const response = await fetch("/api/system/runtime-selection", {
+            headers: { "X-MeeMee-Operator-Mode": "operator" },
+          });
+          return {
+            ok: response.ok,
+            payload: (await response.json()) as Record<string, unknown>,
+          };
+        }),
+      ]);
+      await page.locator(".ops-detail-card").filter({ hasText: "Selected candidate detail" }).getByRole("button", { name: "Promote" }).click();
+      await expect(page.getByText("Promote logic_family_a:v2 finished")).toBeVisible();
+      const [promoteState, promoteRuntime] = await promoteRefresh;
+      expect(promoteState.ok).toBe(true);
+      expect(promoteRuntime.ok).toBe(true);
+      expect(promoteState.payload.operator_mutation_observability).toBeTruthy();
+      expect(promoteRuntime.payload.operator_mutation_observability).toBeTruthy();
+      await expect
+        .poll(async () => {
+          const response = await fetch(`${backendBaseUrl}/api/system/publish/state`, {
+            headers: { "X-MeeMee-Operator-Mode": "operator" },
+          });
+          if (!response.ok) return null;
+          const payload = (await response.json()) as { champion_logic_key?: string };
+          return payload.champion_logic_key;
+        }, { timeout: 30_000, intervals: [1000, 2000, 3000] })
+        .toBe("logic_family_a:v2");
+
+      page.once("dialog", async (dialog) => {
+        expect(dialog.message()).toContain("Rollback to logic_family_a:");
+        await dialog.accept();
+      });
+      const rollbackRefresh = Promise.all([
+        page.evaluate(async () => {
+          const response = await fetch("/api/system/publish/state", {
+            headers: { "X-MeeMee-Operator-Mode": "operator" },
+          });
+          return {
+            ok: response.ok,
+            payload: (await response.json()) as Record<string, unknown>,
+          };
+        }),
+        page.evaluate(async () => {
+          const response = await fetch("/api/system/runtime-selection", {
+            headers: { "X-MeeMee-Operator-Mode": "operator" },
+          });
+          return {
+            ok: response.ok,
+            payload: (await response.json()) as Record<string, unknown>,
+          };
+        }),
+      ]);
+      await page.locator(".ops-card").filter({ hasText: "Publish registry" }).getByRole("button", { name: "Rollback" }).click();
+      await expect(page.getByText("Rollback logic_family_a:v1 finished")).toBeVisible();
+      const [rollbackState, rollbackRuntime] = await rollbackRefresh;
+      expect(rollbackState.ok).toBe(true);
+      expect(rollbackRuntime.ok).toBe(true);
+      expect(rollbackState.payload.operator_mutation_observability).toBeTruthy();
+      expect(rollbackRuntime.payload.operator_mutation_observability).toBeTruthy();
+      await expect
+        .poll(async () => {
+          const response = await fetch(`${backendBaseUrl}/api/system/publish/state`, {
+            headers: { "X-MeeMee-Operator-Mode": "operator" },
+          });
+          if (!response.ok) return null;
+          const payload = (await response.json()) as { champion_logic_key?: string };
+          return payload.champion_logic_key;
+        }, { timeout: 30_000, intervals: [1000, 2000, 3000] })
+        .toBe("logic_family_a:v1");
+
+      page.once("dialog", async (dialog) => {
+        expect(dialog.message()).toContain("Promote candidate logic_family_a:v2?");
+        await dialog.accept();
+      });
+      const secondPromoteRefresh = Promise.all([
+        page.evaluate(async () => {
+          const response = await fetch("/api/system/publish/state", {
+            headers: { "X-MeeMee-Operator-Mode": "operator" },
+          });
+          return {
+            ok: response.ok,
+            payload: (await response.json()) as Record<string, unknown>,
+          };
+        }),
+        page.evaluate(async () => {
+          const response = await fetch("/api/system/runtime-selection", {
+            headers: { "X-MeeMee-Operator-Mode": "operator" },
+          });
+          return {
+            ok: response.ok,
+            payload: (await response.json()) as Record<string, unknown>,
+          };
+        }),
+      ]);
+      await page.locator(".ops-detail-card").filter({ hasText: "Selected candidate detail" }).getByRole("button", { name: "Promote" }).click();
+      await expect(page.getByText("Promote logic_family_a:v2 finished")).toBeVisible();
+      const [secondPromoteState, secondPromoteRuntime] = await secondPromoteRefresh;
+      expect(secondPromoteState.ok).toBe(true);
+      expect(secondPromoteRuntime.ok).toBe(true);
+      expect(secondPromoteState.payload.operator_mutation_observability).toBeTruthy();
+      expect(secondPromoteRuntime.payload.operator_mutation_observability).toBeTruthy();
+      await expect
+        .poll(async () => {
+          const response = await fetch(`${backendBaseUrl}/api/system/publish/state`, {
+            headers: { "X-MeeMee-Operator-Mode": "operator" },
+          });
+          if (!response.ok) return null;
+          const payload = (await response.json()) as { champion_logic_key?: string };
+          return payload.champion_logic_key;
+        }, { timeout: 30_000, intervals: [1000, 2000, 3000] })
+        .toBe("logic_family_a:v2");
+
+      page.once("dialog", async (dialog) => {
+        expect(dialog.message()).toContain("Rollback to logic_family_a:");
+        await dialog.accept();
+      });
+      await page.locator(".ops-card").filter({ hasText: "Publish registry" }).getByRole("button", { name: "Rollback" }).click();
+      await expect(page.getByText("Rollback logic_family_a:v1 finished")).toBeVisible();
+      await expect
+        .poll(async () => {
+          const response = await fetch(`${backendBaseUrl}/api/system/publish/state`, {
+            headers: { "X-MeeMee-Operator-Mode": "operator" },
+          });
+          if (!response.ok) return null;
+          const payload = (await response.json()) as { champion_logic_key?: string };
+          return payload.champion_logic_key;
+        }, { timeout: 30_000, intervals: [1000, 2000, 3000] })
+        .toBe("logic_family_a:v1");
     } finally {
       backend.kill("SIGTERM");
       await new Promise<void>((resolveStop) => {

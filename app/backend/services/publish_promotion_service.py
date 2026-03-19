@@ -25,6 +25,7 @@ from external_analysis.results.publish_candidates import (
 )
 from external_analysis.results.publish import load_published_logic_catalog
 from app.backend.services.publish_registry_sync_service import inspect_publish_registry_sync
+from app.backend.services.operator_mutation_lock import get_operator_mutation_observability
 from shared.contracts.publish_registry import (
     PUBLISH_ROLE_CHALLENGER,
     PUBLISH_PROMOTION_ACTION_DEMOTE,
@@ -443,21 +444,54 @@ def _persist_registry_state(
     return external_state
 
 
+def _mutation_snapshot_sync(
+    *,
+    external_state: dict[str, Any],
+    registry_state: dict[str, Any],
+    sync_state: str = "synced",
+    degraded: bool = False,
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "source_of_truth": "external_analysis",
+        "registry_sync_state": sync_state,
+        "degraded": degraded,
+        "bootstrap_rule": _normalize_text(registry_state.get("bootstrap_rule")),
+        "external_registry_version": external_state.get("registry_version"),
+        "local_mirror_version": registry_state.get("registry_version"),
+        "mirror_schema_version": PUBLISH_REGISTRY_SCHEMA_VERSION,
+        "mirror_normalized": True,
+        "last_sync_time": external_state.get("last_sync_at") or external_state.get("updated_at"),
+        "external_state": external_state,
+        "local_mirror_raw": registry_state,
+        "local_mirror_normalized": registry_state,
+        "external_has_content": True,
+        "local_has_content": True,
+    }
+
+
 def build_publish_promotion_snapshot(
     *,
     config_repo: ConfigRepository,
     db_path: str | None = None,
     ops_db_path: str | None = None,
+    sync_override: dict[str, Any] | None = None,
+    registry_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    sync = inspect_publish_registry_sync(
-        config_repo=config_repo,
-        db_path=db_path,
-        external_loader=load_external_publish_registry_state,
-    )
-    if sync["source_of_truth"] == "external_analysis" and sync["external_has_content"]:
-        registry = sync["external_state"]
-    elif sync["local_has_content"]:
-        registry = sync["local_mirror_normalized"]
+    if sync_override is None:
+        sync = inspect_publish_registry_sync(
+            config_repo=config_repo,
+            db_path=db_path,
+            external_loader=load_external_publish_registry_state,
+        )
+    else:
+        sync = dict(sync_override or {})
+    if registry_override is not None:
+        registry = dict(registry_override or {})
+    elif sync.get("source_of_truth") == "external_analysis" and sync.get("external_has_content"):
+        registry = sync.get("external_state") or {}
+    elif sync.get("local_has_content"):
+        registry = sync.get("local_mirror_normalized") or {}
     else:
         registry = {}
     source_of_truth = sync["source_of_truth"]
@@ -495,6 +529,7 @@ def build_publish_promotion_snapshot(
         "non_promotable_legacy_count": int(maintenance_state.get("non_promotable_legacy_count") or 0),
         "maintenance_degraded": bool(maintenance_state.get("maintenance_degraded")),
         "maintenance_state": maintenance_state,
+        "operator_mutation_observability": get_operator_mutation_observability(),
         "default_logic_pointer": default_pointer,
         "champion_logic_key": champion_logic_key,
         "challenger_logic_key": candidate_logic_key,
@@ -776,7 +811,18 @@ def promote_logic_key(
             "logic_key": target_key,
             "candidate_update": candidate_update,
         }
-    snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
+    snapshot = build_publish_promotion_snapshot(
+        config_repo=config_repo,
+        db_path=db_path,
+        ops_db_path=ops_db_path,
+        sync_override=_mutation_snapshot_sync(
+            external_state=external_state,
+            registry_state=registry,
+            sync_state="synced",
+            degraded=False,
+        ),
+        registry_override=registry,
+    )
     return {
         "ok": True,
         "changed": True,
@@ -882,7 +928,18 @@ def enqueue_challenger_logic_key(
         )
     except Exception as exc:
         return {"ok": False, "reason": "external_registry_write_failed", "error": str(exc), "logic_key": normalized_key}
-    snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
+    snapshot = build_publish_promotion_snapshot(
+        config_repo=config_repo,
+        db_path=db_path,
+        ops_db_path=ops_db_path,
+        sync_override=_mutation_snapshot_sync(
+            external_state=external_state,
+            registry_state=registry,
+            sync_state="synced",
+            degraded=False,
+        ),
+        registry_override=registry,
+    )
     return {
         "ok": True,
         "changed": True,
@@ -982,7 +1039,18 @@ def demote_logic_key(
                 "logic_key": normalized_key,
                 "candidate_update": candidate_update,
             }
-        snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
+        snapshot = build_publish_promotion_snapshot(
+            config_repo=config_repo,
+            db_path=db_path,
+            ops_db_path=ops_db_path,
+            sync_override=_mutation_snapshot_sync(
+                external_state=external_state,
+                registry_state=registry,
+                sync_state="synced",
+                degraded=False,
+            ),
+            registry_override=registry,
+        )
         return {
             "ok": True,
             "changed": True,
@@ -1067,7 +1135,18 @@ def demote_logic_key(
         )
     except Exception as exc:
         return {"ok": False, "reason": "external_registry_write_failed", "error": str(exc), "logic_key": normalized_key}
-    snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
+    snapshot = build_publish_promotion_snapshot(
+        config_repo=config_repo,
+        db_path=db_path,
+        ops_db_path=ops_db_path,
+        sync_override=_mutation_snapshot_sync(
+            external_state=external_state,
+            registry_state=registry,
+            sync_state="synced",
+            degraded=False,
+        ),
+        registry_override=registry,
+    )
     return {
         "ok": True,
         "changed": True,
@@ -1209,7 +1288,18 @@ def rollback_logic_key(
             "logic_key": target_key,
             "candidate_update": candidate_update,
         }
-    snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
+    snapshot = build_publish_promotion_snapshot(
+        config_repo=config_repo,
+        db_path=db_path,
+        ops_db_path=ops_db_path,
+        sync_override=_mutation_snapshot_sync(
+            external_state=external_state,
+            registry_state=registry,
+            sync_state="synced",
+            degraded=False,
+        ),
+        registry_override=registry,
+    )
     return {
         "ok": True,
         "changed": True,

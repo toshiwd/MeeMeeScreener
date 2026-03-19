@@ -6,6 +6,7 @@ import threading
 from datetime import datetime
 
 from app.backend.core.jobs import job_manager
+from app.backend.services.operator_mutation_lock import OperatorMutationBusyError, operator_mutation_scope
 from app.backend.services.screener_snapshot_service import inspect_screener_snapshot, refresh_screener_snapshot
 
 logger = logging.getLogger(__name__)
@@ -63,38 +64,56 @@ def schedule_screener_snapshot_refresh(*, source: str, force: bool = False) -> s
 def handle_screener_snapshot_refresh(job_id: str, payload: dict) -> None:
     limit = max(1, int(payload.get("limit") or _snapshot_limit()))
     source = str(payload.get("source") or f"job:{job_id}")
-    job_manager._update_db(
-        job_id,
-        SCREENER_SNAPSHOT_JOB_TYPE,
-        "running",
-        progress=10,
-        message="Refreshing screener snapshot...",
-    )
-    snapshot = refresh_screener_snapshot(limit=limit, source=source)
-    stale = bool(snapshot.get("stale"))
-    build_failed = bool(snapshot.get("buildFailed"))
-    if build_failed:
+    try:
+        with operator_mutation_scope("screener_snapshot_refresh", timeout_sec=0.0):
+            job_manager._update_db(
+                job_id,
+                SCREENER_SNAPSHOT_JOB_TYPE,
+                "running",
+                progress=10,
+                message="Refreshing screener snapshot...",
+            )
+            snapshot = refresh_screener_snapshot(limit=limit, source=source)
+            stale = bool(snapshot.get("stale"))
+            build_failed = bool(snapshot.get("buildFailed"))
+            if build_failed:
+                job_manager._update_db(
+                    job_id,
+                    SCREENER_SNAPSHOT_JOB_TYPE,
+                    "failed",
+                    progress=100,
+                    message="Screener snapshot refresh failed; stale snapshot preserved.",
+                    error=str(snapshot.get("lastError") or "snapshot_build_failed"),
+                    finished_at=datetime.now(),
+                )
+                return
+            job_manager._update_db(
+                job_id,
+                SCREENER_SNAPSHOT_JOB_TYPE,
+                "success",
+                progress=100,
+                message=(
+                    f"Screener snapshot refreshed rows={snapshot.get('rowCount')} "
+                    f"gen={snapshot.get('generation')} stale={stale}"
+                ),
+                finished_at=datetime.now(),
+            )
+    except OperatorMutationBusyError as exc:
         job_manager._update_db(
             job_id,
             SCREENER_SNAPSHOT_JOB_TYPE,
-            "failed",
+            "skipped",
             progress=100,
-            message="Screener snapshot refresh failed; stale snapshot preserved.",
-            error=str(snapshot.get("lastError") or "snapshot_build_failed"),
+            message="Screener snapshot refresh skipped: operator mutation active.",
+            error="operator_mutation_busy",
             finished_at=datetime.now(),
         )
+        logger.info(
+            "Screener snapshot refresh skipped due operator mutation active action=%s since=%s",
+            exc.holder_action,
+            exc.holder_since,
+        )
         return
-    job_manager._update_db(
-        job_id,
-        SCREENER_SNAPSHOT_JOB_TYPE,
-        "success",
-        progress=100,
-        message=(
-            f"Screener snapshot refreshed rows={snapshot.get('rowCount')} "
-            f"gen={snapshot.get('generation')} stale={stale}"
-        ),
-        finished_at=datetime.now(),
-    )
 
 
 def _scheduler_loop() -> None:

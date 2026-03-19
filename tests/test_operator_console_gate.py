@@ -4,6 +4,7 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from app.backend.api.operator_console_gate import require_operator_console_access
+from app.backend.services.operator_mutation_lock import get_operator_mutation_observability, record_operator_mutation_observation
 
 
 def test_operator_console_gate_requires_header_when_enabled(monkeypatch) -> None:
@@ -39,3 +40,12 @@ def test_operator_console_gate_is_open_by_default(monkeypatch) -> None:
     response = client.get("/guarded")
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_operator_mutation_observability_records_reason() -> None:
+    before = get_operator_mutation_observability()
+    record_operator_mutation_observation("db_busy", action="test")
+    after = get_operator_mutation_observability()
+
+    assert after["db_busy_count"] >= before["db_busy_count"] + 1
+    assert after["last_reason"] == "db_busy"

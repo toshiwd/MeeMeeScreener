@@ -150,8 +150,12 @@ def seed_publish_ops_e2e(*, data_dir: Path, result_db_path: Path, ops_db_path: P
 
     champion_artifact = data_dir / "fixtures" / "operator_console_e2e" / "logic_family_a_v1.json"
     challenger_artifact = data_dir / "fixtures" / "operator_console_e2e" / "logic_family_a_v2.json"
+    third_artifact = data_dir / "fixtures" / "operator_console_e2e" / "logic_family_a_v3.json"
+    fourth_artifact = data_dir / "fixtures" / "operator_console_e2e" / "logic_family_a_v4.json"
     champion_checksum = _write_artifact(champion_artifact, '{"logic":"family_a:v1"}\n')
     challenger_checksum = _write_artifact(challenger_artifact, '{"logic":"family_a:v2"}\n')
+    third_checksum = _write_artifact(third_artifact, '{"logic":"family_a:v3"}\n')
+    fourth_checksum = _write_artifact(fourth_artifact, '{"logic":"family_a:v4"}\n')
 
     champion_publish_id = "pub_2026-03-19_20260319T010000Z_01"
     challenger_publish_id = "pub_2026-03-19_20260319T020000Z_01"
@@ -193,6 +197,42 @@ def seed_publish_ops_e2e(*, data_dir: Path, result_db_path: Path, ops_db_path: P
             published_at="2026-03-19T02:00:00Z",
         ),
     )
+    publish_result(
+        db_path=str(result_db_path),
+        publish_id="pub_2026-03-19_20260319T030000Z_01",
+        as_of_date="2026-03-19",
+        freshness_state="fresh",
+        default_logic_pointer="logic_family_a:v3",
+        logic_artifact_uri=str(third_artifact),
+        logic_artifact_checksum=third_checksum,
+        logic_manifest=_build_manifest(
+            logic_id="logic_family_a",
+            logic_version="v3",
+            logic_family="family_a",
+            artifact_path=third_artifact,
+            checksum=third_checksum,
+            trained_at="2026-03-18T18:00:00Z",
+            published_at="2026-03-19T03:00:00Z",
+        ),
+    )
+    publish_result(
+        db_path=str(result_db_path),
+        publish_id="pub_2026-03-19_20260319T040000Z_01",
+        as_of_date="2026-03-19",
+        freshness_state="fresh",
+        default_logic_pointer="logic_family_a:v4",
+        logic_artifact_uri=str(fourth_artifact),
+        logic_artifact_checksum=fourth_checksum,
+        logic_manifest=_build_manifest(
+            logic_id="logic_family_a",
+            logic_version="v4",
+            logic_family="family_a",
+            artifact_path=fourth_artifact,
+            checksum=fourth_checksum,
+            trained_at="2026-03-18T20:00:00Z",
+            published_at="2026-03-19T04:00:00Z",
+        ),
+    )
 
     readiness_payload = {
         "source": "external_analysis_shadow",
@@ -220,6 +260,16 @@ def seed_publish_ops_e2e(*, data_dir: Path, result_db_path: Path, ops_db_path: P
     build_publish_candidate_bundle(
         db_path=str(result_db_path),
         publish_id=challenger_publish_id,
+        readiness=readiness_payload,
+    )
+    build_publish_candidate_bundle(
+        db_path=str(result_db_path),
+        publish_id="pub_2026-03-19_20260319T030000Z_01",
+        readiness=readiness_payload,
+    )
+    build_publish_candidate_bundle(
+        db_path=str(result_db_path),
+        publish_id="pub_2026-03-19_20260319T040000Z_01",
         readiness=readiness_payload,
     )
 
@@ -311,6 +361,7 @@ def seed_publish_ops_e2e(*, data_dir: Path, result_db_path: Path, ops_db_path: P
         "ops_db_path": str(ops_db_path),
         "champion_key": "logic_family_a:v1",
         "challenger_key": "logic_family_a:v2",
+        "candidate_count": 4,
     }
 
 
