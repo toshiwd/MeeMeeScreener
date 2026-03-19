@@ -97,4 +97,6 @@ runtime は少なくとも次の状態を扱う。
 - user profile ごとの pin
 - device ごとの local override
 - rollback 時の last_known_good 差し替え
+## Publish Registry Source
 
+Publish registry data is read from `external_analysis` first, then from the local mirror in `config/publish_registry.json`, and finally from an empty safe state. The runtime selection order itself does not change: `selected_logic_override -> default_logic_pointer -> last_known_good -> safe fallback`.

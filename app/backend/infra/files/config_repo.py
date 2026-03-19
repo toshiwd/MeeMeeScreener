@@ -100,6 +100,15 @@ class ConfigRepository:
     def save_publish_registry_state(self, state: Dict[str, Any]) -> str:
         payload = dict(state or {})
         payload["schema_version"] = str(payload.get("schema_version") or PUBLISH_REGISTRY_SCHEMA_VERSION)
+        payload["source_of_truth"] = str(payload.get("source_of_truth") or "local_mirror")
+        payload["registry_version"] = int(payload.get("registry_version") or 0)
+        payload["updated_at"] = str(payload.get("updated_at") or datetime.now(timezone.utc).isoformat())
+        payload["last_sync_at"] = str(payload.get("last_sync_at") or payload["updated_at"])
+        payload["source_revision"] = str(payload.get("source_revision") or f"rv:{payload['registry_version']}")
+        checksum_source = {k: v for k, v in payload.items() if k != "registry_checksum"}
+        payload["registry_checksum"] = hashlib.sha256(
+            json.dumps(checksum_source, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
         return self._atomic_write_json(self.publish_registry_path, payload)
 
     def _logic_key_dirname(self, logic_key: str) -> str:

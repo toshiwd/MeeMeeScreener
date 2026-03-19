@@ -189,8 +189,10 @@ def test_publish_promotion_updates_champion_and_runtime_selection(monkeypatch, t
         before = client.get("/api/system/runtime-selection")
         assert before.status_code == 200
         before_payload = before.json()
+        assert before_payload["source_of_truth"] == "external_analysis"
         assert before_payload["default_logic_pointer"] == champion_key
         assert before_payload["publish_registry_state"]["champion_logic_key"] == champion_key
+        assert before_payload["publish_registry_state"]["source_of_truth"] == "external_analysis"
 
         response = client.post(
             "/api/system/publish/promote",
@@ -206,8 +208,10 @@ def test_publish_promotion_updates_champion_and_runtime_selection(monkeypatch, t
         after = client.get("/api/system/runtime-selection")
         assert after.status_code == 200
         after_payload = after.json()
+        assert after_payload["source_of_truth"] == "external_analysis"
         assert after_payload["default_logic_pointer"] == challenger_key
         assert after_payload["publish_registry_state"]["champion_logic_key"] == challenger_key
+        assert after_payload["publish_registry_state"]["source_of_truth"] == "external_analysis"
         assert after_payload["resolved_source"] == "default_logic_pointer"
         assert after_payload["selected_logic_key"] == challenger_key
 
@@ -237,6 +241,7 @@ def test_publish_demotion_retires_non_champion(monkeypatch, tmp_path) -> None:
         state = client.get("/api/system/publish/state")
         assert state.status_code == 200
         state_payload = state.json()
+        assert state_payload["source_of_truth"] == "external_analysis"
         assert state_payload["champion_logic_key"] == champion_key
         assert challenger_key in state_payload["retired_logic_keys"]
 
@@ -268,8 +273,58 @@ def test_publish_rollback_restores_previous_champion(monkeypatch, tmp_path) -> N
         state = client.get("/api/system/runtime-selection")
         assert state.status_code == 200
         payload = state.json()
+        assert payload["source_of_truth"] == "external_analysis"
         assert payload["default_logic_pointer"] == champion_key
         assert payload["publish_registry_state"]["champion_logic_key"] == champion_key
+
+
+def test_runtime_selection_uses_local_mirror_when_external_registry_unavailable(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, _ = _seed_publish_state(tmp_path)
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+    mirror_path = data_dir / "config" / "publish_registry.json"
+    mirror_state = json.loads(mirror_path.read_text(encoding="utf-8"))
+    mirror_state["source_of_truth"] = "local_mirror"
+    mirror_state["registry_sync_state"] = "mirror_fallback"
+    mirror_state["degraded"] = True
+    mirror_path.write_text(json.dumps(mirror_state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    import app.backend.services.runtime_selection_service as runtime_selection_service
+
+    monkeypatch.setattr(
+        runtime_selection_service,
+        "load_external_publish_registry_state",
+        lambda **_kwargs: {"source_of_truth": "external_analysis", "degraded": True, "registry_sync_state": "unavailable"},
+    )
+
+    with TestClient(main_module.create_app()) as client:
+        response = client.get("/api/system/runtime-selection")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["source_of_truth"] == "local_mirror"
+        assert payload["registry_sync_state"] == "mirror_fallback"
+        assert payload["degraded"] is True
+        assert payload["default_logic_pointer"] == champion_key
+
+
+def test_publish_promotion_fails_when_external_registry_write_fails(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, _, challenger_key = _seed_publish_state(tmp_path)
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+
+    import app.backend.services.publish_promotion_service as promotion_service
+
+    monkeypatch.setattr(
+        promotion_service,
+        "save_external_publish_registry_state",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("external registry unavailable")),
+    )
+
+    with TestClient(main_module.create_app()) as client:
+        response = client.post(
+            "/api/system/publish/promote",
+            json={"logicKey": challenger_key, "reason": "validation passed", "actor": "codex_test"},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"]["reason"] == "external_registry_write_failed"
 
 
 def test_publish_promotion_rejects_invalid_logic_key(monkeypatch, tmp_path) -> None:

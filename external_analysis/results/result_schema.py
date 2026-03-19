@@ -28,6 +28,8 @@ INTERNAL_RESULT_TABLES: tuple[str, ...] = (
     "publish_runs",
     "candidate_component_scores",
     "nightly_candidate_metrics",
+    "publish_registry_state",
+    "publish_registry_audit",
 )
 ALL_RESULT_TABLES: tuple[str, ...] = PUBLIC_RESULT_TABLES + INTERNAL_RESULT_TABLES
 ALLOWED_FRESHNESS_STATES: tuple[str, ...] = ("fresh", "warning", "hard")
@@ -97,6 +99,51 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_artifact_uri TEXT")
     conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_artifact_checksum TEXT")
     conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_manifest_json JSON")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS publish_registry_state (
+            registry_name TEXT PRIMARY KEY,
+            schema_version TEXT NOT NULL,
+            registry_version BIGINT NOT NULL,
+            source_of_truth TEXT NOT NULL,
+            source_revision TEXT,
+            updated_at TIMESTAMP NOT NULL,
+            last_sync_at TIMESTAMP,
+            champion_logic_key TEXT,
+            challenger_logic_key TEXT,
+            default_logic_pointer TEXT,
+            retired_logic_keys JSON NOT NULL,
+            demoted_logic_keys JSON NOT NULL,
+            registry_state_json JSON NOT NULL,
+            registry_checksum TEXT,
+            degraded BOOLEAN NOT NULL,
+            sync_state TEXT NOT NULL,
+            sync_message TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS publish_registry_audit (
+            event_id TEXT PRIMARY KEY,
+            registry_name TEXT NOT NULL,
+            action TEXT NOT NULL,
+            previous_logic_key TEXT,
+            new_logic_key TEXT,
+            logic_id TEXT,
+            logic_version TEXT,
+            logic_family TEXT,
+            artifact_uri TEXT,
+            artifact_checksum TEXT,
+            source TEXT NOT NULL,
+            reason TEXT,
+            actor TEXT,
+            registry_version BIGINT,
+            created_at TIMESTAMP NOT NULL,
+            details_json JSON NOT NULL
+        )
+        """
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS candidate_daily (

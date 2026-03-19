@@ -14,6 +14,9 @@ from app.backend.infra.files.config_repo import (
     LOGIC_SELECTION_SCHEMA_VERSION,
 )
 from external_analysis.results.publish import load_published_logic_catalog
+from external_analysis.results.publish_registry import (
+    load_publish_registry_state as load_external_publish_registry_state,
+)
 from shared.contracts.logic_selection import (
     DEFAULT_LOGIC_POINTER_NAME,
     LAST_KNOWN_GOOD_ARTIFACT_NAME,
@@ -372,7 +375,26 @@ def build_runtime_selection_snapshot(
     db_path: str | None = None,
 ) -> dict[str, Any]:
     local_state = _current_logic_selection_state(config_repo)
-    publish_registry = config_repo.load_publish_registry_state()
+    external_registry = load_external_publish_registry_state(db_path=db_path)
+    local_registry = config_repo.load_publish_registry_state()
+    if external_registry.get("source_of_truth") == "external_analysis" and not external_registry.get("degraded"):
+        publish_registry = external_registry
+        registry_source_of_truth = "external_analysis"
+        registry_sync_state = _normalize_text(external_registry.get("registry_sync_state")) or "synced"
+        registry_degraded = bool(external_registry.get("degraded"))
+        last_sync_time = _normalize_text(external_registry.get("last_sync_at")) or _normalize_text(external_registry.get("updated_at"))
+    elif local_registry:
+        publish_registry = local_registry
+        registry_source_of_truth = "local_mirror"
+        registry_sync_state = "mirror_fallback"
+        registry_degraded = True
+        last_sync_time = _normalize_text(local_registry.get("last_sync_at")) or _normalize_text(local_registry.get("updated_at"))
+    else:
+        publish_registry = {}
+        registry_source_of_truth = "empty"
+        registry_sync_state = "empty"
+        registry_degraded = True
+        last_sync_time = None
     publish_catalog = load_published_logic_catalog(db_path=_resolved_result_db_path(db_path))
     raw_catalog_manifest = list(publish_catalog.get("available_logic_manifest") or [])
     catalog_default_logic_pointer = _normalize_text(publish_catalog.get("default_logic_pointer"))
@@ -388,6 +410,22 @@ def build_runtime_selection_snapshot(
         lkg_state=lkg_state,
         selection_issues=selection_issues,
     )
+    snapshot["publish_registry_state"] = {
+        **snapshot.get("publish_registry_state", {}),
+        "source_of_truth": registry_source_of_truth,
+        "registry_sync_state": registry_sync_state,
+        "degraded": registry_degraded,
+        "last_sync_time": last_sync_time,
+        "registry_version": publish_registry.get("registry_version"),
+        "source_revision": publish_registry.get("source_revision"),
+    }
+    snapshot["source_of_truth"] = registry_source_of_truth
+    snapshot["registry_sync_state"] = registry_sync_state
+    snapshot["degraded"] = registry_degraded
+    snapshot["last_sync_time"] = last_sync_time
+    snapshot["registry_version"] = publish_registry.get("registry_version")
+    snapshot["source_revision"] = publish_registry.get("source_revision")
+    snapshot["publish_registry"] = publish_registry
     return snapshot
 
 

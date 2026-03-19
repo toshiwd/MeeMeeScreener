@@ -85,3 +85,7 @@ promotion / demotion / rollback の操作は `runtime_selection/publish_promotio
 - `config/publish_registry.json`: champion / challenger / retired の状態モデル
 - `runtime_selection/logic_selection_audit.jsonl`: runtime selection の変更監査
 - `runtime_selection/publish_promotion_audit.jsonl`: promotion / demotion / rollback の監査
+
+## Source Of Truth
+
+The authoritative publish registry now lives in `external_analysis` result DB tables. MeeMee keeps `config/publish_registry.json` only as a mirror and fallback copy. If external_analysis is unavailable, MeeMee may read the mirror for continuity, but it must not claim a local-only promotion as successful.
