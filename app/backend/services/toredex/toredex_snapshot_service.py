@@ -4,7 +4,11 @@ from datetime import date
 import math
 from typing import Any
 
+from app.backend.infra.files.config_repo import ConfigRepository
+from app.core.config import config as app_config
+
 from ..ml import rankings_cache
+from ..runtime_selection_service import capture_last_known_good_if_eligible
 from .toredex_config import ToredexConfig
 
 
@@ -197,6 +201,9 @@ def build_snapshot(
     as_of: date,
     config: ToredexConfig,
     positions: list[dict[str, Any]],
+    config_repo: ConfigRepository | None = None,
+    db_path: str | None = None,
+    capture_last_known_good: bool = False,
 ) -> dict[str, Any]:
     as_of_iso = as_of.isoformat()
 
@@ -267,6 +274,14 @@ def build_snapshot(
             "noFutureLeakOk": bool(no_future),
         },
     }
+    if capture_last_known_good:
+        repo = config_repo or ConfigRepository(str(app_config.DATA_DIR))
+        try:
+            capture_last_known_good_if_eligible(config_repo=repo, snapshot=snapshot, db_path=db_path)
+        except Exception:
+            # Best-effort operational side effect. Snapshot generation must stay
+            # independent from last_known_good persistence failures.
+            pass
     return snapshot
 
 

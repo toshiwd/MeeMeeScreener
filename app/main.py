@@ -320,6 +320,7 @@ async def lifespan(app: FastAPI):
         try:
             app.state.runtime_selection_snapshot = build_runtime_selection_snapshot(
                 config_repo=get_config_repo(),
+                db_path=os.getenv("MEEMEE_RESULT_DB_PATH"),
             )
         except Exception as exc:
             logger.exception("Runtime selection bootstrap failed: %s", exc)
@@ -328,20 +329,26 @@ async def lifespan(app: FastAPI):
                 "snapshot_created_at": datetime.now(timezone.utc).isoformat(),
                 "selected_logic_override": None,
                 "default_logic_pointer": None,
+                "logic_key": None,
+                "selected_logic_key": None,
+                "selected_logic_id": None,
+                "selected_logic_version": None,
+                "artifact_uri": None,
+                "selected_manifest": None,
+                "override_present": False,
+                "last_known_good_present": False,
                 "last_known_good": None,
                 "last_known_good_artifact_uri": None,
                 "safe_fallback_key": "builtin_safe_fallback",
                 "available_logic_manifest": [],
                 "available_logic_keys": [],
                 "resolution": None,
-                "selected_logic_key": None,
-                "selected_logic_id": None,
-                "selected_logic_version": None,
-                "artifact_uri": None,
                 "selected_source": "unresolved",
                 "resolved_source": "unresolved",
                 "selected_pointer_name": None,
                 "matched_available": False,
+                "validation_state": "unresolved",
+                "validation_issues": ["runtime_selection_bootstrap_failed"],
                 "notes": ["runtime_selection_bootstrap_failed"],
                 "catalog_default_logic_pointer": None,
                 "catalog": {
