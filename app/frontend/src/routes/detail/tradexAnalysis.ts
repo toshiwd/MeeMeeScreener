@@ -17,6 +17,22 @@ const toText = (value: unknown, fallback = "") => {
   return text || fallback;
 };
 
+export type TradexDetailAnalysisWarmRequest = {
+  code: string;
+  asof: number | null;
+};
+
+export const buildTradexDetailAnalysisWarmRequest = (
+  code: string | null | undefined,
+  asof: number | null | undefined
+): TradexDetailAnalysisWarmRequest | null => {
+  const normalizedCode = toText(code);
+  if (!normalizedCode) return null;
+  const normalizedAsof =
+    typeof asof === "number" && Number.isFinite(asof) ? asof : null;
+  return { code: normalizedCode, asof: normalizedAsof };
+};
+
 const normalizeReasons = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   return value.map((item) => toText(item)).filter(Boolean);
