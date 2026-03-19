@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.backend.infra.files.config_repo import ConfigRepository, LOGIC_SELECTION_SCHEMA_VERSION
+from app.backend.infra.files.config_repo import ConfigRepository, LOGIC_SELECTION_SCHEMA_VERSION, PUBLISH_REGISTRY_SCHEMA_VERSION
 from app.backend.services.runtime_selection_service import (
     capture_last_known_good_if_eligible,
     clear_selected_logic_override,
@@ -109,6 +109,12 @@ def test_runtime_selection_api_reports_observability_fields(monkeypatch, tmp_pat
         assert payload["validation_state"]
         assert payload["bootstrap_rule"] == "explicit_champion_flag"
         assert payload["challenger_logic_keys"] == []
+        assert payload["source_of_truth"] == "external_analysis"
+        assert payload["registry_sync_state"] == "mirror_stale"
+        assert payload["external_registry_version"] is not None
+        assert payload["local_mirror_version"] is None
+        assert payload["mirror_schema_version"] == PUBLISH_REGISTRY_SCHEMA_VERSION
+        assert payload["mirror_normalized"] is False
 
     catalog = load_published_logic_catalog(db_path=str(db_path))
     assert catalog["default_logic_pointer"] == valid_logic_key

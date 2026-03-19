@@ -9,7 +9,9 @@ from fastapi.testclient import TestClient
 
 from app.backend.infra.files.config_repo import ConfigRepository, PUBLISH_REGISTRY_SCHEMA_VERSION
 from external_analysis.ops.ops_schema import ensure_ops_db
+from external_analysis.results.publish_candidates import build_publish_candidate_bundle
 from external_analysis.results.publish import publish_result
+from external_analysis.results.publish_registry import save_publish_registry_state as save_external_publish_registry_state
 from external_analysis.results.result_schema import ensure_result_db
 
 
@@ -158,8 +160,7 @@ def _seed_publish_state(tmp_path: Path) -> tuple[Path, Path, str, str]:
         ops_conn.close()
 
     repo = ConfigRepository(str(data_dir))
-    repo.save_publish_registry_state(
-        {
+    mirror_state = {
             "schema_version": PUBLISH_REGISTRY_SCHEMA_VERSION,
             "default_logic_pointer": "logic_family_a:v1",
             "champion": {
@@ -189,6 +190,59 @@ def _seed_publish_state(tmp_path: Path) -> tuple[Path, Path, str, str]:
             "retired_logic_keys": ["logic_family_a:v0"],
             "promotion_history": [],
         }
+    repo.save_publish_registry_state(mirror_state)
+    save_external_publish_registry_state(
+        db_path=str(result_db),
+        state={
+            **mirror_state,
+            "source_revision": "seed:publish_registry",
+            "bootstrap_rule": "explicit_champion_flag",
+            "registry_sync_state": "synced",
+            "sync_state": "synced",
+            "sync_message": "seeded_external_registry",
+            "challengers": [
+                {
+                    "logic_id": "logic_family_a",
+                    "logic_version": "v2",
+                    "logic_key": "logic_family_a:v2",
+                    "logic_family": "family_a",
+                    "artifact_uri": str(challenger_artifact),
+                    "artifact_checksum": challenger_checksum,
+                    "queued_at": "2026-03-19T02:00:00Z",
+                    "promotion_state": "queued",
+                    "queue_order": 1,
+                    "validation_state": "approved",
+                    "status": "challenger",
+                    "role": "challenger",
+                    "source_publish_id": "pub_2026-03-19_20260319T020000Z_01",
+                }
+            ],
+            "challenger": {
+                "logic_id": "logic_family_a",
+                "logic_version": "v2",
+                "logic_key": "logic_family_a:v2",
+                "logic_family": "family_a",
+                "artifact_uri": str(challenger_artifact),
+                "artifact_checksum": challenger_checksum,
+                "queued_at": "2026-03-19T02:00:00Z",
+                "promotion_state": "queued",
+                "queue_order": 1,
+                "validation_state": "approved",
+                "status": "challenger",
+                "role": "challenger",
+                "source_publish_id": "pub_2026-03-19_20260319T020000Z_01",
+            },
+            "challenger_logic_keys": ["logic_family_a:v2"],
+        },
+        sync_state="synced",
+        degraded=False,
+        source_revision="seed:publish_registry",
+        sync_message="seeded_external_registry",
+    )
+    build_publish_candidate_bundle(
+        db_path=str(result_db),
+        ops_db_path=str(ops_db),
+        publish_id="pub_2026-03-19_20260319T020000Z_01",
     )
     return data_dir, result_db, ops_db, "logic_family_a:v1", "logic_family_a:v2"
 
@@ -217,6 +271,15 @@ def test_publish_promotion_updates_champion_and_runtime_selection(monkeypatch, t
     main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
 
     with TestClient(main_module.create_app()) as client:
+        approve = client.post(
+            f"/api/system/publish/candidates/{challenger_key}/approve",
+            json={"reason": "validated", "actor": "codex_test"},
+        )
+        assert approve.status_code == 200
+        approve_payload = approve.json()
+        assert approve_payload["ok"] is True
+        assert approve_payload["bundle"]["status"] == "approved"
+
         before = client.get("/api/system/runtime-selection")
         assert before.status_code == 200
         before_payload = before.json()
@@ -235,6 +298,10 @@ def test_publish_promotion_updates_champion_and_runtime_selection(monkeypatch, t
         assert payload["action"] == "promote"
         assert payload["champion"]["logic_key"] == challenger_key
         assert payload["validation"]["gate_pass"] is True
+
+        candidate_after_promote = client.get(f"/api/system/publish/candidates/{challenger_key}")
+        assert candidate_after_promote.status_code == 200
+        assert candidate_after_promote.json()["candidate"]["status"] == "promoted"
 
         after = client.get("/api/system/runtime-selection")
         assert after.status_code == 200
@@ -260,6 +327,11 @@ def test_publish_demotion_retires_non_champion(monkeypatch, tmp_path) -> None:
     main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
 
     with TestClient(main_module.create_app()) as client:
+        approve = client.post(
+            f"/api/system/publish/candidates/{challenger_key}/approve",
+            json={"reason": "validated", "actor": "codex_test"},
+        )
+        assert approve.status_code == 200
         response = client.post(
             "/api/system/publish/demote",
             json={"logicKey": challenger_key, "reason": "manual retire", "actor": "codex_test"},
@@ -268,6 +340,10 @@ def test_publish_demotion_retires_non_champion(monkeypatch, tmp_path) -> None:
         payload = response.json()
         assert payload["ok"] is True
         assert payload["action"] == "demote"
+
+        candidate_after_demote = client.get(f"/api/system/publish/candidates/{challenger_key}")
+        assert candidate_after_demote.status_code == 200
+        assert candidate_after_demote.json()["candidate"]["status"] == "retired"
 
         state = client.get("/api/system/publish/state")
         assert state.status_code == 200
@@ -286,6 +362,11 @@ def test_publish_rollback_restores_previous_champion(monkeypatch, tmp_path) -> N
     main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
 
     with TestClient(main_module.create_app()) as client:
+        approve = client.post(
+            f"/api/system/publish/candidates/{challenger_key}/approve",
+            json={"reason": "validated", "actor": "codex_test"},
+        )
+        assert approve.status_code == 200
         promote_response = client.post(
             "/api/system/publish/promote",
             json={"logicKey": challenger_key, "reason": "validation passed", "actor": "codex_test"},
@@ -332,9 +413,52 @@ def test_runtime_selection_uses_local_mirror_when_external_registry_unavailable(
         assert response.status_code == 200
         payload = response.json()
         assert payload["source_of_truth"] == "local_mirror"
-        assert payload["registry_sync_state"] == "mirror_fallback"
+        assert payload["registry_sync_state"] == "external_unreachable"
         assert payload["degraded"] is True
         assert payload["default_logic_pointer"] == champion_key
+
+
+def test_publish_mirror_normalize_repairs_legacy_mirror_from_external(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    mirror_path = data_dir / "config" / "publish_registry.json"
+    mirror_state = json.loads(mirror_path.read_text(encoding="utf-8"))
+    mirror_state["schema_version"] = "publish_registry_legacy"
+    mirror_state["challenger"].pop("queue_order", None)
+    mirror_state["challengers"] = [mirror_state["challenger"]]
+    mirror_state["challengers_json"] = [mirror_state["challenger"]]
+    mirror_path.write_text(json.dumps(mirror_state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+    with TestClient(main_module.create_app()) as client:
+        list_response = client.get("/api/system/publish/candidates")
+        assert list_response.status_code == 200
+        list_payload = list_response.json()
+        assert list_payload["ok"] is True
+        assert list_payload["count"] >= 1
+
+        candidate_response = client.get(f"/api/system/publish/candidates/{challenger_key}")
+        assert candidate_response.status_code == 200
+        candidate_payload = candidate_response.json()
+        assert candidate_payload["ok"] is True
+        assert candidate_payload["candidate"]["logic_key"] == challenger_key
+        assert candidate_payload["candidate"]["published_ranking_snapshot"] is None
+
+        response = client.post(
+            "/api/system/publish/mirror/normalize",
+            json={"reason": "repair legacy mirror", "actor": "codex_test"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"] is True
+        assert payload["source_of_truth"] == "external_analysis"
+        assert payload["mirror_normalized"] is True
+
+    repaired_state = json.loads(mirror_path.read_text(encoding="utf-8"))
+    assert repaired_state["schema_version"] == PUBLISH_REGISTRY_SCHEMA_VERSION
+    assert repaired_state["source_of_truth"] == "local_mirror"
+    assert repaired_state["mirror_of"] == "external_analysis"
+    assert repaired_state["challenger_logic_keys"] == [challenger_key]
+    assert repaired_state["challengers"][0]["queue_order"] == 1
 
 
 def test_publish_promotion_fails_when_external_registry_write_fails(monkeypatch, tmp_path) -> None:
@@ -350,6 +474,11 @@ def test_publish_promotion_fails_when_external_registry_write_fails(monkeypatch,
     )
 
     with TestClient(main_module.create_app()) as client:
+        approve = client.post(
+            f"/api/system/publish/candidates/{challenger_key}/approve",
+            json={"reason": "validated", "actor": "codex_test"},
+        )
+        assert approve.status_code == 200
         response = client.post(
             "/api/system/publish/promote",
             json={"logicKey": challenger_key, "reason": "validation passed", "actor": "codex_test"},
@@ -369,7 +498,55 @@ def test_publish_promotion_rejects_invalid_logic_key(monkeypatch, tmp_path) -> N
         )
         assert response.status_code == 400
         detail = response.json()["detail"]
-        assert detail["reason"] == "logic_key_not_available"
+        assert detail["reason"] in {"candidate_bundle_not_found", "logic_key_not_available"}
+
+
+def test_publish_candidate_reject_blocks_promote(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+
+    with TestClient(main_module.create_app()) as client:
+        reject = client.post(
+            f"/api/system/publish/candidates/{challenger_key}/reject",
+            json={"reason": "validation blocked", "actor": "codex_test"},
+        )
+        assert reject.status_code == 200
+        reject_payload = reject.json()
+        assert reject_payload["ok"] is True
+        assert reject_payload["bundle"]["status"] == "rejected"
+
+        candidate_after_reject = client.get(f"/api/system/publish/candidates/{challenger_key}")
+        assert candidate_after_reject.status_code == 200
+        assert candidate_after_reject.json()["candidate"]["status"] == "rejected"
+
+        promote = client.post(
+            "/api/system/publish/promote",
+            json={"logicKey": challenger_key, "reason": "should fail", "actor": "codex_test"},
+        )
+        assert promote.status_code == 400
+        assert promote.json()["detail"]["reason"] in {"candidate_not_approved", "candidate_bundle_invalid"}
+
+
+def test_publish_candidate_validation_summary_required(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    conn = duckdb.connect(str(result_db))
+    try:
+        conn.execute(
+            "UPDATE publish_candidate_bundle SET validation_summary = '{}' WHERE candidate_id = ?",
+            [challenger_key],
+        )
+    finally:
+        conn.close()
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+
+    with TestClient(main_module.create_app()) as client:
+        approve = client.post(
+            f"/api/system/publish/candidates/{challenger_key}/approve",
+            json={"reason": "validation incomplete", "actor": "codex_test"},
+        )
+        assert approve.status_code == 400
+        detail = approve.json()["detail"]
+        assert detail["reason"] in {"candidate_bundle_invalid", "candidate_validation_invalid"}
 
 
 def test_publish_queue_supports_multiple_challengers(monkeypatch, tmp_path) -> None:

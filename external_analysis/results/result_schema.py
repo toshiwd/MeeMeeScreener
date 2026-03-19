@@ -30,6 +30,8 @@ INTERNAL_RESULT_TABLES: tuple[str, ...] = (
     "nightly_candidate_metrics",
     "publish_registry_state",
     "publish_registry_audit",
+    "publish_candidate_bundle",
+    "publish_candidate_audit",
 )
 ALL_RESULT_TABLES: tuple[str, ...] = PUBLIC_RESULT_TABLES + INTERNAL_RESULT_TABLES
 ALLOWED_FRESHNESS_STATES: tuple[str, ...] = ("fresh", "warning", "hard")
@@ -148,6 +150,63 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
             actor TEXT,
             registry_version BIGINT,
             created_at TIMESTAMP NOT NULL,
+            details_json JSON NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS publish_candidate_bundle (
+            candidate_id TEXT PRIMARY KEY,
+            logic_key TEXT NOT NULL,
+            logic_id TEXT NOT NULL,
+            logic_version TEXT NOT NULL,
+            logic_family TEXT NOT NULL,
+            source_publish_id TEXT,
+            bundle_schema_version TEXT NOT NULL,
+            candidate_status TEXT NOT NULL,
+            validation_state TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP NOT NULL,
+            approved_at TIMESTAMP,
+            rejected_at TIMESTAMP,
+            promoted_at TIMESTAMP,
+            retired_at TIMESTAMP,
+            published_logic_artifact JSON NOT NULL,
+            published_logic_manifest JSON NOT NULL,
+            validation_summary JSON NOT NULL,
+            published_ranking_snapshot JSON,
+            bundle_checksum TEXT NOT NULL,
+            notes JSON NOT NULL,
+            metadata JSON NOT NULL
+        )
+        """
+    )
+    conn.execute("ALTER TABLE publish_candidate_bundle ADD COLUMN IF NOT EXISTS source_publish_id TEXT")
+    conn.execute("ALTER TABLE publish_candidate_bundle ADD COLUMN IF NOT EXISTS bundle_schema_version TEXT")
+    conn.execute("ALTER TABLE publish_candidate_bundle ADD COLUMN IF NOT EXISTS candidate_status TEXT")
+    conn.execute("ALTER TABLE publish_candidate_bundle ADD COLUMN IF NOT EXISTS validation_state TEXT")
+    conn.execute("ALTER TABLE publish_candidate_bundle ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP")
+    conn.execute("ALTER TABLE publish_candidate_bundle ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP")
+    conn.execute("ALTER TABLE publish_candidate_bundle ADD COLUMN IF NOT EXISTS promoted_at TIMESTAMP")
+    conn.execute("ALTER TABLE publish_candidate_bundle ADD COLUMN IF NOT EXISTS retired_at TIMESTAMP")
+    conn.execute("ALTER TABLE publish_candidate_bundle ADD COLUMN IF NOT EXISTS notes JSON")
+    conn.execute("ALTER TABLE publish_candidate_bundle ADD COLUMN IF NOT EXISTS metadata JSON")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS publish_candidate_audit (
+            event_id TEXT PRIMARY KEY,
+            candidate_id TEXT NOT NULL,
+            logic_key TEXT NOT NULL,
+            action TEXT NOT NULL,
+            previous_status TEXT,
+            new_status TEXT,
+            source TEXT NOT NULL,
+            reason TEXT,
+            actor TEXT,
+            queue_order_before INTEGER,
+            queue_order_after INTEGER,
+            changed_at TIMESTAMP NOT NULL,
             details_json JSON NOT NULL
         )
         """

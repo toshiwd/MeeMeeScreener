@@ -62,6 +62,20 @@ Publish registry data is read in this order:
 
 The read order for publish registry does not change the runtime resolution order.
 
+## Candidate Bundle Relation
+
+`published_logic_artifact` and `published_logic_manifest` are prepared as a candidate bundle in `external_analysis` before manual approve/promote.
+
+Runtime selection does not read the candidate bundle directly for choice resolution.
+It still resolves from:
+
+1. `selected_logic_override`
+2. `default_logic_pointer`
+3. `last_known_good`
+4. `safe fallback`
+
+The candidate bundle only influences which logic becomes promotable in publish governance.
+
 ## Selection Semantics
 
 - `selected_logic_override` is local and user-controlled.
@@ -78,6 +92,9 @@ The runtime snapshot must make the resolution path explicit:
 - whether the registry came from `external_analysis` or the local mirror
 - which champion and challengers are currently visible
 - which bootstrap rule produced the current champion
+- which registry version is external and which is local
+- whether the local mirror is normalized
+- whether the mirror is stale or legacy
 
 ## Skeleton / Extension Points
 
@@ -86,6 +103,6 @@ Current implementation is intentionally minimal:
 - override UI is not included
 - pure-function migration is not included
 - full publish promotion automation is not included
+- mirror normalize / resync is internal only and not a UI flow
 
 Those can be added later without changing the resolution order.
-

@@ -13,12 +13,19 @@ from app.backend.infra.files.config_repo import ConfigRepository
 from app.backend.services import strategy_backtest_service
 from app.backend.services.publish_promotion_service import (
     build_publish_promotion_snapshot,
+    approve_publish_candidate_bundle,
     enqueue_challenger_logic_key,
     demote_logic_key,
+    reject_publish_candidate_bundle,
     promote_logic_key,
     retire_challenger_logic_key,
     rollback_logic_key,
 )
+from external_analysis.results.publish_candidates import (
+    list_publish_candidate_bundles,
+    load_publish_candidate_bundle,
+)
+from app.backend.services.publish_registry_sync_service import normalize_publish_registry_mirror
 from app.backend.services.runtime_selection_service import (
     build_runtime_selection_snapshot,
     clear_selected_logic_override,
@@ -58,6 +65,16 @@ class PublishRollbackPayload(BaseModel):
 
 class PublishChallengerPayload(BaseModel):
     logicKey: str | None = None
+    reason: str | None = None
+    actor: str | None = None
+
+
+class PublishCandidateActionPayload(BaseModel):
+    reason: str | None = None
+    actor: str | None = None
+
+
+class PublishMirrorRepairPayload(BaseModel):
     reason: str | None = None
     actor: str | None = None
 
@@ -212,6 +229,112 @@ def get_publish_queue(
         "last_sync_time": snapshot.get("last_sync_time"),
         "default_logic_pointer": snapshot.get("default_logic_pointer"),
     }
+
+
+@router.get("/publish/candidates")
+def get_publish_candidates(
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    candidates = list_publish_candidate_bundles(db_path=result_db_path)
+    return {
+        "ok": True,
+        "items": candidates,
+        "count": len(candidates),
+    }
+
+
+@router.get("/publish/candidates/{logic_key}")
+def get_publish_candidate(
+    logic_key: str,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    candidate = load_publish_candidate_bundle(db_path=result_db_path, logic_key=str(logic_key).strip())
+    if not candidate:
+        raise HTTPException(status_code=404, detail={"ok": False, "reason": "candidate_bundle_not_found", "logic_key": logic_key})
+    return {
+        "ok": True,
+        "candidate": candidate,
+    }
+
+
+@router.post("/publish/candidates/{logic_key}/approve")
+def approve_publish_candidate(
+    logic_key: str,
+    payload: PublishCandidateActionPayload,
+    request: Request,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    result = approve_publish_candidate_bundle(
+        db_path=result_db_path,
+        logic_key=str(logic_key).strip(),
+        source="api.system.publish.candidates.approve",
+        reason=payload.reason,
+        actor=payload.actor,
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail={"ok": False, "reason": result.get("reason"), "logic_key": logic_key, "validation_issues": result.get("validation_issues")})
+    request.app.state.runtime_selection_snapshot = build_runtime_selection_snapshot(
+        config_repo=config,
+        db_path=result_db_path,
+    )
+    return result
+
+
+@router.post("/publish/candidates/{logic_key}/reject")
+def reject_publish_candidate(
+    logic_key: str,
+    payload: PublishCandidateActionPayload,
+    request: Request,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    result = reject_publish_candidate_bundle(
+        db_path=result_db_path,
+        logic_key=str(logic_key).strip(),
+        source="api.system.publish.candidates.reject",
+        reason=payload.reason,
+        actor=payload.actor,
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail={"ok": False, "reason": result.get("reason"), "logic_key": logic_key, "validation_issues": result.get("validation_issues")})
+    request.app.state.runtime_selection_snapshot = build_runtime_selection_snapshot(
+        config_repo=config,
+        db_path=result_db_path,
+    )
+    return result
+
+
+@router.post("/publish/mirror/normalize")
+def normalize_publish_mirror(
+    payload: PublishMirrorRepairPayload,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    return normalize_publish_registry_mirror(
+        config_repo=config,
+        db_path=result_db_path,
+        source="api.system.publish.mirror.normalize",
+        reason=payload.reason,
+        actor=payload.actor,
+    )
+
+
+@router.post("/publish/mirror/resync")
+def resync_publish_mirror(
+    payload: PublishMirrorRepairPayload,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    return normalize_publish_registry_mirror(
+        config_repo=config,
+        db_path=result_db_path,
+        source="api.system.publish.mirror.resync",
+        reason=payload.reason,
+        actor=payload.actor,
+    )
 
 
 @router.post("/publish/challenger/enqueue")
