@@ -449,6 +449,7 @@ def _run_for_as_of(
             as_of=as_of_date,
             config=cfg,
             positions=positions,
+            capture_last_known_good=True,
         )
 
     if not snapshot_has_minimum_fields(snapshot):

@@ -11,7 +11,12 @@ from app.backend.core.config import write_data_dir_override
 from app.backend.api.routers.jobs import submit_txt_update_job
 from app.backend.infra.files.config_repo import ConfigRepository
 from app.backend.services import strategy_backtest_service
-from app.backend.services.runtime_selection_service import build_runtime_selection_snapshot
+from app.backend.services.runtime_selection_service import (
+    build_runtime_selection_snapshot,
+    clear_selected_logic_override,
+    set_selected_logic_override,
+    validate_selected_logic_override,
+)
 from app.backend.infra.files.config_repo import LOGIC_SELECTION_SCHEMA_VERSION
 
 router = APIRouter(prefix="/api/system", tags=["system"])
@@ -24,6 +29,11 @@ class DataDirPayload(BaseModel):
 
 class RuntimeSelectionOverridePayload(BaseModel):
     selectedLogicOverride: str | None = None
+    reason: str | None = None
+
+
+class RuntimeSelectionOverrideClearPayload(BaseModel):
+    reason: str | None = None
 
 
 @router.post("/update_data")
@@ -64,7 +74,10 @@ def get_runtime_selection(
     request: Request,
     config: ConfigRepository = Depends(get_config_repo),
 ):
-    snapshot = build_runtime_selection_snapshot(config_repo=config)
+    snapshot = build_runtime_selection_snapshot(
+        config_repo=config,
+        db_path=os.getenv("MEEMEE_RESULT_DB_PATH"),
+    )
     request.app.state.runtime_selection_snapshot = snapshot
     return snapshot
 
@@ -75,17 +88,61 @@ def set_runtime_selection_override(
     request: Request,
     config: ConfigRepository = Depends(get_config_repo),
 ):
-    current = config.load_logic_selection_state()
     selected = str(payload.selectedLogicOverride or "").strip() or None
-    current["schema_version"] = LOGIC_SELECTION_SCHEMA_VERSION
-    current["selected_logic_override"] = selected
-    config.save_logic_selection_state(current)
-    snapshot = build_runtime_selection_snapshot(config_repo=config)
+    validation = validate_selected_logic_override(
+        config_repo=config,
+        selected_logic_override=selected,
+    )
+    if not validation.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "ok": False,
+                "reason": validation.get("reason"),
+                "logic_key": validation.get("logic_key"),
+            },
+        )
+    result = set_selected_logic_override(
+        config_repo=config,
+        selected_logic_override=str(validation["logic_key"]),
+        source="api.system.runtime-selection.override",
+        reason=payload.reason,
+        db_path=os.getenv("MEEMEE_RESULT_DB_PATH"),
+    )
+    snapshot = result.get("snapshot") or build_runtime_selection_snapshot(
+        config_repo=config,
+        db_path=os.getenv("MEEMEE_RESULT_DB_PATH"),
+    )
     request.app.state.runtime_selection_snapshot = snapshot
     return {
         "ok": True,
         "schema_version": LOGIC_SELECTION_SCHEMA_VERSION,
-        "selected_logic_override": selected,
+        "selected_logic_override": result.get("validation", {}).get("logic_key"),
+        "validation": result.get("validation"),
+        "snapshot": snapshot,
+    }
+
+
+@router.post("/runtime-selection/override/clear")
+def clear_runtime_selection_override(
+    payload: RuntimeSelectionOverrideClearPayload,
+    request: Request,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result = clear_selected_logic_override(
+        config_repo=config,
+        source="api.system.runtime-selection.override.clear",
+        reason=payload.reason,
+        db_path=os.getenv("MEEMEE_RESULT_DB_PATH"),
+    )
+    snapshot = result.get("snapshot") or build_runtime_selection_snapshot(
+        config_repo=config,
+        db_path=os.getenv("MEEMEE_RESULT_DB_PATH"),
+    )
+    request.app.state.runtime_selection_snapshot = snapshot
+    return {
+        "ok": True,
+        "schema_version": LOGIC_SELECTION_SCHEMA_VERSION,
         "snapshot": snapshot,
     }
 
