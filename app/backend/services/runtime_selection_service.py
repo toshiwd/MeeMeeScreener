@@ -14,6 +14,7 @@ from app.backend.infra.files.config_repo import (
     LOGIC_SELECTION_SCHEMA_VERSION,
 )
 from external_analysis.results.publish import load_published_logic_catalog
+from external_analysis.results.publish_candidates import load_publish_candidate_maintenance_state
 from external_analysis.results.publish_registry import load_publish_registry_state as load_external_publish_registry_state
 from shared.contracts.logic_selection import (
     DEFAULT_LOGIC_POINTER_NAME,
@@ -404,6 +405,7 @@ def build_runtime_selection_snapshot(
     catalog_default_logic_pointer = _normalize_text(publish_catalog.get("default_logic_pointer"))
     valid_catalog_entries = [_validate_catalog_entry(entry, config_repo=config_repo) for entry in raw_catalog_manifest]
     lkg_state = _validate_last_known_good_state(local_state.get(LAST_KNOWN_GOOD_ARTIFACT_NAME), config_repo=config_repo)
+    maintenance_state = load_publish_candidate_maintenance_state(db_path=_resolved_result_db_path(db_path))
     selection_issues: list[dict[str, Any]] = []
     snapshot = _build_resolution_snapshot(
         config_repo=config_repo,
@@ -446,6 +448,13 @@ def build_runtime_selection_snapshot(
     snapshot["local_mirror_version"] = sync["local_mirror_version"]
     snapshot["mirror_schema_version"] = sync["mirror_schema_version"]
     snapshot["mirror_normalized"] = sync["mirror_normalized"]
+    snapshot["ops_fallback_enabled"] = bool(maintenance_state.get("ops_fallback_enabled"))
+    snapshot["ops_fallback_last_used_at"] = maintenance_state.get("ops_fallback_last_used_at")
+    snapshot["ops_fallback_hit_count"] = int(maintenance_state.get("ops_fallback_hit_count") or 0)
+    snapshot["candidate_backfill_last_run"] = maintenance_state.get("candidate_backfill_last_run")
+    snapshot["snapshot_sweep_last_run"] = maintenance_state.get("snapshot_sweep_last_run")
+    snapshot["maintenance_degraded"] = bool(maintenance_state.get("maintenance_degraded"))
+    snapshot["maintenance_state"] = maintenance_state
     return snapshot
 
 

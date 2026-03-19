@@ -162,3 +162,13 @@ TradeX 側の採用判定 summary。
 - `docs/architecture/RUNTIME_SELECTION.md`
 - `docs/features/tradex-publish-flow.md`
 - `docs/features/yahoo-provisional-overlay.md`
+
+## Published Ranking Snapshot Retention
+
+The ranking snapshot remains a cache / audit artifact, not a source of truth.
+
+- `approved` / `promoted`: keep for 90 days by default
+- `rejected` / `retired`: keep for 14 days by default
+- orphaned snapshots without a candidate bundle are maintenance targets
+- snapshot capture happens only when the candidate bundle is created
+- approve / promote / rollback must not regenerate the snapshot

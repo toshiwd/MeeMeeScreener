@@ -12,6 +12,7 @@ from external_analysis.ops.ops_schema import ensure_ops_db
 from external_analysis.results.publish_candidates import (
     backfill_publish_candidate_bundles,
     build_publish_candidate_bundle,
+    load_publish_candidate_maintenance_state,
     sweep_publish_candidate_snapshots,
 )
 from external_analysis.results.publish import publish_result
@@ -243,10 +244,27 @@ def _seed_publish_state(tmp_path: Path) -> tuple[Path, Path, str, str]:
         source_revision="seed:publish_registry",
         sync_message="seeded_external_registry",
     )
+    readiness_payload = {
+        "source": "external_analysis_shadow",
+        "as_of_date": "2026-03-19",
+        "champion_version": "logic_family_a:v1",
+        "challenger_version": "logic_family_a:v2",
+        "sample_count": 64,
+        "expectancy_delta": 0.035,
+        "improved_expectancy": True,
+        "mae_non_worse": True,
+        "adverse_move_non_worse": True,
+        "stable_window": True,
+        "alignment_ok": True,
+        "readiness_pass": True,
+        "reason_codes": [],
+        "summary": {"champion_selected": 18, "challenger_selected": 21},
+        "created_at": "2026-03-19T02:30:00Z",
+    }
     build_publish_candidate_bundle(
         db_path=str(result_db),
-        ops_db_path=str(ops_db),
         publish_id="pub_2026-03-19_20260319T020000Z_01",
+        readiness=readiness_payload,
     )
     return data_dir, result_db, ops_db, "logic_family_a:v1", "logic_family_a:v2"
 
@@ -556,6 +574,7 @@ def test_publish_candidate_validation_summary_required(monkeypatch, tmp_path) ->
 
 def test_publish_candidate_backfill_repairs_missing_validation_summary(monkeypatch, tmp_path) -> None:
     data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    monkeypatch.setenv("MEEMEE_ENABLE_OPS_FALLBACK", "1")
     conn = duckdb.connect(str(result_db))
     try:
         conn.execute(
@@ -582,6 +601,54 @@ def test_publish_candidate_backfill_repairs_missing_validation_summary(monkeypat
     assert isinstance(json.loads(row[1]), dict)
     assert "metrics" in json.loads(row[1])
 
+    maintenance = load_publish_candidate_maintenance_state(db_path=str(result_db))
+    assert maintenance["candidate_backfill_last_run"] is not None
+    assert maintenance["candidate_backfill_summary"]["updated"] >= 1
+
+
+def test_publish_candidate_maintenance_dry_run_tracks_state_without_mutation(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    monkeypatch.setenv("MEEMEE_ENABLE_OPS_FALLBACK", "1")
+    conn = duckdb.connect(str(result_db))
+    try:
+        conn.execute(
+            "UPDATE publish_candidate_bundle SET validation_summary = '{}' WHERE candidate_id = ?",
+            [challenger_key],
+        )
+    finally:
+        conn.close()
+
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+    with TestClient(main_module.create_app()) as client:
+        response = client.post(
+            "/api/system/publish/maintenance/backfill",
+            json={"dryRun": True},
+        )
+        assert response.status_code == 200
+        result = response.json()
+        assert result["ok"] is True
+        assert result["dry_run"] is True
+        assert result["updated"] >= 1
+
+    conn = duckdb.connect(str(result_db))
+    try:
+        row = conn.execute(
+            "SELECT validation_summary FROM publish_candidate_bundle WHERE candidate_id = ?",
+            [challenger_key],
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert json.loads(row[0]) == {}
+
+    with TestClient(main_module.create_app()) as client:
+        state_response = client.get("/api/system/publish/state")
+        assert state_response.status_code == 200
+        state_payload = state_response.json()
+        assert "ops_fallback_enabled" in state_payload
+        assert "candidate_backfill_last_run" in state_payload
+        assert "maintenance_degraded" in state_payload
+
 
 def test_publish_candidate_snapshot_retention_sweeps_old_rejected_snapshot(monkeypatch, tmp_path) -> None:
     data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
@@ -602,7 +669,7 @@ def test_publish_candidate_snapshot_retention_sweeps_old_rejected_snapshot(monke
 
     result = sweep_publish_candidate_snapshots(db_path=str(result_db), keep_approved_days=90, keep_rejected_days=14, keep_retired_days=14)
     assert result["ok"] is True
-    assert result["cleared"] >= 1
+    assert result["deleted"] >= 1
 
     conn = duckdb.connect(str(result_db))
     try:
@@ -616,6 +683,47 @@ def test_publish_candidate_snapshot_retention_sweeps_old_rejected_snapshot(monke
     assert row[0] is None
     metadata = json.loads(row[1])
     assert metadata["ranking_snapshot_retained_days"] == 14
+
+
+def test_publish_candidate_snapshot_sweep_dry_run_does_not_mutate(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    conn = duckdb.connect(str(result_db))
+    try:
+        conn.execute(
+            """
+            UPDATE publish_candidate_bundle
+            SET candidate_status = 'rejected',
+                published_ranking_snapshot = ?,
+                created_at = TIMESTAMP '2025-12-01 00:00:00'
+            WHERE candidate_id = ?
+            """,
+            [json.dumps({"snapshot": True}), challenger_key],
+        )
+    finally:
+        conn.close()
+
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+    with TestClient(main_module.create_app()) as client:
+        response = client.post(
+            "/api/system/publish/maintenance/snapshot-sweep",
+            json={"dryRun": True, "keepApprovedDays": 90, "keepRejectedDays": 14, "keepRetiredDays": 14},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"] is True
+        assert payload["dry_run"] is True
+        assert payload["deleted"] >= 1
+
+    conn = duckdb.connect(str(result_db))
+    try:
+        row = conn.execute(
+            "SELECT published_ranking_snapshot FROM publish_candidate_bundle WHERE candidate_id = ?",
+            [challenger_key],
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row[0] is not None
 
 
 def test_publish_queue_supports_multiple_challengers(monkeypatch, tmp_path) -> None:

@@ -115,6 +115,13 @@ def test_runtime_selection_api_reports_observability_fields(monkeypatch, tmp_pat
         assert payload["local_mirror_version"] is None
         assert payload["mirror_schema_version"] == PUBLISH_REGISTRY_SCHEMA_VERSION
         assert payload["mirror_normalized"] is False
+        assert payload["ops_fallback_enabled"] is False
+        assert "ops_fallback_enabled" in payload
+        assert "ops_fallback_last_used_at" in payload
+        assert "ops_fallback_hit_count" in payload
+        assert "candidate_backfill_last_run" in payload
+        assert "snapshot_sweep_last_run" in payload
+        assert "maintenance_degraded" in payload
 
     catalog = load_published_logic_catalog(db_path=str(db_path))
     assert catalog["default_logic_pointer"] == valid_logic_key
