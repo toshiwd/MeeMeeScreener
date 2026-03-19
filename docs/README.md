@@ -18,6 +18,16 @@
 - `docs/MEEMEE_PRINCIPLES.md`: MeeMee 固有のプロダクト原則、AI出力原則、画面分離方針
 - `docs/CODEX.md`: 必要時のみ参照する詳細仕様、Runbook、開発時の補足
 
+## Architecture / Pages / Features
+
+- `docs/architecture/DATA_CONTRACTS.md`: 価格、財務、取引、派生データの境界と縮退方針
+- `docs/pages/meemee-detail.md`: 個別詳細画面の軽仕様
+- `docs/pages/meemee-grid.md`: 一覧画面の軽仕様
+- `docs/features/yahoo-provisional-overlay.md`: Yahoo 仮データの表示契約
+- `docs/features/trade-history-import.md`: 楽天 / SBI 取引履歴 CSV の正規化契約
+- `docs/features/event-badges.md`: 決算日、権利日などのイベントバッジ契約
+- `docs/features/tradex-publish-flow.md`: TradeX 研究成果の publish/read-only 契約
+
 ## Operational
 
 - `docs/TXT_UPDATE_RUNBOOK.md`: TXT 更新ジョブの運用手順
