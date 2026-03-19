@@ -13,8 +13,11 @@ from app.backend.infra.files.config_repo import ConfigRepository
 from app.backend.services import strategy_backtest_service
 from app.backend.services.publish_promotion_service import (
     build_publish_promotion_snapshot,
+    enqueue_challenger_logic_key,
     demote_logic_key,
     promote_logic_key,
+    retire_challenger_logic_key,
+    rollback_logic_key,
 )
 from app.backend.services.runtime_selection_service import (
     build_runtime_selection_snapshot,
@@ -48,6 +51,12 @@ class PublishPromotionPayload(BaseModel):
 
 
 class PublishRollbackPayload(BaseModel):
+    logicKey: str | None = None
+    reason: str | None = None
+    actor: str | None = None
+
+
+class PublishChallengerPayload(BaseModel):
     logicKey: str | None = None
     reason: str | None = None
     actor: str | None = None
@@ -180,6 +189,89 @@ def get_publish_state(
     )
 
 
+@router.get("/publish/queue")
+def get_publish_queue(
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    ops_db_path = os.getenv("MEEMEE_OPS_DB_PATH")
+    snapshot = build_publish_promotion_snapshot(
+        config_repo=config,
+        db_path=result_db_path,
+        ops_db_path=ops_db_path,
+    )
+    return {
+        "ok": True,
+        "champion": snapshot.get("champion"),
+        "challengers": snapshot.get("challengers") or [],
+        "challenger_logic_keys": snapshot.get("challenger_logic_keys") or [],
+        "bootstrap_rule": snapshot.get("bootstrap_rule"),
+        "source_of_truth": snapshot.get("source_of_truth"),
+        "degraded": snapshot.get("degraded"),
+        "registry_sync_state": snapshot.get("registry_sync_state"),
+        "last_sync_time": snapshot.get("last_sync_time"),
+        "default_logic_pointer": snapshot.get("default_logic_pointer"),
+    }
+
+
+@router.post("/publish/challenger/enqueue")
+def enqueue_publish_challenger(
+    payload: PublishChallengerPayload,
+    request: Request,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    ops_db_path = os.getenv("MEEMEE_OPS_DB_PATH")
+    logic_key = str(payload.logicKey or "").strip() or None
+    if not logic_key:
+        raise HTTPException(status_code=400, detail={"ok": False, "reason": "logic_key_required"})
+    result = enqueue_challenger_logic_key(
+        config_repo=config,
+        logic_key=logic_key,
+        source="api.system.publish.challenger.enqueue",
+        reason=payload.reason,
+        actor=payload.actor,
+        db_path=result_db_path,
+        ops_db_path=ops_db_path,
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail={"ok": False, "reason": result.get("reason"), "logic_key": logic_key})
+    request.app.state.runtime_selection_snapshot = build_runtime_selection_snapshot(
+        config_repo=config,
+        db_path=result_db_path,
+    )
+    return result
+
+
+@router.post("/publish/challenger/retire")
+def retire_publish_challenger(
+    payload: PublishChallengerPayload,
+    request: Request,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    ops_db_path = os.getenv("MEEMEE_OPS_DB_PATH")
+    logic_key = str(payload.logicKey or "").strip() or None
+    if not logic_key:
+        raise HTTPException(status_code=400, detail={"ok": False, "reason": "logic_key_required"})
+    result = retire_challenger_logic_key(
+        config_repo=config,
+        logic_key=logic_key,
+        source="api.system.publish.challenger.retire",
+        reason=payload.reason,
+        actor=payload.actor,
+        db_path=result_db_path,
+        ops_db_path=ops_db_path,
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail={"ok": False, "reason": result.get("reason"), "logic_key": logic_key})
+    request.app.state.runtime_selection_snapshot = build_runtime_selection_snapshot(
+        config_repo=config,
+        db_path=result_db_path,
+    )
+    return result
+
+
 @router.post("/publish/promote")
 def promote_publish_logic(
     payload: PublishPromotionPayload,
@@ -266,10 +358,10 @@ def rollback_publish_logic(
         db_path=result_db_path,
         ops_db_path=ops_db_path,
     )
-    logic_key = str(payload.logicKey or "").strip() or snapshot.get("champion_logic_key")
+    logic_key = str(payload.logicKey or "").strip() or snapshot.get("previous_stable_champion_logic_key") or snapshot.get("champion_logic_key")
     if not logic_key:
         raise HTTPException(status_code=400, detail={"ok": False, "reason": "logic_key_required"})
-    result = demote_logic_key(
+    result = rollback_logic_key(
         config_repo=config,
         logic_key=str(logic_key),
         source="api.system.publish.rollback",

@@ -249,9 +249,11 @@ def _build_resolution_snapshot(
     lkg_valid = lkg_state if lkg_state and lkg_state.get("validation_state") == _VALIDATION_OK else None
     lkg_key = _normalize_text(lkg_valid.get("logic_key")) if lkg_valid else None
     champion = publish_registry.get("champion") if isinstance(publish_registry.get("champion"), dict) else None
-    challenger = publish_registry.get("challenger") if isinstance(publish_registry.get("challenger"), dict) else None
+    challengers = publish_registry.get("challengers") if isinstance(publish_registry.get("challengers"), list) else []
+    challenger = challengers[0] if challengers else (publish_registry.get("challenger") if isinstance(publish_registry.get("challenger"), dict) else None)
     champion_key = _normalize_text(champion.get("logic_key")) if champion else None
     challenger_key = _normalize_text(challenger.get("logic_key")) if challenger else None
+    challenger_keys = [str(entry.get("logic_key")) for entry in challengers if isinstance(entry, dict) and entry.get("logic_key")]
     if lkg_key and lkg_key not in available_keys:
         available_keys.append(lkg_key)
         available_manifest.append(lkg_valid)
@@ -323,6 +325,8 @@ def _build_resolution_snapshot(
         "registry_default_logic_pointer": registry_default_pointer,
         "champion_logic_key": champion_key,
         "challenger_logic_key": challenger_key,
+        "challenger_logic_keys": challenger_keys,
+        "challengers": challengers,
         "logic_key": selected_key,
         "selected_logic_key": selected_key,
         "selected_logic_id": selected_logic_id,
@@ -349,9 +353,13 @@ def _build_resolution_snapshot(
             **publish_registry,
             "champion_logic_key": champion_key,
             "challenger_logic_key": challenger_key,
+            "challenger_logic_keys": challenger_keys,
+            "challengers": challengers,
             "default_logic_pointer": default_pointer,
             "registry_default_logic_pointer": registry_default_pointer,
             "previous_champion_logic_key": _normalize_text(publish_registry.get("previous_champion_logic_key")),
+            "previous_stable_champion_logic_key": _normalize_text(publish_registry.get("previous_stable_champion_logic_key")),
+            "bootstrap_rule": _normalize_text(publish_registry.get("bootstrap_rule")),
         },
         "catalog": {
             "available_logic_manifest": available_manifest,
@@ -377,7 +385,17 @@ def build_runtime_selection_snapshot(
     local_state = _current_logic_selection_state(config_repo)
     external_registry = load_external_publish_registry_state(db_path=db_path)
     local_registry = config_repo.load_publish_registry_state()
-    if external_registry.get("source_of_truth") == "external_analysis" and not external_registry.get("degraded"):
+    external_has_content = any(
+        [
+            _normalize_text(external_registry.get("champion_logic_key")),
+            _normalize_text(external_registry.get("default_logic_pointer")),
+            _normalize_text(external_registry.get("previous_stable_champion_logic_key")),
+            bool(external_registry.get("challengers")),
+            bool(external_registry.get("challenger_logic_keys")),
+            bool(external_registry.get("champion")),
+        ]
+    )
+    if external_registry.get("source_of_truth") == "external_analysis" and external_has_content:
         publish_registry = external_registry
         registry_source_of_truth = "external_analysis"
         registry_sync_state = _normalize_text(external_registry.get("registry_sync_state")) or "synced"
@@ -426,6 +444,14 @@ def build_runtime_selection_snapshot(
     snapshot["registry_version"] = publish_registry.get("registry_version")
     snapshot["source_revision"] = publish_registry.get("source_revision")
     snapshot["publish_registry"] = publish_registry
+    publish_challengers = publish_registry.get("challengers") if isinstance(publish_registry.get("challengers"), list) else []
+    snapshot["challengers"] = publish_challengers
+    snapshot["challenger_logic_keys"] = [
+        str(entry.get("logic_key"))
+        for entry in publish_challengers
+        if isinstance(entry, dict) and entry.get("logic_key")
+    ]
+    snapshot["bootstrap_rule"] = _normalize_text(publish_registry.get("bootstrap_rule"))
     return snapshot
 
 
