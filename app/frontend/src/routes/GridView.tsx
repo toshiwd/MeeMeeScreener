@@ -15,6 +15,7 @@ import {
 import type { MaSetting, SortDir } from "../store";
 import { useStore } from "../store";
 import StockTile from "../components/StockTile";
+import TradexListSummary from "../components/TradexListSummary";
 import Toast from "../components/Toast";
 import TopNav from "../components/TopNav";
 import IconButton from "../components/IconButton";
@@ -63,6 +64,11 @@ import {
 import { useResizeObserver } from "./grid/hooks/useResizeObserver";
 import GridIndicatorOverlay from "./grid/components/GridIndicatorOverlay";
 import { useTerminalJobPolling } from "./grid/hooks/useTerminalJobPolling";
+import { useTradexListSummary } from "../hooks/useTradexListSummary";
+import {
+  buildTradexListSummaryKey,
+  shouldShowTradexListSummary,
+} from "./list/tradexSummary";
 import type {
   BuyStateFilter,
   HealthStatus,
@@ -247,6 +253,7 @@ export default function GridView() {
   const walkforwardPresetImportInputRef = useRef<HTMLInputElement | null>(null);
   const lastVisibleCodesRef = useRef<string[]>([]);
   const lastVisibleRangeRef = useRef<{ start: number; stop: number } | null>(null);
+  const lastVisibleSummarySignatureRef = useRef<string>("");
   const lastVisibleRequestKeyRef = useRef<string | null>(null);
   const deferredVisibleRequestTimerRef = useRef<number | null>(null);
   const barsErrorRetryCooldownRef = useRef<Record<string, number>>({});
@@ -256,6 +263,18 @@ export default function GridView() {
   const seenTerminalJobsRef = useRef<Set<string>>(new Set());
   const terminalJobsInitializedRef = useRef(false);
   const walkforwardPresetsLoadedRef = useRef(false);
+  const [tradexVisibleCodes, setTradexVisibleCodes] = useState<string[]>([]);
+  const tradexListSummaryEnabled = shouldShowTradexListSummary();
+  const tradexListSummaryItems = useMemo(
+    () => tradexVisibleCodes.map((code) => ({ code, asof: null })),
+    [tradexVisibleCodes]
+  );
+  const tradexListSummaryState = useTradexListSummary({
+    backendReady,
+    enabled: tradexListSummaryEnabled,
+    scope: "grid-visible",
+    items: tradexListSummaryItems
+  });
 
 
   const showToast = useCallback((text: string, action?: ToastAction | null) => {
@@ -1377,6 +1396,11 @@ export default function GridView() {
     }
     lastVisibleCodesRef.current = codes;
     lastVisibleRangeRef.current = { start, stop };
+    const summarySignature = codes.join(",");
+    if (summarySignature !== lastVisibleSummarySignatureRef.current) {
+      lastVisibleSummarySignatureRef.current = summarySignature;
+      setTradexVisibleCodes(codes);
+    }
     requestVisibleBars(codes, "scroll");
   };
 
@@ -3800,6 +3824,9 @@ export default function GridView() {
                       const asofTooltip = asofLabel
                         ? `基準日 ${baseLabel ?? "最新"} の足が無いので ${asofLabel} を使用`
                         : null;
+                      const tradexSummary = tradexListSummaryState.itemsByKey[
+                        buildTradexListSummaryKey(item.ticker.code, null)
+                      ] ?? null;
                       return (
                         <StockTile
                           ticker={item.ticker}
@@ -3815,6 +3842,14 @@ export default function GridView() {
                           onToggleKeep={handleToggleKeep}
                           onExclude={handleExclude}
                           theme={currentTheme}
+                          annotation={
+                            tradexListSummaryEnabled ? (
+                              <TradexListSummary
+                                summary={tradexSummary}
+                                loading={tradexListSummaryState.loading && !tradexSummary}
+                              />
+                            ) : null
+                          }
                         />
                       );
                     })()}

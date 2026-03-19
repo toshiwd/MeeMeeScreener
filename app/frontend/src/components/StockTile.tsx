@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 import { memo, type MouseEvent } from "react";
+import type { ReactNode } from "react";
 import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
@@ -23,6 +24,7 @@ type StockTileProps = {
   onOpenDetail: (code: string) => void;
   onToggleKeep?: (code: string) => void;
   onExclude?: (code: string) => void;
+  annotation?: ReactNode;
 };
 
 const StockTile = memo(function StockTile({
@@ -38,7 +40,8 @@ const StockTile = memo(function StockTile({
   onActivate,
   onOpenDetail,
   onToggleKeep,
-  onExclude
+  onExclude,
+  annotation
 }: StockTileProps) {
   const barsPayload = useStore((state) => {
     const map = state.barsCache?.[timeframe] ?? {};
@@ -229,6 +232,7 @@ const StockTile = memo(function StockTile({
           </div>
         </div>
       ) : null}
+      {annotation ? <div className="tile-annotation-row">{annotation}</div> : null}
       <div className="tile-chart">
         {barsPayload && barsPayload.bars?.length ? (
           <ThumbnailCanvas

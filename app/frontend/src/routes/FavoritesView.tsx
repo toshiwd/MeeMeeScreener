@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import ChartListCard from "../components/ChartListCard";
+import TradexListSummary from "../components/TradexListSummary";
 import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import { IconHeartFilled } from "@tabler/icons-react";
@@ -15,6 +16,11 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
+import { useTradexListSummary } from "../hooks/useTradexListSummary";
+import {
+  buildTradexListSummaryKey,
+  shouldShowTradexListSummary,
+} from "./list/tradexSummary";
 
 type FavoriteItem = {
   code: string;
@@ -342,6 +348,17 @@ export default function FavoritesView() {
   const listCodes = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
 
   const consultTargets = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
+  const tradexListSummaryEnabled = shouldShowTradexListSummary();
+  const tradexListSummaryItems = useMemo(
+    () => sortedItems.map((item) => ({ code: item.code, asof: null })),
+    [sortedItems]
+  );
+  const tradexListSummaryState = useTradexListSummary({
+    backendReady,
+    enabled: tradexListSummaryEnabled,
+    scope: "favorites-scope",
+    items: tradexListSummaryItems
+  });
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -538,6 +555,8 @@ export default function FavoritesView() {
             const payload = barsCache[listTimeframe]?.[item.code] ?? null;
             const status = barsStatus[listTimeframe][item.code];
             const ticker = tickerMap.get(item.code);
+            const tradexSummaryKey = buildTradexListSummaryKey(item.code, null);
+            const tradexSummary = tradexListSummaryState.itemsByKey[tradexSummaryKey] ?? null;
             return (
               <ChartListCard
                 key={item.code}
@@ -558,6 +577,14 @@ export default function FavoritesView() {
                 phaseEarly={ticker?.earlyScore ?? null}
                 phaseLate={ticker?.lateScore ?? null}
                 phaseN={ticker?.phaseN ?? null}
+                annotation={
+                  tradexListSummaryEnabled ? (
+                    <TradexListSummary
+                      summary={tradexSummary}
+                      loading={tradexListSummaryState.loading && !tradexSummary}
+                    />
+                  ) : null
+                }
                 action={{
                   label: <IconHeartFilled size={20} />,
                   ariaLabel: "お気に入り解除",

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from app.backend.services.analysis.analysis_decision import build_analysis_decision
 from external_analysis.contracts.analysis_input import AnalysisInputContract
 from external_analysis.contracts.analysis_output import AnalysisOutputContract, analysis_output_from_result, build_override_state, build_publish_readiness
+from external_analysis.runtime import orchestrator as tradex_orchestrator
 from external_analysis.runtime.orchestrator import run_tradex_analysis
 
 
@@ -41,26 +41,10 @@ def test_tradex_analysis_orchestrator_returns_typed_output_end_to_end() -> None:
     )
 
     output = run_tradex_analysis(input_contract)
-    runtime_kwargs = input_contract.to_runtime_kwargs()
-    decision = build_analysis_decision(
-        analysis_p_up=runtime_kwargs["analysis_p_up"],
-        analysis_p_down=runtime_kwargs["analysis_p_down"],
-        analysis_p_turn_up=runtime_kwargs["analysis_p_turn_up"],
-        analysis_p_turn_down=runtime_kwargs["analysis_p_turn_down"],
-        analysis_ev_net=runtime_kwargs["analysis_ev_net"],
-        playbook_up_score_bonus=runtime_kwargs["playbook_up_score_bonus"],
-        playbook_down_score_bonus=runtime_kwargs["playbook_down_score_bonus"],
-        additive_signals=runtime_kwargs["additive_signals"],
-        sell_analysis=runtime_kwargs["sell_analysis"],
-    )
+    normalized = tradex_orchestrator.normalize_tradex_analysis_input(input_contract)
+    decision_payload = tradex_orchestrator.build_tradex_analysis_payload(normalized)
     expected = analysis_output_from_result(
-        result={
-            "symbol": "7203",
-            "asof": "2026-03-19",
-            "decision": decision,
-            "publish_readiness": input_contract.publish_readiness,
-            "override_state": input_contract.override_state,
-        }
+        result=decision_payload,
     )
 
     assert isinstance(output, AnalysisOutputContract)
@@ -113,3 +97,63 @@ def test_tradex_analysis_orchestrator_mapping_stays_stable_for_same_input() -> N
     second = run_tradex_analysis(input_contract)
 
     assert first.to_dict() == second.to_dict()
+
+
+def test_tradex_analysis_orchestrator_calls_normalization_adapter_assembler_in_order(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_normalize(input_contract: AnalysisInputContract):
+        calls.append("normalize")
+        return input_contract
+
+    def fake_adapter(normalized_input):
+        calls.append("adapter")
+        return {
+            "symbol": normalized_input.symbol,
+            "asof": normalized_input.asof,
+            "decision": {
+                "tone": "neutral",
+                "patternLabel": "pattern",
+                "environmentLabel": "environment",
+                "version": "2026-03-20",
+                "confidence": 0.5,
+                "buyProb": 0.4,
+                "neutralProb": 0.3,
+                "sellProb": 0.3,
+                "scenarios": [{"key": "range", "label": "neutral", "tone": "neutral", "score": 0.3}],
+            },
+            "candidate_comparisons": [
+                {
+                    "candidate_key": "range",
+                    "baseline_key": "neutral",
+                    "comparison_scope": "decision_scenarios",
+                    "score": 0.3,
+                    "score_delta": 0.0,
+                    "rank": 1,
+                    "reasons": ["key=range"],
+                    "publish_ready": False,
+                }
+            ],
+            "publish_readiness": {"ready": True, "status": "approved", "reasons": ["validation_ok"]},
+            "override_state": {"present": False},
+        }
+
+    def fake_assemble(*, result_payload):
+        calls.append("assembler")
+        assert result_payload["symbol"] == "7203"
+        assert result_payload["decision"]["tone"] == "neutral"
+        return analysis_output_from_result(result=result_payload)
+
+    monkeypatch.setattr(tradex_orchestrator, "normalize_tradex_analysis_input", fake_normalize)
+    monkeypatch.setattr(tradex_orchestrator, "build_tradex_analysis_payload", fake_adapter)
+    monkeypatch.setattr(tradex_orchestrator, "assemble_tradex_analysis_output", fake_assemble)
+
+    output = run_tradex_analysis(
+        AnalysisInputContract(
+            symbol="7203",
+            asof="2026-03-19",
+        )
+    )
+
+    assert calls == ["normalize", "adapter", "assembler"]
+    assert output.symbol == "7203"

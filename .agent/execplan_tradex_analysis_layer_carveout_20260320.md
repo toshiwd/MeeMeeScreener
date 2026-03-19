@@ -10,10 +10,12 @@ After this change, a caller can pass one typed analysis input object into TRADEX
 
 - [x] Confirmed the existing analysis decision builder and the typed TRADEX output contract already present in the repo.
 - [x] Added the typed TRADEX analysis input contract.
-- [ ] Add the single TRADEX analysis orchestrator entrypoint.
-- [ ] Connect the orchestrator to the existing decision logic and typed output mapping.
-- [ ] Add tests proving the input and output mapping stability end to end.
-- [ ] Run targeted verification.
+- [x] Added the single TRADEX analysis orchestrator entrypoint.
+- [x] Connected the orchestrator to the existing decision logic and typed output mapping.
+- [x] Added tests proving the input and output mapping stability end to end.
+- [x] Ran targeted verification.
+- [x] Split the scoring core boundary into axis-based pure scorers and a final aggregator without changing the entrypoint contract.
+- [ ] Decide whether any further internal scoring decomposition is worth the added maintenance cost.
 
 ## Orientation
 
@@ -97,12 +99,16 @@ The expected observation is that the output contract still maps the existing dec
 
 - The existing decision builder already produces a stable analysis payload and is suitable to keep as the runtime logic behind the orchestrator.
 - The typed TRADEX output contract already exists, so this slice is mostly a boundary and wiring change rather than a new scoring implementation.
+- The TRADEX runtime package needed to remain lazily loaded to avoid a circular import between `analysis_decision.py` and the runtime adapter while the new pure scoring helpers were being extracted.
 
 ## Decision Log
 
 - 2026-03-20: Chose to start the TRADEX carve-out from the analysis input/output boundaries rather than from UI or service decomposition, because the user asked for a responsibility-first split and the current runtime logic can stay callable behind one orchestrator.
 - 2026-03-20: Chose to keep the existing analysis decision builder callable behind the orchestrator instead of rewriting it, because the goal of this slice is boundary stabilization, not analytical logic replacement.
+- 2026-03-20: Chose to split the scoring core into axis-based pure scorers plus one aggregator instead of reworking the buy/sell formulas themselves, because the user explicitly asked for a fast-lane batch with stable behavior and no contract widening.
 
 ## Outcomes & Retrospective
 
-TBD. After implementation, record whether the orchestrator returns the typed output contract end to end, whether the mapping remains stable under tests, and whether any hidden dependencies were discovered in the existing decision logic.
+The TRADEX analysis layer now has a single typed entrypoint, a typed output boundary, and a scoring core that is split into axis-based pure scorers plus one final aggregator. The public contracts stayed unchanged, and regression tests now pin the output shape for representative bullish and range-leaning inputs.
+
+The main hidden dependency discovered during implementation was a circular import between the analysis decision module and the runtime package. The fix was to keep the runtime package lazily loaded instead of eager-importing the new helpers.

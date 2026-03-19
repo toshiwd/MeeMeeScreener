@@ -43,6 +43,9 @@ import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/us
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
 import { DetailAnalysisPanel } from "./detail/DetailAnalysisPanel";
 import { DetailFinancialPanel } from "./detail/DetailFinancialPanel";
+import { TradexAnalysisPanel } from "./detail/TradexAnalysisPanel";
+import { shouldShowTradexDetailAnalysis } from "./detail/tradexAnalysis";
+import { useTradexDetailAnalysis } from "./detail/useTradexDetailAnalysis";
 import { DetailTdnetCard } from "./detail/DetailTdnetCard";
 import DetailDebugBanner from "./detail/components/DetailDebugBanner";
 import DetailIndicatorOverlay from "./detail/components/DetailIndicatorOverlay";
@@ -1685,9 +1688,18 @@ export default function DetailView() {
     Array.isArray(swingPlan?.reasons) ? (swingPlan.reasons as Array<string | null | undefined>) : []
   );
   const hasSwingData = Boolean(swingPlan || swingDiagnostics);
+  const tradexAnalysisEnabled = shouldShowTradexDetailAnalysis();
+  const tradexAnalysisState = useTradexDetailAnalysis({
+    backendReady,
+    readyToFetch: analysisNetworkReady,
+    enabled: analysisFetchEnabled && tradexAnalysisEnabled,
+    code,
+    asof: analysisAsOfTime,
+  });
   const showAnalysisPanel = analysisFetchEnabled;
   const showMemoPanel = cursorMode && !compareCode && headerMode !== "analysis" && headerMode !== "financial";
   const showRightPanel = showAnalysisPanel || showMemoPanel || showFinancialPanel;
+  const showTradexAnalysisPanel = showAnalysisPanel && tradexAnalysisEnabled;
 
   useEffect(() => {
     if (!backendReady || !showAnalysisPanel) {
@@ -5741,6 +5753,14 @@ export default function DetailView() {
             formatPercentLabel={formatPercentLabel}
             formatNumber={formatNumber}
             formatSignedPercentLabel={formatSignedPercentLabel}
+          />
+        )}
+        {showTradexAnalysisPanel && (
+          <TradexAnalysisPanel
+            state={tradexAnalysisState}
+            formatPercentLabel={formatPercentLabel}
+            formatSignedPercentLabel={formatSignedPercentLabel}
+            formatNumber={formatNumber}
           />
         )}
         {showFinancialPanel && (

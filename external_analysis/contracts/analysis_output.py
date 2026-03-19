@@ -3,6 +3,14 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable
 
+from external_analysis.runtime.decision_parts import (
+    build_candidate_comparison_payloads,
+    normalize_candidate_comparison_payloads,
+    normalize_override_state_payload,
+    normalize_publish_readiness_payload,
+)
+from external_analysis.runtime.score_finalize import build_tradex_score_reasons
+
 ANALYSIS_OUTPUT_SCHEMA_VERSION = "tradex_analysis_output_v1"
 
 
@@ -32,25 +40,6 @@ def _as_str_tuple(values: Iterable[Any] | None) -> tuple[str, ...]:
         if text:
             items.append(text)
     return tuple(items)
-
-
-def _candidate_comparison_from_any(
-    value: Any,
-    *,
-    default_scope: str = "decision_scenarios",
-) -> AnalysisCandidateComparison:
-    payload = value if isinstance(value, dict) else {}
-    reasons = payload.get("reasons")
-    return AnalysisCandidateComparison(
-        candidate_key=_to_text(payload.get("candidate_key") or payload.get("key"), fallback="candidate"),
-        baseline_key=_to_text(payload.get("baseline_key")) or None,
-        comparison_scope=_to_text(payload.get("comparison_scope"), fallback=default_scope),
-        score=_to_float(payload.get("score")),
-        score_delta=_to_float(payload.get("score_delta")),
-        rank=int(float(payload.get("rank"))) if payload.get("rank") is not None else None,
-        reasons=_as_str_tuple(reasons),
-        publish_ready=bool(payload.get("publish_ready")) if payload.get("publish_ready") is not None else None,
-    )
 
 
 @dataclass(frozen=True)
@@ -143,37 +132,24 @@ def build_candidate_comparisons(
     comparison_scope: str,
     baseline_key: str | None = None,
 ) -> tuple[AnalysisCandidateComparison, ...]:
-    rows: list[AnalysisCandidateComparison] = []
-    if scenarios is None:
-        return ()
-    scenario_list = list(scenarios)
-    if not scenario_list:
-        return ()
-    selected_score = _to_float(next((item.get("score") for item in scenario_list if bool(item.get("selected"))), None))
-    if selected_score is None:
-        selected_score = _to_float(scenario_list[0].get("score"))
-    for index, scenario in enumerate(scenario_list, start=1):
-        score = _to_float(scenario.get("score"))
-        reasons = []
-        if scenario.get("key") is not None:
-            reasons.append(f"key={_to_text(scenario.get('key'))}")
-        if scenario.get("label") is not None:
-            reasons.append(f"label={_to_text(scenario.get('label'))}")
-        if scenario.get("tone") is not None:
-            reasons.append(f"tone={_to_text(scenario.get('tone'))}")
-        rows.append(
-            AnalysisCandidateComparison(
-                candidate_key=_to_text(scenario.get("key"), fallback=f"candidate_{index}"),
-                baseline_key=baseline_key,
-                comparison_scope=comparison_scope,
-                score=score,
-                score_delta=(score - selected_score) if score is not None and selected_score is not None else None,
-                rank=index,
-                reasons=tuple(reasons),
-                publish_ready=bool(scenario.get("publish_ready")) if scenario.get("publish_ready") is not None else None,
-            )
+    payloads = build_candidate_comparison_payloads(
+        scenarios,
+        comparison_scope=comparison_scope,
+        baseline_key=baseline_key,
+    )
+    return tuple(
+        AnalysisCandidateComparison(
+            candidate_key=_to_text(payload.get("candidate_key"), fallback="candidate"),
+            baseline_key=_to_text(payload.get("baseline_key")) or None,
+            comparison_scope=_to_text(payload.get("comparison_scope"), fallback=comparison_scope),
+            score=_to_float(payload.get("score")),
+            score_delta=_to_float(payload.get("score_delta")),
+            rank=int(payload["rank"]) if payload.get("rank") is not None else None,
+            reasons=_as_str_tuple(payload.get("reasons")),
+            publish_ready=bool(payload.get("publish_ready")) if payload.get("publish_ready") is not None else None,
         )
-    return tuple(rows)
+        for payload in payloads
+    )
 
 
 def build_publish_readiness(
@@ -231,36 +207,29 @@ def analysis_output_from_decision(
             comparison_scope="decision_scenarios",
             baseline_key=_to_text(payload.get("tone")) or None,
         )
-    if isinstance(publish_readiness, dict):
+    publish_readiness_payload = normalize_publish_readiness_payload(publish_readiness)
+    if publish_readiness_payload is not None:
         publish_readiness = build_publish_readiness(
-            ready=bool(publish_readiness.get("ready")),
-            status=_to_text(publish_readiness.get("status"), fallback="unknown"),
-            reasons=publish_readiness.get("reasons"),
-            candidate_key=publish_readiness.get("candidate_key"),
-            approved=publish_readiness.get("approved") if publish_readiness.get("approved") is not None else None,
+            ready=bool(publish_readiness_payload.get("ready")),
+            status=_to_text(publish_readiness_payload.get("status"), fallback="unknown"),
+            reasons=publish_readiness_payload.get("reasons"),
+            candidate_key=publish_readiness_payload.get("candidate_key"),
+            approved=publish_readiness_payload.get("approved") if publish_readiness_payload.get("approved") is not None else None,
         )
     elif publish_readiness is None:
         publish_readiness = build_publish_readiness(ready=False, status="not_evaluated")
-    if isinstance(override_state, dict):
+    override_state_payload = normalize_override_state_payload(override_state)
+    if override_state_payload is not None:
         override_state = build_override_state(
-            present=bool(override_state.get("present")),
-            source=override_state.get("source"),
-            logic_key=override_state.get("logic_key"),
-            logic_version=override_state.get("logic_version"),
-            reason=override_state.get("reason"),
+            present=bool(override_state_payload.get("present")),
+            source=override_state_payload.get("source"),
+            logic_key=override_state_payload.get("logic_key"),
+            logic_version=override_state_payload.get("logic_version"),
+            reason=override_state_payload.get("reason"),
         )
     elif override_state is None:
         override_state = build_override_state(present=False)
-    reasons = tuple(
-        reason
-        for reason in (
-            f"tone={_to_text(payload.get('tone')) or 'unknown'}",
-            f"pattern={_to_text(payload.get('patternLabel')) or 'unknown'}",
-            f"environment={_to_text(payload.get('environmentLabel')) or 'unknown'}",
-            f"version={_to_text(payload.get('version')) or ANALYSIS_OUTPUT_SCHEMA_VERSION}",
-        )
-        if reason
-    )
+    reasons = build_tradex_score_reasons(decision)
     return AnalysisOutputContract(
         symbol=_to_text(symbol, fallback="unknown"),
         asof=_to_text(asof, fallback="unknown"),
@@ -289,8 +258,17 @@ def analysis_output_from_result(
     candidate_comparisons = payload.get("candidate_comparisons")
     if isinstance(candidate_comparisons, list):
         candidate_comparisons = tuple(
-            _candidate_comparison_from_any(item, default_scope="external_result")
-            for item in candidate_comparisons
+            AnalysisCandidateComparison(
+                candidate_key=_to_text(item.get("candidate_key"), fallback="candidate"),
+                baseline_key=_to_text(item.get("baseline_key")) or None,
+                comparison_scope=_to_text(item.get("comparison_scope"), fallback="external_result"),
+                score=_to_float(item.get("score")),
+                score_delta=_to_float(item.get("score_delta")),
+                rank=int(item["rank"]) if item.get("rank") is not None else None,
+                reasons=_as_str_tuple(item.get("reasons")),
+                publish_ready=bool(item.get("publish_ready")) if item.get("publish_ready") is not None else None,
+            )
+            for item in normalize_candidate_comparison_payloads(candidate_comparisons, default_scope="external_result")
         )
     else:
         candidate_comparisons = None

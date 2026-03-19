@@ -7,6 +7,7 @@ import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import ChartListCard from "../components/ChartListCard";
+import TradexListSummary from "../components/TradexListSummary";
 import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import { MaSetting, useStore } from "../store";
@@ -18,6 +19,11 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
+import { useTradexListSummary } from "../hooks/useTradexListSummary";
+import {
+  buildTradexListSummaryKey,
+  shouldShowTradexListSummary,
+} from "./list/tradexSummary";
 
 type RankItem = {
   code: string;
@@ -913,6 +919,21 @@ export default function RankingView() {
     return new Map(items.map((item) => [item.code, item]));
   }, [items]);
   const itemCodeSet = useMemo(() => new Set(items.map((item) => item.code)), [items]);
+  const tradexListSummaryEnabled = shouldShowTradexListSummary();
+  const tradexListSummaryItems = useMemo(
+    () =>
+      selectedCodes.map((code) => ({
+        code,
+        asof: itemByCode.get(code)?.asOf ?? null
+      })),
+    [itemByCode, selectedCodes]
+  );
+  const tradexListSummaryState = useTradexListSummary({
+    backendReady,
+    enabled: tradexListSummaryEnabled,
+    scope: "ranking-selected",
+    items: tradexListSummaryItems
+  });
 
   useEffect(() => {
     const cached = readRankingFetchCache(rankingCacheKey);
@@ -1460,6 +1481,8 @@ export default function RankingView() {
                 const ticker = tickerMap.get(item.code);
                 const earningsLabel = formatEventBadgeDate(ticker?.eventEarningsDate);
                 const rightsLabel = formatEventBadgeDate(ticker?.eventRightsDate);
+                const tradexSummaryKey = buildTradexListSummaryKey(item.code, item.asOf ?? null);
+                const tradexSummary = tradexListSummaryState.itemsByKey[tradexSummaryKey] ?? null;
                 return (
                   <ChartListCard
                     key={item.code}
@@ -1481,6 +1504,14 @@ export default function RankingView() {
                     phaseEarly={ticker?.earlyScore ?? null}
                     phaseLate={ticker?.lateScore ?? null}
                     phaseN={ticker?.phaseN ?? null}
+                    annotation={
+                      tradexListSummaryEnabled && selectedSet.has(item.code) ? (
+                        <TradexListSummary
+                          summary={tradexSummary}
+                          loading={tradexListSummaryState.loading && !tradexSummary}
+                        />
+                      ) : null
+                    }
                     headerLeft={
                       <>
                         <span className="rank-badge">{index + 1}</span>

@@ -478,3 +478,53 @@ export type EnvironmentComputationInput = {
   includeReasons?: boolean;
 };
 
+
+export type TradexAnalysisSideRatios = {
+  buy: number;
+  neutral: number;
+  sell: number;
+};
+
+export type TradexAnalysisCandidateComparison = {
+  candidateKey: string;
+  baselineKey: string | null;
+  comparisonScope: string;
+  score: number | null;
+  scoreDelta: number | null;
+  rank: number | null;
+  reasons: string[];
+  publishReady: boolean | null;
+};
+
+export type TradexAnalysisPublishReadiness = {
+  ready: boolean;
+  status: string;
+  reasons: string[];
+  candidateKey: string | null;
+  approved: boolean | null;
+};
+
+export type TradexAnalysisOverrideState = {
+  present: boolean;
+  source: string | null;
+  logicKey: string | null;
+  logicVersion: string | null;
+  reason: string | null;
+};
+
+export type TradexAnalysisOutput = {
+  symbol: string;
+  asof: string;
+  sideRatios: TradexAnalysisSideRatios;
+  confidence: number | null;
+  reasons: string[];
+  candidateComparisons: TradexAnalysisCandidateComparison[];
+  publishReadiness: TradexAnalysisPublishReadiness;
+  overrideState: TradexAnalysisOverrideState;
+};
+
+export type TradexAnalysisReadResult = {
+  available: boolean;
+  reason: string | null;
+  analysis: TradexAnalysisOutput | null;
+};
