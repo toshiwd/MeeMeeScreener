@@ -20,11 +20,6 @@ from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.domain.screening.metrics import _calc_liquidity_20d
 from ..analysis import swing_plan_service
 from ..data.bar_aggregation import merge_monthly_rows_with_daily
-from ..data.yahoo_provisional import (
-    get_provisional_daily_rows_from_spark,
-    merge_daily_rows_with_provisional,
-    normalize_date_key,
-)
 from .edinet_rank_features import load_edinet_rank_features
 from .ml_config import load_ml_config
 from .ml_service import select_top_n_ml
@@ -63,6 +58,42 @@ _ASOF_BASE_CACHE_MAX = max(8, int(os.getenv("MEEMEE_RANK_ASOF_BASE_CACHE_MAX", "
 _TRACE_CACHE_LOCK = Lock()
 _TRACE_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
 _TRACE_CACHE_MAX = 16
+
+
+def _analysis_provisional_enabled() -> bool:
+    raw = os.getenv("MEEMEE_ANALYSIS_PROVISIONAL_ENABLED")
+    if raw is None:
+        return False
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _merge_analysis_provisional_rows(
+    daily_map: dict[str, list[tuple]],
+    codes: list[str],
+) -> dict[str, list[tuple]]:
+    if not _analysis_provisional_enabled():
+        return daily_map
+
+    from ..data.yahoo_provisional import (
+        get_provisional_daily_rows_from_spark,
+        merge_daily_rows_with_provisional,
+        normalize_date_key,
+    )
+
+    try:
+        provisional_map = get_provisional_daily_rows_from_spark(codes)
+        if provisional_map:
+            today_key_jst = int((datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y%m%d"))
+            for code, provisional_row in provisional_map.items():
+                if not provisional_row or normalize_date_key(provisional_row[0]) != today_key_jst:
+                    continue
+                daily_map[code] = merge_daily_rows_with_provisional(
+                    daily_map.get(code, []),
+                    provisional_row,
+                )
+    except Exception as exc:
+        logger.debug("rankings provisional merge skipped: %s", exc)
+    return daily_map
 
 _DAILY_LIMIT = 1260
 _MONTHLY_LIMIT = 60
@@ -397,90 +428,12 @@ def _resolve_latest_pan_daily_asof_int(conn: duckdb.DuckDBPyConnection) -> int |
         return None
 
 
-def _resolve_latest_yahoo_daily_asof_int(conn: duckdb.DuckDBPyConnection) -> int | None:
-    try:
-        row = conn.execute(
-            """
-            SELECT
-                MAX(
-                    CASE
-                        WHEN date BETWEEN 19000101 AND 20991231 THEN date
-                        WHEN date >= 1000000000000 THEN CAST(strftime(to_timestamp(date / 1000), '%Y%m%d') AS INTEGER)
-                        WHEN date >= 1000000000 THEN CAST(strftime(to_timestamp(date), '%Y%m%d') AS INTEGER)
-                        ELSE NULL
-                    END
-                ) AS max_yahoo_ymd
-            FROM daily_bars
-            WHERE COALESCE(source, 'pan') = 'yahoo'
-            """
-        ).fetchone()
-    except Exception as exc:
-        logger.debug("failed to resolve latest Yahoo asOf from daily_bars: %s", exc)
-        return None
-    if not row or row[0] is None:
-        return None
-    try:
-        return int(row[0])
-    except Exception:
-        return None
-
-
-def _resolve_provisional_yahoo_row_count(
-    conn: duckdb.DuckDBPyConnection,
-    latest_pan_daily_asof_int: int | None,
-) -> int:
-    where_clause = ""
-    params: list[Any] = []
-    if latest_pan_daily_asof_int is not None:
-        where_clause = """
-          AND (
-                CASE
-                    WHEN date BETWEEN 19000101 AND 20991231 THEN date
-                    WHEN date >= 1000000000000 THEN CAST(strftime(to_timestamp(date / 1000), '%Y%m%d') AS INTEGER)
-                    WHEN date >= 1000000000 THEN CAST(strftime(to_timestamp(date), '%Y%m%d') AS INTEGER)
-                    ELSE NULL
-                END
-              ) > ?
-        """
-        params.append(latest_pan_daily_asof_int)
-    try:
-        row = conn.execute(
-            f"""
-            SELECT COUNT(*)
-            FROM daily_bars
-            WHERE COALESCE(source, 'pan') = 'yahoo'
-            {where_clause}
-            """,
-            params,
-        ).fetchone()
-    except Exception as exc:
-        logger.debug("failed to resolve provisional Yahoo row count: %s", exc)
-        return 0
-    try:
-        return int(row[0] or 0) if row else 0
-    except Exception:
-        return 0
-
-
 def _build_refresh_signature(
     *,
     latest_pan_daily_asof_int: int | None,
-    latest_yahoo_daily_asof_int: int | None,
-    provisional_yahoo_row_count: int | None,
 ) -> RefreshSignature:
-    yahoo_is_provisional = (
-        latest_yahoo_daily_asof_int is not None
-        and (
-            latest_pan_daily_asof_int is None
-            or latest_yahoo_daily_asof_int > latest_pan_daily_asof_int
-        )
-    )
-    if yahoo_is_provisional:
-        return ("yahoo", latest_yahoo_daily_asof_int, int(provisional_yahoo_row_count or 0))
     if latest_pan_daily_asof_int is not None:
         return ("pan", latest_pan_daily_asof_int)
-    if latest_yahoo_daily_asof_int is not None:
-        return ("yahoo", latest_yahoo_daily_asof_int, int(provisional_yahoo_row_count or 0))
     return ("empty",)
 
 
@@ -488,12 +441,8 @@ def _resolve_refresh_signature() -> tuple[RefreshSignature, float | None, int | 
     db_mtime = _db_mtime()
     with get_conn() as conn:
         latest_pan_daily_asof_int = _resolve_latest_pan_daily_asof_int(conn)
-        latest_yahoo_daily_asof_int = _resolve_latest_yahoo_daily_asof_int(conn)
-        provisional_yahoo_row_count = _resolve_provisional_yahoo_row_count(conn, latest_pan_daily_asof_int)
     signature = _build_refresh_signature(
         latest_pan_daily_asof_int=latest_pan_daily_asof_int,
-        latest_yahoo_daily_asof_int=latest_yahoo_daily_asof_int,
-        provisional_yahoo_row_count=provisional_yahoo_row_count,
     )
     return signature, db_mtime, latest_pan_daily_asof_int
 
@@ -659,6 +608,7 @@ def _load_daily_prob_lookup(
                 c AS close
             FROM daily_bars
             WHERE c IS NOT NULL
+              AND COALESCE(source, 'pan') <> 'yahoo'
         ),
         bars_next AS (
             SELECT
@@ -1257,6 +1207,7 @@ def _refresh_monthly_edinet_audit_realized_20(conn: duckdb.DuckDBPyConnection) -
                 c
             FROM daily_bars
             WHERE c IS NOT NULL
+              AND COALESCE(source, 'pan') <> 'yahoo'
         ),
         seq AS (
             SELECT
@@ -2696,6 +2647,7 @@ def _fetch_daily_rows(conn: duckdb.DuckDBPyConnection) -> list[tuple]:
                 v,
                 ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
             FROM daily_bars
+            WHERE COALESCE(source, 'pan') <> 'yahoo'
         )
         WHERE rn <= ?
         ORDER BY code, date
@@ -2720,7 +2672,8 @@ def _fetch_daily_rows_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> l
                 v,
                 ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
             FROM daily_bars
-            WHERE date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END
+            WHERE COALESCE(source, 'pan') <> 'yahoo'
+              AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END
         )
         WHERE rn <= ?
         ORDER BY code, date
@@ -2786,9 +2739,17 @@ def _fetch_names(conn: duckdb.DuckDBPyConnection) -> dict[str, str]:
 def _build_cache() -> tuple[dict[RankBaseCacheKey, list[dict]], int | None, RefreshSignature, float | None]:
     with get_conn() as conn:
         latest_pan_daily_asof_int = _resolve_latest_pan_daily_asof_int(conn)
-        latest_yahoo_daily_asof_int = _resolve_latest_yahoo_daily_asof_int(conn)
-        provisional_yahoo_row_count = _resolve_provisional_yahoo_row_count(conn, latest_pan_daily_asof_int)
-        codes = [row[0] for row in conn.execute("SELECT DISTINCT code FROM daily_bars ORDER BY code").fetchall()]
+        codes = [
+            row[0]
+            for row in conn.execute(
+                """
+                SELECT DISTINCT code
+                FROM daily_bars
+                WHERE COALESCE(source, 'pan') <> 'yahoo'
+                ORDER BY code
+                """
+            ).fetchall()
+        ]
         names = _fetch_names(conn)
         daily_rows = _fetch_daily_rows(conn)
         monthly_rows = _fetch_monthly_rows(conn)
@@ -2796,19 +2757,7 @@ def _build_cache() -> tuple[dict[RankBaseCacheKey, list[dict]], int | None, Refr
     daily_map: dict[str, list[tuple]] = {}
     for row in daily_rows:
         daily_map.setdefault(row[0], []).append(row[1:])
-    try:
-        provisional_map = get_provisional_daily_rows_from_spark(codes)
-        if provisional_map:
-            today_key_jst = int((datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y%m%d"))
-            for code, provisional_row in provisional_map.items():
-                if not provisional_row or normalize_date_key(provisional_row[0]) != today_key_jst:
-                    continue
-                daily_map[code] = merge_daily_rows_with_provisional(
-                    daily_map.get(code, []),
-                    provisional_row,
-                )
-    except Exception as exc:
-        logger.debug("rankings provisional merge skipped: %s", exc)
+    daily_map = _merge_analysis_provisional_rows(daily_map, codes)
     market_breadth_state = _calc_market_breadth_state(daily_map)
 
     monthly_map: dict[str, list[tuple]] = {}
@@ -2982,8 +2931,6 @@ def _build_cache() -> tuple[dict[RankBaseCacheKey, list[dict]], int | None, Refr
     db_mtime = _db_mtime()
     refresh_signature = _build_refresh_signature(
         latest_pan_daily_asof_int=latest_pan_daily_asof_int,
-        latest_yahoo_daily_asof_int=latest_yahoo_daily_asof_int,
-        provisional_yahoo_row_count=provisional_yahoo_row_count,
     )
     return cache, latest_pan_daily_asof_int, refresh_signature, db_mtime
 
@@ -2995,7 +2942,8 @@ def _build_cache_asof(conn: duckdb.DuckDBPyConnection, as_of_int: int) -> dict[R
             """
             SELECT DISTINCT code
             FROM daily_bars
-            WHERE date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END
+            WHERE COALESCE(source, 'pan') <> 'yahoo'
+              AND date <= CASE WHEN date >= 1000000000 THEN ? ELSE ? END
             ORDER BY code
             """,
             [_as_of_int_to_utc_epoch(as_of_int), as_of_int],
@@ -4188,7 +4136,8 @@ def _load_daily_snapshot_map(
                 ROW_NUMBER() OVER (PARTITION BY b.code ORDER BY b.date DESC) AS rn
             FROM daily_bars b
             LEFT JOIN daily_ma m ON m.code = b.code AND m.date = b.date
-            WHERE b.date <= CASE WHEN b.date >= 1000000000 THEN ? ELSE ? END
+            WHERE COALESCE(b.source, 'pan') <> 'yahoo'
+              AND b.date <= CASE WHEN b.date >= 1000000000 THEN ? ELSE ? END
         )
         SELECT
             code,
