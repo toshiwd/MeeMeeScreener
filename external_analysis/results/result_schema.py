@@ -86,6 +86,7 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
             logic_version TEXT,
             logic_family TEXT,
             default_logic_pointer TEXT,
+            bootstrap_champion BOOLEAN NOT NULL DEFAULT FALSE,
             logic_artifact_uri TEXT,
             logic_artifact_checksum TEXT,
             logic_manifest_json JSON
@@ -96,6 +97,7 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_version TEXT")
     conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_family TEXT")
     conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS default_logic_pointer TEXT")
+    conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS bootstrap_champion BOOLEAN")
     conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_artifact_uri TEXT")
     conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_artifact_checksum TEXT")
     conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_manifest_json JSON")
@@ -111,7 +113,10 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
             last_sync_at TIMESTAMP,
             champion_logic_key TEXT,
             challenger_logic_key TEXT,
+            challengers_json JSON NOT NULL,
             default_logic_pointer TEXT,
+            previous_stable_champion_logic_key TEXT,
+            bootstrap_rule TEXT NOT NULL,
             retired_logic_keys JSON NOT NULL,
             demoted_logic_keys JSON NOT NULL,
             registry_state_json JSON NOT NULL,
@@ -122,6 +127,9 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+    conn.execute("ALTER TABLE publish_registry_state ADD COLUMN IF NOT EXISTS challengers_json JSON")
+    conn.execute("ALTER TABLE publish_registry_state ADD COLUMN IF NOT EXISTS previous_stable_champion_logic_key TEXT")
+    conn.execute("ALTER TABLE publish_registry_state ADD COLUMN IF NOT EXISTS bootstrap_rule TEXT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS publish_registry_audit (

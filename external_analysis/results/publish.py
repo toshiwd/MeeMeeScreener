@@ -40,6 +40,8 @@ def _normalize_logic_manifest(logic_manifest: dict[str, Any] | None) -> dict[str
     normalized = {key: logic_manifest.get(key) for key in PUBLISHED_LOGIC_MANIFEST_FIELDS}
     if normalized.get("artifact_uri") is None:
         normalized["artifact_uri"] = _artifact_locator(logic_manifest)
+    normalized["bootstrap_champion"] = bool(logic_manifest.get("bootstrap_champion"))
+    normalized["last_stable_promoted"] = bool(logic_manifest.get("last_stable_promoted"))
     return normalized
 
 
@@ -55,6 +57,8 @@ def publish_result(
     logic_artifact_uri: str | None = None,
     logic_artifact_checksum: str | None = None,
     logic_manifest: dict[str, Any] | None = None,
+    bootstrap_champion: bool = False,
+    last_stable_promoted: bool = False,
     db_path: str | None = None,
 ) -> dict[str, Any]:
     if freshness_state not in ALLOWED_FRESHNESS_STATES:
@@ -74,6 +78,8 @@ def publish_result(
     resolved_logic_id = str((normalized_logic_manifest or {}).get("logic_id") or "").strip() or None
     resolved_logic_version = str((normalized_logic_manifest or {}).get("logic_version") or "").strip() or None
     resolved_logic_family = str((normalized_logic_manifest or {}).get("logic_family") or "").strip() or None
+    resolved_bootstrap_champion = bool(bootstrap_champion or (normalized_logic_manifest or {}).get("bootstrap_champion"))
+    resolved_last_stable_promoted = bool(last_stable_promoted or (normalized_logic_manifest or {}).get("last_stable_promoted"))
     conn = connect_result_db(db_path=db_path, read_only=False)
     try:
         ensure_result_schema(conn)
@@ -103,8 +109,8 @@ def publish_result(
                 INSERT OR REPLACE INTO publish_manifest (
                     publish_id, as_of_date, schema_version, contract_version, status, published_at,
                     freshness_state, degrade_ready, table_row_counts, logic_id, logic_version, logic_family,
-                    default_logic_pointer, logic_artifact_uri, logic_artifact_checksum, logic_manifest_json
-                ) VALUES (?, CAST(? AS DATE), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    default_logic_pointer, bootstrap_champion, logic_artifact_uri, logic_artifact_checksum, logic_manifest_json
+                ) VALUES (?, CAST(? AS DATE), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     publish_id,
@@ -120,6 +126,7 @@ def publish_result(
                     resolved_logic_version,
                     resolved_logic_family,
                     resolved_default_logic_pointer,
+                    bool(resolved_bootstrap_champion),
                     resolved_logic_artifact_uri,
                     resolved_logic_artifact_checksum,
                     json.dumps(normalized_logic_manifest, ensure_ascii=False) if normalized_logic_manifest else None,
@@ -153,6 +160,8 @@ def publish_result(
             "as_of_date": as_of_date,
             "freshness_state": freshness_state,
             "default_logic_pointer": resolved_default_logic_pointer,
+            "bootstrap_champion": bool(resolved_bootstrap_champion),
+            "last_stable_promoted": bool(resolved_last_stable_promoted),
             "logic_artifact_uri": resolved_logic_artifact_uri,
             "logic_id": resolved_logic_id,
             "logic_version": resolved_logic_version,
@@ -196,6 +205,7 @@ def load_published_logic_catalog(*, db_path: str | None = None, limit: int = 32)
                 logic_version,
                 logic_family,
                 default_logic_pointer,
+                bootstrap_champion,
                 logic_artifact_uri,
                 logic_artifact_checksum,
                 logic_manifest_json
@@ -211,7 +221,7 @@ def load_published_logic_catalog(*, db_path: str | None = None, limit: int = 32)
 
     manifests: list[dict[str, Any]] = []
     for row in rows:
-        manifest_json = row[15]
+        manifest_json = row[16]
         manifest_payload: dict[str, Any] | None = None
         if manifest_json is not None:
             try:
@@ -222,8 +232,10 @@ def load_published_logic_catalog(*, db_path: str | None = None, limit: int = 32)
         logic_version = str(row[10] or "").strip() or None
         logic_family = str(row[11] or "").strip() or None
         default_pointer = str(row[12] or "").strip() or None
-        artifact_uri = str(row[13] or "").strip() or None
-        checksum = str(row[14] or "").strip() or None
+        bootstrap_champion = bool(row[13])
+        artifact_uri = str(row[14] or "").strip() or None
+        checksum = str(row[15] or "").strip() or None
+        last_stable_promoted = bool((manifest_payload or {}).get("last_stable_promoted"))
         manifest_key = (
             f"{logic_id}:{logic_version}"
             if logic_id and logic_version
@@ -245,6 +257,8 @@ def load_published_logic_catalog(*, db_path: str | None = None, limit: int = 32)
                 "logic_version": logic_version,
                 "logic_family": logic_family,
                 "default_logic_pointer": default_pointer,
+                "bootstrap_champion": bootstrap_champion,
+                "last_stable_promoted": last_stable_promoted,
                 "logic_artifact_uri": artifact_uri,
                 "logic_artifact_checksum": checksum,
                 "logic_manifest": manifest_payload,
@@ -252,9 +266,20 @@ def load_published_logic_catalog(*, db_path: str | None = None, limit: int = 32)
             }
         )
 
-    default_logic_pointer = manifests[0]["default_logic_pointer"] if manifests else None
-    if not default_logic_pointer and manifests:
-        default_logic_pointer = manifests[0].get("logic_key")
+    bootstrap_candidates = [manifest for manifest in manifests if bool(manifest.get("bootstrap_champion"))]
+    default_logic_pointer = None
+    if bootstrap_candidates:
+        default_logic_pointer = bootstrap_candidates[0].get("logic_key")
+    else:
+        for manifest in manifests:
+            default_pointer = manifest.get("default_logic_pointer")
+            if default_pointer:
+                default_logic_pointer = default_pointer
+                break
+        if not default_logic_pointer:
+            stable_candidates = [manifest for manifest in manifests if bool(manifest.get("last_stable_promoted"))]
+            if stable_candidates:
+                default_logic_pointer = stable_candidates[0].get("logic_key")
 
     return {
         "available_logic_manifest": manifests,

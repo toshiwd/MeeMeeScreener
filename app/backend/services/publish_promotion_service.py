@@ -18,6 +18,7 @@ from external_analysis.results.publish_registry import (
 )
 from external_analysis.results.publish import load_published_logic_catalog
 from shared.contracts.publish_registry import (
+    PUBLISH_ROLE_CHALLENGER,
     PUBLISH_PROMOTION_ACTION_DEMOTE,
     PUBLISH_PROMOTION_ACTION_PROMOTE,
     PUBLISH_PROMOTION_ACTION_ROLLBACK,
@@ -211,6 +212,7 @@ def _build_registry_entry(
         "published_at": _normalize_text(entry.get("published_at")),
         "status": role,
         "role": role,
+        "promotion_state": role,
         "source_publish_id": source_publish_id,
         "promotion_reason": reason,
         "promoted_at": promoted_at,
@@ -227,6 +229,114 @@ def _build_registry_entry(
             "alignment_ok": None if review is None else review.get("alignment_ok"),
         },
     }
+
+
+def _registry_challengers(registry: dict[str, Any]) -> list[dict[str, Any]]:
+    challengers = registry.get("challengers")
+    if isinstance(challengers, list):
+        return [entry for entry in challengers if isinstance(entry, dict)]
+    challenger = registry.get("challenger")
+    if isinstance(challenger, dict):
+        return [challenger]
+    return []
+
+
+def _registry_rollback_candidates(registry: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = registry.get("rollback_candidates")
+    if isinstance(candidates, list):
+        return [entry for entry in candidates if isinstance(entry, dict)]
+    previous = registry.get("previous_stable_champion")
+    if isinstance(previous, dict):
+        return [previous]
+    return []
+
+
+def _set_challengers(registry: dict[str, Any], challengers: list[dict[str, Any]]) -> None:
+    ordered = sorted(
+        [entry for entry in challengers if isinstance(entry, dict)],
+        key=lambda item: (int(item.get("queue_order") or 0), str(item.get("logic_key") or "")),
+    )
+    normalized: list[dict[str, Any]] = []
+    for index, entry in enumerate(ordered, start=1):
+        payload = dict(entry)
+        try:
+            queue_order = int(payload.get("queue_order") or 0)
+        except (TypeError, ValueError):
+            queue_order = 0
+        if queue_order <= 0:
+            payload["queue_order"] = index
+        normalized.append(payload)
+    registry["challengers"] = normalized
+    registry["challenger"] = normalized[0] if normalized else None
+    registry["challenger_logic_key"] = _normalize_text(normalized[0].get("logic_key")) if normalized else None
+    registry["challenger_logic_keys"] = [str(entry.get("logic_key")) for entry in normalized if entry.get("logic_key")]
+    registry["challengers_json"] = normalized
+
+
+def _next_queue_order(registry: dict[str, Any]) -> int:
+    challengers = _registry_challengers(registry)
+    highest = 0
+    for challenger in challengers:
+        try:
+            highest = max(highest, int(challenger.get("queue_order") or 0))
+        except (TypeError, ValueError):
+            continue
+    if highest > 0:
+        return highest + 1
+    return len(challengers) + 1 if challengers else 1
+
+
+def _queue_challenger_entry(
+    *,
+    validation: dict[str, Any],
+    actor: str | None,
+    reason: str | None,
+    queue_order: int,
+) -> dict[str, Any]:
+    manifest = validation.get("manifest") or {}
+    return {
+        "logic_id": _normalize_text(validation.get("logic_id")),
+        "logic_version": _normalize_text(validation.get("logic_version")),
+        "logic_key": _normalize_text(validation.get("logic_key")),
+        "logic_family": _normalize_text(manifest.get("logic_family")),
+        "artifact_uri": _normalize_text(validation.get("artifact_uri")),
+        "artifact_checksum": _normalize_text(validation.get("artifact_checksum")),
+        "queued_at": _now_iso(),
+        "promotion_state": "queued",
+        "queue_order": queue_order,
+        "validation_state": validation.get("validation_state") or "queued",
+        "status": PUBLISH_ROLE_CHALLENGER,
+        "role": PUBLISH_ROLE_CHALLENGER,
+        "source_publish_id": _normalize_text(validation.get("publish_id")),
+        "promotion_reason": reason,
+        "actor": actor,
+    }
+
+
+def _push_rollback_candidate(registry: dict[str, Any], candidate: dict[str, Any] | None) -> None:
+    if not isinstance(candidate, dict):
+        return
+    candidates = _registry_rollback_candidates(registry)
+    candidate_key = _normalize_text(candidate.get("logic_key"))
+    if candidate_key:
+        candidates = [entry for entry in candidates if _normalize_text(entry.get("logic_key")) != candidate_key]
+    candidates.append(candidate)
+    registry["rollback_candidates"] = candidates[-5:]
+    registry["previous_stable_champion"] = candidates[-1] if candidates else None
+    registry["previous_stable_champion_logic_key"] = _normalize_text((candidates[-1] if candidates else {}).get("logic_key"))
+
+
+def _remove_challenger_by_key(registry: dict[str, Any], logic_key: str) -> dict[str, Any] | None:
+    challengers = _registry_challengers(registry)
+    kept: list[dict[str, Any]] = []
+    removed: dict[str, Any] | None = None
+    for challenger in challengers:
+        if _normalize_text(challenger.get("logic_key")) == logic_key and removed is None:
+            removed = challenger
+            continue
+        kept.append(challenger)
+    _set_challengers(registry, kept)
+    return removed
 
 
 def _history_event(
@@ -265,9 +375,54 @@ def _history_event(
     }
 
 
-def _load_registry(config_repo: ConfigRepository) -> dict[str, Any]:
-    state = config_repo.load_publish_registry_state()
-    return state if isinstance(state, dict) else {}
+def _has_mutation_details(registry: dict[str, Any]) -> bool:
+    return any(
+        [
+            bool(registry.get("challengers")),
+            bool(registry.get("challenger_logic_keys")),
+            bool(registry.get("promotion_history")),
+            bool(registry.get("retired_logic_keys")),
+            bool(registry.get("demoted_logic_keys")),
+            _normalize_text(registry.get("previous_stable_champion_logic_key")),
+            bool(registry.get("rollback_candidates")),
+        ]
+    )
+
+
+def _load_registry(config_repo: ConfigRepository, db_path: str | None = None) -> dict[str, Any]:
+    external_registry = load_external_publish_registry_state(db_path=db_path)
+    local_registry = config_repo.load_publish_registry_state()
+    external_has_content = any(
+        [
+            _normalize_text(external_registry.get("champion_logic_key")),
+            _normalize_text(external_registry.get("default_logic_pointer")),
+            _normalize_text(external_registry.get("previous_stable_champion_logic_key")),
+            bool(external_registry.get("challengers")),
+            bool(external_registry.get("challenger_logic_keys")),
+            bool(external_registry.get("champion")),
+        ]
+    )
+    local_has_content = any(
+        [
+            _normalize_text(local_registry.get("champion_logic_key")),
+            _normalize_text(local_registry.get("default_logic_pointer")),
+            _normalize_text(local_registry.get("previous_stable_champion_logic_key")),
+            bool(local_registry.get("challengers")),
+            bool(local_registry.get("challenger_logic_keys")),
+            bool(local_registry.get("champion")),
+        ]
+    )
+    if external_registry.get("source_of_truth") == "external_analysis" and external_has_content:
+        if local_has_content and _has_mutation_details(local_registry) and not _has_mutation_details(external_registry):
+            if not _normalize_text(local_registry.get("bootstrap_rule")):
+                local_registry["bootstrap_rule"] = _normalize_text(external_registry.get("bootstrap_rule"))
+            return local_registry if isinstance(local_registry, dict) else {}
+        return external_registry if isinstance(external_registry, dict) else {}
+    if local_has_content:
+        if not _normalize_text(local_registry.get("bootstrap_rule")):
+            local_registry["bootstrap_rule"] = _normalize_text(external_registry.get("bootstrap_rule"))
+        return local_registry if isinstance(local_registry, dict) else {}
+    return external_registry if isinstance(external_registry, dict) else {}
 
 
 def _save_registry(config_repo: ConfigRepository, state: dict[str, Any]) -> str:
@@ -334,8 +489,18 @@ def build_publish_promotion_snapshot(
     ops_db_path: str | None = None,
 ) -> dict[str, Any]:
     external_registry = load_external_publish_registry_state(db_path=db_path)
-    local_registry = _load_registry(config_repo)
-    if external_registry.get("source_of_truth") == "external_analysis" and not external_registry.get("degraded"):
+    local_registry = _load_registry(config_repo, db_path=db_path)
+    external_has_content = any(
+        [
+            _normalize_text(external_registry.get("champion_logic_key")),
+            _normalize_text(external_registry.get("default_logic_pointer")),
+            _normalize_text(external_registry.get("previous_stable_champion_logic_key")),
+            bool(external_registry.get("challengers")),
+            bool(external_registry.get("challenger_logic_keys")),
+            bool(external_registry.get("champion")),
+        ]
+    )
+    if external_registry.get("source_of_truth") == "external_analysis" and external_has_content:
         registry = external_registry
         source_of_truth = "external_analysis"
         registry_sync_state = _normalize_text(external_registry.get("registry_sync_state")) or "synced"
@@ -355,7 +520,9 @@ def build_publish_promotion_snapshot(
         degraded = True
     catalog = load_published_logic_catalog(db_path=db_path)
     champion = registry.get("champion") if isinstance(registry.get("champion"), dict) else None
-    challenger = registry.get("challenger") if isinstance(registry.get("challenger"), dict) else None
+    challengers = _registry_challengers(registry)
+    challenger = challengers[0] if challengers else None
+    challenger_logic_keys = [str(entry.get("logic_key")) for entry in challengers if entry.get("logic_key")]
     candidate_logic_key = _normalize_text(challenger.get("logic_key")) if challenger else None
     champion_logic_key = _normalize_text(champion.get("logic_key")) if champion else None
     default_pointer = _normalize_text(registry.get("default_logic_pointer")) or catalog.get("default_logic_pointer")
@@ -367,12 +534,16 @@ def build_publish_promotion_snapshot(
         "last_sync_time": last_sync_time,
         "registry_version": registry.get("registry_version"),
         "source_revision": registry.get("source_revision"),
+        "bootstrap_rule": _normalize_text(registry.get("bootstrap_rule")),
         "default_logic_pointer": default_pointer,
         "champion_logic_key": champion_logic_key,
         "challenger_logic_key": candidate_logic_key,
         "champion": champion,
         "challenger": challenger,
+        "challengers": challengers,
+        "challenger_logic_keys": challenger_logic_keys,
         "previous_champion_logic_key": _normalize_text(registry.get("previous_champion_logic_key")),
+        "previous_stable_champion_logic_key": _normalize_text(registry.get("previous_stable_champion_logic_key")),
         "retired_logic_keys": list(registry.get("retired_logic_keys") or []),
         "promotion_history": list(registry.get("promotion_history") or []),
         "registry": registry,
@@ -496,11 +667,17 @@ def promote_logic_key(
     if not validation.get("ok"):
         return validation
 
-    registry = _load_registry(config_repo)
+    registry = _load_registry(config_repo, db_path=db_path)
     current_champion = registry.get("champion") if isinstance(registry.get("champion"), dict) else None
     current_champion_key = _normalize_text(current_champion.get("logic_key")) if current_champion else None
     target_entry = validation.get("manifest") or {}
     target_key = _normalize_text(validation.get("logic_key"))
+    challengers = _registry_challengers(registry)
+    target_queue_order_before = None
+    for challenger in challengers:
+        if _normalize_text(challenger.get("logic_key")) == target_key:
+            target_queue_order_before = challenger.get("queue_order")
+            break
     if current_champion_key == target_key:
         snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
         return {
@@ -512,6 +689,20 @@ def promote_logic_key(
         }
 
     promoted_at = _now_iso()
+    target_challenger = None
+    for challenger in challengers:
+        if _normalize_text(challenger.get("logic_key")) == target_key:
+            target_challenger = challenger
+            break
+    if target_challenger is None:
+        target_challenger = _queue_challenger_entry(
+            validation=validation,
+            actor=actor,
+            reason=reason,
+            queue_order=_next_queue_order(registry),
+        )
+        challengers.append(target_challenger)
+    challengers = [entry for entry in challengers if _normalize_text(entry.get("logic_key")) != target_key]
     champion_entry = _build_registry_entry(
         entry=target_entry,
         role=PUBLISH_ROLE_CHAMPION,
@@ -521,17 +712,14 @@ def promote_logic_key(
         promoted_by=actor,
         reason=reason,
     )
-    challenger_entry = current_champion
     previous_champion_key = current_champion_key
-    retired_logic_keys = list(registry.get("retired_logic_keys") or [])
-    if previous_champion_key and previous_champion_key not in retired_logic_keys:
-        retired_logic_keys.append(previous_champion_key)
-
+    _push_rollback_candidate(registry, current_champion)
     registry["default_logic_pointer"] = target_key
     registry["champion"] = champion_entry
-    registry["challenger"] = None
-    registry["previous_champion_logic_key"] = previous_champion_key
-    registry["retired_logic_keys"] = retired_logic_keys
+    _set_challengers(registry, challengers)
+    registry["previous_stable_champion"] = current_champion
+    registry["previous_stable_champion_logic_key"] = previous_champion_key
+    registry["challenger"] = registry.get("challenger")
     registry.setdefault("promotion_history", [])
     registry["promotion_history"] = [
         *list(registry.get("promotion_history") or [])[-19:],
@@ -557,6 +745,8 @@ def promote_logic_key(
         "publish_id": validation.get("publish_id"),
         "artifact_uri": validation.get("artifact_uri"),
         "artifact_checksum": validation.get("artifact_checksum"),
+        "queue_order_before": target_queue_order_before,
+        "queue_order_after": None,
         "gate_pass": validation.get("gate_pass"),
         "gate_reasons": validation.get("gate_reasons"),
         "comparison_summary": validation.get("review", {}).get("summary") if validation.get("review") else None,
@@ -589,8 +779,113 @@ def promote_logic_key(
         "action": PUBLISH_PROMOTION_ACTION_PROMOTE,
         "validation": validation,
         "snapshot": snapshot,
-        "previous_champion": challenger_entry,
         "champion": champion_entry,
+        "challenger": target_challenger,
+        "previous_champion": current_champion,
+        "external_state": external_state,
+    }
+
+
+def enqueue_challenger_logic_key(
+    *,
+    config_repo: ConfigRepository,
+    logic_key: str,
+    source: str,
+    reason: str | None = None,
+    actor: str | None = None,
+    db_path: str | None = None,
+    ops_db_path: str | None = None,
+) -> dict[str, Any]:
+    normalized_key = _normalize_text(logic_key)
+    if not normalized_key:
+        return {"ok": False, "reason": "logic_key_required"}
+
+    validation = validate_publish_logic_target(
+        config_repo=config_repo,
+        logic_key=normalized_key,
+        db_path=db_path,
+    )
+    if not validation.get("ok"):
+        return validation
+
+    registry = _load_registry(config_repo, db_path=db_path)
+    current_champion = registry.get("champion") if isinstance(registry.get("champion"), dict) else None
+    if _normalize_text(current_champion.get("logic_key")) == normalized_key:
+        snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
+        return {"ok": True, "changed": False, "action": "enqueue", "validation": validation, "snapshot": snapshot}
+
+    challengers = _registry_challengers(registry)
+    existing = next((entry for entry in challengers if _normalize_text(entry.get("logic_key")) == normalized_key), None)
+    if existing:
+        snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
+        return {
+            "ok": True,
+            "changed": False,
+            "action": "enqueue",
+            "validation": validation,
+            "snapshot": snapshot,
+            "challenger": existing,
+        }
+
+    queue_order_before = None
+    queue_order_after = _next_queue_order(registry)
+    challenger_entry = _queue_challenger_entry(
+        validation=validation,
+        actor=actor,
+        reason=reason,
+        queue_order=queue_order_after,
+    )
+    challengers.append(challenger_entry)
+    _set_challengers(registry, challengers)
+    registry.setdefault("promotion_history", [])
+    registry["promotion_history"] = [
+        *list(registry.get("promotion_history") or [])[-19:],
+        _history_event(
+            action="enqueue",
+            previous_logic_key=None,
+            new_logic_key=normalized_key,
+            source=source,
+            reason=reason,
+            review=validation.get("review"),
+            target=validation.get("manifest"),
+        ),
+    ]
+    registry_event = {
+        "event_type": "publish_logic_enqueued",
+        "action": "enqueue",
+        "previous_logic_key": None,
+        "new_logic_key": normalized_key,
+        "changed_at": _now_iso(),
+        "source": source,
+        "reason": reason,
+        "actor": actor,
+        "publish_id": validation.get("publish_id"),
+        "artifact_uri": validation.get("artifact_uri"),
+        "artifact_checksum": validation.get("artifact_checksum"),
+        "queue_order_before": queue_order_before,
+        "queue_order_after": queue_order_after,
+        "validation_state": validation.get("validation_state"),
+    }
+    try:
+        external_state = _persist_registry_state(
+            config_repo=config_repo,
+            db_path=db_path,
+            registry_state=registry,
+            audit_event=registry_event,
+            source_revision=validation.get("publish_id") or normalized_key,
+            sync_state="synced",
+            degraded=False,
+        )
+    except Exception as exc:
+        return {"ok": False, "reason": "external_registry_write_failed", "error": str(exc), "logic_key": normalized_key}
+    snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
+    return {
+        "ok": True,
+        "changed": True,
+        "action": "enqueue",
+        "validation": validation,
+        "snapshot": snapshot,
+        "challenger": challenger_entry,
         "external_state": external_state,
     }
 
@@ -617,15 +912,18 @@ def demote_logic_key(
     if not validation.get("ok"):
         return validation
 
-    registry = _load_registry(config_repo)
+    registry = _load_registry(config_repo, db_path=db_path)
     current_champion = registry.get("champion") if isinstance(registry.get("champion"), dict) else None
     current_champion_key = _normalize_text(current_champion.get("logic_key")) if current_champion else None
+    challengers = _registry_challengers(registry)
     if current_champion_key != normalized_key:
+        removed = _remove_challenger_by_key(registry, normalized_key)
+        if not removed:
+            return {"ok": False, "reason": "logic_key_not_active_challenger", "logic_key": normalized_key}
         retired_logic_keys = list(registry.get("retired_logic_keys") or [])
         if normalized_key not in retired_logic_keys:
             retired_logic_keys.append(normalized_key)
         registry["retired_logic_keys"] = retired_logic_keys
-        registry["challenger"] = None if _normalize_text((registry.get("challenger") or {}).get("logic_key")) == normalized_key else registry.get("challenger")
         registry.setdefault("promotion_history", [])
         registry["promotion_history"] = [
             *list(registry.get("promotion_history") or [])[-19:],
@@ -651,6 +949,8 @@ def demote_logic_key(
             "publish_id": validation.get("publish_id"),
             "artifact_uri": validation.get("artifact_uri"),
             "artifact_checksum": validation.get("artifact_checksum"),
+            "queue_order_before": removed.get("queue_order"),
+            "queue_order_after": None,
         }
         try:
             external_state = _persist_registry_state(
@@ -672,42 +972,49 @@ def demote_logic_key(
             "validation": validation,
             "snapshot": snapshot,
             "external_state": external_state,
+            "retired": removed,
         }
 
-    registry_previous_key = _normalize_text(registry.get("previous_champion_logic_key"))
-    fallback_entry = _catalog_lookup(db_path=db_path, logic_key=registry_previous_key) if registry_previous_key else None
-    if fallback_entry:
-        rollback_target = _build_registry_entry(
-            entry=fallback_entry,
-            role=PUBLISH_ROLE_CHAMPION,
-            review=_load_review_for_publish_id(
-                publish_id=str(fallback_entry.get("publish_id") or ""),
-                ops_db_path=ops_db_path,
-            ),
-            source_publish_id=_normalize_text(fallback_entry.get("publish_id")),
-            promoted_at=_now_iso(),
-            promoted_by=actor,
-            reason=reason or "rollback_previous_champion",
-        )
-        registry["champion"] = rollback_target
-        registry["default_logic_pointer"] = registry_previous_key
-        registry["previous_champion_logic_key"] = normalized_key
-    else:
-        registry["champion"] = None
-        registry["default_logic_pointer"] = None
-        registry["previous_champion_logic_key"] = normalized_key
+    rollback_candidates = _registry_rollback_candidates(registry)
+    candidate = rollback_candidates[-1] if rollback_candidates else registry.get("previous_stable_champion")
+    if not isinstance(candidate, dict):
+        return {"ok": False, "reason": "rollback_candidate_missing", "logic_key": normalized_key}
+    candidate_key = _normalize_text(candidate.get("logic_key"))
+    if candidate_key and candidate_key == current_champion_key:
+        return {"ok": True, "changed": False, "action": PUBLISH_PROMOTION_ACTION_DEMOTE, "validation": validation}
+
     retired_logic_keys = list(registry.get("retired_logic_keys") or [])
     if normalized_key not in retired_logic_keys:
         retired_logic_keys.append(normalized_key)
+    demoted_logic_keys = list(registry.get("demoted_logic_keys") or [])
+    if normalized_key not in demoted_logic_keys:
+        demoted_logic_keys.append(normalized_key)
     registry["retired_logic_keys"] = retired_logic_keys
-    registry["challenger"] = None
+    registry["demoted_logic_keys"] = demoted_logic_keys
+    registry["champion"] = _build_registry_entry(
+        entry=candidate,
+        role=PUBLISH_ROLE_CHAMPION,
+        review=_load_review_for_publish_id(
+            publish_id=str(candidate.get("source_publish_id") or candidate.get("publish_id") or ""),
+            ops_db_path=ops_db_path,
+        ),
+        source_publish_id=_normalize_text(candidate.get("source_publish_id") or candidate.get("publish_id")),
+        promoted_at=_now_iso(),
+        promoted_by=actor,
+        reason=reason or "demote_restore_previous_stable",
+    )
+    registry["default_logic_pointer"] = candidate_key
+    registry["previous_stable_champion"] = current_champion
+    registry["previous_stable_champion_logic_key"] = current_champion_key
+    _push_rollback_candidate(registry, current_champion)
+    _set_challengers(registry, challengers)
     registry.setdefault("promotion_history", [])
     registry["promotion_history"] = [
         *list(registry.get("promotion_history") or [])[-19:],
         _history_event(
-            action=PUBLISH_PROMOTION_ACTION_ROLLBACK,
-            previous_logic_key=normalized_key,
-            new_logic_key=registry.get("default_logic_pointer"),
+            action=PUBLISH_PROMOTION_ACTION_DEMOTE,
+            previous_logic_key=current_champion_key,
+            new_logic_key=normalized_key,
             source=source,
             reason=reason,
             review=_load_review_for_publish_id(
@@ -718,10 +1025,10 @@ def demote_logic_key(
         ),
     ]
     rollback_event = {
-        "event_type": "publish_logic_rollback",
-        "action": PUBLISH_PROMOTION_ACTION_ROLLBACK,
+        "event_type": "publish_logic_demoted",
+        "action": PUBLISH_PROMOTION_ACTION_DEMOTE,
         "previous_logic_key": normalized_key,
-        "new_logic_key": registry.get("default_logic_pointer"),
+        "new_logic_key": candidate_key,
         "changed_at": _now_iso(),
         "source": source,
         "reason": reason,
@@ -729,7 +1036,9 @@ def demote_logic_key(
         "publish_id": validation.get("publish_id"),
         "artifact_uri": validation.get("artifact_uri"),
         "artifact_checksum": validation.get("artifact_checksum"),
-        "rollback_target_logic_key": registry_previous_key,
+        "queue_order_before": None,
+        "queue_order_after": None,
+        "rollback_target_logic_key": candidate_key,
     }
     try:
         external_state = _persist_registry_state(
@@ -749,6 +1058,146 @@ def demote_logic_key(
         "changed": True,
         "action": PUBLISH_PROMOTION_ACTION_ROLLBACK,
         "validation": validation,
+        "snapshot": snapshot,
+        "external_state": external_state,
+    }
+
+
+def retire_challenger_logic_key(
+    *,
+    config_repo: ConfigRepository,
+    logic_key: str,
+    source: str,
+    reason: str | None = None,
+    actor: str | None = None,
+    db_path: str | None = None,
+    ops_db_path: str | None = None,
+) -> dict[str, Any]:
+    registry = _load_registry(config_repo, db_path=db_path)
+    current_champion = registry.get("champion") if isinstance(registry.get("champion"), dict) else None
+    current_champion_key = _normalize_text(current_champion.get("logic_key")) if current_champion else None
+    normalized_key = _normalize_text(logic_key)
+    if current_champion_key == normalized_key:
+        return {"ok": False, "reason": "not_active_challenger", "logic_key": normalized_key}
+    return demote_logic_key(
+        config_repo=config_repo,
+        logic_key=normalized_key,
+        source=source,
+        reason=reason,
+        actor=actor,
+        db_path=db_path,
+        ops_db_path=ops_db_path,
+    )
+
+
+def rollback_logic_key(
+    *,
+    config_repo: ConfigRepository,
+    logic_key: str | None,
+    source: str,
+    reason: str | None = None,
+    actor: str | None = None,
+    db_path: str | None = None,
+    ops_db_path: str | None = None,
+) -> dict[str, Any]:
+    registry = _load_registry(config_repo, db_path=db_path)
+    current_champion = registry.get("champion") if isinstance(registry.get("champion"), dict) else None
+    current_champion_key = _normalize_text(current_champion.get("logic_key")) if current_champion else None
+    rollback_candidates = _registry_rollback_candidates(registry)
+    target_key = _normalize_text(logic_key) or _normalize_text(registry.get("previous_stable_champion_logic_key"))
+    candidate = None
+    if target_key:
+        candidate = next((entry for entry in rollback_candidates if _normalize_text(entry.get("logic_key")) == target_key), None)
+        if candidate is None and _normalize_text(registry.get("previous_stable_champion_logic_key")) == target_key:
+            candidate = registry.get("previous_stable_champion") if isinstance(registry.get("previous_stable_champion"), dict) else None
+    elif rollback_candidates:
+        candidate = rollback_candidates[-1]
+        target_key = _normalize_text(candidate.get("logic_key"))
+    if not isinstance(candidate, dict) or not target_key:
+        return {"ok": False, "reason": "rollback_candidate_missing", "logic_key": logic_key}
+
+    if current_champion_key == target_key:
+        snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
+        return {"ok": True, "changed": False, "action": PUBLISH_PROMOTION_ACTION_ROLLBACK, "snapshot": snapshot}
+
+    target_manifest = _catalog_lookup(db_path=db_path, logic_key=target_key) or candidate
+    rollback_target = _build_registry_entry(
+        entry=target_manifest,
+        role=PUBLISH_ROLE_CHAMPION,
+        review=_load_review_for_publish_id(
+            publish_id=str(target_manifest.get("publish_id") or target_manifest.get("source_publish_id") or ""),
+            ops_db_path=ops_db_path,
+        ),
+        source_publish_id=_normalize_text(target_manifest.get("publish_id") or target_manifest.get("source_publish_id")),
+        promoted_at=_now_iso(),
+        promoted_by=actor,
+        reason=reason or "rollback_previous_stable",
+    )
+    registry["previous_stable_champion"] = current_champion
+    registry["previous_stable_champion_logic_key"] = current_champion_key
+    _push_rollback_candidate(registry, current_champion)
+    registry["champion"] = rollback_target
+    registry["default_logic_pointer"] = target_key
+    demoted_logic_keys = list(registry.get("demoted_logic_keys") or [])
+    if current_champion_key and current_champion_key not in demoted_logic_keys:
+        demoted_logic_keys.append(current_champion_key)
+    registry["demoted_logic_keys"] = demoted_logic_keys
+    registry.setdefault("promotion_history", [])
+    registry["promotion_history"] = [
+        *list(registry.get("promotion_history") or [])[-19:],
+        _history_event(
+            action=PUBLISH_PROMOTION_ACTION_ROLLBACK,
+            previous_logic_key=current_champion_key,
+            new_logic_key=target_key,
+            source=source,
+            reason=reason,
+            review=_load_review_for_publish_id(
+                publish_id=str(target_manifest.get("publish_id") or ""),
+                ops_db_path=ops_db_path,
+            ),
+            target=target_manifest,
+        ),
+    ]
+    rollback_event = {
+        "event_type": "publish_logic_rollback",
+        "action": PUBLISH_PROMOTION_ACTION_ROLLBACK,
+        "previous_logic_key": current_champion_key,
+        "new_logic_key": target_key,
+        "changed_at": _now_iso(),
+        "source": source,
+        "reason": reason,
+        "actor": actor,
+        "publish_id": target_manifest.get("publish_id"),
+        "artifact_uri": target_manifest.get("artifact_uri"),
+        "artifact_checksum": target_manifest.get("artifact_checksum"),
+        "queue_order_before": None,
+        "queue_order_after": None,
+        "rollback_target_logic_key": target_key,
+    }
+    try:
+        external_state = _persist_registry_state(
+            config_repo=config_repo,
+            db_path=db_path,
+            registry_state=registry,
+            audit_event=rollback_event,
+            source_revision=_normalize_text(target_manifest.get("publish_id")) or target_key,
+            sync_state="synced",
+            degraded=False,
+        )
+    except Exception as exc:
+        return {"ok": False, "reason": "external_registry_write_failed", "error": str(exc), "logic_key": target_key}
+    snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
+    return {
+        "ok": True,
+        "changed": True,
+        "action": PUBLISH_PROMOTION_ACTION_ROLLBACK,
+        "validation": {
+            "logic_key": target_key,
+            "review": _load_review_for_publish_id(
+                publish_id=str(target_manifest.get("publish_id") or target_manifest.get("source_publish_id") or ""),
+                ops_db_path=ops_db_path,
+            ),
+        },
         "snapshot": snapshot,
         "external_state": external_state,
     }

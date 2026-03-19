@@ -48,6 +48,7 @@ def _seed_publish_state(tmp_path: Path) -> tuple[Path, Path, str, str]:
         as_of_date="2026-03-19",
         freshness_state="fresh",
         default_logic_pointer="logic_family_a:v1",
+        bootstrap_champion=True,
         logic_artifact_uri=str(champion_artifact),
         logic_artifact_checksum=champion_checksum,
         logic_manifest={
@@ -96,6 +97,36 @@ def _seed_publish_state(tmp_path: Path) -> tuple[Path, Path, str, str]:
             "published_at": "2026-03-19T02:00:00Z",
             "artifact_uri": str(challenger_artifact),
             "checksum": challenger_checksum,
+        },
+    )
+    third_artifact = tmp_path / "artifacts" / "logic_family_a_v3.json"
+    third_checksum = _write_artifact(third_artifact, "{\"logic\":\"family_a:v3\"}\n")
+    publish_result(
+        db_path=str(result_db),
+        publish_id="pub_2026-03-19_20260319T030000Z_01",
+        as_of_date="2026-03-19",
+        freshness_state="fresh",
+        default_logic_pointer="logic_family_a:v3",
+        logic_artifact_uri=str(third_artifact),
+        logic_artifact_checksum=third_checksum,
+        logic_manifest={
+            "logic_id": "logic_family_a",
+            "logic_version": "v3",
+            "logic_family": "family_a",
+            "status": "published",
+            "input_schema_version": "v3",
+            "output_schema_version": "v3",
+            "feature_spec_version": "v3",
+            "required_inputs": ["confirmed_market_bars"],
+            "scorer_type": "ranking",
+            "params": {},
+            "thresholds": {},
+            "weights": {},
+            "output_spec": {"rank_fields": ["code", "score"]},
+            "trained_at": "2026-03-18T18:00:00Z",
+            "published_at": "2026-03-19T03:00:00Z",
+            "artifact_uri": str(third_artifact),
+            "checksum": third_checksum,
         },
     )
 
@@ -339,3 +370,29 @@ def test_publish_promotion_rejects_invalid_logic_key(monkeypatch, tmp_path) -> N
         assert response.status_code == 400
         detail = response.json()["detail"]
         assert detail["reason"] == "logic_key_not_available"
+
+
+def test_publish_queue_supports_multiple_challengers(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+    third_key = "logic_family_a:v3"
+
+    with TestClient(main_module.create_app()) as client:
+        enqueue_first = client.post(
+            "/api/system/publish/challenger/enqueue",
+            json={"logicKey": challenger_key, "reason": "queue first", "actor": "codex_test"},
+        )
+        assert enqueue_first.status_code == 200
+        enqueue_second = client.post(
+            "/api/system/publish/challenger/enqueue",
+            json={"logicKey": third_key, "reason": "queue second", "actor": "codex_test"},
+        )
+        assert enqueue_second.status_code == 200
+
+        queue_response = client.get("/api/system/publish/queue")
+        assert queue_response.status_code == 200
+        queue_payload = queue_response.json()
+        assert queue_payload["bootstrap_rule"] == "explicit_champion_flag"
+        assert queue_payload["champion"]["logic_key"] == champion_key
+        assert queue_payload["challenger_logic_keys"] == [challenger_key, third_key]
+        assert [item["queue_order"] for item in queue_payload["challengers"]] == [1, 2]

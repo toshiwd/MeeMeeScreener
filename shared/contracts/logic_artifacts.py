@@ -29,6 +29,8 @@ class PublishedLogicManifest(TypedDict):
     published_at: NotRequired[str | None]
     artifact_uri: str
     checksum: str
+    bootstrap_champion: NotRequired[bool]
+    last_stable_promoted: NotRequired[bool]
 
 
 class PublishedRankingSnapshot(TypedDict):
@@ -82,6 +84,8 @@ PUBLISHED_LOGIC_MANIFEST_FIELDS: tuple[str, ...] = (
     "output_schema_version",
     "trained_at",
     "published_at",
+    "bootstrap_champion",
+    "last_stable_promoted",
     "artifact_uri",
     "checksum",
 )
@@ -108,4 +112,3 @@ VALIDATION_SUMMARY_FIELDS: tuple[str, ...] = (
     "notes",
     "created_at",
 )
-

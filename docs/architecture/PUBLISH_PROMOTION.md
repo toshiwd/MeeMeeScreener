@@ -1,91 +1,152 @@
 # Publish Promotion / Rollback
 
-この文書は、TradeX で検証したロジックを MeeMee Screener の runtime に昇格・退役させる最小仕様を定義する。
+## Purpose
 
-## 目的
+TradeX owns publish registry governance. MeeMee consumes the registry and exposes only the runtime view.
 
-MeeMee Screener は「使う製品」であり、TradeX は「育てる製品」である。したがって、ロジックの採用可否は TradeX の検証結果を根拠にしつつ、実際の runtime の採用状態は MeeMee 側の publish registry で管理する。
+The registry is stored in `external_analysis` as the source of truth. MeeMee keeps `config/publish_registry.json` as a mirror and fallback copy only.
 
-ここでいう publish promotion は、`logic_id:logic_version` を champion に昇格させる操作である。rollback は、現在の champion を前の champion へ戻す操作である。demotion は、特定の logic を champion / challenger から外して retired にする操作である。
+Promotion and rollback must never mutate the artifact file itself. Artifact files are immutable.
 
 ## State Model
 
-publish registry は `config/publish_registry.json` に保存する。最低限の役割は次の 4 つである。
+The publish registry tracks these roles:
 
-- `champion`: 現在採用中の logic
-- `challenger`: 候補として追跡する logic
-- `retired`: 採用対象から外した logic
-- `blocked`: 失敗した validation または checksum 不一致などで採用できない logic
+- `champion`: the single active logic entry
+- `challenger`: one or more queued candidate entries
+- `retired`: historical entries that are no longer active
+- `demoted`: entries removed from active use
+- `blocked`: entries that failed validation or checksum checks
 
-identity は `logic_id:logic_version` とする。`artifact_uri` は locator であり、identity にはしない。
+Identity is `logic_id:logic_version`.
+`artifact_uri` is only a locator.
 
-## Comparison Criteria
+## Multi-Challenger Queue
 
-promotion の判断では、TradeX 側の review data を使う。最低限の確認項目は次の通りである。
+The registry supports a queue of challengers:
 
-- `readiness_pass` が true
-- `sample_count` が十分であること
-- `expectancy_delta` が 0 以上であること
-- `improved_expectancy` が true であること
-- `mae_non_worse` が true であること
-- `adverse_move_non_worse` が true であること
-- `stable_window` が true であること
-- `alignment_ok` が true であること
+- one champion
+- zero or more challengers
+- queue order is stable and explicit
+- retired and demoted entries remain in history
 
-必要に応じて `external_promotion_decisions` の最新決定も参照する。`rejected` の決定が付いている場合は promotion を止める。
+Each challenger record should carry at least:
 
-## Promotion / Demotion / Rollback
-
-promotion は、検証済みの challenger を champion に昇格させる。promotion 成功時は、`default_logic_pointer` をその logic_key に更新する。runtime selection はこの default pointer を見て採用候補を決める。
-
-demotion は、特定 logic を retired にする。対象が current champion の場合は、前の champion を復元できるなら rollback として扱う。復元できない場合は champion を空にせず、runtime selection の safe fallback へ落ちる。
-
-rollback は、current champion を `previous_champion_logic_key` に戻す操作である。rollback も audit を残す。
-
-## Runtime Selection との関係
-
-runtime selection の解決順は変えない。
-
-1. `selected_logic_override`
-2. `default_logic_pointer`
-3. `last_known_good`
-4. `safe fallback`
-
-publish promotion が更新するのは主に `default_logic_pointer` である。override が存在する場合は override が優先される。`last_known_good` は復旧用の local cached artifact であり、promotion の source of truth ではない。
-
-`/api/system/runtime-selection` は次を返す。
-
-- `resolved_source`
-- `selected_logic_id`
-- `selected_logic_version`
 - `logic_key`
+- `logic_id`
+- `logic_version`
+- `logic_family`
 - `artifact_uri`
-- `snapshot_created_at`
-- `override_present`
-- `last_known_good_present`
+- `checksum`
+- `queued_at`
+- `promotion_state`
+- `queue_order`
 - `validation_state`
-- `publish_registry`
-- `publish_registry_state`
 
-`publish_registry_state` は runtime 向けの派生ビューであり、`champion_logic_key`、`challenger_logic_key`、`default_logic_pointer` を含む。
+## Bootstrap Champion Rule
 
-## Audit
+Bootstrap champion selection must not depend on seed order.
 
-promotion / demotion / rollback の操作は `runtime_selection/publish_promotion_audit.jsonl` に記録する。少なくとも次の情報を残す。
+The selection order is:
 
+1. explicit `bootstrap_champion` flag
+2. explicit `default_logic_pointer`
+3. last stable promoted entry
+4. empty safe state
+
+The chosen rule must be stored in registry metadata as `bootstrap_rule`.
+
+## State Transitions
+
+Supported transitions:
+
+- `enqueue challenger`
+- `promote challenger -> champion`
+- `demote champion -> demoted`
+- `retire challenger`
+- `rollback champion -> previous stable champion`
+
+Previous champion entries are kept as rollback candidates in registry metadata.
+
+## Promotion Gate
+
+Promotion uses validation and research evidence from TradeX. Minimum checks include:
+
+- readiness passed
+- sample count is sufficient
+- expectancy is non-negative
+- expectancy improved
+- MAE is not worse
+- adverse move is not worse
+- stable window is true
+- alignment is true
+
+Promotion failure must remain a failure. A local-only success must not be reported if `external_analysis` write fails.
+
+## Rollback Rule
+
+Rollback restores the previous stable champion from registry metadata.
+
+Rollback must:
+
+- preserve artifact immutability
+- preserve audit history
+- update `default_logic_pointer`
+- keep the previous champion available as history or rollback candidate
+
+## API Surface
+
+Read APIs:
+
+- `GET /api/system/publish/state`
+- `GET /api/system/publish/queue`
+
+Write APIs:
+
+- `POST /api/system/publish/promote`
+- `POST /api/system/publish/demote`
+- `POST /api/system/publish/rollback`
+- `POST /api/system/publish/challenger/enqueue`
+- `POST /api/system/publish/challenger/retire`
+
+## Audit Trail
+
+Audit records are stored in `external_analysis` as the primary trail.
+
+Minimum fields:
+
+- `action`
 - `previous_logic_key`
 - `new_logic_key`
 - `changed_at`
 - `source`
 - `reason`
+- `queue_order_before`
+- `queue_order_after`
 
-## Runtime Files
+MeeMee may keep a mirror audit for continuity, but the authoritative audit trail lives in `external_analysis`.
 
-- `config/logic_selection.json`: override と last_known_good の保存先
-- `config/publish_registry.json`: champion / challenger / retired の状態モデル
-- `runtime_selection/logic_selection_audit.jsonl`: runtime selection の変更監査
-- `runtime_selection/publish_promotion_audit.jsonl`: promotion / demotion / rollback の監査
+## Read Path
 
-## Source Of Truth
+MeeMee reads publish state in this order:
 
-The authoritative publish registry now lives in `external_analysis` result DB tables. MeeMee keeps `config/publish_registry.json` only as a mirror and fallback copy. If external_analysis is unavailable, MeeMee may read the mirror for continuity, but it must not claim a local-only promotion as successful.
+1. `external_analysis` registry
+2. local mirror
+3. empty safe state
+
+The runtime view must expose:
+
+- `source_of_truth`
+- `champion logic_key`
+- `challenger list`
+- `default_logic_pointer`
+- `registry_sync_state`
+- `degraded`
+- `bootstrap_rule`
+- `last_sync_time`
+
+## Notes
+
+`published_ranking_snapshot` is a cache / audit artifact only.
+It is not the source of truth for runtime selection.
+

@@ -44,6 +44,7 @@ def _publish_catalog(tmp_path: Path) -> tuple[Path, Path, Path, str, str]:
         as_of_date="2026-03-19",
         freshness_state="fresh",
         default_logic_pointer="logic_family_a:v1",
+        bootstrap_champion=True,
         logic_artifact_uri=str(artifact_path),
         logic_artifact_checksum=checksum,
         logic_manifest={
@@ -106,6 +107,8 @@ def test_runtime_selection_api_reports_observability_fields(monkeypatch, tmp_pat
         assert payload["resolved_source"]
         assert payload["selected_logic_key"]
         assert payload["validation_state"]
+        assert payload["bootstrap_rule"] == "explicit_champion_flag"
+        assert payload["challenger_logic_keys"] == []
 
     catalog = load_published_logic_catalog(db_path=str(db_path))
     assert catalog["default_logic_pointer"] == valid_logic_key
