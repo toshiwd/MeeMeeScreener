@@ -23,7 +23,10 @@
 - `docs/architecture/DATA_CONTRACTS.md`: MeeMee Screener / TradeX v3 のデータ契約と境界定義
 - `docs/architecture/RUNTIME_SELECTION.md`: logic pointer の解決順、保存先、safe fallback の骨組み
 - `docs/architecture/PUBLISH_PROMOTION.md`: champion / challenger / rollback の最小運用仕様
-- `docs/architecture/TRADEX_ANALYSIS_LAYER.md`: TRADEX analysis layer の input / execution / output 境界
+- `docs/architecture/TRADEX_ANALYSIS_LAYER.md`: TRADEX analysis layer の input / execution / output 境界と v1 read-only release boundary
+  - v1 feature flags: `MEEMEE_ENABLE_TRADEX_DETAIL_ANALYSIS`, `VITE_ENABLE_TRADEX_DETAIL_ANALYSIS`, `MEEMEE_ENABLE_TRADEX_LIST_SUMMARY`, `VITE_ENABLE_TRADEX_LIST_SUMMARY`
+  - v1 fallback: `analysis unavailable`
+  - v1 cache/TTL: module-local symbol + asof cache, default 45s, clamp 30-60s
 - `docs/pages/meemee-grid.md`: 一覧画面の軽仕様
 - `docs/pages/meemee-detail.md`: 個別詳細画面の軽仕様
 - `docs/pages/meemee-trades.md`: 取引履歴と日次建玉を確認するための軽仕様

@@ -72,6 +72,55 @@ Output rules:
 
 The typed output boundary for this slice is `external_analysis/contracts/analysis_output.py`. The orchestrator maps the existing decision payload into that contract end to end.
 
+## V1 Shipping Boundary
+
+MeeMee v1 uses TRADEX as a read-only analysis sidecar.
+
+Supported v1 surfaces:
+
+- detail page read-only panel
+- list summary badges for visible rows, selected rows, and already displayed favorites
+
+Warm / prefetch scope limits:
+
+- current detail symbol
+- current visible rows
+- current selected rows
+- favorites only when the favorites surface is already mounted
+- never the whole universe
+- visible warm cap: 48
+- selected warm cap: 48
+- favorites warm cap: 24
+
+Feature flags:
+
+- backend detail: `MEEMEE_ENABLE_TRADEX_DETAIL_ANALYSIS`
+- frontend detail: `VITE_ENABLE_TRADEX_DETAIL_ANALYSIS`
+- backend list summary: `MEEMEE_ENABLE_TRADEX_LIST_SUMMARY`
+- frontend list summary: `VITE_ENABLE_TRADEX_LIST_SUMMARY`
+
+Fallback behavior:
+
+- unavailable detail or summary analysis renders as `analysis unavailable`
+- the UI stays read-only and keeps the rest of MeeMee usable
+- publish / override / write behavior is out of scope for v1
+
+Cache / TTL behavior:
+
+- detail and list summary use module-local symbol + asof caches
+- default TTL is 45 seconds
+- TTL is clamped to the 30-60 second range by environment configuration
+
+Observability notes:
+
+- detail analysis exposes success / failure counts, cache hit / miss counts, unavailable reason counts, and latency
+- list summary reuses the detail semantics and cache strategy and does not add a new write path
+
+V1 vs V2 boundary:
+
+- v1: read-only detail and list consumption only
+- v2: write, override, publish, or operator workflows remain outside this slice
+
 ## Boundary Rules
 
 - MeeMee consumes TRADEX output but does not own analysis execution

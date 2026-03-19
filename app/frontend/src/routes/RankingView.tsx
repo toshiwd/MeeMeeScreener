@@ -19,11 +19,8 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
-import { useTradexListSummary } from "../hooks/useTradexListSummary";
-import {
-  buildTradexListSummaryKey,
-  shouldShowTradexListSummary,
-} from "./list/tradexSummary";
+import { buildTradexListSummaryKey } from "./list/tradexSummary";
+import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
 
 type RankItem = {
   code: string;
@@ -919,7 +916,6 @@ export default function RankingView() {
     return new Map(items.map((item) => [item.code, item]));
   }, [items]);
   const itemCodeSet = useMemo(() => new Set(items.map((item) => item.code)), [items]);
-  const tradexListSummaryEnabled = shouldShowTradexListSummary();
   const tradexListSummaryItems = useMemo(
     () =>
       selectedCodes.map((code) => ({
@@ -928,12 +924,6 @@ export default function RankingView() {
       })),
     [itemByCode, selectedCodes]
   );
-  const tradexListSummaryState = useTradexListSummary({
-    backendReady,
-    enabled: tradexListSummaryEnabled,
-    scope: "ranking-selected",
-    items: tradexListSummaryItems
-  });
 
   useEffect(() => {
     const cached = readRankingFetchCache(rankingCacheKey);
@@ -1447,11 +1437,18 @@ export default function RankingView() {
           </div>
         )}
         {!showSkeleton && (
-          <>
-            {errorMessage && <div className="rank-status">{errorMessage}</div>}
-            {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
-            <div className="rank-grid">
-              {sortedItems.map((item, index) => {
+          <TradexListSummaryMount
+            backendReady={backendReady}
+            enabled={true}
+            scope="ranking-selected"
+            items={tradexListSummaryItems}
+          >
+            {(tradexListSummaryState) => (
+              <>
+                {errorMessage && <div className="rank-status">{errorMessage}</div>}
+                {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
+                <div className="rank-grid">
+                  {sortedItems.map((item, index) => {
                 const payload = barsCache[listTimeframe]?.[item.code] ?? null;
                 const status = barsStatus[listTimeframe][item.code];
                 const isMonthlyList = listTimeframe === "monthly";
@@ -1505,7 +1502,7 @@ export default function RankingView() {
                     phaseLate={ticker?.lateScore ?? null}
                     phaseN={ticker?.phaseN ?? null}
                     annotation={
-                      tradexListSummaryEnabled && selectedSet.has(item.code) ? (
+                      selectedSet.has(item.code) ? (
                         <TradexListSummary
                           summary={tradexSummary}
                           loading={tradexListSummaryState.loading && !tradexSummary}
@@ -1853,10 +1850,11 @@ export default function RankingView() {
                     }
                   />
                 );
-              })}
-
-            </div>
-          </>
+                  })}
+                </div>
+              </>
+            )}
+          </TradexListSummaryMount>
         )}
       </div>
       <div

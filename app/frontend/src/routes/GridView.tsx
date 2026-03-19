@@ -64,11 +64,8 @@ import {
 import { useResizeObserver } from "./grid/hooks/useResizeObserver";
 import GridIndicatorOverlay from "./grid/components/GridIndicatorOverlay";
 import { useTerminalJobPolling } from "./grid/hooks/useTerminalJobPolling";
-import { useTradexListSummary } from "../hooks/useTradexListSummary";
-import {
-  buildTradexListSummaryKey,
-  shouldShowTradexListSummary,
-} from "./list/tradexSummary";
+import { buildTradexListSummaryKey } from "./list/tradexSummary";
+import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
 import type {
   BuyStateFilter,
   HealthStatus,
@@ -264,17 +261,10 @@ export default function GridView() {
   const terminalJobsInitializedRef = useRef(false);
   const walkforwardPresetsLoadedRef = useRef(false);
   const [tradexVisibleCodes, setTradexVisibleCodes] = useState<string[]>([]);
-  const tradexListSummaryEnabled = shouldShowTradexListSummary();
   const tradexListSummaryItems = useMemo(
     () => tradexVisibleCodes.map((code) => ({ code, asof: null })),
     [tradexVisibleCodes]
   );
-  const tradexListSummaryState = useTradexListSummary({
-    backendReady,
-    enabled: tradexListSummaryEnabled,
-    scope: "grid-visible",
-    items: tradexListSummaryItems
-  });
 
 
   const showToast = useCallback((text: string, action?: ToastAction | null) => {
@@ -3781,83 +3771,90 @@ export default function GridView() {
           </div>
         )}
         {!showSkeleton && size.width > 0 && sortedTickers.length > 0 && (
-          <div className="grid-inner">
-            <Grid
-              key={`${gridTimeframe}-${currentTheme}`}
-              ref={gridRef}
-              columnCount={columns}
-              columnWidth={columnWidth}
-              height={innerHeight}
-              rowCount={rowCount}
-              rowHeight={rowHeight}
-              width={gridWidth}
-              overscanRowCount={2}
-              itemData={sortedTickers}
-              itemKey={itemKey}
-              onItemsRendered={onItemsRendered}
-              initialScrollTop={gridScrollTop}
-              onScroll={({ scrollTop }) => setGridScrollTop(scrollTop)}
-            >
-              {({ columnIndex, rowIndex, style, data }) => {
-                const index = rowIndex * columns + columnIndex;
-                const item = data[index];
-                if (!item) return null;
-                const cellStyle = {
-                  ...style,
-                  padding: GRID_GAP / 2,
-                  boxSizing: "border-box"
-                };
-                return (
-                  <div style={cellStyle}>
-                    {(() => {
-                      const anchorSource =
-                        techFilterActive.conditions.length > 0
-                          ? filterAnchorInfoByCode
-                          : listAnchorInfoByCode;
-                      const anchor = anchorSource.get(item.ticker.code);
-                      const asofLabel =
-                        shouldShowAsof && anchor?.asof ? formatDateYMD(anchor.time) : null;
-                      const baseLabel =
-                        techFilterActive.conditions.length > 0
-                          ? activeAnchorLabel
-                          : listAnchorLabel;
-                      const asofTooltip = asofLabel
-                        ? `基準日 ${baseLabel ?? "最新"} の足が無いので ${asofLabel} を使用`
-                        : null;
-                      const tradexSummary = tradexListSummaryState.itemsByKey[
-                        buildTradexListSummaryKey(item.ticker.code, null)
-                      ] ?? null;
-                      return (
-                        <StockTile
-                          ticker={item.ticker}
-                          timeframe={gridTimeframe}
-                          maxBars={gridMaxBars}
-                          signals={item.metrics?.signals ?? []}
-                          active={activeCode === item.ticker.code}
-                          kept={keepSet.has(item.ticker.code)}
-                          asofLabel={asofLabel}
-                          asofTooltip={asofTooltip}
-                          onActivate={activateByCode}
-                          onOpenDetail={handleOpenDetail}
-                          onToggleKeep={handleToggleKeep}
-                          onExclude={handleExclude}
-                          theme={currentTheme}
-                          annotation={
-                            tradexListSummaryEnabled ? (
-                              <TradexListSummary
-                                summary={tradexSummary}
-                                loading={tradexListSummaryState.loading && !tradexSummary}
-                              />
-                            ) : null
-                          }
-                        />
-                      );
-                    })()}
-                  </div>
-                );
-              }}
-            </Grid>
-          </div>
+          <TradexListSummaryMount
+            backendReady={backendReady}
+            enabled={true}
+            scope="grid-visible"
+            items={tradexListSummaryItems}
+          >
+            {(tradexListSummaryState) => (
+              <div className="grid-inner">
+                <Grid
+                  key={`${gridTimeframe}-${currentTheme}`}
+                  ref={gridRef}
+                  columnCount={columns}
+                  columnWidth={columnWidth}
+                  height={innerHeight}
+                  rowCount={rowCount}
+                  rowHeight={rowHeight}
+                  width={gridWidth}
+                  overscanRowCount={2}
+                  itemData={sortedTickers}
+                  itemKey={itemKey}
+                  onItemsRendered={onItemsRendered}
+                  initialScrollTop={gridScrollTop}
+                  onScroll={({ scrollTop }) => setGridScrollTop(scrollTop)}
+                >
+                  {({ columnIndex, rowIndex, style, data }) => {
+                    const index = rowIndex * columns + columnIndex;
+                    const item = data[index];
+                    if (!item) return null;
+                    const cellStyle = {
+                      ...style,
+                      padding: GRID_GAP / 2,
+                      boxSizing: "border-box"
+                    };
+                    return (
+                      <div style={cellStyle}>
+                        {(() => {
+                          const anchorSource =
+                            techFilterActive.conditions.length > 0
+                              ? filterAnchorInfoByCode
+                              : listAnchorInfoByCode;
+                          const anchor = anchorSource.get(item.ticker.code);
+                          const asofLabel =
+                            shouldShowAsof && anchor?.asof ? formatDateYMD(anchor.time) : null;
+                          const baseLabel =
+                            techFilterActive.conditions.length > 0
+                              ? activeAnchorLabel
+                              : listAnchorLabel;
+                          const asofTooltip = asofLabel
+                            ? `基準日 ${baseLabel ?? "最新"} の足が無いので ${asofLabel} を使用`
+                            : null;
+                          const tradexSummary = tradexListSummaryState.itemsByKey[
+                            buildTradexListSummaryKey(item.ticker.code, null)
+                          ] ?? null;
+                          return (
+                            <StockTile
+                              ticker={item.ticker}
+                              timeframe={gridTimeframe}
+                              maxBars={gridMaxBars}
+                              signals={item.metrics?.signals ?? []}
+                              active={activeCode === item.ticker.code}
+                              kept={keepSet.has(item.ticker.code)}
+                              asofLabel={asofLabel}
+                              asofTooltip={asofTooltip}
+                              onActivate={activateByCode}
+                              onOpenDetail={handleOpenDetail}
+                              onToggleKeep={handleToggleKeep}
+                              onExclude={handleExclude}
+                              theme={currentTheme}
+                              annotation={
+                                <TradexListSummary
+                                  summary={tradexSummary}
+                                  loading={tradexListSummaryState.loading && !tradexSummary}
+                                />
+                              }
+                            />
+                          );
+                        })()}
+                      </div>
+                    );
+                  }}
+                </Grid>
+              </div>
+            )}
+          </TradexListSummaryMount>
         )}
       </div>
       {undoInfo && (

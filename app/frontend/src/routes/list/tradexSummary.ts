@@ -2,6 +2,11 @@ import type { TradexAnalysisPublishReadiness } from "../detail/detailTypes";
 import { toFiniteNumber } from "../detail/detailHelpers";
 
 export const TRADEX_LIST_SUMMARY_FLAG_NAME = "VITE_ENABLE_TRADEX_LIST_SUMMARY";
+export const TRADEX_LIST_SUMMARY_WARM_CAPS = {
+  visible: 48,
+  selected: 48,
+  favorites: 24,
+} as const;
 
 const truthy = new Set(["1", "true", "yes", "on"]);
 
@@ -33,6 +38,36 @@ export type TradexListSummaryReadResult = {
   reason: string | null;
   scope: string | null;
   items: TradexListSummaryItem[];
+};
+
+const resolveWarmCap = (scope: string, fallback = TRADEX_LIST_SUMMARY_WARM_CAPS.visible) => {
+  const normalized = toText(scope, "").toLowerCase();
+  if (normalized.includes("favorite")) return TRADEX_LIST_SUMMARY_WARM_CAPS.favorites;
+  if (normalized.includes("selected")) return TRADEX_LIST_SUMMARY_WARM_CAPS.selected;
+  if (normalized.includes("visible")) return TRADEX_LIST_SUMMARY_WARM_CAPS.visible;
+  return fallback;
+};
+
+export const buildTradexListSummaryWarmItems = (
+  items: TradexListSummaryRequestItem[],
+  scope: string,
+  fallbackCap = TRADEX_LIST_SUMMARY_WARM_CAPS.visible
+) => {
+  const limit = resolveWarmCap(scope, fallbackCap);
+  const capped: TradexListSummaryRequestItem[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (!item?.code) continue;
+    const normalizedCode = toText(item.code);
+    if (!normalizedCode) continue;
+    const normalizedAsof = item.asof == null ? null : item.asof;
+    const key = buildTradexListSummaryKey(normalizedCode, normalizedAsof);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    capped.push({ code: normalizedCode, asof: normalizedAsof });
+    if (capped.length >= limit) break;
+  }
+  return capped;
 };
 
 export const formatTradexListSummaryToneLabel = (tone: TradexListSummaryTone | null) => {

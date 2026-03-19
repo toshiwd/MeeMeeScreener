@@ -16,11 +16,8 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
-import { useTradexListSummary } from "../hooks/useTradexListSummary";
-import {
-  buildTradexListSummaryKey,
-  shouldShowTradexListSummary,
-} from "./list/tradexSummary";
+import { buildTradexListSummaryKey } from "./list/tradexSummary";
+import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
 
 type FavoriteItem = {
   code: string;
@@ -348,17 +345,10 @@ export default function FavoritesView() {
   const listCodes = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
 
   const consultTargets = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
-  const tradexListSummaryEnabled = shouldShowTradexListSummary();
   const tradexListSummaryItems = useMemo(
     () => sortedItems.map((item) => ({ code: item.code, asof: null })),
     [sortedItems]
   );
-  const tradexListSummaryState = useTradexListSummary({
-    backendReady,
-    enabled: tradexListSummaryEnabled,
-    scope: "favorites-scope",
-    items: tradexListSummaryItems
-  });
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -548,10 +538,18 @@ export default function FavoritesView() {
         className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
       >
-        {loading && <div className="rank-status">読み込み中...</div>}
-        {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
-        <div className="rank-grid">
-          {sortedItems.map((item) => {
+        <TradexListSummaryMount
+          backendReady={backendReady}
+          enabled={true}
+          scope="favorites-visible"
+          items={tradexListSummaryItems}
+        >
+          {(tradexListSummaryState) => (
+            <>
+              {loading && <div className="rank-status">読み込み中...</div>}
+              {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
+              <div className="rank-grid">
+                {sortedItems.map((item) => {
             const payload = barsCache[listTimeframe]?.[item.code] ?? null;
             const status = barsStatus[listTimeframe][item.code];
             const ticker = tickerMap.get(item.code);
@@ -578,12 +576,10 @@ export default function FavoritesView() {
                 phaseLate={ticker?.lateScore ?? null}
                 phaseN={ticker?.phaseN ?? null}
                 annotation={
-                  tradexListSummaryEnabled ? (
-                    <TradexListSummary
-                      summary={tradexSummary}
-                      loading={tradexListSummaryState.loading && !tradexSummary}
-                    />
-                  ) : null
+                  <TradexListSummary
+                    summary={tradexSummary}
+                    loading={tradexListSummaryState.loading && !tradexSummary}
+                  />
                 }
                 action={{
                   label: <IconHeartFilled size={20} />,
@@ -593,9 +589,11 @@ export default function FavoritesView() {
                 }}
               />
             );
-          })}
-
-        </div>
+                })}
+              </div>
+            </>
+          )}
+        </TradexListSummaryMount>
       </div>
       <div
         className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"
