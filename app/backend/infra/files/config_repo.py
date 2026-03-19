@@ -8,6 +8,8 @@ from typing import Dict, Any
 
 LOGIC_SELECTION_SCHEMA_VERSION = "logic_selection_v1"
 LOGIC_SELECTION_AUDIT_PATH = "logic_selection_audit.jsonl"
+PUBLISH_PROMOTION_AUDIT_PATH = "publish_promotion_audit.jsonl"
+PUBLISH_REGISTRY_SCHEMA_VERSION = "publish_registry_v1"
 LAST_KNOWN_GOOD_DIRNAME = "last_known_good"
 LAST_KNOWN_GOOD_ARTIFACT_SCHEMA_VERSION = "last_known_good_v1"
 
@@ -17,8 +19,10 @@ class ConfigRepository:
         self.state_path = os.path.join(data_dir, "update_state.json")
         self.rank_config_path = os.path.join(data_dir, "config", "rank_config.json")
         self.logic_selection_path = os.path.join(data_dir, "config", "logic_selection.json")
+        self.publish_registry_path = os.path.join(data_dir, "config", "publish_registry.json")
         self.runtime_selection_dir = os.path.join(data_dir, "runtime_selection")
         self.logic_selection_audit_path = os.path.join(self.runtime_selection_dir, LOGIC_SELECTION_AUDIT_PATH)
+        self.publish_promotion_audit_path = os.path.join(self.runtime_selection_dir, PUBLISH_PROMOTION_AUDIT_PATH)
         self.last_known_good_root = os.path.join(self.runtime_selection_dir, LAST_KNOWN_GOOD_DIRNAME)
 
     def load_update_state(self) -> Dict[str, Any]:
@@ -81,6 +85,23 @@ class ConfigRepository:
         payload["schema_version"] = str(payload.get("schema_version") or LOGIC_SELECTION_SCHEMA_VERSION)
         return self._atomic_write_json(self.logic_selection_path, payload)
 
+    def load_publish_registry_state(self) -> Dict[str, Any]:
+        if not os.path.exists(self.publish_registry_path):
+            return {}
+        try:
+            with open(self.publish_registry_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            return {}
+        return {}
+
+    def save_publish_registry_state(self, state: Dict[str, Any]) -> str:
+        payload = dict(state or {})
+        payload["schema_version"] = str(payload.get("schema_version") or PUBLISH_REGISTRY_SCHEMA_VERSION)
+        return self._atomic_write_json(self.publish_registry_path, payload)
+
     def _logic_key_dirname(self, logic_key: str) -> str:
         safe = str(logic_key or "").strip().replace(":", "__")
         return safe or "unknown_logic"
@@ -130,3 +151,16 @@ class ConfigRepository:
             f.flush()
             os.fsync(f.fileno())
         return self.logic_selection_audit_path
+
+    def append_publish_promotion_audit_event(self, event: Dict[str, Any]) -> str:
+        os.makedirs(os.path.dirname(self.publish_promotion_audit_path), exist_ok=True)
+        payload = dict(event or {})
+        payload.setdefault("schema_version", PUBLISH_REGISTRY_SCHEMA_VERSION)
+        payload.setdefault("event_at", datetime.now(timezone.utc).isoformat())
+        line = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        with open(self.publish_promotion_audit_path, "a", encoding="utf-8") as f:
+            f.write(line)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        return self.publish_promotion_audit_path

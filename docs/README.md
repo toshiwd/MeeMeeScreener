@@ -22,9 +22,11 @@
 
 - `docs/architecture/DATA_CONTRACTS.md`: MeeMee Screener / TradeX v3 のデータ契約と境界定義
 - `docs/architecture/RUNTIME_SELECTION.md`: logic pointer の解決順、保存先、safe fallback の骨組み
+- `docs/architecture/PUBLISH_PROMOTION.md`: champion / challenger / rollback の最小運用仕様
 - `docs/pages/meemee-grid.md`: 一覧画面の軽仕様
 - `docs/pages/meemee-detail.md`: 個別詳細画面の軽仕様
 - `docs/pages/meemee-trades.md`: 取引履歴と日次建玉を確認するための軽仕様
+- `docs/pages/tradex-publish-flow.md`: TradeX publish / rollback の運用フロー
 - `docs/features/yahoo-provisional-overlay.md`: Yahoo 仮データの表示契約
 - `docs/features/trade-history-import.md`: 楽天 / SBI 取引履歴 CSV の正規化契約
 - `docs/features/event-badges.md`: 決算日、権利日などのイベントバッジ契約

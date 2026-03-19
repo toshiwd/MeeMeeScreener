@@ -229,6 +229,7 @@ def _build_resolution_snapshot(
     local_state: dict[str, Any],
     catalog_manifest: list[dict[str, Any]],
     catalog_default_logic_pointer: str | None,
+    publish_registry: dict[str, Any],
     lkg_state: dict[str, Any] | None,
     selection_issues: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -236,9 +237,18 @@ def _build_resolution_snapshot(
     available_lookup = {str(entry["logic_key"]): entry for entry in available_manifest if entry.get("logic_key")}
 
     override_raw = _normalize_text(local_state.get(SELECTED_LOGIC_OVERRIDE_NAME))
-    default_pointer = _normalize_text(catalog_default_logic_pointer) or _normalize_text(local_state.get(DEFAULT_LOGIC_POINTER_NAME))
+    registry_default_pointer = _normalize_text(publish_registry.get("default_logic_pointer"))
+    default_pointer = (
+        registry_default_pointer
+        or _normalize_text(catalog_default_logic_pointer)
+        or _normalize_text(local_state.get(DEFAULT_LOGIC_POINTER_NAME))
+    )
     lkg_valid = lkg_state if lkg_state and lkg_state.get("validation_state") == _VALIDATION_OK else None
     lkg_key = _normalize_text(lkg_valid.get("logic_key")) if lkg_valid else None
+    champion = publish_registry.get("champion") if isinstance(publish_registry.get("champion"), dict) else None
+    challenger = publish_registry.get("challenger") if isinstance(publish_registry.get("challenger"), dict) else None
+    champion_key = _normalize_text(champion.get("logic_key")) if champion else None
+    challenger_key = _normalize_text(challenger.get("logic_key")) if challenger else None
     if lkg_key and lkg_key not in available_keys:
         available_keys.append(lkg_key)
         available_manifest.append(lkg_valid)
@@ -307,6 +317,9 @@ def _build_resolution_snapshot(
         "snapshot_created_at": _now_iso(),
         "selected_logic_override": override_raw,
         "default_logic_pointer": default_pointer,
+        "registry_default_logic_pointer": registry_default_pointer,
+        "champion_logic_key": champion_key,
+        "challenger_logic_key": challenger_key,
         "logic_key": selected_key,
         "selected_logic_key": selected_key,
         "selected_logic_id": selected_logic_id,
@@ -328,6 +341,15 @@ def _build_resolution_snapshot(
         "validation_issues": selection_issues + catalog_issues,
         "notes": resolution["notes"],
         "catalog_default_logic_pointer": catalog_default_logic_pointer,
+        "publish_registry": publish_registry,
+        "publish_registry_state": {
+            **publish_registry,
+            "champion_logic_key": champion_key,
+            "challenger_logic_key": challenger_key,
+            "default_logic_pointer": default_pointer,
+            "registry_default_logic_pointer": registry_default_pointer,
+            "previous_champion_logic_key": _normalize_text(publish_registry.get("previous_champion_logic_key")),
+        },
         "catalog": {
             "available_logic_manifest": available_manifest,
             "available_logic_keys": available_keys,
@@ -350,6 +372,7 @@ def build_runtime_selection_snapshot(
     db_path: str | None = None,
 ) -> dict[str, Any]:
     local_state = _current_logic_selection_state(config_repo)
+    publish_registry = config_repo.load_publish_registry_state()
     publish_catalog = load_published_logic_catalog(db_path=_resolved_result_db_path(db_path))
     raw_catalog_manifest = list(publish_catalog.get("available_logic_manifest") or [])
     catalog_default_logic_pointer = _normalize_text(publish_catalog.get("default_logic_pointer"))
@@ -361,6 +384,7 @@ def build_runtime_selection_snapshot(
         local_state=local_state,
         catalog_manifest=valid_catalog_entries,
         catalog_default_logic_pointer=catalog_default_logic_pointer,
+        publish_registry=publish_registry if isinstance(publish_registry, dict) else {},
         lkg_state=lkg_state,
         selection_issues=selection_issues,
     )
