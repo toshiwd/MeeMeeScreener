@@ -28,7 +28,17 @@ def test_public_empty_schema_has_expected_columns_and_publish_id(tmp_path) -> No
     try:
         expected = {
             "publish_pointer": {"pointer_name": "VARCHAR", "publish_id": "VARCHAR", "as_of_date": "DATE"},
-            "publish_manifest": {"publish_id": "VARCHAR", "as_of_date": "DATE", "published_at": "TIMESTAMP"},
+            "publish_manifest": {
+                "publish_id": "VARCHAR",
+                "as_of_date": "DATE",
+                "published_at": "TIMESTAMP",
+                "logic_id": "VARCHAR",
+                "logic_version": "VARCHAR",
+                "logic_family": "VARCHAR",
+                "default_logic_pointer": "VARCHAR",
+                "logic_artifact_uri": "VARCHAR",
+                "logic_artifact_checksum": "VARCHAR",
+            },
             "candidate_daily": {"publish_id": "VARCHAR", "as_of_date": "DATE", "code": "VARCHAR"},
             "candidate_component_scores": {"publish_id": "VARCHAR", "as_of_date": "DATE", "code": "VARCHAR"},
             "nightly_candidate_metrics": {"run_id": "VARCHAR", "publish_id": "VARCHAR", "as_of_date": "DATE", "baseline_version": "VARCHAR"},

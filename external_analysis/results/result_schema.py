@@ -79,10 +79,24 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
             published_at TIMESTAMP NOT NULL,
             freshness_state TEXT NOT NULL,
             degrade_ready BOOLEAN NOT NULL,
-            table_row_counts JSON NOT NULL
+            table_row_counts JSON NOT NULL,
+            logic_id TEXT,
+            logic_version TEXT,
+            logic_family TEXT,
+            default_logic_pointer TEXT,
+            logic_artifact_uri TEXT,
+            logic_artifact_checksum TEXT,
+            logic_manifest_json JSON
         )
         """
     )
+    conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_id TEXT")
+    conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_version TEXT")
+    conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_family TEXT")
+    conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS default_logic_pointer TEXT")
+    conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_artifact_uri TEXT")
+    conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_artifact_checksum TEXT")
+    conn.execute("ALTER TABLE publish_manifest ADD COLUMN IF NOT EXISTS logic_manifest_json JSON")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS candidate_daily (

@@ -20,7 +20,8 @@
 
 ## Architecture / Pages / Features
 
-- `docs/architecture/DATA_CONTRACTS.md`: 価格、財務、取引、派生データの境界と縮退方針
+- `docs/architecture/DATA_CONTRACTS.md`: MeeMee Screener / TradeX v3 のデータ契約と境界定義
+- `docs/architecture/RUNTIME_SELECTION.md`: logic pointer の解決順、保存先、safe fallback の骨組み
 - `docs/pages/meemee-grid.md`: 一覧画面の軽仕様
 - `docs/pages/meemee-detail.md`: 個別詳細画面の軽仕様
 - `docs/pages/meemee-trades.md`: 取引履歴と日次建玉を確認するための軽仕様
