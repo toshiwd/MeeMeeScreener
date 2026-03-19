@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.backend.api.dependencies import get_config_repo
@@ -11,6 +11,8 @@ from app.backend.core.config import write_data_dir_override
 from app.backend.api.routers.jobs import submit_txt_update_job
 from app.backend.infra.files.config_repo import ConfigRepository
 from app.backend.services import strategy_backtest_service
+from app.backend.services.runtime_selection_service import build_runtime_selection_snapshot
+from app.backend.infra.files.config_repo import LOGIC_SELECTION_SCHEMA_VERSION
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 logger = logging.getLogger(__name__)
@@ -18,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 class DataDirPayload(BaseModel):
     dataDir: str
+
+
+class RuntimeSelectionOverridePayload(BaseModel):
+    selectedLogicOverride: str | None = None
 
 
 @router.post("/update_data")
@@ -50,6 +56,37 @@ def set_data_dir(payload: DataDirPayload):
         "configPath": str(config_path),
         "restartRequired": True,
         "message": "Data directory override saved; restart the app for changes to fully apply."
+    }
+
+
+@router.get("/runtime-selection")
+def get_runtime_selection(
+    request: Request,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    snapshot = build_runtime_selection_snapshot(config_repo=config)
+    request.app.state.runtime_selection_snapshot = snapshot
+    return snapshot
+
+
+@router.post("/runtime-selection/override")
+def set_runtime_selection_override(
+    payload: RuntimeSelectionOverridePayload,
+    request: Request,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    current = config.load_logic_selection_state()
+    selected = str(payload.selectedLogicOverride or "").strip() or None
+    current["schema_version"] = LOGIC_SELECTION_SCHEMA_VERSION
+    current["selected_logic_override"] = selected
+    config.save_logic_selection_state(current)
+    snapshot = build_runtime_selection_snapshot(config_repo=config)
+    request.app.state.runtime_selection_snapshot = snapshot
+    return {
+        "ok": True,
+        "schema_version": LOGIC_SELECTION_SCHEMA_VERSION,
+        "selected_logic_override": selected,
+        "snapshot": snapshot,
     }
 
 @router.get("/status")

@@ -18,6 +18,7 @@ from app.core.config import config as core_config
 from app.db.session import get_conn, is_transient_duckdb_error
 from app.backend.core.text_encoding import repair_cp932_mojibake
 from app.backend.domain.screening.metrics import _calc_liquidity_20d
+from shared.market_semantics import is_confirmed_market_semantics
 from ..analysis import swing_plan_service
 from ..data.bar_aggregation import merge_monthly_rows_with_daily
 from .edinet_rank_features import load_edinet_rank_features
@@ -86,6 +87,12 @@ def _merge_analysis_provisional_rows(
             today_key_jst = int((datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y%m%d"))
             for code, provisional_row in provisional_map.items():
                 if not provisional_row or normalize_date_key(provisional_row[0]) != today_key_jst:
+                    continue
+                if not is_confirmed_market_semantics(
+                    confirmation_state="provisional",
+                    quality="provisional",
+                    display_only=True,
+                ):
                     continue
                 daily_map[code] = merge_daily_rows_with_provisional(
                     daily_map.get(code, []),

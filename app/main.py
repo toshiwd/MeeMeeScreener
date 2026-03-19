@@ -4,6 +4,7 @@ import threading
 import time
 import subprocess
 import logging
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -170,7 +171,7 @@ def _release_process_lock(lock_path: str | None, acquired: bool) -> None:
 # Add project root to sys.path
 sys.path.insert(0, os.getcwd())
 
-from app.backend.api.dependencies import init_resources
+from app.backend.api.dependencies import get_config_repo, init_resources
 from app.backend.api.routers import (
     analysis_bridge,
     bars,
@@ -240,6 +241,7 @@ from app.backend.core.legacy_analysis_control import (
     is_legacy_analysis_disabled,
     legacy_analysis_disabled_log_value,
 )
+from app.backend.services.runtime_selection_service import build_runtime_selection_snapshot
 from app.db.session import get_connect_stats, is_transient_duckdb_error
 
 job_manager.register_handler("force_sync", handle_force_sync)
@@ -315,6 +317,45 @@ async def lifespan(app: FastAPI):
         from app.backend.services.system_status import mark_backend_boot_ready
 
         mark_backend_boot_ready()
+        try:
+            app.state.runtime_selection_snapshot = build_runtime_selection_snapshot(
+                config_repo=get_config_repo(),
+            )
+        except Exception as exc:
+            logger.exception("Runtime selection bootstrap failed: %s", exc)
+            app.state.runtime_selection_snapshot = {
+                "schema_version": "logic_selection_v1",
+                "snapshot_created_at": datetime.now(timezone.utc).isoformat(),
+                "selected_logic_override": None,
+                "default_logic_pointer": None,
+                "last_known_good": None,
+                "last_known_good_artifact_uri": None,
+                "safe_fallback_key": "builtin_safe_fallback",
+                "available_logic_manifest": [],
+                "available_logic_keys": [],
+                "resolution": None,
+                "selected_logic_key": None,
+                "selected_logic_id": None,
+                "selected_logic_version": None,
+                "artifact_uri": None,
+                "selected_source": "unresolved",
+                "resolved_source": "unresolved",
+                "selected_pointer_name": None,
+                "matched_available": False,
+                "notes": ["runtime_selection_bootstrap_failed"],
+                "catalog_default_logic_pointer": None,
+                "catalog": {
+                    "available_logic_manifest": [],
+                    "available_logic_keys": [],
+                    "default_logic_pointer": None,
+                },
+                "resolution_order": [
+                    "selected_logic_override",
+                    "default_logic_pointer",
+                    "last_known_good",
+                    "safe_fallback",
+                ],
+            }
         print("[Main] Resources Initialized.")
         # Warm cache in background so /health is not blocked by heavy or locked DB work.
         threading.Thread(

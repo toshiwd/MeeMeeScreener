@@ -1,145 +1,164 @@
-# Data Contracts
+# Data Contracts v3
 
 ## 目的
 
-MeeMee と TradeX の境界で、どのデータを「正」とみなし、どのデータを表示専用・派生専用として扱うかを固定する。
+MeeMee Screener と TradeX の境界を、データ契約の段階で固定する。
 
-## 全体方針
+- MeeMee Screener は使う製品
+- TradeX は育てる製品
+- ranking は見る順番
+- execution は入るかどうか
+- provisional は表示補助
+- confirmed は解析基準
+- `published_ranking_snapshot` は runtime cache / audit artifact であり source of truth ではない
 
-- 生データは捨てない
-- 正規化テーブルを分ける
-- 画面表示用の派生テーブルやキャッシュは別管理にする
-- 日付、銘柄コード、足種は追跡可能なキーにする
-- 欠損時の扱いを先に決める
-- 重い検証用途の集計は MeeMee 本体ではなく外付けに寄せる
+## 基本原則
+
+- 契約名は役割で決める
+- data source は `source` field で表現する
+- provider 名だけで意味を固定しない
+- 表示用データと解析用データを分ける
+- heavy analysis 用の入力は confirmed 系に限定する
+- runtime は declared artifact を読む
 
 ## confirmed_market_bars
 
-確定した株価データの正規系列である。
+確定済みの市場バーを表す。
 
-- 解析、判定、根拠表示に使ってよい本線データ
-- 主キー候補は `code + date + interval`
-- 日足、週足、月足を扱う
-- 調整済み OHLC を本線にする
-- 必要に応じて `raw_close` と `adj_factor` を補助列として保持できる
-- PAN 取り込み後に更新される確定系列として扱う
+- 主用途: 解析基準、ランキング再計算、チャート表示の基準値
+- 必須フィールド:
+  - `code`
+  - `market_date`
+  - `open`
+  - `high`
+  - `low`
+  - `close`
+  - `volume`
+  - `source`
+  - `confirmation_state`
+  - `quality`
+- `source` は PAN, Yahoo, CSV, manual などの来歴を表す
+- `confirmation_state` は confirmed / provisional / unknown のような semantic state を表す
+- `quality` は analysis 可否を決める補助判定に使う
 
-運用上の注意:
+### 解析可否
 
-- 欠損は補完せず、欠損として残す
-- 価格の正当性を曖昧にする一時値はここへ混ぜない
+最終的な解析可否は provider 名ではなく semantic fields で決める。
+
+- `confirmation_state` が confirmed であること
+- `quality` が分析に十分であること
+- provisional 補助は `display_only` 条件で除外すること
+
+provider 名による除外は移行期の互換ガードに留める。
 
 ## provisional_intraday_overlay
 
-場中の暫定データの重ね合わせである。
+場中の補助表示専用データを表す。
 
-- 表示専用
-- 解析、判定、ランキング根拠には使わない
-- Yahoo 等の値を表示している時だけ UI 上で「暫定」を明示する
-- 取得失敗時は `confirmed_market_bars` にフォールバックする
-- フォールバック理由は詳細ステータスに残す
-
-運用上の注意:
-
-- 暫定値で分析結果を更新しない
-- 暫定値と確定値を同一系列として扱わない
+- 主用途: チャート補助、画面上の参考表示
+- 必須フィールド:
+  - `code`
+  - `overlay_at`
+  - `source`
+  - `display_only`
+  - `freshness_state`
+- 付随フィールド:
+  - `open`
+  - `high`
+  - `low`
+  - `close`
+  - `volume`
+  - `fetched_at`
+- `display_only` は true を前提とする
+- 解析 path には入れない
 
 ## financial_facts
 
-1 物理テーブルではなく、論理統合ビューとして扱う。
+共通参照可能な補助情報。
 
-物理分割の想定:
-
-- `edinet / filings`
-- `financial_metrics`
-- `event_calendar`
-- `lending / short interest`
-
-真実ソースの優先順位:
-
-- 法定財務: EDINET
-- 適時開示: TDNET
-- 権利付き / 権利落ち系: JPX
-- J-Quants 等: 補助取得層
-
-予定と実績がずれる場合:
-
-- 予定は予定として残す
-- 実績は別レコードまたは別状態で上書きではなく追加する
-- 変更履歴が必要なものは、最新状態と差分理由を両方残す
-- UI は「予定」「実績」「変更済み」を区別して表示する
+- 主用途: 決算、財務、イベント、品質観点の補助参照
+- 取得・保存・API 呼び出しは shared では扱わない
+- shared は正規化の pure function だけを持つ
 
 ## trade_history_normalized
 
-楽天 / SBI の取引履歴 CSV を正規化したテーブルである。
+MeeMee で取り込んだ取引履歴を TradeX が検証・分析できる形に正規化した契約。
 
-- 現物 / 信用、買い / 売り、約定日、受渡日、手数料、数量、単価などを正規化する
-- MeeMee 内部の建玉表記は `売-買` に統一する
-- 既存コードの暗黙ルールを壊さない
+- 主用途: import, replay, walk-forward, validation
+- broker 固有の表現は正規化で落とす
+- raw payload は別管理に分ける
 
-運用上の注意:
+## ranking_output
 
-- 元 CSV は別保管し、正規化結果だけで再現できる形にする
-- broker 固有の列名や並び替えに依存しない
+TradeX の検証・比較・監査用成果物。
 
-## position_snapshot_daily
+- runtime の唯一入力ではない
+- MeeMee Screener は local confirmed data + published_logic_artifact から必要に応じて再計算できることを優先する
+- execution 情報は含めない
 
-取引履歴から日次建玉を復元した派生契約である。
+## logic_artifact 系
 
-- trade_history_normalized と役割を分ける
-- 現在建玉だけでなく、過去日時点の建玉確認にも使う
-- 売り数量、買い数量、平均単価などを持てる形にする
+### published_logic_artifact
 
-運用上の注意:
+実行可能 code 前提ではない declarative artifact。
 
-- これは履歴の正規化そのものではなく、履歴から作る派生物である
-- 再計算タイミングは未確定のため、実装ごとに明示する
+最低限の field:
 
-## published_logic_artifact / logic_manifest
+- `artifact_version`
+- `logic_id`
+- `logic_version`
+- `logic_family`
+- `feature_spec_version`
+- `required_inputs`
+- `scorer_type`
+- `params`
+- `thresholds`
+- `weights`
+- `output_spec`
+- `checksum`
 
-TradeX で研究・publish されたロジック成果物である。
+### published_logic_manifest
 
-- MeeMee は publish 済みのものだけを表示・参照する
-- `version`, `input_spec`, `threshold`, `description`, `published_at` などを持てる形にする
-- `ranking_output` / `published_ranking_snapshot` は監査・比較用であり、MeeMee 本体の解析基準そのものではない
+runtime が参照する metadata と pointer 解決用の manifest。
 
-責務分離:
+- `logic_id`
+- `logic_version`
+- `logic_family`
+- `status`
+- `input_schema_version`
+- `output_schema_version`
+- `trained_at`
+- `published_at`
+- `artifact_uri`
+- `checksum`
 
-- logic artifact は研究成果の実体
-- logic manifest は「どの成果物を公開対象にしたか」を示す最小メタデータ
-- MeeMee は manifest を入口にして、公開済み artifact のみを読む
+### published_ranking_snapshot
 
-## 類似チャート検索の最低契約
+runtime cache / audit artifact。
 
-現在局面に近い過去局面を探し、未来のシナリオ候補を観測する。
+- source of truth ではない
+- boot 時の参照高速化や比較監査のために残す
+- MeeMee は snapshot ではなく artifact を主入力にする
 
-- 予言ではなく、シナリオ候補提示である
-- 左は基銘柄、右は過去の類似銘柄
-- 右端は類似起点日基準でそろえる
-- 類似度は少なくとも以下を分解して保持する
-  - `sim_ma_daily`
-  - `sim_ma_weekly`
-  - `sim_ma_monthly`
-  - `sim_candle_daily`
-  - `sim_candle_weekly`
-  - `sim_candle_monthly`
-  - `total_similarity`
+### validation_summary
 
-補足:
+TradeX 側の採用判定 summary。
 
-- 類似銘柄の未来側チャートは、比較用にドラッグ確認できる前提とする
-- 次の比較銘柄も保持できる構造にする
+- backtest
+- replay
+- walk-forward
+- champion / challenger 比較
+- publish 可否
 
-## 縮退方針
+## 互換期間の扱い
 
-- provisional 取得失敗時: `confirmed_market_bars` を表示し、失敗理由をステータスに出す
-- financial_facts 欠損時: 閲覧継続を優先し、欠損部分だけを非表示または欠損表示にする
-- artifact 不整合時: publish 済みの整合が取れた成果物のみを採用し、不整合 artifact は表示しない
-- データ 0 件時: 空状態を明示し、無理な補完や推測で埋めない
+- provider 名だけで provisional を判断するコードは移行期の互換ガードとして扱う
+- 最終的には `confirmation_state` / `quality` / `display_only` の semantic gate に寄せる
+- `published_ranking_snapshot` は残してよいが、runtime source of truth にしない
 
-## Open Questions / TODO
+## 関連ドキュメント
 
-- `financial_facts` の物理分割の粒度
-- `position_snapshot_daily` の再計算タイミング
-- raw 系列をどこまで保持するか
-- 類似度の各成分をどの単位で再集計するか
+- `docs/architecture/RUNTIME_SELECTION.md`
+- `docs/features/tradex-publish-flow.md`
+- `docs/features/yahoo-provisional-overlay.md`
+
