@@ -191,6 +191,12 @@ from app.backend.api.routers import (
     quality,
     toredex,
 )
+from app.backend.services.operator_mutation_lock import (
+    get_operator_mutation_observability,
+    get_operator_mutation_state,
+    is_operator_mutation_active,
+    record_operator_mutation_observation,
+)
 from app.backend.api import watchlist_routes
 from app.backend.api.routers import rankings
 from app.backend.core.force_sync_job import handle_force_sync
@@ -246,6 +252,7 @@ from app.backend.core.legacy_analysis_control import (
     legacy_analysis_disabled_log_value,
 )
 from app.backend.services.runtime_selection_service import build_runtime_selection_snapshot
+from app.backend.services.publish_promotion_service import build_publish_promotion_snapshot
 from app.db.session import get_connect_stats, is_transient_duckdb_error
 
 job_manager.register_handler("force_sync", handle_force_sync)
@@ -367,6 +374,38 @@ async def lifespan(app: FastAPI):
                     "safe_fallback",
                 ],
             }
+        try:
+            app.state.publish_promotion_snapshot = build_publish_promotion_snapshot(
+                config_repo=get_config_repo(),
+                db_path=os.getenv("MEEMEE_RESULT_DB_PATH"),
+                ops_db_path=os.getenv("MEEMEE_OPS_DB_PATH"),
+            )
+        except Exception as exc:
+            logger.exception("Publish promotion bootstrap failed: %s", exc)
+            app.state.publish_promotion_snapshot = {
+                "schema_version": "publish_registry_v2",
+                "source_of_truth": "empty",
+                "registry_sync_state": "empty",
+                "degraded": True,
+                "last_sync_time": None,
+                "bootstrap_rule": "empty_safe_state",
+                "champion_logic_key": None,
+                "challenger_logic_keys": [],
+                "challengers": [],
+                "default_logic_pointer": None,
+                "previous_stable_champion_logic_key": None,
+                "retired_logic_keys": [],
+                "promotion_history": [],
+                "maintenance_state": {},
+                "candidate_backfill_last_run": None,
+                "snapshot_sweep_last_run": None,
+                "non_promotable_legacy_count": 0,
+                "maintenance_degraded": True,
+                "external_registry_version": None,
+                "local_mirror_version": None,
+                "mirror_schema_version": None,
+                "mirror_normalized": False,
+            }
         print("[Main] Resources Initialized.")
         # Warm cache in background so /health is not blocked by heavy or locked DB work.
         threading.Thread(
@@ -423,13 +462,30 @@ def create_app() -> FastAPI:
         except Exception as exc:
             if not is_transient_duckdb_error(exc):
                 raise
+            mutation_state = get_operator_mutation_state() if is_operator_mutation_active() else None
+            request_path = str(getattr(getattr(request, "url", None), "path", "") or "")
+            reason = "db_busy"
+            if mutation_state and request_path.startswith("/api/system/"):
+                if request_path.startswith("/api/system/publish/state") or request_path.startswith("/api/system/runtime-selection"):
+                    reason = "publish_state_refresh_conflict"
+                else:
+                    reason = "operator_mutation_busy"
+            record_operator_mutation_observation(reason)
             payload = {
                 "error": "db_unavailable",
                 "retryable": True,
+                "reason": reason,
                 "message": "Database is temporarily unavailable",
                 "path": str(getattr(request, "url", "")),
                 "db_connect_stats": get_connect_stats(),
             }
+            if mutation_state:
+                payload["operator_mutation_state"] = {
+                    "active": mutation_state.active,
+                    "active_action": mutation_state.active_action,
+                    "active_since": mutation_state.active_since,
+                }
+            payload["operator_mutation_observability"] = get_operator_mutation_observability()
             return JSONResponse(status_code=503, content=payload, headers={"Retry-After": "1"})
 
     # Routes

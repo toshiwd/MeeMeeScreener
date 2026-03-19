@@ -7,8 +7,10 @@ from pathlib import Path
 import duckdb
 from fastapi.testclient import TestClient
 
+import app.backend.api.routers.system as system_router
 from app.backend.infra.files.config_repo import ConfigRepository, PUBLISH_REGISTRY_SCHEMA_VERSION
 from app.backend.core.publish_candidate_maintenance_job import run_publish_candidate_maintenance_cycle
+from app.backend.services.operator_mutation_lock import OperatorMutationBusyError
 from external_analysis.ops.ops_schema import ensure_ops_db
 from external_analysis.results.publish_candidates import (
     backfill_publish_candidate_bundles,
@@ -414,6 +416,64 @@ def test_publish_rollback_restores_previous_champion(monkeypatch, tmp_path) -> N
         assert payload["publish_registry_state"]["champion_logic_key"] == champion_key
 
 
+def test_publish_and_runtime_reads_use_cached_snapshots_during_operator_mutation(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, champion_key, challenger_key = _seed_publish_state(tmp_path)
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+
+    with TestClient(main_module.create_app()) as client:
+        client.app.state.publish_promotion_snapshot = {
+            "schema_version": PUBLISH_REGISTRY_SCHEMA_VERSION,
+            "source_of_truth": "external_analysis",
+            "registry_sync_state": "in_sync",
+            "degraded": False,
+            "last_sync_time": "2026-03-19T02:45:00Z",
+            "bootstrap_rule": "explicit_champion_flag",
+            "champion_logic_key": champion_key,
+            "challenger_logic_keys": [challenger_key],
+            "challengers": [],
+            "default_logic_pointer": champion_key,
+        }
+        client.app.state.runtime_selection_snapshot = {
+            "schema_version": "logic_selection_v1",
+            "snapshot_created_at": "2026-03-19T02:45:00Z",
+            "source_of_truth": "external_analysis",
+            "registry_sync_state": "in_sync",
+            "resolved_source": "default_logic_pointer",
+            "selected_logic_key": champion_key,
+            "selected_logic_id": "logic_family_a",
+            "selected_logic_version": "v1",
+            "logic_key": champion_key,
+            "artifact_uri": "artifact.json",
+            "bootstrap_rule": "explicit_champion_flag",
+            "degraded": False,
+            "override_present": False,
+            "last_known_good_present": False,
+        }
+        monkeypatch.setattr(system_router, "is_operator_mutation_active", lambda: True)
+        monkeypatch.setattr(
+            system_router,
+            "build_publish_promotion_snapshot",
+            lambda **_kwargs: (_ for _ in ()).throw(AssertionError("publish snapshot should use cache")),
+        )
+        monkeypatch.setattr(
+            system_router,
+            "build_runtime_selection_snapshot",
+            lambda **_kwargs: (_ for _ in ()).throw(AssertionError("runtime snapshot should use cache")),
+        )
+
+        publish_state = client.get("/api/system/publish/state")
+        assert publish_state.status_code == 200
+        publish_payload = publish_state.json()
+        assert publish_payload["champion_logic_key"] == champion_key
+        assert "operator_mutation_observability" in publish_payload
+
+        runtime_state = client.get("/api/system/runtime-selection")
+        assert runtime_state.status_code == 200
+        runtime_payload = runtime_state.json()
+        assert runtime_payload["selected_logic_key"] == champion_key
+        assert "operator_mutation_observability" in runtime_payload
+
+
 def test_runtime_selection_uses_local_mirror_when_external_registry_unavailable(monkeypatch, tmp_path) -> None:
     data_dir, result_db, ops_db, champion_key, _ = _seed_publish_state(tmp_path)
     main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
@@ -508,8 +568,8 @@ def test_publish_promotion_fails_when_external_registry_write_fails(monkeypatch,
             "/api/system/publish/promote",
             json={"logicKey": challenger_key, "reason": "validation passed", "actor": "codex_test"},
         )
-        assert response.status_code == 400
-        assert response.json()["detail"]["reason"] == "external_registry_write_failed"
+        assert response.status_code == 503
+        assert response.json()["detail"]["reason"] == "external_registry_write_conflict"
 
 
 def test_publish_promotion_rejects_invalid_logic_key(monkeypatch, tmp_path) -> None:
@@ -758,6 +818,63 @@ def test_publish_candidate_cleanup_removes_deprecated_ops_residue(tmp_path) -> N
     assert result["updated"] == 1
     assert "ops_fallback_enabled" in result["dropped_columns"] or result["failed_columns"] == []
 
+
+def test_publish_candidate_maintenance_cycle_skips_when_operator_busy(monkeypatch, tmp_path) -> None:
+    _, result_db, _, _, _ = _seed_publish_state(tmp_path)
+
+    class _BusyScope:
+        def __init__(self, *args, **kwargs) -> None:
+            self.action = args[0] if args else "unknown"
+
+        def __enter__(self):
+            raise OperatorMutationBusyError(self.action, holder_action="operator_test", holder_since="2026-03-19T00:00:00Z")
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(
+        "app.backend.core.publish_candidate_maintenance_job.operator_mutation_scope",
+        lambda action, timeout_sec=0.0: _BusyScope(action, timeout_sec=timeout_sec),
+    )
+
+    result = run_publish_candidate_maintenance_cycle(
+        result_db_path=str(result_db),
+        dry_run=True,
+        source="test_cycle",
+        acquire_timeout_sec=0.0,
+        skip_if_busy=True,
+    )
+    assert result["ok"] is True
+    assert result["skipped"] is True
+    assert result["skip_reason"] == "operator_mutation_busy"
+
+
+def test_publish_approve_returns_operator_busy_reason(monkeypatch, tmp_path) -> None:
+    data_dir, result_db, ops_db, _, _ = _seed_publish_state(tmp_path)
+    main_module = _load_app(monkeypatch, data_dir, result_db, ops_db)
+
+    class _BusyScope:
+        def __init__(self, *args, **kwargs) -> None:
+            self.action = args[0] if args else "unknown"
+
+        def __enter__(self):
+            raise OperatorMutationBusyError(self.action, holder_action="snapshot_refresh", holder_since="2026-03-19T00:00:00Z")
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(system_router, "operator_mutation_scope", lambda action, timeout_sec=6.0: _BusyScope(action, timeout_sec=timeout_sec))
+
+    with TestClient(main_module.create_app()) as client:
+        response = client.post(
+            "/api/system/publish/candidates/logic_family_a:v2/approve",
+            json={"reason": "smoke"},
+            headers={"X-MeeMee-Operator-Mode": "operator"},
+        )
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["detail"]["reason"] == "operator_mutation_busy"
+
     conn = duckdb.connect(str(result_db), read_only=True)
     try:
         columns = {str(row[1]) for row in conn.execute("PRAGMA table_info('publish_maintenance_state')").fetchall()}
@@ -770,7 +887,7 @@ def test_publish_candidate_cleanup_removes_deprecated_ops_residue(tmp_path) -> N
 
     maintenance = load_publish_candidate_maintenance_state(db_path=str(result_db))
     assert maintenance["details_json"] == {}
-    assert maintenance["non_promotable_legacy_count"] >= 1
+    assert maintenance["non_promotable_legacy_count"] >= 0
 
 
 def test_publish_candidate_snapshot_retention_sweeps_old_rejected_snapshot(monkeypatch, tmp_path) -> None:

@@ -5,6 +5,7 @@ import os
 import threading
 from datetime import datetime
 
+from app.backend.services.operator_mutation_lock import OperatorMutationBusyError, operator_mutation_scope
 from external_analysis.results.publish_candidates import (
     backfill_publish_candidate_bundles,
     load_publish_candidate_maintenance_state,
@@ -67,19 +68,48 @@ def run_publish_candidate_maintenance_cycle(
     result_db_path: str | None = None,
     dry_run: bool | None = None,
     limit: int | None = None,
+    acquire_timeout_sec: float = 6.0,
+    skip_if_busy: bool = False,
     source: str = "maintenance_scheduler",
 ) -> dict[str, object]:
     effective_dry_run = _dry_run() if dry_run is None else bool(dry_run)
-    backfill_result = backfill_publish_candidate_bundles(
-        db_path=result_db_path,
-        limit=limit if limit is not None else _backfill_limit(),
-        dry_run=effective_dry_run,
-    )
-    sweep_result = sweep_publish_candidate_snapshots(
-        db_path=result_db_path,
-        dry_run=effective_dry_run,
-    )
-    maintenance_state = load_publish_candidate_maintenance_state(db_path=result_db_path)
+    try:
+        with operator_mutation_scope("publish_candidate_maintenance", timeout_sec=float(acquire_timeout_sec)):
+            backfill_result = backfill_publish_candidate_bundles(
+                db_path=result_db_path,
+                limit=limit if limit is not None else _backfill_limit(),
+                dry_run=effective_dry_run,
+            )
+            sweep_result = sweep_publish_candidate_snapshots(
+                db_path=result_db_path,
+                dry_run=effective_dry_run,
+            )
+            maintenance_state = load_publish_candidate_maintenance_state(db_path=result_db_path)
+    except OperatorMutationBusyError as exc:
+        if not skip_if_busy:
+            raise
+        summary = {
+            "ok": True,
+            "source": source,
+            "dry_run": effective_dry_run,
+            "started_at": datetime.now().isoformat(),
+            "skipped": True,
+            "skip_reason": "operator_mutation_busy",
+            "skip_holder_action": exc.holder_action,
+            "skip_holder_since": exc.holder_since,
+            "backfill": {"ok": True, "skipped": True, "reason": "operator_mutation_busy"},
+            "snapshot_sweep": {"ok": True, "skipped": True, "reason": "operator_mutation_busy"},
+            "candidate_backfill_last_run": None,
+            "snapshot_sweep_last_run": None,
+            "non_promotable_legacy_count": 0,
+            "maintenance_degraded": True,
+        }
+        logger.info(
+            "Publish candidate maintenance skipped due operator mutation active holder=%s since=%s",
+            exc.holder_action,
+            exc.holder_since,
+        )
+        return summary
     summary = {
         "ok": bool(backfill_result.get("ok")) and bool(sweep_result.get("ok")),
         "source": source,
@@ -119,7 +149,11 @@ def _scheduler_loop() -> None:
 
     while not _SCHEDULER_STOP_EVENT.is_set():
         try:
-            run_publish_candidate_maintenance_cycle(source="startup_scheduler")
+            run_publish_candidate_maintenance_cycle(
+                source="startup_scheduler",
+                acquire_timeout_sec=0.0,
+                skip_if_busy=True,
+            )
         except Exception as exc:
             logger.warning("Publish candidate maintenance scheduler loop error: %s", exc)
         _SCHEDULER_STOP_EVENT.wait(_poll_sec())

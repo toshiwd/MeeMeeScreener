@@ -174,6 +174,9 @@ MeeMee reads publish state in this order:
 2. local mirror
 3. empty safe state
 
+During an active operator mutation, the API may return the last known stable in-memory snapshot instead of forcing a fresh DB read. That keeps read-refresh flows from failing on transient lock contention.
+The read endpoints may also expose a minimal operator mutation observability block so operators can see whether a refresh was served from a stable snapshot during a mutation.
+
 The runtime view must expose:
 
 - `source_of_truth`
@@ -214,6 +217,7 @@ The publish maintenance snapshot should expose:
 - `snapshot_sweep_last_run`
 - `non_promotable_legacy_count`
 - `maintenance_degraded`
+- `operator_mutation_observability`
 - `updated_at`
 
 `non_promotable_legacy_count` is a live aggregate derived from candidate bundle state.

@@ -16,6 +16,7 @@ from app.backend.infra.files.config_repo import (
 from external_analysis.results.publish import load_published_logic_catalog
 from external_analysis.results.publish_candidates import load_publish_candidate_maintenance_state
 from external_analysis.results.publish_registry import load_publish_registry_state as load_external_publish_registry_state
+from app.backend.services.operator_mutation_lock import get_operator_mutation_observability
 from shared.contracts.logic_selection import (
     DEFAULT_LOGIC_POINTER_NAME,
     LAST_KNOWN_GOOD_ARTIFACT_NAME,
@@ -453,6 +454,7 @@ def build_runtime_selection_snapshot(
     snapshot["non_promotable_legacy_count"] = int(maintenance_state.get("non_promotable_legacy_count") or 0)
     snapshot["maintenance_degraded"] = bool(maintenance_state.get("maintenance_degraded"))
     snapshot["maintenance_state"] = maintenance_state
+    snapshot["operator_mutation_observability"] = get_operator_mutation_observability()
     return snapshot
 
 

@@ -52,6 +52,9 @@ The resolver must not silently skip validation.
 - `champion_logic_key`
 - `challenger_logic_keys`
 
+During an active operator mutation, the runtime selection endpoint may return the last stable in-memory snapshot instead of forcing a fresh DB read. This is a stability measure for operator console refreshes, not a change to the resolution order.
+The endpoint may also expose a minimal operator mutation observability block so operators can tell whether a refresh was served from a stable snapshot during a mutation.
+
 ## Publish Registry Read Path
 
 Publish registry data is read in this order:
@@ -98,6 +101,7 @@ The runtime snapshot must make the resolution path explicit:
 - which registry version is external and which is local
 - whether the local mirror is normalized
 - whether the mirror is stale or legacy
+- operator mutation observability
 
 ## Skeleton / Extension Points
 
