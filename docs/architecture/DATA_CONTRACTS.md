@@ -139,6 +139,7 @@ runtime cache / audit artifact。
 - source of truth ではない
 - boot 時の参照高速化や比較監査のために残す
 - MeeMee は snapshot ではなく artifact を主入力にする
+- approved / promoted は長期保持、rejected / retired は短期保持、孤立 snapshot は maintenance sweep の対象
 
 ### validation_summary
 
@@ -161,4 +162,3 @@ TradeX 側の採用判定 summary。
 - `docs/architecture/RUNTIME_SELECTION.md`
 - `docs/features/tradex-publish-flow.md`
 - `docs/features/yahoo-provisional-overlay.md`
-

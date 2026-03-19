@@ -545,6 +545,7 @@ def run_candidate_baseline(
         db_path=result_db_path,
         ops_db_path=ops_db_path,
         publish_id=actual_publish_id,
+        readiness=shadow_result,
     )
     return {
         "ok": True,

@@ -65,6 +65,7 @@ The read order for publish registry does not change the runtime resolution order
 ## Candidate Bundle Relation
 
 `published_logic_artifact` and `published_logic_manifest` are prepared as a candidate bundle in `external_analysis` before manual approve/promote.
+The candidate bundle's validation summary is also authored in `external_analysis` when possible; `ops_db` is a transitional fallback only.
 
 Runtime selection does not read the candidate bundle directly for choice resolution.
 It still resolves from:
@@ -75,6 +76,7 @@ It still resolves from:
 4. `safe fallback`
 
 The candidate bundle only influences which logic becomes promotable in publish governance.
+`published_ranking_snapshot` is captured at bundle creation time when available and is never the runtime source of truth.
 
 ## Selection Semantics
 

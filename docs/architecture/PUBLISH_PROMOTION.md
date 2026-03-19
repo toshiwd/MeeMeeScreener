@@ -68,6 +68,34 @@ Supported transitions:
 
 Previous champion entries are kept as rollback candidates in registry metadata.
 
+## Candidate Bundle
+
+`external_analysis` prepares a candidate bundle before manual review.
+
+The bundle is the source of truth for candidate review data and contains:
+
+- `published_logic_artifact`
+- `published_logic_manifest`
+- `validation_summary`
+- optional `published_ranking_snapshot`
+
+The bundle is assembled from `external_analysis` results first.
+`ops_db` readiness is only a transitional fallback when external review data is not yet available.
+
+The transitional fallback may be removed once all of the following are true:
+
+- every candidate generation path can produce readiness from `external_analysis` data
+- candidate bundle generation is stable without `ops_db`
+- legacy candidates can be repaired by the external_analysis backfill job
+
+`published_ranking_snapshot` is captured at bundle creation time when candidate rows exist and is not regenerated on approve/promote.
+It remains a cache / audit artifact only.
+Retention rules:
+
+- `approved` / `promoted`: keep for 90 days by default
+- `rejected` / `retired`: keep for 14 days by default
+- orphaned or stale snapshots are sweep targets
+
 ## Promotion Gate
 
 Promotion uses an approved candidate bundle plus validation and research evidence from TradeX. Minimum checks include:
@@ -82,6 +110,9 @@ Promotion uses an approved candidate bundle plus validation and research evidenc
 - alignment is true
 
 The candidate bundle must already exist in `external_analysis` and must be in `approved` state before promote is allowed.
+
+Legacy candidates without a complete validation summary remain non-promotable.
+They may be backfilled later, but promotion must still reject them until the summary is complete.
 
 `approve` means "promotion may proceed". It does not mutate champion state.
 `promote` means "candidate becomes champion".
@@ -182,3 +213,5 @@ Repair must copy `external_analysis` to the local mirror. It must not overwrite 
 It is not the source of truth for runtime selection.
 
 `published_logic_artifact`, `published_logic_manifest`, `validation_summary`, and optional `published_ranking_snapshot` are stored together as a candidate bundle before manual promote.
+Snapshot capture happens once at bundle creation time when rows are available.
+Snapshot cleanup is a maintenance task and never changes source of truth state.
