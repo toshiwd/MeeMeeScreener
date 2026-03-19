@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,11 @@ from app.backend.infra.files.config_repo import (
     PUBLISH_REGISTRY_SCHEMA_VERSION,
 )
 from external_analysis.ops.ops_schema import connect_ops_db, ensure_ops_schema
+from external_analysis.results.publish_registry import (
+    append_publish_registry_audit_event as append_external_publish_registry_audit_event,
+    load_publish_registry_state as load_external_publish_registry_state,
+    save_publish_registry_state as save_external_publish_registry_state,
+)
 from external_analysis.results.publish import load_published_logic_catalog
 from shared.contracts.publish_registry import (
     PUBLISH_PROMOTION_ACTION_DEMOTE,
@@ -271,13 +277,82 @@ def _save_registry(config_repo: ConfigRepository, state: dict[str, Any]) -> str:
     return config_repo.save_publish_registry_state(payload)
 
 
+def _persist_registry_state(
+    *,
+    config_repo: ConfigRepository,
+    db_path: str | None,
+    registry_state: dict[str, Any],
+    audit_event: dict[str, Any],
+    source_revision: str | None,
+    degraded: bool = False,
+    sync_state: str = "synced",
+    sync_message: str | None = None,
+) -> dict[str, Any]:
+    external_state = save_external_publish_registry_state(
+        db_path=db_path,
+        state=registry_state,
+        source_revision=source_revision,
+        degraded=degraded,
+        sync_state=sync_state,
+        sync_message=sync_message,
+    )
+    append_external_publish_registry_audit_event(
+        db_path=db_path,
+        event={**audit_event, "registry_name": "publish_registry"},
+        registry_version=external_state.get("registry_version"),
+    )
+    mirror_state = dict(external_state)
+    mirror_state["source_of_truth"] = "local_mirror"
+    mirror_state["mirror_of"] = "external_analysis"
+    mirror_state["registry_sync_state"] = sync_state
+    mirror_state["sync_state"] = sync_state
+    mirror_state["degraded"] = bool(degraded)
+    mirror_state["sync_message"] = sync_message
+    mirror_state["last_sync_at"] = _now_iso()
+    mirror_state["updated_at"] = mirror_state["last_sync_at"]
+    mirror_state["source_revision"] = external_state.get("source_revision")
+    mirror_payload = {k: v for k, v in mirror_state.items() if k != "registry_checksum"}
+    mirror_state["registry_checksum"] = hashlib.sha256(
+        json.dumps(mirror_payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    _save_registry(config_repo, mirror_state)
+    config_repo.append_publish_promotion_audit_event(
+        {
+            **audit_event,
+            "registry_name": "publish_registry",
+            "mirror": True,
+            "registry_version": external_state.get("registry_version"),
+        }
+    )
+    return external_state
+
+
 def build_publish_promotion_snapshot(
     *,
     config_repo: ConfigRepository,
     db_path: str | None = None,
     ops_db_path: str | None = None,
 ) -> dict[str, Any]:
-    registry = _load_registry(config_repo)
+    external_registry = load_external_publish_registry_state(db_path=db_path)
+    local_registry = _load_registry(config_repo)
+    if external_registry.get("source_of_truth") == "external_analysis" and not external_registry.get("degraded"):
+        registry = external_registry
+        source_of_truth = "external_analysis"
+        registry_sync_state = _normalize_text(external_registry.get("registry_sync_state")) or "synced"
+        last_sync_time = _normalize_text(external_registry.get("last_sync_at")) or _normalize_text(external_registry.get("updated_at"))
+        degraded = bool(external_registry.get("degraded"))
+    elif local_registry:
+        registry = local_registry
+        source_of_truth = "local_mirror"
+        registry_sync_state = "mirror_fallback"
+        last_sync_time = _normalize_text(local_registry.get("last_sync_at")) or _normalize_text(local_registry.get("updated_at"))
+        degraded = True
+    else:
+        registry = {}
+        source_of_truth = "empty"
+        registry_sync_state = "empty"
+        last_sync_time = None
+        degraded = True
     catalog = load_published_logic_catalog(db_path=db_path)
     champion = registry.get("champion") if isinstance(registry.get("champion"), dict) else None
     challenger = registry.get("challenger") if isinstance(registry.get("challenger"), dict) else None
@@ -286,6 +361,12 @@ def build_publish_promotion_snapshot(
     default_pointer = _normalize_text(registry.get("default_logic_pointer")) or catalog.get("default_logic_pointer")
     return {
         "schema_version": PUBLISH_REGISTRY_SCHEMA_VERSION,
+        "source_of_truth": source_of_truth,
+        "registry_sync_state": registry_sync_state,
+        "degraded": degraded,
+        "last_sync_time": last_sync_time,
+        "registry_version": registry.get("registry_version"),
+        "source_revision": registry.get("source_revision"),
         "default_logic_pointer": default_pointer,
         "champion_logic_key": champion_logic_key,
         "challenger_logic_key": candidate_logic_key,
@@ -464,34 +545,43 @@ def promote_logic_key(
             target=champion_entry,
         ),
     ]
-    _save_registry(config_repo, registry)
-    config_repo.append_publish_promotion_audit_event(
-        {
-            "event_type": "publish_logic_promoted",
-            "action": PUBLISH_PROMOTION_ACTION_PROMOTE,
-            "previous_logic_key": previous_champion_key,
-            "new_logic_key": target_key,
-            "changed_at": promoted_at,
-            "source": source,
-            "reason": reason,
-            "actor": actor,
-            "publish_id": validation.get("publish_id"),
-            "artifact_uri": validation.get("artifact_uri"),
-            "artifact_checksum": validation.get("artifact_checksum"),
-            "gate_pass": validation.get("gate_pass"),
-            "gate_reasons": validation.get("gate_reasons"),
-            "comparison_summary": validation.get("review", {}).get("summary") if validation.get("review") else None,
-            "comparison_metrics": None if not validation.get("review") else {
-                "sample_count": validation["review"].get("sample_count"),
-                "expectancy_delta": validation["review"].get("expectancy_delta"),
-                "improved_expectancy": validation["review"].get("improved_expectancy"),
-                "mae_non_worse": validation["review"].get("mae_non_worse"),
-                "adverse_move_non_worse": validation["review"].get("adverse_move_non_worse"),
-                "stable_window": validation["review"].get("stable_window"),
-                "alignment_ok": validation["review"].get("alignment_ok"),
-            },
-        }
-    )
+    registry_event = {
+        "event_type": "publish_logic_promoted",
+        "action": PUBLISH_PROMOTION_ACTION_PROMOTE,
+        "previous_logic_key": previous_champion_key,
+        "new_logic_key": target_key,
+        "changed_at": promoted_at,
+        "source": source,
+        "reason": reason,
+        "actor": actor,
+        "publish_id": validation.get("publish_id"),
+        "artifact_uri": validation.get("artifact_uri"),
+        "artifact_checksum": validation.get("artifact_checksum"),
+        "gate_pass": validation.get("gate_pass"),
+        "gate_reasons": validation.get("gate_reasons"),
+        "comparison_summary": validation.get("review", {}).get("summary") if validation.get("review") else None,
+        "comparison_metrics": None if not validation.get("review") else {
+            "sample_count": validation["review"].get("sample_count"),
+            "expectancy_delta": validation["review"].get("expectancy_delta"),
+            "improved_expectancy": validation["review"].get("improved_expectancy"),
+            "mae_non_worse": validation["review"].get("mae_non_worse"),
+            "adverse_move_non_worse": validation["review"].get("adverse_move_non_worse"),
+            "stable_window": validation["review"].get("stable_window"),
+            "alignment_ok": validation["review"].get("alignment_ok"),
+        },
+    }
+    try:
+        external_state = _persist_registry_state(
+            config_repo=config_repo,
+            db_path=db_path,
+            registry_state=registry,
+            audit_event=registry_event,
+            source_revision=validation.get("publish_id") or target_key,
+            sync_state="synced",
+            degraded=False,
+        )
+    except Exception as exc:
+        return {"ok": False, "reason": "external_registry_write_failed", "error": str(exc), "logic_key": target_key}
     snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
     return {
         "ok": True,
@@ -501,6 +591,7 @@ def promote_logic_key(
         "snapshot": snapshot,
         "previous_champion": challenger_entry,
         "champion": champion_entry,
+        "external_state": external_state,
     }
 
 
@@ -548,22 +639,31 @@ def demote_logic_key(
                 target=validation.get("manifest"),
             ),
         ]
-        _save_registry(config_repo, registry)
-        config_repo.append_publish_promotion_audit_event(
-            {
-                "event_type": "publish_logic_demoted",
-                "action": PUBLISH_PROMOTION_ACTION_DEMOTE,
-                "previous_logic_key": current_champion_key,
-                "new_logic_key": normalized_key,
-                "changed_at": _now_iso(),
-                "source": source,
-                "reason": reason,
-                "actor": actor,
-                "publish_id": validation.get("publish_id"),
-                "artifact_uri": validation.get("artifact_uri"),
-                "artifact_checksum": validation.get("artifact_checksum"),
-            }
-        )
+        demote_event = {
+            "event_type": "publish_logic_demoted",
+            "action": PUBLISH_PROMOTION_ACTION_DEMOTE,
+            "previous_logic_key": current_champion_key,
+            "new_logic_key": normalized_key,
+            "changed_at": _now_iso(),
+            "source": source,
+            "reason": reason,
+            "actor": actor,
+            "publish_id": validation.get("publish_id"),
+            "artifact_uri": validation.get("artifact_uri"),
+            "artifact_checksum": validation.get("artifact_checksum"),
+        }
+        try:
+            external_state = _persist_registry_state(
+                config_repo=config_repo,
+                db_path=db_path,
+                registry_state=registry,
+                audit_event=demote_event,
+                source_revision=validation.get("publish_id") or normalized_key,
+                sync_state="synced",
+                degraded=False,
+            )
+        except Exception as exc:
+            return {"ok": False, "reason": "external_registry_write_failed", "error": str(exc), "logic_key": normalized_key}
         snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
         return {
             "ok": True,
@@ -571,6 +671,7 @@ def demote_logic_key(
             "action": PUBLISH_PROMOTION_ACTION_DEMOTE,
             "validation": validation,
             "snapshot": snapshot,
+            "external_state": external_state,
         }
 
     registry_previous_key = _normalize_text(registry.get("previous_champion_logic_key"))
@@ -616,23 +717,32 @@ def demote_logic_key(
             target=validation.get("manifest"),
         ),
     ]
-    _save_registry(config_repo, registry)
-    config_repo.append_publish_promotion_audit_event(
-        {
-            "event_type": "publish_logic_rollback",
-            "action": PUBLISH_PROMOTION_ACTION_ROLLBACK,
-            "previous_logic_key": normalized_key,
-            "new_logic_key": registry.get("default_logic_pointer"),
-            "changed_at": _now_iso(),
-            "source": source,
-            "reason": reason,
-            "actor": actor,
-            "publish_id": validation.get("publish_id"),
-            "artifact_uri": validation.get("artifact_uri"),
-            "artifact_checksum": validation.get("artifact_checksum"),
-            "rollback_target_logic_key": registry_previous_key,
-        }
-    )
+    rollback_event = {
+        "event_type": "publish_logic_rollback",
+        "action": PUBLISH_PROMOTION_ACTION_ROLLBACK,
+        "previous_logic_key": normalized_key,
+        "new_logic_key": registry.get("default_logic_pointer"),
+        "changed_at": _now_iso(),
+        "source": source,
+        "reason": reason,
+        "actor": actor,
+        "publish_id": validation.get("publish_id"),
+        "artifact_uri": validation.get("artifact_uri"),
+        "artifact_checksum": validation.get("artifact_checksum"),
+        "rollback_target_logic_key": registry_previous_key,
+    }
+    try:
+        external_state = _persist_registry_state(
+            config_repo=config_repo,
+            db_path=db_path,
+            registry_state=registry,
+            audit_event=rollback_event,
+            source_revision=validation.get("publish_id") or normalized_key,
+            sync_state="synced",
+            degraded=False,
+        )
+    except Exception as exc:
+        return {"ok": False, "reason": "external_registry_write_failed", "error": str(exc), "logic_key": normalized_key}
     snapshot = build_publish_promotion_snapshot(config_repo=config_repo, db_path=db_path, ops_db_path=ops_db_path)
     return {
         "ok": True,
@@ -640,4 +750,5 @@ def demote_logic_key(
         "action": PUBLISH_PROMOTION_ACTION_ROLLBACK,
         "validation": validation,
         "snapshot": snapshot,
+        "external_state": external_state,
     }
