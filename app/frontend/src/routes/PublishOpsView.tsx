@@ -1,4 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { attachOperatorConsoleHeader } from "../utils/operatorConsole";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -81,7 +82,7 @@ const KEEP_REJECTED_DAYS = 14;
 const KEEP_RETIRED_DAYS = 14;
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers ?? {});
+  const headers = attachOperatorConsoleHeader(init?.headers);
   if (init?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(url, { ...init, headers });
   const text = await response.text();
@@ -161,6 +162,12 @@ function shortValue(value: unknown): string {
   return "N/A";
 }
 
+function isRetryableTransientError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes("503") || message.includes("service unavailable") || message.includes("database is locked") || message.includes("retry");
+}
+
 function JsonBlock({ title, value }: { title: string; value: unknown }) {
   const [open, setOpen] = useState(false);
   return (
@@ -220,6 +227,11 @@ export default function PublishOpsView() {
   const [statusMessage, setStatusMessage] = useState<{ level: "info" | "success" | "error"; message: string } | null>(null);
   const [actor, setActor] = useState("");
   const [reason, setReason] = useState("");
+  const [candidateStatusFilter, setCandidateStatusFilter] = useState("all");
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(50);
+  const refreshSeqRef = useRef(0);
+  const detailSeqRef = useRef(0);
 
   const sourceOfTruth = runtimeSelection?.source_of_truth ?? publishState?.source_of_truth ?? null;
   const registrySyncState = runtimeSelection?.registry_sync_state ?? publishState?.registry_sync_state ?? null;
@@ -231,33 +243,69 @@ export default function PublishOpsView() {
   const championKey = text(publishState?.champion_logic_key ?? runtimeSelection?.logic_key);
   const challengerKeys = publishState?.challenger_logic_keys ?? [];
   const selectedRow = useMemo(() => candidateRows.find((row) => row.logicKey === selectedLogicKey) ?? null, [candidateRows, selectedLogicKey]);
+  const filteredCandidateRows = useMemo(() => {
+    const status = candidateStatusFilter.trim().toLowerCase();
+    const search = candidateSearch.trim().toLowerCase();
+    return candidateRows.filter((row) => {
+      if (status !== "all" && row.status.toLowerCase() !== status) return false;
+      if (search && !row.logicKey.toLowerCase().includes(search)) return false;
+      return true;
+    });
+  }, [candidateRows, candidateSearch, candidateStatusFilter]);
+  const visibleCandidateRows = useMemo(() => filteredCandidateRows.slice(0, Math.max(1, visibleCount)), [filteredCandidateRows, visibleCount]);
+  const visibleHasMore = visibleCandidateRows.length < filteredCandidateRows.length;
+  const candidateStatusOptions = useMemo(() => {
+    const values = new Set<string>(["all"]);
+    candidateRows.forEach((row) => values.add(row.status));
+    return Array.from(values);
+  }, [candidateRows]);
   const danger = Boolean(runtimeSelection?.degraded || publishState?.degraded || maintenanceDegraded);
 
   const loadDetail = useCallback(async (logicKey: string) => {
+    const requestId = ++detailSeqRef.current;
     setDetailLoading(true);
     setDetailError(null);
     try {
-      const payload = await fetchJson<{ candidate?: CandidateBundle }>(`/api/system/publish/candidates/${encodeURIComponent(logicKey)}`);
-      if (!payload.candidate) throw new Error("candidate not found");
-      setCandidateDetail(payload.candidate);
+      const loadOnce = async () => {
+        const payload = await fetchJson<{ candidate?: CandidateBundle }>(`/api/system/publish/candidates/${encodeURIComponent(logicKey)}`);
+        if (!payload.candidate) throw new Error("candidate not found");
+        return payload.candidate;
+      };
+      let candidate: CandidateBundle;
+      try {
+        candidate = await loadOnce();
+      } catch (error) {
+        const message = error instanceof Error ? error.message.toLowerCase() : "";
+        if (requestId === detailSeqRef.current && (message.includes("503") || message.includes("service unavailable"))) {
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+          candidate = await loadOnce();
+        } else {
+          throw error;
+        }
+      }
+      if (requestId !== detailSeqRef.current) return;
+      setCandidateDetail(candidate);
     } catch (error) {
+      if (requestId !== detailSeqRef.current) return;
       setCandidateDetail(null);
       setDetailError(error instanceof Error ? error.message : "detail load failed");
       throw error;
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailSeqRef.current) {
+        setDetailLoading(false);
+      }
     }
   }, []);
 
   const refreshAll = useCallback(
     async (detailKey: string | null = null) => {
+      const requestId = ++refreshSeqRef.current;
       setRefreshing(true);
       try {
-        const [runtime, publish, candidates] = await Promise.all([
-          fetchJson<RuntimeSelectionSnapshot>("/api/system/runtime-selection"),
-          fetchJson<PublishStateSnapshot>("/api/system/publish/state"),
-          fetchJson<{ items: CandidateBundle[] }>("/api/system/publish/candidates"),
-        ]);
+        const runtime = await fetchJson<RuntimeSelectionSnapshot>("/api/system/runtime-selection");
+        const publish = await fetchJson<PublishStateSnapshot>("/api/system/publish/state");
+        const candidates = await fetchJson<{ items: CandidateBundle[] }>("/api/system/publish/candidates");
+        if (requestId !== refreshSeqRef.current) return;
         setRuntimeSelection(runtime);
         setPublishState(publish);
         setCandidateRows((candidates.items ?? []).map(toCandidateRow));
@@ -271,9 +319,13 @@ export default function PublishOpsView() {
           setCandidateDetail(null);
         }
       } catch (error) {
-        setStatusMessage({ level: "error", message: error instanceof Error ? error.message : "refresh failed" });
+        if (requestId === refreshSeqRef.current) {
+          setStatusMessage({ level: "error", message: error instanceof Error ? error.message : "refresh failed" });
+        }
       } finally {
-        setRefreshing(false);
+        if (requestId === refreshSeqRef.current) {
+          setRefreshing(false);
+        }
       }
     },
     [loadDetail]
@@ -289,7 +341,14 @@ export default function PublishOpsView() {
       setBusyAction(key);
       setStatusMessage({ level: "info", message: `${title} in progress...` });
       try {
-        await action();
+        try {
+          await action();
+        } catch (error) {
+          if (!isRetryableTransientError(error)) throw error;
+          setStatusMessage({ level: "info", message: `${title} retrying after transient backend error...` });
+          await new Promise((resolve) => window.setTimeout(resolve, 300));
+          await action();
+        }
         setStatusMessage({ level: "success", message: `${title} finished` });
       } catch (error) {
         setStatusMessage({ level: "error", message: error instanceof Error ? error.message : `${title} failed` });
@@ -556,6 +615,39 @@ export default function PublishOpsView() {
           </div>
           <span className={`ops-badge ${refreshing ? "is-warn" : "is-ok"}`}>{refreshing ? "refreshing" : "ready"}</span>
         </div>
+        <div className="publish-ops-actions">
+          <div className="ops-field ops-field-inline ops-field-wide">
+            <span>Search</span>
+            <input value={candidateSearch} onChange={(event) => setCandidateSearch(event.target.value)} placeholder="logic_key contains..." />
+          </div>
+          <div className="ops-field ops-field-inline">
+            <span>Status</span>
+            <select value={candidateStatusFilter} onChange={(event) => setCandidateStatusFilter(event.target.value)}>
+              {candidateStatusOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="ops-field ops-field-inline">
+            <span>Limit</span>
+            <select value={String(visibleCount)} onChange={(event) => setVisibleCount(Number(event.target.value) || 50)}>
+              {[25, 50, 100, 250].map((count) => (
+                <option key={count} value={count}>
+                  {count}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="button" className="ops-button" onClick={() => setVisibleCount((count) => Math.min(count + 50, filteredCandidateRows.length || count + 50))}>
+            Show more
+          </button>
+          <button type="button" className="ops-button" onClick={() => { setCandidateSearch(""); setCandidateStatusFilter("all"); setVisibleCount(50); }}>
+            Clear filters
+          </button>
+          <span className="ops-chip is-muted">shown {Math.min(visibleCandidateRows.length, filteredCandidateRows.length)} / {filteredCandidateRows.length}</span>
+        </div>
         <div className="ops-table-wrap">
           <table className="ops-table">
             <thead>
@@ -573,8 +665,8 @@ export default function PublishOpsView() {
               </tr>
             </thead>
             <tbody>
-              {candidateRows.length ? (
-                candidateRows.map((row) => {
+              {visibleCandidateRows.length ? (
+                visibleCandidateRows.map((row) => {
                   const selected = row.logicKey === selectedLogicKey;
                   return (
                     <tr key={row.logicKey} className={selected ? "is-selected" : undefined} onClick={() => void selectCandidate(row.logicKey)}>
@@ -623,6 +715,7 @@ export default function PublishOpsView() {
             </tbody>
           </table>
         </div>
+        {visibleHasMore ? <div className="ops-alert">More candidates are hidden by the current limit.</div> : null}
       </section>
 
       <section className="publish-ops-grid">
