@@ -231,6 +231,10 @@ from app.backend.core.external_analysis_publish_job import (
     EXTERNAL_ANALYSIS_PUBLISH_JOB_TYPE,
     handle_external_analysis_publish_latest,
 )
+from app.backend.core.publish_candidate_maintenance_job import (
+    start_publish_candidate_maintenance_scheduler,
+    stop_publish_candidate_maintenance_scheduler,
+)
 from app.backend.core.taisyaku_import_job import TAISYAKU_IMPORT_JOB_TYPE, handle_taisyaku_import
 from app.backend.core.tdnet_import_job import TDNET_IMPORT_JOB_TYPE, handle_tdnet_import
 from app.backend.core.toredex_live_job import handle_toredex_live
@@ -386,9 +390,11 @@ async def lifespan(app: FastAPI):
                 "Skipping legacy analysis prewarm scheduler at startup (%s)",
                 legacy_analysis_disabled_log_value(),
             )
+        start_publish_candidate_maintenance_scheduler()
         yield
     finally:
         # Shutdown
+        stop_publish_candidate_maintenance_scheduler(timeout_sec=1.0)
         if not is_legacy_analysis_disabled():
             stop_analysis_prewarm_scheduler(timeout_sec=1.0)
             stop_ranking_analysis_quality_scheduler(timeout_sec=1.0)

@@ -23,6 +23,7 @@ from app.backend.services.publish_promotion_service import (
 )
 from external_analysis.results.publish_candidates import (
     backfill_publish_candidate_bundles,
+    cleanup_publish_candidate_maintenance_state,
     list_publish_candidate_bundles,
     load_publish_candidate_bundle,
     sweep_publish_candidate_snapshots,
@@ -355,10 +356,8 @@ def run_publish_candidate_backfill(
     config: ConfigRepository = Depends(get_config_repo),
 ):
     result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
-    ops_db_path = os.getenv("MEEMEE_OPS_DB_PATH")
     return backfill_publish_candidate_bundles(
         db_path=result_db_path,
-        ops_db_path=ops_db_path,
         limit=payload.limit,
         dry_run=bool(payload.dryRun),
     )
@@ -375,6 +374,18 @@ def run_publish_candidate_snapshot_sweep(
         keep_approved_days=payload.keepApprovedDays or 90,
         keep_rejected_days=payload.keepRejectedDays or 14,
         keep_retired_days=payload.keepRetiredDays or 14,
+        dry_run=bool(payload.dryRun),
+    )
+
+
+@router.post("/publish/maintenance/cleanup")
+def run_publish_candidate_cleanup(
+    payload: PublishMaintenancePayload,
+    config: ConfigRepository = Depends(get_config_repo),
+):
+    result_db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
+    return cleanup_publish_candidate_maintenance_state(
+        db_path=result_db_path,
         dry_run=bool(payload.dryRun),
     )
 

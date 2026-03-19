@@ -217,20 +217,18 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
         CREATE TABLE IF NOT EXISTS publish_maintenance_state (
             maintenance_name TEXT PRIMARY KEY,
             schema_version TEXT NOT NULL,
-            ops_fallback_enabled BOOLEAN NOT NULL,
-            ops_fallback_hit_count BIGINT NOT NULL,
-            ops_fallback_last_used_at TIMESTAMP,
-            ops_fallback_last_target TEXT,
             candidate_backfill_last_run TIMESTAMP,
             candidate_backfill_summary JSON,
             snapshot_sweep_last_run TIMESTAMP,
             snapshot_sweep_summary JSON,
+            non_promotable_legacy_count BIGINT NOT NULL DEFAULT 0,
             maintenance_degraded BOOLEAN NOT NULL,
             updated_at TIMESTAMP NOT NULL,
             details_json JSON NOT NULL
         )
         """
     )
+    conn.execute("ALTER TABLE publish_maintenance_state ADD COLUMN IF NOT EXISTS non_promotable_legacy_count BIGINT DEFAULT 0")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS candidate_daily (

@@ -12,6 +12,8 @@ from external_analysis.ops.ops_schema import ensure_ops_db
 from external_analysis.results.publish import publish_result
 from external_analysis.results.publish_candidates import (
     backfill_publish_candidate_bundles,
+    cleanup_publish_candidate_maintenance_state,
+    load_publish_candidate_maintenance_state,
     sweep_publish_candidate_snapshots,
 )
 from external_analysis.results.result_schema import ensure_result_db
@@ -248,6 +250,19 @@ def main() -> int:
     publish_sweep_parser.add_argument("--keep-rejected-days", type=int, default=14)
     publish_sweep_parser.add_argument("--keep-retired-days", type=int, default=14)
     publish_sweep_parser.add_argument("--dry-run", action="store_true")
+
+    publish_cycle_parser = sub.add_parser("publish-maintenance-cycle", help="Run publish candidate backfill and snapshot sweep in a single maintenance cycle.")
+    publish_cycle_parser.add_argument("--result-db-path", default=None)
+    publish_cycle_parser.add_argument("--ops-db-path", default=None)
+    publish_cycle_parser.add_argument("--limit", type=int, default=None)
+    publish_cycle_parser.add_argument("--keep-approved-days", type=int, default=90)
+    publish_cycle_parser.add_argument("--keep-rejected-days", type=int, default=14)
+    publish_cycle_parser.add_argument("--keep-retired-days", type=int, default=14)
+    publish_cycle_parser.add_argument("--dry-run", action="store_true")
+
+    publish_cleanup_parser = sub.add_parser("publish-maintenance-cleanup", help="Cleanup legacy publish maintenance residue and normalize maintenance state.")
+    publish_cleanup_parser.add_argument("--result-db-path", default=None)
+    publish_cleanup_parser.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args()
     if args.cmd == "init-result-db":
@@ -559,7 +574,6 @@ def main() -> int:
         print(
             backfill_publish_candidate_bundles(
                 db_path=args.result_db_path,
-                ops_db_path=args.ops_db_path,
                 limit=args.limit,
                 dry_run=bool(args.dry_run),
             )
@@ -572,6 +586,41 @@ def main() -> int:
                 keep_approved_days=args.keep_approved_days,
                 keep_rejected_days=args.keep_rejected_days,
                 keep_retired_days=args.keep_retired_days,
+                dry_run=bool(args.dry_run),
+            )
+        )
+        return 0
+    if args.cmd == "publish-maintenance-cycle":
+        backfill = backfill_publish_candidate_bundles(
+            db_path=args.result_db_path,
+            limit=args.limit,
+            dry_run=bool(args.dry_run),
+        )
+        sweep = sweep_publish_candidate_snapshots(
+            db_path=args.result_db_path,
+            keep_approved_days=args.keep_approved_days,
+            keep_rejected_days=args.keep_rejected_days,
+            keep_retired_days=args.keep_retired_days,
+            dry_run=bool(args.dry_run),
+        )
+        maintenance_state = load_publish_candidate_maintenance_state(db_path=args.result_db_path)
+        print(
+            {
+                "ok": bool(backfill.get("ok")) and bool(sweep.get("ok")),
+                "dry_run": bool(args.dry_run),
+                "backfill": backfill,
+                "snapshot_sweep": sweep,
+                "candidate_backfill_last_run": maintenance_state.get("candidate_backfill_last_run"),
+                "snapshot_sweep_last_run": maintenance_state.get("snapshot_sweep_last_run"),
+                "non_promotable_legacy_count": int(maintenance_state.get("non_promotable_legacy_count") or 0),
+                "maintenance_degraded": bool(maintenance_state.get("maintenance_degraded")),
+            }
+        )
+        return 0
+    if args.cmd == "publish-maintenance-cleanup":
+        print(
+            cleanup_publish_candidate_maintenance_state(
+                db_path=args.result_db_path,
                 dry_run=bool(args.dry_run),
             )
         )

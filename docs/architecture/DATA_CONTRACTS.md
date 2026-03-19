@@ -172,3 +172,38 @@ The ranking snapshot remains a cache / audit artifact, not a source of truth.
 - orphaned snapshots without a candidate bundle are maintenance targets
 - snapshot capture happens only when the candidate bundle is created
 - approve / promote / rollback must not regenerate the snapshot
+
+## Schema Versions and File Formats
+
+The following versioned files are canonical:
+
+- `config/logic_selection.json`
+  - `schema_version`: `logic_selection_v1`
+  - stored with atomic write
+  - invalid or broken files must degrade gracefully to empty selection state
+- `config/publish_registry.json`
+  - `schema_version`: `publish_registry_v2`
+  - mirror / fallback only
+  - `external_analysis` remains the source of truth
+- `publish_maintenance_state`
+  - `schema_version`: `publish_candidate_bundle_v1`
+  - current fields:
+    - `candidate_backfill_last_run`
+    - `candidate_backfill_summary`
+    - `snapshot_sweep_last_run`
+    - `snapshot_sweep_summary`
+    - `non_promotable_legacy_count`
+    - `maintenance_degraded`
+    - `updated_at`
+    - `details_json`
+  - legacy `ops_fallback_*` values may exist in older DuckDB files but are deprecated and cleaned up by migration helpers
+- `publish_candidate_bundle`
+  - `bundle_schema_version`: `publish_candidate_bundle_v1`
+  - candidate bundle remains owned by `external_analysis`
+  - `published_ranking_snapshot` is cache / audit only and is not a source of truth
+
+## Cleanup Policy
+
+- old or broken state files must not block startup
+- cleanup helpers may normalize or rewrite local state, but they must not change source-of-truth ownership
+- no cleanup step may reintroduce `ops_db` as a publish or runtime authority

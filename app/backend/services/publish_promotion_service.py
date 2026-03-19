@@ -10,7 +10,6 @@ from app.backend.infra.files.config_repo import (
     ConfigRepository,
     PUBLISH_REGISTRY_SCHEMA_VERSION,
 )
-from external_analysis.ops.ops_schema import connect_ops_db, ensure_ops_schema
 from external_analysis.results.publish_registry import (
     append_publish_registry_audit_event as append_external_publish_registry_audit_event,
     load_publish_registry_state as load_external_publish_registry_state,
@@ -81,89 +80,6 @@ def _checksum_file(path: str) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _load_review_for_publish_id(*, publish_id: str, ops_db_path: str | None = None) -> dict[str, Any] | None:
-    conn = connect_ops_db(ops_db_path)
-    try:
-        ensure_ops_schema(conn)
-        readiness_row = conn.execute(
-            """
-            SELECT
-                CAST(as_of_date AS VARCHAR),
-                champion_version,
-                challenger_version,
-                sample_count,
-                expectancy_delta,
-                improved_expectancy,
-                mae_non_worse,
-                adverse_move_non_worse,
-                stable_window,
-                alignment_ok,
-                readiness_pass,
-                reason_codes,
-                summary_json
-            FROM external_state_eval_readiness
-            WHERE publish_id = ?
-            """,
-            [publish_id],
-        ).fetchone()
-        decision_row = conn.execute(
-            """
-            SELECT decision_id, decision, note, actor, CAST(created_at AS VARCHAR), summary_json
-            FROM external_promotion_decisions
-            WHERE publish_id = ?
-            ORDER BY created_at DESC, decision_id DESC
-            LIMIT 1
-            """,
-            [publish_id],
-        ).fetchone()
-    finally:
-        conn.close()
-
-    if not readiness_row:
-        return None
-
-    try:
-        reason_codes = json.loads(str(readiness_row[11] or "[]"))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        reason_codes = []
-    try:
-        summary = json.loads(str(readiness_row[12] or "{}"))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        summary = {}
-
-    approval_decision = None
-    if decision_row:
-        try:
-            decision_summary = json.loads(str(decision_row[5] or "{}"))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            decision_summary = {}
-        approval_decision = {
-            "decision_id": str(decision_row[0]),
-            "decision": str(decision_row[1]),
-            "note": None if decision_row[2] is None else str(decision_row[2]),
-            "actor": None if decision_row[3] is None else str(decision_row[3]),
-            "created_at": str(decision_row[4]),
-            "summary": decision_summary,
-        }
-
-    return {
-        "as_of_date": str(readiness_row[0]),
-        "champion_version": str(readiness_row[1]),
-        "challenger_version": str(readiness_row[2]),
-        "sample_count": int(readiness_row[3]),
-        "expectancy_delta": readiness_row[4],
-        "improved_expectancy": bool(readiness_row[5]),
-        "mae_non_worse": bool(readiness_row[6]),
-        "adverse_move_non_worse": bool(readiness_row[7]),
-        "stable_window": bool(readiness_row[8]),
-        "alignment_ok": bool(readiness_row[9]),
-        "readiness_pass": bool(readiness_row[10]),
-        "reason_codes": reason_codes if isinstance(reason_codes, list) else [],
-        "summary": summary,
-        "approval_decision": approval_decision,
-    }
 
 
 def _load_candidate_bundle_for_logic_key(*, logic_key: str, db_path: str | None = None) -> dict[str, Any] | None:
@@ -574,11 +490,9 @@ def build_publish_promotion_snapshot(
         "local_mirror_version": sync["local_mirror_version"],
         "mirror_schema_version": sync["mirror_schema_version"],
         "mirror_normalized": sync["mirror_normalized"],
-        "ops_fallback_enabled": bool(maintenance_state.get("ops_fallback_enabled")),
-        "ops_fallback_last_used_at": maintenance_state.get("ops_fallback_last_used_at"),
-        "ops_fallback_hit_count": int(maintenance_state.get("ops_fallback_hit_count") or 0),
         "candidate_backfill_last_run": maintenance_state.get("candidate_backfill_last_run"),
         "snapshot_sweep_last_run": maintenance_state.get("snapshot_sweep_last_run"),
+        "non_promotable_legacy_count": int(maintenance_state.get("non_promotable_legacy_count") or 0),
         "maintenance_degraded": bool(maintenance_state.get("maintenance_degraded")),
         "maintenance_state": maintenance_state,
         "default_logic_pointer": default_pointer,
@@ -594,10 +508,6 @@ def build_publish_promotion_snapshot(
         "promotion_history": list(registry.get("promotion_history") or []),
         "registry": registry,
         "catalog": catalog,
-        "ops_review": None if candidate_logic_key is None else candidate_review or _load_review_for_publish_id(
-            publish_id=str(challenger.get("source_publish_id") or ""),
-            ops_db_path=ops_db_path,
-        ),
         "candidate_review": candidate_review,
     }
 
@@ -633,10 +543,7 @@ def validate_promotion_target(
     candidate_bundle = _load_candidate_bundle_for_logic_key(logic_key=normalized_key, db_path=db_path)
     review = _candidate_bundle_review(candidate_bundle)
     if review is None:
-        review = _load_review_for_publish_id(
-            publish_id=str(catalog_entry.get("publish_id") or ""),
-            ops_db_path=ops_db_path,
-        )
+        return {"ok": False, "reason": "validation_summary_missing", "logic_key": normalized_key}
     gate_pass, gate_reasons = _promotion_gate(review)
     validation_state = _VALIDATION_OK if gate_pass else "promotion_gate_blocked"
     return {
@@ -1105,9 +1012,9 @@ def demote_logic_key(
     registry["champion"] = _build_registry_entry(
         entry=candidate,
         role=PUBLISH_ROLE_CHAMPION,
-        review=_load_review_for_publish_id(
-            publish_id=str(candidate.get("source_publish_id") or candidate.get("publish_id") or ""),
-            ops_db_path=ops_db_path,
+        review=_candidate_bundle_review_for_logic_key(
+            logic_key=candidate_key or _normalize_text(candidate.get("logic_key")),
+            db_path=db_path,
         ),
         source_publish_id=_normalize_text(candidate.get("source_publish_id") or candidate.get("publish_id")),
         promoted_at=_now_iso(),
@@ -1128,10 +1035,7 @@ def demote_logic_key(
             new_logic_key=normalized_key,
             source=source,
             reason=reason,
-            review=_load_review_for_publish_id(
-                publish_id=str(validation.get("publish_id") or ""),
-                ops_db_path=ops_db_path,
-            ),
+            review=validation.get("review"),
             target=validation.get("manifest"),
         ),
     ]
@@ -1235,10 +1139,7 @@ def rollback_logic_key(
     rollback_target = _build_registry_entry(
         entry=target_manifest,
         role=PUBLISH_ROLE_CHAMPION,
-        review=_load_review_for_publish_id(
-            publish_id=str(target_manifest.get("publish_id") or target_manifest.get("source_publish_id") or ""),
-            ops_db_path=ops_db_path,
-        ),
+        review=_candidate_bundle_review_for_logic_key(logic_key=target_key, db_path=db_path),
         source_publish_id=_normalize_text(target_manifest.get("publish_id") or target_manifest.get("source_publish_id")),
         promoted_at=_now_iso(),
         promoted_by=actor,
@@ -1262,10 +1163,7 @@ def rollback_logic_key(
             new_logic_key=target_key,
             source=source,
             reason=reason,
-            review=_load_review_for_publish_id(
-                publish_id=str(target_manifest.get("publish_id") or ""),
-                ops_db_path=ops_db_path,
-            ),
+            review=_candidate_bundle_review_for_logic_key(logic_key=target_key, db_path=db_path),
             target=target_manifest,
         ),
     ]
@@ -1318,10 +1216,7 @@ def rollback_logic_key(
         "action": PUBLISH_PROMOTION_ACTION_ROLLBACK,
         "validation": {
             "logic_key": target_key,
-            "review": _load_review_for_publish_id(
-                publish_id=str(target_manifest.get("publish_id") or target_manifest.get("source_publish_id") or ""),
-                ops_db_path=ops_db_path,
-            ),
+            "review": _candidate_bundle_review_for_logic_key(logic_key=target_key, db_path=db_path),
         },
         "snapshot": snapshot,
         "external_state": external_state,

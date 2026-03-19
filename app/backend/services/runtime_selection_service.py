@@ -448,11 +448,9 @@ def build_runtime_selection_snapshot(
     snapshot["local_mirror_version"] = sync["local_mirror_version"]
     snapshot["mirror_schema_version"] = sync["mirror_schema_version"]
     snapshot["mirror_normalized"] = sync["mirror_normalized"]
-    snapshot["ops_fallback_enabled"] = bool(maintenance_state.get("ops_fallback_enabled"))
-    snapshot["ops_fallback_last_used_at"] = maintenance_state.get("ops_fallback_last_used_at")
-    snapshot["ops_fallback_hit_count"] = int(maintenance_state.get("ops_fallback_hit_count") or 0)
     snapshot["candidate_backfill_last_run"] = maintenance_state.get("candidate_backfill_last_run")
     snapshot["snapshot_sweep_last_run"] = maintenance_state.get("snapshot_sweep_last_run")
+    snapshot["non_promotable_legacy_count"] = int(maintenance_state.get("non_promotable_legacy_count") or 0)
     snapshot["maintenance_degraded"] = bool(maintenance_state.get("maintenance_degraded"))
     snapshot["maintenance_state"] = maintenance_state
     return snapshot
