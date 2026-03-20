@@ -66,7 +66,6 @@ import {
   PositionDonutChart,
   RANGE_PRESETS,
   resolveCursorIndex,
-  resolveExactIndex,
   resolveIndexOnOrBefore,
   subtractMonths
 } from "./practice/practiceHelpers";
@@ -658,8 +657,6 @@ export default function PracticeView() {
     if (isLocked) return "過去日を表示中です。最新日に戻ると操作できます";
     return "建玉を操作して「翌日」で進めます（→キーでも可）";
   }, [sessionsLoading, sessionId, startDate, isLocked]);
-  const sessionBadgeLabel = sessionId ? (endDate ? "完了" : "進行中") : "未作成";
-  const sessionBadgeClass = sessionId ? (endDate ? "is-ended" : "is-active") : "is-empty";
   const sessionRangeLabel = sessionId
     ? `開始 ${startDate ?? "--"} / 終了 ${endDate ?? "--"}`
     : "セッション未選択";
@@ -1415,7 +1412,7 @@ export default function PracticeView() {
       setToastMessage("開始日が正しくありません。");
       return;
     }
-    const idx = resolveExactIndex(dailyBars, nextTime);
+    const idx = resolveIndexOnOrBefore(dailyBars, nextTime);
     if (idx == null) {
       setToastMessage("指定日が日足データにありません。");
       return;
@@ -1437,13 +1434,20 @@ export default function PracticeView() {
         setCursorTime(resolved);
         setMaxUnlockedTime(resolved);
       }
-      setStartDate(date);
-      setStartDateDraft(date);
+      const resolvedDate = resolved != null ? formatDate(resolved) : date;
+      const startToast =
+        resolvedDate && resolvedDate !== date
+          ? `指定日は休場日のため ${resolvedDate} で${isNew ? "練習を開始しました。" : "開始日を更新しました。"}`
+          : isNew
+            ? "練習を開始しました。"
+            : "開始日を更新しました。";
+      setStartDate(resolvedDate);
+      setStartDateDraft(resolvedDate);
 
       const payload = {
         session_id: targetSessionId,
         code,
-        start_date: date,
+        start_date: resolvedDate,
         cursor_time: resolved ?? null,
         max_unlocked_time: resolved ?? null,
         trades: nextTrades,
@@ -1455,13 +1459,13 @@ export default function PracticeView() {
       api
         .post("/practice/session", payload)
         .then(() => {
-          setToastMessage(isNew ? "練習を開始しました。" : "開始日を更新しました。");
+          setToastMessage(startToast);
           togglePanel(true);
           if (isNew) {
             refreshSessions(targetSessionId);
           } else {
             persistSession({
-              startDate: date,
+              startDate: resolvedDate,
               cursorTime: resolved ?? null,
               maxUnlockedTime: resolved ?? null,
               trades: nextTrades
@@ -1727,7 +1731,7 @@ export default function PracticeView() {
             value={startDateDraft}
             onChange={(event) => setStartDateDraft(event.target.value)}
           />
-          <button className="indicator-button" onClick={handleApplyStartDate}>
+          <button className="indicator-button practice-session-confirm-button" onClick={handleApplyStartDate}>
             開始日を確定
           </button>
           <button
@@ -1738,13 +1742,17 @@ export default function PracticeView() {
           </button>
         </div>
         <div className="practice-session-meta">
-          <span className={`practice-session-badge ${sessionBadgeClass}`}>{sessionBadgeLabel}</span>
           <span className="practice-session-range-text">{sessionRangeLabel}</span>
         </div>
       </div>
-      <div className="practice-range">{headerRangeControls}</div>
     </div>
   );
+
+  useEffect(() => {
+    const right = document.querySelector<HTMLElement>(".practice-shell .detail-header-right");
+    if (!right) return;
+    right.scrollLeft = right.scrollWidth;
+  }, [code]);
 
   const dailyEmptyMessage = dailyCandles.length === 0 ? dailyErrors[0] ?? "No data" : null;
   const weeklyEmptyMessage = weeklyCandles.length === 0 ? dailyErrors[0] ?? "No data" : null;
@@ -1830,6 +1838,7 @@ export default function PracticeView() {
             {headerDrawToolControls}
           </>
         }
+        summaryCenter={headerRangeControls}
         topbarRight={practiceTopbarControls}
       />
       {sessionManagerOpen && (

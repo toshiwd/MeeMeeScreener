@@ -27,27 +27,21 @@ export default function DetailHeaderChrome({
 }: DetailHeaderChromeProps) {
   return (
     <div className={["detail-header", className].filter(Boolean).join(" ")}>
-      <div className="detail-summary-row">
-        <div className="detail-summary-back">{summaryBack}</div>
-        <div className="detail-summary-main">
-          {summaryMain}
-          {summaryStatus ? <div className="detail-summary-status">{summaryStatus}</div> : null}
+      <div className="detail-header-row">
+        <div className="detail-header-left">
+          <div className="detail-summary-back">{summaryBack}</div>
+          <div className="detail-summary-main">
+            {summaryMain}
+            {summaryStatus ? <div className="detail-summary-status">{summaryStatus}</div> : null}
+          </div>
+          <div className="detail-summary-mode">{modeControls}</div>
         </div>
-        {summaryCenter}
-        <div className="detail-summary-actions">{summaryActions}</div>
-      </div>
-      <div className="detail-topbar-row">
-        <div className="detail-topbar-main">
-          {modeControls}
-          <div className="detail-topbar-divider" aria-hidden="true" />
-          <div className="detail-topbar-actions">{topbarActions}</div>
+        <div className="detail-header-center">{topbarActions}</div>
+        <div className="detail-header-right">
+          <div className="detail-summary-actions">{summaryActions}</div>
+          {summaryCenter ? <div className="detail-summary-center">{summaryCenter}</div> : null}
+          {topbarRight ? <div className="detail-header-practice">{topbarRight}</div> : null}
         </div>
-        {topbarRight ? (
-          <>
-            <div className="detail-topbar-divider" aria-hidden="true" />
-            <div className="detail-topbar-right">{topbarRight}</div>
-          </>
-        ) : null}
       </div>
       {belowTopbar}
     </div>

@@ -29,11 +29,11 @@ export default function DetailModeTabs({
         <button className={activeMode === "financial" ? "active" : ""} onClick={onFinancial}>
           財務
         </button>
-        <button className={activeMode === "practice" ? "active" : ""} onClick={onPractice}>
-          練習
-        </button>
         <button className={activeMode === "positions" ? "active" : ""} onClick={onPositions}>
           建玉
+        </button>
+        <button className={activeMode === "practice" ? "active" : ""} onClick={onPractice}>
+          練習
         </button>
       </div>
     </div>

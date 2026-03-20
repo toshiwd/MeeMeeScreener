@@ -4,25 +4,13 @@
   padding-bottom: 0;
 }
 
-.practice-shell .detail-topbar-row {
-  flex-wrap: nowrap;
+.practice-shell .detail-header-row {
+  padding-left: 0;
+  padding-right: 0;
 }
 
-.practice-shell .detail-topbar-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.practice-shell .detail-topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex: 0 0 auto;
-  margin-left: auto;
+.practice-shell .detail-header-right {
+  gap: 10px;
 }
 
 .practice-shell .detail-pane-header {
@@ -39,6 +27,10 @@
 }
 
 .practice-session-open-button {
+  white-space: nowrap;
+}
+
+.practice-session-confirm-button {
   white-space: nowrap;
 }
 
@@ -159,10 +151,6 @@
   color: #e2e8f0;
   cursor: pointer;
   font-size: 11px;
-}
-
-.practice-range {
-  display: inline-flex;
 }
 
 .practice-cursor {

@@ -1,0 +1,181 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - button "一覧に戻る" [ref=e8] [cursor=pointer]:
+            - img [ref=e10]
+            - generic [ref=e13]: 一覧に戻る
+          - generic [ref=e15]:
+            - generic [ref=e16]: "1001"
+            - generic [ref=e17]: 日経225
+          - generic [ref=e20]:
+            - button "チャート" [ref=e21] [cursor=pointer]
+            - button "分析" [ref=e22] [cursor=pointer]
+            - button "財務" [ref=e23] [cursor=pointer]
+            - button "練習" [ref=e24] [cursor=pointer]
+            - button "建玉" [ref=e25] [cursor=pointer]
+        - generic [ref=e26]:
+          - button "表示設定メニューを開く" [ref=e27] [cursor=pointer]:
+            - img [ref=e29]
+            - generic [ref=e33]: 表示
+          - button "スクショ" [ref=e34] [cursor=pointer]:
+            - img [ref=e36]
+            - generic [ref=e39]: スクショ
+          - button "カーソルOFF" [ref=e40] [cursor=pointer]:
+            - img [ref=e42]
+            - generic [ref=e45]: カーソルOFF
+          - generic [ref=e47]:
+            - button "時間ゾーン描画" [ref=e48] [cursor=pointer]:
+              - img [ref=e50]
+            - button "四角描画" [ref=e54] [cursor=pointer]:
+              - img [ref=e56]
+            - button "価格帯描画" [ref=e60] [cursor=pointer]:
+              - generic [ref=e62]: ▭
+            - button "水平線描画" [ref=e63] [cursor=pointer]:
+              - img [ref=e65]
+            - button "描画をリセット" [ref=e66] [cursor=pointer]:
+              - img [ref=e68]
+        - generic [ref=e71]:
+          - generic [ref=e72]:
+            - button "お気に入り追加" [ref=e73] [cursor=pointer]:
+              - img [ref=e74]
+            - button "前の銘柄" [disabled] [ref=e76]:
+              - img [ref=e78]
+              - generic [ref=e81]: 前の銘柄
+            - button "次の銘柄" [ref=e82] [cursor=pointer]:
+              - img [ref=e84]
+              - generic [ref=e87]: 次の銘柄
+          - generic [ref=e88]:
+            - button "3M" [ref=e89] [cursor=pointer]
+            - button "6M" [ref=e90] [cursor=pointer]
+            - button "1Y" [ref=e91] [cursor=pointer]
+            - button "2Y" [ref=e92] [cursor=pointer]
+          - generic [ref=e95]:
+            - generic [ref=e96]: 練習開始日
+            - generic [ref=e97]:
+              - textbox [ref=e98]: 2026-03-19
+              - button "過去の練習を開く" [ref=e99] [cursor=pointer]
+            - generic [ref=e100]:
+              - generic [ref=e101]: 進行中
+              - generic [ref=e102]: 開始 2026-03-19 / 終了 --
+            - button "開始日を確定" [ref=e103] [cursor=pointer]
+      - generic [ref=e104]:
+        - generic [ref=e107]:
+          - generic [ref=e108]:
+            - generic [ref=e109]: 日足
+            - generic [ref=e110]:
+              - table [ref=e114]:
+                - row [ref=e115]:
+                  - cell
+                  - cell [ref=e116]
+                  - cell [ref=e120]
+                - row [ref=e124]:
+                  - cell
+                  - cell [ref=e125]
+                  - cell [ref=e129]
+              - generic:
+                - generic: 建玉
+                - generic: 売0-買0
+                - generic: ネット0
+                - generic: 実 0 / 評 --
+                - generic: 株数 100
+              - generic [ref=e132]: "日足: No data"
+          - generic [ref=e133]:
+            - generic [ref=e134]:
+              - generic [ref=e135]: 週足
+              - generic [ref=e136]:
+                - table [ref=e140]:
+                  - row [ref=e141]:
+                    - cell
+                    - cell [ref=e142]
+                    - cell [ref=e146]
+                  - row [ref=e150]:
+                    - cell
+                    - cell [ref=e151]
+                    - cell [ref=e155]
+                - generic [ref=e158]: "週足: No data"
+            - generic [ref=e160]:
+              - generic [ref=e161]: 月足
+              - generic [ref=e162]:
+                - table [ref=e166]:
+                  - row [ref=e167]:
+                    - cell
+                    - cell [ref=e168]
+                    - cell [ref=e172]
+                  - row [ref=e176]:
+                    - cell
+                    - cell [ref=e177]
+                    - cell [ref=e181]
+                - generic [ref=e184]: "月足: No data"
+        - generic [ref=e186]:
+          - generic [ref=e187]:
+            - generic [ref=e188]:
+              - generic [ref=e189]: 建玉
+              - generic [ref=e190]: 売0-買0
+            - button "パネルを閉じる" [ref=e191] [cursor=pointer]: →
+          - generic [ref=e192]:
+            - generic [ref=e193]: 建玉を操作して「翌日」で進めます（→キーでも可）
+            - generic [ref=e194]: ネット0
+            - generic [ref=e195]:
+              - generic [ref=e196]: "実現損益: 0"
+              - generic [ref=e197]: "評価損益: --"
+            - generic [ref=e198]:
+              - generic [ref=e199]: 進める
+              - generic [ref=e200]:
+                - button "前日" [disabled] [ref=e201]
+                - button "翌日" [disabled] [ref=e202]
+                - button "リセット" [disabled] [ref=e203]
+              - generic [ref=e204]: "--"
+            - generic [ref=e205]:
+              - generic [ref=e206]: "平均買い: 0.00"
+              - generic [ref=e207]: "平均売り: 0.00"
+            - generic [ref=e208]:
+              - generic [ref=e209]: 株数
+              - spinbutton [ref=e210]: "100"
+              - generic [ref=e211]: 株
+            - textbox "メモ（振り返り）" [ref=e213]
+            - generic [ref=e214]:
+              - generic [ref=e215]:
+                - generic [ref=e216]: 売り
+                - generic [ref=e217]:
+                  - button "+5" [ref=e218] [cursor=pointer]
+                  - button "+1" [ref=e219] [cursor=pointer]
+                - generic [ref=e220]: "0"
+                - generic [ref=e221]:
+                  - button "-1" [ref=e222] [cursor=pointer]
+                  - button "-5" [ref=e223] [cursor=pointer]
+              - generic [ref=e224]:
+                - img [ref=e225]
+                - generic [ref=e227]: 0-0
+              - generic [ref=e228]:
+                - generic [ref=e229]: 買い
+                - generic [ref=e230]:
+                  - button "+5" [ref=e231] [cursor=pointer]
+                  - button "+1" [ref=e232] [cursor=pointer]
+                - generic [ref=e233]: "0"
+                - generic [ref=e234]:
+                  - button "-1" [ref=e235] [cursor=pointer]
+                  - button "-5" [ref=e236] [cursor=pointer]
+            - generic [ref=e237]:
+              - button "取り消し" [disabled] [ref=e238] [cursor=pointer]
+              - button "全決済" [disabled] [ref=e239] [cursor=pointer]
+    - generic:
+      - status:
+        - generic:
+          - generic:
+            - generic:
+              - generic: M
+          - generic: MeeMee Screener
+        - generic:
+          - generic: 準備完了
+          - generic: 試行 1 回 · 経過 0s
