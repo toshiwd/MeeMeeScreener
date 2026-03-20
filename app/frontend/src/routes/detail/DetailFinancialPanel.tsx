@@ -116,11 +116,10 @@ export function DetailFinancialPanel(props: Props) {
       ref={financialPanelRef}
       title="EDINET / TDNET / 貸借"
       summary={financialPanel?.summary?.latestFiscalYear != null ? `最新年度 ${financialPanel.summary.latestFiscalYear}` : undefined}
-      details={financialFetchedLabel ? `更新 ${financialFetchedLabel}` : undefined}
+      details={financialFetchedLabel ? `取得 ${financialFetchedLabel}` : undefined}
       className="detail-analysis-panel detail-financial-panel"
     >
-      <div className="detail-analysis-body">
-        <div className="detail-analysis-section-title">要約</div>
+      <div className="detail-analysis-body detail-financial-body">
         {(financialPanel?.summary?.latestFiscalYear != null || financialFetchedLabel) && (
           <div className="detail-financial-meta-row">
             {financialPanel?.summary?.latestFiscalYear != null && (
@@ -131,21 +130,28 @@ export function DetailFinancialPanel(props: Props) {
         )}
 
         {financialLoading ? (
-          <div className="detail-analysis-empty">財務データを読み込み中です。</div>
+          <div className="detail-analysis-empty">財務データを読込中です。</div>
         ) : hasFinancialSeries ? (
-          <>
-            <div className="detail-financial-card-grid">
-              {financialCards.map((card) => (
-                <div key={card.label} className="detail-financial-card">
-                  <div className="detail-financial-card-label">{card.label}</div>
-                  <div className={`detail-financial-card-value detail-analysis-value--${card.tone}`}>{card.value}</div>
-                </div>
-              ))}
-            </div>
+          <div className="detail-financial-card-grid">
+            {financialCards.map((card) => (
+              <div key={card.label} className="detail-financial-card">
+                <div className="detail-financial-card-label">{card.label}</div>
+                <div className={`detail-financial-card-value detail-analysis-value--${card.tone}`}>{card.value}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="detail-analysis-empty">
+            {financialPanel?.mapped === false ? "EDINETのマッピングがありません。" : "財務データがありません。"}
+          </div>
+        )}
 
+        <details className="detail-financial-details">
+          <summary className="detail-financial-details-summary">詳細</summary>
+          <div className="detail-financial-details-body">
             {financialKeyStats.length > 0 && (
-              <div className="detail-analysis-section detail-financial-section">
-                <div className="detail-analysis-section-title">最新指標</div>
+              <section className="detail-analysis-section detail-financial-section">
+                <div className="detail-analysis-section-title">主要指標</div>
                 <div className="detail-financial-stats-grid">
                   {financialKeyStats.map((item) => (
                     <div key={item.label} className="detail-financial-stat">
@@ -154,164 +160,159 @@ export function DetailFinancialPanel(props: Props) {
                     </div>
                   ))}
                 </div>
-              </div>
+              </section>
             )}
-          </>
-        ) : (
-          <div className="detail-analysis-empty">
-            {financialPanel?.mapped === false ? "EDINETのマッピングがありません。" : "財務データがありません。"}
+
+            <section className="detail-analysis-section detail-financial-section">
+              <div className="detail-analysis-section-title">TDNET速報</div>
+              {tdnetStatusLabel && <div className="detail-analysis-meta">{tdnetStatusLabel}</div>}
+              {tdnetLoading ? (
+                <div className="detail-analysis-empty">TDNETを読込中です。</div>
+              ) : tdnetHighlights.length > 0 ? (
+                <div className="detail-financial-tdnet-list">
+                  {tdnetHighlights.map((item) => (
+                    <div key={item.disclosureId} className="detail-financial-tdnet-item">
+                      <div className="detail-financial-tdnet-head">
+                        <div className={`detail-financial-tdnet-title detail-analysis-value--${item.tone}`}>{item.title}</div>
+                        <div className="detail-financial-tdnet-pills">
+                          <span className="detail-financial-tdnet-pill">{item.eventLabel}</span>
+                          {item.sentimentLabel && <span className="detail-financial-tdnet-pill">{item.sentimentLabel}</span>}
+                          {item.importanceLabel && <span className="detail-financial-tdnet-pill">{item.importanceLabel}</span>}
+                        </div>
+                      </div>
+                      <div className="detail-analysis-meta">{item.publishedLabel}</div>
+                      {item.summaryText && <div className="detail-financial-tdnet-summary">{item.summaryText}</div>}
+                      <div className="detail-financial-tdnet-links">
+                        {item.tdnetUrl && (
+                          <a href={item.tdnetUrl} target="_blank" rel="noreferrer">
+                            TDNET
+                          </a>
+                        )}
+                        {item.pdfUrl && (
+                          <a href={item.pdfUrl} target="_blank" rel="noreferrer">
+                            PDF
+                          </a>
+                        )}
+                        {item.xbrlUrl && (
+                          <a href={item.xbrlUrl} target="_blank" rel="noreferrer">
+                            XBRL
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="detail-analysis-empty">TDNET速報はありません。</div>
+              )}
+            </section>
+
+            <section className="detail-analysis-section detail-financial-section">
+              <div className="detail-analysis-section-title">貸借要約</div>
+              {taisyakuStatusLabel && <div className="detail-analysis-meta">{taisyakuStatusLabel}</div>}
+              {taisyakuWatchLabel && <div className="detail-financial-meta-pill">{taisyakuWatchLabel}</div>}
+              {taisyakuLoading ? (
+                <div className="detail-analysis-empty">貸借データを読込中です。</div>
+              ) : taisyakuCards.length > 0 ? (
+                <>
+                  <div className="detail-financial-card-grid detail-financial-card-grid--compact">
+                    {taisyakuCards.map((card) => (
+                      <div key={card.label} className="detail-financial-card">
+                        <div className="detail-financial-card-label">{card.label}</div>
+                        <div className={`detail-financial-card-value detail-analysis-value--${card.tone}`}>{card.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {taisyakuRestrictions.length > 0 && (
+                    <div className="detail-financial-taisyaku-alerts">
+                      {taisyakuRestrictions.map((item, index) => (
+                        <div key={`${item.measureType ?? "measure"}:${item.noticeDate ?? index}`} className="detail-financial-taisyaku-alert">
+                          <span className="detail-financial-tdnet-pill">{item.measureType ?? "制限"}</span>
+                          <span>{item.measureDetail ?? "--"}</span>
+                          {item.noticeDate != null && <span className="detail-analysis-meta">{item.noticeDate}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {taisyakuHistory.length > 0 && (
+                    <div className="detail-financial-taisyaku-table">
+                      <div className="detail-financial-taisyaku-row detail-financial-taisyaku-row--head">
+                        <span>日付</span>
+                        <span>信用倍率</span>
+                        <span>制度/一般</span>
+                        <span>貸借比率</span>
+                        <span>貸借料率</span>
+                      </div>
+                      {taisyakuHistory.map((item) => (
+                        <div key={item.dateLabel} className="detail-financial-taisyaku-row">
+                          <span>{item.dateLabel}</span>
+                          <span>{item.loanRatioLabel}</span>
+                          <span>{item.financeLabel}</span>
+                          <span>{item.stockLabel}</span>
+                          <span>{item.feeLabel}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="detail-analysis-empty">貸借データはありません。</div>
+              )}
+            </section>
+
+            {hasFinancialSeries && (
+              <details className="detail-financial-collapsible">
+                <summary className="detail-financial-collapsible-summary">推移グラフ</summary>
+                <div className="detail-analysis-section detail-financial-section">
+                  <div className="detail-analysis-section-title">売上・利益の推移</div>
+                  <div className="detail-financial-chart">
+                    <ResponsiveContainer width="100%" height={240}>
+                      <BarChart data={financialSeries}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(100, 116, 139, 0.18)" />
+                        <XAxis dataKey="label" stroke="#64748b" tickLine={false} axisLine={false} />
+                        <YAxis
+                          stroke="#64748b"
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(value) => `${formatNumber(Number(value) / 100_000_000, 0)}億円`}
+                        />
+                        <Tooltip formatter={(value) => formatFinancialAmountLabel(Number(value))} />
+                        <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: "#475569" }} iconSize={10} />
+                        <Bar dataKey="revenue" name="売上高" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="operatingIncome" name="営業利益" fill="#4ade80" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="netIncome" name="純利益" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+                <div className="detail-analysis-section detail-financial-section">
+                  <div className="detail-analysis-section-title">利益率 / ROE の推移</div>
+                  <div className="detail-financial-chart">
+                    <ResponsiveContainer width="100%" height={240}>
+                      <LineChart data={financialSeries}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(100, 116, 139, 0.18)" />
+                        <XAxis dataKey="label" stroke="#64748b" tickLine={false} axisLine={false} />
+                        <YAxis
+                          stroke="#64748b"
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(value) => `${formatNumber(Number(value) * 100, 0)}%`}
+                        />
+                        <Tooltip formatter={(value) => formatPercentLabel(Number(value))} />
+                        <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: "#475569" }} iconSize={10} />
+                        <Line type="monotone" dataKey="grossMargin" name="売上総利益率" stroke="#38bdf8" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="operatingMargin" name="営業利益率" stroke="#4ade80" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="netMargin" name="純利益率" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="roe" name="ROE" stroke="#f87171" strokeWidth={2} strokeDasharray="6 4" />
+                        <Line type="monotone" dataKey="roa" name="ROA" stroke="#c084fc" strokeWidth={2} strokeDasharray="6 4" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </details>
+            )}
           </div>
-        )}
-
-        <div className="detail-analysis-section-title">詳細</div>
-        <div className="detail-analysis-section detail-financial-section">
-          <div className="detail-analysis-section-title">TDNET速報</div>
-          {tdnetStatusLabel && <div className="detail-analysis-meta">{tdnetStatusLabel}</div>}
-          {tdnetLoading ? (
-            <div className="detail-analysis-empty">TDNETを読み込み中です。</div>
-          ) : tdnetHighlights.length > 0 ? (
-            <div className="detail-financial-tdnet-list">
-              {tdnetHighlights.map((item) => (
-                <div key={item.disclosureId} className="detail-financial-tdnet-item">
-                  <div className="detail-financial-tdnet-head">
-                    <div className={`detail-financial-tdnet-title detail-analysis-value--${item.tone}`}>{item.title}</div>
-                    <div className="detail-financial-tdnet-pills">
-                      <span className="detail-financial-tdnet-pill">{item.eventLabel}</span>
-                      {item.sentimentLabel && <span className="detail-financial-tdnet-pill">{item.sentimentLabel}</span>}
-                      {item.importanceLabel && <span className="detail-financial-tdnet-pill">{item.importanceLabel}</span>}
-                    </div>
-                  </div>
-                  <div className="detail-analysis-meta">{item.publishedLabel}</div>
-                  {item.summaryText && <div className="detail-financial-tdnet-summary">{item.summaryText}</div>}
-                  <div className="detail-financial-tdnet-links">
-                    {item.tdnetUrl && (
-                      <a href={item.tdnetUrl} target="_blank" rel="noreferrer">
-                        TDNET
-                      </a>
-                    )}
-                    {item.pdfUrl && (
-                      <a href={item.pdfUrl} target="_blank" rel="noreferrer">
-                        PDF
-                      </a>
-                    )}
-                    {item.xbrlUrl && (
-                      <a href={item.xbrlUrl} target="_blank" rel="noreferrer">
-                        XBRL
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="detail-analysis-empty">TDNET速報はまだありません。</div>
-          )}
-        </div>
-
-        <div className="detail-analysis-section detail-financial-section">
-          <div className="detail-analysis-section-title">貸借・逆日歩</div>
-          {taisyakuStatusLabel && <div className="detail-analysis-meta">{taisyakuStatusLabel}</div>}
-          {taisyakuWatchLabel && <div className="detail-financial-meta-pill">{taisyakuWatchLabel}</div>}
-          {taisyakuLoading ? (
-            <div className="detail-analysis-empty">貸借データを読み込み中です。</div>
-          ) : taisyakuCards.length > 0 ? (
-            <>
-              <div className="detail-financial-card-grid detail-financial-card-grid--compact">
-                {taisyakuCards.map((card) => (
-                  <div key={card.label} className="detail-financial-card">
-                    <div className="detail-financial-card-label">{card.label}</div>
-                    <div className={`detail-financial-card-value detail-analysis-value--${card.tone}`}>{card.value}</div>
-                  </div>
-                ))}
-              </div>
-              {taisyakuRestrictions.length > 0 && (
-                <div className="detail-financial-taisyaku-alerts">
-                  {taisyakuRestrictions.map((item, index) => (
-                    <div key={`${item.measureType ?? "measure"}:${item.noticeDate ?? index}`} className="detail-financial-taisyaku-alert">
-                      <span className="detail-financial-tdnet-pill">{item.measureType ?? "規制"}</span>
-                      <span>{item.measureDetail ?? "--"}</span>
-                      {item.noticeDate != null && <span className="detail-analysis-meta">{item.noticeDate}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {taisyakuHistory.length > 0 && (
-                <div className="detail-financial-taisyaku-table">
-                  <div className="detail-financial-taisyaku-row detail-financial-taisyaku-row--head">
-                    <span>日付</span>
-                    <span>貸借倍率</span>
-                    <span>融資残</span>
-                    <span>貸株残</span>
-                    <span>逆日歩</span>
-                  </div>
-                  {taisyakuHistory.map((item) => (
-                    <div key={item.dateLabel} className="detail-financial-taisyaku-row">
-                      <span>{item.dateLabel}</span>
-                      <span>{item.loanRatioLabel}</span>
-                      <span>{item.financeLabel}</span>
-                      <span>{item.stockLabel}</span>
-                      <span>{item.feeLabel}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="detail-analysis-empty">貸借データはまだありません。</div>
-          )}
-        </div>
-
-        {hasFinancialSeries && (
-          <>
-            <div className="detail-analysis-section-title">追加情報</div>
-            <div className="detail-analysis-section detail-financial-section">
-              <div className="detail-analysis-section-title">売上高・利益の推移</div>
-              <div className="detail-financial-chart">
-                <ResponsiveContainer width="100%" height={256}>
-                  <BarChart data={financialSeries}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(100, 116, 139, 0.18)" />
-                    <XAxis dataKey="label" stroke="#64748b" tickLine={false} axisLine={false} />
-                    <YAxis
-                      stroke="#64748b"
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(value) => `${formatNumber(Number(value) / 100_000_000, 0)}億`}
-                    />
-                    <Tooltip formatter={(value) => formatFinancialAmountLabel(Number(value))} />
-                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: "#475569" }} iconSize={10} />
-                    <Bar dataKey="revenue" name="売上高" fill="#38bdf8" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="operatingIncome" name="営業利益" fill="#4ade80" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="netIncome" name="純利益" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-            <div className="detail-analysis-section detail-financial-section">
-              <div className="detail-analysis-section-title">利益率・ROEの推移</div>
-              <div className="detail-financial-chart">
-                <ResponsiveContainer width="100%" height={256}>
-                  <LineChart data={financialSeries}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(100, 116, 139, 0.18)" />
-                    <XAxis dataKey="label" stroke="#64748b" tickLine={false} axisLine={false} />
-                    <YAxis
-                      stroke="#64748b"
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(value) => `${formatNumber(Number(value) * 100, 0)}%`}
-                    />
-                    <Tooltip formatter={(value) => formatPercentLabel(Number(value))} />
-                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: "#475569" }} iconSize={10} />
-                    <Line type="monotone" dataKey="grossMargin" name="売上総利益率" stroke="#38bdf8" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="operatingMargin" name="営業利益率" stroke="#4ade80" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="netMargin" name="純利益率" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="roe" name="ROE" stroke="#f87171" strokeWidth={2} strokeDasharray="6 4" />
-                    <Line type="monotone" dataKey="roa" name="ROA" stroke="#c084fc" strokeWidth={2} strokeDasharray="6 4" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </>
-        )}
+        </details>
       </div>
     </ScreenPanel>
   );

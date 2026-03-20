@@ -10,7 +10,7 @@ const fmtFinancialAmount = (value: number | null | undefined) =>
   value == null ? "--" : `${value.toLocaleString("ja-JP")}円`;
 
 describe("DetailFinancialPanel", () => {
-  it("shows summary, detail, and additional sections in order", () => {
+  it("shows compact summary and keeps the heavy sections collapsed", () => {
     const markup = renderToStaticMarkup(
       <DetailFinancialPanel
         financialPanelRef={{ current: null } as never}
@@ -30,12 +30,8 @@ describe("DetailFinancialPanel", () => {
             roa: 0.06,
           },
         ]}
-        financialCards={[
-          { label: "売上", value: "100", tone: "neutral" },
-        ]}
-        financialKeyStats={[
-          { label: "EPS", value: "8.0", tone: "up" },
-        ]}
+        financialCards={[{ label: "売上", value: "100", tone: "neutral" }]}
+        financialKeyStats={[{ label: "EPS", value: "8.0", tone: "up" }]}
         tdnetHighlights={[
           {
             disclosureId: "tdnet-1",
@@ -53,9 +49,7 @@ describe("DetailFinancialPanel", () => {
         ]}
         tdnetLoading={false}
         tdnetStatusLabel="TDNET ready"
-        taisyakuCards={[
-          { label: "貸借倍率", value: "1.2", tone: "neutral" },
-        ]}
+        taisyakuCards={[{ label: "貸借倍率", value: "1.2", tone: "neutral" }]}
         taisyakuHistory={[
           {
             dateLabel: "2026-03-18",
@@ -75,10 +69,15 @@ describe("DetailFinancialPanel", () => {
       />
     );
 
-    expect(markup).toContain("要約");
+    expect(markup).toContain("EDINET / TDNET / 貸借");
+    expect(markup).toContain("最新年度 2025");
+    expect(markup).toContain("取得 2026-03-19");
+    expect(markup).toContain("売上");
     expect(markup).toContain("詳細");
-    expect(markup).toContain("追加情報");
-    expect(markup).toContain("TDNET");
-    expect(markup).toContain("貸借");
+    expect(markup).toContain("主要指標");
+    expect(markup).toContain("TDNET速報");
+    expect(markup).toContain("貸借要約");
+    expect(markup).toContain("推移グラフ");
+    expect(markup).not.toContain("追加情報");
   });
 });

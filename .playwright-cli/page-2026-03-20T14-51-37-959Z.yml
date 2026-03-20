@@ -1,0 +1,169 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - button "一覧に戻る" [ref=e7] [cursor=pointer]:
+            - img [ref=e9]
+          - button "前の画面に戻る" [ref=e12] [cursor=pointer]:
+            - img [ref=e14]
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - generic [ref=e19]: "1001"
+            - generic [ref=e20]: 日経225
+          - generic [ref=e21]: 練習
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]:
+            - button "3M" [ref=e25] [cursor=pointer]
+            - button "6M" [ref=e26] [cursor=pointer]
+            - button "1Y" [ref=e27] [cursor=pointer]
+            - button "2Y" [ref=e28] [cursor=pointer]
+          - generic [ref=e29]: 2026/03/19 (2000日目)
+        - generic [ref=e31]:
+          - button "1日戻る" [ref=e32] [cursor=pointer]:
+            - img [ref=e34]
+          - button "1日進む" [disabled] [ref=e36]:
+            - img [ref=e38]
+          - button "当日リセット" [disabled] [ref=e40]:
+            - img [ref=e42]
+          - button "スクショ" [ref=e45] [cursor=pointer]:
+            - img [ref=e47]
+          - button "出力 (JSON)" [ref=e50] [cursor=pointer]:
+            - img [ref=e52]
+          - button "AI出力" [ref=e56] [cursor=pointer]:
+            - img [ref=e58]
+          - button "類似" [disabled] [ref=e60]:
+            - img [ref=e62]
+          - generic [ref=e64]:
+            - generic [ref=e65]:
+              - button "マウスモード" [ref=e66] [cursor=pointer]:
+                - img [ref=e68]
+              - button "時間ゾーン描画" [ref=e71] [cursor=pointer]:
+                - img [ref=e73]
+              - button "四角描画" [ref=e77] [cursor=pointer]:
+                - img [ref=e79]
+              - button "価格帯描画" [ref=e83] [cursor=pointer]:
+                - generic [ref=e85]: ▭
+              - button "水平線描画" [ref=e86] [cursor=pointer]:
+                - img [ref=e88]
+              - button "描画を全削除" [ref=e89] [cursor=pointer]:
+                - img [ref=e91]
+            - generic [ref=e94]:
+              - button "描画色を変更" [ref=e95] [cursor=pointer]
+              - slider "不透明度" [ref=e98]: "0.8"
+              - slider "太さ" [ref=e99]: "2"
+          - button "パネルを開く" [ref=e100] [cursor=pointer]: ← パネル
+          - button "カーソルON" [ref=e101] [cursor=pointer]:
+            - img [ref=e103]
+            - generic [ref=e105]: カーソルON
+    - generic [ref=e107]:
+      - generic [ref=e108]: 練習開始日
+      - generic [ref=e109]:
+        - generic [ref=e110]:
+          - textbox [ref=e111]
+          - button "開始日を確定" [ref=e112] [cursor=pointer]
+          - button "過去の練習を開く" [ref=e113] [cursor=pointer]
+        - generic [ref=e114]:
+          - generic [ref=e115]: 未作成
+          - generic [ref=e116]: セッション未選択
+    - generic [ref=e120]:
+      - generic [ref=e121]:
+        - generic [ref=e122]: 日足
+        - generic [ref=e123]:
+          - generic [ref=e124]:
+            - table [ref=e127]:
+              - row [ref=e128]:
+                - cell
+                - cell [ref=e129]
+                - cell [ref=e133]
+              - row [ref=e137]:
+                - cell
+                - cell [ref=e138]
+                - cell [ref=e142]
+            - generic:
+              - generic:
+                - generic: 26/03/19
+                - generic: 前日比-1,870 (-3.39%)
+              - generic:
+                - generic: O
+                - generic: 54,290
+                - generic: H
+                - generic: 54,330
+                - generic: L
+                - generic: 53,190
+                - generic: C
+                - generic: 53,370
+                - generic: 出来高
+                - generic: 312,932
+              - generic:
+                - generic:
+                  - generic: 7MA
+                  - generic: 54,194
+                - generic:
+                  - generic: 20MA
+                  - generic: 55,682
+                - generic:
+                  - generic: 60MA
+                  - generic: 54,044
+                - generic:
+                  - generic: 100MA
+                  - generic: 52,488
+                - generic:
+                  - generic: 200MA
+                  - generic: 47,188
+              - generic:
+                - generic: 本数
+                - generic:
+                  - generic: 7MA
+                  - generic: 上0 / 下1
+                - generic:
+                  - generic: 20MA
+                  - generic: 上0 / 下13
+                - generic:
+                  - generic: 60MA
+                  - generic: 上0 / 下1
+                - generic:
+                  - generic: 100MA
+                  - generic: 上120 / 下0
+                - generic:
+                  - generic: 200MA
+                  - generic: 上120 / 下0
+          - generic:
+            - generic: 建玉
+            - generic: 売0-買0
+            - generic: ネット0
+            - generic: 実 0 / 評 0
+            - generic: 株数 100
+      - generic [ref=e145]:
+        - generic [ref=e146]:
+          - generic [ref=e147]: 週足
+          - table [ref=e152]:
+            - row [ref=e153]:
+              - cell
+              - cell [ref=e154]
+              - cell [ref=e158]
+            - row [ref=e162]:
+              - cell
+              - cell [ref=e163]
+              - cell [ref=e167]
+        - generic [ref=e171]:
+          - generic [ref=e172]: 月足
+          - table [ref=e177]:
+            - row [ref=e178]:
+              - cell
+              - cell [ref=e179]
+              - cell [ref=e183]
+            - row [ref=e187]:
+              - cell
+              - cell [ref=e188]
+              - cell [ref=e192]

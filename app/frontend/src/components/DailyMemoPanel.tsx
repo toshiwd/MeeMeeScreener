@@ -1,439 +1,300 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { IconPointer, IconPointerOff } from "@tabler/icons-react";
 import "./DailyMemoPanel.css";
 
 interface DailyMemoPanelProps {
-    code: string;
-    selectedDate: string | null;
-    selectedBarData: {
-        time: number;
-        open: number;
-        high: number;
-        low: number;
-        close: number;
-        volume?: number;
-    } | null;
-    maValues?: {
-        ma7?: number;
-        ma20?: number;
-        ma60?: number;
-        ma100?: number;
-        ma200?: number;
-    };
-    maTrends?: {
-        ma7?: string;
-        ma20?: string;
-        ma60?: string;
-        ma100?: string;
-        ma200?: string;
-    };
-    position?: {
-        buy: number;
-        sell: number;
-    };
-    prevDayData?: {
-        close: number;
-        change: number;
-        changePercent: number;
-    };
-    title?: string;
-    cursorMode: boolean;
-    onToggleCursorMode: () => void;
-    onPrevDay: () => void;
-    onNextDay: () => void;
-    onCopyForConsult: () => void;
+  code: string;
+  selectedDate: string | null;
+  selectedBarData: {
+    time: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume?: number;
+  } | null;
+  maValues?: {
+    ma7?: number;
+    ma20?: number;
+    ma60?: number;
+    ma100?: number;
+    ma200?: number;
+  };
+  maTrends?: {
+    ma7?: string;
+    ma20?: string;
+    ma60?: string;
+    ma100?: string;
+    ma200?: string;
+  };
+  position?: {
+    buy: number;
+    sell: number;
+  };
+  prevDayData?: {
+    close: number;
+    change: number;
+    changePercent: number;
+  };
+  title?: string;
+  onPrevDay: () => void;
+  onNextDay: () => void;
+  onCopyForConsult: () => void;
 }
 
 interface MemoData {
-    memo: string;
-    updated_at: string | null;
+  memo: string;
+  updated_at: string | null;
 }
 
 export default function DailyMemoPanel({
-    code,
-    selectedDate,
-    selectedBarData,
-    maValues,
-    maTrends,
-    position,
-    prevDayData,
-    title = "日足情報",
-    cursorMode,
-    onToggleCursorMode,
-    onPrevDay,
-    onNextDay,
-    onCopyForConsult,
+  code,
+  selectedDate,
+  selectedBarData,
+  maValues,
+  position,
+  prevDayData,
+  title = "日足情報",
+  onPrevDay,
+  onNextDay,
+  onCopyForConsult,
 }: DailyMemoPanelProps) {
-    const [memo, setMemo] = useState("");
-    const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-    const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [memo, setMemo] = useState("");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-    const saveTimeoutRef = useRef<number | null>(null);
-    const lastSavedKeyRef = useRef<string | null>(null);
-    const latestMemoRef = useRef("");
-    const latestCodeRef = useRef(code);
-    const latestSelectedDateRef = useRef<string | null>(selectedDate);
-    const saveMemoRef = useRef<((memoText: string, forceKey?: string) => Promise<void>) | null>(null);
+  const saveTimeoutRef = useRef<number | null>(null);
+  const latestMemoRef = useRef("");
+  const latestCodeRef = useRef(code);
+  const latestSelectedDateRef = useRef<string | null>(selectedDate);
+  const saveMemoRef = useRef<((memoText: string, forceKey?: string) => Promise<void>) | null>(null);
 
-    latestMemoRef.current = memo;
-    latestCodeRef.current = code;
-    latestSelectedDateRef.current = selectedDate;
+  latestMemoRef.current = memo;
+  latestCodeRef.current = code;
+  latestSelectedDateRef.current = selectedDate;
 
-    // Load memo when date changes
-    useEffect(() => {
-        if (!code || !selectedDate) {
-            setMemo("");
-            setLastSavedAt(null);
-            return;
-        }
+  useEffect(() => {
+    if (!code || !selectedDate) {
+      setMemo("");
+      setLastSavedAt(null);
+      return;
+    }
 
-        const loadMemo = async () => {
-            try {
-                const response = await api.get("/memo", {
-                    params: { symbol: code, date: selectedDate, timeframe: "D" },
-                });
-                const data = response.data as MemoData;
-                setMemo(data.memo || "");
-                setLastSavedAt(data.updated_at);
-                setSaveStatus("idle");
-                lastSavedKeyRef.current = `${code}-${selectedDate}`;
-            } catch (error) {
-                console.error("Failed to load memo:", error);
-                setMemo("");
-                setLastSavedAt(null);
-            }
-        };
-
-        loadMemo();
-    }, [code, selectedDate]);
-
-    // Save memo with debounce
-    const saveMemo = async (memoText: string, forceKey?: string) => {
-        const saveKey = forceKey || `${code}-${selectedDate}`;
-
-        // Prevent saving if key has changed (user moved to different date)
-        if (saveKey !== `${code}-${selectedDate}`) {
-            return;
-        }
-
-        if (!code || !selectedDate) return;
-
-        setSaveStatus("saving");
-        setErrorMessage(null);
-
-        try {
-            const response = await api.put("/memo", {
-                symbol: code,
-                date: selectedDate,
-                timeframe: "D",
-                memo: memoText.trim(),
-            });
-
-            const data = response.data as { ok: boolean; updated_at?: string; deleted?: boolean };
-
-            if (data.ok) {
-                setSaveStatus("saved");
-                setLastSavedAt(data.updated_at || null);
-                lastSavedKeyRef.current = saveKey;
-
-                // Clear saved status after 3 seconds
-                setTimeout(() => {
-                    if (saveStatus === "saved") setSaveStatus("idle");
-                }, 3000);
-            }
-        } catch (error: any) {
-            console.error("Failed to save memo:", error);
-            setSaveStatus("error");
-            setErrorMessage(error.response?.data?.error || "保存に失敗しました");
-        }
-    };
-    saveMemoRef.current = saveMemo;
-
-    // Auto-save with debounce
-    const handleMemoChange = (value: string) => {
-        // Enforce 100 character limit
-        if (value.length > 100) {
-            return;
-        }
-
-        setMemo(value);
+    const loadMemo = async () => {
+      try {
+        const response = await api.get("/memo", {
+          params: { symbol: code, date: selectedDate, timeframe: "D" },
+        });
+        const data = response.data as MemoData;
+        setMemo(data.memo || "");
+        setLastSavedAt(data.updated_at);
         setSaveStatus("idle");
-
-        // Clear existing timeout
-        if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current);
-        }
-
-        // Set new timeout for auto-save (800ms debounce)
-        saveTimeoutRef.current = setTimeout(() => {
-            saveMemo(value);
-        }, 800);
+      } catch (error) {
+        console.error("Failed to load memo:", error);
+        setMemo("");
+        setLastSavedAt(null);
+      }
     };
 
-    // Save before date change
-    const handleDateChange = (direction: "prev" | "next") => {
-        // Save current memo if there are unsaved changes
-        if (saveTimeoutRef.current) {
-            clearTimeout(saveTimeoutRef.current);
-            saveMemo(memo, `${code}-${selectedDate}`);
-        }
+    loadMemo();
+  }, [code, selectedDate]);
 
-        // Navigate
-        if (direction === "prev") {
-            onPrevDay();
-        } else {
-            onNextDay();
-        }
+  const saveMemo = async (memoText: string, forceKey?: string) => {
+    const saveKey = forceKey || `${code}-${selectedDate}`;
+    if (saveKey !== `${code}-${selectedDate}`) return;
+    if (!code || !selectedDate) return;
+
+    setSaveStatus("saving");
+    setErrorMessage(null);
+
+    try {
+      const response = await api.put("/memo", {
+        symbol: code,
+        date: selectedDate,
+        timeframe: "D",
+        memo: memoText.trim(),
+      });
+      const data = response.data as { ok: boolean; updated_at?: string; deleted?: boolean };
+      if (data.ok) {
+        setSaveStatus("saved");
+        setLastSavedAt(data.updated_at || null);
+        setTimeout(() => {
+          setSaveStatus((current) => (current === "saved" ? "idle" : current));
+        }, 3000);
+      }
+    } catch (error: any) {
+      console.error("Failed to save memo:", error);
+      setSaveStatus("error");
+      setErrorMessage(error.response?.data?.error || "メモの保存に失敗しました");
+    }
+  };
+  saveMemoRef.current = saveMemo;
+
+  const handleMemoChange = (value: string) => {
+    if (value.length > 100) return;
+
+    setMemo(value);
+    setSaveStatus("idle");
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      void saveMemo(value);
+    }, 800);
+  };
+
+  const handleDateChange = (direction: "prev" | "next") => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      void saveMemo(memo, `${code}-${selectedDate}`);
+    }
+
+    if (direction === "prev") {
+      onPrevDay();
+    } else {
+      onNextDay();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        void saveMemoRef.current?.(
+          latestMemoRef.current,
+          `${latestCodeRef.current}-${latestSelectedDateRef.current}`
+        );
+      }
     };
+  }, []);
 
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
-            if (saveTimeoutRef.current) {
-                clearTimeout(saveTimeoutRef.current);
-                // Note: We can't await here, but the save will still execute
-                void saveMemoRef.current?.(
-                    latestMemoRef.current,
-                    `${latestCodeRef.current}-${latestSelectedDateRef.current}`
-                );
-            }
-        };
-    }, []);
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return "--";
+    const date = new Date(dateStr);
+    const days = ["日", "月", "火", "水", "木", "金", "土"];
+    return `${dateStr} (${days[date.getDay()]})`;
+  };
 
-    const formatDate = (dateStr: string | null) => {
-        if (!dateStr) return "—";
-        const date = new Date(dateStr);
-        const days = ["日", "月", "火", "水", "木", "金", "土"];
-        const dayOfWeek = days[date.getDay()];
-        return `${dateStr} (${dayOfWeek})`;
-    };
+  const formatTime = (timestamp: string | null) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString("ja-JP", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  };
 
-    const formatTime = (timestamp: string | null) => {
-        if (!timestamp) return "";
-        const date = new Date(timestamp);
-        return date.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    };
+  const formatNumber = (value: number | null | undefined, decimals = 0) => {
+    if (value == null) return "--";
+    return value.toLocaleString("ja-JP", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  };
 
-    const formatNumber = (value: number | null | undefined, decimals = 0) => {
-        if (value == null) return "—";
-        return value.toLocaleString("ja-JP", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-    };
+  if (!selectedDate || !selectedBarData) {
+    return null;
+  }
 
-    const remainingChars = 100 - memo.length;
-    const showDetail = cursorMode && selectedDate && selectedBarData;
+  const remainingChars = 100 - memo.length;
 
-    return (
-        <div className="daily-memo-panel">
-            <div className="memo-panel-header">
-                <h3>{title}</h3>
-                <button
-                    type="button"
-                    className={`cursor-mode-toggle ${cursorMode ? "active" : ""}`}
-                    onClick={onToggleCursorMode}
-                    title="カーソルモード切替 (C)"
-                >
-                    {cursorMode ? (
-                        <>
-                            <IconPointer size={16} />
-                            <span>カーソルON</span>
-                        </>
-                    ) : (
-                        <>
-                            <IconPointerOff size={16} />
-                            <span>カーソルOFF</span>
-                        </>
-                    )}
-                </button>
-            </div>
+  return (
+    <div className="daily-memo-panel">
+      <div className="memo-panel-header">
+        <h3>{title}</h3>
+      </div>
 
-            {showDetail ? (
-                <>
-                    <div className="memo-panel-info">
-                        <div className="info-header">
-                            <div className="info-date">{formatDate(selectedDate)}</div>
-                            <div className="info-nav">
-                                <button
-                                    type="button"
-                                    className="nav-btn"
-                                    onClick={() => handleDateChange("prev")}
-                                    title="前日 (←)"
-                                >
-                                    ←
-                                </button>
-                                <button
-                                    type="button"
-                                    className="nav-btn"
-                                    onClick={() => handleDateChange("next")}
-                                    title="翌日 (→)"
-                                >
-                                    →
-                                </button>
-                            </div>
-                        </div>
-
-                        {prevDayData && (
-                            <div className="prev-day-info">
-                                前日比 {prevDayData.change >= 0 ? '+' : ''}{formatNumber(prevDayData.change)}
-                                ({prevDayData.changePercent >= 0 ? '+' : ''}{prevDayData.changePercent.toFixed(2)}%)
-                            </div>
-                        )}
-
-                        <div className="info-section">
-                            <div className="info-grid-2col">
-                                <div>O</div><div>{formatNumber(selectedBarData.open)}</div>
-                                <div>H</div><div>{formatNumber(selectedBarData.high)}</div>
-                                <div>L</div><div>{formatNumber(selectedBarData.low)}</div>
-                                <div>C</div><div>{formatNumber(selectedBarData.close)}</div>
-                            </div>
-                        </div>
-
-                        {selectedBarData.volume != null && (
-                            <div className="info-section">
-                                <div className="info-label">出来高</div>
-                                <div className="info-value">{formatNumber(selectedBarData.volume)}</div>
-                            </div>
-                        )}
-
-                        {maValues && (
-                            <div className="info-section">
-                                <div className="info-label">MA</div>
-                                <div className="ma-list">
-                                    {maValues.ma7 != null && (
-                                        <div className="ma-item">
-                                            <span className="ma-name" style={{ color: '#ef4444' }}>MA1</span>
-                                            <span className="ma-value">{formatNumber(maValues.ma7)}</span>
-                                        </div>
-                                    )}
-                                    {maValues.ma20 != null && (
-                                        <div className="ma-item">
-                                            <span className="ma-name" style={{ color: '#22c55e' }}>MA2</span>
-                                            <span className="ma-value">{formatNumber(maValues.ma20)}</span>
-                                        </div>
-                                    )}
-                                    {maValues.ma60 != null && (
-                                        <div className="ma-item">
-                                            <span className="ma-name" style={{ color: '#3b82f6' }}>MA3</span>
-                                            <span className="ma-value">{formatNumber(maValues.ma60)}</span>
-                                        </div>
-                                    )}
-                                    {maValues.ma100 != null && (
-                                        <div className="ma-item">
-                                            <span className="ma-name" style={{ color: '#a855f7' }}>MA4</span>
-                                            <span className="ma-value">{formatNumber(maValues.ma100)}</span>
-                                        </div>
-                                    )}
-                                    {maValues.ma200 != null && (
-                                        <div className="ma-item">
-                                            <span className="ma-name" style={{ color: '#f97316' }}>MA5</span>
-                                            <span className="ma-value">{formatNumber(maValues.ma200)}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {maTrends && (
-                            <div className="info-section">
-                                <div className="info-label">本数</div>
-                                <div className="ma-list">
-                                    {maTrends.ma7 && (
-                                        <div className="ma-item">
-                                            <span className="ma-name" style={{ color: '#ef4444' }}>MA1</span>
-                                            <span className="ma-value">{maTrends.ma7}</span>
-                                        </div>
-                                    )}
-                                    {maTrends.ma20 && (
-                                        <div className="ma-item">
-                                            <span className="ma-name" style={{ color: '#22c55e' }}>MA2</span>
-                                            <span className="ma-value">{maTrends.ma20}</span>
-                                        </div>
-                                    )}
-                                    {maTrends.ma60 && (
-                                        <div className="ma-item">
-                                            <span className="ma-name" style={{ color: '#3b82f6' }}>MA3</span>
-                                            <span className="ma-value">{maTrends.ma60}</span>
-                                        </div>
-                                    )}
-                                    {maTrends.ma100 && (
-                                        <div className="ma-item">
-                                            <span className="ma-name" style={{ color: '#a855f7' }}>MA4</span>
-                                            <span className="ma-value">{maTrends.ma100}</span>
-                                        </div>
-                                    )}
-                                    {maTrends.ma200 && (
-                                        <div className="ma-item">
-                                            <span className="ma-name" style={{ color: '#f97316' }}>MA5</span>
-                                            <span className="ma-value">{maTrends.ma200}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {position && (
-                            <div className="info-section">
-                                <div className="info-label">建玉</div>
-                                <div className="position-info">
-                                    {position.buy > 0 || position.sell > 0 ? (
-                                        <div className="position-value">{position.sell} / {position.buy}</div>
-                                    ) : (
-                                        <div className="position-empty">N/A</div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                    </div>
-
-                    <div className="memo-panel-input">
-                        <div className="memo-header">
-                            <label htmlFor="daily-memo">日付メモ (100字以内)</label>
-                            <div className="memo-status">
-                                {saveStatus === "saving" && <span className="status-saving">保存中...</span>}
-                                {saveStatus === "saved" && lastSavedAt && (
-                                    <span className="status-saved">保存済み {formatTime(lastSavedAt)}</span>
-                                )}
-                                {saveStatus === "error" && (
-                                    <span className="status-error">保存失敗 (再試行)</span>
-                                )}
-                                <span className={`char-count ${remainingChars < 10 ? "warning" : ""}`}>
-                                    残り {remainingChars}
-                                </span>
-                            </div>
-                        </div>
-                        <textarea
-                            id="daily-memo"
-                            className="memo-textarea"
-                            value={memo}
-                            onChange={(e) => handleMemoChange(e.target.value)}
-                            placeholder="この日の気づきやメモを入力..."
-                            maxLength={100}
-                            rows={3}
-                        />
-                        {errorMessage && <div className="memo-error">{errorMessage}</div>}
-                        <div className="info-actions">
-                            <button
-                                type="button"
-                                className="consult-copy-btn"
-                                onClick={onCopyForConsult}
-                                title="相談用にコピー"
-                            >
-                                📋 相談用にコピー
-                            </button>
-                        </div>
-                    </div>
-                </>
-            ) : !cursorMode ? (
-                <div className="memo-panel-empty">
-                    <p>カーソルをONにすると日足情報を表示します</p>
-                </div>
-            ) : (
-                <div className="memo-panel-empty">
-                    <p>日足チャートをクリックすると日足情報を表示します</p>
-                </div>
-            )}
+      <div className="memo-panel-info">
+        <div className="info-header">
+          <div className="info-date">{formatDate(selectedDate)}</div>
+          <div className="info-nav">
+            <button type="button" className="nav-btn" onClick={() => handleDateChange("prev")}>
+              前日
+            </button>
+            <button type="button" className="nav-btn" onClick={() => handleDateChange("next")}>
+              次日
+            </button>
+          </div>
         </div>
-    );
+        <div className="memo-price-row">
+          <span
+            className={`price-change ${
+              prevDayData && prevDayData.change > 0 ? "positive" : prevDayData && prevDayData.change < 0 ? "negative" : ""
+            }`}
+          >
+            {prevDayData && prevDayData.change !== undefined
+              ? `${prevDayData.change > 0 ? "+" : ""}${formatNumber(prevDayData.change, 0)} (${formatNumber(prevDayData.changePercent, 1)}%)`
+              : "--"}
+          </span>
+        </div>
+        <div className="ohlc-grid">
+          <div className="ohlc-item">
+            <span>O</span>
+            <span>{formatNumber(selectedBarData.open, 0)}</span>
+          </div>
+          <div className="ohlc-item">
+            <span>H</span>
+            <span>{formatNumber(selectedBarData.high, 0)}</span>
+          </div>
+          <div className="ohlc-item">
+            <span>L</span>
+            <span>{formatNumber(selectedBarData.low, 0)}</span>
+          </div>
+          <div className="ohlc-item">
+            <span>C</span>
+            <span>{formatNumber(selectedBarData.close, 0)}</span>
+          </div>
+          <div className="ohlc-item">
+            <span>出来高</span>
+            <span>{formatNumber(selectedBarData.volume, 0)}</span>
+          </div>
+        </div>
+        <div className="memo-meta-row">
+          {maValues && (
+            <div className="memo-ma-list">
+              {maValues.ma7 != null && <div className="memo-ma-item">7MA {formatNumber(maValues.ma7, 0)}</div>}
+              {maValues.ma20 != null && <div className="memo-ma-item">20MA {formatNumber(maValues.ma20, 0)}</div>}
+              {maValues.ma60 != null && <div className="memo-ma-item">60MA {formatNumber(maValues.ma60, 0)}</div>}
+              {maValues.ma100 != null && <div className="memo-ma-item">100MA {formatNumber(maValues.ma100, 0)}</div>}
+              {maValues.ma200 != null && <div className="memo-ma-item">200MA {formatNumber(maValues.ma200, 0)}</div>}
+            </div>
+          )}
+          {position && (
+            <div className="memo-position-row">
+              <span>建玉</span>
+              <span>買い {formatNumber(position.buy, 0)}</span>
+              <span>売り {formatNumber(position.sell, 0)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="memo-section">
+        <div className="memo-section-header">
+          <span>日付メモ</span>
+          {lastSavedAt && <span className="memo-saved-at">更新 {formatTime(lastSavedAt)}</span>}
+        </div>
+        <textarea
+          className="memo-textarea"
+          value={memo}
+          onChange={(e) => handleMemoChange(e.target.value)}
+          maxLength={100}
+          placeholder="メモを入力..."
+        />
+        <div className="memo-footer">
+          <span className={`memo-status memo-status-${saveStatus}`}>
+            {errorMessage || (saveStatus === "saving" ? "保存中..." : saveStatus === "saved" ? "保存済み" : "")}
+          </span>
+          <span className="memo-remaining">{remainingChars}文字</span>
+        </div>
+      </div>
+
+      <div className="memo-section">
+        <button type="button" className="nav-btn" onClick={onCopyForConsult}>
+          相談用にコピー
+        </button>
+      </div>
+    </div>
+  );
 }

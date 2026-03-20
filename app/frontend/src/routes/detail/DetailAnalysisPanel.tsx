@@ -79,7 +79,6 @@ export type Props = {
   formatNumber: FormatNumber;
   formatSignedPercentLabel: FormatSignedPercentLabel;
   onSubmitAnalysisRecalc: () => void;
-  onOpenSimilar: () => void;
 };
 
 const formatSetupIntent = (side: "buy" | "sell", setupType?: string | null) => {
@@ -201,44 +200,15 @@ export function DetailAnalysisPanel(props: Props) {
     formatNumber,
     formatSignedPercentLabel,
     onSubmitAnalysisRecalc,
-    onOpenSimilar,
   } = props;
   const buyPolicy = analysisEntryPolicy?.up ?? null;
   const sellPolicy = analysisEntryPolicy?.down ?? null;
+  const hasAnalysisSummary = canShowAnalysis;
 
   return (
-    <ScreenPanel
-      title="判定確認"
-      actions={
-        <div className="detail-analysis-actions">
-          <button
-            type="button"
-            className="detail-analysis-action-button"
-            onClick={onSubmitAnalysisRecalc}
-          >
-            再計算
-          </button>
-          <button
-            type="button"
-            className="detail-analysis-action-button"
-            onClick={onOpenSimilar}
-          >
-            類似
-          </button>
-        </div>
-      }
-      className="detail-analysis-panel"
-    >
+    <ScreenPanel title="判定確認" className="detail-analysis-panel">
       <div className="detail-analysis-body">
-        {analysisDtLabel && (
-          <div className="detail-analysis-meta">基準日 {analysisDtLabel}</div>
-        )}
-        {cursorMode && analysisCursorDateLabel && (
-          <div className="detail-analysis-meta">カーソル日 {analysisCursorDateLabel}</div>
-        )}
-        {canShowPhase && phaseReasons[0] && (
-          <div className="detail-analysis-meta">局面メモ {phaseReasons[0]}</div>
-        )}
+        {analysisDtLabel && <div className="detail-analysis-meta">基準日 {analysisDtLabel}</div>}
         {canShowAnalysis ? (
           <>
             <div className="detail-analysis-section">
@@ -269,9 +239,7 @@ export function DetailAnalysisPanel(props: Props) {
                     出口 {formatHoldWindow(buyPolicy)} / {formatExitPlan(buyPolicy)}
                   </div>
                   {buyPolicy?.recommendedHoldReason && (
-                    <div className="detail-analysis-entry-plan-item">
-                      補足 {buyPolicy.recommendedHoldReason}
-                    </div>
+                    <div className="detail-analysis-entry-plan-item">補足 {buyPolicy.recommendedHoldReason}</div>
                   )}
                 </div>
                 <div className="detail-analysis-entry-plan detail-analysis-entry-plan--down">
@@ -286,9 +254,7 @@ export function DetailAnalysisPanel(props: Props) {
                     出口 {formatHoldWindow(sellPolicy)} / {formatExitPlan(sellPolicy)}
                   </div>
                   {sellPolicy?.recommendedHoldReason && (
-                    <div className="detail-analysis-entry-plan-item">
-                      補足 {sellPolicy.recommendedHoldReason}
-                    </div>
+                    <div className="detail-analysis-entry-plan-item">補足 {sellPolicy.recommendedHoldReason}</div>
                   )}
                 </div>
                 <div className="detail-analysis-prob-meter-list">
@@ -316,152 +282,145 @@ export function DetailAnalysisPanel(props: Props) {
                       <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.neutralWidth}%` }} />
                     </div>
                   </div>
-                  <div className="detail-analysis-prob-meter-row tone-up">
-                    <div className="detail-analysis-prob-meter-label">
-                      買い仕込み {analysisSummaryLoading ? "暫定" : `${analysisGuidance.buySetupState} ${formatPercentLabel(analysisGuidance.buySetupProb)}`}
+                </div>
+              </div>
+            </div>
+            <details className="detail-analysis-details">
+              <summary className="detail-analysis-details-summary">追加情報</summary>
+              <div className="detail-analysis-details-body">
+                <div className="detail-analysis-details-actions">
+                  <button
+                    type="button"
+                    className="nav-btn"
+                    disabled={
+                      (!analysisRecalcDisabled && analysisAsOfTime == null) ||
+                      analysisBackfillActive ||
+                      analysisRecalcSubmitting != null
+                    }
+                    title={
+                      analysisRecalcDisabled
+                        ? "現在の基準日で売買判定を更新"
+                        : analysisRecalcDisabledReason ?? undefined
+                    }
+                    onClick={() => {
+                      void submitAnalysisRecalc();
+                    }}
+                  >
+                    {analysisRecalcDisabled ? "売買判定を更新" : "基準日を中心に130本を再計算"}
+                  </button>
+                </div>
+                <div className="detail-analysis-section">
+                  <div className="detail-analysis-section-title">詳細</div>
+                  {analysisCursorDateLabel && cursorMode && (
+                    <div className="detail-analysis-meta">カーソル日 {analysisCursorDateLabel}</div>
+                  )}
+                  {canShowPhase && phaseReasons[0] && (
+                    <div className="detail-analysis-meta">局面メモ {phaseReasons[0]}</div>
+                  )}
+                  {analysisPreparationVisible && analysisBackfillProgressLabel && (
+                    <div className="detail-analysis-meta">{analysisBackfillProgressLabel}</div>
+                  )}
+                  {analysisPreparationVisible &&
+                    analysisBackfillMessage &&
+                    analysisBackfillMessage !== analysisBackfillProgressLabel && (
+                      <div className="detail-analysis-meta">{analysisBackfillMessage}</div>
+                    )}
+                  {sellAnalysisDtLabel && <div className="detail-analysis-meta">売り基準日 {sellAnalysisDtLabel}</div>}
+                  {sellPredDtLabel && <div className="detail-analysis-meta">予測スナップショット {sellPredDtLabel}</div>}
+                  {researchPriorRunId && <div className="detail-analysis-meta">研究連携 Run {researchPriorRunId}</div>}
+                  {analysisResearchPrior && <div className="detail-analysis-meta">{researchPriorUpMeta}</div>}
+                  {analysisResearchPrior && <div className="detail-analysis-meta">{researchPriorDownMeta}</div>}
+                  {edinetStatusMeta && <div className="detail-analysis-meta">{edinetStatusMeta}</div>}
+                  {edinetQualityMeta && <div className="detail-analysis-meta">EDI品質 {edinetQualityMeta}</div>}
+                  {edinetMetricsMeta && <div className="detail-analysis-meta">{edinetMetricsMeta}</div>}
+                  {edinetBonusMeta && <div className="detail-analysis-meta">{edinetBonusMeta}</div>}
+                </div>
+                <div className="detail-analysis-section">
+                  <div className="detail-analysis-section-title">仕込み指標</div>
+                  <div className="detail-analysis-prob-meter-list">
+                    <div className="detail-analysis-prob-meter-row tone-up">
+                      <div className="detail-analysis-prob-meter-label">
+                        買い仕込み {analysisSummaryLoading ? "暫定" : `${analysisGuidance.buySetupState} ${formatPercentLabel(analysisGuidance.buySetupProb)}`}
+                      </div>
+                      <div className="detail-analysis-prob-meter-track">
+                        <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.buySetupWidth}%` }} />
+                      </div>
                     </div>
-                    <div className="detail-analysis-prob-meter-track">
-                      <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.buySetupWidth}%` }} />
-                    </div>
-                  </div>
-                  <div className="detail-analysis-prob-meter-row tone-down">
-                    <div className="detail-analysis-prob-meter-label">
-                      売り仕込み {analysisSummaryLoading ? "暫定" : `${analysisGuidance.sellSetupState} ${formatPercentLabel(analysisGuidance.sellSetupProb)}`}
-                    </div>
-                    <div className="detail-analysis-prob-meter-track">
-                      <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.sellSetupWidth}%` }} />
+                    <div className="detail-analysis-prob-meter-row tone-down">
+                      <div className="detail-analysis-prob-meter-label">
+                        売り仕込み {analysisSummaryLoading ? "暫定" : `${analysisGuidance.sellSetupState} ${formatPercentLabel(analysisGuidance.sellSetupProb)}`}
+                      </div>
+                      <div className="detail-analysis-prob-meter-track">
+                        <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.sellSetupWidth}%` }} />
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-              {analysisSummaryLoading && (
-                <div className="detail-analysis-meta detail-analysis-provisional-note">一部データは暫定です。</div>
-              )}
-              <div className="detail-analysis-section-title">詳細</div>
-              {analysisPreparationVisible && analysisBackfillProgressLabel && (
-                <div className="detail-analysis-meta">{analysisBackfillProgressLabel}</div>
-              )}
-              {analysisPreparationVisible &&
-                analysisBackfillMessage &&
-                analysisBackfillMessage !== analysisBackfillProgressLabel && (
-                  <div className="detail-analysis-meta">{analysisBackfillMessage}</div>
-                )}
-              {analysisDtLabel && (
-                <div className="detail-analysis-meta">買い基準日 {analysisDtLabel}</div>
-              )}
-              {sellAnalysisDtLabel && (
-                <div className="detail-analysis-meta">売り基準日 {sellAnalysisDtLabel}</div>
-              )}
-              {sellPredDtLabel && (
-                <div className="detail-analysis-meta">予測スナップショット {sellPredDtLabel}</div>
-              )}
-              {researchPriorRunId && (
-                <div className="detail-analysis-meta">研究連携 Run {researchPriorRunId}</div>
-              )}
-              {analysisResearchPrior && (
-                <div className="detail-analysis-meta">{researchPriorUpMeta}</div>
-              )}
-              {analysisResearchPrior && (
-                <div className="detail-analysis-meta">{researchPriorDownMeta}</div>
-              )}
-              {edinetStatusMeta && (
-                <div className="detail-analysis-meta">{edinetStatusMeta}</div>
-              )}
-              {edinetQualityMeta && (
-                <div className="detail-analysis-meta">EDI品質 {edinetQualityMeta}</div>
-              )}
-              {edinetMetricsMeta && (
-                <div className="detail-analysis-meta">{edinetMetricsMeta}</div>
-              )}
-              {edinetBonusMeta && (
-                <div className="detail-analysis-meta">{edinetBonusMeta}</div>
-              )}
-            </div>
-            {hasSwingData && (
-              <div className="detail-analysis-section">
-                <div className="detail-analysis-section-title">追加情報</div>
-                {swingPlan ? (
-                  <>
-                    <div className="detail-analysis-meta">
-                      提案 {swingSideLabel} / Score {formatPercentLabel(swingPlan.score)} / Horizon {formatNumber(swingPlan.horizonDays, 0)}日
-                    </div>
-                    <div className="detail-analysis-meta">
-                      Entry {formatNumber(swingPlan.entry, 2)} / Stop {formatNumber(swingPlan.stop, 2)}
-                    </div>
-                    <div className="detail-analysis-meta">
-                      TP1 {formatNumber(swingPlan.tp1, 2)} / TP2 {formatNumber(swingPlan.tp2, 2)} / TimeStop {formatNumber(swingPlan.timeStopDays, 0)}日
-                    </div>
-                    {swingReasonsLabel && (
-                      <div className="detail-analysis-meta">理由 {swingReasonsLabel}</div>
+                {hasSwingData && (
+                  <div className="detail-analysis-section">
+                    <div className="detail-analysis-section-title">追加情報</div>
+                    {swingPlan ? (
+                      <>
+                        <div className="detail-analysis-meta">
+                          提案 {swingSideLabel} / Score {formatPercentLabel(swingPlan.score)} / Horizon {formatNumber(swingPlan.horizonDays, 0)}日
+                        </div>
+                        <div className="detail-analysis-meta">
+                          Entry {formatNumber(swingPlan.entry, 2)} / Stop {formatNumber(swingPlan.stop, 2)}
+                        </div>
+                        <div className="detail-analysis-meta">
+                          TP1 {formatNumber(swingPlan.tp1, 2)} / TP2 {formatNumber(swingPlan.tp2, 2)} / TimeStop {formatNumber(swingPlan.timeStopDays, 0)}日
+                        </div>
+                        {swingReasonsLabel && <div className="detail-analysis-meta">理由 {swingReasonsLabel}</div>}
+                      </>
+                    ) : (
+                      <div className="detail-analysis-meta">現在条件では swing 提案なし</div>
                     )}
-                  </>
-                ) : (
-                  <div className="detail-analysis-meta">現在条件では swing 提案なし</div>
-                )}
-                {swingDiagnostics && (
-                  <div className="detail-analysis-meta">
-                    Edge {formatPercentLabel(swingDiagnostics.edge)} / Risk {formatPercentLabel(swingDiagnostics.risk)} / RegimeFit {formatPercentLabel(swingDiagnostics.regimeFit)}
-                  </div>
-                )}
-                {swingDiagnostics && (
-                  <div className="detail-analysis-meta">
-                    ATR {formatPercentLabel(swingDiagnostics.atrPct)} / 流動性20d {formatNumber(swingDiagnostics.liquidity20d, 0)}
-                  </div>
-                )}
-                {swingSetupExpectancy && (
-                  <div className="detail-analysis-meta">
-                    Setup {swingSetupExpectancy.setupType ?? "--"} / n {formatNumber(swingSetupExpectancy.samples, 0)} / 勝率 {formatPercentLabel(swingSetupExpectancy.winRate)} / 平均 {formatSignedPercentLabel(swingSetupExpectancy.meanRet)} / 縮小平均 {formatSignedPercentLabel(swingSetupExpectancy.shrunkMeanRet)}
+                    {swingDiagnostics && (
+                      <div className="detail-analysis-meta">
+                        Edge {formatPercentLabel(swingDiagnostics.edge)} / Risk {formatPercentLabel(swingDiagnostics.risk)} / RegimeFit {formatPercentLabel(swingDiagnostics.regimeFit)}
+                      </div>
+                    )}
+                    {swingDiagnostics && (
+                      <div className="detail-analysis-meta">
+                        ATR {formatPercentLabel(swingDiagnostics.atrPct)} / 流動性20d {formatNumber(swingDiagnostics.liquidity20d, 0)}
+                      </div>
+                    )}
+                    {swingSetupExpectancy && (
+                      <div className="detail-analysis-meta">
+                        Setup {swingSetupExpectancy.setupType ?? "--"} / n {formatNumber(swingSetupExpectancy.samples, 0)} / 勝率 {formatPercentLabel(swingSetupExpectancy.winRate)} / 平均 {formatSignedPercentLabel(swingSetupExpectancy.meanRet)} / 縮小平均 {formatSignedPercentLabel(swingSetupExpectancy.shrunkMeanRet)}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            )}
+            </details>
           </>
         ) : (
           <>
-            <div className="detail-analysis-empty">
-              {analysisPreparationVisible
-                ? "解析準備中です。"
-                : analysisMissingDataVisible
-                  ? "分析データが未計算のため、自動で準備しています。"
-                  : "分析データがありません。"}
+            <div className="detail-analysis-empty">分析データ未計算</div>
+            <div className="detail-analysis-actions detail-analysis-actions--bottom">
+              <button
+                type="button"
+                className="nav-btn"
+                disabled={
+                  (!analysisRecalcDisabled && analysisAsOfTime == null) ||
+                  analysisBackfillActive ||
+                  analysisRecalcSubmitting != null
+                }
+                title={
+                  analysisRecalcDisabled
+                    ? "現在の基準日で売買判定を更新"
+                    : analysisRecalcDisabledReason ?? undefined
+                }
+                onClick={() => {
+                  void submitAnalysisRecalc();
+                }}
+              >
+                {analysisRecalcDisabled ? "売買判定を更新" : "基準日を中心に130本を再計算"}
+              </button>
             </div>
-            {analysisPreparationVisible && analysisBackfillProgressLabel && (
-              <div className="detail-analysis-meta">{analysisBackfillProgressLabel}</div>
-            )}
-            {analysisPreparationVisible &&
-              analysisBackfillMessage &&
-              analysisBackfillMessage !== analysisBackfillProgressLabel && (
-                <div className="detail-analysis-meta">{analysisBackfillMessage}</div>
-              )}
-            {analysisPreparationVisible && (
-              <div className="detail-analysis-meta">準備完了後に自動で再取得します。</div>
-            )}
-            {analysisMissingDataVisible && (
-                <div className="detail-analysis-meta">初回だけ基準日を中心に130本分の未計算を自動で計算します。保存済みデータがあれば再計算しません。</div>
-              )}
-            </>
-          )}
-          <div className="detail-analysis-actions detail-analysis-actions--bottom">
-            <button
-              type="button"
-              className="nav-btn"
-              disabled={
-                (!analysisRecalcDisabled && analysisAsOfTime == null) ||
-                analysisBackfillActive ||
-                analysisRecalcSubmitting != null
-              }
-              title={
-                analysisRecalcDisabled
-                  ? "現在の基準日で売買判定を更新"
-                  : analysisRecalcDisabledReason ?? undefined
-              }
-              onClick={() => {
-                void submitAnalysisRecalc();
-              }}
-            >
-              {analysisRecalcDisabled ? "売買判定を更新" : "基準日を中心に130本を再計算"}
-            </button>
-          </div>
+          </>
+        )}
       </div>
     </ScreenPanel>
   );

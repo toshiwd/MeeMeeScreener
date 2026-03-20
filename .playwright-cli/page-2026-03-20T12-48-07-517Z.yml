@@ -1,0 +1,177 @@
+- generic [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button "一覧に戻る" [ref=e7] [cursor=pointer]:
+          - img [ref=e9]
+          - generic [ref=e12]: 一覧に戻る
+        - generic [ref=e13]:
+          - generic [ref=e14]:
+            - generic [ref=e15]: "1001"
+            - generic [ref=e16]: 日経225
+            - button "シグナル 3" [ref=e18] [cursor=pointer]:
+              - img [ref=e20]
+          - generic [ref=e150]:
+            - generic [ref=e151]:
+              - generic [ref=e152]: SKIP
+              - generic [ref=e153]: AI 28%
+              - generic [ref=e154]: buy_5_20
+            - generic [ref=e155]:
+              - generic [ref=e156]: 20MA reclaim
+              - generic [ref=e157]: Similar setup data thin
+              - generic [ref=e158]: Adverse risk capped
+        - generic [ref=e23]:
+          - button "3M" [ref=e24] [cursor=pointer]
+          - button "6M" [ref=e25] [cursor=pointer]
+          - button "1Y" [ref=e26] [cursor=pointer]
+          - button "2Y" [ref=e27] [cursor=pointer]
+        - generic [ref=e28]:
+          - button "お気に入り追加" [ref=e29] [cursor=pointer]:
+            - img [ref=e30]
+          - button "前の銘柄" [disabled] [ref=e32]:
+            - img [ref=e34]
+            - generic [ref=e37]: 前の銘柄
+          - button "次の銘柄" [disabled] [ref=e38]:
+            - img [ref=e40]
+            - generic [ref=e43]: 次の銘柄
+      - generic [ref=e44]:
+        - generic [ref=e46]:
+          - button "チャート" [ref=e47] [cursor=pointer]
+          - button "分析" [active] [ref=e48] [cursor=pointer]
+          - button "財務" [ref=e49] [cursor=pointer]
+          - button "描画" [ref=e50] [cursor=pointer]
+          - button "練習" [ref=e51] [cursor=pointer]
+          - button "建玉" [ref=e52] [cursor=pointer]
+        - generic [ref=e54]:
+          - button "表示設定メニューを開く" [ref=e56] [cursor=pointer]:
+            - img [ref=e58]
+            - generic [ref=e62]: 表示
+          - button "スクショ" [ref=e63] [cursor=pointer]:
+            - img [ref=e65]
+            - generic [ref=e68]: スクショ
+    - generic [ref=e69]:
+      - generic:
+        - generic:
+          - generic: Daily
+          - generic [ref=e73]:
+            - generic:
+              - table [ref=e77]:
+                - row [ref=e78]:
+                  - cell
+                  - cell [ref=e79]
+                  - cell [ref=e83]
+                - row [ref=e87]:
+                  - cell
+                  - cell [ref=e88]
+                  - cell [ref=e92]
+              - generic:
+                - generic:
+                  - generic: 26/03/13
+                  - generic: 前日比-630 (-1.16%)
+                - generic:
+                  - generic: O
+                  - generic: 53,590
+                  - generic: H
+                  - generic: 54,070
+                  - generic: L
+                  - generic: 53,290
+                  - generic: C
+                  - generic: 53,820
+                  - generic: 出来高
+                  - generic: 268,242
+                - generic:
+                  - generic:
+                    - generic: 7MA
+                    - generic: 54,454
+                  - generic:
+                    - generic: 20MA
+                    - generic: 56,252
+                  - generic:
+                    - generic: 60MA
+                    - generic: 53,775
+                  - generic:
+                    - generic: 100MA
+                    - generic: 52,255
+                  - generic:
+                    - generic: 200MA
+                    - generic: 46,852
+                - generic:
+                  - generic: 本数
+                  - generic:
+                    - generic: 7MA
+                    - generic: 上0 / 下2
+                  - generic:
+                    - generic: 20MA
+                    - generic: 上0 / 下9
+                  - generic:
+                    - generic: 60MA
+                    - generic: 上4 / 下0
+                  - generic:
+                    - generic: 100MA
+                    - generic: 上197 / 下0
+                  - generic:
+                    - generic: 200MA
+                    - generic: 上182 / 下0
+        - generic:
+          - generic [ref=e96]:
+            - generic [ref=e97]: Weekly
+            - table [ref=e102]:
+              - row [ref=e103]:
+                - cell
+                - cell
+                - cell [ref=e108]
+              - row [ref=e112]:
+                - cell
+                - cell
+                - cell [ref=e117]
+          - generic [ref=e121]:
+            - generic [ref=e122]: Monthly
+            - table [ref=e127]:
+              - row [ref=e128]:
+                - cell
+                - cell
+                - cell [ref=e133]
+              - row [ref=e137]:
+                - cell
+                - cell
+                - cell [ref=e142]
+      - generic [ref=e159]:
+        - generic [ref=e162]: 判定確認
+        - generic [ref=e164]:
+          - generic [ref=e165]:
+            - generic [ref=e166]: 要約
+            - generic [ref=e167]:
+              - generic [ref=e168]:
+                - generic [ref=e169]: 判定 中立
+                - generic [ref=e170]: 確信度 暫定
+              - generic [ref=e171]: "狙い: 往復レンジ（上下振れ）"
+              - generic [ref=e172]: "地合い: レンジ優位"
+              - generic [ref=e173]: "今やること: 暫定"
+              - generic [ref=e174]:
+                - generic [ref=e175]: 買い候補
+                - generic [ref=e176]: 状態 監視 / 監視候補
+                - generic [ref=e177]: 狙い 押し目待ち
+                - generic [ref=e178]: 出口 -- / --
+              - generic [ref=e179]:
+                - generic [ref=e180]: 売り候補
+                - generic [ref=e181]: 状態 待機 / 戻り待ち
+                - generic [ref=e182]: 狙い 戻り待ち
+                - generic [ref=e183]: 出口 -- / --
+              - generic [ref=e184]:
+                - generic [ref=e186]: 上昇確率 暫定
+                - generic [ref=e190]: 下落確率 暫定
+                - generic [ref=e194]: 中立確率 暫定
+          - group [ref=e197]:
+            - generic "追加情報" [ref=e198] [cursor=pointer]
+    - generic [ref=e146]:
+      - button "Load more daily/monthly" [ref=e199] [cursor=pointer]
+      - generic [ref=e149]: Daily 2000 bars | Weekly 428 bars | Monthly 240 bars

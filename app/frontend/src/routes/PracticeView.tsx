@@ -3,7 +3,7 @@ import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } fro
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
-import DetailChart, { DetailChartHandle } from "../components/DetailChart";
+import DetailChart, { DetailChartHandle, type DrawTool, type SelectedDrawingInfo } from "../components/DetailChart";
 import Toast from "../components/Toast";
 import { useStore } from "../store";
 import type { MaSetting } from "../storeTypes";
@@ -14,11 +14,17 @@ import {
   IconArrowBackUp,
   IconCamera,
   IconFileDownload,
+  IconBox,
+  IconMinus,
+  IconTrash,
   IconSparkles,
   IconRefresh,
   IconChevronLeft,
   IconChevronRight,
-  IconPlus
+  IconPlus,
+  IconChartArrows,
+  IconPointer,
+  IconPointerOff
 } from "@tabler/icons-react";
 import IconButton from "../components/IconButton";
 import { buildAIExport, copyToClipboard } from "../utils/aiExport";
@@ -66,6 +72,7 @@ import {
   resolveIndexOnOrBefore,
   subtractMonths
 } from "./practice/practiceHelpers";
+import { useDetailDrawings } from "./detail/hooks/useDetailDrawings";
 
 const buildChartSeries = (bars: DailyBar[]) => ({
   candles: buildCandles(bars),
@@ -141,11 +148,46 @@ export default function PracticeView() {
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const [cursorVisible, setCursorVisible] = useState(true);
   const [weeklyRatio, setWeeklyRatio] = useState(DEFAULT_WEEKLY_RATIO);
   const [lotSize, setLotSize] = useState(DEFAULT_LOT_SIZE);
   const [rangeMonths, setRangeMonths] = useState(DEFAULT_RANGE_MONTHS);
   const [, setHasMoreDaily] = useState(true);
   const [, setLoadingDaily] = useState(false);
+  const [activeDrawTool, setActiveDrawTool] = useState<DrawTool | null>(null);
+  const [activeDrawColorIndex, setActiveDrawColorIndex] = useState(4);
+  const [activeLineOpacity, setActiveLineOpacity] = useState(0.8);
+  const [activeLineWidth, setActiveLineWidth] = useState(2);
+  const [selectedDrawing, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
+  const COLOR_PALETTE = ["#ef4444", "#22c55e", "#0ea5e9", "#f59e0b", "#64748b"];
+  const activeDrawColor = COLOR_PALETTE[activeDrawColorIndex] ?? "#64748b";
+  const selectDrawTool = (tool: DrawTool | null) => setActiveDrawTool(tool);
+
+  const {
+    dailyDrawingKey,
+    weeklyDrawingKey,
+    monthlyDrawingKey,
+    dailyDrawings,
+    weeklyDrawings,
+    monthlyDrawings,
+    addTimeZone,
+    updateTimeZone,
+    addPriceBand,
+    updatePriceBand,
+    addDrawBox,
+    updateDrawBox,
+    addHorizontalLine,
+    updateHorizontalLine,
+    deleteTimeZone,
+    deletePriceBand,
+    deleteDrawBox,
+    deleteHorizontalLine,
+    resetAllDrawings,
+  } = useDetailDrawings({
+    code: code ?? null,
+    compareCode: null,
+    onResetSelection: () => setSelectedDrawing(null),
+  });
 
   const tickerByCode = useMemo(() => new Map(tickers.map((item) => [item.code, item])), [tickers]);
   const tickerName = useMemo(() => {
@@ -578,7 +620,7 @@ export default function PracticeView() {
     cursorCandle && progressIndex != null ? `${headerDateLabel} (${headerDayLabel})` : headerDateLabel;
   const guideText = useMemo(() => {
     if (sessionsLoading) return "セッションを読み込んでいます...";
-    if (!sessionId) return "「新規」で練習を開始するか、「管理」から過去の練習を読み込んでください。";
+    if (!sessionId) return "練習開始日を選んで開始日を確定してください。過去の練習は上部のボタンから開けます。";
     if (!startDate) return "開始日を選んで「開始日を確定」を押してください";
     if (isLocked) return "過去日を表示中です。最新日に戻ると操作できます";
     return "建玉を操作して「翌日」で進めます（→キーでも可）";
@@ -977,6 +1019,7 @@ export default function PracticeView() {
     setCursorTime(null);
     setMaxUnlockedTime(null);
     setPanelCollapsed(false);
+    setSessionManagerOpen(false);
   };
 
   const handleSelectSession = (nextId: string) => {
@@ -1553,13 +1596,114 @@ export default function PracticeView() {
     }
   };
 
+  const practiceDrawToolbar = (
+    <div className="detail-draw-toolbar">
+      <div className="detail-analysis-actions detail-draw-tools">
+        <IconButton
+          icon={<IconPointerOff size={18} />}
+          tooltip="マウスモード"
+          ariaLabel="マウスモード"
+          className="draw-tool-button"
+          selected={activeDrawTool === null}
+          onClick={() => selectDrawTool(null)}
+        />
+        <IconButton
+          icon={<IconChartArrows size={18} />}
+          tooltip="時間ゾーン描画"
+          ariaLabel="時間ゾーン描画"
+          className="draw-tool-button"
+          selected={activeDrawTool === "timeZone"}
+          onClick={() => selectDrawTool("timeZone")}
+        />
+        <IconButton
+          icon={<IconBox size={18} />}
+          tooltip="四角描画"
+          ariaLabel="四角描画"
+          className="draw-tool-button"
+          selected={activeDrawTool === "drawBox"}
+          onClick={() => selectDrawTool("drawBox")}
+        />
+        <IconButton
+          icon={<span style={{ fontSize: 18, lineHeight: 1 }}>▭</span>}
+          tooltip="価格帯描画"
+          ariaLabel="価格帯描画"
+          className="draw-tool-button"
+          selected={activeDrawTool === "priceBand"}
+          onClick={() => selectDrawTool("priceBand")}
+        />
+        <IconButton
+          icon={<IconMinus size={18} />}
+          tooltip="水平線描画"
+          ariaLabel="水平線描画"
+          className="draw-tool-button"
+          selected={activeDrawTool === "horizontalLine"}
+          onClick={() => selectDrawTool("horizontalLine")}
+        />
+        <IconButton
+          icon={<IconTrash size={18} />}
+          tooltip="描画を全削除"
+          ariaLabel="描画を全削除"
+          onClick={resetAllDrawings}
+        />
+      </div>
+      <div className="detail-analysis-actions detail-draw-adjustments">
+        <IconButton
+          icon={
+            <span
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 999,
+                background: activeDrawColor,
+                display: "inline-block",
+                border: "1px solid rgba(0,0,0,0.2)"
+              }}
+            />
+          }
+          tooltip="描画色を変更"
+          ariaLabel="描画色を変更"
+          onClick={() => setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)}
+        />
+        <input
+          type="range"
+          min={0.1}
+          max={1}
+          step={0.05}
+          value={activeLineOpacity}
+          title="不透明度"
+          style={{ width: 60 }}
+          onChange={(event) => setActiveLineOpacity(Number(event.target.value))}
+        />
+        <input
+          type="range"
+          min={1}
+          max={6}
+          step={0.5}
+          value={activeLineWidth}
+          title="太さ"
+          style={{ width: 60 }}
+          onChange={(event) => setActiveLineWidth(Number(event.target.value))}
+        />
+      </div>
+    </div>
+  );
+
   const dailyEmptyMessage = dailyCandles.length === 0 ? dailyErrors[0] ?? "No data" : null;
   const weeklyEmptyMessage = weeklyCandles.length === 0 ? dailyErrors[0] ?? "No data" : null;
   const monthlyEmptyMessage = monthlyCandles.length === 0 ? dailyErrors[0] ?? "No data" : null;
 
   return (
     <div className="detail-shell practice-shell">
-      <div className="detail-header practice-header">
+      <div
+        className="detail-header practice-header"
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "8px 10px",
+        }}
+      >
         <div className="practice-header-left">
           <div className="practice-nav-group">
             <IconButton
@@ -1579,42 +1723,6 @@ export default function PracticeView() {
               {tickerName && <div className="title-name">{tickerName}</div>}
             </div>
             <div className="subtitle">練習</div>
-          </div>
-          <div className="practice-header-group">
-            <div className="practice-session-controls">
-              <select
-                value={sessionId ?? ""}
-                onChange={(event) => handleSelectSession(event.target.value)}
-                disabled={sessionsLoading}
-                className="practice-session-select"
-              >
-                {!sessionId && <option value="">セッションを選択...</option>}
-                {sessions.map((session) => (
-                  <option key={session.session_id} value={session.session_id}>
-                    {session.start_date ?? "開始未設定"}
-                    {session.end_date ? ` - ${session.end_date}` : " (進行中)"}
-                  </option>
-                ))}
-              </select>
-              <IconButton
-                icon={<IconPlus size={18} />}
-                tooltip="新規セッション"
-                onClick={handleInitiateNewSession}
-              />
-              <IconButton
-                icon={<IconPlus size={18} />}
-                tooltip="新規セッション"
-                onClick={handleInitiateNewSession}
-              />
-            </div>
-            <div className="practice-session-meta">
-              <span className={`practice-session-badge ${sessionBadgeClass}`}>
-                {sessionBadgeLabel}
-              </span>
-              <span className="practice-session-range-text">
-                {sessionRangeLabel}
-              </span>
-            </div>
           </div>
         </div>
         <div className="practice-header-actions">
@@ -1672,6 +1780,13 @@ export default function PracticeView() {
                 tooltip="AI出力"
                 onClick={handleAIExport}
               />
+              <IconButton
+                icon={<IconSparkles size={18} />}
+                tooltip="類似 (詳細で使用)"
+                disabled
+                ariaLabel="類似"
+              />
+              {practiceDrawToolbar}
               <button
                 className="indicator-button practice-panel-toggle"
                 onClick={() => togglePanel(panelCollapsed ? false : true)}
@@ -1679,6 +1794,46 @@ export default function PracticeView() {
               >
                 {panelCollapsed ? "← パネル" : "→ パネル"}
               </button>
+              <IconButton
+                icon={cursorVisible ? <IconPointer size={18} /> : <IconPointerOff size={18} />}
+                label={cursorVisible ? "カーソルON" : "カーソルOFF"}
+                variant="iconLabel"
+                tooltip="カーソル ON/OFF"
+                selected={cursorVisible}
+                onClick={() => setCursorVisible((prev) => !prev)}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="practice-controls-row">
+        <div className="practice-controls">
+          <div className="practice-header-label">練習開始日</div>
+          <div className="practice-session-launcher">
+            <div className="practice-session-controls">
+              <input
+                ref={startDateInputRef}
+                type="date"
+                value={startDateDraft}
+                onChange={(event) => setStartDateDraft(event.target.value)}
+              />
+              <button className="indicator-button" onClick={handleApplyStartDate}>
+                開始日を確定
+              </button>
+              <button
+                className="indicator-button practice-session-open-button"
+                onClick={() => setSessionManagerOpen(true)}
+              >
+                過去の練習を開く
+              </button>
+            </div>
+            <div className="practice-session-meta">
+              <span className={`practice-session-badge ${sessionBadgeClass}`}>
+                {sessionBadgeLabel}
+              </span>
+              <span className="practice-session-range-text">
+                {sessionRangeLabel}
+              </span>
             </div>
           </div>
         </div>
@@ -1686,8 +1841,16 @@ export default function PracticeView() {
       {sessionManagerOpen && (
         <div className="practice-session-list">
           <div className="practice-session-list-header">
-            <span>過去のセッション</span>
-            <button onClick={() => setSessionManagerOpen(false)}>&times;</button>
+            <span>過去の練習</span>
+            <div className="practice-session-list-actions">
+              <IconButton
+                icon={<IconPlus size={16} />}
+                tooltip="新規練習"
+                ariaLabel="新規練習"
+                onClick={handleInitiateNewSession}
+              />
+              <button onClick={() => setSessionManagerOpen(false)}>&times;</button>
+            </div>
           </div>
           {sessions.length === 0 ? (
             <div className="practice-session-empty">まだセッションがありません。</div>
@@ -1732,7 +1895,29 @@ export default function PracticeView() {
                     showVolume={dailyVolume.length > 0}
                     boxes={[]}
                     showBoxes={false}
-                    cursorTime={hoverTime == null ? cursorCandle?.time ?? null : null}
+                    drawingEnabled={activeDrawTool != null}
+                    timeZones={dailyDrawings.timeZones}
+                    priceBands={dailyDrawings.priceBands}
+                    drawBoxes={dailyDrawings.drawBoxes}
+                    horizontalLines={dailyDrawings.horizontalLines}
+                    activeTool={activeDrawTool}
+                    activeDrawColor={activeDrawColor}
+                    activeLineOpacity={activeLineOpacity}
+                    activeLineWidth={activeLineWidth}
+                    onSelectShape={setSelectedDrawing}
+                    onAddTimeZone={addTimeZone(dailyDrawingKey)}
+                    onUpdateTimeZone={updateTimeZone(dailyDrawingKey)}
+                    onDeleteTimeZone={deleteTimeZone(dailyDrawingKey)}
+                    onAddPriceBand={addPriceBand(dailyDrawingKey)}
+                    onUpdatePriceBand={updatePriceBand(dailyDrawingKey)}
+                    onDeletePriceBand={deletePriceBand(dailyDrawingKey)}
+                    onAddDrawBox={addDrawBox(dailyDrawingKey)}
+                    onUpdateDrawBox={updateDrawBox(dailyDrawingKey)}
+                    onDeleteDrawBox={deleteDrawBox(dailyDrawingKey)}
+                    onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
+                    onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
+                    onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
+                    cursorTime={cursorVisible ? (hoverTime == null ? cursorCandle?.time ?? null : null) : null}
                     positionOverlay={{
                       dailyPositions,
                       tradeMarkers,
@@ -1777,17 +1962,39 @@ export default function PracticeView() {
                   <div className="detail-pane-header">週足</div>
                   <div className="detail-chart">
                     <DetailChart
-                      ref={weeklyChartRef}
-                      candles={weeklyCandles}
-                      volume={weeklyVolume}
-                      maLines={weeklyMaLines}
-                      showVolume={false}
-                      boxes={[]}
-                      showBoxes={false}
-                      cursorTime={hoverTime == null ? weeklyCursorTime : null}
-                      partialTimes={weeklyPartialTimes}
-                      onCrosshairMove={handleWeeklyCrosshair}
-                    />
+                    ref={weeklyChartRef}
+                    candles={weeklyCandles}
+                    volume={weeklyVolume}
+                    maLines={weeklyMaLines}
+                    showVolume={false}
+                    boxes={[]}
+                    showBoxes={false}
+                    drawingEnabled={activeDrawTool != null}
+                    timeZones={weeklyDrawings.timeZones}
+                    priceBands={weeklyDrawings.priceBands}
+                    drawBoxes={weeklyDrawings.drawBoxes}
+                    horizontalLines={weeklyDrawings.horizontalLines}
+                    activeTool={activeDrawTool}
+                    activeDrawColor={activeDrawColor}
+                    activeLineOpacity={activeLineOpacity}
+                    activeLineWidth={activeLineWidth}
+                    onSelectShape={setSelectedDrawing}
+                    onAddTimeZone={addTimeZone(weeklyDrawingKey)}
+                    onUpdateTimeZone={updateTimeZone(weeklyDrawingKey)}
+                    onDeleteTimeZone={deleteTimeZone(weeklyDrawingKey)}
+                    onAddPriceBand={addPriceBand(weeklyDrawingKey)}
+                    onUpdatePriceBand={updatePriceBand(weeklyDrawingKey)}
+                    onDeletePriceBand={deletePriceBand(weeklyDrawingKey)}
+                    onAddDrawBox={addDrawBox(weeklyDrawingKey)}
+                    onUpdateDrawBox={updateDrawBox(weeklyDrawingKey)}
+                    onDeleteDrawBox={deleteDrawBox(weeklyDrawingKey)}
+                    onAddHorizontalLine={addHorizontalLine(weeklyDrawingKey)}
+                    onUpdateHorizontalLine={updateHorizontalLine(weeklyDrawingKey)}
+                    onDeleteHorizontalLine={deleteHorizontalLine(weeklyDrawingKey)}
+                    cursorTime={cursorVisible ? (hoverTime == null ? weeklyCursorTime : null) : null}
+                    partialTimes={weeklyPartialTimes}
+                    onCrosshairMove={handleWeeklyCrosshair}
+                  />
                     {weeklyEmptyMessage && (
                       <div className="detail-chart-empty">週足: {weeklyEmptyMessage}</div>
                     )}
@@ -1802,17 +2009,39 @@ export default function PracticeView() {
                   <div className="detail-pane-header">月足</div>
                   <div className="detail-chart">
                     <DetailChart
-                      ref={monthlyChartRef}
-                      candles={monthlyCandles}
-                      volume={[]}
-                      maLines={monthlyMaLines}
-                      showVolume={false}
-                      boxes={[]}
-                      showBoxes={false}
-                      cursorTime={hoverTime == null ? monthlyCursorTime : null}
-                      partialTimes={monthlyPartialTimes}
-                      onCrosshairMove={handleMonthlyCrosshair}
-                    />
+                    ref={monthlyChartRef}
+                    candles={monthlyCandles}
+                    volume={[]}
+                    maLines={monthlyMaLines}
+                    showVolume={false}
+                    boxes={[]}
+                    showBoxes={false}
+                    drawingEnabled={activeDrawTool != null}
+                    timeZones={monthlyDrawings.timeZones}
+                    priceBands={monthlyDrawings.priceBands}
+                    drawBoxes={monthlyDrawings.drawBoxes}
+                    horizontalLines={monthlyDrawings.horizontalLines}
+                    activeTool={activeDrawTool}
+                    activeDrawColor={activeDrawColor}
+                    activeLineOpacity={activeLineOpacity}
+                    activeLineWidth={activeLineWidth}
+                    onSelectShape={setSelectedDrawing}
+                    onAddTimeZone={addTimeZone(monthlyDrawingKey)}
+                    onUpdateTimeZone={updateTimeZone(monthlyDrawingKey)}
+                    onDeleteTimeZone={deleteTimeZone(monthlyDrawingKey)}
+                    onAddPriceBand={addPriceBand(monthlyDrawingKey)}
+                    onUpdatePriceBand={updatePriceBand(monthlyDrawingKey)}
+                    onDeletePriceBand={deletePriceBand(monthlyDrawingKey)}
+                    onAddDrawBox={addDrawBox(monthlyDrawingKey)}
+                    onUpdateDrawBox={updateDrawBox(monthlyDrawingKey)}
+                    onDeleteDrawBox={deleteDrawBox(monthlyDrawingKey)}
+                    onAddHorizontalLine={addHorizontalLine(monthlyDrawingKey)}
+                    onUpdateHorizontalLine={updateHorizontalLine(monthlyDrawingKey)}
+                    onDeleteHorizontalLine={deleteHorizontalLine(monthlyDrawingKey)}
+                    cursorTime={cursorVisible ? (hoverTime == null ? monthlyCursorTime : null) : null}
+                    partialTimes={monthlyPartialTimes}
+                    onCrosshairMove={handleMonthlyCrosshair}
+                  />
                     {monthlyEmptyMessage && (
                       <div className="detail-chart-empty">月足: {monthlyEmptyMessage}</div>
                     )}
@@ -2018,24 +2247,7 @@ export default function PracticeView() {
           {!panelCollapsed && (
             <div className="practice-panel-body">
               <div className="practice-guide">{guideText}</div>
-              {!startDate ? (
-                <div className="practice-session-settings">
-                  <div className="practice-session-settings-title">練習の開始日</div>
-                  <div className="practice-session-settings-controls">
-                    <input
-                      ref={startDateInputRef}
-                      type="date"
-                      value={startDateDraft}
-                      onChange={(event) => setStartDateDraft(event.target.value)}
-                    />
-                    <button className="indicator-button" onClick={handleApplyStartDate}>
-                      開始日を確定
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="practice-hud-net">
+              <div className="practice-hud-net">
                     {netLots === 0
                       ? "ネット0"
                       : netLots > 0
@@ -2146,8 +2358,6 @@ export default function PracticeView() {
                       全決済
                     </button>
                   </div>
-                </>
-              )}
             </div>
           )}
         </div>

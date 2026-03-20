@@ -1,0 +1,116 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e7]:
+          - generic [ref=e8]:
+            - generic [ref=e9]: MeeMee
+            - generic [ref=e10]: Screener
+          - navigation [ref=e11]:
+            - link "一覧" [ref=e12] [cursor=pointer]:
+              - /url: /
+            - link "ランキング" [ref=e13] [cursor=pointer]:
+              - /url: /ranking
+            - link "市場" [ref=e14] [cursor=pointer]:
+              - /url: /market
+            - link "建玉" [ref=e15] [cursor=pointer]:
+              - /url: /positions
+            - link "お気に入り" [ref=e16] [cursor=pointer]:
+              - /url: /favorites
+            - link "候補" [ref=e17] [cursor=pointer]:
+              - /url: /candidates
+            - link "研究" [ref=e18] [cursor=pointer]:
+              - /url: /tradex-tags
+            - link "運用" [ref=e19] [cursor=pointer]:
+              - /url: /ops/publish
+        - generic [ref=e20]:
+          - generic [ref=e21]:
+            - button "月足" [ref=e22] [cursor=pointer]
+            - button "週足" [ref=e23] [cursor=pointer]
+            - button "日足" [ref=e24] [cursor=pointer]
+          - generic "グリッド表示本数" [ref=e25]:
+            - generic [ref=e26]: 3×3
+            - generic [ref=e27]: 60本
+          - searchbox "コード / 銘柄名で検索" [ref=e29]
+          - generic [ref=e30]:
+            - generic [ref=e31]: "状態: 待機中"
+            - generic [ref=e32]: "イベント最終更新: --"
+    - generic [ref=e36]:
+      - button "1001 日経225 お気に入り追加 候補に追加 除外 詳細を開く 日付 -- 終値 53,820 前日比 -115.7%" [ref=e38] [cursor=pointer]:
+        - generic [ref=e39]:
+          - generic [ref=e40]:
+            - generic [ref=e41]: "1001"
+            - generic [ref=e42]: 日経225
+          - generic [ref=e43]:
+            - button "お気に入り追加" [ref=e44]:
+              - img [ref=e45]
+            - button "候補に追加" [ref=e47]: +
+            - button "除外" [ref=e48]: x
+            - button "詳細を開く" [ref=e49]: ">"
+        - generic [ref=e50]:
+          - generic [ref=e51]: 日付 --
+          - generic [ref=e52]: 終値 53,820
+          - generic [ref=e53]: 前日比 -115.7%
+      - button "1306 NEXT TOPIX ETF お気に入り追加 候補に追加 除外 詳細を開く 日付 -- 終値 3,809 前日比 -52.2%" [ref=e58] [cursor=pointer]:
+        - generic [ref=e59]:
+          - generic [ref=e60]:
+            - generic [ref=e61]: "1306"
+            - generic [ref=e62]: NEXT TOPIX ETF
+          - generic [ref=e63]:
+            - button "お気に入り追加" [ref=e64]:
+              - img [ref=e65]
+            - button "候補に追加" [ref=e67]: +
+            - button "除外" [ref=e68]: x
+            - button "詳細を開く" [ref=e69]: ">"
+        - generic [ref=e70]:
+          - generic [ref=e71]: 日付 --
+          - generic [ref=e72]: 終値 3,809
+          - generic [ref=e73]: 前日比 -52.2%
+      - button "1308 日興TOPIX ETF お気に入り追加 候補に追加 除外 詳細を開く 日付 -- 終値 3,763 前日比 -58.1%" [ref=e78] [cursor=pointer]:
+        - generic [ref=e79]:
+          - generic [ref=e80]:
+            - generic [ref=e81]: "1308"
+            - generic [ref=e82]: 日興TOPIX ETF
+          - generic [ref=e83]:
+            - button "お気に入り追加" [ref=e84]:
+              - img [ref=e85]
+            - button "候補に追加" [ref=e87]: +
+            - button "除外" [ref=e88]: x
+            - button "詳細を開く" [ref=e89]: ">"
+        - generic [ref=e90]:
+          - generic [ref=e91]: 日付 --
+          - generic [ref=e92]: 終値 3,763
+          - generic [ref=e93]: 前日比 -58.1%
+      - button "1332 ニッスイ(日本水産) お気に入り追加 候補に追加 除外 詳細を開く 日付 -- 終値 194 前日比 -152.3%" [ref=e98] [cursor=pointer]:
+        - generic [ref=e99]:
+          - generic [ref=e100]:
+            - generic [ref=e101]: "1332"
+            - generic [ref=e102]: ニッスイ(日本水産)
+          - generic [ref=e103]:
+            - button "お気に入り追加" [ref=e104]:
+              - img [ref=e105]
+            - button "候補に追加" [ref=e107]: +
+            - button "除外" [ref=e108]: x
+            - button "詳細を開く" [ref=e109]: ">"
+        - generic [ref=e110]:
+          - generic [ref=e111]: 日付 --
+          - generic [ref=e112]: 終値 194
+          - generic [ref=e113]: 前日比 -152.3%
+    - generic:
+      - button "相談バーを展開する"
+      - generic:
+        - generic:
+          - generic: 候補 0件
+        - generic:
+          - button "相談作成" [disabled]
+          - button "コピー" [disabled]
+          - button "閉じる"
