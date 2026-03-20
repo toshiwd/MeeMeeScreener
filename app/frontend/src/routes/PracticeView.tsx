@@ -332,7 +332,7 @@ export default function PracticeView() {
     rangeMonths: number;
     uiState: PracticeUiState;
   }>) => {
-    if (!sessionId || !code) return;
+    if (!sessionId || !code) return Promise.resolve();
     const payload = {
       session_id: sessionId,
       code,
@@ -350,7 +350,7 @@ export default function PracticeView() {
           ? next.uiState
           : { panelCollapsed, notesCollapsed, tradeLogCollapsed }
     };
-    api.post("/practice/session", payload).catch(() => {
+    return api.post("/practice/session", payload).catch(() => {
       setToastMessage("セッションの保存に失敗しました。");
     });
   }, [
@@ -657,6 +657,7 @@ export default function PracticeView() {
     if (isLocked) return "過去日を表示中です。最新日に戻ると操作できます";
     return "建玉を操作して「翌日」で進めます（→キーでも可）";
   }, [sessionsLoading, sessionId, startDate, isLocked]);
+  const sessionStateLabel = !sessionId ? "未開始" : endDate ? "終了済み" : "進行中";
   const sessionRangeLabel = sessionId
     ? `開始 ${startDate ?? "--"} / 終了 ${endDate ?? "--"}`
     : "セッション未選択";
@@ -1066,8 +1067,15 @@ export default function PracticeView() {
     }
     const date = formatDate(cursorCandle.time);
     setEndDate(date);
-    persistSession({ endDate: date });
     setToastMessage("練習を終了しました。");
+    void persistSession({ endDate: date }).finally(() => {
+      setSessionManagerOpen(false);
+      if (code) {
+        navigate(`/detail/${code}`);
+        return;
+      }
+      handleInitiateNewSession();
+    });
   };
 
 
@@ -1396,9 +1404,9 @@ export default function PracticeView() {
     };
   };
 
-  const handleApplyStartDate = () => {
+  const handleApplyStartDate = (dateOverride?: string) => {
     if (!code) return;
-    const date = startDateDraft || (cursorCandle ? formatDate(cursorCandle.time) : "");
+    const date = (dateOverride ?? startDateDraft) || (cursorCandle ? formatDate(cursorCandle.time) : "");
     if (!date) {
       setToastMessage("開始日を選択してください。");
       return;
@@ -1729,9 +1737,18 @@ export default function PracticeView() {
             ref={startDateInputRef}
             type="date"
             value={startDateDraft}
-            onChange={(event) => setStartDateDraft(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value;
+              setStartDateDraft(next);
+              if (!sessionId && next.length === 10) {
+                handleApplyStartDate(next);
+              }
+            }}
           />
-          <button className="indicator-button practice-session-confirm-button" onClick={handleApplyStartDate}>
+          <button
+            className="indicator-button practice-session-confirm-button"
+            onClick={() => handleApplyStartDate()}
+          >
             開始日を確定
           </button>
           <button
@@ -1740,8 +1757,16 @@ export default function PracticeView() {
           >
             過去の練習を開く
           </button>
+          <button
+            className="indicator-button practice-session-end-button"
+            onClick={() => _handleEndSession()}
+            disabled={!sessionId || Boolean(endDate)}
+          >
+            練習を終了
+          </button>
         </div>
         <div className="practice-session-meta">
+          <span className="practice-session-state-text">{sessionStateLabel}</span>
           <span className="practice-session-range-text">{sessionRangeLabel}</span>
         </div>
       </div>

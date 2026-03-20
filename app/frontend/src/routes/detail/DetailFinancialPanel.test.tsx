@@ -10,7 +10,7 @@ const fmtFinancialAmount = (value: number | null | undefined) =>
   value == null ? "--" : `${value.toLocaleString("ja-JP")}円`;
 
 describe("DetailFinancialPanel", () => {
-  it("shows compact summary and keeps the heavy sections collapsed", () => {
+  it("shows primary KPI cards without a details toggle", () => {
     const markup = renderToStaticMarkup(
       <DetailFinancialPanel
         financialPanelRef={{ current: null } as never}
@@ -30,12 +30,12 @@ describe("DetailFinancialPanel", () => {
             roa: 0.06,
           },
         ]}
-        financialCards={[{ label: "売上", value: "100", tone: "neutral" }]}
+        financialCards={[{ label: "売上高", value: "100", tone: "neutral" }]}
         financialKeyStats={[{ label: "EPS", value: "8.0", tone: "up" }]}
         tdnetHighlights={[
           {
             disclosureId: "tdnet-1",
-            title: "決算速報",
+            title: "適時開示タイトル",
             publishedLabel: "2026-03-19",
             eventLabel: "決算",
             sentimentLabel: "positive",
@@ -70,14 +70,12 @@ describe("DetailFinancialPanel", () => {
     );
 
     expect(markup).toContain("EDINET / TDNET / 貸借");
-    expect(markup).toContain("最新年度 2025");
-    expect(markup).toContain("取得 2026-03-19");
-    expect(markup).toContain("売上");
-    expect(markup).toContain("詳細");
-    expect(markup).toContain("主要指標");
-    expect(markup).toContain("TDNET速報");
-    expect(markup).toContain("貸借要約");
-    expect(markup).toContain("推移グラフ");
-    expect(markup).not.toContain("追加情報");
+    expect(markup).toContain("主要KPI");
+    expect(markup).toContain("補助指標");
+    expect(markup).toContain("TDNET動向");
+    expect(markup).toContain("貸借情報");
+    expect(markup).toContain("売上・利益");
+    expect(markup).toContain("利益率 / ROE");
+    expect(markup).not.toContain("詳細");
   });
 });

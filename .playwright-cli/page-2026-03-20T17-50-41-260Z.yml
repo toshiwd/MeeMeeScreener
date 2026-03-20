@@ -1,0 +1,162 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - button "一覧に戻る" [ref=e8] [cursor=pointer]:
+          - img [ref=e10]
+          - generic [ref=e13]: 一覧に戻る
+        - generic [ref=e15]:
+          - generic [ref=e16]: "1001"
+          - generic [ref=e185]: 日経225
+        - generic [ref=e19]:
+          - button "チャート" [ref=e20] [cursor=pointer]
+          - button "分析" [ref=e21] [cursor=pointer]
+          - button "財務" [ref=e22] [cursor=pointer]
+          - button "縦横" [ref=e23] [cursor=pointer]
+          - button "練習" [ref=e24] [cursor=pointer]
+      - generic [ref=e25]:
+        - button "表示設定メニューを開く" [ref=e26] [cursor=pointer]:
+          - img [ref=e28]
+          - generic [ref=e32]: 表示
+        - button "スクショ" [ref=e33] [cursor=pointer]:
+          - img [ref=e35]
+          - generic [ref=e38]: スクショ
+        - button "カーソルOFF" [ref=e39] [cursor=pointer]:
+          - img [ref=e41]
+          - generic [ref=e44]: カーソルOFF
+        - generic [ref=e46]:
+          - button "時間ゾーン描画" [ref=e47] [cursor=pointer]:
+            - img [ref=e49]
+          - button "四角描画" [ref=e53] [cursor=pointer]:
+            - img [ref=e55]
+          - button "価格帯描画" [ref=e59] [cursor=pointer]:
+            - generic [ref=e61]: ▭
+          - button "水平線描画" [ref=e62] [cursor=pointer]:
+            - img [ref=e64]
+          - button "描画をリセット" [ref=e65] [cursor=pointer]:
+            - img [ref=e67]
+      - generic:
+        - generic [ref=e70]:
+          - button "お気に入り追加" [ref=e71] [cursor=pointer]:
+            - img [ref=e72]
+          - button "前の銘柄" [disabled] [ref=e74]:
+            - img [ref=e76]
+            - generic [ref=e79]: 前の銘柄
+          - button "次の銘柄" [ref=e80] [cursor=pointer]:
+            - img [ref=e82]
+            - generic [ref=e85]: 次の銘柄
+        - generic [ref=e86]:
+          - button "3M" [ref=e87] [cursor=pointer]
+          - button "6M" [ref=e88] [cursor=pointer]
+          - button "1Y" [ref=e89] [cursor=pointer]
+          - button "2Y" [ref=e90] [cursor=pointer]
+        - generic [ref=e93]:
+          - generic [ref=e94]: 練習開始日
+          - generic [ref=e95]:
+            - textbox [ref=e96]: 2025-10-24
+            - button "開始日を確定" [ref=e97] [cursor=pointer]
+            - button "過去の練習を開く" [ref=e98] [cursor=pointer]
+            - button "練習を終了" [ref=e99] [cursor=pointer]
+          - generic [ref=e100]:
+            - generic [ref=e101]: 進行中
+            - generic [ref=e102]: 開始 2025-10-24 / 終了 --
+    - generic [ref=e106]:
+      - generic [ref=e107]:
+        - generic [ref=e108]: 日足
+        - generic [ref=e109]:
+          - generic [ref=e110]:
+            - table [ref=e113]:
+              - row [ref=e114]:
+                - cell
+                - cell [ref=e115]
+                - cell [ref=e119]
+              - row [ref=e123]:
+                - cell
+                - cell [ref=e124]
+                - cell [ref=e128]
+            - generic:
+              - generic:
+                - generic: 25/10/24
+                - generic: 前日比+658 (+1.35%)
+              - generic:
+                - generic: O
+                - generic: 49,095
+                - generic: H
+                - generic: 49,435
+                - generic: L
+                - generic: 48,965
+                - generic: C
+                - generic: 49,299
+                - generic: 出来高
+                - generic: 211,270
+              - generic:
+                - generic:
+                  - generic: 7MA
+                  - generic: 48,801
+                - generic:
+                  - generic: 20MA
+                  - generic: 47,350
+                - generic:
+                  - generic: 60MA
+                  - generic: 44,407
+                - generic:
+                  - generic: 100MA
+                  - generic: 42,334
+                - generic:
+                  - generic: 200MA
+                  - generic: 39,874
+              - generic:
+                - generic: 本数
+                - generic:
+                  - generic: 7MA
+                  - generic: 上5 / 下0
+                - generic:
+                  - generic: 20MA
+                  - generic: 上33 / 下0
+                - generic:
+                  - generic: 60MA
+                  - generic: 上119 / 下0
+                - generic:
+                  - generic: 100MA
+                  - generic: 上105 / 下0
+                - generic:
+                  - generic: 200MA
+                  - generic: 上90 / 下0
+          - generic:
+            - generic: 建玉
+            - generic: 売0-買0
+            - generic: ネット0
+            - generic: 実 0 / 評 0
+            - generic: 株数 100
+      - generic [ref=e132]:
+        - generic [ref=e133]:
+          - generic [ref=e134]: 週足
+          - table [ref=e139]:
+            - row [ref=e140]:
+              - cell
+              - cell [ref=e141]
+              - cell [ref=e145]
+            - row [ref=e149]:
+              - cell
+              - cell [ref=e150]
+              - cell [ref=e154]
+        - generic [ref=e159]:
+          - generic [ref=e160]: 月足
+          - table [ref=e165]:
+            - row [ref=e166]:
+              - cell
+              - cell [ref=e167]
+              - cell [ref=e171]
+            - row [ref=e175]:
+              - cell
+              - cell [ref=e176]
+              - cell [ref=e180]

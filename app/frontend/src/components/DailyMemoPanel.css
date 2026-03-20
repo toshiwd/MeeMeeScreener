@@ -115,6 +115,47 @@
   color: var(--theme-text-primary);
 }
 
+.memo-price-row .price-change,
+.ohlc-grid,
+.ohlc-item,
+.ohlc-item span:last-child,
+.memo-ma-list,
+.memo-ma-item,
+.memo-position-row {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.ohlc-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.ohlc-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ohlc-item span:last-child,
+.memo-ma-item,
+.memo-position-row span {
+  font-weight: 600;
+}
+
+.memo-ma-list {
+  display: grid;
+  gap: 4px;
+}
+
+.memo-position-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .info-actions {
   margin-top: 16px;
 }
