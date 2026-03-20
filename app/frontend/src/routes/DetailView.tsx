@@ -8,14 +8,10 @@ import {
   IconAdjustments,
   IconArrowLeft,
   IconArrowRight,
-  IconBox,
   IconCamera,
   IconHeart,
   IconHeartFilled,
-  IconMinus,
-  IconTrash,
   IconSparkles,
-  IconChartArrows,
   IconRefresh,
   IconPointer,
   IconPointerOff,
@@ -29,6 +25,10 @@ import DetailChart, {
 } from "../components/DetailChart";
 import Toast from "../components/Toast";
 import IconButton from "../components/IconButton";
+import DetailHeaderChrome from "../components/DetailHeaderChrome";
+import DetailModeTabs from "../components/DetailModeTabs";
+import DetailTimeframeSwitcher from "../components/DetailTimeframeSwitcher";
+import DetailDrawToolbar from "../components/DetailDrawToolbar";
 import ScreenPanel from "../components/ScreenPanel";
 import SimilarSearchPanel from "../components/SimilarSearchPanel";
 import { Box, MaSetting, useStore } from "../store";
@@ -1642,91 +1642,17 @@ export default function DetailView() {
         : null;
   const showRightPanel = rightRailKind !== null;
   const headerDrawToolControls = (
-    <div className="detail-draw-toolbar">
-      <div className="detail-analysis-actions detail-draw-tools">
-        <IconButton
-          icon={<IconChartArrows size={18} />}
-          tooltip="時間ゾーン描画"
-          ariaLabel="時間ゾーン描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "timeZone"}
-          onClick={() => selectDrawTool("timeZone")}
-        />
-        <IconButton
-          icon={<IconBox size={18} />}
-          tooltip="四角描画"
-          ariaLabel="四角描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "drawBox"}
-          onClick={() => selectDrawTool("drawBox")}
-        />
-        <IconButton
-          icon={<span style={{ fontSize: 18, lineHeight: 1 }}>▭</span>}
-          tooltip="価格帯描画"
-          ariaLabel="価格帯描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "priceBand"}
-          onClick={() => selectDrawTool("priceBand")}
-        />
-        <IconButton
-          icon={<IconMinus size={18} />}
-          tooltip="水平線描画"
-          ariaLabel="水平線描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "horizontalLine"}
-          onClick={() => selectDrawTool("horizontalLine")}
-        />
-        <IconButton
-          icon={<IconTrash size={18} />}
-          tooltip="描画をリセット"
-          ariaLabel="描画をリセット"
-          onClick={resetAllDrawings}
-        />
-      </div>
-      {activeDrawTool !== null && (
-        <div className="detail-analysis-actions detail-draw-adjustments">
-          <IconButton
-            icon={
-              <span
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: 999,
-                  background: activeDrawColor,
-                  display: "inline-block",
-                  border: "1px solid rgba(0,0,0,0.2)"
-                }}
-              />
-            }
-            tooltip="描画色を変更"
-            ariaLabel="描画色を変更"
-            onClick={() =>
-              setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)
-            }
-          />
-          <input
-            type="range"
-            min={0.1}
-            max={1}
-            step={0.05}
-            value={activeLineOpacity}
-            title="不透明度"
-            style={{ width: 60 }}
-            onChange={(event) => setActiveLineOpacity(Number(event.target.value))}
-          />
-          <input
-            type="range"
-            min={1}
-            max={6}
-            step={0.5}
-            value={activeLineWidth}
-            title="太さ"
-            style={{ width: 60 }}
-            onChange={(event) => setActiveLineWidth(Number(event.target.value))}
-          />
-        </div>
-      )}
-    </div>
+    <DetailDrawToolbar
+      activeTool={activeDrawTool}
+      activeDrawColor={activeDrawColor}
+      activeLineOpacity={activeLineOpacity}
+      activeLineWidth={activeLineWidth}
+      onSelectTool={selectDrawTool}
+      onResetAll={resetAllDrawings}
+      onCycleColor={() => setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)}
+      onLineOpacityChange={setActiveLineOpacity}
+      onLineWidthChange={setActiveLineWidth}
+    />
   );
 
   useEffect(() => {
@@ -4278,65 +4204,28 @@ export default function DetailView() {
     />
   );
   const headerRangeControls = (
-    <div className="detail-summary-center">
-      <div className="segmented detail-range">
-        {RANGE_PRESETS.map((preset) => (
-          <button
-            key={preset.label}
-            className={rangeMonths === preset.months ? "active" : ""}
-            onClick={() => toggleRange(preset.months)}
-          >
-            {preset.label}
-          </button>
-        ))}
-      </div>
-    </div>
+    <DetailTimeframeSwitcher presets={RANGE_PRESETS} rangeMonths={rangeMonths} onChange={toggleRange} />
   );
 
   const headerModeControls = (
-    <div className="detail-mode-bar">
-      <div className="segmented detail-mode">
-        <button
-          className={headerMode === "chart" ? "active" : ""}
-          onClick={() => setHeaderMode("chart")}
-        >
-          チャート
-        </button>
-        <button
-          className={headerMode === "analysis" ? "active" : ""}
-          onClick={() => {
-            setHeaderMode("analysis");
-            if (!cursorMode) {
-              setCursorMode(true);
-              if (dailyCandles.length > 0) {
-                updateSelectedBar(dailyCandles.length - 1);
-              }
-            }
-          }}
-        >
-          分析
-        </button>
-        <button
-          className={headerMode === "financial" ? "active" : ""}
-          onClick={() => setHeaderMode("financial")}
-        >
-          財務
-        </button>
-        <button
-          onClick={() => {
-            if (code) navigate(`/practice/${code}`);
-          }}
-        >
-          練習
-        </button>
-        <button
-          className={headerMode === "positions" ? "active" : ""}
-          onClick={() => setHeaderMode("positions")}
-        >
-          建玉
-        </button>
-      </div>
-    </div>
+    <DetailModeTabs
+      activeMode={headerMode}
+      onChart={() => setHeaderMode("chart")}
+      onAnalysis={() => {
+        setHeaderMode("analysis");
+        if (!cursorMode) {
+          setCursorMode(true);
+          if (dailyCandles.length > 0) {
+            updateSelectedBar(dailyCandles.length - 1);
+          }
+        }
+      }}
+      onFinancial={() => setHeaderMode("financial")}
+      onPractice={() => {
+        if (code) navigate(`/practice/${code}`);
+      }}
+      onPositions={() => setHeaderMode("positions")}
+    />
   );
 
   const headerDisplayMenu = (
@@ -4445,64 +4334,64 @@ export default function DetailView() {
 
   return (
     <div className={`detail-shell ${focusPanel ? "detail-shell-focus" : ""}`}>
-      <div className="detail-header">
-        <div className="detail-summary-row">
-          <div className="detail-summary-back">
-            <button
-              className="back nav-button nav-primary"
-              onClick={() => navigate(listBackPath)}
-            >
-              <span className="nav-icon">
-                <IconArrowLeft size={16} />
-              </span>
-              <span className="nav-label">一覧に戻る</span>
-            </button>
-          </div>
-          <div className="detail-summary-main">
-            <div className="detail-summary-title">
-              <div className="detail-summary-code">{code}</div>
-              {tickerName && <div className="detail-summary-name">{tickerName}</div>}
-              {dailySignals.length > 0 && (
-                <div className="popover-anchor detail-summary-signal-anchor" ref={signalsRef}>
-                  <IconButton
-                    icon={<IconSparkles size={16} />}
-                    tooltip={`シグナル ${dailySignals.length}`}
-                    ariaLabel={`シグナル ${dailySignals.length}`}
-                    selected={signalsOpen}
-                    className="detail-summary-signal-button"
-                    onClick={() => setSignalsOpen((prev) => !prev)}
-                  />
-                  {signalsOpen && (
-                    <div className="popover-panel detail-signals-popover">
-                      <div className="popover-section">
-                        <div className="popover-title">シグナル</div>
-                        <div className="detail-signals-inline">
-                          {dailySignals.map((signal) => (
-                            <span
-                              key={signal.label}
-                              className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
-                            >
-                              {signal.label}
-                            </span>
-                          ))}
-                        </div>
+      <DetailHeaderChrome
+        summaryBack={
+          <button
+            className="back nav-button nav-primary"
+            onClick={() => navigate(listBackPath)}
+          >
+            <span className="nav-icon">
+              <IconArrowLeft size={16} />
+            </span>
+            <span className="nav-label">一覧に戻る</span>
+          </button>
+        }
+        summaryMain={
+          <div className="detail-summary-title">
+            <div className="detail-summary-code">{code}</div>
+            {tickerName && <div className="detail-summary-name">{tickerName}</div>}
+            {dailySignals.length > 0 && (
+              <div className="popover-anchor detail-summary-signal-anchor" ref={signalsRef}>
+                <IconButton
+                  icon={<IconSparkles size={16} />}
+                  tooltip={`シグナル ${dailySignals.length}`}
+                  ariaLabel={`シグナル ${dailySignals.length}`}
+                  selected={signalsOpen}
+                  className="detail-summary-signal-button"
+                  onClick={() => setSignalsOpen((prev) => !prev)}
+                />
+                {signalsOpen && (
+                  <div className="popover-panel detail-signals-popover">
+                    <div className="popover-section">
+                      <div className="popover-title">シグナル</div>
+                      <div className="detail-signals-inline">
+                        {dailySignals.map((signal) => (
+                          <span
+                            key={signal.label}
+                            className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
+                          >
+                            {signal.label}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="detail-summary-status">
-              {(rightsLabel || earningsLabel) && (
-                <div className="detail-event-badges detail-event-badges-inline">
-                  {rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
-                  {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-          {headerRangeControls}
-          <div className="detail-summary-actions">
+        }
+        summaryStatus={
+          (rightsLabel || earningsLabel) ? (
+            <div className="detail-event-badges detail-event-badges-inline">
+              {rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
+              {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
+            </div>
+          ) : null
+        }
+        summaryCenter={headerRangeControls}
+        summaryActions={
+          <>
             <button
               type="button"
               className={isFavorite ? "favorite-toggle active" : "favorite-toggle"}
@@ -4538,19 +4427,18 @@ export default function DetailView() {
               </span>
               <span className="nav-label">次の銘柄</span>
             </button>
-          </div>
-        </div>
-        <div className="detail-topbar-row">
-          {headerModeControls}
-          <div className="detail-topbar-divider" aria-hidden="true" />
-          <div className="detail-topbar-actions">
+          </>
+        }
+        modeControls={headerModeControls}
+        topbarActions={
+          <>
             {headerDisplayMenu}
             {headerScreenshotButton}
             {headerCursorButton}
             {headerDrawToolControls}
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
       {marketDataStatusMessage && (
         <div className={`detail-market-data-status ${marketDataStatusDelayed ? "is-delayed" : ""}`}>
           {marketDataStatusMessage}

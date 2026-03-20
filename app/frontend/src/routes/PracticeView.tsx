@@ -10,23 +10,21 @@ import type { MaSetting } from "../storeTypes";
 import { computeSignalMetrics } from "../utils/signals";
 import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
 import {
+  IconAdjustments,
   IconArrowLeft,
-  IconArrowBackUp,
   IconCamera,
-  IconFileDownload,
-  IconBox,
-  IconMinus,
-  IconTrash,
-  IconSparkles,
-  IconRefresh,
-  IconChevronLeft,
-  IconChevronRight,
   IconPlus,
-  IconChartArrows,
+  IconHeart,
+  IconHeartFilled,
+  IconArrowRight,
   IconPointer,
   IconPointerOff
 } from "@tabler/icons-react";
 import IconButton from "../components/IconButton";
+import DetailHeaderChrome from "../components/DetailHeaderChrome";
+import DetailModeTabs from "../components/DetailModeTabs";
+import DetailTimeframeSwitcher from "../components/DetailTimeframeSwitcher";
+import DetailDrawToolbar from "../components/DetailDrawToolbar";
 import { buildAIExport, copyToClipboard } from "../utils/aiExport";
 import type {
   BarsResponse,
@@ -124,6 +122,9 @@ export default function PracticeView() {
   const ensureListLoaded = useStore((state) => state.ensureListLoaded);
   const loadingList = useStore((state) => state.loadingList);
   const maSettings = useStore((state) => state.maSettings);
+  const favoritesLoaded = useStore((state) => state.favoritesLoaded);
+  const loadFavorites = useStore((state) => state.loadFavorites);
+  const setFavoriteLocal = useStore((state) => state.setFavoriteLocal);
 
   const [sessions, setSessions] = useState<PracticeSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -148,7 +149,7 @@ export default function PracticeView() {
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [screenshotBusy, setScreenshotBusy] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
-  const [cursorVisible, setCursorVisible] = useState(true);
+  const [cursorMode, setCursorMode] = useState(false);
   const [weeklyRatio, setWeeklyRatio] = useState(DEFAULT_WEEKLY_RATIO);
   const [lotSize, setLotSize] = useState(DEFAULT_LOT_SIZE);
   const [rangeMonths, setRangeMonths] = useState(DEFAULT_RANGE_MONTHS);
@@ -161,7 +162,10 @@ export default function PracticeView() {
   const [selectedDrawing, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
   const COLOR_PALETTE = ["#ef4444", "#22c55e", "#0ea5e9", "#f59e0b", "#64748b"];
   const activeDrawColor = COLOR_PALETTE[activeDrawColorIndex] ?? "#64748b";
-  const selectDrawTool = (tool: DrawTool | null) => setActiveDrawTool(tool);
+  const selectDrawTool = (tool: DrawTool | null) => {
+    setActiveDrawTool((current) => (current === tool ? null : tool));
+  };
+  const isFavorite = useStore((state) => (code ? state.favorites.includes(code) : false));
 
   const {
     dailyDrawingKey,
@@ -196,6 +200,19 @@ export default function PracticeView() {
     const cleaned = raw.replace(/\s*\?\s*$/, "").trim();
     return cleaned === "?" ? "" : cleaned;
   }, [tickerByCode, code]);
+  const listCodes = useMemo(() => tickers.map((item) => item.code).filter(Boolean), [tickers]);
+  const prevCode = useMemo(() => {
+    if (!code) return null;
+    const index = listCodes.indexOf(code);
+    if (index <= 0) return null;
+    return listCodes[index - 1] ?? null;
+  }, [listCodes, code]);
+  const nextCode = useMemo(() => {
+    if (!code) return null;
+    const index = listCodes.indexOf(code);
+    if (index < 0) return null;
+    return listCodes[index + 1] ?? null;
+  }, [listCodes, code]);
   const sessionStorageKey = code ? `practice_session_id_${code}` : null;
 
   useEffect(() => {
@@ -204,6 +221,11 @@ export default function PracticeView() {
       void ensureListLoaded();
     }
   }, [backendReady, tickers.length, loadingList, ensureListLoaded]);
+
+  useEffect(() => {
+    if (!backendReady || favoritesLoaded) return;
+    void loadFavorites();
+  }, [backendReady, favoritesLoaded, loadFavorites]);
 
   const refreshSessions = useCallback((selectId?: string | null) => {
     if (!backendReady || !code) return;
@@ -585,9 +607,6 @@ export default function PracticeView() {
   const dailyPositions = practicePositionData.dailyPositions;
   const tradeMarkers = practicePositionData.tradeMarkers;
 
-  const weeklyCursorTime = cursorTime != null ? getWeekStartTime(cursorTime) : null;
-  const monthlyCursorTime = cursorTime != null ? getMonthStartTime(cursorTime) : null;
-
   const weeklyPartialTimes = useMemo(() => {
     const last = weeklyBars[weeklyBars.length - 1];
     return last?.isPartial ? [last.time] : [];
@@ -599,6 +618,20 @@ export default function PracticeView() {
   }, [monthlyBars]);
 
   const monthlyRatio = 1 - weeklyRatio;
+  const activePracticeCursorTime = cursorMode ? cursorTime : null;
+
+  const toggleCursorMode = useCallback(() => {
+    setCursorMode((prev) => {
+      const next = !prev;
+      if (next && cursorTime == null && dailyBars.length > 0) {
+        const latestTime = dailyBars[dailyBars.length - 1]?.time ?? null;
+        if (latestTime != null) {
+          setCursorTime(latestTime);
+        }
+      }
+      return next;
+    });
+  }, [cursorTime, dailyBars]);
 
   const isLocked = cursorTime != null && maxUnlockedTime != null && cursorTime < maxUnlockedTime;
 
@@ -1060,6 +1093,37 @@ export default function PracticeView() {
         refreshSessions();
         setToastMessage("セッションを削除しました。");
       });
+  };
+
+  const handleToggleFavorite = async () => {
+    if (!code) {
+      setToastMessage("お気に入り更新に失敗しました（code未指定）");
+      return;
+    }
+    const next = !isFavorite;
+    setFavoriteLocal(code, next);
+    try {
+      if (next) {
+        await api.post(`/favorites/${encodeURIComponent(code)}`);
+      } else {
+        await api.delete(`/favorites/${encodeURIComponent(code)}`);
+      }
+    } catch (error: any) {
+      setFavoriteLocal(code, !next);
+      const status = error?.response?.status;
+      const detail =
+        error?.response?.data?.error ??
+        error?.response?.data?.detail ??
+        error?.response?.data ??
+        error?.message;
+      if (status) {
+        setToastMessage(`お気に入り更新に失敗しました（HTTP ${status}）`);
+      } else if (detail) {
+        setToastMessage(`お気に入り更新に失敗しました（${String(detail)}）`);
+      } else {
+        setToastMessage("お気に入り更新に失敗しました");
+      }
+    }
   };
 
 
@@ -1596,95 +1660,89 @@ export default function PracticeView() {
     }
   };
 
-  const practiceDrawToolbar = (
-    <div className="detail-draw-toolbar">
-      <div className="detail-analysis-actions detail-draw-tools">
-        <IconButton
-          icon={<IconPointerOff size={18} />}
-          tooltip="マウスモード"
-          ariaLabel="マウスモード"
-          className="draw-tool-button"
-          selected={activeDrawTool === null}
-          onClick={() => selectDrawTool(null)}
-        />
-        <IconButton
-          icon={<IconChartArrows size={18} />}
-          tooltip="時間ゾーン描画"
-          ariaLabel="時間ゾーン描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "timeZone"}
-          onClick={() => selectDrawTool("timeZone")}
-        />
-        <IconButton
-          icon={<IconBox size={18} />}
-          tooltip="四角描画"
-          ariaLabel="四角描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "drawBox"}
-          onClick={() => selectDrawTool("drawBox")}
-        />
-        <IconButton
-          icon={<span style={{ fontSize: 18, lineHeight: 1 }}>▭</span>}
-          tooltip="価格帯描画"
-          ariaLabel="価格帯描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "priceBand"}
-          onClick={() => selectDrawTool("priceBand")}
-        />
-        <IconButton
-          icon={<IconMinus size={18} />}
-          tooltip="水平線描画"
-          ariaLabel="水平線描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "horizontalLine"}
-          onClick={() => selectDrawTool("horizontalLine")}
-        />
-        <IconButton
-          icon={<IconTrash size={18} />}
-          tooltip="描画を全削除"
-          ariaLabel="描画を全削除"
-          onClick={resetAllDrawings}
-        />
+  const headerRangeControls = (
+    <DetailTimeframeSwitcher
+      presets={RANGE_PRESETS}
+      rangeMonths={rangeMonths}
+      onChange={(value) => {
+        setRangeMonths(value);
+        persistSession({ rangeMonths: value });
+      }}
+    />
+  );
+
+  const headerModeControls = (
+    <DetailModeTabs
+      activeMode="practice"
+      onChart={() => {
+        if (code) navigate(`/detail/${code}`);
+      }}
+      onAnalysis={() => {
+        if (code) navigate(`/detail/${code}`);
+      }}
+      onFinancial={() => {
+        if (code) navigate(`/detail/${code}`);
+      }}
+      onPractice={() => {}}
+      onPositions={() => {
+        if (code) navigate(`/detail/${code}`);
+      }}
+    />
+  );
+
+  const headerDrawToolControls = (
+    <DetailDrawToolbar
+      activeTool={activeDrawTool}
+      activeDrawColor={activeDrawColor}
+      activeLineOpacity={activeLineOpacity}
+      activeLineWidth={activeLineWidth}
+      onSelectTool={selectDrawTool}
+      onResetAll={resetAllDrawings}
+      onCycleColor={() => setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)}
+      onLineOpacityChange={setActiveLineOpacity}
+      onLineWidthChange={setActiveLineWidth}
+    />
+  );
+
+  const headerDisplayButton = (
+    <IconButton
+      icon={<IconAdjustments size={18} />}
+      label="表示"
+      variant="iconLabel"
+      tooltip="表示設定"
+      ariaLabel="表示設定メニューを開く"
+      className="display-button"
+      onClick={() => {}}
+    />
+  );
+
+  const practiceTopbarControls = (
+    <div className="practice-topbar-controls">
+      <div className="practice-session-launcher">
+        <div className="practice-header-label">練習開始日</div>
+        <div className="practice-session-controls">
+          <input
+            ref={startDateInputRef}
+            type="date"
+            value={startDateDraft}
+            onChange={(event) => setStartDateDraft(event.target.value)}
+          />
+          <button className="indicator-button" onClick={handleApplyStartDate}>
+            開始日を確定
+          </button>
+          <button
+            className="indicator-button practice-session-open-button"
+            onClick={() => setSessionManagerOpen(true)}
+          >
+            過去の練習を開く
+          </button>
+        </div>
+        <div className="practice-session-meta">
+          <span className={`practice-session-badge ${sessionBadgeClass}`}>{sessionBadgeLabel}</span>
+          <span className="practice-session-range-text">{sessionRangeLabel}</span>
+        </div>
       </div>
-      <div className="detail-analysis-actions detail-draw-adjustments">
-        <IconButton
-          icon={
-            <span
-              style={{
-                width: 14,
-                height: 14,
-                borderRadius: 999,
-                background: activeDrawColor,
-                display: "inline-block",
-                border: "1px solid rgba(0,0,0,0.2)"
-              }}
-            />
-          }
-          tooltip="描画色を変更"
-          ariaLabel="描画色を変更"
-          onClick={() => setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)}
-        />
-        <input
-          type="range"
-          min={0.1}
-          max={1}
-          step={0.05}
-          value={activeLineOpacity}
-          title="不透明度"
-          style={{ width: 60 }}
-          onChange={(event) => setActiveLineOpacity(Number(event.target.value))}
-        />
-        <input
-          type="range"
-          min={1}
-          max={6}
-          step={0.5}
-          value={activeLineWidth}
-          title="太さ"
-          style={{ width: 60 }}
-          onChange={(event) => setActiveLineWidth(Number(event.target.value))}
-        />
-      </div>
+      <div className="practice-range">{headerRangeControls}</div>
     </div>
   );
 
@@ -1694,150 +1752,86 @@ export default function PracticeView() {
 
   return (
     <div className="detail-shell practice-shell">
-      <div
-        className="detail-header practice-header"
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "8px 10px",
-        }}
-      >
-        <div className="practice-header-left">
-          <div className="practice-nav-group">
+      <DetailHeaderChrome
+        summaryBack={
+          <button className="back nav-button nav-primary" onClick={() => navigate("/")}>
+            <span className="nav-icon">
+              <IconArrowLeft size={16} />
+            </span>
+            <span className="nav-label">一覧に戻る</span>
+          </button>
+        }
+        summaryMain={
+          <div className="detail-summary-title">
+            <div className="detail-summary-code">{code}</div>
+            {tickerName && <div className="detail-summary-name">{tickerName}</div>}
+          </div>
+        }
+        summaryActions={
+          <>
+            <button
+              type="button"
+              className={isFavorite ? "favorite-toggle active" : "favorite-toggle"}
+              aria-pressed={isFavorite}
+              aria-label={isFavorite ? "お気に入り解除" : "お気に入り追加"}
+              onClick={handleToggleFavorite}
+            >
+              {isFavorite ? <IconHeartFilled size={18} /> : <IconHeart size={18} />}
+            </button>
+            <button
+              className="back nav-button"
+              onClick={() => {
+                if (!prevCode) return;
+                navigate(`/practice/${prevCode}`);
+              }}
+              disabled={!prevCode}
+            >
+              <span className="nav-icon">
+                <IconArrowLeft size={16} />
+              </span>
+              <span className="nav-label">前の銘柄</span>
+            </button>
+            <button
+              className="back nav-button"
+              onClick={() => {
+                if (!nextCode) return;
+                navigate(`/practice/${nextCode}`);
+              }}
+              disabled={!nextCode}
+            >
+              <span className="nav-icon">
+                <IconArrowRight size={16} />
+              </span>
+              <span className="nav-label">次の銘柄</span>
+            </button>
+          </>
+        }
+        modeControls={headerModeControls}
+        topbarActions={
+          <>
+            {headerDisplayButton}
             <IconButton
-              icon={<IconArrowLeft size={20} />}
-              tooltip="一覧に戻る"
-              onClick={() => navigate("/")}
+              icon={<IconCamera size={18} />}
+              label="スクショ"
+              variant="iconLabel"
+              tooltip="スクショ"
+              className="screenshot-button"
+              disabled={screenshotBusy}
+              onClick={handleScreenshot}
             />
             <IconButton
-              icon={<IconArrowBackUp size={20} />}
-              tooltip="前の画面に戻る"
-              onClick={() => navigate(-1)}
+              icon={cursorMode ? <IconPointer size={18} /> : <IconPointerOff size={18} />}
+              label={cursorMode ? "カーソルON" : "カーソルOFF"}
+              variant="iconLabel"
+              tooltip="カーソル ON/OFF"
+              selected={cursorMode}
+              onClick={toggleCursorMode}
             />
-          </div>
-          <div className="detail-title">
-            <div className="detail-title-main">
-              <div className="title">{code}</div>
-              {tickerName && <div className="title-name">{tickerName}</div>}
-            </div>
-            <div className="subtitle">練習</div>
-          </div>
-        </div>
-        <div className="practice-header-actions">
-          <div className="practice-header-group">
-            <div className="segmented practice-range">
-              {RANGE_PRESETS.map((preset) => (
-                <button
-                  key={preset.label}
-                  className={rangeMonths === preset.months ? "active" : ""}
-                  onClick={() => {
-                    setRangeMonths(preset.months);
-                    persistSession({ rangeMonths: preset.months });
-                  }}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-            <div className="practice-view-meta">{headerMetaLabel}</div>
-          </div>
-          <div className="practice-header-group">
-            <div className="practice-header-stack">
-              <IconButton
-                icon={<IconChevronLeft size={20} />}
-                tooltip="1日戻る"
-                disabled={!canStepBack}
-                onClick={() => handleStep(-1)}
-              />
-              <IconButton
-                icon={<IconChevronRight size={20} />}
-                tooltip="1日進む"
-                disabled={!canStepForward}
-                onClick={() => handleStep(1)}
-              />
-              <IconButton
-                icon={<IconRefresh size={18} />}
-                tooltip="当日リセット"
-                disabled={!canResetDay}
-                onClick={handleResetDay}
-              />
-              <div className="practice-divider" />
-              <IconButton
-                icon={<IconCamera size={18} />}
-                tooltip="スクショ"
-                disabled={screenshotBusy}
-                onClick={handleScreenshot}
-              />
-              <IconButton
-                icon={<IconFileDownload size={18} />}
-                tooltip="出力 (JSON)"
-                onClick={handleExport}
-              />
-              <IconButton
-                icon={<IconSparkles size={18} />}
-                tooltip="AI出力"
-                onClick={handleAIExport}
-              />
-              <IconButton
-                icon={<IconSparkles size={18} />}
-                tooltip="類似 (詳細で使用)"
-                disabled
-                ariaLabel="類似"
-              />
-              {practiceDrawToolbar}
-              <button
-                className="indicator-button practice-panel-toggle"
-                onClick={() => togglePanel(panelCollapsed ? false : true)}
-                aria-label={panelCollapsed ? "パネルを開く" : "パネルを閉じる"}
-              >
-                {panelCollapsed ? "← パネル" : "→ パネル"}
-              </button>
-              <IconButton
-                icon={cursorVisible ? <IconPointer size={18} /> : <IconPointerOff size={18} />}
-                label={cursorVisible ? "カーソルON" : "カーソルOFF"}
-                variant="iconLabel"
-                tooltip="カーソル ON/OFF"
-                selected={cursorVisible}
-                onClick={() => setCursorVisible((prev) => !prev)}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="practice-controls-row">
-        <div className="practice-controls">
-          <div className="practice-header-label">練習開始日</div>
-          <div className="practice-session-launcher">
-            <div className="practice-session-controls">
-              <input
-                ref={startDateInputRef}
-                type="date"
-                value={startDateDraft}
-                onChange={(event) => setStartDateDraft(event.target.value)}
-              />
-              <button className="indicator-button" onClick={handleApplyStartDate}>
-                開始日を確定
-              </button>
-              <button
-                className="indicator-button practice-session-open-button"
-                onClick={() => setSessionManagerOpen(true)}
-              >
-                過去の練習を開く
-              </button>
-            </div>
-            <div className="practice-session-meta">
-              <span className={`practice-session-badge ${sessionBadgeClass}`}>
-                {sessionBadgeLabel}
-              </span>
-              <span className="practice-session-range-text">
-                {sessionRangeLabel}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
+            {headerDrawToolControls}
+          </>
+        }
+        topbarRight={practiceTopbarControls}
+      />
       {sessionManagerOpen && (
         <div className="practice-session-list">
           <div className="practice-session-list-header">
@@ -1917,13 +1911,13 @@ export default function PracticeView() {
                     onAddHorizontalLine={addHorizontalLine(dailyDrawingKey)}
                     onUpdateHorizontalLine={updateHorizontalLine(dailyDrawingKey)}
                     onDeleteHorizontalLine={deleteHorizontalLine(dailyDrawingKey)}
-                    cursorTime={cursorVisible ? (hoverTime == null ? cursorCandle?.time ?? null : null) : null}
+                    cursorTime={activePracticeCursorTime}
                     positionOverlay={{
                       dailyPositions,
                       tradeMarkers,
                       showOverlay: true,
                       showPnL: false,
-                      hoverTime: hoverTime ?? cursorCandle?.time ?? null,
+                      hoverTime: cursorMode ? cursorTime : hoverTime ?? cursorCandle?.time ?? null,
                       showMarkers: true,
                       markerSuffix: lotSize !== DEFAULT_LOT_SIZE ? `x${lotSize}` : undefined
                     }}
@@ -1991,7 +1985,7 @@ export default function PracticeView() {
                     onAddHorizontalLine={addHorizontalLine(weeklyDrawingKey)}
                     onUpdateHorizontalLine={updateHorizontalLine(weeklyDrawingKey)}
                     onDeleteHorizontalLine={deleteHorizontalLine(weeklyDrawingKey)}
-                    cursorTime={cursorVisible ? (hoverTime == null ? weeklyCursorTime : null) : null}
+                    cursorTime={activePracticeCursorTime != null ? getWeekStartTime(activePracticeCursorTime) : null}
                     partialTimes={weeklyPartialTimes}
                     onCrosshairMove={handleWeeklyCrosshair}
                   />
@@ -2038,7 +2032,7 @@ export default function PracticeView() {
                     onAddHorizontalLine={addHorizontalLine(monthlyDrawingKey)}
                     onUpdateHorizontalLine={updateHorizontalLine(monthlyDrawingKey)}
                     onDeleteHorizontalLine={deleteHorizontalLine(monthlyDrawingKey)}
-                    cursorTime={cursorVisible ? (hoverTime == null ? monthlyCursorTime : null) : null}
+                    cursorTime={activePracticeCursorTime != null ? getMonthStartTime(activePracticeCursorTime) : null}
                     partialTimes={monthlyPartialTimes}
                     onCrosshairMove={handleMonthlyCrosshair}
                   />
@@ -2267,6 +2261,9 @@ export default function PracticeView() {
                       </button>
                       <button onClick={() => handleStep(1)} disabled={!canStepForward}>
                         翌日
+                      </button>
+                      <button onClick={handleResetDay} disabled={!canResetDay}>
+                        リセット
                       </button>
                     </div>
                     <div className="practice-hud-step-meta">{headerMetaLabel}</div>

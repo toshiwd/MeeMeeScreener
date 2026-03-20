@@ -4,105 +4,33 @@
   padding-bottom: 0;
 }
 
+.practice-shell .detail-topbar-row {
+  flex-wrap: nowrap;
+}
+
+.practice-shell .detail-topbar-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.practice-shell .detail-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .practice-shell .detail-pane-header {
   margin-bottom: 0;
   font-size: 11px;
 }
 
-.detail-header.practice-header {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 10px;
-  margin-bottom: 0;
-}
-
-.practice-header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-  flex: 1 1 560px;
-}
-
-.practice-header .detail-title {
-  min-width: 0;
-}
-
-.practice-shell .back {
-  padding: 4px 8px;
-  font-size: 11px;
-}
-
-.practice-shell .indicator-button {
-  padding: 4px 8px;
-  font-size: 11px;
-}
-
-.practice-shell .segmented button {
-  padding: 4px 8px;
-  font-size: 11px;
-}
-
-.practice-shell select {
-  padding: 4px 6px;
-  font-size: 11px;
-  min-width: 140px;
-}
-
-.practice-header-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-  flex: 1 1 420px;
-}
-
-.practice-header-stack {
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
-}
-
-.practice-panel-toggle {
-  text-align: center;
-}
-
-.practice-header-group {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  min-height: 0;
-  border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: rgba(15, 23, 42, 0.6);
-  min-width: 0;
-  max-width: 100%;
-  flex: 0 1 auto;
-}
-
 .practice-session-launcher {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-width: 0;
-}
-
-.practice-controls-row {
-  display: flex;
-  justify-content: flex-start;
-  padding: 0 12px 8px;
-}
-
-.practice-controls {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -171,6 +99,32 @@
   gap: 8px;
   flex-wrap: wrap;
   min-width: 0;
+}
+
+.practice-topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.practice-topbar-controls .practice-session-launcher {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.practice-topbar-controls .practice-session-controls {
+  flex-wrap: nowrap;
+}
+
+.practice-topbar-controls .practice-session-meta {
+  flex-wrap: nowrap;
+}
+
+.practice-topbar-controls .practice-session-controls input[type="date"] {
+  min-width: 144px;
 }
 
 .practice-session-controls input[type="date"] {
@@ -1050,33 +1004,6 @@
   background: var(--theme-accent);
   border-color: var(--theme-accent);
   color: #ffffff;
-}
-
-:root[data-theme="light"] .practice-header-group {
-  border-color: var(--theme-border);
-  background: var(--theme-bg-card);
-}
-
-:root[data-theme="light"] .practice-shell .segmented button {
-  border-color: var(--theme-border);
-  background: var(--theme-bg-card);
-  color: var(--theme-text-primary);
-}
-
-:root[data-theme="light"] .practice-shell .segmented button:hover {
-  background: var(--theme-bg-tertiary);
-}
-
-:root[data-theme="light"] .practice-shell .segmented button.active {
-  background: var(--theme-accent);
-  border-color: var(--theme-accent);
-  color: #ffffff;
-}
-
-:root[data-theme="light"] .practice-shell select {
-  border-color: var(--theme-border);
-  background: var(--theme-bg-card);
-  color: var(--theme-text-primary);
 }
 
 :root[data-theme="light"] .practice-session-meta {

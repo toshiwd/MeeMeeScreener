@@ -1,0 +1,105 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button "一覧に戻る" [ref=e7] [cursor=pointer]:
+          - img [ref=e9]
+          - generic [ref=e12]: 一覧に戻る
+        - generic [ref=e14]:
+          - generic [ref=e15]: "1001"
+          - generic [ref=e16]: 日経225
+        - generic [ref=e18]:
+          - button "3M" [ref=e19] [cursor=pointer]
+          - button "6M" [ref=e20] [cursor=pointer]
+          - button "1Y" [ref=e21] [cursor=pointer]
+          - button "2Y" [ref=e22] [cursor=pointer]
+        - generic [ref=e23]:
+          - button "お気に入り追加" [ref=e24] [cursor=pointer]:
+            - img [ref=e25]
+          - button "前の銘柄" [disabled] [ref=e27]:
+            - img [ref=e29]
+            - generic [ref=e32]: 前の銘柄
+          - button "次の銘柄" [disabled] [ref=e33]:
+            - img [ref=e35]
+            - generic [ref=e38]: 次の銘柄
+      - generic [ref=e39]:
+        - generic [ref=e41]:
+          - button "チャート" [ref=e42] [cursor=pointer]
+          - button "分析" [ref=e43] [cursor=pointer]
+          - button "財務" [ref=e44] [cursor=pointer]
+          - button "練習" [ref=e45] [cursor=pointer]
+          - button "建玉" [ref=e46] [cursor=pointer]
+        - generic [ref=e48]:
+          - button "表示設定メニューを開く" [ref=e50] [cursor=pointer]:
+            - img [ref=e52]
+            - generic [ref=e56]: 表示
+          - button "スクショ" [ref=e57] [cursor=pointer]:
+            - img [ref=e59]
+            - generic [ref=e62]: スクショ
+          - button "カーソルOFF" [ref=e63] [cursor=pointer]:
+            - img [ref=e65]
+            - generic [ref=e68]: カーソルOFF
+          - generic [ref=e70]:
+            - button "時間ゾーン描画" [ref=e71] [cursor=pointer]:
+              - img [ref=e73]
+            - button "四角描画" [ref=e77] [cursor=pointer]:
+              - img [ref=e79]
+            - button "価格帯描画" [ref=e83] [cursor=pointer]:
+              - generic [ref=e85]: ▭
+            - button "水平線描画" [ref=e86] [cursor=pointer]:
+              - img [ref=e88]
+            - button "描画をリセット" [ref=e89] [cursor=pointer]:
+              - img [ref=e91]
+    - generic [ref=e95]:
+      - generic [ref=e96]:
+        - generic [ref=e97]: Daily
+        - generic [ref=e98]:
+          - table [ref=e102]:
+            - row [ref=e103]:
+              - cell
+              - cell [ref=e104]
+              - cell [ref=e108]
+            - row [ref=e112]:
+              - cell
+              - cell [ref=e113]
+              - cell [ref=e117]
+          - generic [ref=e120]: "Daily: Loading..."
+      - generic [ref=e121]:
+        - generic [ref=e122]:
+          - generic [ref=e123]: Weekly
+          - generic [ref=e124]:
+            - table [ref=e128]:
+              - row [ref=e129]:
+                - cell
+                - cell [ref=e130]
+                - cell [ref=e134]
+              - row [ref=e138]:
+                - cell
+                - cell [ref=e139]
+                - cell [ref=e143]
+            - generic [ref=e146]: "Weekly: Loading..."
+        - generic [ref=e148]:
+          - generic [ref=e149]: Monthly
+          - generic [ref=e150]:
+            - table [ref=e154]:
+              - row [ref=e155]:
+                - cell
+                - cell [ref=e156]
+                - cell [ref=e160]
+              - row [ref=e164]:
+                - cell
+                - cell [ref=e165]
+                - cell [ref=e169]
+            - generic [ref=e172]: "Monthly: Loading..."
+    - generic [ref=e173]:
+      - button "Loading..." [disabled] [ref=e175]
+      - generic [ref=e176]: Daily 0 bars | Weekly 0 bars | Monthly 0 bars
