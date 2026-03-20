@@ -5,8 +5,7 @@ import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import { Ticker, useStore } from "../store";
-import type { SignalChip } from "../utils/signals";
-import { formatEventBadgeDate } from "../utils/events";
+import { formatEventBadgeDate, parseEventDateMs } from "../utils/events";
 import ThumbnailCanvas from "./ThumbnailCanvas";
 import { buildThumbnailCacheKey, getThumbnailCache } from "./thumbnailCache";
 
@@ -14,7 +13,6 @@ type StockTileProps = {
   ticker: Ticker;
   timeframe: "monthly" | "weekly" | "daily";
   maxBars?: number;
-  signals?: SignalChip[];
   active?: boolean;
   kept?: boolean;
   theme?: "dark" | "light";
@@ -31,7 +29,6 @@ const StockTile = memo(function StockTile({
   ticker,
   timeframe,
   maxBars,
-  signals,
   active = false,
   kept = false,
   theme,
@@ -43,6 +40,7 @@ const StockTile = memo(function StockTile({
   onExclude,
   annotation
 }: StockTileProps) {
+  const DAY_MS = 24 * 60 * 60 * 1000;
   const barsPayload = useStore((state) => {
     const map = state.barsCache?.[timeframe] ?? {};
     return map[ticker.code];
@@ -72,30 +70,76 @@ const StockTile = memo(function StockTile({
   const cachedThumb = getThumbnailCache(cacheKey);
   const earningsLabel = formatEventBadgeDate(ticker.eventEarningsDate);
   const rightsLabel = formatEventBadgeDate(ticker.eventRightsDate);
-  const entryPriorityScore = Number.isFinite(ticker.entryPriorityScore ?? NaN)
-    ? Math.round(ticker.entryPriorityScore as number)
-    : null;
-  const entryPriorityTier = ticker.entryPriorityTier ?? null;
-  const entryPriorityLabel = (ticker.entryPriorityLabel ?? "").trim();
-  const entryPriorityReasons = Array.isArray(ticker.entryPriorityReasons)
-    ? ticker.entryPriorityReasons.filter((reason) => typeof reason === "string" && reason.trim()).slice(0, 3)
-    : [];
-  const showEntryPriorityChip = Boolean(entryPriorityTier && entryPriorityScore != null);
-  const entryPriorityTitle = [entryPriorityLabel, ...entryPriorityReasons].filter(Boolean).join(" / ");
-  const shortPriorityScore = Number.isFinite(ticker.shortPriorityScore ?? NaN)
-    ? Math.round(ticker.shortPriorityScore as number)
-    : null;
-  const shortPriorityTier = ticker.shortPriorityTier ?? null;
-  const shortPriorityLabel = (ticker.shortPriorityLabel ?? "").trim();
-  const shortPriorityReasons = Array.isArray(ticker.shortPriorityReasons)
-    ? ticker.shortPriorityReasons.filter((reason) => typeof reason === "string" && reason.trim()).slice(0, 3)
-    : [];
-  const showShortPriorityChip = Boolean(shortPriorityTier && shortPriorityScore != null);
-  const shortPriorityTitle = [shortPriorityLabel, ...shortPriorityReasons].filter(Boolean).join(" / ");
-  const patternName = (ticker.buyPatternName ?? "").trim();
-  const patternCode = (ticker.buyPatternCode ?? "").trim();
-  const showPatternChip = patternName.length > 0 && patternCode !== "WAIT";
-  const patternTone = ticker.buyOverextended ? "warning" : ticker.buyEligible ? "achieved" : "";
+  const bars = barsPayload?.bars ?? [];
+  const latestBar = bars.length ? bars[bars.length - 1] : null;
+  const prevBar = bars.length > 1 ? bars[bars.length - 2] : null;
+  const latestBarTime = Number.isFinite(latestBar?.[0]) ? Number(latestBar[0]) : null;
+  const latestBarMs = (() => {
+    if (latestBarTime == null) return null;
+    const value = Math.trunc(latestBarTime);
+    if (value >= 10000000 && value < 100000000) {
+      const year = Math.floor(value / 10000);
+      const month = Math.floor((value % 10000) / 100) - 1;
+      const day = value % 100;
+      return Date.UTC(year, month, day);
+    }
+    if (value >= 1000000000000) return value;
+    if (value >= 1000000000) return value * 1000;
+    return null;
+  })();
+  const formatBarDate = (value: number | null | undefined) => {
+    if (!Number.isFinite(value)) return "--";
+    const raw = Math.trunc(value);
+    if (raw >= 10000000 && raw < 100000000) {
+      const year = Math.floor(raw / 10000);
+      const month = String(Math.floor((raw % 10000) / 100)).padStart(2, "0");
+      const day = String(raw % 100).padStart(2, "0");
+      return `${String(year % 100).padStart(2, "0")}/${month}/${day}`;
+    }
+    if (raw >= 1000000000000) {
+      const date = new Date(raw);
+      if (Number.isNaN(date.getTime())) return "--";
+      return `${String(date.getUTCFullYear() % 100).padStart(2, "0")}/${String(
+        date.getUTCMonth() + 1
+      ).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}`;
+    }
+    if (raw >= 1000000000) {
+      const date = new Date(raw * 1000);
+      if (Number.isNaN(date.getTime())) return "--";
+      return `${String(date.getUTCFullYear() % 100).padStart(2, "0")}/${String(
+        date.getUTCMonth() + 1
+      ).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}`;
+    }
+    return "--";
+  };
+  const formatChangeRate = (value: number | null | undefined) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return "--";
+    const sign = value > 0 ? "+" : "";
+    return `${sign}${(value * 100).toFixed(1)}%`;
+  };
+  const latestClose =
+    Number.isFinite(latestBar?.[4]) ? Number(latestBar[4]) : ticker.lastClose ?? null;
+  const prevClose = Number.isFinite(prevBar?.[4]) ? Number(prevBar[4]) : null;
+  const dayChange =
+    latestClose != null && prevClose != null && prevClose !== 0
+      ? (latestClose - prevClose) / prevClose
+      : ticker.chg1D ?? null;
+  const latestDateLabel = formatBarDate(latestBarTime);
+  const latestCloseLabel = latestClose != null ? latestClose.toLocaleString("ja-JP") : "--";
+  const dayChangeLabel = formatChangeRate(dayChange);
+  const isNearEvent = (eventDate: string | null | undefined) => {
+    const eventMs = parseEventDateMs(eventDate);
+    if (eventMs == null || latestBarMs == null) return false;
+    return Math.abs(eventMs - latestBarMs) <= 31 * DAY_MS;
+  };
+  const showRightsBadge = isNearEvent(ticker.eventRightsDate);
+  const showEarningsBadge = isNearEvent(ticker.eventEarningsDate);
+  const changeTone =
+    typeof dayChange === "number" && !Number.isNaN(dayChange)
+      ? dayChange >= 0
+        ? "up"
+        : "down"
+      : "flat";
 
   const handleActivate = () => onActivate?.(ticker.code);
   const handleOpenDetail = () => onOpenDetail(ticker.code);
@@ -147,20 +191,6 @@ const StockTile = memo(function StockTile({
         <div className="tile-id">
           <span className="tile-code">{ticker.code}</span>
           <span className="tile-name">{ticker.name}</span>
-          {asofLabel && (
-            <span className="asof-badge" data-tooltip={asofTooltip ?? ""}>
-              asof: {asofLabel}
-            </span>
-          )}
-          {(rightsLabel || earningsLabel) && (
-            <span className="event-badges">
-              {rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
-              {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
-            </span>
-          )}
-          {ticker.dataStatus === "missing" && (
-            <span className="badge status-missing">データ欠損</span>
-          )}
         </div>
         <div className="tile-actions">
           <button
@@ -173,11 +203,11 @@ const StockTile = memo(function StockTile({
           </button>
           <button
             type="button"
-            className={`tile-action ${kept ? "active" : ""}`}
+            className={`candidate-toggle ${kept ? "active" : ""}`}
             onClick={handleToggleKeep}
             aria-label={kept ? "候補から外す" : "候補に追加"}
           >
-            +
+            {kept ? "✓" : "+"}
           </button>
           <button
             type="button"
@@ -197,41 +227,23 @@ const StockTile = memo(function StockTile({
           </button>
         </div>
       </div>
-      {showEntryPriorityChip || showShortPriorityChip || showPatternChip || signals?.length ? (
-        <div className="tile-signal-row">
-          <div className="signal-chips">
-            {showEntryPriorityChip && (
-              <span
-                className={`signal-chip entry-tier tier-${String(entryPriorityTier).toLowerCase()}`}
-                data-tooltip={entryPriorityTitle}
-              >
-                仕込{entryPriorityTier}:{entryPriorityScore}
-              </span>
-            )}
-            {showShortPriorityChip && (
-              <span
-                className={`signal-chip short-tier tier-${String(shortPriorityTier).toLowerCase()}`}
-                data-tooltip={shortPriorityTitle}
-              >
-                売り{shortPriorityTier}:{shortPriorityScore}
-              </span>
-            )}
-            {showPatternChip && (
-              <span className={`signal-chip pattern ${patternTone}`.trim()}>
-                買い:{patternName}
-              </span>
-            )}
-            {signals.slice(0, 4).map((signal) => (
-              <span
-                key={signal.label}
-                className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
-              >
-                {signal.label}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      <div className="tile-meta tile-meta-grid">
+        <span className="tile-meta-item">日付 {latestDateLabel}</span>
+        <span className="tile-meta-item">終値 {latestCloseLabel}</span>
+        <span className={`tile-meta-item tile-meta-change ${changeTone}`}>前日比 {dayChangeLabel}</span>
+        {asofLabel && (
+          <span className="asof-badge provisional" data-tooltip={asofTooltip ?? ""}>
+            暫定 {asofLabel}
+          </span>
+        )}
+        {(showRightsBadge || showEarningsBadge) && (
+          <span className="event-badges">
+            {showRightsBadge && rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
+            {showEarningsBadge && earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
+          </span>
+        )}
+        {ticker.dataStatus === "missing" && <span className="badge status-missing">データ欠損</span>}
+      </div>
       {annotation ? <div className="tile-annotation-row">{annotation}</div> : null}
       <div className="tile-chart">
         {barsPayload && barsPayload.bars?.length ? (

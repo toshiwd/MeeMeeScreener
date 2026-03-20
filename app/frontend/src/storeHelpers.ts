@@ -29,7 +29,7 @@ export const LIST_RANGE_KEY = "listRangeBars";
 export const LEGACY_LIST_RANGE_KEY = "listRangeMonths";
 export const LIST_COLS_KEY = "listCols";
 export const LIST_ROWS_KEY = "listRows";
-export const LIST_RANGE_VALUES = [60, 120, 240, 360] as const;
+export const LIST_RANGE_VALUES = [30, 45, 60, 90, 120, 180, 240, 360] as const;
 export const WATCHLIST_AUTO_REPAIR_TS_KEY = "watchlistAutoRepairTs";
 export const WATCHLIST_AUTO_REPAIR_COOLDOWN_MS = 15 * 60 * 1000;
 export const WATCHLIST_AUTO_REPAIR_MIN_MISSING = 30;
@@ -419,11 +419,11 @@ export const getInitialListRangeBars = (): Settings["listRangeBars"] => {
   const legacy = Number(window.localStorage.getItem(LEGACY_LIST_RANGE_KEY));
   const mapped = LEGACY_RANGE_MONTHS_TO_BARS[legacy];
   if (mapped) return mapped;
-  return 120;
+  return 60;
 };
 
 export const getInitialSortKey = (): SortKey => {
-  if (typeof window === "undefined") return "entryPriority";
+  if (typeof window === "undefined") return "code";
   const saved = window.localStorage.getItem("sortKey");
   const options: SortKey[] = [
     "code",
@@ -459,13 +459,13 @@ export const getInitialSortKey = (): SortKey => {
     "aScore",
     "bScore"
   ];
-  return options.includes(saved as SortKey) ? (saved as SortKey) : "entryPriority";
+  return options.includes(saved as SortKey) ? (saved as SortKey) : "code";
 };
 
 export const getInitialSortDir = (): SortDir => {
-  if (typeof window === "undefined") return "desc";
+  if (typeof window === "undefined") return "asc";
   const saved = window.localStorage.getItem("sortDir");
-  return saved === "asc" ? "asc" : "desc";
+  return saved === "desc" ? "desc" : "asc";
 };
 
 export const loadKeepList = (): string[] => {

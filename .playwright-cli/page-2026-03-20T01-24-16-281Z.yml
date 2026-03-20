@@ -1,0 +1,106 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e2]:
+    - generic [ref=e19]:
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - button "一覧に戻る" [ref=e23] [cursor=pointer]:
+            - img [ref=e25]
+            - generic [ref=e28]: 一覧に戻る
+          - button "前画面" [ref=e29] [cursor=pointer]:
+            - img [ref=e31]
+            - generic [ref=e34]: 前画面
+        - generic [ref=e35]: "7203"
+        - generic [ref=e36]:
+          - generic [ref=e38]:
+            - button "3M" [ref=e39] [cursor=pointer]
+            - button "6M" [ref=e40] [cursor=pointer]
+            - button "1Y" [ref=e41] [cursor=pointer]
+            - button "2Y" [ref=e42] [cursor=pointer]
+          - generic [ref=e43]:
+            - button "表示設定メニューを開く" [ref=e45] [cursor=pointer]:
+              - img [ref=e47]
+            - generic [ref=e51]:
+              - button "チャート" [ref=e52] [cursor=pointer]
+              - button "分析" [ref=e53] [cursor=pointer]
+              - button "財務" [ref=e54] [cursor=pointer]
+              - button "描画" [ref=e55] [cursor=pointer]
+              - button "練習" [ref=e56] [cursor=pointer]
+              - button "建玉" [ref=e57] [cursor=pointer]
+          - generic [ref=e58]:
+            - button "スクショ" [ref=e59] [cursor=pointer]:
+              - img [ref=e61]
+            - button "AI出力" [ref=e64] [cursor=pointer]:
+              - img [ref=e66]
+            - button "再計算" [disabled] [ref=e68]:
+              - img [ref=e70]
+            - button "類似" [ref=e73] [cursor=pointer]:
+              - img [ref=e75]
+        - generic [ref=e79]:
+          - button "お気に入り追加" [ref=e80] [cursor=pointer]:
+            - img [ref=e81]
+          - button "前の銘柄" [disabled] [ref=e83]:
+            - img [ref=e85]
+            - generic [ref=e88]: 前の銘柄
+          - button "次の銘柄" [disabled] [ref=e89]:
+            - img [ref=e91]
+            - generic [ref=e94]: 次の銘柄
+      - generic [ref=e96]:
+        - generic [ref=e97]:
+          - generic [ref=e98]: Daily
+          - generic [ref=e99]:
+            - table [ref=e103]:
+              - row [ref=e104]:
+                - cell
+                - cell [ref=e105]
+                - cell [ref=e109]
+              - row [ref=e113]:
+                - cell
+                - cell [ref=e114]
+                - cell [ref=e118]
+            - generic [ref=e121]: "Daily: No data"
+        - generic [ref=e122]:
+          - generic [ref=e123]:
+            - generic [ref=e124]: Weekly
+            - generic [ref=e125]:
+              - table [ref=e129]:
+                - row [ref=e130]:
+                  - cell
+                  - cell [ref=e131]
+                  - cell [ref=e135]
+                - row [ref=e139]:
+                  - cell
+                  - cell [ref=e140]
+                  - cell [ref=e144]
+              - generic [ref=e147]: "Weekly: No data"
+          - generic [ref=e149]:
+            - generic [ref=e150]: Monthly
+            - generic [ref=e151]:
+              - table [ref=e155]:
+                - row [ref=e156]:
+                  - cell
+                  - cell [ref=e157]
+                  - cell [ref=e161]
+                - row [ref=e165]:
+                  - cell
+                  - cell [ref=e166]
+                  - cell [ref=e170]
+              - generic [ref=e173]: "Monthly: No data"
+      - generic [ref=e174]:
+        - button "Load more daily/monthly" [ref=e176] [cursor=pointer]
+        - generic [ref=e177]: Daily 0 bars | Weekly 0 bars | Monthly 0 bars
+    - status [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e9]: M
+        - generic [ref=e10]: MeeMee Screener
+      - generic [ref=e11]:
+        - generic [ref=e12]: バックエンド起動待ち
+        - generic [ref=e14]: 試行 8 回 · 経過 6s

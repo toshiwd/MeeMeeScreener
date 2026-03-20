@@ -49,6 +49,16 @@ curl http://localhost:8000/api/health
 curl http://localhost:8000/api/list
 ```
 
+### Preview 確認
+
+detail の live smoke や preview 確認は、先に backend を `8000` で起動してから行います。
+
+```powershell
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+cd app\frontend
+npm run preview
+```
+
 ## データ配置（既定）
 
 - DB: `%LOCALAPPDATA%\MeeMeeScreener\data\`
