@@ -224,7 +224,7 @@ export default function DailyMemoPanel({
     return (
         <div className="daily-memo-panel">
             <div className="memo-panel-header">
-                <h3>日足カーソル</h3>
+                <h3>日足情報</h3>
                 <button
                     type="button"
                     className={`cursor-mode-toggle ${cursorMode ? "active" : ""}`}
@@ -382,21 +382,11 @@ export default function DailyMemoPanel({
                             </div>
                         )}
 
-                        <div className="info-actions">
-                            <button
-                                type="button"
-                                className="consult-copy-btn"
-                                onClick={onCopyForConsult}
-                                title="相談用にコピー"
-                            >
-                                📋 相談用にコピー
-                            </button>
-                        </div>
                     </div>
 
                     <div className="memo-panel-input">
                         <div className="memo-header">
-                            <label htmlFor="daily-memo">メモ (100字以内)</label>
+                            <label htmlFor="daily-memo">日付メモ (100字以内)</label>
                             <div className="memo-status">
                                 {saveStatus === "saving" && <span className="status-saving">保存中...</span>}
                                 {saveStatus === "saved" && lastSavedAt && (
@@ -420,6 +410,16 @@ export default function DailyMemoPanel({
                             rows={3}
                         />
                         {errorMessage && <div className="memo-error">{errorMessage}</div>}
+                        <div className="info-actions">
+                            <button
+                                type="button"
+                                className="consult-copy-btn"
+                                onClick={onCopyForConsult}
+                                title="相談用にコピー"
+                            >
+                                📋 相談用にコピー
+                            </button>
+                        </div>
                     </div>
                 </>
             ) : (

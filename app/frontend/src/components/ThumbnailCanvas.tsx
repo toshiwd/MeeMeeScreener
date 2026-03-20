@@ -13,6 +13,7 @@ const COLORS = {
 
 const MIN_HEIGHT = 80;
 const DEFAULT_MAX_BARS = 60;
+const VOLUME_BAND_HEIGHT = 16;
 const BOX_FILL = getBoxFill();
 const BOX_STROKE = getBoxStroke();
 
@@ -117,11 +118,12 @@ export function drawChart(
   const rightPad = showAxes ? 46 : pad;
   const bottomPad = showAxes ? 18 : pad;
   const plotWidth = Math.max(1, width - rightPad);
-  const plotHeight = Math.max(1, height - bottomPad);
+  const plotHeight = Math.max(1, height - bottomPad - VOLUME_BAND_HEIGHT);
   const hi = Math.max(...bars.map((b) => b[2]));
   const lo = Math.min(...bars.map((b) => b[3]));
   let min = lo;
   let max = hi;
+  const volumeMax = Math.max(1, ...bars.map((bar) => Math.max(0, Number(bar[5]) || 0)));
 
   const activeMaSettings = maSettings.filter((setting) => setting.visible);
   const maMaps = activeMaSettings.map((setting) => ({
@@ -204,6 +206,22 @@ export function drawChart(
     const rectH = Math.max(1, Math.abs(yClose - yOpen));
     ctx.fillRect(x - candleWidth / 2, rectY, candleWidth, rectH);
   });
+
+  const volumeTop = plotHeight + 2;
+  const volumeBottom = Math.max(volumeTop, height - bottomPad - 2);
+  const volumeHeight = Math.max(1, volumeBottom - volumeTop);
+  const volumeBarWidth = Math.max(1, Math.min(4, step * 0.5));
+  ctx.save();
+  bars.forEach((bar, index) => {
+    const [, o, , , c] = bar;
+    const volume = Math.max(0, Number(bar[5]) || 0);
+    if (!volume) return;
+    const x = step * index + step / 2;
+    const barHeight = Math.max(1, Math.round((volume / volumeMax) * volumeHeight));
+    ctx.fillStyle = c >= o ? "rgba(239, 68, 68, 0.36)" : "rgba(34, 197, 94, 0.36)";
+    ctx.fillRect(x - volumeBarWidth / 2, volumeBottom - barHeight, volumeBarWidth, barHeight);
+  });
+  ctx.restore();
 
   if (showBoxes && boxes.length) {
     const times = bars.map((bar) => bar[0]);
@@ -376,7 +394,7 @@ export default function ThumbnailCanvas({
     const settingsKey = maSettings
       .map((setting) => `${setting.period}-${setting.visible}-${setting.color}-${setting.lineWidth}`)
       .join("|");
-    return `${bars.length}-${bars[0]?.[0]}-${last?.[0]}-${last?.[4]}-${boxes.length}-${firstBox?.startTime ?? "none"}-${showBoxes}-${settingsKey}-${maxBarsValue}-${showAxes}-${resolvedTheme}`;
+    return `${bars.length}-${bars[0]?.[0]}-${last?.[0]}-${last?.[4]}-${last?.[5]}-${boxes.length}-${firstBox?.startTime ?? "none"}-${showBoxes}-${settingsKey}-${maxBarsValue}-${showAxes}-${resolvedTheme}`;
   }, [displayBars, boxes, showBoxes, maSettings, maxBarsValue, showAxes, resolvedTheme]);
 
   const draw = useCallback(() => {

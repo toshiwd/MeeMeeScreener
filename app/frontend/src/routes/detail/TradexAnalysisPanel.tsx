@@ -1,4 +1,4 @@
-﻿import type { TradexAnalysisOutput, TradexAnalysisReadResult } from "./detailTypes";
+import type { TradexAnalysisOutput, TradexAnalysisReadResult } from "./detailTypes";
 
 type FormatNumber = (value: number | null | undefined, digits?: number) => string;
 type FormatPercentLabel = (value: number | null | undefined, digits?: number) => string;
@@ -24,73 +24,74 @@ const renderComparisonLabel = (item: TradexAnalysisOutput["candidateComparisons"
   return parts.join(" / ");
 };
 
+const resolveTone = (analysis: TradexAnalysisOutput) => {
+  const { buy, neutral, sell } = analysis.sideRatios;
+  if (buy >= sell && buy >= neutral) return { label: "買い寄り", tone: "up" as const };
+  if (sell >= buy && sell >= neutral) return { label: "売り寄り", tone: "down" as const };
+  return { label: "中立", tone: "neutral" as const };
+};
+
+const resolveVersion = (analysis: TradexAnalysisOutput) =>
+  analysis.overrideState.logicVersion ?? analysis.overrideState.logicKey ?? "--";
+
 export function TradexAnalysisPanel({ state, formatPercentLabel, formatSignedPercentLabel, formatNumber }: Props) {
   const analysis = state.analysis;
   const reasons = analysis?.reasons.slice(0, 3) ?? [];
   const comparisons = analysis?.candidateComparisons.slice(0, 3) ?? [];
+  const toneInfo = analysis ? resolveTone(analysis) : null;
+  const versionLabel = analysis ? resolveVersion(analysis) : "--";
 
   return (
     <div className="daily-memo-panel detail-analysis-panel">
       <div className="memo-panel-header">
-        <h3>TRADEX Read-only</h3>
+        <h3>判定確認</h3>
+        <div className="detail-analysis-header-note">published logic / read only</div>
       </div>
       <div className="detail-analysis-body">
-        {state.loading && <div className="detail-analysis-empty">TRADEX 分析を読込中です。</div>}
+        {state.loading && <div className="detail-analysis-empty">暫定取得中です。</div>}
         {!state.loading && !state.available && (
           <div className="detail-analysis-empty">analysis unavailable: {state.reason ?? "analysis unavailable"}</div>
         )}
         {!state.loading && state.available && analysis && (
           <>
-            <div className="detail-analysis-meta">symbol {analysis.symbol}</div>
-            <div className="detail-analysis-meta">asof {analysis.asof}</div>
-            <div className="detail-analysis-grid">
-              <div className="detail-analysis-card">
-                <div className="detail-analysis-label">買い比率</div>
-                <div className="detail-analysis-value detail-analysis-value--up">
-                  {formatPercentLabel(analysis.sideRatios.buy)}
+            <div className="detail-analysis-section">
+              <div className="detail-analysis-section-title">判定要点</div>
+              <div className="detail-analysis-grid">
+                <div className="detail-analysis-card">
+                  <div className="detail-analysis-label">tone</div>
+                  <div className="detail-analysis-value">
+                    <span className={`detail-analysis-tone-badge detail-analysis-tone-badge--${toneInfo?.tone ?? "neutral"}`}>
+                      {toneInfo?.label ?? "--"}
+                    </span>
+                  </div>
+                </div>
+                <div className="detail-analysis-card">
+                  <div className="detail-analysis-label">confidence</div>
+                  <div className="detail-analysis-value">
+                    {analysis.confidence != null ? formatPercentLabel(analysis.confidence) : "--"}
+                  </div>
+                </div>
+                <div className="detail-analysis-card">
+                  <div className="detail-analysis-label">version</div>
+                  <div className="detail-analysis-value">{versionLabel}</div>
+                </div>
+                <div className="detail-analysis-card">
+                  <div className="detail-analysis-label">asof</div>
+                  <div className="detail-analysis-value">{analysis.asof}</div>
                 </div>
               </div>
-              <div className="detail-analysis-card">
-                <div className="detail-analysis-label">中立比率</div>
-                <div className="detail-analysis-value detail-analysis-value--neutral">
-                  {formatPercentLabel(analysis.sideRatios.neutral)}
-                </div>
+              <div className="detail-analysis-meta">
+                symbol {analysis.symbol} / publish {analysis.publishReadiness.ready ? "ready" : analysis.publishReadiness.status}
               </div>
-              <div className="detail-analysis-card">
-                <div className="detail-analysis-label">売り比率</div>
-                <div className="detail-analysis-value detail-analysis-value--down">
-                  {formatPercentLabel(analysis.sideRatios.sell)}
-                </div>
+              <div className="detail-analysis-meta">
+                {analysis.publishReadiness.reasons.length
+                  ? analysis.publishReadiness.reasons.slice(0, 2).join(" / ")
+                  : "--"}
               </div>
-              <div className="detail-analysis-card">
-                <div className="detail-analysis-label">Confidence</div>
-                <div className="detail-analysis-value">
-                  {analysis.confidence != null ? formatPercentLabel(analysis.confidence) : "--"}
-                </div>
-              </div>
-              <div className="detail-analysis-card">
-                <div className="detail-analysis-label">Publish readiness</div>
-                <div className="detail-analysis-value">
-                  {analysis.publishReadiness.ready ? "ready" : analysis.publishReadiness.status}
-                </div>
-                <div className="detail-analysis-meta">
-                  {analysis.publishReadiness.reasons.length
-                    ? analysis.publishReadiness.reasons.slice(0, 2).join(" / ")
-                    : "--"}
-                </div>
-              </div>
-              <div className="detail-analysis-card">
-                <div className="detail-analysis-label">Override state</div>
-                <div className="detail-analysis-value">
-                  {analysis.overrideState.present ? "present" : "none"}
-                </div>
-                <div className="detail-analysis-meta">
-                  {analysis.overrideState.source ?? "--"}
-                </div>
-                <div className="detail-analysis-meta">
-                  {analysis.overrideState.logicKey ?? "--"}
-                  {analysis.overrideState.logicVersion ? ` / ${analysis.overrideState.logicVersion}` : ""}
-                </div>
+              <div className="detail-analysis-meta">
+                override {analysis.overrideState.present ? "present" : "none"}
+                {analysis.overrideState.source ? ` / ${analysis.overrideState.source}` : ""}
+                {analysis.overrideState.logicVersion ? ` / ${analysis.overrideState.logicVersion}` : ""}
               </div>
             </div>
             <div className="detail-analysis-section">
@@ -108,7 +109,11 @@ export function TradexAnalysisPanel({ state, formatPercentLabel, formatSignedPer
               )}
             </div>
             <div className="detail-analysis-section">
-              <div className="detail-analysis-section-title">Top 3 candidate comparisons</div>
+              <div className="detail-analysis-section-title">Side ratios</div>
+              <div className="detail-analysis-meta">
+                買い {formatPercentLabel(analysis.sideRatios.buy)} / 中立 {formatPercentLabel(analysis.sideRatios.neutral)} / 売り {formatPercentLabel(analysis.sideRatios.sell)}
+              </div>
+              <div className="detail-analysis-meta">Top 3 candidate comparisons</div>
               {comparisons.length > 0 ? (
                 <div className="detail-analysis-call-reason-list">
                   {comparisons.map((item) => (

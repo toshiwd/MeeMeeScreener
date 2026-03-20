@@ -100,6 +100,7 @@ import {
   mergeHealthStatus,
   normalizeHealthStatus,
   rangeOptions,
+  resolveGridRangeBars,
   resolveGridSignalSortScore,
   toWalkforwardParams
 } from "./grid/gridHelpers";
@@ -291,6 +292,18 @@ export default function GridView() {
     const count = listRangeBars ?? 120;
     return Math.max(12, Math.min(260, Math.floor(count)));
   }, [listRangeBars]);
+
+  const listRangeBarsRef = useRef(listRangeBars);
+  useEffect(() => {
+    listRangeBarsRef.current = listRangeBars;
+  }, [listRangeBars]);
+
+  useEffect(() => {
+    const resolvedBars = resolveGridRangeBars(rows, columns, listRangeBarsRef.current ?? 60);
+    if (resolvedBars !== listRangeBarsRef.current) {
+      setListRangeBars(resolvedBars);
+    }
+  }, [columns, rows, setListRangeBars]);
 
   const formatRate = useCallback((value: number | null | undefined) => {
     if (typeof value !== "number" || Number.isNaN(value)) return "--";
@@ -3829,7 +3842,6 @@ export default function GridView() {
                               ticker={item.ticker}
                               timeframe={gridTimeframe}
                               maxBars={gridMaxBars}
-                              signals={item.metrics?.signals ?? []}
                               active={activeCode === item.ticker.code}
                               kept={keepSet.has(item.ticker.code)}
                               asofLabel={asofLabel}

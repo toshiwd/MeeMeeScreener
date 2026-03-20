@@ -10,7 +10,7 @@ const fmtNumber = (value: number | null | undefined, digits = 2) =>
   value == null ? '--' : value.toFixed(digits);
 
 describe('TradexAnalysisPanel', () => {
-  it('renders the read-only analysis fields', () => {
+  it('renders the read-only analysis summary', () => {
     const markup = renderToStaticMarkup(
       <TradexAnalysisPanel
         state={{
@@ -34,26 +34,6 @@ describe('TradexAnalysisPanel', () => {
                 reasons: ['trend=up'],
                 publishReady: true,
               },
-              {
-                candidateKey: 'turning',
-                baselineKey: null,
-                comparisonScope: 'decision_scenarios',
-                score: 0.72,
-                scoreDelta: 0.03,
-                rank: 2,
-                reasons: ['momentum=turning'],
-                publishReady: false,
-              },
-              {
-                candidateKey: 'ev',
-                baselineKey: null,
-                comparisonScope: 'decision_scenarios',
-                score: 0.68,
-                scoreDelta: -0.01,
-                rank: 3,
-                reasons: ['ev=upside'],
-                publishReady: null,
-              },
             ],
             publishReadiness: {
               ready: true,
@@ -65,8 +45,8 @@ describe('TradexAnalysisPanel', () => {
             overrideState: {
               present: false,
               source: 'none',
-              logicKey: null,
-              logicVersion: null,
+              logicKey: 'logic_a',
+              logicVersion: 'v7',
               reason: null,
             },
           },
@@ -77,19 +57,17 @@ describe('TradexAnalysisPanel', () => {
       />
     );
 
-    expect(markup).toContain('TRADEX Read-only');
-    expect(markup).toContain('買い比率');
-    expect(markup).toContain('61.0%');
-    expect(markup).toContain('Confidence');
-    expect(markup).toContain('77.0%');
+    expect(markup).toContain('published logic / read only');
+    expect(markup).toContain('tone');
+    expect(markup).toContain('confidence');
+    expect(markup).toContain('version');
     expect(markup).toContain('Top 3 reasons');
     expect(markup).toContain('tone=up');
-    expect(markup).toContain('Publish readiness');
-    expect(markup).toContain('ready');
-    expect(markup).toContain('Override state');
-    expect(markup).toContain('none');
     expect(markup).toContain('Top 3 candidate comparisons');
     expect(markup).toContain('trend_up');
+    expect(markup).toContain('v7');
+    expect(markup).toContain('77.0%');
+    expect(markup).toContain('\u8cb7\u3044\u5bc4\u308a');
   });
 
   it('renders unavailable state with reason', () => {

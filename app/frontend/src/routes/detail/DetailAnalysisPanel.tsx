@@ -204,28 +204,7 @@ export function DetailAnalysisPanel(props: Props) {
   return (
     <div className="daily-memo-panel detail-analysis-panel">
       <div className="memo-panel-header">
-        <h3>解析結果</h3>
-      </div>
-      <div className="detail-analysis-actions">
-        <button
-          type="button"
-          className="nav-btn"
-          disabled={
-            (!analysisRecalcDisabled && analysisAsOfTime == null) ||
-            analysisBackfillActive ||
-            analysisRecalcSubmitting != null
-          }
-          title={
-            analysisRecalcDisabled
-              ? "現在の基準日で売買判定を更新"
-              : analysisRecalcDisabledReason ?? undefined
-          }
-          onClick={() => {
-            void submitAnalysisRecalc();
-          }}
-        >
-          {analysisRecalcDisabled ? "売買判定を更新" : "基準日を中心に130本を再計算"}
-        </button>
+        <h3>判定確認</h3>
       </div>
       <div className="detail-analysis-body">
         {analysisDtLabel && (
@@ -247,13 +226,13 @@ export function DetailAnalysisPanel(props: Props) {
                     判定 {analysisDecision.sideLabel}
                   </span>
                   <span className="detail-analysis-call-confidence">
-                    確信度 {analysisSummaryLoading ? "読込中..." : analysisGuidance.confidenceRank}
+                    確信度 {analysisSummaryLoading ? "暫定" : analysisGuidance.confidenceRank}
                   </span>
                 </div>
                 <div className="detail-analysis-call-action">狙い: {analysisDecision.patternLabel ?? "--"}</div>
                 <div className="detail-analysis-call-pattern">地合い: {patternSummary.environmentLabel}</div>
                 <div className="detail-analysis-regime-text">
-                  今やること: {analysisSummaryLoading ? "読込中..." : analysisGuidance.watchpoint}
+                  今やること: {analysisSummaryLoading ? "暫定" : analysisGuidance.watchpoint}
                 </div>
                 <div className="detail-analysis-entry-plan detail-analysis-entry-plan--up">
                   <div className="detail-analysis-entry-plan-title">買い候補</div>
@@ -292,7 +271,7 @@ export function DetailAnalysisPanel(props: Props) {
                 <div className="detail-analysis-prob-meter-list">
                   <div className="detail-analysis-prob-meter-row tone-up">
                     <div className="detail-analysis-prob-meter-label">
-                      上昇確率 {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.buyProb)}
+                      上昇確率 {analysisSummaryLoading ? "暫定" : formatPercentLabel(analysisDecision.buyProb)}
                     </div>
                     <div className="detail-analysis-prob-meter-track">
                       <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.buyWidth}%` }} />
@@ -300,7 +279,7 @@ export function DetailAnalysisPanel(props: Props) {
                   </div>
                   <div className="detail-analysis-prob-meter-row tone-down">
                     <div className="detail-analysis-prob-meter-label">
-                      下落確率 {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.sellProb)}
+                      下落確率 {analysisSummaryLoading ? "暫定" : formatPercentLabel(analysisDecision.sellProb)}
                     </div>
                     <div className="detail-analysis-prob-meter-track">
                       <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.sellWidth}%` }} />
@@ -308,7 +287,7 @@ export function DetailAnalysisPanel(props: Props) {
                   </div>
                   <div className="detail-analysis-prob-meter-row tone-neutral">
                     <div className="detail-analysis-prob-meter-label">
-                      中立確率 {analysisSummaryLoading ? "読込中..." : formatPercentLabel(analysisDecision.neutralProb)}
+                      中立確率 {analysisSummaryLoading ? "暫定" : formatPercentLabel(analysisDecision.neutralProb)}
                     </div>
                     <div className="detail-analysis-prob-meter-track">
                       <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.neutralWidth}%` }} />
@@ -316,7 +295,7 @@ export function DetailAnalysisPanel(props: Props) {
                   </div>
                   <div className="detail-analysis-prob-meter-row tone-up">
                     <div className="detail-analysis-prob-meter-label">
-                      買い仕込み {analysisSummaryLoading ? "読込中..." : `${analysisGuidance.buySetupState} ${formatPercentLabel(analysisGuidance.buySetupProb)}`}
+                      買い仕込み {analysisSummaryLoading ? "暫定" : `${analysisGuidance.buySetupState} ${formatPercentLabel(analysisGuidance.buySetupProb)}`}
                     </div>
                     <div className="detail-analysis-prob-meter-track">
                       <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.buySetupWidth}%` }} />
@@ -324,7 +303,7 @@ export function DetailAnalysisPanel(props: Props) {
                   </div>
                   <div className="detail-analysis-prob-meter-row tone-down">
                     <div className="detail-analysis-prob-meter-label">
-                      売り仕込み {analysisSummaryLoading ? "読込中..." : `${analysisGuidance.sellSetupState} ${formatPercentLabel(analysisGuidance.sellSetupProb)}`}
+                      売り仕込み {analysisSummaryLoading ? "暫定" : `${analysisGuidance.sellSetupState} ${formatPercentLabel(analysisGuidance.sellSetupProb)}`}
                     </div>
                     <div className="detail-analysis-prob-meter-track">
                       <div className="detail-analysis-prob-meter-fill" style={{ width: `${analysisGuidance.sellSetupWidth}%` }} />
@@ -333,7 +312,7 @@ export function DetailAnalysisPanel(props: Props) {
                 </div>
               </div>
               {analysisSummaryLoading && (
-                <div className="detail-analysis-meta">一部データ読込中のため、確率は暫定表示です。</div>
+                <div className="detail-analysis-meta detail-analysis-provisional-note">一部データは暫定です。</div>
               )}
               {analysisPreparationVisible && analysisBackfillProgressLabel && (
                 <div className="detail-analysis-meta">{analysisBackfillProgressLabel}</div>
@@ -434,10 +413,31 @@ export function DetailAnalysisPanel(props: Props) {
               <div className="detail-analysis-meta">準備完了後に自動で再取得します。</div>
             )}
             {analysisMissingDataVisible && (
-              <div className="detail-analysis-meta">初回だけ基準日を中心に130本分の未計算を自動で計算します。保存済みデータがあれば再計算しません。</div>
-            )}
-          </>
-        )}
+                <div className="detail-analysis-meta">初回だけ基準日を中心に130本分の未計算を自動で計算します。保存済みデータがあれば再計算しません。</div>
+              )}
+            </>
+          )}
+          <div className="detail-analysis-actions detail-analysis-actions--bottom">
+            <button
+              type="button"
+              className="nav-btn"
+              disabled={
+                (!analysisRecalcDisabled && analysisAsOfTime == null) ||
+                analysisBackfillActive ||
+                analysisRecalcSubmitting != null
+              }
+              title={
+                analysisRecalcDisabled
+                  ? "現在の基準日で売買判定を更新"
+                  : analysisRecalcDisabledReason ?? undefined
+              }
+              onClick={() => {
+                void submitAnalysisRecalc();
+              }}
+            >
+              {analysisRecalcDisabled ? "売買判定を更新" : "基準日を中心に130本を再計算"}
+            </button>
+          </div>
       </div>
     </div>
   );

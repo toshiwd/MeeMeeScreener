@@ -19,6 +19,24 @@ export const rangeOptions = [
 export const gridRowOptions: Array<1 | 2 | 3 | 4 | 5 | 6> = [1, 2, 3, 4, 5, 6];
 export const gridColumnOptions: Array<1 | 2 | 3 | 4> = [1, 2, 3, 4];
 
+export const resolveGridRangeBars = (rows: number, columns: number, fallback = 60) => {
+  if (rows !== columns) return fallback;
+  switch (rows) {
+    case 1:
+      return 180;
+    case 2:
+      return 90;
+    case 3:
+      return 60;
+    case 4:
+      return 45;
+    case 5:
+      return 30;
+    default:
+      return fallback;
+  }
+};
+
 export const APP_VERSION_LABEL = `MeeMee v${__APP_VERSION__}`;
 export const GRID_REFACTOR_FLAG_RAW = String(import.meta.env.VITE_GRID_REFACTOR ?? "1")
   .trim()
