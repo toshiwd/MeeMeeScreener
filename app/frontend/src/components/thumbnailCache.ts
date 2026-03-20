@@ -2,6 +2,12 @@ import type { MaSetting } from "../store";
 
 const cache = new Map<string, string>();
 
+export const buildThumbnailSizeKey = (width: number, height: number, ratio: number) =>
+  `${width}x${height}@${ratio}`;
+
+export const buildThumbnailSnapshotCacheKey = (cacheKey: string, renderKey: string, sizeKey: string) =>
+  `${cacheKey}:${renderKey}:${sizeKey}`;
+
 const buildSettingsKey = (settings: MaSetting[]) =>
   settings
     .map((setting) => `${setting.period}-${setting.visible}-${setting.color}-${setting.lineWidth}`)

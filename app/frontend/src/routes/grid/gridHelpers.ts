@@ -16,8 +16,36 @@ export const rangeOptions = [
   { label: "360本", count: 360 }
 ];
 
-export const gridRowOptions: Array<1 | 2 | 3 | 4 | 5 | 6> = [1, 2, 3, 4, 5, 6];
-export const gridColumnOptions: Array<1 | 2 | 3 | 4> = [1, 2, 3, 4];
+export const gridPresetOptions = [
+  { value: 1, label: "1×1", bars: 180 },
+  { value: 2, label: "2×2", bars: 90 },
+  { value: 3, label: "3×3", bars: 60 },
+  { value: 4, label: "4×4", bars: 45 },
+  { value: 5, label: "5×5", bars: 30 }
+] as const;
+
+export type SectorOption = {
+  code: string;
+  name: string;
+};
+
+export const buildAvailableSectorOptions = (
+  tickers: Array<{ sector33Code?: string | null; sector33Name?: string | null }>
+): SectorOption[] => {
+  const map = new Map<string, string>();
+  tickers.forEach((ticker) => {
+    const code = typeof ticker.sector33Code === "string" ? ticker.sector33Code.trim() : "";
+    if (!code) return;
+    const name =
+      typeof ticker.sector33Name === "string" && ticker.sector33Name.trim()
+        ? ticker.sector33Name.trim()
+        : code;
+    map.set(code, name);
+  });
+  return Array.from(map.entries())
+    .map(([code, name]) => ({ code, name }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+};
 
 export const resolveGridRangeBars = (rows: number, columns: number, fallback = 60) => {
   if (rows !== columns) return fallback;
@@ -35,6 +63,19 @@ export const resolveGridRangeBars = (rows: number, columns: number, fallback = 6
     default:
       return fallback;
   }
+};
+
+export const resolveGridVolumeSurgeRatio = (bars: number[][] | undefined, window = 20) => {
+  if (!bars?.length) return null;
+  const tail = bars.slice(-window);
+  const volumes = tail
+    .map((bar) => Number(bar?.[5]))
+    .filter((value) => Number.isFinite(value)) as number[];
+  if (!volumes.length) return null;
+  const avg = volumes.reduce((acc, value) => acc + value, 0) / volumes.length;
+  const latest = Number(bars[bars.length - 1]?.[5]);
+  if (!Number.isFinite(latest) || avg <= 0) return null;
+  return latest / avg;
 };
 
 export const APP_VERSION_LABEL = `MeeMee v${__APP_VERSION__}`;

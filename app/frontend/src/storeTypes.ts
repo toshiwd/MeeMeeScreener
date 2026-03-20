@@ -221,7 +221,7 @@ export type StatusMap = {
 };
 
 export type Settings = {
-  columns: 1 | 2 | 3 | 4;
+  columns: 1 | 2 | 3 | 4 | 5;
   rows: 1 | 2 | 3 | 4 | 5 | 6;
   search: string;
   gridScrollTop: number;
@@ -357,6 +357,7 @@ export type SortKey =
   | "buyBase"
   | "buySignalLatest"
   | "sellSignalLatest"
+  | "volumeSurge"
   | "ma20Dev"
   | "ma60Dev"
   | "ma20Slope"

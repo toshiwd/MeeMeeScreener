@@ -312,14 +312,19 @@
 .practice-panel {
   flex: 0 0 200px;
   width: 200px;
-  background: rgba(15, 23, 42, 0.88);
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 12px;
-  padding: 10px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.45);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-background-elevated) 96%, white 4%),
+      color-mix(in srgb, var(--color-background-surface) 94%, #0f172a 6%)
+    );
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   transition: width 0.2s ease, padding 0.2s ease, opacity 0.2s ease, flex-basis 0.2s ease;
 }
 
@@ -329,35 +334,35 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
 }
 
 .practice-panel-title {
   font-weight: 600;
-  font-size: 13px;
-  color: #f8fafc;
+  font-size: var(--font-section-title);
+  color: var(--theme-text-primary);
 }
 
 .practice-panel-sub {
-  font-size: 12px;
-  color: #e2e8f0;
+  font-size: var(--font-caption);
+  color: var(--theme-text-secondary);
 }
 
 .practice-panel-close {
   align-self: flex-start;
-  padding: 4px 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  background: rgba(30, 41, 59, 0.9);
-  color: #e2e8f0;
-  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background-surface);
+  color: var(--theme-text-secondary);
+  font-size: var(--font-caption);
   cursor: pointer;
 }
 
 .practice-panel-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .practice-guide {

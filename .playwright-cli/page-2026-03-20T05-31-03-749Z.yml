@@ -1,0 +1,15 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e211]:
+    - heading "Something went wrong" [level=1] [ref=e212]
+    - paragraph [ref=e213]: Cannot access 'showDrawSettings' before initialization
+    - generic [ref=e214]: "ReferenceError: Cannot access 'showDrawSettings' before initialization at DetailView (http://127.0.0.1:4173/src/routes/DetailView.tsx?t=1773984553680:1466:5) at renderWithHooks (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=2224488c:11596:26) at updateFunctionComponent (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=2224488c:14630:28) at beginWork (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=2224488c:15972:22) at beginWork$1 (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=2224488c:19806:22) at performUnitOfWork (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=2224488c:19251:20) at workLoopSync (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=2224488c:19190:13) at renderRootSync (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=2224488c:19169:15) at recoverFromConcurrentError (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=2224488c:18786:28) at performSyncWorkOnRoot (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=2224488c:18932:28)"
+    - generic [ref=e215]: at DetailView (http://127.0.0.1:4173/src/routes/DetailView.tsx?t=1773984553680:289:20) at RenderedRoute (http://127.0.0.1:4173/node_modules/.vite/deps/react-router-dom.js?v=2224488c:6292:26) at Routes (http://127.0.0.1:4173/node_modules/.vite/deps/react-router-dom.js?v=2224488c:7135:3) at Suspense at BackendReadyProvider (http://127.0.0.1:4173/src/backendReady.tsx:264:40) at App (http://127.0.0.1:4173/src/App.tsx?t=1773984553680:48:3) at Router (http://127.0.0.1:4173/node_modules/.vite/deps/react-router-dom.js?v=2224488c:7076:13) at BrowserRouter (http://127.0.0.1:4173/node_modules/.vite/deps/react-router-dom.js?v=2224488c:10235:3) at ErrorBoundary (http://127.0.0.1:4173/src/components/ErrorBoundary.tsx:7:5)

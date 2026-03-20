@@ -2,6 +2,25 @@
   color-scheme: dark;
   font-family: "Noto Sans JP", "IBM Plex Sans", "Segoe UI", sans-serif;
 
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+
+  --font-page-title: 18px;
+  --font-section-title: 14px;
+  --font-body: 12px;
+  --font-caption: 11px;
+
+  --color-background: #0b1020;
+  --color-background-elevated: rgba(8, 12, 24, 0.92);
+  --color-background-surface: rgba(15, 23, 42, 0.65);
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-accent: #2563eb;
+  --color-success: #22c55e;
+  --color-danger: #ef4444;
+  --color-muted: #64748b;
+
   /* Theme variables - Dark mode (default) */
   --theme-bg-primary: #0b1020;
   --theme-bg-secondary: rgba(8, 12, 24, 0.92);
@@ -54,6 +73,15 @@
 /* Light mode theme - Full Light Adjustment */
 :root[data-theme="light"] {
   color-scheme: light;
+
+  --color-background: #f1f5f9;
+  --color-background-elevated: #ffffff;
+  --color-background-surface: #ffffff;
+  --color-border: #cbd5e1;
+  --color-accent: #2563eb;
+  --color-success: #16a34a;
+  --color-danger: #dc2626;
+  --color-muted: #94a3b8;
 
   /* Backgrounds */
   --theme-bg-primary: #f1f5f9;

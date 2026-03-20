@@ -35,4 +35,30 @@ describe('DailyMemoPanel', () => {
     expect(markup).toContain('前日比');
     expect(markup).toContain('出来高');
   });
+
+  it('hides day info when cursor mode is off', () => {
+    const markup = renderToStaticMarkup(
+      <DailyMemoPanel
+        code="7203"
+        selectedDate="2026-03-19"
+        selectedBarData={{
+          time: 1773878400,
+          open: 100,
+          high: 110,
+          low: 95,
+          close: 108,
+          volume: 12345,
+        }}
+        cursorMode={false}
+        onToggleCursorMode={() => {}}
+        onPrevDay={() => {}}
+        onNextDay={() => {}}
+        onCopyForConsult={() => {}}
+      />
+    );
+
+    expect(markup).toContain('カーソルをONにすると日足情報を表示します');
+    expect(markup).not.toContain('前日比');
+    expect(markup).not.toContain('出来高');
+  });
 });

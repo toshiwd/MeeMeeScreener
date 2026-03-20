@@ -17,8 +17,6 @@ import {
   BATCH_TTL_MS,
   COMPARE_MA_STORAGE_PREFIX,
   ENSURE_COALESCE_MS,
-  GRID_COLS_KEY,
-  GRID_ROWS_KEY,
   LIST_COLS_KEY,
   LIST_RANGE_KEY,
   LIST_RANGE_VALUES,
@@ -58,6 +56,7 @@ import {
   normalizeColor,
   normalizeEventsMeta,
   normalizeLineWidth,
+  persistGridPreset,
   persistKeepList,
   persistSettings,
   recentBatchRequests,
@@ -1081,16 +1080,12 @@ export const useStore = create<StoreState>((set, get) => ({
     });
   },
   setColumns: (columns) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(GRID_COLS_KEY, String(columns));
-    }
-    set((state) => ({ settings: { ...state.settings, columns } }));
+    persistGridPreset(columns);
+    set((state) => ({ settings: { ...state.settings, columns, rows: columns } }));
   },
   setRows: (rows) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(GRID_ROWS_KEY, String(rows));
-    }
-    set((state) => ({ settings: { ...state.settings, rows } }));
+    persistGridPreset(rows);
+    set((state) => ({ settings: { ...state.settings, columns: rows, rows } }));
   },
   setListTimeframe: (value) => {
     if (typeof window !== "undefined") {

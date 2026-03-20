@@ -37,6 +37,7 @@ interface DailyMemoPanelProps {
         change: number;
         changePercent: number;
     };
+    title?: string;
     cursorMode: boolean;
     onToggleCursorMode: () => void;
     onPrevDay: () => void;
@@ -57,6 +58,7 @@ export default function DailyMemoPanel({
     maTrends,
     position,
     prevDayData,
+    title = "日足情報",
     cursorMode,
     onToggleCursorMode,
     onPrevDay,
@@ -220,11 +222,12 @@ export default function DailyMemoPanel({
     };
 
     const remainingChars = 100 - memo.length;
+    const showDetail = cursorMode && selectedDate && selectedBarData;
 
     return (
         <div className="daily-memo-panel">
             <div className="memo-panel-header">
-                <h3>日足情報</h3>
+                <h3>{title}</h3>
                 <button
                     type="button"
                     className={`cursor-mode-toggle ${cursorMode ? "active" : ""}`}
@@ -245,7 +248,7 @@ export default function DailyMemoPanel({
                 </button>
             </div>
 
-            {selectedDate && selectedBarData ? (
+            {showDetail ? (
                 <>
                     <div className="memo-panel-info">
                         <div className="info-header">
@@ -422,9 +425,13 @@ export default function DailyMemoPanel({
                         </div>
                     </div>
                 </>
+            ) : !cursorMode ? (
+                <div className="memo-panel-empty">
+                    <p>カーソルをONにすると日足情報を表示します</p>
+                </div>
             ) : (
                 <div className="memo-panel-empty">
-                    <p>カーソルモードをONにして、日足チャートをクリックしてください</p>
+                    <p>日足チャートをクリックすると日足情報を表示します</p>
                 </div>
             )}
         </div>
