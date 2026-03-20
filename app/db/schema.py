@@ -780,6 +780,73 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS events_meta (
+            id INTEGER PRIMARY KEY,
+            earnings_last_success_at TIMESTAMP,
+            rights_last_success_at TIMESTAMP,
+            last_error TEXT,
+            last_attempt_at TIMESTAMP,
+            is_refreshing BOOLEAN DEFAULT FALSE,
+            refresh_lock_job_id TEXT,
+            refresh_lock_started_at TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS events_refresh_jobs (
+            job_id TEXT PRIMARY KEY,
+            status TEXT,
+            reason TEXT,
+            started_at TIMESTAMP,
+            finished_at TIMESTAMP,
+            error TEXT
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tdnet_disclosures (
+            disclosure_id TEXT PRIMARY KEY,
+            sec_code TEXT,
+            company_name TEXT,
+            title TEXT,
+            category TEXT,
+            published_at TIMESTAMP,
+            tdnet_url TEXT,
+            pdf_url TEXT,
+            xbrl_url TEXT,
+            summary_text TEXT,
+            raw_json TEXT,
+            fetched_at TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tdnet_disclosure_features (
+            disclosure_id TEXT PRIMARY KEY,
+            sec_code TEXT,
+            published_at TIMESTAMP,
+            event_type TEXT,
+            sentiment TEXT,
+            importance_score DOUBLE,
+            forecast_revision BOOLEAN,
+            dividend_revision BOOLEAN,
+            share_buyback BOOLEAN,
+            share_split BOOLEAN,
+            earnings BOOLEAN,
+            governance BOOLEAN,
+            distress BOOLEAN,
+            title_normalized TEXT,
+            tags_json TEXT,
+            raw_text TEXT,
+            fetched_at TIMESTAMP
+        );
+        """
+    )
     # Trade history / positions (used by /api/trades and Positions UI).
     # Keep schemas compatible with legacy inserts from `app.backend.import_positions`.
     conn.execute(
