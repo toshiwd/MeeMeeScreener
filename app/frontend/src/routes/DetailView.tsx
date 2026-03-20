@@ -2920,10 +2920,8 @@ export default function DetailView() {
     if (!resolvedDailyVisibleRange) return;
 
     const { from, to } = resolvedDailyVisibleRange;
-    const rangeSize = to - from;
-    const margin = rangeSize * 0.1;
-
-    if (time < from + margin || time > to - margin) {
+    if (time < from || time > to) {
+      const rangeSize = to - from;
       let newFrom = time - rangeSize / 2;
       let newTo = time + rangeSize / 2;
       const minTime = dailyCandles[0]?.time ?? null;
@@ -3026,7 +3024,6 @@ export default function DetailView() {
       setSelectedTdnetDisclosures([]);
       setSelectedTdnetDisclosureIndex(0);
     }
-    if (!cursorMode) return;
     if (nearestIndex != null) {
       updateSelectedBar(nearestIndex);
     }

@@ -34,6 +34,10 @@
   white-space: nowrap;
 }
 
+.practice-session-end-button {
+  white-space: nowrap;
+}
+
 .practice-header-label {
   font-size: 11px;
   color: #94a3b8;
@@ -50,30 +54,13 @@
   flex-wrap: wrap;
 }
 
-.practice-session-badge {
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  font-size: 10px;
-  font-weight: 600;
+.practice-session-state-text,
+.practice-session-range-text {
+  white-space: nowrap;
 }
 
-.practice-session-badge.is-active {
-  border-color: rgba(34, 197, 94, 0.6);
-  background: rgba(34, 197, 94, 0.2);
-  color: #bbf7d0;
-}
-
-.practice-session-badge.is-ended {
-  border-color: rgba(148, 163, 184, 0.45);
-  background: rgba(148, 163, 184, 0.16);
-  color: #e2e8f0;
-}
-
-.practice-session-badge.is-empty {
-  border-color: rgba(248, 113, 113, 0.5);
-  background: rgba(248, 113, 113, 0.18);
-  color: #fecaca;
+.practice-session-state-text {
+  color: var(--theme-text-secondary);
 }
 
 .practice-session-range-text {

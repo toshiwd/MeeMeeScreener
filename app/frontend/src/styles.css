@@ -5596,8 +5596,8 @@ body {
   flex: 0 0 clamp(300px, 22vw, 340px);
   width: clamp(300px, 22vw, 340px);
   max-width: clamp(300px, 22vw, 340px);
-  align-self: flex-start;
-  height: fit-content;
+  align-self: stretch;
+  height: auto;
   max-height: calc(100vh - 180px);
   overflow: auto;
   padding: 0 6px 0 0;
@@ -5937,7 +5937,36 @@ body {
 }
 
 .detail-financial-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   gap: 5px;
+}
+
+.detail-financial-panel {
+  height: 100%;
+  min-height: 0;
+}
+
+.detail-right-rail .detail-financial-panel {
+  max-height: none;
+}
+
+.detail-financial-scroll {
+  display: grid;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.detail-financial-section--primary {
+  gap: 10px;
+}
+
+.detail-financial-stats-grid--primary {
+  gap: 8px;
 }
 
 .detail-financial-meta-row {
