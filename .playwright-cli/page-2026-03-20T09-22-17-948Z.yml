@@ -1,0 +1,169 @@
+- generic [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - button "一覧に戻る" [ref=e7] [cursor=pointer]:
+            - img [ref=e9]
+          - button "前の画面に戻る" [ref=e12] [cursor=pointer]:
+            - img [ref=e14]
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - generic [ref=e19]: "1001"
+            - generic [ref=e213]: 日経225
+          - generic [ref=e20]: 練習
+        - generic [ref=e21]:
+          - generic [ref=e22]:
+            - combobox [ref=e23]:
+              - option "セッションを選択..." [selected]
+            - button "新規セッション" [ref=e24] [cursor=pointer]:
+              - img [ref=e26]
+            - button "新規セッション" [ref=e27] [cursor=pointer]:
+              - img [ref=e29]
+          - generic [ref=e30]:
+            - generic [ref=e31]: 未作成
+            - generic [ref=e32]: セッション未選択
+      - generic [ref=e33]:
+        - generic [ref=e34]:
+          - generic [ref=e35]:
+            - button "3M" [ref=e36] [cursor=pointer]
+            - button "6M" [ref=e37] [cursor=pointer]
+            - button "1Y" [ref=e38] [cursor=pointer]
+            - button "2Y" [ref=e39] [cursor=pointer]
+          - generic [ref=e40]: 2026/03/12 (1999日目)
+        - generic [ref=e42]:
+          - button "1日戻る" [active] [ref=e43] [cursor=pointer]:
+            - img [ref=e45]
+          - button "1日進む" [ref=e47] [cursor=pointer]:
+            - img [ref=e49]
+          - button "当日リセット" [disabled] [ref=e51]:
+            - img [ref=e53]
+          - button "スクショ" [ref=e56] [cursor=pointer]:
+            - img [ref=e58]
+          - button "出力 (JSON)" [ref=e61] [cursor=pointer]:
+            - img [ref=e63]
+          - button "AI出力" [ref=e67] [cursor=pointer]:
+            - img [ref=e69]
+          - button "類似" [disabled] [ref=e71]:
+            - img [ref=e73]
+          - generic [ref=e75]:
+            - generic [ref=e76]:
+              - button "時間ゾーン描画" [ref=e77] [cursor=pointer]:
+                - img [ref=e79]
+              - button "四角描画" [ref=e83] [cursor=pointer]:
+                - img [ref=e85]
+              - button "価格帯描画" [ref=e89] [cursor=pointer]:
+                - generic [ref=e91]: ▭
+              - button "水平線描画" [ref=e92] [cursor=pointer]:
+                - img [ref=e94]
+              - button "描画を全削除" [ref=e95] [cursor=pointer]:
+                - img [ref=e97]
+            - generic [ref=e100]:
+              - button "描画色を変更" [ref=e101] [cursor=pointer]
+              - slider "不透明度" [ref=e104]: "0.8"
+              - slider "太さ" [ref=e105]: "2"
+          - button "パネルを開く" [ref=e106] [cursor=pointer]: ← パネル
+          - button "カーソルON" [ref=e107] [cursor=pointer]:
+            - img [ref=e109]
+            - generic [ref=e111]: カーソルON
+    - generic [ref=e115]:
+      - generic [ref=e116]:
+        - generic [ref=e117]: 日足
+        - generic [ref=e118]:
+          - generic [ref=e119]:
+            - table [ref=e122]:
+              - row [ref=e123]:
+                - cell
+                - cell [ref=e124]
+                - cell [ref=e128]
+              - row [ref=e132]:
+                - cell
+                - cell [ref=e133]
+                - cell [ref=e137]
+            - generic:
+              - generic:
+                - generic: 26/03/12
+                - generic: 前日比-580 (-1.05%)
+              - generic:
+                - generic: O
+                - generic: 54,390
+                - generic: H
+                - generic: 54,730
+                - generic: L
+                - generic: 53,800
+                - generic: C
+                - generic: 54,450
+                - generic: 出来高
+                - generic: 259,180
+              - generic:
+                - generic:
+                  - generic: 7MA
+                  - generic: 54,516
+                - generic:
+                  - generic: 20MA
+                  - generic: 56,443
+                - generic:
+                  - generic: 60MA
+                  - generic: 53,714
+                - generic:
+                  - generic: 100MA
+                  - generic: 52,185
+                - generic:
+                  - generic: 200MA
+                  - generic: 46,771
+              - generic:
+                - generic: 本数
+                - generic:
+                  - generic: 7MA
+                  - generic: 上0 / 下1
+                - generic:
+                  - generic: 20MA
+                  - generic: 上0 / 下8
+                - generic:
+                  - generic: 60MA
+                  - generic: 上3 / 下0
+                - generic:
+                  - generic: 100MA
+                  - generic: 上119 / 下0
+                - generic:
+                  - generic: 200MA
+                  - generic: 上119 / 下0
+          - generic:
+            - generic: 建玉
+            - generic: 売0-買0
+            - generic: ネット0
+            - generic: 実 0 / 評 0
+            - generic: 株数 100
+            - generic: 過去日閲覧
+      - generic [ref=e142]:
+        - generic [ref=e143]:
+          - generic [ref=e144]: 週足
+          - table [ref=e149]:
+            - row [ref=e150]:
+              - cell
+              - cell [ref=e151]
+              - cell [ref=e155]
+            - row [ref=e159]:
+              - cell
+              - cell [ref=e160]
+              - cell [ref=e164]
+        - generic [ref=e170]:
+          - generic [ref=e171]: 月足
+          - table [ref=e176]:
+            - row [ref=e177]:
+              - cell
+              - cell [ref=e178]
+              - cell [ref=e182]
+            - row [ref=e186]:
+              - cell
+              - cell [ref=e187]
+              - cell [ref=e191]

@@ -1,0 +1,127 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - button "一覧に戻る" [ref=e7] [cursor=pointer]:
+            - img [ref=e9]
+          - button "前の画面に戻る" [ref=e12] [cursor=pointer]:
+            - img [ref=e14]
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - generic [ref=e19]: "1001"
+            - generic [ref=e203]: 日経225
+          - generic [ref=e20]: 練習
+        - generic [ref=e21]:
+          - generic [ref=e22]: 練習開始日
+          - generic [ref=e23]:
+            - textbox [ref=e24]
+            - button "開始日を確定" [ref=e25] [cursor=pointer]
+            - button "過去の練習を開く" [ref=e26] [cursor=pointer]
+          - generic [ref=e27]:
+            - generic [ref=e28]: 未作成
+            - generic [ref=e29]: セッション未選択
+      - generic [ref=e30]:
+        - generic [ref=e31]:
+          - generic [ref=e32]:
+            - button "3M" [ref=e33] [cursor=pointer]
+            - button "6M" [ref=e34] [cursor=pointer]
+            - button "1Y" [ref=e35] [cursor=pointer]
+            - button "2Y" [ref=e36] [cursor=pointer]
+          - generic [ref=e37]: "--"
+        - generic [ref=e39]:
+          - button "1日戻る" [disabled] [ref=e40]:
+            - img [ref=e42]
+          - button "1日進む" [disabled] [ref=e44]:
+            - img [ref=e46]
+          - button "当日リセット" [disabled] [ref=e48]:
+            - img [ref=e50]
+          - button "スクショ" [ref=e53] [cursor=pointer]:
+            - img [ref=e55]
+          - button "出力 (JSON)" [ref=e58] [cursor=pointer]:
+            - img [ref=e60]
+          - button "AI出力" [ref=e64] [cursor=pointer]:
+            - img [ref=e66]
+          - button "類似" [disabled] [ref=e68]:
+            - img [ref=e70]
+          - generic [ref=e72]:
+            - generic [ref=e73]:
+              - button "マウスモード" [ref=e74] [cursor=pointer]:
+                - img [ref=e76]
+              - button "時間ゾーン描画" [ref=e79] [cursor=pointer]:
+                - img [ref=e81]
+              - button "四角描画" [ref=e85] [cursor=pointer]:
+                - img [ref=e87]
+              - button "価格帯描画" [ref=e91] [cursor=pointer]:
+                - generic [ref=e93]: ▭
+              - button "水平線描画" [ref=e94] [cursor=pointer]:
+                - img [ref=e96]
+              - button "描画を全削除" [ref=e97] [cursor=pointer]:
+                - img [ref=e99]
+            - generic [ref=e102]:
+              - button "描画色を変更" [ref=e103] [cursor=pointer]
+              - slider "不透明度" [ref=e106]: "0.8"
+              - slider "太さ" [ref=e107]: "2"
+          - button "パネルを開く" [ref=e108] [cursor=pointer]: ← パネル
+          - button "カーソルON" [ref=e109] [cursor=pointer]:
+            - img [ref=e111]
+            - generic [ref=e113]: カーソルON
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - generic [ref=e114]: 日足
+              - generic [ref=e115]:
+                - table [ref=e119]:
+                  - row [ref=e120]:
+                    - cell
+                    - cell [ref=e121]
+                    - cell [ref=e125]
+                  - row [ref=e129]:
+                    - cell
+                    - cell [ref=e130]
+                    - cell [ref=e134]
+                - generic:
+                  - generic: 建玉
+                  - generic: 売0-買0
+                  - generic: ネット0
+                  - generic: 実 0 / 評 --
+                  - generic: 株数 100
+                - generic [ref=e137]: "日足: Request failed with status code 503"
+            - generic:
+              - generic:
+                - generic [ref=e138]: 週足
+                - generic [ref=e139]:
+                  - table [ref=e143]:
+                    - row [ref=e144]:
+                      - cell
+                      - cell [ref=e145]
+                      - cell [ref=e149]
+                    - row [ref=e153]:
+                      - cell
+                      - cell [ref=e154]
+                      - cell [ref=e158]
+                  - generic [ref=e161]: "週足: Request failed with status code 503"
+              - generic:
+                - generic [ref=e162]: 月足
+                - generic [ref=e163]:
+                  - table [ref=e167]:
+                    - row [ref=e168]:
+                      - cell
+                      - cell [ref=e169]
+                      - cell [ref=e173]
+                    - row [ref=e177]:
+                      - cell
+                      - cell [ref=e178]
+                      - cell [ref=e182]
+                  - generic [ref=e185]: "月足: Request failed with status code 503"

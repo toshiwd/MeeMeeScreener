@@ -323,6 +323,9 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("Backend startup mode (%s)", legacy_analysis_disabled_log_value())
         init_resources(data_dir)
+        from app.db.schema import init_extra_schemas
+
+        init_extra_schemas()
         # Ensure jobs left by a previous backend process are finalized on boot.
         cleanup_stale_jobs()
         from app.backend.services.system_status import mark_backend_boot_ready

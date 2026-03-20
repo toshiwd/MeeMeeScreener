@@ -4,73 +4,34 @@
   padding-bottom: 0;
 }
 
+.practice-shell .detail-header-row {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.practice-shell .detail-header-right {
+  gap: 10px;
+}
+
 .practice-shell .detail-pane-header {
   margin-bottom: 0;
   font-size: 11px;
 }
 
-.practice-header {
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 2px;
-  margin-bottom: 0;
-}
-
-.practice-header-left {
+.practice-session-launcher {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
-  flex-wrap: nowrap;
+  min-width: 0;
 }
 
-.practice-shell .back {
-  padding: 4px 8px;
-  font-size: 11px;
+.practice-session-open-button {
+  white-space: nowrap;
 }
 
-.practice-shell .indicator-button {
-  padding: 4px 8px;
-  font-size: 11px;
-}
-
-.practice-shell .segmented button {
-  padding: 4px 8px;
-  font-size: 11px;
-}
-
-.practice-shell select {
-  padding: 4px 6px;
-  font-size: 11px;
-  min-width: 140px;
-}
-
-.practice-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-}
-
-.practice-header-stack {
-  display: flex;
-  flex-direction: row;
-  gap: 6px;
-}
-
-.practice-panel-toggle {
-  text-align: center;
-}
-
-.practice-header-group {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  min-height: 0;
-  border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: rgba(15, 23, 42, 0.6);
+.practice-session-confirm-button {
+  white-space: nowrap;
 }
 
 .practice-header-label {
@@ -129,19 +90,67 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
-.practice-session-controls select {
+.practice-topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.practice-topbar-controls .practice-session-launcher {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.practice-topbar-controls .practice-session-controls {
+  flex-wrap: nowrap;
+}
+
+.practice-topbar-controls .practice-session-meta {
+  flex-wrap: nowrap;
+}
+
+.practice-topbar-controls .practice-session-controls input[type="date"] {
+  min-width: 144px;
+}
+
+.practice-session-controls input[type="date"] {
   background: rgba(15, 23, 42, 0.8);
   border: 1px solid rgba(148, 163, 184, 0.4);
   color: #e2e8f0;
   padding: 6px 10px;
   border-radius: 8px;
-  min-width: 200px;
+  min-width: 160px;
+  max-width: 100%;
 }
 
-.practice-range {
-  display: inline-flex;
+.practice-session-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.practice-session-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.practice-session-list-actions button {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.8);
+  color: #e2e8f0;
+  cursor: pointer;
+  font-size: 11px;
 }
 
 .practice-cursor {
@@ -939,7 +948,14 @@
   color: var(--theme-text-primary);
 }
 
-:root[data-theme="light"] .practice-session-settings-controls input {
+:root[data-theme="light"] .practice-session-settings-controls input,
+:root[data-theme="light"] .practice-session-controls input[type="date"] {
+  background: var(--theme-bg-card);
+  border-color: var(--theme-border);
+  color: var(--theme-text-primary);
+}
+
+:root[data-theme="light"] .practice-session-list-actions button {
   background: var(--theme-bg-card);
   border-color: var(--theme-border);
   color: var(--theme-text-primary);
@@ -976,33 +992,6 @@
   background: var(--theme-accent);
   border-color: var(--theme-accent);
   color: #ffffff;
-}
-
-:root[data-theme="light"] .practice-header-group {
-  border-color: var(--theme-border);
-  background: var(--theme-bg-card);
-}
-
-:root[data-theme="light"] .practice-shell .segmented button {
-  border-color: var(--theme-border);
-  background: var(--theme-bg-card);
-  color: var(--theme-text-primary);
-}
-
-:root[data-theme="light"] .practice-shell .segmented button:hover {
-  background: var(--theme-bg-tertiary);
-}
-
-:root[data-theme="light"] .practice-shell .segmented button.active {
-  background: var(--theme-accent);
-  border-color: var(--theme-accent);
-  color: #ffffff;
-}
-
-:root[data-theme="light"] .practice-shell select {
-  border-color: var(--theme-border);
-  background: var(--theme-bg-card);
-  color: var(--theme-text-primary);
 }
 
 :root[data-theme="light"] .practice-session-meta {

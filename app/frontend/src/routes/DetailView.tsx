@@ -8,15 +8,13 @@ import {
   IconAdjustments,
   IconArrowLeft,
   IconArrowRight,
-  IconBox,
   IconCamera,
   IconHeart,
   IconHeartFilled,
-  IconMinus,
-  IconTrash,
   IconSparkles,
-  IconChartArrows,
   IconRefresh,
+  IconPointer,
+  IconPointerOff,
 } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
@@ -27,6 +25,10 @@ import DetailChart, {
 } from "../components/DetailChart";
 import Toast from "../components/Toast";
 import IconButton from "../components/IconButton";
+import DetailHeaderChrome from "../components/DetailHeaderChrome";
+import DetailModeTabs from "../components/DetailModeTabs";
+import DetailTimeframeSwitcher from "../components/DetailTimeframeSwitcher";
+import DetailDrawToolbar from "../components/DetailDrawToolbar";
 import ScreenPanel from "../components/ScreenPanel";
 import SimilarSearchPanel from "../components/SimilarSearchPanel";
 import { Box, MaSetting, useStore } from "../store";
@@ -353,47 +355,6 @@ const isRetryableTradesError = (error: unknown) => {
   return status === 503 && payload?.retryable === true;
 };
 
-const parseStateEvalReasonTexts = (value: string | null | undefined) => {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-};
-
-const classifyStateEvalPriorReason = (reason: string) => {
-  if (/^Combo strength:/i.test(reason)) {
-    return { label: reason.replace(/^Combo strength:\s*/i, ""), tone: "combo" as const };
-  }
-  if (/^Historically strong:/i.test(reason)) {
-    return { label: reason.replace(/^Historically strong:\s*/i, ""), tone: "prior-strong" as const };
-  }
-  if (/^Historical caution:/i.test(reason)) {
-    return { label: reason.replace(/^Historical caution:\s*/i, ""), tone: "prior-caution" as const };
-  }
-  return null;
-};
-
-const parseStateEvalStrategyTags = (value: string | null | undefined) => {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-};
-
-const buildStateEvalTrendReason = (trend: { label: string } | null | undefined) => {
-  if (!trend) return null;
-  if (trend.label === "Improving") return "Trend improving";
-  if (trend.label === "Weakening") return "Trend weakening";
-  if (trend.label === "Persistent Risk") return "Persistent risk";
-  return trend.label;
-};
-
 export default function DetailView() {
   const { code } = useParams();
   const location = useLocation();
@@ -437,7 +398,7 @@ export default function DetailView() {
   const [monthlyData, setMonthlyData] = useState<number[][]>([]);
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [compareBoxes, setCompareBoxes] = useState<Box[]>([]);
-  const [headerMode, setHeaderMode] = useState<"chart" | "draw" | "positions" | "analysis" | "financial">("chart");
+  const [headerMode, setHeaderMode] = useState<"chart" | "positions" | "analysis" | "financial">("chart");
   const [displayOpen, setDisplayOpen] = useState(false);
   const [signalsOpen, setSignalsOpen] = useState(false);
   const [showGapBands, setShowGapBands] = useState(true);
@@ -454,7 +415,7 @@ export default function DetailView() {
   const [activeLineOpacity, setActiveLineOpacity] = useState(0.8);
   const [activeLineWidth, setActiveLineWidth] = useState(2);
   const selectDrawTool = (tool: DrawTool) => {
-    setActiveDrawTool(tool);
+    setActiveDrawTool((current) => (current === tool ? null : tool));
   };
   const [trades, setTrades] = useState<TradeEvent[]>([]);
   const [compareTrades, setCompareTrades] = useState<TradeEvent[]>([]);
@@ -536,8 +497,6 @@ export default function DetailView() {
 
   const syncRangesRef = useRef(syncRanges);
   const [showSimilar, setShowSimilar] = useState(false);
-  const [stateEvalRow, setStateEvalRow] = useState<any | null>(null);
-  const [stateEvalTrend, setStateEvalTrend] = useState<{ label: string; tone: "improving" | "weakening" | "risk" } | null>(null);
   const resetMainChartState = useCallback(() => {
     setDailyLimit(DEFAULT_LIMITS.daily);
     setMonthlyLimit(DEFAULT_LIMITS.monthly);
@@ -667,21 +626,6 @@ export default function DetailView() {
     window.addEventListener("focus", syncRiskMode);
     return () => window.removeEventListener("focus", syncRiskMode);
   }, []);
-
-  useEffect(() => {
-    if (headerMode !== "draw") {
-      setActiveDrawTool(null);
-    } else {
-      // entering draw mode: default to timeZone if nothing selected
-      setActiveDrawTool((prev) => prev ?? "timeZone");
-    }
-  }, [headerMode]);
-
-  useEffect(() => {
-    if (headerMode !== "draw") {
-      setSelectedDrawing(null);
-    }
-  }, [headerMode]);
 
   useEffect(() => {
     resetCompareChartState();
@@ -1689,98 +1633,27 @@ export default function DetailView() {
   );
   const hasSwingData = Boolean(swingPlan || swingDiagnostics);
   const showAnalysisPanel = analysisFetchEnabled;
-  const showMemoPanel =
-    cursorMode && !compareCode && headerMode !== "analysis" && headerMode !== "financial" && headerMode !== "draw";
-  const showDrawPanel = headerMode === "draw";
-  const showDrawInfoPanel = headerMode === "draw";
-  const showRightPanel = showAnalysisPanel || showMemoPanel || showFinancialPanel || showDrawInfoPanel;
-  const headerDrawToolControls = showDrawPanel ? (
-    <div className="detail-draw-toolbar">
-      <div className="detail-analysis-actions detail-draw-tools">
-        <IconButton
-          icon={<IconChartArrows size={18} />}
-          tooltip="時間ゾーン描画"
-          ariaLabel="時間ゾーン描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "timeZone"}
-          onClick={() => selectDrawTool("timeZone")}
-        />
-        <IconButton
-          icon={<IconBox size={18} />}
-          tooltip="四角描画"
-          ariaLabel="四角描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "drawBox"}
-          onClick={() => selectDrawTool("drawBox")}
-        />
-        <IconButton
-          icon={<span style={{ fontSize: 18, lineHeight: 1 }}>▭</span>}
-          tooltip="価格帯描画"
-          ariaLabel="価格帯描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "priceBand"}
-          onClick={() => selectDrawTool("priceBand")}
-        />
-        <IconButton
-          icon={<IconMinus size={18} />}
-          tooltip="水平線描画"
-          ariaLabel="水平線描画"
-          className="draw-tool-button"
-          selected={activeDrawTool === "horizontalLine"}
-          onClick={() => selectDrawTool("horizontalLine")}
-        />
-        <IconButton
-          icon={<IconTrash size={18} />}
-          tooltip="描画をリセット"
-          ariaLabel="描画をリセット"
-          onClick={resetAllDrawings}
-        />
-      </div>
-      {activeDrawTool !== null && (
-        <div className="detail-analysis-actions detail-draw-adjustments">
-          <IconButton
-            icon={
-              <span
-                style={{
-                  width: 14,
-                  height: 14,
-                  borderRadius: 999,
-                  background: activeDrawColor,
-                  display: "inline-block",
-                  border: "1px solid rgba(0,0,0,0.2)"
-                }}
-              />
-            }
-            tooltip="描画色を変更"
-            ariaLabel="描画色を変更"
-            onClick={() =>
-              setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)
-            }
-          />
-          <input
-            type="range"
-            min={0.1}
-            max={1}
-            step={0.05}
-            value={activeLineOpacity}
-            title="不透明度"
-            style={{ width: 60 }}
-            onChange={(event) => setActiveLineOpacity(Number(event.target.value))}
-          />
-          <input
-            type="range"
-            min={1}
-            max={6}
-            step={0.5}
-            value={activeLineWidth}
-            title="太さ"
-            style={{ width: 60 }}
-            onChange={(event) => setActiveLineWidth(Number(event.target.value))}
-          />
-        </div>
-      )}
-    </div>
-  ) : null;
+  const rightRailKind = showAnalysisPanel
+    ? "analysis"
+    : showFinancialPanel
+      ? "financial"
+      : cursorMode && !compareCode && headerMode === "chart" && selectedDate && selectedBarData
+        ? "cursor"
+        : null;
+  const showRightPanel = rightRailKind !== null;
+  const headerDrawToolControls = (
+    <DetailDrawToolbar
+      activeTool={activeDrawTool}
+      activeDrawColor={activeDrawColor}
+      activeLineOpacity={activeLineOpacity}
+      activeLineWidth={activeLineWidth}
+      onSelectTool={selectDrawTool}
+      onResetAll={resetAllDrawings}
+      onCycleColor={() => setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)}
+      onLineOpacityChange={setActiveLineOpacity}
+      onLineWidthChange={setActiveLineWidth}
+    />
+  );
 
   useEffect(() => {
     if (!backendReady || !showAnalysisPanel) {
@@ -4161,48 +4034,6 @@ export default function DetailView() {
     }
     return "/";
   }, [location.state]);
-  useEffect(() => {
-    if (!backendReady || !code) return;
-    let active = true;
-    const run = async () => {
-      try {
-        const [stateEvalResponse, trendResponse] = await Promise.all([
-          api.get("/analysis-bridge/state-eval", {
-            params: { code, limit: 5 }
-          }),
-          api.get("/analysis-bridge/internal/state-eval-trends", {
-            params: { lookback: 14, limit: 20 }
-          }),
-        ]);
-        if (!active) return;
-        const rows = Array.isArray(stateEvalResponse.data?.rows) ? stateEvalResponse.data.rows : [];
-        const first = rows[0] ?? null;
-        setStateEvalRow(first);
-        const trendMap = new Map<string, { label: string; tone: "improving" | "weakening" | "risk" }>();
-        const improving = Array.isArray(trendResponse.data?.trends?.improving) ? trendResponse.data.trends.improving : [];
-        const weakening = Array.isArray(trendResponse.data?.trends?.weakening) ? trendResponse.data.trends.weakening : [];
-        const persistentRisk = Array.isArray(trendResponse.data?.trends?.persistent_risk) ? trendResponse.data.trends.persistent_risk : [];
-        improving.forEach((row: { strategy_tag: string }) => trendMap.set(String(row.strategy_tag), { label: "Improving", tone: "improving" }));
-        weakening.forEach((row: { strategy_tag: string }) => {
-          if (!trendMap.has(String(row.strategy_tag))) trendMap.set(String(row.strategy_tag), { label: "Weakening", tone: "weakening" });
-        });
-        persistentRisk.forEach((row: { strategy_tag: string }) => {
-          if (!trendMap.has(String(row.strategy_tag))) trendMap.set(String(row.strategy_tag), { label: "Persistent Risk", tone: "risk" });
-        });
-        const matchedTrend = parseStateEvalStrategyTags(first?.strategy_tags).map((tag) => trendMap.get(tag)).find(Boolean) ?? null;
-        setStateEvalTrend(matchedTrend);
-      } catch {
-        if (active) {
-          setStateEvalRow(null);
-          setStateEvalTrend(null);
-        }
-      }
-    };
-    void run();
-    return () => {
-      active = false;
-    };
-  }, [backendReady, code]);
   const listCodes = useMemo(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -4286,18 +4117,6 @@ export default function DetailView() {
       window.clearTimeout(timerId);
     };
   }, [backendReady, compareCode, nextCode]);
-  const stateEvalDisplayReasons = useMemo(() => {
-    const reasons = parseStateEvalReasonTexts(stateEvalRow?.reason_text_top3).slice(0, 3);
-    const trendReason = buildStateEvalTrendReason(stateEvalTrend);
-    if (trendReason && !reasons.includes(trendReason)) {
-      reasons.push(trendReason);
-    }
-    return reasons.slice(0, 3);
-  }, [stateEvalRow, stateEvalTrend]);
-  const stateEvalPriorReason = useMemo(
-    () => stateEvalDisplayReasons.map(classifyStateEvalPriorReason).find(Boolean) ?? null,
-    [stateEvalDisplayReasons]
-  );
   const headerScreenshotButton = (
     <IconButton
       label="スクショ"
@@ -4373,72 +4192,40 @@ export default function DetailView() {
       }}
     />
   );
+  const headerCursorButton = (
+    <IconButton
+      label={cursorMode ? "カーソルON" : "カーソルOFF"}
+      icon={cursorMode ? <IconPointer size={18} /> : <IconPointerOff size={18} />}
+      variant="iconLabel"
+      selected={cursorMode}
+      tooltip="カーソル ON/OFF"
+      className="cursor-button"
+      onClick={toggleCursorMode}
+    />
+  );
   const headerRangeControls = (
-    <div className="detail-summary-center">
-      <div className="segmented detail-range">
-        {RANGE_PRESETS.map((preset) => (
-          <button
-            key={preset.label}
-            className={rangeMonths === preset.months ? "active" : ""}
-            onClick={() => toggleRange(preset.months)}
-          >
-            {preset.label}
-          </button>
-        ))}
-      </div>
-    </div>
+    <DetailTimeframeSwitcher presets={RANGE_PRESETS} rangeMonths={rangeMonths} onChange={toggleRange} />
   );
 
   const headerModeControls = (
-    <div className="detail-mode-bar">
-      <div className="segmented detail-mode">
-        <button
-          className={headerMode === "chart" ? "active" : ""}
-          onClick={() => setHeaderMode("chart")}
-        >
-          チャート
-        </button>
-        <button
-          className={headerMode === "analysis" ? "active" : ""}
-          onClick={() => {
-            setHeaderMode("analysis");
-            if (!cursorMode) {
-              setCursorMode(true);
-              if (dailyCandles.length > 0) {
-                updateSelectedBar(dailyCandles.length - 1);
-              }
-            }
-          }}
-        >
-          分析
-        </button>
-        <button
-          className={headerMode === "financial" ? "active" : ""}
-          onClick={() => setHeaderMode("financial")}
-        >
-          財務
-        </button>
-        <button
-          className={headerMode === "draw" ? "active" : ""}
-          onClick={() => setHeaderMode("draw")}
-        >
-          描画
-        </button>
-        <button
-          onClick={() => {
-            if (code) navigate(`/practice/${code}`);
-          }}
-        >
-          練習
-        </button>
-        <button
-          className={headerMode === "positions" ? "active" : ""}
-          onClick={() => setHeaderMode("positions")}
-        >
-          建玉
-        </button>
-      </div>
-    </div>
+    <DetailModeTabs
+      activeMode={headerMode}
+      onChart={() => setHeaderMode("chart")}
+      onAnalysis={() => {
+        setHeaderMode("analysis");
+        if (!cursorMode) {
+          setCursorMode(true);
+          if (dailyCandles.length > 0) {
+            updateSelectedBar(dailyCandles.length - 1);
+          }
+        }
+      }}
+      onFinancial={() => setHeaderMode("financial")}
+      onPractice={() => {
+        if (code) navigate(`/practice/${code}`);
+      }}
+      onPositions={() => setHeaderMode("positions")}
+    />
   );
 
   const headerDisplayMenu = (
@@ -4547,96 +4334,64 @@ export default function DetailView() {
 
   return (
     <div className={`detail-shell ${focusPanel ? "detail-shell-focus" : ""}`}>
-      <div className="detail-header">
-        <div className="detail-summary-row">
-          <div className="detail-summary-back">
-            <button
-              className="back nav-button nav-primary"
-              onClick={() => navigate(listBackPath)}
-            >
-              <span className="nav-icon">
-                <IconArrowLeft size={16} />
-              </span>
-              <span className="nav-label">一覧に戻る</span>
-            </button>
-          </div>
-          <div className="detail-summary-main">
-            <div className="detail-summary-title">
-              <div className="detail-summary-code">{code}</div>
-              {tickerName && <div className="detail-summary-name">{tickerName}</div>}
-              {dailySignals.length > 0 && (
-                <div className="popover-anchor detail-summary-signal-anchor" ref={signalsRef}>
-                  <IconButton
-                    icon={<IconSparkles size={16} />}
-                    tooltip={`シグナル ${dailySignals.length}`}
-                    ariaLabel={`シグナル ${dailySignals.length}`}
-                    selected={signalsOpen}
-                    className="detail-summary-signal-button"
-                    onClick={() => setSignalsOpen((prev) => !prev)}
-                  />
-                  {signalsOpen && (
-                    <div className="popover-panel detail-signals-popover">
-                      <div className="popover-section">
-                        <div className="popover-title">シグナル</div>
-                        <div className="detail-signals-inline">
-                          {dailySignals.map((signal) => (
-                            <span
-                              key={signal.label}
-                              className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
-                            >
-                              {signal.label}
-                            </span>
-                          ))}
-                        </div>
+      <DetailHeaderChrome
+        summaryBack={
+          <button
+            className="back nav-button nav-primary"
+            onClick={() => navigate(listBackPath)}
+          >
+            <span className="nav-icon">
+              <IconArrowLeft size={16} />
+            </span>
+            <span className="nav-label">一覧に戻る</span>
+          </button>
+        }
+        summaryMain={
+          <div className="detail-summary-title">
+            <div className="detail-summary-code">{code}</div>
+            {tickerName && <div className="detail-summary-name">{tickerName}</div>}
+            {dailySignals.length > 0 && (
+              <div className="popover-anchor detail-summary-signal-anchor" ref={signalsRef}>
+                <IconButton
+                  icon={<IconSparkles size={16} />}
+                  tooltip={`シグナル ${dailySignals.length}`}
+                  ariaLabel={`シグナル ${dailySignals.length}`}
+                  selected={signalsOpen}
+                  className="detail-summary-signal-button"
+                  onClick={() => setSignalsOpen((prev) => !prev)}
+                />
+                {signalsOpen && (
+                  <div className="popover-panel detail-signals-popover">
+                    <div className="popover-section">
+                      <div className="popover-title">シグナル</div>
+                      <div className="detail-signals-inline">
+                        {dailySignals.map((signal) => (
+                          <span
+                            key={signal.label}
+                            className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
+                          >
+                            {signal.label}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="detail-summary-status">
-              {(rightsLabel || earningsLabel) && (
-                <div className="detail-event-badges detail-event-badges-inline">
-                  {rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
-                  {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
-                </div>
-              )}
-            </div>
-            {headerMode === "analysis" && stateEvalRow && (
-              <div className="detail-ai-state-panel">
-                <div className="detail-ai-state-head">
-                  <span className={`candidate-ai-badge is-${String(stateEvalRow.decision_3way || "wait")}`}>
-                    {String(stateEvalRow.decision_3way || "wait").toUpperCase()}
-                  </span>
-                  <span className="detail-ai-state-meta">
-                    AI {typeof stateEvalRow.confidence === "number" ? `${Math.round(stateEvalRow.confidence * 100)}%` : "--"}
-                  </span>
-                  <span className="detail-ai-state-meta">{stateEvalRow.holding_band ?? "--"}</span>
-                  {stateEvalTrend ? (
-                    <span className={`detail-ai-state-meta detail-ai-state-trend is-${stateEvalTrend.tone}`}>{stateEvalTrend.label}</span>
-                  ) : null}
-                  {stateEvalPriorReason ? (
-                    <span className={`candidate-ai-prior-badge is-${stateEvalPriorReason.tone}`}>
-                      {stateEvalPriorReason.tone === "combo"
-                        ? `COMBO ${stateEvalPriorReason.label}`
-                        : stateEvalPriorReason.tone === "prior-caution"
-                          ? `CAUTION ${stateEvalPriorReason.label}`
-                          : `PRIOR ${stateEvalPriorReason.label}`}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="detail-ai-state-reasons">
-                  {stateEvalDisplayReasons.map((reason) => (
-                    <span key={reason} className="detail-ai-state-reason">
-                      {reason}
-                    </span>
-                  ))}
-                </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
-          {headerRangeControls}
-          <div className="detail-summary-actions">
+        }
+        summaryStatus={
+          (rightsLabel || earningsLabel) ? (
+            <div className="detail-event-badges detail-event-badges-inline">
+              {rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
+              {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
+            </div>
+          ) : null
+        }
+        summaryCenter={headerRangeControls}
+        summaryActions={
+          <>
             <button
               type="button"
               className={isFavorite ? "favorite-toggle active" : "favorite-toggle"}
@@ -4672,25 +4427,25 @@ export default function DetailView() {
               </span>
               <span className="nav-label">次の銘柄</span>
             </button>
-          </div>
-        </div>
-        <div className="detail-topbar-row">
-          {headerModeControls}
-          <div className="detail-topbar-divider" aria-hidden="true" />
-          <div className="detail-topbar-actions">
+          </>
+        }
+        modeControls={headerModeControls}
+        topbarActions={
+          <>
             {headerDisplayMenu}
             {headerScreenshotButton}
+            {headerCursorButton}
             {headerDrawToolControls}
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
       {marketDataStatusMessage && (
         <div className={`detail-market-data-status ${marketDataStatusDelayed ? "is-delayed" : ""}`}>
           {marketDataStatusMessage}
         </div>
       )}
-      <div className={`detail-content ${showFinancialPanel ? "with-memo-panel detail-content-financial" : ""}`}>
-        <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""} ${showRightPanel ? "with-memo-panel" : ""}`}>
+      <div className={`detail-content ${showRightPanel ? "with-right-rail" : ""}`}>
+        <div className={`detail-split ${focusPanel ? "detail-split-focus" : ""}`}>
           {compareCode && (
             <div className="detail-compare">
               <div className="detail-compare-header">
@@ -4747,7 +4502,7 @@ export default function DetailView() {
                       boxes={boxes}
                       showBoxes={showBoxes}
                       gapBands={gapBandsOverride}
-                      drawingEnabled={headerMode === "draw"}
+                      drawingEnabled={activeDrawTool != null}
                       timeZones={monthlyDrawings.timeZones}
                       priceBands={monthlyDrawings.priceBands}
                       drawBoxes={monthlyDrawings.drawBoxes}
@@ -4798,7 +4553,7 @@ export default function DetailView() {
                         boxes={compareBoxes}
                         showBoxes={showBoxes}
                         gapBands={gapBandsOverride}
-                        drawingEnabled={headerMode === "draw"}
+                        drawingEnabled={activeDrawTool != null}
                         timeZones={compareMonthlyDrawings.timeZones}
                         priceBands={compareMonthlyDrawings.priceBands}
                         drawBoxes={compareMonthlyDrawings.drawBoxes}
@@ -4856,7 +4611,7 @@ export default function DetailView() {
                         boxes={boxes}
                         showBoxes={showBoxes}
                         gapBands={gapBandsOverride}
-                        drawingEnabled={headerMode === "draw"}
+                        drawingEnabled={activeDrawTool != null}
                         timeZones={dailyDrawings.timeZones}
                         priceBands={dailyDrawings.priceBands}
                         drawBoxes={dailyDrawings.drawBoxes}
@@ -4922,7 +4677,7 @@ export default function DetailView() {
                         boxes={compareBoxes}
                         showBoxes={showBoxes}
                         gapBands={gapBandsOverride}
-                        drawingEnabled={headerMode === "draw"}
+                        drawingEnabled={activeDrawTool != null}
                         timeZones={compareDailyDrawings.timeZones}
                         priceBands={compareDailyDrawings.priceBands}
                         drawBoxes={compareDailyDrawings.drawBoxes}
@@ -4993,7 +4748,7 @@ export default function DetailView() {
                       boxes={boxes}
                       showBoxes={showBoxes}
                       gapBands={gapBandsOverride}
-                      drawingEnabled={headerMode === "draw"}
+                      drawingEnabled={activeDrawTool != null}
                       timeZones={dailyDrawings.timeZones}
                       priceBands={dailyDrawings.priceBands}
                       drawBoxes={dailyDrawings.drawBoxes}
@@ -5044,7 +4799,7 @@ export default function DetailView() {
                     boxes={boxes}
                     showBoxes={showBoxes}
                     gapBands={gapBandsOverride}
-                    drawingEnabled={headerMode === "draw"}
+                    drawingEnabled={activeDrawTool != null}
                     timeZones={weeklyDrawings.timeZones}
                     priceBands={weeklyDrawings.priceBands}
                     drawBoxes={weeklyDrawings.drawBoxes}
@@ -5094,7 +4849,7 @@ export default function DetailView() {
                     boxes={boxes}
                     showBoxes={showBoxes}
                     gapBands={gapBandsOverride}
-                    drawingEnabled={headerMode === "draw"}
+                    drawingEnabled={activeDrawTool != null}
                     timeZones={monthlyDrawings.timeZones}
                     priceBands={monthlyDrawings.priceBands}
                     drawBoxes={monthlyDrawings.drawBoxes}
@@ -5174,7 +4929,7 @@ export default function DetailView() {
                       boxes={boxes}
                       showBoxes={showBoxes}
                       gapBands={gapBandsOverride}
-                      drawingEnabled={headerMode === "draw"}
+                      drawingEnabled={activeDrawTool != null}
                       timeZones={dailyDrawings.timeZones}
                       priceBands={dailyDrawings.priceBands}
                       drawBoxes={dailyDrawings.drawBoxes}
@@ -5243,7 +4998,7 @@ export default function DetailView() {
                       boxes={boxes}
                       showBoxes={showBoxes}
                       gapBands={gapBandsOverride}
-                      drawingEnabled={headerMode === "draw"}
+                      drawingEnabled={activeDrawTool != null}
                       timeZones={weeklyDrawings.timeZones}
                       priceBands={weeklyDrawings.priceBands}
                       drawBoxes={weeklyDrawings.drawBoxes}
@@ -5297,7 +5052,7 @@ export default function DetailView() {
                       boxes={boxes}
                       showBoxes={showBoxes}
                       gapBands={gapBandsOverride}
-                      drawingEnabled={headerMode === "draw"}
+                      drawingEnabled={activeDrawTool != null}
                       timeZones={monthlyDrawings.timeZones}
                       priceBands={monthlyDrawings.priceBands}
                       drawBoxes={monthlyDrawings.drawBoxes}
@@ -5335,117 +5090,103 @@ export default function DetailView() {
             </>
           )}
         </div>
-        {showDrawInfoPanel ? (
-          <div className="detail-draw-info-panel">
-            <DailyMemoPanel
-              code={code || ''}
-              selectedDate={selectedDate}
-              selectedBarData={selectedBarData}
-              {...(memoPanelData || {})}
-              title="描画"
-              cursorMode={cursorMode}
-              onToggleCursorMode={toggleCursorMode}
-              onPrevDay={moveToPrevDay}
-              onNextDay={moveToNextDay}
-              onCopyForConsult={handleCopyForConsult}
-            />
-          </div>
-        ) : showMemoPanel ? (
-          <DailyMemoPanel
-            code={code || ''}
-            selectedDate={selectedDate}
-            selectedBarData={selectedBarData}
-            {...(memoPanelData || {})}
-            title="日足情報"
-            cursorMode={cursorMode}
-            onToggleCursorMode={toggleCursorMode}
-            onPrevDay={moveToPrevDay}
-            onNextDay={moveToNextDay}
-            onCopyForConsult={handleCopyForConsult}
-          />
-        ) : null}
-        {showAnalysisPanel && (
-          <DetailAnalysisPanel
-            analysisAsOfTime={analysisAsOfTime}
-            analysisBackfillActive={analysisBackfillActive}
-            analysisRecalcSubmitting={analysisRecalcSubmitting}
-            analysisRecalcDisabled={analysisRecalcDisabled}
-            analysisRecalcDisabledReason={analysisRecalcDisabledReason}
-            submitAnalysisRecalc={submitAnalysisRecalc}
-            analysisDtLabel={analysisDtLabel}
-            cursorMode={cursorMode}
-            analysisCursorDateLabel={analysisCursorDateLabel}
-            canShowPhase={canShowPhase}
-            phaseReasons={phaseReasons}
-            canShowAnalysis={canShowAnalysis}
-            analysisDecision={analysisDecision}
-            analysisSummaryLoading={analysisSummaryLoading}
-            analysisGuidance={analysisGuidance}
-            analysisEntryPolicy={analysisEntryPolicy}
-            patternSummary={patternSummary}
-            analysisPreparationVisible={analysisPreparationVisible}
-            analysisBackfillProgressLabel={analysisBackfillProgressLabel}
-            analysisBackfillMessage={analysisBackfillMessage}
-            sellAnalysisDtLabel={sellAnalysisDtLabel}
-            sellPredDtLabel={sellPredDtLabel}
-            researchPriorRunId={researchPriorRunId}
-            analysisResearchPrior={analysisResearchPrior}
-            researchPriorUpMeta={researchPriorUpMeta}
-            researchPriorDownMeta={researchPriorDownMeta}
-            edinetStatusMeta={edinetStatusMeta}
-            edinetQualityMeta={edinetQualityMeta}
-            edinetMetricsMeta={edinetMetricsMeta}
-            edinetBonusMeta={edinetBonusMeta}
-            hasSwingData={hasSwingData}
-            swingPlan={swingPlan}
-            swingSideLabel={swingSideLabel}
-            swingReasonsLabel={swingReasonsLabel}
-            swingDiagnostics={swingDiagnostics}
-            swingSetupExpectancy={swingSetupExpectancy}
-            analysisMissingDataVisible={analysisMissingDataVisible}
-            formatPercentLabel={formatPercentLabel}
-            formatNumber={formatNumber}
-            formatSignedPercentLabel={formatSignedPercentLabel}
-            onSubmitAnalysisRecalc={() => {
-              void submitAnalysisRecalc();
-            }}
-            onOpenSimilar={() => setShowSimilar(true)}
-          />
-        )}
-        {showAnalysisPanel && (
-          <TradexAnalysisMount
-            backendReady={backendReady}
-            readyToFetch={analysisNetworkReady}
-            analysisFetchEnabled={analysisFetchEnabled}
-            code={code}
-            asof={analysisAsOfTime}
-            formatPercentLabel={formatPercentLabel}
-            formatSignedPercentLabel={formatSignedPercentLabel}
-            formatNumber={formatNumber}
-          />
-        )}
-        {showFinancialPanel && (
-          <DetailFinancialPanel
-            financialPanelRef={financialPanelRef}
-            financialPanel={financialPanel}
-            financialFetchedLabel={financialFetchedLabel}
-            financialLoading={financialLoading}
-            financialSeries={financialSeries}
-            financialCards={financialDisplay.cards}
-            financialKeyStats={financialDisplay.stats}
-            tdnetHighlights={tdnetHighlights}
-            tdnetLoading={tdnetLoading}
-            tdnetStatusLabel={tdnetStatusLabel}
-            taisyakuCards={taisyakuDisplay.cards}
-            taisyakuHistory={taisyakuDisplay.history}
-            taisyakuRestrictions={taisyakuSnapshot?.restrictions ?? []}
-            taisyakuLoading={taisyakuLoading}
-            taisyakuStatusLabel={taisyakuStatusLabel}
-            taisyakuWatchLabel={taisyakuDisplay.watchLabel}
-            formatNumber={formatNumber}
-            formatPercentLabel={formatPercentLabel}
-            formatFinancialAmountLabel={formatFinancialAmountLabel}
-          />
+        {rightRailKind && (
+          <aside className="detail-right-rail">
+            {rightRailKind === "cursor" && (
+              <DailyMemoPanel
+                code={code || ""}
+                selectedDate={selectedDate}
+                selectedBarData={selectedBarData}
+                {...(memoPanelData || {})}
+                title="日足情報"
+                onPrevDay={moveToPrevDay}
+                onNextDay={moveToNextDay}
+                onCopyForConsult={handleCopyForConsult}
+              />
+            )}
+            {rightRailKind === "analysis" && (
+              <>
+                <DetailAnalysisPanel
+                  analysisAsOfTime={analysisAsOfTime}
+                  analysisBackfillActive={analysisBackfillActive}
+                  analysisRecalcSubmitting={analysisRecalcSubmitting}
+                  analysisRecalcDisabled={analysisRecalcDisabled}
+                  analysisRecalcDisabledReason={analysisRecalcDisabledReason}
+                  submitAnalysisRecalc={submitAnalysisRecalc}
+                  analysisDtLabel={analysisDtLabel}
+                  cursorMode={cursorMode}
+                  analysisCursorDateLabel={analysisCursorDateLabel}
+                  canShowPhase={canShowPhase}
+                  phaseReasons={phaseReasons}
+                  canShowAnalysis={canShowAnalysis}
+                  analysisDecision={analysisDecision}
+                  analysisSummaryLoading={analysisSummaryLoading}
+                  analysisGuidance={analysisGuidance}
+                  analysisEntryPolicy={analysisEntryPolicy}
+                  patternSummary={patternSummary}
+                  analysisPreparationVisible={analysisPreparationVisible}
+                  analysisBackfillProgressLabel={analysisBackfillProgressLabel}
+                  analysisBackfillMessage={analysisBackfillMessage}
+                  sellAnalysisDtLabel={sellAnalysisDtLabel}
+                  sellPredDtLabel={sellPredDtLabel}
+                  researchPriorRunId={researchPriorRunId}
+                  analysisResearchPrior={analysisResearchPrior}
+                  researchPriorUpMeta={researchPriorUpMeta}
+                  researchPriorDownMeta={researchPriorDownMeta}
+                  edinetStatusMeta={edinetStatusMeta}
+                  edinetQualityMeta={edinetQualityMeta}
+                  edinetMetricsMeta={edinetMetricsMeta}
+                  edinetBonusMeta={edinetBonusMeta}
+                  hasSwingData={hasSwingData}
+                  swingPlan={swingPlan}
+                  swingSideLabel={swingSideLabel}
+                  swingReasonsLabel={swingReasonsLabel}
+                  swingDiagnostics={swingDiagnostics}
+                  swingSetupExpectancy={swingSetupExpectancy}
+                  analysisMissingDataVisible={analysisMissingDataVisible}
+                  formatPercentLabel={formatPercentLabel}
+                  formatNumber={formatNumber}
+                  formatSignedPercentLabel={formatSignedPercentLabel}
+                  onSubmitAnalysisRecalc={() => {
+                    void submitAnalysisRecalc();
+                  }}
+                />
+                <TradexAnalysisMount
+                  backendReady={backendReady}
+                  readyToFetch={analysisNetworkReady}
+                  analysisFetchEnabled={analysisFetchEnabled}
+                  code={code}
+                  asof={analysisAsOfTime}
+                  formatPercentLabel={formatPercentLabel}
+                  formatSignedPercentLabel={formatSignedPercentLabel}
+                  formatNumber={formatNumber}
+                />
+              </>
+            )}
+            {rightRailKind === "financial" && (
+              <DetailFinancialPanel
+                financialPanelRef={financialPanelRef}
+                financialPanel={financialPanel}
+                financialFetchedLabel={financialFetchedLabel}
+                financialLoading={financialLoading}
+                financialSeries={financialSeries}
+                financialCards={financialDisplay.cards}
+                financialKeyStats={financialDisplay.stats}
+                tdnetHighlights={tdnetHighlights}
+                tdnetLoading={tdnetLoading}
+                tdnetStatusLabel={tdnetStatusLabel}
+                taisyakuCards={taisyakuDisplay.cards}
+                taisyakuHistory={taisyakuDisplay.history}
+                taisyakuRestrictions={taisyakuSnapshot?.restrictions ?? []}
+                taisyakuLoading={taisyakuLoading}
+                taisyakuStatusLabel={taisyakuStatusLabel}
+                taisyakuWatchLabel={taisyakuDisplay.watchLabel}
+                formatNumber={formatNumber}
+                formatPercentLabel={formatPercentLabel}
+                formatFinancialAmountLabel={formatFinancialAmountLabel}
+              />
+            )}
+          </aside>
         )}
       </div>
       {activeTdnetDisclosure && !compareCode && (

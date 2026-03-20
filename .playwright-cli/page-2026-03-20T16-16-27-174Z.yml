@@ -1,0 +1,114 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - button "一覧に戻る" [ref=e8] [cursor=pointer]:
+            - img [ref=e10]
+            - generic [ref=e13]: 一覧に戻る
+          - generic [ref=e16]: "1001"
+          - generic [ref=e19]:
+            - button "チャート" [ref=e20] [cursor=pointer]
+            - button "分析" [ref=e21] [cursor=pointer]
+            - button "財務" [ref=e22] [cursor=pointer]
+            - button "練習" [ref=e23] [cursor=pointer]
+            - button "建玉" [ref=e24] [cursor=pointer]
+        - generic [ref=e25]:
+          - button "表示設定メニューを開く" [ref=e27] [cursor=pointer]:
+            - img [ref=e29]
+            - generic [ref=e33]: 表示
+          - button "スクショ" [ref=e34] [cursor=pointer]:
+            - img [ref=e36]
+            - generic [ref=e39]: スクショ
+          - button "カーソルOFF" [ref=e40] [cursor=pointer]:
+            - img [ref=e42]
+            - generic [ref=e45]: カーソルOFF
+          - generic [ref=e47]:
+            - button "時間ゾーン描画" [ref=e48] [cursor=pointer]:
+              - img [ref=e50]
+            - button "四角描画" [ref=e54] [cursor=pointer]:
+              - img [ref=e56]
+            - button "価格帯描画" [ref=e60] [cursor=pointer]:
+              - generic [ref=e62]: ▭
+            - button "水平線描画" [ref=e63] [cursor=pointer]:
+              - img [ref=e65]
+            - button "描画をリセット" [ref=e66] [cursor=pointer]:
+              - img [ref=e68]
+        - generic [ref=e71]:
+          - generic [ref=e72]:
+            - button "お気に入り追加" [ref=e73] [cursor=pointer]:
+              - img [ref=e74]
+            - button "前の銘柄" [disabled] [ref=e76]:
+              - img [ref=e78]
+              - generic [ref=e81]: 前の銘柄
+            - button "次の銘柄" [disabled] [ref=e82]:
+              - img [ref=e84]
+              - generic [ref=e87]: 次の銘柄
+          - generic [ref=e90]:
+            - button "3M" [ref=e91] [cursor=pointer]
+            - button "6M" [ref=e92] [cursor=pointer]
+            - button "1Y" [ref=e93] [cursor=pointer]
+            - button "2Y" [ref=e94] [cursor=pointer]
+      - generic [ref=e96]:
+        - generic [ref=e97]:
+          - generic [ref=e98]: Daily
+          - generic [ref=e99]:
+            - table [ref=e103]:
+              - row [ref=e104]:
+                - cell
+                - cell [ref=e105]
+                - cell [ref=e109]
+              - row [ref=e113]:
+                - cell
+                - cell [ref=e114]
+                - cell [ref=e118]
+            - generic [ref=e121]: "Daily: Loading..."
+        - generic [ref=e122]:
+          - generic [ref=e123]:
+            - generic [ref=e124]: Weekly
+            - generic [ref=e125]:
+              - table [ref=e129]:
+                - row [ref=e130]:
+                  - cell
+                  - cell [ref=e131]
+                  - cell [ref=e135]
+                - row [ref=e139]:
+                  - cell
+                  - cell [ref=e140]
+                  - cell [ref=e144]
+              - generic [ref=e147]: "Weekly: Loading..."
+          - generic [ref=e149]:
+            - generic [ref=e150]: Monthly
+            - generic [ref=e151]:
+              - table [ref=e155]:
+                - row [ref=e156]:
+                  - cell
+                  - cell [ref=e157]
+                  - cell [ref=e161]
+                - row [ref=e165]:
+                  - cell
+                  - cell [ref=e166]
+                  - cell [ref=e170]
+              - generic [ref=e173]: "Monthly: Loading..."
+      - generic [ref=e174]:
+        - button "Loading..." [disabled] [ref=e176]
+        - generic [ref=e177]: Daily 0 bars | Weekly 0 bars | Monthly 0 bars
+    - generic:
+      - status:
+        - generic:
+          - generic:
+            - generic:
+              - generic: M
+          - generic: MeeMee Screener
+        - generic:
+          - generic: 準備完了
+          - generic: 試行 1 回 · 経過 0s

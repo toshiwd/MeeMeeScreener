@@ -1,0 +1,124 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - button "一覧に戻る" [ref=e7] [cursor=pointer]:
+            - img [ref=e9]
+          - button "前の画面に戻る" [ref=e12] [cursor=pointer]:
+            - img [ref=e14]
+        - generic [ref=e17]:
+          - generic [ref=e18]:
+            - generic [ref=e19]: "1001"
+            - generic [ref=e20]: 日経225
+          - generic [ref=e21]: 練習
+        - generic [ref=e22]:
+          - generic [ref=e23]: 練習開始日
+          - generic [ref=e24]:
+            - textbox [ref=e25]
+            - button "開始日を確定" [ref=e26] [cursor=pointer]
+            - button "過去の練習を開く" [ref=e27] [cursor=pointer]
+          - generic [ref=e28]:
+            - generic [ref=e29]: 未作成
+            - generic [ref=e30]: セッション未選択
+      - generic [ref=e31]:
+        - generic [ref=e32]:
+          - generic [ref=e33]:
+            - button "3M" [ref=e34] [cursor=pointer]
+            - button "6M" [ref=e35] [cursor=pointer]
+            - button "1Y" [ref=e36] [cursor=pointer]
+            - button "2Y" [ref=e37] [cursor=pointer]
+          - generic [ref=e38]: "--"
+        - generic [ref=e40]:
+          - button "1日戻る" [disabled] [ref=e41]:
+            - img [ref=e43]
+          - button "1日進む" [disabled] [ref=e45]:
+            - img [ref=e47]
+          - button "当日リセット" [disabled] [ref=e49]:
+            - img [ref=e51]
+          - button "スクショ" [ref=e54] [cursor=pointer]:
+            - img [ref=e56]
+          - button "出力 (JSON)" [ref=e59] [cursor=pointer]:
+            - img [ref=e61]
+          - button "AI出力" [ref=e65] [cursor=pointer]:
+            - img [ref=e67]
+          - button "類似" [disabled] [ref=e69]:
+            - img [ref=e71]
+          - generic [ref=e73]:
+            - generic [ref=e74]:
+              - button "マウスモード" [ref=e75] [cursor=pointer]:
+                - img [ref=e77]
+              - button "時間ゾーン描画" [ref=e80] [cursor=pointer]:
+                - img [ref=e82]
+              - button "四角描画" [ref=e86] [cursor=pointer]:
+                - img [ref=e88]
+              - button "価格帯描画" [ref=e92] [cursor=pointer]:
+                - generic [ref=e94]: ▭
+              - button "水平線描画" [ref=e95] [cursor=pointer]:
+                - img [ref=e97]
+              - button "描画を全削除" [ref=e98] [cursor=pointer]:
+                - img [ref=e100]
+            - generic [ref=e103]:
+              - button "描画色を変更" [ref=e104] [cursor=pointer]
+              - slider "不透明度" [ref=e107]: "0.8"
+              - slider "太さ" [ref=e108]: "2"
+          - button "パネルを開く" [ref=e109] [cursor=pointer]: ← パネル
+          - button "カーソルON" [ref=e110] [cursor=pointer]:
+            - img [ref=e112]
+            - generic [ref=e114]: カーソルON
+    - generic [ref=e118]:
+      - generic [ref=e119]:
+        - generic [ref=e120]: 日足
+        - generic [ref=e121]:
+          - table [ref=e125]:
+            - row [ref=e126]:
+              - cell
+              - cell [ref=e127]
+              - cell [ref=e131]
+            - row [ref=e135]:
+              - cell
+              - cell [ref=e136]
+              - cell [ref=e140]
+          - generic:
+            - generic: 建玉
+            - generic: 売0-買0
+            - generic: ネット0
+            - generic: 実 0 / 評 --
+            - generic: 株数 100
+          - generic [ref=e143]: "日足: No data"
+      - generic [ref=e144]:
+        - generic [ref=e145]:
+          - generic [ref=e146]: 週足
+          - generic [ref=e147]:
+            - table [ref=e151]:
+              - row [ref=e152]:
+                - cell
+                - cell [ref=e153]
+                - cell [ref=e157]
+              - row [ref=e161]:
+                - cell
+                - cell [ref=e162]
+                - cell [ref=e166]
+            - generic [ref=e169]: "週足: No data"
+        - generic [ref=e171]:
+          - generic [ref=e172]: 月足
+          - generic [ref=e173]:
+            - table [ref=e177]:
+              - row [ref=e178]:
+                - cell
+                - cell [ref=e179]
+                - cell [ref=e183]
+              - row [ref=e187]:
+                - cell
+                - cell [ref=e188]
+                - cell [ref=e192]
+            - generic [ref=e195]: "月足: No data"

@@ -1,0 +1,150 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e19]:
+    - generic [ref=e20]:
+      - generic [ref=e21]:
+        - button "一覧に戻る" [ref=e23] [cursor=pointer]:
+          - img [ref=e25]
+          - generic [ref=e28]: 一覧に戻る
+        - generic [ref=e30]:
+          - generic [ref=e31]: "1001"
+          - generic [ref=e32]: 日経225
+          - button "シグナル 2" [ref=e34] [cursor=pointer]:
+            - img [ref=e36]
+        - generic [ref=e39]:
+          - button "3M" [ref=e40] [cursor=pointer]
+          - button "6M" [ref=e41] [cursor=pointer]
+          - button "1Y" [ref=e42] [cursor=pointer]
+          - button "2Y" [ref=e43] [cursor=pointer]
+        - generic [ref=e44]:
+          - button "お気に入り追加" [ref=e45] [cursor=pointer]:
+            - img [ref=e46]
+          - button "前の銘柄" [disabled] [ref=e48]:
+            - img [ref=e50]
+            - generic [ref=e53]: 前の銘柄
+          - button "次の銘柄" [disabled] [ref=e54]:
+            - img [ref=e56]
+            - generic [ref=e59]: 次の銘柄
+      - generic [ref=e60]:
+        - generic [ref=e62]:
+          - button "チャート" [ref=e63] [cursor=pointer]
+          - button "分析" [ref=e64] [cursor=pointer]
+          - button "財務" [ref=e65] [cursor=pointer]
+          - button "練習" [ref=e66] [cursor=pointer]
+          - button "建玉" [ref=e67] [cursor=pointer]
+        - generic [ref=e69]:
+          - button "表示設定メニューを開く" [ref=e71] [cursor=pointer]:
+            - img [ref=e73]
+            - generic [ref=e77]: 表示
+          - button "スクショ" [ref=e78] [cursor=pointer]:
+            - img [ref=e80]
+            - generic [ref=e83]: スクショ
+          - button "カーソルOFF" [ref=e84] [cursor=pointer]:
+            - img [ref=e86]
+            - generic [ref=e89]: カーソルOFF
+          - generic [ref=e91]:
+            - button "時間ゾーン描画" [ref=e92] [cursor=pointer]:
+              - img [ref=e94]
+            - button "四角描画" [ref=e98] [cursor=pointer]:
+              - img [ref=e100]
+            - button "価格帯描画" [ref=e104] [cursor=pointer]:
+              - generic [ref=e106]: ▭
+            - button "水平線描画" [ref=e107] [cursor=pointer]:
+              - img [ref=e109]
+            - button "描画をリセット" [ref=e110] [cursor=pointer]:
+              - img [ref=e112]
+    - generic [ref=e116]:
+      - generic [ref=e117]:
+        - generic [ref=e118]: Daily
+        - generic [ref=e120]:
+          - table [ref=e123]:
+            - row [ref=e124]:
+              - cell
+              - cell [ref=e125]
+              - cell [ref=e129]
+            - row [ref=e133]:
+              - cell
+              - cell [ref=e134]
+              - cell [ref=e138]
+          - generic:
+            - generic:
+              - generic: 26/03/19
+              - generic: 前日比-1,870 (-3.39%)
+            - generic:
+              - generic: O
+              - generic: 54,290
+              - generic: H
+              - generic: 54,330
+              - generic: L
+              - generic: 53,190
+              - generic: C
+              - generic: 53,370
+              - generic: 出来高
+              - generic: 312,932
+            - generic:
+              - generic:
+                - generic: 7MA
+                - generic: 54,194
+              - generic:
+                - generic: 20MA
+                - generic: 55,682
+              - generic:
+                - generic: 60MA
+                - generic: 54,044
+              - generic:
+                - generic: 100MA
+                - generic: 52,488
+              - generic:
+                - generic: 200MA
+                - generic: 47,188
+            - generic:
+              - generic: 本数
+              - generic:
+                - generic: 7MA
+                - generic: 上0 / 下1
+              - generic:
+                - generic: 20MA
+                - generic: 上0 / 下13
+              - generic:
+                - generic: 60MA
+                - generic: 上0 / 下1
+              - generic:
+                - generic: 100MA
+                - generic: 上201 / 下0
+              - generic:
+                - generic: 200MA
+                - generic: 上186 / 下0
+      - generic [ref=e141]:
+        - generic [ref=e142]:
+          - generic [ref=e143]: Weekly
+          - table [ref=e148]:
+            - row [ref=e149]:
+              - cell
+              - cell [ref=e150]
+              - cell [ref=e154]
+            - row [ref=e158]:
+              - cell
+              - cell [ref=e159]
+              - cell [ref=e163]
+        - generic [ref=e167]:
+          - generic [ref=e168]: Monthly
+          - table [ref=e173]:
+            - row [ref=e174]:
+              - cell
+              - cell [ref=e175]
+              - cell [ref=e179]
+            - row [ref=e183]:
+              - cell
+              - cell [ref=e184]
+              - cell [ref=e188]
+    - generic [ref=e191]:
+      - button "Load more daily/monthly" [ref=e193] [cursor=pointer]
+      - generic [ref=e194]: Daily 2000 bars | Weekly 427 bars | Monthly 240 bars
