@@ -70,7 +70,7 @@ describe('DetailAnalysisPanel', () => {
         edinetQualityMeta="good"
         edinetMetricsMeta="metrics"
         edinetBonusMeta="bonus"
-        hasSwingData={false}
+        hasSwingData={true}
         swingPlan={null}
         swingSideLabel="--"
         swingReasonsLabel=""
@@ -87,9 +87,11 @@ describe('DetailAnalysisPanel', () => {
     expect(markup).toContain('暫定');
     expect(markup).toContain('基準日 26/03/19');
     expect(markup).toContain('カーソル日 26-03-19');
-    expect(markup).toContain('売買サマリー');
+    expect(markup).toContain('要約');
+    expect(markup).toContain('詳細');
     expect(markup).toContain('買い候補');
     expect(markup).toContain('売り候補');
+    expect(markup).toContain('追加情報');
     expect(markup).toContain('基準日を中心に130本を再計算');
     expect(markup).not.toContain('読込中...');
   });

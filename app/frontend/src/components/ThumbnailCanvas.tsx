@@ -1,21 +1,32 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 /* eslint-disable react-refresh/only-export-components */
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { BarsPayload, Box, MaSetting } from "../store";
 import { getDomTheme } from "../utils/theme";
 import { getBodyRangeFromBars, getBoxFill, getBoxStroke } from "../utils/boxes";
-import { getThumbnailCache, setThumbnailCache } from "./thumbnailCache";
+import {
+  buildThumbnailSizeKey,
+  buildThumbnailSnapshotCacheKey,
+  getThumbnailCache,
+  setThumbnailCache
+} from "./thumbnailCache";
 
 const COLORS = {
   up: "#ef4444",
   down: "#22c55e"
 };
 
-const MIN_HEIGHT = 80;
 const DEFAULT_MAX_BARS = 60;
 const VOLUME_BAND_HEIGHT = 16;
 const BOX_FILL = getBoxFill();
 const BOX_STROKE = getBoxStroke();
+const SCROLL_IDLE_MS = 120;
+
+type CanvasSize = {
+  width: number;
+  height: number;
+  ratio: number;
+};
 
 const formatDate = (value: number) => {
   if (!Number.isFinite(value)) return "--";
@@ -82,6 +93,44 @@ function buildMaMap(bars: number[][], period: number) {
     }
   }
   return map;
+}
+
+function resolveCanvasSize(container: HTMLDivElement | null): CanvasSize | null {
+  if (!container) return null;
+  const width = Math.floor(container.clientWidth || 0);
+  const rawHeight = Math.floor(container.clientHeight || 0);
+  if (width <= 0 || rawHeight <= 0) return null;
+  return {
+    width,
+    height: rawHeight,
+    ratio: window.devicePixelRatio || 1
+  };
+}
+
+function canvasSizeKey(size: CanvasSize) {
+  return buildThumbnailSizeKey(size.width, size.height, size.ratio);
+}
+
+function applyCanvasSize(canvas: HTMLCanvasElement, size: CanvasSize) {
+  const nextWidth = Math.floor(size.width * size.ratio);
+  const nextHeight = Math.floor(size.height * size.ratio);
+  const styleWidth = `${size.width}px`;
+  const styleHeight = `${size.height}px`;
+  const sizeChanged =
+    canvas.width !== nextWidth ||
+    canvas.height !== nextHeight ||
+    canvas.style.width !== styleWidth ||
+    canvas.style.height !== styleHeight;
+  if (!sizeChanged) return false;
+  canvas.width = nextWidth;
+  canvas.height = nextHeight;
+  canvas.style.width = styleWidth;
+  canvas.style.height = styleHeight;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.setTransform(size.ratio, 0, 0, size.ratio, 0, 0);
+  }
+  return true;
 }
 
 export function drawChart(
@@ -370,16 +419,22 @@ export default function ThumbnailCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastKeyRef = useRef<string>("");
   const rafRef = useRef<number | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
+  const scrollIdleTimerRef = useRef<number | null>(null);
   const lastSnapshotRef = useRef<string>("");
   const lastDrawFingerprintRef = useRef<string>("");
+  const committedSizeRef = useRef<string>("");
+  const pendingSizeRef = useRef<CanvasSize | null>(null);
+  const pendingDrawRef = useRef(false);
+  const isScrollingRef = useRef(false);
+  const scheduleDrawRef = useRef<() => void>(() => {});
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const hoverIndexRef = useRef<number | null>(null);
   const hoverRafRef = useRef<number | null>(null);
   const hoverPendingRef = useRef<number | null>(null);
   const [hasDrawn, setHasDrawn] = useState(false);
-  const [cachedSnapshot, setCachedSnapshot] = useState<string | null>(
-    () => (cacheKey ? getThumbnailCache(cacheKey) ?? null : null)
-  );
+  const [layoutSizeKey, setLayoutSizeKey] = useState<string | null>(null);
+  const [cachedSnapshot, setCachedSnapshot] = useState<string | null>(null);
   const maxBarsValue = Math.max(1, Math.floor(maxBars ?? DEFAULT_MAX_BARS));
   const displayBars = useMemo(() => {
     const allBars = payload.bars ?? [];
@@ -399,24 +454,27 @@ export default function ThumbnailCanvas({
 
   const draw = useCallback(() => {
     if (!containerRef.current || !canvasRef.current) return false;
-    const width = Math.floor(containerRef.current.clientWidth || 0);
-    const height = Math.max(MIN_HEIGHT, Math.floor(containerRef.current.clientHeight || 0));
-    if (width <= 0 || height <= 0) return false;
-    const drawFingerprint = `${renderKey}:${width}x${height}`;
+    const size = resolveCanvasSize(containerRef.current);
+    if (!size) return false;
+    const canvas = canvasRef.current;
+    const sizeKey = canvasSizeKey(size);
+    setLayoutSizeKey(sizeKey);
+    if (committedSizeRef.current !== sizeKey) {
+      applyCanvasSize(canvas, size);
+      committedSizeRef.current = sizeKey;
+    }
+    const drawFingerprint = `${renderKey}:${sizeKey}`;
     if (lastDrawFingerprintRef.current === drawFingerprint) {
       setHasDrawn(true);
       return true;
     }
     lastDrawFingerprintRef.current = drawFingerprint;
-    const canvas = canvasRef.current;
-    const ratio = window.devicePixelRatio || 1;
-    canvas.width = Math.floor(width * ratio);
-    canvas.height = Math.floor(height * ratio);
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const snapshotCacheKey = cacheKey ? buildThumbnailSnapshotCacheKey(cacheKey, renderKey, sizeKey) : null;
+    const cachedSizeSnapshot = snapshotCacheKey ? getThumbnailCache(snapshotCacheKey) : null;
+    if (cachedSizeSnapshot) {
+      setCachedSnapshot(cachedSizeSnapshot);
+      setHasDrawn(true);
+      return true;
     }
     drawChart(
       canvas,
@@ -424,24 +482,22 @@ export default function ThumbnailCanvas({
       boxes,
       showBoxes,
       maSettings,
-      width,
-      height,
+      size.width,
+      size.height,
       maxBarsValue,
       showAxes,
       resolvedTheme
     );
     setHasDrawn(true);
     if (cacheKey) {
-      const snapshotKey = `${cacheKey}:${renderKey}:${width}x${height}`;
+      const snapshotKey = buildThumbnailSnapshotCacheKey(cacheKey, renderKey, sizeKey);
       if (lastSnapshotRef.current !== snapshotKey) {
         lastSnapshotRef.current = snapshotKey;
-        const existingSnapshot = getThumbnailCache(cacheKey);
-        if (existingSnapshot) {
-          setCachedSnapshot(existingSnapshot);
-          return true;
-        }
         try {
           const dataUrl = canvas.toDataURL("image/png");
+          if (snapshotCacheKey) {
+            setThumbnailCache(snapshotCacheKey, dataUrl);
+          }
           setThumbnailCache(cacheKey, dataUrl);
           setCachedSnapshot(dataUrl);
         } catch {
@@ -453,11 +509,14 @@ export default function ThumbnailCanvas({
   }, [payload, boxes, showBoxes, maSettings, renderKey, cacheKey, maxBarsValue, showAxes, resolvedTheme]);
 
   const scheduleDraw = useCallback(() => {
+    pendingDrawRef.current = true;
+    if (isScrollingRef.current) return;
     if (rafRef.current !== null) {
       window.cancelAnimationFrame(rafRef.current);
     }
     rafRef.current = window.requestAnimationFrame(() => {
       rafRef.current = null;
+      pendingDrawRef.current = false;
       const ok = draw();
       if (!ok) {
         rafRef.current = window.requestAnimationFrame(() => {
@@ -469,9 +528,46 @@ export default function ThumbnailCanvas({
   }, [draw]);
 
   useEffect(() => {
+    scheduleDrawRef.current = scheduleDraw;
+  }, [scheduleDraw]);
+
+  const scheduleResizeCommit = useCallback(() => {
+    const size = resolveCanvasSize(containerRef.current);
+    if (!size) return;
+    pendingSizeRef.current = size;
+    if (resizeRafRef.current !== null) return;
+    resizeRafRef.current = window.requestAnimationFrame(() => {
+      resizeRafRef.current = null;
+      const nextSize = resolveCanvasSize(containerRef.current);
+      const pendingSize = pendingSizeRef.current;
+      if (!nextSize || !pendingSize) return;
+      if (canvasSizeKey(nextSize) !== canvasSizeKey(pendingSize)) {
+        pendingSizeRef.current = nextSize;
+        scheduleResizeCommit();
+        return;
+      }
+      if (!canvasRef.current) return;
+      const nextKey = canvasSizeKey(nextSize);
+      const sizeChanged = applyCanvasSize(canvasRef.current, nextSize);
+      committedSizeRef.current = nextKey;
+      if (sizeChanged) {
+        scheduleDraw();
+      }
+    });
+  }, [scheduleDraw]);
+
+  useLayoutEffect(() => {
+    const size = resolveCanvasSize(containerRef.current);
+    if (!size || !canvasRef.current) return;
+    committedSizeRef.current = canvasSizeKey(size);
+    applyCanvasSize(canvasRef.current, size);
+  }, []);
+
+  useEffect(() => {
     if (!containerRef.current) return;
-    const observer = new ResizeObserver(() => scheduleDraw());
+    const observer = new ResizeObserver(() => scheduleResizeCommit());
     observer.observe(containerRef.current);
+    scheduleResizeCommit();
     scheduleDraw();
     return () => {
       observer.disconnect();
@@ -479,28 +575,68 @@ export default function ThumbnailCanvas({
         window.cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
+      if (resizeRafRef.current !== null) {
+        window.cancelAnimationFrame(resizeRafRef.current);
+        resizeRafRef.current = null;
+      }
       if (hoverRafRef.current !== null) {
         window.cancelAnimationFrame(hoverRafRef.current);
         hoverRafRef.current = null;
       }
     };
-  }, [scheduleDraw]);
+  }, [scheduleDraw, scheduleResizeCommit]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      isScrollingRef.current = true;
+      pendingDrawRef.current = true;
+      if (scrollIdleTimerRef.current !== null) {
+        window.clearTimeout(scrollIdleTimerRef.current);
+      }
+      scrollIdleTimerRef.current = window.setTimeout(() => {
+        scrollIdleTimerRef.current = null;
+        isScrollingRef.current = false;
+        if (pendingDrawRef.current) {
+          scheduleDrawRef.current();
+        }
+      }, SCROLL_IDLE_MS);
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener("scroll", handleScroll, { capture: true } as AddEventListenerOptions);
+      if (scrollIdleTimerRef.current !== null) {
+        window.clearTimeout(scrollIdleTimerRef.current);
+        scrollIdleTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (lastKeyRef.current === renderKey) return;
     lastKeyRef.current = renderKey;
+    if (isScrollingRef.current) {
+      pendingDrawRef.current = true;
+      return;
+    }
     scheduleDraw();
   }, [renderKey, scheduleDraw]);
 
   useEffect(() => {
-    setHasDrawn(false);
-    lastDrawFingerprintRef.current = "";
-    if (!cacheKey) {
-      setCachedSnapshot(null);
+    if (isScrollingRef.current) {
+      pendingDrawRef.current = true;
       return;
     }
-    setCachedSnapshot(getThumbnailCache(cacheKey) ?? null);
-  }, [cacheKey, renderKey]);
+    setHasDrawn(false);
+    lastDrawFingerprintRef.current = "";
+    if (!cacheKey || !layoutSizeKey) {
+      return;
+    }
+    const nextSnapshot = getThumbnailCache(buildThumbnailSnapshotCacheKey(cacheKey, renderKey, layoutSizeKey));
+    if (nextSnapshot) {
+      setCachedSnapshot(nextSnapshot);
+    }
+  }, [cacheKey, layoutSizeKey, renderKey]);
 
   const scheduleHoverIndex = (index: number | null) => {
     hoverPendingRef.current = index;

@@ -1,0 +1,187 @@
+- generic [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - button "一覧に戻る" [ref=e7] [cursor=pointer]:
+            - img [ref=e9]
+            - generic [ref=e12]: 一覧に戻る
+          - button "前画面" [ref=e13] [cursor=pointer]:
+            - img [ref=e15]
+            - generic [ref=e18]: 前画面
+        - generic [ref=e19]:
+          - generic [ref=e20]:
+            - generic [ref=e21]: "1001"
+            - generic [ref=e22]: 日経225
+          - button "シグナル 3" [ref=e26]
+          - generic [ref=e167]:
+            - generic [ref=e168]:
+              - generic [ref=e169]: SKIP
+              - generic [ref=e170]: AI 27%
+              - generic [ref=e171]: buy_5_20
+            - generic [ref=e172]:
+              - generic [ref=e173]: 20MA reclaim
+              - generic [ref=e174]: Similar setup data thin
+              - generic [ref=e175]: Adverse risk capped
+        - generic [ref=e28]:
+          - button "3M" [ref=e29] [cursor=pointer]
+          - button "6M" [ref=e30] [cursor=pointer]
+          - button "1Y" [ref=e31] [cursor=pointer]
+          - button "2Y" [ref=e32] [cursor=pointer]
+        - generic [ref=e33]:
+          - button "お気に入り追加" [ref=e34] [cursor=pointer]:
+            - img [ref=e35]
+          - button "前の銘柄" [disabled] [ref=e37]:
+            - img [ref=e39]
+            - generic [ref=e42]: 前の銘柄
+          - button "次の銘柄" [disabled] [ref=e43]:
+            - img [ref=e45]
+            - generic [ref=e48]: 次の銘柄
+      - generic [ref=e50]:
+        - button "チャート" [ref=e51] [cursor=pointer]
+        - button "分析" [active] [ref=e52] [cursor=pointer]
+        - button "財務" [ref=e53] [cursor=pointer]
+        - button "描画" [ref=e54] [cursor=pointer]
+        - button "練習" [ref=e55] [cursor=pointer]
+        - button "建玉" [ref=e56] [cursor=pointer]
+      - generic [ref=e57]:
+        - button "表示設定メニューを開く" [ref=e60] [cursor=pointer]:
+          - img [ref=e62]
+        - generic [ref=e66]:
+          - button "スクショ" [ref=e67] [cursor=pointer]:
+            - img [ref=e69]
+          - button "AI出力" [ref=e72] [cursor=pointer]:
+            - img [ref=e74]
+          - button "判定更新" [ref=e76] [cursor=pointer]:
+            - img [ref=e78]
+          - button "類似" [ref=e81] [cursor=pointer]:
+            - img [ref=e83]
+    - generic [ref=e87]:
+      - generic [ref=e88]:
+        - generic [ref=e89]:
+          - generic [ref=e90]: Daily
+          - generic [ref=e92]:
+            - table [ref=e95]:
+              - row [ref=e96]:
+                - cell
+                - cell [ref=e97]
+                - cell [ref=e101]
+              - row [ref=e105]:
+                - cell
+                - cell [ref=e106]
+                - cell [ref=e110]
+            - generic:
+              - generic:
+                - generic: 26/03/13
+                - generic: 前日比-630 (-1.16%)
+              - generic:
+                - generic: O
+                - generic: 53,590
+                - generic: H
+                - generic: 54,070
+                - generic: L
+                - generic: 53,290
+                - generic: C
+                - generic: 53,820
+                - generic: 出来高
+                - generic: 268,242
+              - generic:
+                - generic:
+                  - generic: 7MA
+                  - generic: 54,454
+                - generic:
+                  - generic: 20MA
+                  - generic: 56,252
+                - generic:
+                  - generic: 60MA
+                  - generic: 53,775
+                - generic:
+                  - generic: 100MA
+                  - generic: 52,255
+                - generic:
+                  - generic: 200MA
+                  - generic: 46,852
+              - generic:
+                - generic: 本数
+                - generic:
+                  - generic: 7MA
+                  - generic: 上0 / 下2
+                - generic:
+                  - generic: 20MA
+                  - generic: 上0 / 下9
+                - generic:
+                  - generic: 60MA
+                  - generic: 上4 / 下0
+                - generic:
+                  - generic: 100MA
+                  - generic: 上197 / 下0
+                - generic:
+                  - generic: 200MA
+                  - generic: 上182 / 下0
+        - generic [ref=e113]:
+          - generic [ref=e114]:
+            - generic [ref=e115]: Weekly
+            - table [ref=e120]:
+              - row [ref=e121]:
+                - cell
+                - cell [ref=e122]
+                - cell [ref=e126]
+              - row [ref=e130]:
+                - cell
+                - cell [ref=e131]
+                - cell [ref=e135]
+          - generic [ref=e139]:
+            - generic [ref=e140]: Monthly
+            - table [ref=e145]:
+              - row [ref=e146]:
+                - cell
+                - cell [ref=e147]
+                - cell [ref=e151]
+              - row [ref=e155]:
+                - cell
+                - cell [ref=e156]
+                - cell [ref=e160]
+      - generic [ref=e176]:
+        - heading "判定確認" [level=3] [ref=e178]
+        - generic [ref=e179]:
+          - generic [ref=e180]: カーソル日 2026-03-13
+          - generic [ref=e181]:
+            - generic [ref=e182]: 要約
+            - generic [ref=e183]:
+              - generic [ref=e184]:
+                - generic [ref=e185]: 判定 中立
+                - generic [ref=e186]: 確信度 暫定
+              - generic [ref=e187]: "狙い: 往復レンジ（上下振れ）"
+              - generic [ref=e188]: "地合い: レンジ優位"
+              - generic [ref=e189]: "今やること: 暫定"
+              - generic [ref=e190]:
+                - generic [ref=e191]: 買い候補
+                - generic [ref=e192]: 状態 監視 / 監視候補
+                - generic [ref=e193]: 狙い 押し目待ち
+                - generic [ref=e194]: 出口 -- / --
+              - generic [ref=e195]:
+                - generic [ref=e196]: 売り候補
+                - generic [ref=e197]: 状態 待機 / 戻り待ち
+                - generic [ref=e198]: 狙い 戻り待ち
+                - generic [ref=e199]: 出口 -- / --
+              - generic [ref=e200]:
+                - generic [ref=e202]: 上昇確率 暫定
+                - generic [ref=e206]: 下落確率 暫定
+                - generic [ref=e210]: 中立確率 暫定
+                - generic [ref=e214]: 買い仕込み 暫定
+                - generic [ref=e218]: 売り仕込み 暫定
+            - generic [ref=e221]: 一部データは暫定です。
+            - generic [ref=e222]: 詳細
+          - button "売買判定を更新" [ref=e224] [cursor=pointer]
+    - generic [ref=e163]:
+      - button "Load more daily/monthly" [ref=e165] [cursor=pointer]
+      - generic [ref=e166]: Daily 2000 bars | Weekly 428 bars | Monthly 240 bars

@@ -22,6 +22,7 @@ export const ENSURE_COALESCE_MS = 16;
 export const EVENTS_POLL_INTERVAL_MS = 10_000;
 export const EVENTS_POLL_MAX_ATTEMPTS = 180;
 export const KEEP_STORAGE_KEY = "keepList";
+export const GRID_PRESET_KEY = "gridPreset";
 export const GRID_COLS_KEY = "gridCols";
 export const GRID_ROWS_KEY = "gridRows";
 export const LIST_TIMEFRAME_KEY = "listTimeframe";
@@ -376,20 +377,12 @@ export const getInitialListTimeframe = (): Settings["listTimeframe"] => {
 
 export const getInitialColumns = (): Settings["columns"] => {
   if (typeof window === "undefined") return 3;
-  const saved = Number(window.localStorage.getItem(GRID_COLS_KEY));
-  if (saved >= 1 && saved <= 4) {
-    return saved as Settings["columns"];
-  }
-  return 3;
+  return getStoredGridPreset();
 };
 
 export const getInitialRows = (): Settings["rows"] => {
   if (typeof window === "undefined") return 3;
-  const saved = Number(window.localStorage.getItem(GRID_ROWS_KEY));
-  if (saved >= 1 && saved <= 6) {
-    return saved as Settings["rows"];
-  }
-  return 3;
+  return getStoredGridPreset();
 };
 
 export const getInitialListColumns = (): Settings["listColumns"] => {
@@ -432,6 +425,7 @@ export const getInitialSortKey = (): SortKey => {
     "buyCandidate",
     "buySignalLatest",
     "sellSignalLatest",
+    "volumeSurge",
     "ma20Dev",
     "ma60Dev",
     "ma20Slope",
@@ -494,4 +488,32 @@ export const getInitialPerformancePeriod = (): PerformancePeriod => {
 export const persistKeepList = (list: string[]) => {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(KEEP_STORAGE_KEY, JSON.stringify(list));
+};
+
+const normalizeGridPreset = (value: unknown) => {
+  const preset = Number(value);
+  if (!Number.isFinite(preset)) return null;
+  if (preset < 1 || preset > 5) return null;
+  return Math.floor(preset) as Settings["columns"];
+};
+
+export const getStoredGridPreset = () => {
+  if (typeof window === "undefined") return 3 as Settings["columns"];
+  const preset = normalizeGridPreset(window.localStorage.getItem(GRID_PRESET_KEY));
+  if (preset != null) return preset;
+  const legacyCols = normalizeGridPreset(window.localStorage.getItem(GRID_COLS_KEY));
+  const legacyRows = normalizeGridPreset(window.localStorage.getItem(GRID_ROWS_KEY));
+  if (legacyCols != null && legacyRows != null) {
+    return legacyCols === legacyRows ? legacyCols : (3 as Settings["columns"]);
+  }
+  if (legacyCols != null) return legacyCols;
+  if (legacyRows != null) return legacyRows;
+  return 3 as Settings["columns"];
+};
+
+export const persistGridPreset = (preset: Settings["columns"]) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(GRID_PRESET_KEY, String(preset));
+  window.localStorage.removeItem(GRID_COLS_KEY);
+  window.localStorage.removeItem(GRID_ROWS_KEY);
 };

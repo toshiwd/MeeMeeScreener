@@ -95,12 +95,12 @@ import {
   createDefaultTechFilter,
   createDefaultWalkforwardParams,
   extractErrorDetail,
-  gridColumnOptions,
-  gridRowOptions,
+  gridPresetOptions,
   mergeHealthStatus,
   normalizeHealthStatus,
-  rangeOptions,
   resolveGridRangeBars,
+  resolveGridVolumeSurgeRatio,
+  buildAvailableSectorOptions,
   resolveGridSignalSortScore,
   toWalkforwardParams
 } from "./grid/gridHelpers";
@@ -136,7 +136,6 @@ export default function GridView() {
   const keepList = useStore((state) => state.keepList);
   const addKeep = useStore((state) => state.addKeep);
   const removeKeep = useStore((state) => state.removeKeep);
-  const setColumns = useStore((state) => state.setColumns);
   const setRows = useStore((state) => state.setRows);
   const setSearch = useStore((state) => state.setSearch);
   const setGridScrollTop = useStore((state) => state.setGridScrollTop);
@@ -206,6 +205,7 @@ export default function GridView() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPanelMode, setSettingsPanelMode] = useState<"general" | "walkforward">("general");
+  const [settingsDetailsOpen, setSettingsDetailsOpen] = useState(false);
   const [dataDir, setDataDir] = useState("");
   const [dataDirInput, setDataDirInput] = useState("");
   const [dataDirLoading, setDataDirLoading] = useState(false);
@@ -502,18 +502,11 @@ export default function GridView() {
     void loadFavorites();
   }, [backendReady, favoritesLoaded, loadFavorites]);
 
-  // Derive available sectors from tickers
   const availableSectors = useMemo(() => {
-    const map = new Map<string, string>();
-    tickers.forEach((t) => {
-      if (t.sector33Code && t.sector33Name) {
-        map.set(t.sector33Code, t.sector33Name);
-      }
-    });
-    const list = Array.from(map.entries()).map(([code, name]) => ({ code, name }));
-    list.sort((a, b) => a.name.localeCompare(b.name, "ja"));
-    return list;
+    return buildAvailableSectorOptions(tickers);
   }, [tickers]);
+  const hasMeaningfulSectorOptions = availableSectors.length >= 2;
+  const activeSectorParam = hasMeaningfulSectorOptions ? sectorParam : null;
 
   const handleSectorSelect = useCallback((code: string | null) => {
     const params = new URLSearchParams(location.search);
@@ -525,6 +518,13 @@ export default function GridView() {
     navigate({ search: params.toString() });
     setSectorSortOpen(false);
   }, [location.search, navigate]);
+
+  useEffect(() => {
+    if (hasMeaningfulSectorOptions) return;
+    if (sortKey !== "sector") return;
+    setSortKey("code");
+    setSortDir("asc");
+  }, [hasMeaningfulSectorOptions, setSortDir, setSortKey, sortDir, sortKey]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -598,102 +598,67 @@ export default function GridView() {
     };
   }, []);
 
-  // Candidate sort sections (shown only on candidate screens)
-  const candidateSortSections = useMemo<SortSection[]>(
-    () => [
-      {
-        title: "買い候補",
-        options: [
-          { key: "entryPriority", label: "仕込み優先度(A/B/C)" },
-          { key: "buyCandidate", label: "買い候補(総合)" },
-          { key: "buySignalLatest", label: "最新買い判定", fixedDirection: "desc" },
-          { key: "swingScore", label: "スイング候補(総合)" },
-        ]
-      },
-      {
-        title: "売り候補",
-        options: [
-          { key: "shortPriority", label: "売り精度優先(A/B/C)" },
-          { key: "shortScore", label: "売り候補(総合)" },
-          { key: "aScore", label: "売り候補(反転確実)" },
-          { key: "bScore", label: "売り候補(戻り売り)" },
-          { key: "sellSignalLatest", label: "最新売り判定", fixedDirection: "desc" },
-        ]
-      },
-      {
-        title: "ML",
-        options: [
-          { key: "mlEv20Net", label: "期待値(20D)" },
-          { key: "mlPUpShort", label: "上昇確率(短期)" },
-          { key: "mlPDownShort", label: "下落確率(短期)" }
-        ]
-      }
-    ],
-    []
-  );
-
-  // Basic sort sections (shown on non-candidate screens)
-  const basicSortSections = useMemo<SortSection[]>(
+  const mainSortSections = useMemo<SortSection[]>(
     () => [
       {
         title: "基本",
         options: [
-          { key: "code", label: "コード" },
-          { key: "name", label: "銘柄名" },
-          { key: "sector", label: "業種" }
+          { key: "code", label: "コード順", defaultDirection: "asc" },
+          { key: "chg1D", label: "騰落順", defaultDirection: "desc" },
+          { key: "volumeSurge", label: "出来高急増順", fixedDirection: "desc" }
         ]
-      },
-      {
-        title: "テクニカル",
-        options: [
-          { key: "buySignalLatest", label: "最新買い判定", fixedDirection: "desc" },
-          { key: "sellSignalLatest", label: "最新売り判定", fixedDirection: "desc" },
-          { key: "ma20Dev", label: "乖離率(MA20)" },
-          { key: "ma60Dev", label: "乖離率(MA60)" },
-          { key: "ma20Slope", label: "MA20傾き" },
-          { key: "ma60Slope", label: "MA60傾き" },
-        ]
-      },
-      {
-        title: "パフォーマンス",
-        options: [
-          { key: "chg1D", label: "単純騰落(1D)", fixedDirection: "desc" },
-          { key: "chg1W", label: "単純騰落(1W)", fixedDirection: "desc" },
-          { key: "chg1M", label: "単純騰落(1M)", fixedDirection: "desc" },
-          { key: "chg1Q", label: "単純騰落(1Q)", fixedDirection: "desc" },
-          { key: "chg1Y", label: "単純騰落(1Y)", fixedDirection: "desc" },
-          { key: "performance", label: "騰落率(期間選択)" }
-        ]
-      },
-      {
-        title: "スコア",
-        options: [
-          { key: "upScore", label: "上昇スコア" },
-          { key: "downScore", label: "下落スコア" },
-          { key: "overheatUp", label: "過熱(上)" },
-          { key: "overheatDown", label: "過熱(下)" },
-        ]
-      },
-      {
-        title: "ML",
-        options: [
-          { key: "mlEv20Net", label: "期待値(20D)" },
-          { key: "mlPUpShort", label: "上昇確率(短期)" },
-          { key: "mlPDownShort", label: "下落確率(短期)" }
-        ]
-      },
-      {
-        title: "ボックス",
-        options: [{ key: "boxState", label: "ボックス状態" }]
       }
     ],
     []
   );
 
-  // Legacy combined sortSections (for backward compatibility in sorting logic)
+  const detailSortSections = useMemo<SortSection[]>(
+    () => [
+      {
+        title: "詳細",
+        options: [
+          { key: "name", label: "銘柄名", defaultDirection: "asc" },
+          { key: "buySignalLatest", label: "最新買い判定", fixedDirection: "desc" },
+          { key: "sellSignalLatest", label: "最新売り判定", fixedDirection: "desc" },
+          { key: "entryPriority", label: "仕込み優先度(A/B/C)" },
+          { key: "buyCandidate", label: "買い候補(総合)" },
+          { key: "swingScore", label: "スイング候補(総合)" },
+          { key: "shortPriority", label: "売り精度優先(A/B/C)" },
+          { key: "shortScore", label: "売り候補(総合)" },
+          { key: "aScore", label: "売り候補(反転確実)" },
+          { key: "bScore", label: "売り候補(戻り売り)" },
+          { key: "ma20Dev", label: "乖離率(MA20)" },
+          { key: "ma60Dev", label: "乖離率(MA60)" },
+          { key: "ma20Slope", label: "MA20傾き" },
+          { key: "ma60Slope", label: "MA60傾き" },
+          { key: "performance", label: "騰落率(期間選択)", defaultDirection: "desc" },
+          { key: "chg1W", label: "単純騰落(1W)", fixedDirection: "desc" },
+          { key: "chg1M", label: "単純騰落(1M)", fixedDirection: "desc" },
+          { key: "chg1Q", label: "単純騰落(1Q)", fixedDirection: "desc" },
+          { key: "chg1Y", label: "単純騰落(1Y)", fixedDirection: "desc" },
+          { key: "prevWeekChg", label: "前週比" },
+          { key: "prevMonthChg", label: "前月比" },
+          { key: "prevQuarterChg", label: "前四半期比" },
+          { key: "prevYearChg", label: "前年差" },
+          { key: "upScore", label: "上昇スコア" },
+          { key: "downScore", label: "下落スコア" },
+          { key: "overheatUp", label: "過熱(上)" },
+          { key: "overheatDown", label: "過熱(下)" },
+          { key: "mlEv20Net", label: "期待値(20D)" },
+          { key: "mlPUpShort", label: "上昇確率(短期)" },
+          { key: "mlPDownShort", label: "下落確率(短期)" },
+          { key: "boxState", label: "ボックス状態" }
+        ].concat(
+          hasMeaningfulSectorOptions ? [{ key: "sector", label: "業種", defaultDirection: "asc" }] : []
+        )
+      }
+    ],
+    [hasMeaningfulSectorOptions]
+  );
+
   const sortSections = useMemo<SortSection[]>(
-    () => [...candidateSortSections, ...basicSortSections],
-    [candidateSortSections, basicSortSections]
+    () => [...mainSortSections, ...detailSortSections],
+    [mainSortSections, detailSortSections]
   );
 
   const sortOptions = useMemo(
@@ -735,11 +700,15 @@ export default function GridView() {
     setOpenSortSections(Array.from(next).filter(Boolean));
   }, [sortOpen, visibleSortSections, sortKey]);
 
-  const defaultSortLabel = "コード";
+  const defaultSortLabel = "コード順";
   const sortLabel = useMemo(
     () => sortOptions.find((option) => option.key === sortKey)?.label ?? defaultSortLabel,
     [sortOptions, sortKey]
   );
+
+  const gridPresetLabel = useMemo(() => {
+    return gridPresetOptions.find((item) => item.value === rows)?.label ?? `${rows}×${columns}`;
+  }, [rows, columns]);
 
   const sortDirLabel = sortDir === "desc" ? "降順" : "昇順";
   const txtUpdateCanCancel = Boolean(
@@ -826,17 +795,17 @@ export default function GridView() {
   }, [tickers, search]);
 
   const sectorFiltered = useMemo(() => {
-    if (!sectorParam) return searchFiltered;
-    return searchFiltered.filter((item) => item.sector33Code === sectorParam);
-  }, [searchFiltered, sectorParam]);
+    if (!activeSectorParam) return searchFiltered;
+    return searchFiltered.filter((item) => item.sector33Code === activeSectorParam);
+  }, [activeSectorParam, searchFiltered]);
 
   const sectorLabel = useMemo(() => {
-    if (!sectorParam) return null;
+    if (!activeSectorParam) return null;
     const match = tickers.find(
-      (item) => item.sector33Code === sectorParam && item.sector33Name
+      (item) => item.sector33Code === activeSectorParam && item.sector33Name
     );
-    return match?.sector33Name ?? sectorParam;
-  }, [sectorParam, tickers]);
+    return match?.sector33Name ?? activeSectorParam;
+  }, [activeSectorParam, tickers]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -1177,6 +1146,8 @@ export default function GridView() {
         sortValue = resolveGridSignalSortScore(item.metrics, ticker.liquidity20d, "up");
       } else if (activeKey === "sellSignalLatest") {
         sortValue = resolveGridSignalSortScore(item.metrics, ticker.liquidity20d, "down");
+      } else if (activeKey === "volumeSurge") {
+        sortValue = resolveGridVolumeSurgeRatio(bars, 20);
       } else if (activeKey === "performance") {
         // Use selected performance period
         switch (performancePeriod) {
@@ -2485,6 +2456,7 @@ export default function GridView() {
         label: "再実行",
         onClick: () => {
           setSettingsPanelMode("general");
+          setSettingsDetailsOpen(true);
           setSettingsOpen(true);
           void handleAnalysisBatchPrewarm();
         }
@@ -2494,6 +2466,7 @@ export default function GridView() {
         label: "再実行",
         onClick: () => {
           setSettingsPanelMode("walkforward");
+          setSettingsDetailsOpen(true);
           setSettingsOpen(true);
           void handleRunWalkforward();
         }
@@ -2638,7 +2611,7 @@ export default function GridView() {
                                       setSortDir(sortDir === "asc" ? "desc" : "asc");
                                     } else {
                                       setSortKey(opt.key);
-                                      setSortDir("desc");
+                                      setSortDir(opt.defaultDirection ?? "desc");
                                     }
                                     setSortOpen(false);
                                   }}
@@ -2674,44 +2647,19 @@ export default function GridView() {
                   {displayOpen && (
                     <div className="popover-panel">
                       <div className="popover-section">
-                        <div className="popover-title">行数</div>
-                        <div className="segmented">
-                          {gridRowOptions.map((r) => (
+                        <div className="popover-title">グリッド</div>
+                        <div className="segmented segmented-grid-preset">
+                          {gridPresetOptions.map((preset) => (
                             <button
-                              key={r}
-                              className={rows === r ? "active" : ""}
-                              onClick={() => setRows(r)}
+                              key={preset.value}
+                              className={rows === preset.value && columns === preset.value ? "active" : ""}
+                              onClick={() => setRows(preset.value)}
                             >
-                              {r}
+                              {preset.label}
                             </button>
                           ))}
                         </div>
-                      </div>
-                      <div className="popover-section">
-                        <div className="popover-title">列数</div>
-                        <div className="segmented">
-                          {gridColumnOptions.map((c) => (
-                            <button
-                              key={c}
-                              className={columns === c ? "active" : ""}
-                              onClick={() => setColumns(c)}
-                            >
-                              {c}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="popover-section">
-                        <button
-                          className="popover-item"
-                          onClick={() => {
-                            setRows(3);
-                            setColumns(3);
-                            setDisplayOpen(false);
-                          }}
-                        >
-                          <span className="popover-item-label">3x3に戻す</span>
-                        </button>
+                        <div className="popover-note">表示本数: {listRangeBars}本</div>
                       </div>
                       <div className="popover-section">
                         <div className="popover-title">表示オプション</div>
@@ -2818,6 +2766,7 @@ export default function GridView() {
                     onClick={() => {
                       const alreadyOpen = settingsOpen && settingsPanelMode === "general";
                       setSettingsPanelMode("general");
+                      setSettingsDetailsOpen(false);
                       setSettingsOpen(!alreadyOpen);
                       setSortOpen(false);
                       setDisplayOpen(false);
@@ -2826,7 +2775,7 @@ export default function GridView() {
                   />
                   {settingsOpen && (
                     <div
-                      className="popover-panel popover-right-aligned"
+                      className="popover-panel popover-right-aligned settings-popover-panel"
                       style={{ right: 0, maxHeight: "calc(100vh - 96px)", overflowY: "auto" }}
                     >
                       {settingsPanelMode === "general" && (
@@ -2850,102 +2799,136 @@ export default function GridView() {
                               </button>
                             </div>
                           </div>
-                          <div className="popover-section">
-                            <div className="popover-title">取引CSV</div>
-                            <button
-                              type="button"
-                              className="popover-item"
-                              onClick={handleTradeCsvPick}
-                              disabled={tradeUploadInFlight}
-                            >
-                              <span className="popover-item-label">
-                                <IconUpload size={16} />
-                                <span>{tradeUploadInFlight ? "取り込み中..." : "CSV取り込み"}</span>
-                              </span>
-                              <span className="popover-status">手動</span>
-                            </button>
-                            <button
-                              type="button"
-                              className="popover-item"
-                              onClick={handleForceTradeSync}
-                              disabled={tradeSyncInFlight}
-                            >
-                              <span className="popover-item-label">
-                                <IconRefresh size={16} />
-                                <span>{tradeSyncInFlight ? "同期中..." : "強制同期(全件取込)"}</span>
-                              </span>
-                              <span className="popover-status">強制</span>
-                            </button>
-                            <div className="popover-hint">
-                              保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
-                            </div>
-                          </div>
-                          <div className="popover-section">
-                            <div className="popover-title">MM_DATA_DIR</div>
+                          <div className="popover-section settings-detail-toggle-section">
+                            <div className="popover-title">詳細設定 / 運用</div>
                             <div className="popover-input-row">
-                              <input
-                                type="text"
-                                className="popover-input"
-                                placeholder="%LOCALAPPDATA%\\MeeMeeScreener\\data"
-                                value={dataDirInput}
-                                onChange={(event) => setDataDirInput(event.target.value)}
-                              />
+                              <button
+                                type="button"
+                                className={`popover-item ${settingsDetailsOpen ? "active" : ""}`}
+                                onClick={() => setSettingsDetailsOpen((current) => !current)}
+                              >
+                                <span className="popover-item-label">
+                                  <IconRefresh size={16} />
+                                  <span>{settingsDetailsOpen ? "折りたたむ" : "展開する"}</span>
+                                </span>
+                                <span className="popover-status">二段目</span>
+                              </button>
                               <button
                                 type="button"
                                 className="popover-item"
-                                disabled={dataDirSaving}
-                                onClick={handleDataDirSave}
+                                onClick={() => {
+                                  setSettingsPanelMode("walkforward");
+                                  setSettingsDetailsOpen(true);
+                                }}
                               >
-                                {dataDirSaving ? "保存中..." : "保存"}
+                                <span className="popover-item-label">
+                                  <IconFileText size={16} />
+                                  <span>ウォークフォワード</span>
+                                </span>
+                                <span className="popover-status">詳細</span>
                               </button>
                             </div>
-                            <div className="popover-hint">
-                              現在: {dataDir || (dataDirLoading ? "読み込み中..." : "未設定")}
-                            </div>
-                            {dataDirMessage && (
-                              <div className="popover-hint">{dataDirMessage}</div>
-                            )}
                           </div>
-                          <div className="popover-section">
-                            <div className="popover-title">TXT参照フォルダ</div>
-                            <div className="popover-hint">
-                              現在: {health?.pan_out_txt_dir ?? "未取得"}
-                            </div>
-                          </div>
-                          <div className="popover-section">
-                            <div className="popover-title">Phase</div>
-                            <button
-                              type="button"
-                              className="popover-item"
-                              onClick={handlePhaseRebuild}
-                              disabled={!backendReady}
-                            >
-                              <span className="popover-item-label">
-                                <IconFileText size={16} />
-                                <span>{"Phase\u518d\u8a08\u7b97"}</span>
-                              </span>
-                              <span className="popover-status">{"\u624b\u52d5"}</span>
-                            </button>
-                            <div className="popover-hint">{"\u901a\u5e38\u306f\u300c\u65e5\u6b21\u66f4\u65b0\u300d\u3067\u81ea\u52d5\u5b9f\u884c\u3055\u308c\u307e\u3059\u3002"}</div>
-                          </div>
-                          <div className="popover-section">
-                            <div className="popover-title">売買判定キャッシュ</div>
-                            <button
-                              type="button"
-                              className="popover-item"
-                              onClick={handleAnalysisBatchPrewarm}
-                              disabled={!backendReady || analysisBatchSubmitting}
-                            >
-                              <span className="popover-item-label">
-                                <IconRefresh size={16} />
-                                <span>{analysisBatchSubmitting ? "起動中..." : "最新判定を一括計算"}</span>
-                              </span>
-                              <span className="popover-status">手動</span>
-                            </button>
-                            <div className="popover-hint">
-                              最新営業日の ML/売り判定を全銘柄分まとめて再計算し、次回表示を速くします。
-                            </div>
-                          </div>
+                          {settingsDetailsOpen && (
+                            <>
+                              <div className="popover-section">
+                                <div className="popover-title">取引CSV</div>
+                                <button
+                                  type="button"
+                                  className="popover-item"
+                                  onClick={handleTradeCsvPick}
+                                  disabled={tradeUploadInFlight}
+                                >
+                                  <span className="popover-item-label">
+                                    <IconUpload size={16} />
+                                    <span>{tradeUploadInFlight ? "取り込み中..." : "CSV取り込み"}</span>
+                                  </span>
+                                  <span className="popover-status">手動</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="popover-item"
+                                  onClick={handleForceTradeSync}
+                                  disabled={tradeSyncInFlight}
+                                >
+                                  <span className="popover-item-label">
+                                    <IconRefresh size={16} />
+                                    <span>{tradeSyncInFlight ? "同期中..." : "強制同期(全件取込)"}</span>
+                                  </span>
+                                  <span className="popover-status">強制</span>
+                                </button>
+                                <div className="popover-hint">
+                                  保存先: %LOCALAPPDATA%\\MeeMeeScreener\\data\\
+                                </div>
+                              </div>
+                              <div className="popover-section">
+                                <div className="popover-title">MM_DATA_DIR</div>
+                                <div className="popover-input-row">
+                                  <input
+                                    type="text"
+                                    className="popover-input"
+                                    placeholder="%LOCALAPPDATA%\\MeeMeeScreener\\data"
+                                    value={dataDirInput}
+                                    onChange={(event) => setDataDirInput(event.target.value)}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="popover-item"
+                                    disabled={dataDirSaving}
+                                    onClick={handleDataDirSave}
+                                  >
+                                    {dataDirSaving ? "保存中..." : "保存"}
+                                  </button>
+                                </div>
+                                <div className="popover-hint">
+                                  現在: {dataDir || (dataDirLoading ? "読み込み中..." : "未設定")}
+                                </div>
+                                {dataDirMessage && (
+                                  <div className="popover-hint">{dataDirMessage}</div>
+                                )}
+                              </div>
+                              <div className="popover-section">
+                                <div className="popover-title">TXT参照フォルダ</div>
+                                <div className="popover-hint">
+                                  現在: {health?.pan_out_txt_dir ?? "未取得"}
+                                </div>
+                              </div>
+                              <div className="popover-section">
+                                <div className="popover-title">Phase</div>
+                                <button
+                                  type="button"
+                                  className="popover-item"
+                                  onClick={handlePhaseRebuild}
+                                  disabled={!backendReady}
+                                >
+                                  <span className="popover-item-label">
+                                    <IconFileText size={16} />
+                                    <span>{"Phase\u518d\u8a08\u7b97"}</span>
+                                  </span>
+                                  <span className="popover-status">{"\u624b\u52d5"}</span>
+                                </button>
+                                <div className="popover-hint">{"\u901a\u5e38\u306f\u300c\u65e5\u6b21\u66f4\u65b0\u300d\u3067\u81ea\u52d5\u5b9f\u884c\u3055\u308c\u307e\u3059\u3002"}</div>
+                              </div>
+                              <div className="popover-section">
+                                <div className="popover-title">売買判定キャッシュ</div>
+                                <button
+                                  type="button"
+                                  className="popover-item"
+                                  onClick={handleAnalysisBatchPrewarm}
+                                  disabled={!backendReady || analysisBatchSubmitting}
+                                >
+                                  <span className="popover-item-label">
+                                    <IconRefresh size={16} />
+                                    <span>{analysisBatchSubmitting ? "起動中..." : "最新判定を一括計算"}</span>
+                                  </span>
+                                  <span className="popover-status">手動</span>
+                                </button>
+                                <div className="popover-hint">
+                                  最新営業日の ML/売り判定を全銘柄分まとめて再計算し、次回表示を速くします。
+                                </div>
+                              </div>
+                            </>
+                          )}
                         </>
                       )}
                       {settingsPanelMode === "walkforward" && (
@@ -3553,84 +3536,73 @@ export default function GridView() {
                 </button>
               ))}
             </div>
-            <div className="segmented segmented-compact list-range">
-              {rangeOptions.map((option) => (
-                <button
-                  key={option.label}
-                  className={listRangeBars === option.count ? "active" : ""}
-                  onClick={() => setListRangeBars(option.count)}
-                >
-                  {option.label}
-                </button>
-              ))}
+            <div className="grid-preset-summary" aria-label="グリッド表示本数">
+              <span className="grid-preset-summary-label">{gridPresetLabel}</span>
+              <span className="grid-preset-summary-value">{listRangeBars}本</span>
             </div>
-            {sectorParam && (
+            {activeSectorParam && (
               <div className="sector-filter-chip">
-                <span>セクター: {sectorLabel ?? sectorParam}</span>
+                <span>セクター: {sectorLabel ?? activeSectorParam}</span>
                 <button type="button" onClick={clearSectorFilter}>
                   解除
                 </button>
               </div>
             )}
 
-            {/* Sector Sort/Filter Button */}
-            <div className="sector-sort-button" style={{ marginRight: 8, position: "relative" }} ref={sectorSortRef}>
-              <IconButton
-                icon={<IconBuildingArch size={18} />}
-                label={sectorLabel ? sectorLabel : "業種"}
-                variant="iconLabel"
-                tooltip="業種で絞り込み / 並び替え"
-                selected={sectorSortOpen || !!sectorParam}
-                onClick={() => {
-                  setSectorSortOpen(!sectorSortOpen);
-                  setSortOpen(false);
-                  setDisplayOpen(false);
-                  setSettingsOpen(false);
-                }}
-              />
-              {sectorSortOpen && (
-                <div className="popover-panel" style={{ width: 320, maxHeight: 500, overflowY: "auto" }}>
-                  <div className="popover-section">
-                    <div className="popover-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span>業種で絞り込み</span>
-                      {sectorParam && (
+            {hasMeaningfulSectorOptions && (
+              <div className="sector-sort-button" style={{ marginRight: 8, position: "relative" }} ref={sectorSortRef}>
+                <IconButton
+                  icon={<IconBuildingArch size={18} />}
+                  label={sectorLabel ? sectorLabel : "業種"}
+                  variant="iconLabel"
+                  tooltip="業種で絞り込み / 並び替え"
+                  selected={sectorSortOpen || !!activeSectorParam}
+                  onClick={() => {
+                    setSectorSortOpen(!sectorSortOpen);
+                    setSortOpen(false);
+                    setDisplayOpen(false);
+                    setSettingsOpen(false);
+                  }}
+                />
+                {sectorSortOpen && (
+                  <div className="popover-panel sector-sort-popover-panel">
+                    <div className="popover-section">
+                      <div className="popover-title sector-sort-title">
+                        <span>業種で絞り込み</span>
+                        {activeSectorParam && (
+                          <button
+                            type="button"
+                            className="text-button sector-sort-reset"
+                            onClick={() => handleSectorSelect(null)}
+                          >
+                            解除
+                          </button>
+                        )}
+                      </div>
+                      <div className="popover-grid sector-sort-grid">
                         <button
                           type="button"
-                          className="text-button"
-                          style={{ fontSize: 11, color: "var(--theme-text-muted)" }}
+                          className={`popover-item ${!activeSectorParam ? "active" : ""}`}
                           onClick={() => handleSectorSelect(null)}
                         >
-                          解除
+                          <span className="popover-item-label">すべて</span>
                         </button>
-                      )}
-                    </div>
-                    <div className="popover-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 4 }}>
-                      <button
-                        type="button"
-                        className={`popover-item ${!sectorParam ? "active" : ""}`}
-                        onClick={() => handleSectorSelect(null)}
-                        style={{ justifyContent: "center" }}
-                      >
-                        <span className="popover-item-label">すべて</span>
-                      </button>
-                      {availableSectors.map((sec) => (
-                        <button
-                          key={sec.code}
-                          type="button"
-                          className={`popover-item ${sectorParam === sec.code ? "active" : ""}`}
-                          onClick={() => handleSectorSelect(sec.code)}
-                          style={{ justifyContent: "flex-start", padding: "6px 8px" }}
-                        >
-                          <span className="popover-item-label" style={{ fontSize: 11 }}>{sec.name}</span>
-                        </button>
-                      ))}
+                        {availableSectors.map((sec) => (
+                          <button
+                            key={sec.code}
+                            type="button"
+                            className={`popover-item ${activeSectorParam === sec.code ? "active" : ""}`}
+                            onClick={() => handleSectorSelect(sec.code)}
+                          >
+                            <span className="popover-item-label">{sec.name}</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
-
-
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
             <div className="search-field list-search">
               <input

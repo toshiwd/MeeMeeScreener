@@ -2,7 +2,12 @@ import type { SortDir, SortKey } from "../../store";
 
 export type Timeframe = "monthly" | "weekly" | "daily";
 
-export type SortOption = { key: SortKey; label: string; fixedDirection?: SortDir };
+export type SortOption = {
+  key: SortKey;
+  label: string;
+  fixedDirection?: SortDir;
+  defaultDirection?: SortDir;
+};
 
 export type SortSection = { title: string; options: SortOption[] };
 

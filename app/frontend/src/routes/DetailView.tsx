@@ -27,6 +27,7 @@ import DetailChart, {
 } from "../components/DetailChart";
 import Toast from "../components/Toast";
 import IconButton from "../components/IconButton";
+import ScreenPanel from "../components/ScreenPanel";
 import SimilarSearchPanel from "../components/SimilarSearchPanel";
 import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
@@ -81,8 +82,6 @@ import {
   ANALYSIS_DECISION_WINDOW_BARS,
   buildMonthBoundaries,
   buildYearBoundaries,
-  DAILY_ROW_RATIO,
-  DEFAULT_WEEKLY_RATIO,
   MIN_WEEKLY_RATIO,
   MIN_MONTHLY_RATIO,
   MAX_EVENT_OFFSET_SEC,
@@ -144,6 +143,9 @@ import {
   findNearestCandleIndex,
   findNearestCandleTime,
 } from "./detail/detailHelpers";
+
+const DETAIL_DAILY_ROW_RATIO = 0.72;
+const DETAIL_DEFAULT_WEEKLY_RATIO = 0.64;
 
 const buildDetailMaLines = (candles: Candle[], settings: MaSetting[]) =>
   settings.map((setting) => {
@@ -479,7 +481,7 @@ export default function DetailView() {
   const [hasMoreMonthly, setHasMoreMonthly] = useState(true);
   const [showIndicators, setShowIndicators] = useState(false);
   const [maEditMode, setMaEditMode] = useState<"main" | "compare">("main");
-  const [weeklyRatio, setWeeklyRatio] = useState(DEFAULT_WEEKLY_RATIO);
+  const [weeklyRatio, setWeeklyRatio] = useState(DETAIL_DEFAULT_WEEKLY_RATIO);
   const [rangeMonths, setRangeMonths] = useState<number | null>(12);
   const [showTradesOverlay] = useState(true);
   const [showPnLPanel] = useState(true);
@@ -1687,8 +1689,98 @@ export default function DetailView() {
   );
   const hasSwingData = Boolean(swingPlan || swingDiagnostics);
   const showAnalysisPanel = analysisFetchEnabled;
-  const showMemoPanel = cursorMode && !compareCode && headerMode !== "analysis" && headerMode !== "financial";
-  const showRightPanel = showAnalysisPanel || showMemoPanel || showFinancialPanel;
+  const showMemoPanel =
+    cursorMode && !compareCode && headerMode !== "analysis" && headerMode !== "financial" && headerMode !== "draw";
+  const showDrawPanel = headerMode === "draw";
+  const showDrawInfoPanel = headerMode === "draw";
+  const showRightPanel = showAnalysisPanel || showMemoPanel || showFinancialPanel || showDrawInfoPanel;
+  const headerDrawToolControls = showDrawPanel ? (
+    <div className="detail-draw-toolbar">
+      <div className="detail-analysis-actions detail-draw-tools">
+        <IconButton
+          icon={<IconChartArrows size={18} />}
+          tooltip="時間ゾーン描画"
+          ariaLabel="時間ゾーン描画"
+          className="draw-tool-button"
+          selected={activeDrawTool === "timeZone"}
+          onClick={() => selectDrawTool("timeZone")}
+        />
+        <IconButton
+          icon={<IconBox size={18} />}
+          tooltip="四角描画"
+          ariaLabel="四角描画"
+          className="draw-tool-button"
+          selected={activeDrawTool === "drawBox"}
+          onClick={() => selectDrawTool("drawBox")}
+        />
+        <IconButton
+          icon={<span style={{ fontSize: 18, lineHeight: 1 }}>▭</span>}
+          tooltip="価格帯描画"
+          ariaLabel="価格帯描画"
+          className="draw-tool-button"
+          selected={activeDrawTool === "priceBand"}
+          onClick={() => selectDrawTool("priceBand")}
+        />
+        <IconButton
+          icon={<IconMinus size={18} />}
+          tooltip="水平線描画"
+          ariaLabel="水平線描画"
+          className="draw-tool-button"
+          selected={activeDrawTool === "horizontalLine"}
+          onClick={() => selectDrawTool("horizontalLine")}
+        />
+        <IconButton
+          icon={<IconTrash size={18} />}
+          tooltip="描画をリセット"
+          ariaLabel="描画をリセット"
+          onClick={resetAllDrawings}
+        />
+      </div>
+      {activeDrawTool !== null && (
+        <div className="detail-analysis-actions detail-draw-adjustments">
+          <IconButton
+            icon={
+              <span
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 999,
+                  background: activeDrawColor,
+                  display: "inline-block",
+                  border: "1px solid rgba(0,0,0,0.2)"
+                }}
+              />
+            }
+            tooltip="描画色を変更"
+            ariaLabel="描画色を変更"
+            onClick={() =>
+              setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)
+            }
+          />
+          <input
+            type="range"
+            min={0.1}
+            max={1}
+            step={0.05}
+            value={activeLineOpacity}
+            title="不透明度"
+            style={{ width: 60 }}
+            onChange={(event) => setActiveLineOpacity(Number(event.target.value))}
+          />
+          <input
+            type="range"
+            min={1}
+            max={6}
+            step={0.5}
+            value={activeLineWidth}
+            title="太さ"
+            style={{ width: 60 }}
+            onChange={(event) => setActiveLineWidth(Number(event.target.value))}
+          />
+        </div>
+      )}
+    </div>
+  ) : null;
 
   useEffect(() => {
     if (!backendReady || !showAnalysisPanel) {
@@ -4206,415 +4298,252 @@ export default function DetailView() {
     () => stateEvalDisplayReasons.map(classifyStateEvalPriorReason).find(Boolean) ?? null,
     [stateEvalDisplayReasons]
   );
-  const showDrawSettings = headerMode === "draw" && activeDrawTool !== null;
-  const chartActionControls = (
-    <div className="detail-controls-group detail-controls-icons">
-      <IconButton
-        label="スクショ"
-        icon={<IconCamera size={18} />}
-        disabled={screenshotBusy}
-        tooltip="スクショ"
-        onClick={async () => {
-          if (screenshotBusy) return;
-          setScreenshotBusy(true);
-          setToastAction(null);
-          try {
-            const screenType = getScreenType(location.pathname);
-            const result = await captureAndCopyScreenshot({ screenType, code });
-            if (!result.success) {
-              setToastMessage(result.error ?? "スクショに失敗しました");
-              return;
-            }
+  const headerScreenshotButton = (
+    <IconButton
+      label="スクショ"
+      icon={<IconCamera size={18} />}
+      variant="iconLabel"
+      disabled={screenshotBusy}
+      tooltip="スクショ"
+      className="screenshot-button"
+      onClick={async () => {
+        if (screenshotBusy) return;
+        setScreenshotBusy(true);
+        setToastAction(null);
+        try {
+          const screenType = getScreenType(location.pathname);
+          const result = await captureAndCopyScreenshot({ screenType, code });
+          if (!result.success) {
+            setToastMessage(result.error ?? "スクショに失敗しました");
+            return;
+          }
 
-            const handleSaveSuccess = (saveResult: { success: boolean, savedPath?: string, savedDir?: string, error?: string }) => {
-              if (saveResult.savedPath || saveResult.savedDir) {
-                setToastMessage("スクショを保存しました");
-                setToastAction({
-                  label: "フォルダを開く",
-                  onClick: async () => {
-                    if (window.pywebview?.api?.open_path) {
-                      const target = saveResult.savedPath || saveResult.savedDir;
-                      if (target) {
-                        await window.pywebview.api.open_path(target);
-                      }
+          const handleSaveSuccess = (saveResult: { success: boolean, savedPath?: string, savedDir?: string, error?: string }) => {
+            if (saveResult.savedPath || saveResult.savedDir) {
+              setToastMessage("スクショを保存しました");
+              setToastAction({
+                label: "フォルダを開く",
+                onClick: async () => {
+                  if (window.pywebview?.api?.open_path) {
+                    const target = saveResult.savedPath || saveResult.savedDir;
+                    if (target) {
+                      await window.pywebview.api.open_path(target);
                     }
                   }
-                });
-              } else {
-                // Fallback for browser download or missing path
-                setToastMessage("スクショを保存しました（保存のみ）");
-                setToastAction(null);
-              }
-            };
-
-            if (result.copied) {
-              // Clipboard copy succeeded - show toast with save action
-              const blob = result.blob!;
-              const filename = result.filename!;
-              setToastMessage("スクショをクリップボードにコピーしました");
-              setToastAction({
-                label: "保存...",
-                onClick: async () => {
-                  const saveResult = await saveBlobToFile(blob, filename);
-                  if (saveResult.success) {
-                    handleSaveSuccess(saveResult);
-                  } else {
-                    setToastMessage(saveResult.error || "保存に失敗しました");
-                    setToastAction(null);
-                  }
-                },
+                }
               });
             } else {
-              // Clipboard failed - fallback to save
-              setToastMessage("クリップボードにコピーできなかったため保存しました");
+              setToastMessage("スクショを保存しました（保存のみ）");
               setToastAction(null);
-              if (result.blob && result.filename) {
-                const saveResult = await saveBlobToFile(result.blob, result.filename);
+            }
+          };
+
+          if (result.copied) {
+            const blob = result.blob!;
+            const filename = result.filename!;
+            setToastMessage("スクショをクリップボードにコピーしました");
+            setToastAction({
+              label: "保存...",
+              onClick: async () => {
+                const saveResult = await saveBlobToFile(blob, filename);
                 if (saveResult.success) {
                   handleSaveSuccess(saveResult);
                 } else {
                   setToastMessage(saveResult.error || "保存に失敗しました");
                   setToastAction(null);
                 }
-              }
-            }
-          } finally {
-            setScreenshotBusy(false);
-          }
-        }}
-      />
-      <IconButton
-        label="AI出力"
-        icon={<IconSparkles size={18} />}
-        tooltip="AI出力"
-        onClick={async () => {
-          let dailyMemos: Record<string, string> = {};
-          if (code) {
-            try {
-              const memoRes = await api.get("/memo/list", {
-                params: { symbol: code, timeframe: "D" }
-              });
-              const items = memoRes.data?.items;
-              if (Array.isArray(items)) {
-                items.forEach((item: { date?: string; memo?: string }) => {
-                  const rawDate = (item?.date ?? "").trim();
-                  if (!rawDate) return;
-                  const normalized = rawDate.replace(/\//g, "-");
-                  dailyMemos[normalized] = item.memo ?? "";
-                });
-              }
-            } catch {
-              dailyMemos = {};
-            }
-          }
-
-          const weeklyVolumeCounts = new Map<number, number>();
-          dailyCandles.forEach((candle) => {
-            if (!dailyVolumeByTime.has(candle.time)) return;
-            const date = new Date(candle.time * 1000);
-            const day = date.getUTCDay();
-            const diff = (day + 6) % 7;
-            const weekStart = Date.UTC(
-              date.getUTCFullYear(),
-              date.getUTCMonth(),
-              date.getUTCDate() - diff
-            );
-            const key = Math.floor(weekStart / 1000);
-            weeklyVolumeCounts.set(key, (weeklyVolumeCounts.get(key) ?? 0) + 1);
-          });
-          const weeklyVolumeMap = new Map<number, number | null>();
-          weeklyVolume.forEach((item) => {
-            const count = weeklyVolumeCounts.get(item.time) ?? 0;
-            weeklyVolumeMap.set(item.time, count > 0 ? item.value : null);
-          });
-          const monthlyVolumeSums = new Map<number, number>();
-          dailyCandles.forEach((candle) => {
-            const volume = dailyVolumeByTime.get(candle.time);
-            if (volume == null || !Number.isFinite(volume)) return;
-            const date = new Date(candle.time * 1000);
-            const monthStart = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
-            const key = Math.floor(monthStart / 1000);
-            monthlyVolumeSums.set(key, (monthlyVolumeSums.get(key) ?? 0) + volume);
-          });
-          const monthlyVolumeMap = new Map<number, number>();
-          monthlyCandles.forEach((candle) => {
-            const sum = monthlyVolumeSums.get(candle.time);
-            monthlyVolumeMap.set(candle.time, Number.isFinite(sum) ? Math.round(sum ?? 0) : 0);
-          });
-          const exportData = buildAIExport({
-            code: code ?? "",
-            name: tickerName,
-            visibleTimeframe: "daily",
-            rangeMonths: rangeMonths,
-            dailyBars: dailyCandles.map((c) => ({
-              time: c.time,
-              open: c.open,
-              high: c.high,
-              low: c.low,
-              close: c.close,
-              volume: dailyVolumeByTime.get(c.time) ?? null
-            })),
-            weeklyBars: weeklyCandles.map((c) => ({
-              time: c.time,
-              open: c.open,
-              high: c.high,
-              low: c.low,
-              close: c.close,
-              volume: weeklyVolumeMap.get(c.time) ?? null
-            })),
-            monthlyBars: monthlyCandles.map((c) => ({
-              time: c.time,
-              open: c.open,
-              high: c.high,
-              low: c.low,
-              close: c.close,
-              volume: monthlyVolumeMap.get(c.time) ?? null
-            })),
-            maSettings,
-            signals: dailySignals,
-            showBoxes,
-            showPositions: showTradesOverlay,
-            boxes,
-            dailyMemos,
-            currentPositions,
-          });
-          const copied = await copyToClipboard(exportData.markdown);
-          if (copied) {
-            setToastMessage("AI用銘柄情報をクリップボードにコピーしました");
+              },
+            });
           } else {
-            setToastMessage("クリップボードへのコピーに失敗しました");
+            setToastMessage("クリップボードにコピーできなかったため保存しました");
+            setToastAction(null);
+            if (result.blob && result.filename) {
+              const saveResult = await saveBlobToFile(result.blob, result.filename);
+              if (saveResult.success) {
+                handleSaveSuccess(saveResult);
+              } else {
+                setToastMessage(saveResult.error || "保存に失敗しました");
+                setToastAction(null);
+              }
+            }
           }
-        }}
-      />
-      <IconButton
-        label={analysisRecalcDisabled ? "判定更新" : "再計算"}
-        icon={<IconRefresh size={18} />}
-        disabled={
-          (!analysisRecalcDisabled && analysisAsOfTime == null) ||
-          analysisBackfillActive ||
-          analysisRecalcSubmitting != null
+        } finally {
+          setScreenshotBusy(false);
         }
-        tooltip={
-          analysisRecalcDisabled
-            ? "現在の基準日で売買判定を更新"
-            : "基準日を中心に130本分の解析を再計算"
-        }
-        onClick={() => {
-          void submitAnalysisRecalc();
-        }}
-      />
-      <IconButton
-        label="類似"
-        icon={<IconChartArrows size={18} />}
-        tooltip="類似チャート検索"
-        onClick={() => setShowSimilar(true)}
-      />
+      }}
+    />
+  );
+  const headerRangeControls = (
+    <div className="detail-summary-center">
+      <div className="segmented detail-range">
+        {RANGE_PRESETS.map((preset) => (
+          <button
+            key={preset.label}
+            className={rangeMonths === preset.months ? "active" : ""}
+            onClick={() => toggleRange(preset.months)}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
-  const headerControls = (
-    <>
-      <div className="detail-controls-group">
-        <div className="segmented detail-range">
-          {RANGE_PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              className={rangeMonths === preset.months ? "active" : ""}
-              onClick={() => toggleRange(preset.months)}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-        {canShowPhase && headerMode !== "analysis" && (
-          <div className="detail-phase is-open">
-            <div className="detail-phase-metrics">
-              <span
-                className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                  phaseScores?.bodyScore ?? null
-                )}`}
-              >
-                中盤 {formatPhaseScore(phaseScores?.bodyScore ?? null)}
-              </span>
-              <span
-                className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                  phaseScores?.earlyScore ?? null
-                )}`}
-              >
-                序盤 {formatPhaseScore(phaseScores?.earlyScore ?? null)}
-              </span>
-              <span
-                className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                  phaseScores?.lateScore ?? null
-                )}`}
-              >
-                終盤 {formatPhaseScore(phaseScores?.lateScore ?? null)}
-              </span>
-              <div className="detail-phase-reasons">
-                {phaseReasons.length ? (
-                  phaseReasons.map((reason) => (
-                    <span key={reason} className="detail-phase-reason">
-                      {reason}
-                    </span>
-                  ))
-                ) : (
-                  <span className="detail-phase-empty">--</span>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="detail-controls-group">
-        <div className="popover-anchor" ref={displayRef}>
-          <IconButton
-            icon={<IconAdjustments size={18} />}
-            label="表示"
-            variant="iconLabel"
-            tooltip="表示設定"
-            ariaLabel="表示設定メニューを開く"
-            selected={displayOpen}
-            onClick={() => setDisplayOpen((prev) => !prev)}
-          />
-          {displayOpen && (
-            <div className="popover-panel">
-              <div className="popover-section">
-                <div className="popover-title">表示</div>
-                <button
-                  type="button"
-                  className={`popover-item ${showBoxes ? "active" : ""}`}
-                  onClick={() => setShowBoxes(!showBoxes)}
-                >
-                  <span className="popover-item-label">Boxes</span>
-                  {showBoxes && <span className="popover-check">ON</span>}
-                </button>
-                <button
-                  type="button"
-                  className={`popover-item ${showGapBands ? "active" : ""}`}
-                  onClick={() => setShowGapBands((prev) => !prev)}
-                >
-                  <span className="popover-item-label">窓</span>
-                  {showGapBands && <span className="popover-check">ON</span>}
-                </button>
-                <button
-                  type="button"
-                  className={`popover-item ${showVolumeEnabled ? "active" : ""}`}
-                  onClick={() => setShowVolumeEnabled((prev) => !prev)}
-                >
-                  <span className="popover-item-label">出来高</span>
-                  {showVolumeEnabled && <span className="popover-check">ON</span>}
-                </button>
-                <button
-                  type="button"
-                  className={`popover-item ${showDecisionMarkers ? "active" : ""}`}
-                  onClick={() => setShowDecisionMarkers((prev) => !prev)}
-                >
-                  <span className="popover-item-label">判定マーカー</span>
-                  {showDecisionMarkers && <span className="popover-check">ON</span>}
-                </button>
-                <button
-                  type="button"
-                  className={`popover-item ${showTdnetMarkers ? "active" : ""}`}
-                  onClick={() => setShowTdnetMarkers((prev) => !prev)}
-                >
-                  <span className="popover-item-label">TDNETマーカー</span>
-                  {showTdnetMarkers && <span className="popover-check">ON</span>}
-                </button>
-                <button
-                  type="button"
-                  className={`popover-item ${showTradeMarkers ? "active" : ""}`}
-                  onClick={() => setShowTradeMarkers((prev) => !prev)}
-                >
-                  <span className="popover-item-label">売買マーカー</span>
-                  {showTradeMarkers && <span className="popover-check">ON</span>}
-                </button>
-                <button
-                  type="button"
-                  className={`popover-item ${syncRanges ? "active" : ""}`}
-                  onClick={() => setSyncRanges((prev) => !prev)}
-                >
-                  <span className="popover-item-label">連動</span>
-                  {syncRanges && <span className="popover-check">ON</span>}
-                </button>
-                <button
-                  type="button"
-                  className={`popover-item ${cursorMode ? "active" : ""}`}
-                  onClick={toggleCursorMode}
-                >
-                  <span className="popover-item-label">カーソル</span>
-                  {cursorMode && <span className="popover-check">ON</span>}
-                </button>
-              </div>
-              <div className="popover-section">
-                <button type="button" className="popover-item" onClick={() => setShowIndicators(true)}>
-                  <span className="popover-item-label">MA/Indicators</span>
-                </button>
-              </div>
-              <div className="popover-section">
-                <button
-                  type="button"
-                  className="popover-item"
-                  disabled={deleteBusy || !code}
-                  onClick={() => {
-                    setDisplayOpen(false);
-                    handleDeleteTicker();
-                  }}
-                >
-                  <span className="popover-item-label">銘柄を削除</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="segmented detail-mode">
-          <button
-            className={headerMode === "chart" ? "active" : ""}
-            onClick={() => setHeaderMode("chart")}
-          >
-            チャート
-          </button>
-          <button
-            className={headerMode === "analysis" ? "active" : ""}
-            onClick={() => {
-              setHeaderMode("analysis");
-              if (!cursorMode) {
-                setCursorMode(true);
-                if (dailyCandles.length > 0) {
-                  updateSelectedBar(dailyCandles.length - 1);
-                }
+
+  const headerModeControls = (
+    <div className="detail-mode-bar">
+      <div className="segmented detail-mode">
+        <button
+          className={headerMode === "chart" ? "active" : ""}
+          onClick={() => setHeaderMode("chart")}
+        >
+          チャート
+        </button>
+        <button
+          className={headerMode === "analysis" ? "active" : ""}
+          onClick={() => {
+            setHeaderMode("analysis");
+            if (!cursorMode) {
+              setCursorMode(true);
+              if (dailyCandles.length > 0) {
+                updateSelectedBar(dailyCandles.length - 1);
               }
-            }}
-          >
-            分析
-          </button>
-          <button
-            className={headerMode === "financial" ? "active" : ""}
-            onClick={() => setHeaderMode("financial")}
-          >
-            財務
-          </button>
-          <button
-            className={headerMode === "draw" ? "active" : ""}
-            onClick={() => setHeaderMode("draw")}
-          >
-            描画
-          </button>
-          <button
-            onClick={() => {
-              if (code) navigate(`/practice/${code}`);
-            }}
-          >
-            練習          </button>
-          <button
-            className={headerMode === "positions" ? "active" : ""}
-            onClick={() => setHeaderMode("positions")}
-          >
-            建玉          </button>
-        </div>
+            }
+          }}
+        >
+          分析
+        </button>
+        <button
+          className={headerMode === "financial" ? "active" : ""}
+          onClick={() => setHeaderMode("financial")}
+        >
+          財務
+        </button>
+        <button
+          className={headerMode === "draw" ? "active" : ""}
+          onClick={() => setHeaderMode("draw")}
+        >
+          描画
+        </button>
+        <button
+          onClick={() => {
+            if (code) navigate(`/practice/${code}`);
+          }}
+        >
+          練習
+        </button>
+        <button
+          className={headerMode === "positions" ? "active" : ""}
+          onClick={() => setHeaderMode("positions")}
+        >
+          建玉
+        </button>
       </div>
-      {(headerMode === "chart" || headerMode === "analysis") && chartActionControls}
-    </>
+    </div>
   );
 
+  const headerDisplayMenu = (
+    <div className="popover-anchor" ref={displayRef}>
+      <IconButton
+        icon={<IconAdjustments size={18} />}
+        label="表示"
+        variant="iconLabel"
+        tooltip="表示設定"
+        ariaLabel="表示設定メニューを開く"
+        selected={displayOpen}
+        className="display-button"
+        onClick={() => setDisplayOpen((prev) => !prev)}
+      />
+      {displayOpen && (
+        <div className="popover-panel">
+          <div className="popover-section">
+            <div className="popover-title">表示</div>
+            <button
+              type="button"
+              className={`popover-item ${showBoxes ? "active" : ""}`}
+              onClick={() => setShowBoxes(!showBoxes)}
+            >
+              <span className="popover-item-label">Boxes</span>
+              {showBoxes && <span className="popover-check">ON</span>}
+            </button>
+            <button
+              type="button"
+              className={`popover-item ${showGapBands ? "active" : ""}`}
+              onClick={() => setShowGapBands((prev) => !prev)}
+            >
+              <span className="popover-item-label">窓</span>
+              {showGapBands && <span className="popover-check">ON</span>}
+            </button>
+            <button
+              type="button"
+              className={`popover-item ${showVolumeEnabled ? "active" : ""}`}
+              onClick={() => setShowVolumeEnabled((prev) => !prev)}
+            >
+              <span className="popover-item-label">出来高</span>
+              {showVolumeEnabled && <span className="popover-check">ON</span>}
+            </button>
+            <button
+              type="button"
+              className={`popover-item ${showDecisionMarkers ? "active" : ""}`}
+              onClick={() => setShowDecisionMarkers((prev) => !prev)}
+            >
+              <span className="popover-item-label">判定マーカー</span>
+              {showDecisionMarkers && <span className="popover-check">ON</span>}
+            </button>
+            <button
+              type="button"
+              className={`popover-item ${showTdnetMarkers ? "active" : ""}`}
+              onClick={() => setShowTdnetMarkers((prev) => !prev)}
+            >
+              <span className="popover-item-label">TDNETマーカー</span>
+              {showTdnetMarkers && <span className="popover-check">ON</span>}
+            </button>
+            <button
+              type="button"
+              className={`popover-item ${showTradeMarkers ? "active" : ""}`}
+              onClick={() => setShowTradeMarkers((prev) => !prev)}
+            >
+              <span className="popover-item-label">売買マーカー</span>
+              {showTradeMarkers && <span className="popover-check">ON</span>}
+            </button>
+            <button
+              type="button"
+              className={`popover-item ${syncRanges ? "active" : ""}`}
+              onClick={() => setSyncRanges((prev) => !prev)}
+            >
+              <span className="popover-item-label">連動</span>
+              {syncRanges && <span className="popover-check">ON</span>}
+            </button>
+            <button
+              type="button"
+              className={`popover-item ${cursorMode ? "active" : ""}`}
+              onClick={toggleCursorMode}
+            >
+              <span className="popover-item-label">カーソル</span>
+              {cursorMode && <span className="popover-check">ON</span>}
+            </button>
+          </div>
+          <div className="popover-section">
+            <button type="button" className="popover-item" onClick={() => setShowIndicators(true)}>
+              <span className="popover-item-label">MA/Indicators</span>
+            </button>
+          </div>
+          <div className="popover-section">
+            <button
+              type="button"
+              className="popover-item"
+              disabled={deleteBusy || !code}
+              onClick={() => {
+                setDisplayOpen(false);
+                handleDeleteTicker();
+              }}
+            >
+              <span className="popover-item-label">銘柄を削除</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className={`detail-shell ${focusPanel ? "detail-shell-focus" : ""}`}>
@@ -4630,17 +4559,40 @@ export default function DetailView() {
               </span>
               <span className="nav-label">一覧に戻る</span>
             </button>
-            <button className="back nav-button" onClick={() => navigate(-1)}>
-              <span className="nav-icon">
-                <IconArrowLeft size={16} />
-              </span>
-              <span className="nav-label">前画面</span>
-            </button>
           </div>
           <div className="detail-summary-main">
             <div className="detail-summary-title">
               <div className="detail-summary-code">{code}</div>
               {tickerName && <div className="detail-summary-name">{tickerName}</div>}
+              {dailySignals.length > 0 && (
+                <div className="popover-anchor detail-summary-signal-anchor" ref={signalsRef}>
+                  <IconButton
+                    icon={<IconSparkles size={16} />}
+                    tooltip={`シグナル ${dailySignals.length}`}
+                    ariaLabel={`シグナル ${dailySignals.length}`}
+                    selected={signalsOpen}
+                    className="detail-summary-signal-button"
+                    onClick={() => setSignalsOpen((prev) => !prev)}
+                  />
+                  {signalsOpen && (
+                    <div className="popover-panel detail-signals-popover">
+                      <div className="popover-section">
+                        <div className="popover-title">シグナル</div>
+                        <div className="detail-signals-inline">
+                          {dailySignals.map((signal) => (
+                            <span
+                              key={signal.label}
+                              className={`signal-chip ${signal.kind === "warning" ? "warning" : "achieved"}`}
+                            >
+                              {signal.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="detail-summary-status">
               {(rightsLabel || earningsLabel) && (
@@ -4649,38 +4601,8 @@ export default function DetailView() {
                   {earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
                 </div>
               )}
-              {dailySignals.length > 0 && (
-                <div className="detail-signals-inline summary-signals">
-                  <div className="popover-anchor" ref={signalsRef}>
-                    <button
-                      type="button"
-                      className="signal-chip"
-                      onClick={() => setSignalsOpen((prev) => !prev)}
-                    >
-                      シグナル {dailySignals.length}
-                    </button>
-                    {signalsOpen && (
-                      <div className="popover-panel">
-                        <div className="popover-section">
-                          <div className="popover-title">シグナル</div>
-                          <div className="detail-signals-inline">
-                            {dailySignals.map((signal) => (
-                              <span
-                                key={signal.label}
-                                className={`signal-chip ${signal.kind === 'warning' ? 'warning' : 'achieved'}`}
-                              >
-                                {signal.label}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
-            {stateEvalRow && (
+            {headerMode === "analysis" && stateEvalRow && (
               <div className="detail-ai-state-panel">
                 <div className="detail-ai-state-head">
                   <span className={`candidate-ai-badge is-${String(stateEvalRow.decision_3way || "wait")}`}>
@@ -4713,9 +4635,7 @@ export default function DetailView() {
               </div>
             )}
           </div>
-          {headerMode !== "draw" && (
-            <div className="detail-controls detail-summary-inline-controls">{headerControls}</div>
-          )}
+          {headerRangeControls}
           <div className="detail-summary-actions">
             <button
               type="button"
@@ -4754,287 +4674,15 @@ export default function DetailView() {
             </button>
           </div>
         </div>
-        {headerMode === "draw" && (
-          <div className="detail-controls detail-header-toolbar">
-            <div className="detail-controls-group">
-              <div className="segmented detail-range">
-                {RANGE_PRESETS.map((preset) => (
-                  <button
-                    key={preset.label}
-                    className={rangeMonths === preset.months ? "active" : ""}
-                    onClick={() => toggleRange(preset.months)}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-              {canShowPhase && headerMode !== "analysis" && (
-                <div className="detail-phase is-open">
-                  <div className="detail-phase-metrics">
-                    <span
-                      className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                        phaseScores?.bodyScore ?? null
-                      )}`}
-                    >
-                      中盤 {formatPhaseScore(phaseScores?.bodyScore ?? null)}
-                    </span>
-                    <span
-                      className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                        phaseScores?.earlyScore ?? null
-                      )}`}
-                    >
-                      序盤 {formatPhaseScore(phaseScores?.earlyScore ?? null)}
-                    </span>
-                    <span
-                      className={`detail-phase-score detail-phase-score--${getPhaseTone(
-                        phaseScores?.lateScore ?? null
-                      )}`}
-                    >
-                      終盤 {formatPhaseScore(phaseScores?.lateScore ?? null)}
-                    </span>
-                    <div className="detail-phase-reasons">
-                      {phaseReasons.length ? (
-                        phaseReasons.map((reason) => (
-                          <span key={reason} className="detail-phase-reason">
-                            {reason}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="detail-phase-empty">--</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="detail-controls-group">
-              <IconButton
-                icon={<IconChartArrows size={18} />}
-                tooltip="時間ゾーン描画"
-                ariaLabel="時間ゾーン描画"
-                className="draw-tool-button"
-                selected={activeDrawTool === "timeZone"}
-                onClick={() => selectDrawTool("timeZone")}
-              />
-              <IconButton
-                icon={<IconBox size={18} />}
-                tooltip="四角描画"
-                ariaLabel="四角描画"
-                className="draw-tool-button"
-                selected={activeDrawTool === "drawBox"}
-                onClick={() => selectDrawTool("drawBox")}
-              />
-              <IconButton
-                icon={<span style={{ fontSize: 18, lineHeight: 1 }}>▭</span>}
-                tooltip="価格帯描画"
-                ariaLabel="価格帯描画"
-                className="draw-tool-button"
-                selected={activeDrawTool === "priceBand"}
-                onClick={() => selectDrawTool("priceBand")}
-              />
-              <IconButton
-                icon={<IconMinus size={18} />}
-                tooltip="水平線描画"
-                ariaLabel="水平線描画"
-                className="draw-tool-button"
-                selected={activeDrawTool === "horizontalLine"}
-                onClick={() => selectDrawTool("horizontalLine")}
-              />
-              <IconButton
-                icon={<IconTrash size={18} />}
-                tooltip="描画をリセット"
-                ariaLabel="描画をリセット"
-                onClick={resetAllDrawings}
-              />
-            </div>
-            {showDrawSettings && (
-              <div className="detail-controls-group">
-                <IconButton
-                  icon={
-                    <span
-                      style={{
-                        width: 14,
-                        height: 14,
-                        borderRadius: 999,
-                        background: activeDrawColor,
-                        display: "inline-block",
-                        border: "1px solid rgba(0,0,0,0.2)"
-                      }}
-                    />
-                  }
-                  tooltip="描画色を変更"
-                  ariaLabel="描画色を変更"
-                  onClick={() =>
-                    setActiveDrawColorIndex((prev) => (prev + 1) % COLOR_PALETTE.length)
-                  }
-                />
-                <input
-                  type="range"
-                  min={0.1}
-                  max={1}
-                  step={0.05}
-                  value={activeLineOpacity}
-                  title="不透明度"
-                  style={{ width: 60 }}
-                  onChange={(event) => setActiveLineOpacity(Number(event.target.value))}
-                />
-                <input
-                  type="range"
-                  min={1}
-                  max={6}
-                  step={0.5}
-                  value={activeLineWidth}
-                  title="太さ"
-                  style={{ width: 60 }}
-                  onChange={(event) => setActiveLineWidth(Number(event.target.value))}
-                />
-              </div>
-            )}
-            <div className="detail-controls-group">
-              <div className="popover-anchor" ref={displayRef}>
-                <IconButton
-                  icon={<IconAdjustments size={18} />}
-                  label="表示"
-                  variant="iconLabel"
-                  tooltip="表示設定"
-                  ariaLabel="表示設定メニューを開く"
-                  selected={displayOpen}
-                  onClick={() => setDisplayOpen((prev) => !prev)}
-                />
-                {displayOpen && (
-                  <div className="popover-panel">
-                    <div className="popover-section">
-                      <div className="popover-title">表示</div>
-                      <button
-                        type="button"
-                        className={`popover-item ${showBoxes ? "active" : ""}`}
-                        onClick={() => setShowBoxes(!showBoxes)}
-                      >
-                        <span className="popover-item-label">Boxes</span>
-                        {showBoxes && <span className="popover-check">ON</span>}
-                      </button>
-                      <button
-                        type="button"
-                        className={`popover-item ${showGapBands ? "active" : ""}`}
-                        onClick={() => setShowGapBands((prev) => !prev)}
-                      >
-                        <span className="popover-item-label">窓</span>
-                        {showGapBands && <span className="popover-check">ON</span>}
-                      </button>
-                      <button
-                        type="button"
-                        className={`popover-item ${showVolumeEnabled ? "active" : ""}`}
-                        onClick={() => setShowVolumeEnabled((prev) => !prev)}
-                      >
-                        <span className="popover-item-label">出来高</span>
-                        {showVolumeEnabled && <span className="popover-check">ON</span>}
-                      </button>
-                      <button
-                        type="button"
-                        className={`popover-item ${showDecisionMarkers ? "active" : ""}`}
-                        onClick={() => setShowDecisionMarkers((prev) => !prev)}
-                      >
-                        <span className="popover-item-label">判定マーカー</span>
-                        {showDecisionMarkers && <span className="popover-check">ON</span>}
-                      </button>
-                      <button
-                        type="button"
-                        className={`popover-item ${showTdnetMarkers ? "active" : ""}`}
-                        onClick={() => setShowTdnetMarkers((prev) => !prev)}
-                      >
-                        <span className="popover-item-label">TDNETマーカー</span>
-                        {showTdnetMarkers && <span className="popover-check">ON</span>}
-                      </button>
-                      <button
-                        type="button"
-                        className={`popover-item ${showTradeMarkers ? "active" : ""}`}
-                        onClick={() => setShowTradeMarkers((prev) => !prev)}
-                      >
-                        <span className="popover-item-label">売買マーカー</span>
-                        {showTradeMarkers && <span className="popover-check">ON</span>}
-                      </button>
-                      <button
-                        type="button"
-                        className={`popover-item ${syncRanges ? "active" : ""}`}
-                        onClick={() => setSyncRanges((prev) => !prev)}
-                      >
-                        <span className="popover-item-label">連動</span>
-                        {syncRanges && <span className="popover-check">ON</span>}
-                      </button>
-                      <button
-                        type="button"
-                        className={`popover-item ${cursorMode ? "active" : ""}`}
-                        onClick={toggleCursorMode}
-                      >
-                        <span className="popover-item-label">カーソル</span>
-                        {cursorMode && <span className="popover-check">ON</span>}
-                      </button>
-                    </div>
-                    <div className="popover-section">
-                      <button
-                        type="button"
-                        className="popover-item"
-                        onClick={() => setShowIndicators(true)}
-                      >
-                        <span className="popover-item-label">MA/Indicators</span>
-                      </button>
-                    </div>
-                    <div className="popover-section">
-                      <button
-                        type="button"
-                        className="popover-item"
-                        disabled={deleteBusy || !code}
-                        onClick={() => {
-                          setDisplayOpen(false);
-                          handleDeleteTicker();
-                        }}
-                      >
-                        <span className="popover-item-label">銘柄を削除</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="segmented detail-mode">
-                <button
-                  className={headerMode === "chart" ? "active" : ""}
-                  onClick={() => setHeaderMode("chart")}
-                >
-                  チャート
-                </button>
-                <button
-                  className={headerMode === "analysis" ? "active" : ""}
-                  onClick={() => setHeaderMode("analysis")}
-                >
-                  分析
-                </button>
-                <button
-                  className={headerMode === "financial" ? "active" : ""}
-                  onClick={() => setHeaderMode("financial")}
-                >
-                  財務
-                </button>
-                <button
-                  className={headerMode === "draw" ? "active" : ""}
-                  onClick={() => setHeaderMode("draw")}
-                >
-                  描画
-                </button>
-                <button
-                  onClick={() => {
-                    if (code) navigate(`/practice/${code}`);
-                  }}
-                >
-                  練習                </button>
-                <button
-                  className={headerMode === "positions" ? "active" : ""}
-                  onClick={() => setHeaderMode("positions")}
-                >
-                  建玉                </button>
-              </div>
-            </div>
+        <div className="detail-topbar-row">
+          {headerModeControls}
+          <div className="detail-topbar-divider" aria-hidden="true" />
+          <div className="detail-topbar-actions">
+            {headerDisplayMenu}
+            {headerScreenshotButton}
+            {headerDrawToolControls}
           </div>
-        )}
+        </div>
       </div>
       {marketDataStatusMessage && (
         <div className={`detail-market-data-status ${marketDataStatusDelayed ? "is-delayed" : ""}`}>
@@ -5509,7 +5157,7 @@ export default function DetailView() {
             </div>
           ) : (
             <>
-              <div className="detail-row detail-row-top" style={{ flex: `${DAILY_ROW_RATIO} 1 0%` }}>
+              <div className="detail-row detail-row-top" style={{ flex: `${DETAIL_DAILY_ROW_RATIO} 1 0%` }}>
                 <div className="detail-pane-header">Daily</div>
                 <div
                   className="detail-chart detail-chart-focusable"
@@ -5577,7 +5225,7 @@ export default function DetailView() {
               </div>
               <div
                 className="detail-row detail-row-bottom"
-                style={{ flex: `${1 - DAILY_ROW_RATIO} 1 0%` }}
+                style={{ flex: `${1 - DETAIL_DAILY_ROW_RATIO} 1 0%` }}
                 ref={bottomRowRef}
               >
                 <div className="detail-pane" style={{ flex: `${weeklyRatio} 1 0%` }}>
@@ -5687,19 +5335,35 @@ export default function DetailView() {
             </>
           )}
         </div>
-        {showMemoPanel && (
+        {showDrawInfoPanel ? (
+          <div className="detail-draw-info-panel">
+            <DailyMemoPanel
+              code={code || ''}
+              selectedDate={selectedDate}
+              selectedBarData={selectedBarData}
+              {...(memoPanelData || {})}
+              title="描画"
+              cursorMode={cursorMode}
+              onToggleCursorMode={toggleCursorMode}
+              onPrevDay={moveToPrevDay}
+              onNextDay={moveToNextDay}
+              onCopyForConsult={handleCopyForConsult}
+            />
+          </div>
+        ) : showMemoPanel ? (
           <DailyMemoPanel
             code={code || ''}
             selectedDate={selectedDate}
             selectedBarData={selectedBarData}
             {...(memoPanelData || {})}
+            title="日足情報"
             cursorMode={cursorMode}
             onToggleCursorMode={toggleCursorMode}
             onPrevDay={moveToPrevDay}
             onNextDay={moveToNextDay}
             onCopyForConsult={handleCopyForConsult}
           />
-        )}
+        ) : null}
         {showAnalysisPanel && (
           <DetailAnalysisPanel
             analysisAsOfTime={analysisAsOfTime}
@@ -5742,6 +5406,10 @@ export default function DetailView() {
             formatPercentLabel={formatPercentLabel}
             formatNumber={formatNumber}
             formatSignedPercentLabel={formatSignedPercentLabel}
+            onSubmitAnalysisRecalc={() => {
+              void submitAnalysisRecalc();
+            }}
+            onOpenSimilar={() => setShowSimilar(true)}
           />
         )}
         {showAnalysisPanel && (

@@ -8,6 +8,7 @@ import type {
   AnalysisSwingSetupExpectancy,
   EnvironmentSummary,
 } from "./detailTypes";
+import ScreenPanel from "../../components/ScreenPanel";
 
 type AnalysisDecisionSummary = {
   tone: "up" | "down" | "neutral";
@@ -77,6 +78,8 @@ export type Props = {
   formatPercentLabel: FormatPercentLabel;
   formatNumber: FormatNumber;
   formatSignedPercentLabel: FormatSignedPercentLabel;
+  onSubmitAnalysisRecalc: () => void;
+  onOpenSimilar: () => void;
 };
 
 const formatSetupIntent = (side: "buy" | "sell", setupType?: string | null) => {
@@ -197,15 +200,35 @@ export function DetailAnalysisPanel(props: Props) {
     formatPercentLabel,
     formatNumber,
     formatSignedPercentLabel,
+    onSubmitAnalysisRecalc,
+    onOpenSimilar,
   } = props;
   const buyPolicy = analysisEntryPolicy?.up ?? null;
   const sellPolicy = analysisEntryPolicy?.down ?? null;
 
   return (
-    <div className="daily-memo-panel detail-analysis-panel">
-      <div className="memo-panel-header">
-        <h3>判定確認</h3>
-      </div>
+    <ScreenPanel
+      title="判定確認"
+      actions={
+        <div className="detail-analysis-actions">
+          <button
+            type="button"
+            className="detail-analysis-action-button"
+            onClick={onSubmitAnalysisRecalc}
+          >
+            再計算
+          </button>
+          <button
+            type="button"
+            className="detail-analysis-action-button"
+            onClick={onOpenSimilar}
+          >
+            類似
+          </button>
+        </div>
+      }
+      className="detail-analysis-panel"
+    >
       <div className="detail-analysis-body">
         {analysisDtLabel && (
           <div className="detail-analysis-meta">基準日 {analysisDtLabel}</div>
@@ -219,7 +242,7 @@ export function DetailAnalysisPanel(props: Props) {
         {canShowAnalysis ? (
           <>
             <div className="detail-analysis-section">
-              <div className="detail-analysis-section-title">売買サマリー</div>
+              <div className="detail-analysis-section-title">要約</div>
               <div className={`detail-analysis-regime detail-analysis-regime--${analysisDecision.tone}`}>
                 <div className="detail-analysis-call-head">
                   <span className={`detail-analysis-call-badge detail-analysis-call-badge--${analysisDecision.tone}`}>
@@ -314,6 +337,7 @@ export function DetailAnalysisPanel(props: Props) {
               {analysisSummaryLoading && (
                 <div className="detail-analysis-meta detail-analysis-provisional-note">一部データは暫定です。</div>
               )}
+              <div className="detail-analysis-section-title">詳細</div>
               {analysisPreparationVisible && analysisBackfillProgressLabel && (
                 <div className="detail-analysis-meta">{analysisBackfillProgressLabel}</div>
               )}
@@ -355,7 +379,7 @@ export function DetailAnalysisPanel(props: Props) {
             </div>
             {hasSwingData && (
               <div className="detail-analysis-section">
-                <div className="detail-analysis-section-title">Swing Plan (10-25営業日)</div>
+                <div className="detail-analysis-section-title">追加情報</div>
                 {swingPlan ? (
                   <>
                     <div className="detail-analysis-meta">
@@ -439,6 +463,6 @@ export function DetailAnalysisPanel(props: Props) {
             </button>
           </div>
       </div>
-    </div>
+    </ScreenPanel>
   );
 }

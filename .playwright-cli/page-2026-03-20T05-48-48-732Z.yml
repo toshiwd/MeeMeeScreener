@@ -1,0 +1,103 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e379]:
+    - generic [ref=e380]:
+      - generic [ref=e381]:
+        - generic [ref=e382]:
+          - button "一覧に戻る" [ref=e383] [cursor=pointer]:
+            - img [ref=e385]
+          - button "前の画面に戻る" [ref=e388] [cursor=pointer]:
+            - img [ref=e390]
+        - generic [ref=e393]:
+          - generic [ref=e394]:
+            - generic [ref=e395]: "1001"
+            - generic [ref=e396]: 日経225
+          - generic [ref=e397]: 練習
+        - generic [ref=e398]:
+          - generic [ref=e399]:
+            - combobox [ref=e400]:
+              - option "セッションを選択..." [selected]
+            - button "新規セッション" [ref=e401] [cursor=pointer]:
+              - img [ref=e403]
+            - button "新規セッション" [ref=e404] [cursor=pointer]:
+              - img [ref=e406]
+          - generic [ref=e407]:
+            - generic [ref=e408]: 未作成
+            - generic [ref=e409]: セッション未選択
+      - generic [ref=e410]:
+        - generic [ref=e411]:
+          - generic [ref=e412]:
+            - button "3M" [ref=e413] [cursor=pointer]
+            - button "6M" [ref=e414] [cursor=pointer]
+            - button "1Y" [ref=e415] [cursor=pointer]
+            - button "2Y" [ref=e416] [cursor=pointer]
+          - generic [ref=e417]: "--"
+        - generic [ref=e419]:
+          - button "1日戻る" [disabled] [ref=e420]:
+            - img [ref=e422]
+          - button "1日進む" [disabled] [ref=e424]:
+            - img [ref=e426]
+          - button "当日リセット" [disabled] [ref=e428]:
+            - img [ref=e430]
+          - button "スクショ" [ref=e433] [cursor=pointer]:
+            - img [ref=e435]
+          - button "出力 (JSON)" [ref=e438] [cursor=pointer]:
+            - img [ref=e440]
+          - button "AI出力" [ref=e444] [cursor=pointer]:
+            - img [ref=e446]
+          - button "パネルを開く" [ref=e448] [cursor=pointer]: ← パネル
+    - generic [ref=e452]:
+      - generic [ref=e453]:
+        - generic [ref=e454]: 日足
+        - generic [ref=e455]:
+          - table [ref=e459]:
+            - row [ref=e460]:
+              - cell
+              - cell [ref=e461]
+              - cell [ref=e465]
+            - row [ref=e469]:
+              - cell
+              - cell [ref=e470]
+              - cell [ref=e474]
+          - generic:
+            - generic: 建玉
+            - generic: 売0-買0
+            - generic: ネット0
+            - generic: 実 0 / 評 --
+            - generic: 株数 100
+          - generic [ref=e478]: "日足: Request failed with status code 503"
+      - generic [ref=e479]:
+        - generic [ref=e480]:
+          - generic [ref=e481]: 週足
+          - generic [ref=e482]:
+            - table [ref=e486]:
+              - row [ref=e487]:
+                - cell
+                - cell [ref=e488]
+                - cell [ref=e492]
+              - row [ref=e496]:
+                - cell
+                - cell [ref=e497]
+                - cell [ref=e501]
+            - generic [ref=e505]: "週足: Request failed with status code 503"
+        - generic [ref=e507]:
+          - generic [ref=e508]: 月足
+          - generic [ref=e509]:
+            - table [ref=e513]:
+              - row [ref=e514]:
+                - cell
+                - cell [ref=e515]
+                - cell [ref=e519]
+              - row [ref=e523]:
+                - cell
+                - cell [ref=e524]
+                - cell [ref=e528]
+            - generic [ref=e532]: "月足: Request failed with status code 503"

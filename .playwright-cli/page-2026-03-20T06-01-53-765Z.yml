@@ -1,0 +1,166 @@
+- generic [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button "一覧に戻る" [ref=e7] [cursor=pointer]:
+          - img [ref=e9]
+          - generic [ref=e12]: 一覧に戻る
+        - generic [ref=e14]:
+          - generic [ref=e15]: "1001"
+          - generic [ref=e16]: 日経225
+          - button "シグナル 3" [ref=e18] [cursor=pointer]:
+            - img [ref=e20]
+        - generic [ref=e23]:
+          - button "3M" [ref=e24] [cursor=pointer]
+          - button "6M" [ref=e25] [cursor=pointer]
+          - button "1Y" [ref=e26] [cursor=pointer]
+          - button "2Y" [ref=e27] [cursor=pointer]
+        - generic [ref=e28]:
+          - button "お気に入り追加" [ref=e29] [cursor=pointer]:
+            - img [ref=e30]
+          - button "前の銘柄" [disabled] [ref=e32]:
+            - img [ref=e34]
+            - generic [ref=e37]: 前の銘柄
+          - button "次の銘柄" [disabled] [ref=e38]:
+            - img [ref=e40]
+            - generic [ref=e43]: 次の銘柄
+      - generic [ref=e44]:
+        - generic [ref=e46]:
+          - button "チャート" [ref=e47] [cursor=pointer]
+          - button "分析" [ref=e48] [cursor=pointer]
+          - button "財務" [ref=e49] [cursor=pointer]
+          - button "描画" [active] [ref=e50] [cursor=pointer]
+          - button "練習" [ref=e51] [cursor=pointer]
+          - button "建玉" [ref=e52] [cursor=pointer]
+        - generic [ref=e54]:
+          - button "表示設定メニューを開く" [ref=e56] [cursor=pointer]:
+            - img [ref=e58]
+            - generic [ref=e62]: 表示
+          - button "スクショ" [ref=e63] [cursor=pointer]:
+            - img [ref=e65]
+            - generic [ref=e68]: スクショ
+    - generic [ref=e69]:
+      - generic [ref=e70]:
+        - generic [ref=e71]:
+          - generic [ref=e72]: Daily
+          - generic [ref=e74]:
+            - table [ref=e77]:
+              - row [ref=e78]:
+                - cell
+                - cell [ref=e79]
+                - cell [ref=e83]
+              - row [ref=e87]:
+                - cell
+                - cell [ref=e88]
+                - cell [ref=e92]
+            - generic:
+              - generic:
+                - generic: 26/03/13
+                - generic: 前日比-630 (-1.16%)
+              - generic:
+                - generic: O
+                - generic: 53,590
+                - generic: H
+                - generic: 54,070
+                - generic: L
+                - generic: 53,290
+                - generic: C
+                - generic: 53,820
+                - generic: 出来高
+                - generic: 268,242
+              - generic:
+                - generic:
+                  - generic: 7MA
+                  - generic: 54,454
+                - generic:
+                  - generic: 20MA
+                  - generic: 56,252
+                - generic:
+                  - generic: 60MA
+                  - generic: 53,775
+                - generic:
+                  - generic: 100MA
+                  - generic: 52,255
+                - generic:
+                  - generic: 200MA
+                  - generic: 46,852
+              - generic:
+                - generic: 本数
+                - generic:
+                  - generic: 7MA
+                  - generic: 上0 / 下2
+                - generic:
+                  - generic: 20MA
+                  - generic: 上0 / 下9
+                - generic:
+                  - generic: 60MA
+                  - generic: 上4 / 下0
+                - generic:
+                  - generic: 100MA
+                  - generic: 上197 / 下0
+                - generic:
+                  - generic: 200MA
+                  - generic: 上182 / 下0
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - generic [ref=e97]: Weekly
+            - table [ref=e102]:
+              - row [ref=e103]:
+                - cell
+                - cell [ref=e104]
+                - cell [ref=e108]
+              - row [ref=e112]:
+                - cell
+                - cell [ref=e113]
+                - cell [ref=e117]
+          - generic [ref=e121]:
+            - generic [ref=e122]: Monthly
+            - table [ref=e127]:
+              - row [ref=e128]:
+                - cell
+                - cell [ref=e129]
+                - cell [ref=e133]
+              - row [ref=e137]:
+                - cell
+                - cell [ref=e138]
+                - cell [ref=e142]
+      - generic [ref=e152]:
+        - generic [ref=e153]:
+          - generic [ref=e154]:
+            - generic [ref=e155]:
+              - generic [ref=e156]: 描画
+              - generic [ref=e157]: 日足に重ねて補助線を引く
+            - generic [ref=e159]:
+              - button "時間ゾーン描画" [ref=e160] [cursor=pointer]:
+                - img [ref=e162]
+              - button "四角描画" [ref=e166] [cursor=pointer]:
+                - img [ref=e168]
+              - button "価格帯描画" [ref=e172] [cursor=pointer]:
+                - generic [ref=e174]: ▭
+              - button "水平線描画" [ref=e175] [cursor=pointer]:
+                - img [ref=e177]
+              - button "描画をリセット" [ref=e178] [cursor=pointer]:
+                - img [ref=e180]
+          - generic [ref=e184]:
+            - button "描画色を変更" [ref=e185] [cursor=pointer]
+            - slider "不透明度" [ref=e188]: "0.8"
+            - slider "太さ" [ref=e189]: "2"
+        - generic [ref=e190]:
+          - generic [ref=e191]:
+            - heading "日足情報" [level=3] [ref=e192]
+            - button "カーソルOFF" [ref=e193] [cursor=pointer]:
+              - img [ref=e194]
+              - generic [ref=e197]: カーソルOFF
+          - paragraph [ref=e199]: カーソルモードをONにして、日足チャートをクリックしてください
+    - generic [ref=e145]:
+      - button "Load more daily/monthly" [ref=e147] [cursor=pointer]
+      - generic [ref=e148]: Daily 2000 bars | Weekly 428 bars | Monthly 240 bars

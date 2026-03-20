@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getInitialListRangeBars, getInitialSortDir, getInitialSortKey } from "./storeHelpers";
+import {
+  getInitialColumns,
+  getInitialListRangeBars,
+  getInitialRows,
+  getInitialSortDir,
+  getInitialSortKey
+} from "./storeHelpers";
 
 vi.mock("./api", () => ({
   api: {
@@ -36,6 +42,8 @@ describe("storeHelpers defaults", () => {
   it("defaults to code asc and 3x3 list density when storage is empty", () => {
     expect(getInitialSortKey()).toBe("code");
     expect(getInitialSortDir()).toBe("asc");
+    expect(getInitialColumns()).toBe(3);
+    expect(getInitialRows()).toBe(3);
     expect(getInitialListRangeBars()).toBe(60);
   });
 
@@ -51,10 +59,13 @@ describe("storeHelpers defaults", () => {
     stub.localStorage.setItem("sortKey", "ma20Dev");
     stub.localStorage.setItem("sortDir", "desc");
     stub.localStorage.setItem("listRangeBars", "90");
+    stub.localStorage.setItem("gridPreset", "5");
     vi.stubGlobal("window", stub);
 
     expect(getInitialSortKey()).toBe("ma20Dev");
     expect(getInitialSortDir()).toBe("desc");
+    expect(getInitialColumns()).toBe(5);
+    expect(getInitialRows()).toBe(5);
     expect(getInitialListRangeBars()).toBe(90);
   });
 });

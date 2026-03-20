@@ -1,0 +1,159 @@
+- generic [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button "一覧に戻る" [ref=e7] [cursor=pointer]:
+          - img [ref=e9]
+          - generic [ref=e12]: 一覧に戻る
+        - generic [ref=e13]:
+          - generic [ref=e14]:
+            - generic [ref=e15]: "1001"
+            - generic [ref=e16]: 日経225
+            - button "シグナル 3" [ref=e18] [cursor=pointer]:
+              - img [ref=e20]
+          - generic [ref=e149]:
+            - generic [ref=e150]:
+              - generic [ref=e151]: SKIP
+              - generic [ref=e152]: AI 27%
+              - generic [ref=e153]: buy_5_20
+            - generic [ref=e154]:
+              - generic [ref=e155]: 20MA reclaim
+              - generic [ref=e156]: Similar setup data thin
+              - generic [ref=e157]: Adverse risk capped
+        - generic [ref=e23]:
+          - button "3M" [ref=e24] [cursor=pointer]
+          - button "6M" [ref=e25] [cursor=pointer]
+          - button "1Y" [ref=e26] [cursor=pointer]
+          - button "2Y" [ref=e27] [cursor=pointer]
+        - generic [ref=e28]:
+          - button "お気に入り追加" [ref=e29] [cursor=pointer]:
+            - img [ref=e30]
+          - button "前の銘柄" [disabled] [ref=e32]:
+            - img [ref=e34]
+            - generic [ref=e37]: 前の銘柄
+          - button "次の銘柄" [disabled] [ref=e38]:
+            - img [ref=e40]
+            - generic [ref=e43]: 次の銘柄
+      - generic [ref=e44]:
+        - generic [ref=e46]:
+          - button "チャート" [ref=e47] [cursor=pointer]
+          - button "分析" [active] [ref=e48] [cursor=pointer]
+          - button "財務" [ref=e49] [cursor=pointer]
+          - button "描画" [ref=e50] [cursor=pointer]
+          - button "練習" [ref=e51] [cursor=pointer]
+          - button "建玉" [ref=e52] [cursor=pointer]
+        - generic [ref=e54]:
+          - button "表示設定メニューを開く" [ref=e56] [cursor=pointer]:
+            - img [ref=e58]
+            - generic [ref=e62]: 表示
+          - button "スクショ" [ref=e63] [cursor=pointer]:
+            - img [ref=e65]
+            - generic [ref=e68]: スクショ
+    - generic [ref=e69]:
+      - generic [ref=e70]:
+        - generic [ref=e71]:
+          - generic [ref=e72]: Daily
+          - generic [ref=e74]:
+            - table [ref=e77]:
+              - row [ref=e78]:
+                - cell
+                - cell [ref=e79]
+                - cell [ref=e83]
+              - row [ref=e87]:
+                - cell
+                - cell [ref=e88]
+                - cell [ref=e92]
+            - generic:
+              - generic:
+                - generic: 26/03/13
+                - generic: 前日比-630 (-1.16%)
+              - generic:
+                - generic: O
+                - generic: 53,590
+                - generic: H
+                - generic: 54,070
+                - generic: L
+                - generic: 53,290
+                - generic: C
+                - generic: 53,820
+                - generic: 出来高
+                - generic: 268,242
+              - generic:
+                - generic:
+                  - generic: 7MA
+                  - generic: 54,454
+                - generic:
+                  - generic: 20MA
+                  - generic: 56,252
+                - generic:
+                  - generic: 60MA
+                  - generic: 53,775
+                - generic:
+                  - generic: 100MA
+                  - generic: 52,255
+                - generic:
+                  - generic: 200MA
+                  - generic: 46,852
+              - generic:
+                - generic: 本数
+                - generic:
+                  - generic: 7MA
+                  - generic: 上0 / 下2
+                - generic:
+                  - generic: 20MA
+                  - generic: 上0 / 下9
+                - generic:
+                  - generic: 60MA
+                  - generic: 上4 / 下0
+                - generic:
+                  - generic: 100MA
+                  - generic: 上197 / 下0
+                - generic:
+                  - generic: 200MA
+                  - generic: 上182 / 下0
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - generic [ref=e97]: Weekly
+            - table [ref=e102]:
+              - row [ref=e103]:
+                - cell
+                - cell [ref=e104]
+                - cell [ref=e108]
+              - row [ref=e112]:
+                - cell
+                - cell [ref=e113]
+                - cell [ref=e117]
+          - generic [ref=e121]:
+            - generic [ref=e122]: Monthly
+            - table [ref=e127]:
+              - row [ref=e128]:
+                - cell
+                - cell [ref=e129]
+                - cell [ref=e133]
+              - row [ref=e137]:
+                - cell
+                - cell [ref=e138]
+                - cell [ref=e142]
+      - generic [ref=e158]:
+        - generic [ref=e159]:
+          - generic [ref=e161]: 判定確認
+          - generic [ref=e163]:
+            - button "再計算" [ref=e164]
+            - button "類似" [ref=e165]
+        - generic [ref=e167]:
+          - generic [ref=e168]: カーソル日 2026-03-13
+          - generic [ref=e169]: 分析データが未計算のため、自動で準備しています。
+          - generic [ref=e213]: 初回だけ基準日を中心に130本分の未計算を自動で計算します。保存済みデータがあれば再計算しません。
+          - button "売買判定を更新" [ref=e212] [cursor=pointer]
+    - generic [ref=e145]:
+      - button "Load more daily/monthly" [ref=e147] [cursor=pointer]
+      - generic [ref=e148]: Daily 2000 bars | Weekly 428 bars | Monthly 240 bars

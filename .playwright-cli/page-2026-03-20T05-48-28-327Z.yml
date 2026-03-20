@@ -1,0 +1,169 @@
+- generic [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - button "一覧に戻る" [ref=e7] [cursor=pointer]:
+          - img [ref=e9]
+          - generic [ref=e12]: 一覧に戻る
+        - generic [ref=e14]:
+          - generic [ref=e15]: "1001"
+          - generic [ref=e16]: 日経225
+          - button "シグナル 3" [ref=e18] [cursor=pointer]:
+            - img [ref=e20]
+        - generic [ref=e23]:
+          - button "3M" [ref=e24] [cursor=pointer]
+          - button "6M" [ref=e25] [cursor=pointer]
+          - button "1Y" [ref=e26] [cursor=pointer]
+          - button "2Y" [ref=e27] [cursor=pointer]
+        - generic [ref=e28]:
+          - button "お気に入り追加" [ref=e29] [cursor=pointer]:
+            - img [ref=e30]
+          - button "前の銘柄" [disabled] [ref=e32]:
+            - img [ref=e34]
+            - generic [ref=e37]: 前の銘柄
+          - button "次の銘柄" [disabled] [ref=e38]:
+            - img [ref=e40]
+            - generic [ref=e43]: 次の銘柄
+      - generic [ref=e44]:
+        - generic [ref=e46]:
+          - button "チャート" [ref=e47] [cursor=pointer]
+          - button "分析" [ref=e48] [cursor=pointer]
+          - button "財務" [active] [ref=e49] [cursor=pointer]
+          - button "描画" [ref=e50] [cursor=pointer]
+          - button "練習" [ref=e51] [cursor=pointer]
+          - button "建玉" [ref=e52] [cursor=pointer]
+        - generic [ref=e54]:
+          - button "表示設定メニューを開く" [ref=e56] [cursor=pointer]:
+            - img [ref=e58]
+            - generic [ref=e62]: 表示
+          - button "スクショ" [ref=e63] [cursor=pointer]:
+            - img [ref=e65]
+            - generic [ref=e68]: スクショ
+    - generic [ref=e69]:
+      - generic [ref=e70]:
+        - generic [ref=e71]:
+          - generic [ref=e72]: Daily
+          - generic [ref=e74]:
+            - table [ref=e77]:
+              - row [ref=e78]:
+                - cell
+                - cell [ref=e79]
+                - cell [ref=e83]
+              - row [ref=e87]:
+                - cell
+                - cell [ref=e88]
+                - cell [ref=e92]
+            - generic:
+              - generic:
+                - generic: 26/03/13
+                - generic: 前日比-630 (-1.16%)
+              - generic:
+                - generic: O
+                - generic: 53,590
+                - generic: H
+                - generic: 54,070
+                - generic: L
+                - generic: 53,290
+                - generic: C
+                - generic: 53,820
+                - generic: 出来高
+                - generic: 268,242
+              - generic:
+                - generic:
+                  - generic: 7MA
+                  - generic: 54,454
+                - generic:
+                  - generic: 20MA
+                  - generic: 56,252
+                - generic:
+                  - generic: 60MA
+                  - generic: 53,775
+                - generic:
+                  - generic: 100MA
+                  - generic: 52,255
+                - generic:
+                  - generic: 200MA
+                  - generic: 46,852
+              - generic:
+                - generic: 本数
+                - generic:
+                  - generic: 7MA
+                  - generic: 上0 / 下2
+                - generic:
+                  - generic: 20MA
+                  - generic: 上0 / 下9
+                - generic:
+                  - generic: 60MA
+                  - generic: 上4 / 下0
+                - generic:
+                  - generic: 100MA
+                  - generic: 上197 / 下0
+                - generic:
+                  - generic: 200MA
+                  - generic: 上182 / 下0
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - generic [ref=e97]: Weekly
+            - table [ref=e102]:
+              - row [ref=e103]:
+                - cell
+                - cell [ref=e104]
+                - cell [ref=e108]
+              - row [ref=e112]:
+                - cell
+                - cell [ref=e113]
+                - cell [ref=e117]
+          - generic [ref=e121]:
+            - generic [ref=e122]: Monthly
+            - table [ref=e127]:
+              - row [ref=e128]:
+                - cell
+                - cell [ref=e129]
+                - cell [ref=e133]
+              - row [ref=e137]:
+                - cell
+                - cell [ref=e138]
+                - cell [ref=e142]
+      - generic [ref=e214]:
+        - generic [ref=e217]: EDINET / TDNET / 貸借
+        - generic [ref=e219]:
+          - generic [ref=e220]: 要約
+          - generic [ref=e221]: EDINETのマッピングがありません。
+          - generic [ref=e222]: 詳細
+          - generic [ref=e223]:
+            - generic [ref=e224]: TDNET速報
+            - generic [ref=e225]: TDNET速報はまだありません。
+          - generic [ref=e226]:
+            - generic [ref=e227]: 貸借・逆日歩
+            - generic [ref=e228]: 需給中立
+            - generic [ref=e248]:
+              - generic [ref=e249]:
+                - generic [ref=e250]: 貸借倍率
+                - generic [ref=e251]: "--"
+              - generic [ref=e252]:
+                - generic [ref=e253]: 融資残
+                - generic [ref=e254]: "--"
+              - generic [ref=e255]:
+                - generic [ref=e256]: 貸株残
+                - generic [ref=e257]: "--"
+              - generic [ref=e258]:
+                - generic [ref=e259]: 当日品貸料
+                - generic [ref=e260]: "--"
+              - generic [ref=e261]:
+                - generic [ref=e262]: 最高料率
+                - generic [ref=e263]: "--"
+              - generic [ref=e264]:
+                - generic [ref=e265]: 制限措置
+                - generic [ref=e266]: なし
+    - generic [ref=e145]:
+      - button "Load more daily/monthly" [ref=e147] [cursor=pointer]
+      - generic [ref=e148]: Daily 2000 bars | Weekly 428 bars | Monthly 240 bars
