@@ -77,6 +77,86 @@ def _ensure_daily_bar_source_revision_log_pk(conn: duckdb.DuckDBPyConnection) ->
         conn.execute("DROP TABLE IF EXISTS _tmp_daily_bar_source_revision_log_migration")
 
 
+def _trade_events_has_source_row_hash_unique(conn: duckdb.DuckDBPyConnection) -> bool:
+    try:
+        rows = conn.execute(
+            """
+            SELECT constraint_type, constraint_column_names
+            FROM duckdb_constraints()
+            WHERE table_name = 'trade_events'
+            """
+        ).fetchall()
+    except Exception:
+        return False
+
+    for constraint_type, columns in rows:
+        if str(constraint_type).upper() not in {"UNIQUE", "PRIMARY KEY"}:
+            continue
+        column_names = [str(column) for column in (columns or [])]
+        if column_names == ["source_row_hash"]:
+            return True
+    return False
+
+
+def _ensure_trade_events_source_row_hash_unique(conn: duckdb.DuckDBPyConnection) -> None:
+    sql = _table_sql(conn, "trade_events")
+    if not sql or _trade_events_has_source_row_hash_unique(conn):
+        return
+
+    info = conn.execute("PRAGMA table_info('trade_events')").fetchall()
+    columns = [str(row[1]) for row in info if row and row[1]]
+    if "source_row_hash" not in columns:
+        return
+
+    column_defs: list[str] = []
+    for row in info:
+        if not row or not row[1]:
+            continue
+        column_name = str(row[1]).replace('"', '""')
+        column_type = str(row[2] or "TEXT")
+        column_defs.append(f'"{column_name}" {column_type}')
+    column_defs.append('UNIQUE("source_row_hash")')
+
+    select_columns = ", ".join(f'"{column}"' for column in columns)
+    ranked_columns = select_columns
+    dedup_source = select_columns
+    if "source_row_hash" in columns:
+        order_parts: list[str] = []
+        if "created_at" in columns:
+            order_parts.append('"created_at" DESC')
+        if "id" in columns:
+            order_parts.append('"id" DESC')
+        order_sql = f" ORDER BY {', '.join(order_parts)}" if order_parts else ""
+        dedup_source = f"""
+            SELECT {ranked_columns},
+                   ROW_NUMBER() OVER (PARTITION BY source_row_hash{order_sql}) AS rn
+            FROM trade_events
+        """
+    insert_columns = ", ".join(f'"{column}"' for column in columns)
+
+    conn.execute("DROP TABLE IF EXISTS _tmp_trade_events_migration")
+    try:
+        conn.execute(
+            f"""
+            CREATE TABLE _tmp_trade_events_migration (
+                {", ".join(column_defs)}
+            )
+            """
+        )
+        conn.execute(
+            f"""
+            INSERT INTO _tmp_trade_events_migration ({insert_columns})
+            SELECT {select_columns}
+            FROM ({dedup_source}) AS ranked
+            WHERE rn = 1
+            """
+        )
+        conn.execute("DROP TABLE trade_events")
+        conn.execute("ALTER TABLE _tmp_trade_events_migration RENAME TO trade_events")
+    finally:
+        conn.execute("DROP TABLE IF EXISTS _tmp_trade_events_migration")
+
+
 def _init_legacy_analysis_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
         """
@@ -918,6 +998,7 @@ def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     # the target DB has all required tables.
     with _SCHEMA_INIT_LOCK:
         _init_duckdb_schema(conn)
+        _ensure_trade_events_source_row_hash_unique(conn)
         _ensure_daily_bar_source_revision_log_pk(conn)
 
 

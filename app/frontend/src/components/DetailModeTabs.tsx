@@ -30,7 +30,7 @@ export default function DetailModeTabs({
           財務
         </button>
         <button className={activeMode === "positions" ? "active" : ""} onClick={onPositions}>
-          縦横
+          建玉
         </button>
         <button className={activeMode === "practice" ? "active" : ""} onClick={onPractice}>
           練習

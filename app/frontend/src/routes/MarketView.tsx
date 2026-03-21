@@ -74,24 +74,6 @@ export default function MarketView() {
   const cursorInitializedPeriodRef = useRef<MarketPeriodKey | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const payload = buildPersistedMarketViewState({
-        period,
-        metric,
-        selectedSector,
-        cursorIndex,
-        cursorDate: activeFrameDateKey,
-        cursorUserInteracted,
-        previous: readStoredState()
-      });
-      window.sessionStorage.setItem(MARKET_VIEW_STATE_KEY, JSON.stringify(payload));
-    } catch {
-      // ignore storage failures
-    }
-  }, [period, metric, cursorIndex, cursorUserInteracted, selectedSector, activeFrameDateKey]);
-
-  useEffect(() => {
     if (!ensureListLoaded) return;
     void ensureListLoaded();
   }, [ensureListLoaded]);
@@ -163,6 +145,24 @@ export default function MarketView() {
     () => (activeFrame ? getMarketTimelineFrameDateKey(activeFrame) : null),
     [activeFrame]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const payload = buildPersistedMarketViewState({
+        period,
+        metric,
+        selectedSector,
+        cursorIndex,
+        cursorDate: activeFrameDateKey,
+        cursorUserInteracted,
+        previous: readStoredState()
+      });
+      window.sessionStorage.setItem(MARKET_VIEW_STATE_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore storage failures
+    }
+  }, [period, metric, cursorIndex, cursorUserInteracted, selectedSector, activeFrameDateKey]);
 
   const allActiveItems = useMemo(() => {
     if (!activeFrame) return [];

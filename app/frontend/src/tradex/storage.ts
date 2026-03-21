@@ -6,7 +6,10 @@ export const tradexStorageKeys = {
   compareCandidateId: makeKey(["compare", "candidateId"]),
   adoptCandidateId: makeKey(["adopt", "candidateId"]),
   detailCandidateId: makeKey(["detail", "candidateId"]),
-  homeFocus: makeKey(["home", "focus"])
+  homeFocus: makeKey(["home", "focus"]),
+  familyId: makeKey(["family", "familyId"]),
+  runId: makeKey(["run", "runId"]),
+  detailCode: makeKey(["detail", "code"])
 } as const;
 
 const readJson = <T,>(storage: Storage, key: string, fallback: T): T => {
@@ -46,4 +49,3 @@ export const writeTradexLocal = (key: string, value: unknown) => {
   if (typeof window === "undefined") return;
   writeJson(window.localStorage, key, value);
 };
-

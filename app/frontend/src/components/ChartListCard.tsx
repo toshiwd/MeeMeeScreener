@@ -254,7 +254,7 @@ const ChartListCard = memo(function ChartListCard({
   useEffect(() => {
     if (!deferUntilInView || !inView || !onEnterView) return;
     onEnterView(code);
-  }, [code, deferUntilInView, inView, onEnterView]);
+  }, [code, deferUntilInView, inView, onEnterView, rangeBars]);
 
   return (
     <div

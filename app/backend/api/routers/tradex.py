@@ -17,6 +17,18 @@ from app.backend.services.analysis_bridge.reader import (
 )
 from app.backend.services.publish_promotion_service import build_publish_promotion_snapshot, promote_logic_key
 from app.backend.services.runtime_selection_service import build_runtime_selection_snapshot
+from app.backend.services.tradex_experiment_service import (
+    adopt_run,
+    create_family,
+    create_run,
+    get_family,
+    get_family_compare,
+    get_run,
+    get_run_compare,
+    get_run_detail,
+    list_families,
+)
+from app.backend.services.tradex_experiment_store import find_family_id_by_run_id
 from external_analysis.results.publish_candidates import list_publish_candidate_bundles, load_publish_candidate_bundle
 
 router = APIRouter(prefix="/api/tradex", tags=["tradex"])
@@ -24,11 +36,53 @@ OPERATOR_CONSOLE_DEPENDENCIES = [Depends(require_operator_console_access)]
 
 
 class TradexAdoptRequest(BaseModel):
-    candidate_id: str = Field(min_length=1)
-    baseline_publish_id: str = Field(min_length=1)
-    comparison_snapshot_id: str = Field(min_length=1)
+    candidate_id: str | None = Field(default=None, min_length=1)
+    baseline_publish_id: str | None = Field(default=None, min_length=1)
+    comparison_snapshot_id: str | None = Field(default=None, min_length=1)
+    family_id: str | None = Field(default=None, min_length=1)
+    run_id: str | None = Field(default=None, min_length=1)
     reason: str | None = None
     actor: str | None = None
+
+
+class TradexPeriodSegment(BaseModel):
+    start_date: str = Field(min_length=1)
+    end_date: str = Field(min_length=1)
+    label: str | None = None
+
+
+class TradexPlanSpec(BaseModel):
+    plan_id: str = Field(min_length=1)
+    plan_version: str | None = None
+    label: str | None = None
+    minimum_confidence: float | None = None
+    minimum_ready_rate: float | None = None
+    signal_bias: str | None = None
+    top_k: int | None = None
+    notes: str | None = None
+
+
+class TradexCreateFamilyRequest(BaseModel):
+    family_id: str | None = Field(default=None, min_length=1)
+    family_name: str | None = None
+    universe: list[str] = Field(default_factory=list)
+    period: dict[str, Any] = Field(default_factory=dict)
+    baseline_plan: TradexPlanSpec = Field(default_factory=lambda: TradexPlanSpec(plan_id="baseline"))
+    candidate_plans: list[TradexPlanSpec] = Field(default_factory=list)
+    confirmed_only: bool = True
+    input_dataset_version: str | None = None
+    code_revision: str | None = None
+    timezone: str | None = None
+    price_source: str | None = None
+    data_cutoff_at: str | None = None
+    random_seed: int | None = None
+    notes: str | None = None
+
+
+class TradexCreateRunRequest(BaseModel):
+    run_kind: str = Field(pattern="^(baseline|candidate)$")
+    plan_id: str | None = None
+    notes: str | None = None
 
 
 def _text(value: Any, fallback: str = "") -> str:
@@ -286,6 +340,78 @@ def _build_candidate_payload(bundle: dict[str, Any], baseline_publish_id: str | 
     }
 
 
+@router.get("/families", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def list_tradex_families():
+    return {"ok": True, "items": list_families()}
+
+
+@router.post("/families", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def post_tradex_family(payload: TradexCreateFamilyRequest):
+    body = payload.model_dump()
+    body["baseline_plan"] = payload.baseline_plan.model_dump()
+    body["candidate_plans"] = [item.model_dump() for item in payload.candidate_plans]
+    family = create_family(body)
+    return {"ok": True, "family": family}
+
+
+@router.get("/families/{family_id}", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_family(family_id: str):
+    family = get_family(family_id)
+    if not family:
+        raise HTTPException(status_code=404, detail={"ok": False, "reason": "family_not_found", "family_id": family_id})
+    return {"ok": True, "family": family}
+
+
+@router.post("/families/{family_id}/runs", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def post_tradex_family_run(family_id: str, payload: TradexCreateRunRequest):
+    try:
+        run = create_run(family_id=family_id, run_kind=payload.run_kind, plan_id=payload.plan_id, notes=payload.notes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"ok": False, "reason": str(exc), "family_id": family_id}) from exc
+    return {"ok": True, "run": run}
+
+
+@router.get("/families/{family_id}/compare", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_family_compare(family_id: str):
+    compare = get_family_compare(family_id)
+    if not compare:
+        raise HTTPException(status_code=409, detail={"ok": False, "reason": "compare_not_ready", "family_id": family_id})
+    return {"ok": True, "compare": compare}
+
+
+@router.get("/runs/{run_id}", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_run(run_id: str):
+    family_id = find_family_id_by_run_id(run_id)
+    if not family_id:
+        raise HTTPException(status_code=404, detail={"ok": False, "reason": "run_not_found", "run_id": run_id})
+    run = get_run(family_id, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail={"ok": False, "reason": "run_not_found", "run_id": run_id})
+    return {"ok": True, "run": run}
+
+
+@router.get("/runs/{run_id}/compare", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_run_compare(run_id: str):
+    family_id = find_family_id_by_run_id(run_id)
+    if not family_id:
+        raise HTTPException(status_code=404, detail={"ok": False, "reason": "run_not_found", "run_id": run_id})
+    compare = get_run_compare(family_id, run_id)
+    if not compare:
+        raise HTTPException(status_code=404, detail={"ok": False, "reason": "compare_not_ready", "run_id": run_id})
+    return {"ok": True, "compare": compare}
+
+
+@router.get("/runs/{run_id}/detail", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_run_detail(run_id: str, code: str):
+    family_id = find_family_id_by_run_id(run_id)
+    if not family_id:
+        raise HTTPException(status_code=404, detail={"ok": False, "reason": "run_not_found", "run_id": run_id})
+    detail = get_run_detail(family_id, run_id, code)
+    if not detail:
+        raise HTTPException(status_code=404, detail={"ok": False, "reason": "detail_not_found", "run_id": run_id, "code": code})
+    return {"ok": True, "detail": detail}
+
+
 @router.get("/bootstrap", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_tradex_bootstrap(
     request: Request,
@@ -325,8 +451,23 @@ def adopt_tradex_candidate(
     request: Request,
     config=Depends(get_config_repo),
 ):
+    if payload.family_id and payload.run_id:
+        try:
+            result = adopt_run(family_id=payload.family_id, run_id=payload.run_id, reason=payload.reason, actor=payload.actor)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"ok": False, "reason": str(exc), "family_id": payload.family_id, "run_id": payload.run_id}) from exc
+        return result
+
     db_path = os.getenv("MEEMEE_RESULT_DB_PATH")
     ops_db_path = os.getenv("MEEMEE_OPS_DB_PATH")
+    if not payload.candidate_id or not payload.baseline_publish_id or not payload.comparison_snapshot_id:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "ok": False,
+                "reason": "legacy_adopt_payload_required",
+            },
+        )
     candidate = load_publish_candidate_bundle(db_path=db_path, candidate_id=payload.candidate_id)
     if not candidate:
         candidate = load_publish_candidate_bundle(db_path=db_path, logic_key=payload.candidate_id)
