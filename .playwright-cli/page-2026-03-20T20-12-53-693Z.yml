@@ -1,0 +1,70 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e19]:
+    - generic [ref=e20]:
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]: MeeMee
+          - generic [ref=e25]: Screener
+        - navigation [ref=e26]:
+          - link "一覧" [ref=e27] [cursor=pointer]:
+            - /url: /
+          - link "ランキング" [ref=e28] [cursor=pointer]:
+            - /url: /ranking
+          - link "市場" [ref=e29] [cursor=pointer]:
+            - /url: /market
+          - link "建玉" [ref=e30] [cursor=pointer]:
+            - /url: /positions
+          - link "お気に入り" [ref=e31] [cursor=pointer]:
+            - /url: /favorites
+          - link "候補" [ref=e32] [cursor=pointer]:
+            - /url: /candidates
+          - link "研究" [ref=e33] [cursor=pointer]:
+            - /url: /tradex-tags
+          - link "運用" [ref=e34] [cursor=pointer]:
+            - /url: /ops/publish
+      - generic [ref=e35]:
+        - generic [ref=e36]:
+          - generic [ref=e37]: 期間
+          - generic [ref=e38]:
+            - button "1日" [ref=e39] [cursor=pointer]
+            - button "1週" [ref=e40] [cursor=pointer]
+            - button "1ヶ月" [ref=e41] [cursor=pointer]
+        - generic [ref=e42]:
+          - generic [ref=e43]: 指標
+          - generic [ref=e44]:
+            - button "騰落率" [ref=e45] [cursor=pointer]
+            - button "資金フロー" [ref=e46] [cursor=pointer]
+            - button "両方" [ref=e47] [cursor=pointer]
+        - generic [ref=e48]:
+          - generic [ref=e49]: 表示形式
+          - generic [ref=e50]:
+            - button "ヒートマップ" [ref=e51] [cursor=pointer]
+            - button "回転図" [ref=e52] [cursor=pointer]
+      - generic [ref=e53]:
+        - generic [ref=e54]:
+          - generic [ref=e55]: scope
+          - generic [ref=e56]:
+            - button "監視銘柄関連セクター" [ref=e57] [cursor=pointer]
+            - button "全市場" [ref=e58] [cursor=pointer]
+        - generic [ref=e59]:
+          - generic [ref=e60]: 2025-06-24
+          - slider [ref=e61]: "0"
+          - generic [ref=e62]: 1/180
+    - main [ref=e63]:
+      - generic [ref=e66]:
+        - generic [ref=e67]: 表示対象がありません
+        - generic [ref=e68]: scope を「全市場」に切り替えると全体を見られます。
+      - complementary [ref=e69]:
+        - button "セクター詳細を開く" [ref=e70] [cursor=pointer]:
+          - generic [ref=e71]: セクター詳細
+          - generic [ref=e72]: 監視銘柄
+          - generic [ref=e73]: ›

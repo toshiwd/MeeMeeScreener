@@ -221,15 +221,13 @@ export type StatusMap = {
 };
 
 export type Settings = {
-  columns: 1 | 2 | 3 | 4 | 5;
-  rows: 1 | 2 | 3 | 4 | 5 | 6;
+  columns: 1 | 2 | 3 | 4;
+  rows: 1 | 2 | 3 | 4;
   search: string;
   gridScrollTop: number;
   gridTimeframe: GridTimeframe;
   listTimeframe: GridTimeframe;
   listRangeBars: 30 | 45 | 60 | 90 | 120 | 180 | 240 | 360;
-  listColumns: 1 | 2 | 3 | 4;
-  listRows: 1 | 2 | 3 | 4 | 5 | 6;
   showBoxes: boolean;
   showIndicators: boolean;
   // Legacy sort key (for backward compatibility during migration)
@@ -297,11 +295,9 @@ export type StoreState = {
   loadBoxesBatch: (codes: string[]) => Promise<void>;
   ensureBarsForVisible: (timeframe: GridTimeframe, codes: string[], reason?: string) => Promise<void>;
   setColumns: (value: 1 | 2 | 3 | 4) => void;
-  setRows: (value: 1 | 2 | 3 | 4 | 5 | 6) => void;
+  setRows: (value: 1 | 2 | 3 | 4) => void;
   setListTimeframe: (value: GridTimeframe) => void;
   setListRangeBars: (value: number) => void;
-  setListColumns: (value: 1 | 2 | 3 | 4) => void;
-  setListRows: (value: 1 | 2 | 3 | 4 | 5 | 6) => void;
   setSearch: (value: string) => void;
   setGridScrollTop: (value: number) => void;
   setGridTimeframe: (value: GridTimeframe) => void;

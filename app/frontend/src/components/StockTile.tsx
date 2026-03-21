@@ -16,6 +16,7 @@ type StockTileProps = {
   active?: boolean;
   kept?: boolean;
   theme?: "dark" | "light";
+  compactHeader?: boolean;
   asofLabel?: string | null;
   asofTooltip?: string | null;
   onActivate?: (code: string) => void;
@@ -32,6 +33,7 @@ const StockTile = memo(function StockTile({
   active = false,
   kept = false,
   theme,
+  compactHeader = false,
   asofLabel,
   asofTooltip,
   onActivate,
@@ -140,6 +142,7 @@ const StockTile = memo(function StockTile({
         ? "up"
         : "down"
       : "flat";
+  const showCompactHeader = compactHeader;
 
   const handleActivate = () => onActivate?.(ticker.code);
   const handleOpenDetail = () => onOpenDetail(ticker.code);
@@ -187,63 +190,90 @@ const StockTile = memo(function StockTile({
         }
       }}
     >
-      <div className="tile-header">
-        <div className="tile-id">
+      <div className={`tile-header${showCompactHeader ? " is-compact" : ""}`}>
+        <div className={`tile-id${showCompactHeader ? " is-inline" : ""}`}>
           <span className="tile-code">{ticker.code}</span>
           <span className="tile-name">{ticker.name}</span>
         </div>
-        <div className="tile-actions">
-          <button
-            type="button"
-            className={`favorite-toggle ${isFavorite ? "active" : ""}`}
-            onClick={handleToggleFavorite}
-            aria-label={isFavorite ? "お気に入り解除" : "お気に入り追加"}
-          >
-            {isFavorite ? <IconHeartFilled size={16} /> : <IconHeart size={16} />}
-          </button>
-          <button
-            type="button"
-            className={`candidate-toggle ${kept ? "active" : ""}`}
-            onClick={handleToggleKeep}
-            aria-label={kept ? "候補から外す" : "候補に追加"}
-          >
-            {kept ? "✓" : "+"}
-          </button>
-          <button
-            type="button"
-            className="tile-action danger"
-            onClick={handleExclude}
-            aria-label="除外"
-          >
-            x
-          </button>
-          <button
-            type="button"
-            className="tile-action"
-            onClick={handleOpenClick}
-            aria-label="詳細を開く"
-          >
-            &gt;
-          </button>
+        <div className="tile-header-right">
+          {showCompactHeader && (asofLabel || showRightsBadge || showEarningsBadge) && (
+            <span className="tile-header-badges">
+              {asofLabel && (
+                <span className="asof-badge provisional" data-tooltip={asofTooltip ?? ""}>
+                  暫定 {asofLabel}
+                </span>
+              )}
+              {(showRightsBadge || showEarningsBadge) && (
+                <span className="event-badges">
+                  {showRightsBadge && rightsLabel && (
+                    <span className="event-badge event-rights">権利 {rightsLabel}</span>
+                  )}
+                  {showEarningsBadge && earningsLabel && (
+                    <span className="event-badge event-earnings">決算 {earningsLabel}</span>
+                  )}
+                </span>
+              )}
+            </span>
+          )}
+          <div className="tile-actions">
+            <button
+              type="button"
+              className={`favorite-toggle ${isFavorite ? "active" : ""}`}
+              onClick={handleToggleFavorite}
+              aria-label={isFavorite ? "お気に入り解除" : "お気に入り追加"}
+            >
+              {isFavorite ? <IconHeartFilled size={16} /> : <IconHeart size={16} />}
+            </button>
+            <button
+              type="button"
+              className={`candidate-toggle ${kept ? "active" : ""}`}
+              onClick={handleToggleKeep}
+              aria-label={kept ? "候補から外す" : "候補に追加"}
+            >
+              {kept ? "✓" : "+"}
+            </button>
+            <button
+              type="button"
+              className="tile-action danger"
+              onClick={handleExclude}
+              aria-label="除外"
+            >
+              x
+            </button>
+            <button
+              type="button"
+              className="tile-action"
+              onClick={handleOpenClick}
+              aria-label="詳細を開く"
+            >
+              &gt;
+            </button>
+          </div>
         </div>
       </div>
-      <div className="tile-meta tile-meta-grid">
-        <span className="tile-meta-item">日付 {latestDateLabel}</span>
-        <span className="tile-meta-item">終値 {latestCloseLabel}</span>
-        <span className={`tile-meta-item tile-meta-change ${changeTone}`}>前日比 {dayChangeLabel}</span>
-        {asofLabel && (
-          <span className="asof-badge provisional" data-tooltip={asofTooltip ?? ""}>
-            暫定 {asofLabel}
-          </span>
-        )}
-        {(showRightsBadge || showEarningsBadge) && (
-          <span className="event-badges">
-            {showRightsBadge && rightsLabel && <span className="event-badge event-rights">権利 {rightsLabel}</span>}
-            {showEarningsBadge && earningsLabel && <span className="event-badge event-earnings">決算 {earningsLabel}</span>}
-          </span>
-        )}
-        {ticker.dataStatus === "missing" && <span className="badge status-missing">データ欠損</span>}
-      </div>
+      {!showCompactHeader && (
+        <div className="tile-meta tile-meta-grid">
+          <span className="tile-meta-item">日付 {latestDateLabel}</span>
+          <span className="tile-meta-item">終値 {latestCloseLabel}</span>
+          <span className={`tile-meta-item tile-meta-change ${changeTone}`}>前日比 {dayChangeLabel}</span>
+          {asofLabel && (
+            <span className="asof-badge provisional" data-tooltip={asofTooltip ?? ""}>
+              暫定 {asofLabel}
+            </span>
+          )}
+          {(showRightsBadge || showEarningsBadge) && (
+            <span className="event-badges">
+              {showRightsBadge && rightsLabel && (
+                <span className="event-badge event-rights">権利 {rightsLabel}</span>
+              )}
+              {showEarningsBadge && earningsLabel && (
+                <span className="event-badge event-earnings">決算 {earningsLabel}</span>
+              )}
+            </span>
+          )}
+          {ticker.dataStatus === "missing" && <span className="badge status-missing">データ欠損</span>}
+        </div>
+      )}
       {annotation ? <div className="tile-annotation-row">{annotation}</div> : null}
       <div className="tile-chart">
         {barsPayload && barsPayload.bars?.length ? (

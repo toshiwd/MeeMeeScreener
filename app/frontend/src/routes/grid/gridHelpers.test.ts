@@ -54,7 +54,6 @@ describe("resolveGridRangeBars", () => {
     expect(resolveGridRangeBars(2, 2, 120)).toBe(90);
     expect(resolveGridRangeBars(3, 3, 120)).toBe(60);
     expect(resolveGridRangeBars(4, 4, 120)).toBe(45);
-    expect(resolveGridRangeBars(5, 5, 120)).toBe(30);
   });
 
   it("falls back for non-square layouts", () => {
@@ -64,8 +63,8 @@ describe("resolveGridRangeBars", () => {
 
 describe("gridPresetOptions", () => {
   it("exposes only square presets", () => {
-    expect(gridPresetOptions.map((item) => item.label)).toEqual(["1×1", "2×2", "3×3", "4×4", "5×5"]);
-    expect(gridPresetOptions.map((item) => item.bars)).toEqual([180, 90, 60, 45, 30]);
+    expect(gridPresetOptions.map((item) => item.label)).toEqual(["1x1", "2x2", "3x3", "4x4"]);
+    expect(gridPresetOptions.map((item) => item.bars)).toEqual([180, 90, 60, 45]);
   });
 });
 
@@ -74,15 +73,15 @@ describe("buildAvailableSectorOptions", () => {
     expect(
       buildAvailableSectorOptions([
         { sector33Code: null, sector33Name: null },
-        { sector33Code: "30", sector33Name: "輸送用機器" },
-        { sector33Code: "10", sector33Name: "銀行業" },
-        { sector33Code: "30", sector33Name: "輸送用機器" },
+        { sector33Code: "30", sector33Name: "霈ｸ騾∫畑讖溷勣" },
+        { sector33Code: "10", sector33Name: "驫陦梧･ｭ" },
+        { sector33Code: "30", sector33Name: "霈ｸ騾∫畑讖溷勣" },
         { sector33Code: "99", sector33Name: "" }
       ])
     ).toEqual([
       { code: "99", name: "99" },
-      { code: "10", name: "銀行業" },
-      { code: "30", name: "輸送用機器" }
+      { code: "10", name: "驫陦梧･ｭ" },
+      { code: "30", name: "霈ｸ騾∫畑讖溷勣" }
     ]);
   });
 

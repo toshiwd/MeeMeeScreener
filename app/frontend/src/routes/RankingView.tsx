@@ -150,12 +150,10 @@ type RankMode = "hybrid" | "turn";
 type RankRiskMode = "defensive" | "balanced" | "aggressive";
 type MtfStrictness = "auto" | "loose" | "normal" | "tight";
 type MtfStrictnessResolved = "loose" | "normal" | "tight";
-type RankMetricsView = "compact" | "full";
 type StoredRankViewState = {
   stateVersion?: number;
   listTimeframe?: "daily" | "weekly" | "monthly";
   dir?: "up" | "down";
-  metricsView?: RankMetricsView;
   filterSignalsOnly?: boolean;
   filterDataOnly?: boolean;
   filterBuySignalsOnly?: boolean;
@@ -169,7 +167,7 @@ type RankingFetchCacheEntry = {
 };
 
 const RANK_VIEW_STATE_KEY = "rankingViewState";
-const RANK_VIEW_STATE_VERSION = 5;
+const RANK_VIEW_STATE_VERSION = 6;
 const RANK_FETCH_CACHE_VERSION = 1;
 const RANK_FETCH_CACHE_PREFIX = "rankingFetchCache";
 const RANK_LIMIT = 50;
@@ -214,7 +212,9 @@ const readStoredRankViewState = (): StoredRankViewState | null => {
   try {
     const stored = window.sessionStorage.getItem(RANK_VIEW_STATE_KEY);
     if (!stored) return null;
-    return JSON.parse(stored) as StoredRankViewState;
+    const parsed = JSON.parse(stored) as StoredRankViewState;
+    if (parsed.stateVersion !== RANK_VIEW_STATE_VERSION) return null;
+    return parsed;
   } catch {
     return null;
   }
@@ -520,12 +520,12 @@ export default function RankingView() {
   const ensureListLoaded = useStore((state) => state.ensureListLoaded);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
   const listRangeBars = useStore((state) => state.settings.listRangeBars);
-  const listColumns = useStore((state) => state.settings.listColumns);
-  const listRows = useStore((state) => state.settings.listRows);
+  const columns = useStore((state) => state.settings.columns);
+  const rows = useStore((state) => state.settings.rows);
   const setListTimeframe = useStore((state) => state.setListTimeframe);
   const setListRangeBars = useStore((state) => state.setListRangeBars);
-  const setListColumns = useStore((state) => state.setListColumns);
-  const setListRows = useStore((state) => state.setListRows);
+  const setColumns = useStore((state) => state.setColumns);
+  const setRows = useStore((state) => state.setRows);
   const favoriteCodes = useStore((state) => state.favorites);
   const rankWhich: RankWhich = "latest";
   const rankMode: RankMode = "hybrid";
@@ -552,7 +552,6 @@ export default function RankingView() {
   const filterQualifiedOnly = true;
   const filterMtfStrictOnly = true;
   const mtfStrictness: MtfStrictness = "auto";
-  const [metricsView, setMetricsView] = useState<RankMetricsView>(storedViewState?.metricsView === "full" ? "full" : "compact");
   const [loading, setLoading] = useState(() => initialFetchCache == null);
   const [errorMessage, setErrorMessage] = useState<string | null>(() => initialFetchCache?.errorMessage ?? null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -606,7 +605,6 @@ export default function RankingView() {
         stateVersion: RANK_VIEW_STATE_VERSION,
         listTimeframe,
         dir,
-        metricsView,
         filterSignalsOnly,
         filterDataOnly,
         filterBuySignalsOnly,
@@ -616,15 +614,15 @@ export default function RankingView() {
     } catch {
       // ignore storage failures
     }
-  }, [listTimeframe, dir, metricsView, filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]);
+  }, [listTimeframe, dir, filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]);
 
   const listStyles = useMemo(
     () =>
     ({
-      "--list-cols": listColumns,
-      "--list-rows": listRows
+      "--list-cols": columns,
+      "--list-rows": rows
     } as CSSProperties),
-    [listColumns, listRows]
+    [columns, rows]
   );
   const listMaSettings =
     listTimeframe === "daily"
@@ -646,13 +644,6 @@ export default function RankingView() {
   );
   */
 
-  const sortOptions = useMemo(
-    () => [
-      { value: "up", label: "買い勝ちTop50" },
-      { value: "down", label: "売り勝ちTop50" }
-    ],
-    []
-  );
   const filterItems = useMemo(
     () => [
       {
@@ -863,7 +854,6 @@ export default function RankingView() {
     const base = mtfStrictFilterRelaxed ? filteredItems : mtfStrictFilteredItems;
     return base.map((item) => ({ ...item, mtfStrictResolved }));
   }, [mtfStrictFilterRelaxed, filteredItems, mtfStrictFilteredItems, mtfStrictResolved]);
-  const mtfStrictCount = mtfStrictFilteredItems.length;
 
   const sortedItems = useMemo(() => {
     if (!useFallback) {
@@ -891,7 +881,7 @@ export default function RankingView() {
     return list;
   }, [effectiveItems, dir, useFallback]);
   const listCodes = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
-  const densityKey = `${listColumns}x${listRows}`;
+  const densityKey = `${columns}x${rows}`;
   const rankingCacheKey = useMemo(
     () =>
       buildRankingFetchCacheKey({
@@ -1247,101 +1237,11 @@ export default function RankingView() {
         ? "該当する銘柄がありません。"
         : "ランキングがありません。"
       : null;
-  const isSingleDensity = listColumns === 1 && listRows === 1;
+  const isSingleDensity = columns === 1 && rows === 1;
   const formatPct = (value?: number | null) => {
     if (!Number.isFinite(value ?? NaN)) return "--";
     return `${((value ?? 0) * 100).toFixed(2)}%`;
   };
-  const formatDownProb = (downProb?: number | null, upProb?: number | null) => {
-    const raw =
-      Number.isFinite(downProb ?? NaN) ? downProb : Number.isFinite(upProb ?? NaN) ? 1 - (upProb ?? 0) : null;
-    if (!Number.isFinite(raw ?? NaN)) return "--";
-    const clipped = Math.min(1, Math.max(0, raw ?? 0));
-    return `${(clipped * 100).toFixed(2)}%`;
-  };
-  const formatRankScore = (value?: number | null) => {
-    if (!Number.isFinite(value ?? NaN)) return "--";
-    return (value ?? 0).toFixed(3);
-  };
-  const formatResearchPriorRank = (item: RankItem) => {
-    if (!Number.isFinite(item.researchPriorRank ?? NaN)) return "--";
-    const rank = Math.max(1, Math.round(item.researchPriorRank ?? 0));
-    if (!Number.isFinite(item.researchPriorUniverse ?? NaN)) return `#${rank}`;
-    const universe = Math.max(1, Math.round(item.researchPriorUniverse ?? 0));
-    return `#${rank}/${universe}`;
-  };
-  const formatTurnProb = (upTurn?: number | null, downTurn?: number | null) => {
-    if (dir === "up") return formatPct(upTurn);
-    return formatPct(downTurn);
-  };
-  const formatAsOf = (value?: string | null) => value ?? "--";
-  const formatQualification = (item: RankItem) => {
-    if (item.entryQualified === true) {
-      const cnt = Number.isFinite(item.mtfQualifiedCount ?? NaN) ? Number(item.mtfQualifiedCount) : null;
-      if (cnt != null) return `適格 ${cnt}/3`;
-      return "適格 OK";
-    }
-    if (item.entryQualifiedByFallback === true) {
-      if (item.entryQualifiedFallbackStage === "mtf_consensus") return "適格 合意待ち";
-      if (item.entryQualifiedFallbackStage === "hybrid_relaxed_score") return "適格 段階1";
-      if (item.entryQualifiedFallbackStage === "turn_strict_recovery") return "適格 段階2";
-      if (item.entryQualifiedFallbackStage === "short_pattern_recovery") return "適格 売り補完";
-      if (item.entryQualifiedFallbackStage === "short_turn_recovery") return "適格 売り再同調";
-      return "適格 補完";
-    }
-    if (item.entryQualified === false) return "適格 要確認";
-    return "適格 --";
-  };
-  const formatSetupType = (value?: string | null) => {
-    if (!value) return "--";
-    if (value === "target20_breakout" || value === "breakout20") return "20%狙い";
-    if (value === "breakout_trend" || value === "breakout") return "ブレイク";
-    if (value === "breakdown") return "崩れ継続";
-    if (value === "accumulation_break" || value === "accumulation") return "貯め→抜け";
-    if (value === "rebound") return "反発狙い";
-    if (value === "watchlist" || value === "watch") return "監視";
-    return value;
-  };
-  const formatPctSigned = (value?: number | null) => {
-    if (!Number.isFinite(value ?? NaN)) return "--";
-    const n = value ?? 0;
-    const sign = n > 0 ? "+" : "";
-    return `${sign}${(n * 100).toFixed(2)}%`;
-  };
-  const formatEdinetStatus = (value?: string | null) => {
-    if (!value) return "未判定";
-    if (value === "ok") return "OK";
-    if (value === "missing_tables") return "テーブル不足";
-    if (value === "unmapped") return "未マップ";
-    if (value === "no_payload") return "データなし";
-    return value;
-  };
-  const formatEdinetNotAppliedReason = (value?: string | null) => {
-    if (!value || value === "ok") return "補正条件外";
-    if (value === "missing_tables") return "補正未適用: EDINETテーブル未整備";
-    if (value === "unmapped") return "補正未適用: EDINETコード未対応";
-    if (value === "no_payload") return "補正未適用: 財務ペイロード未取得";
-    return `補正未適用: ${value}`;
-  };
-  const formatInvalidationTrigger = (value?: string | null) => {
-    if (!value) return "--";
-    if (value === "box_break") return "Box下限割れ";
-    if (value === "box_reclaim") return "Box上限回復";
-    if (value === "stop3") return "-3%逆行";
-    if (value === "stop5") return "-5%逆行";
-    if (value === "ma20") return "MA20逆抜け";
-    return value;
-  };
-  const formatInvalidationAction = (value?: string | null) => {
-    if (!value) return "--";
-    if (value === "exit") return "撤退";
-    if (value === "hold") return "継続";
-    if (value === "doten_opt") return "ドテン";
-    if (value === "doten_remainder") return "残期間ドテン";
-    return value;
-  };
-  const showExtendedMetrics = metricsView === "full";
-
   return (
     <div className="app-shell list-view">
       <UnifiedListHeader
@@ -1351,13 +1251,30 @@ export default function RankingView() {
         onRangeChange={setListRangeBars}
         search={search}
         onSearchChange={setSearch}
+        hideSort={true}
         sortValue={dir}
-        sortOptions={sortOptions}
-        onSortChange={(value) => setDir(value as "up" | "down")}
-        columns={listColumns}
-        rows={listRows}
-        onColumnsChange={setListColumns}
-        onRowsChange={setListRows}
+        sortOptions={[]}
+        onSortChange={() => {}}
+        topRowLeftExtra={
+          <div className="rank-target-switch">
+            <div className="segmented segmented-compact">
+              {(["up", "down"] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={dir === key ? "active" : ""}
+                  onClick={() => setDir(key)}
+                >
+                  {key === "up" ? "買い" : "売り"}
+                </button>
+              ))}
+            </div>
+          </div>
+        }
+        columns={columns}
+        rows={rows}
+        onColumnsChange={setColumns}
+        onRowsChange={setRows}
         filterItems={filterItems}
         helpLabel="相談"
         onHelpClick={() => {
@@ -1366,61 +1283,30 @@ export default function RankingView() {
           setConsultTab("selection");
         }}
       />
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "8px",
-          alignItems: "center",
-          padding: "6px 16px",
-          borderBottom: "1px solid var(--theme-border)",
-          background: "var(--theme-bg-secondary)"
-        }}
-      >
-        <div className="segmented segmented-compact">
-          {(["up", "down"] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              className={dir === key ? "active" : ""}
-              onClick={() => setDir(key)}
-            >
-              {key === "up" ? "買い" : "売り"}
-            </button>
-          ))}
+      {(qualificationFilterRelaxed || mtfStrictFilterRelaxed) && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "8px",
+            alignItems: "center",
+            padding: "6px 16px",
+            borderBottom: "1px solid var(--theme-border)",
+            background: "var(--theme-bg-secondary)"
+          }}
+        >
+          {qualificationFilterRelaxed && (
+            <div className="rank-top-summary is-warn">
+              適格銘柄が0件のため、条件未達を含む候補を表示しています。
+            </div>
+          )}
+          {mtfStrictFilterRelaxed && (
+            <div className="rank-top-summary is-warn">
+              統合厳選(合意{mtfStrictRule.minQualified}/3+ または 勝ちやすさ{(mtfStrictGateApplied * 100).toFixed(1)}%以上)で0件のため、候補を自動緩和しています。
+            </div>
+          )}
         </div>
-        <div className="segmented segmented-compact">
-          {(["compact", "full"] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              className={metricsView === key ? "active" : ""}
-              onClick={() => setMetricsView(key)}
-            >
-              {key === "compact" ? "要点" : "詳細"}
-            </button>
-          ))}
-        </div>
-        <span className="rank-score-badge">
-          表示: 統合厳選(自動)
-        </span>
-        <span className="rank-score-badge">
-          運用: 継続 x 中立
-        </span>
-        <span className="rank-score-badge">
-          厳選: {mtfStrictRule.label} / 合意{mtfStrictRule.minQualified}/3+ or 勝ちやすさ{(mtfStrictGateApplied * 100).toFixed(1)}% / 候補{mtfStrictCount}件
-        </span>
-        {qualificationFilterRelaxed && (
-          <div className="rank-top-summary is-warn">
-            適格銘柄が0件のため、条件未達を含む候補を表示しています。
-          </div>
-        )}
-        {mtfStrictFilterRelaxed && (
-          <div className="rank-top-summary is-warn">
-            統合厳選(合意{mtfStrictRule.minQualified}/3+ または 勝ちやすさ{(mtfStrictGateApplied * 100).toFixed(1)}%以上)で0件のため、候補を自動緩和しています。
-          </div>
-        )}
-      </div>
+      )}
       <div
         className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
@@ -1451,28 +1337,6 @@ export default function RankingView() {
                   {sortedItems.map((item, index) => {
                 const payload = barsCache[listTimeframe]?.[item.code] ?? null;
                 const status = barsStatus[listTimeframe][item.code];
-                const isMonthlyList = listTimeframe === "monthly";
-                const displayUpProb = Number.isFinite(item.mlPUpShort ?? NaN)
-                  ? item.mlPUpShort
-                  : item.mlPUp;
-                const displayDownProb = Number.isFinite(item.mlPDown ?? NaN)
-                  ? item.mlPDown
-                  : Number.isFinite(displayUpProb ?? NaN)
-                    ? 1 - (displayUpProb ?? 0)
-                    : null;
-                const displayMonthlyUpProb = Number.isFinite(item.mlPUpBig ?? NaN)
-                  ? item.mlPUpBig
-                  : item.mlPUp;
-                const displayMonthlyDownProb = Number.isFinite(item.mlPDownBig ?? NaN)
-                  ? item.mlPDownBig
-                  : displayDownProb;
-                const displayTripletProb = dir === "up" ? item.candleTripletUp : item.candleTripletDown;
-                const displayMonthlyBreakoutProb =
-                  dir === "up" ? item.monthlyBreakoutUpProb : item.monthlyBreakoutDownProb;
-                const displayMonthlySide20Prob = Number.isFinite(item.mlP20Side1M ?? NaN)
-                  ? item.mlP20Side1M
-                  : item.mlP20Side1MRaw;
-                const setupTypeLabel = formatSetupType(item.setupType);
                 const series =
                   payload && payload.bars?.length ? payload.bars : item.series ?? [];
                 const ticker = tickerMap.get(item.code);
@@ -1491,7 +1355,6 @@ export default function RankingView() {
                     maSettings={resolvedMaSettings}
                     rangeBars={listRangeBars}
                     densityKey={densityKey}
-                    signals={signalMap.get(item.code) ?? []}
                     onOpenDetail={handleOpenDetail}
                     tileClassName={selectedSet.has(item.code) ? "is-selected" : ""}
                     deferUntilInView
@@ -1510,335 +1373,43 @@ export default function RankingView() {
                       ) : null
                     }
                     headerLeft={
-                      <>
+                    <div className="rank-header-main">
                         <span className="rank-badge">{index + 1}</span>
-                        <div className="tile-id">
-                          <label
-                            className="tile-select-toggle"
-                            onClick={(event) => event.stopPropagation()}
-                            onDoubleClick={(event) => event.stopPropagation()}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedSet.has(item.code)}
-                              onChange={() => toggleSelect(item.code)}
-                              aria-label={`${item.code} を選択`}
-                            />
-                            <span className="tile-code">{item.code}</span>
-                          </label>
-                          <span className="tile-name">{item.name ?? item.code}</span>
-                          {(rightsLabel || earningsLabel) && (
-                            <span className="event-badges">
-                              {rightsLabel && (
-                                <span className="event-badge event-rights">権利 {rightsLabel}</span>
-                              )}
-                              {earningsLabel && (
-                                <span className="event-badge event-earnings">
-                                  決算 {earningsLabel}
-                                </span>
-                              )}
-                            </span>
-                          )}
-                        </div>
-                      </>
+                        <label
+                          className="tile-select-toggle rank-select-toggle"
+                          onClick={(event) => event.stopPropagation()}
+                          onDoubleClick={(event) => event.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedSet.has(item.code)}
+                            onChange={() => toggleSelect(item.code)}
+                            aria-label={`${item.code} を選択`}
+                          />
+                          <span className="tile-code rank-tile-code">{item.code}</span>
+                        </label>
+                        <span className="tile-name rank-tile-name">{item.name ?? item.code}</span>
+                      </div>
                     }
                     headerRight={
-                      <>
-                        <span className="rank-score-badge">
-                          騰落率 {formatPct(item.changePct)}
-                        </span>
-                        <span className="rank-score-badge">
-                          期待値 {formatPct(item.mlEv20Net)}
-                        </span>
-                        <span className="rank-score-badge">
-                          {dir === "up"
-                            ? `${isMonthlyList ? "1M上昇確率" : "上昇確率"} ${formatPct(isMonthlyList ? displayMonthlyUpProb : displayUpProb)}`
-                            : `${isMonthlyList ? "1M下落確率" : "下落確率"} ${formatDownProb(
-                              isMonthlyList ? displayMonthlyDownProb : displayDownProb,
-                              isMonthlyList ? displayMonthlyUpProb : displayUpProb
-                            )}`}
-                        </span>
-                        {isMonthlyList && Number.isFinite(displayMonthlySide20Prob ?? NaN) && (
-                          <span className="rank-score-badge">
-                            1M±20%確率 {formatPct(displayMonthlySide20Prob)}
+                      <div className="rank-header-meta">
+                        {(rightsLabel || earningsLabel) && (
+                          <span className="event-badges rank-header-event-badges">
+                            {rightsLabel && (
+                              <span className="event-badge event-rights">権利 {rightsLabel}</span>
+                            )}
+                            {earningsLabel && (
+                              <span className="event-badge event-earnings">
+                                決算 {earningsLabel}
+                              </span>
+                            )}
                           </span>
-                        )}
-                        {isMonthlyList && (
-                          <span className="rank-score-badge">
-                            {setupTypeLabel}
-                            {item.target20Qualified ? " / 20%狙いOK" : ""}
-                          </span>
-                        )}
-                        {Number.isFinite(item.recommendedHoldDays ?? NaN) && (
-                          <span className="rank-score-badge">
-                            保有目安 {Math.round(item.recommendedHoldDays ?? 0)}日
-                          </span>
-                        )}
-                        {Number.isFinite(item.recommendedHoldMinDays ?? NaN) &&
-                          Number.isFinite(item.recommendedHoldMaxDays ?? NaN) &&
-                          Math.round(item.recommendedHoldMinDays ?? 0) !== Math.round(item.recommendedHoldMaxDays ?? 0) && (
-                            <span className="rank-score-badge">
-                              保有レンジ {Math.round(item.recommendedHoldMinDays ?? 0)}-{Math.round(item.recommendedHoldMaxDays ?? 0)}日
-                            </span>
-                          )}
-                        <span
-                          className={`rank-score-badge rank-qualification ${item.entryQualified === true
-                            ? "is-ok"
-                            : item.entryQualifiedByFallback === true
-                              ? "is-warn"
-                            : item.entryQualified === false
-                              ? "is-warn"
-                              : ""
-                            }`}
-                        >
-                          {formatQualification(item)}
-                        </span>
-                        {item.researchPriorAligned === true && (
-                          <span className="rank-score-badge">
-                            研究一致 {formatResearchPriorRank(item)}
-                            {Number.isFinite(item.researchPriorBonus ?? NaN)
-                              ? ` ${formatPctSigned(item.researchPriorBonus)}`
-                              : ""}
-                          </span>
-                        )}
-                        {Number.isFinite(item.winNowScore ?? NaN) && (
-                          <span className="rank-score-badge">
-                            勝ちやすさ {((item.winNowScore ?? 0) * 100).toFixed(1)}%
-                          </span>
-                        )}
-                        {Number.isFinite(item.mtfQualifiedCount ?? NaN) && (
-                          <span className="rank-score-badge">
-                            MTF適格 {Math.max(0, Math.min(3, Math.round(item.mtfQualifiedCount ?? 0)))}/3
-                          </span>
-                        )}
-                        {Number.isFinite(item.mtfFallbackCount ?? NaN) && (
-                          <span className="rank-score-badge">
-                            MTF補完 {Math.max(0, Math.min(3, Math.round(item.mtfFallbackCount ?? 0)))}/3
-                          </span>
-                        )}
-                        {item.mtfSignalBits && (
-                          <span className="rank-score-badge">
-                            {item.mtfSignalBits}
-                          </span>
-                        )}
-                        {showExtendedMetrics && (
-                          <>
-                            {item.researchPriorRunId && (
-                              <span className="rank-score-badge">
-                                研究Run {item.researchPriorRunId}
-                              </span>
-                            )}
-                            {item.researchPriorAsOf && (
-                              <span className="rank-score-badge">
-                                研究asOf {item.researchPriorAsOf}
-                              </span>
-                            )}
-                            {Number.isFinite(item.researchPriorUniverse ?? NaN) && (
-                              <span className="rank-score-badge">
-                                研究母数 {Math.max(1, Math.round(item.researchPriorUniverse ?? 0))}
-                              </span>
-                            )}
-                            {Number.isFinite(item.researchPriorBonus ?? NaN) &&
-                              Math.abs(item.researchPriorBonus ?? 0) > 1e-9 && (
-                                <span className="rank-score-badge">
-                                  研究補正 {formatPctSigned(item.researchPriorBonus)}
-                                </span>
-                              )}
-                            {item.invalidationTrigger && (
-                              <span className="rank-score-badge">
-                                否定 {formatInvalidationTrigger(item.invalidationTrigger)} / 推奨 {formatInvalidationAction(item.invalidationRecommendedAction)} / 守 {formatInvalidationAction(item.invalidationConservativeAction)} / 攻 {formatInvalidationAction(item.invalidationAggressiveAction)}
-                              </span>
-                            )}
-                            {item.invalidationDotenRecommended === true && Number.isFinite(item.invalidationOppositeHoldDays ?? NaN) && (
-                              <span className="rank-score-badge">
-                                否定時ドテン {Math.round(item.invalidationOppositeHoldDays ?? 0)}日
-                              </span>
-                            )}
-                            {Number.isFinite(item.invalidationExpectedDeltaMean ?? NaN) && (
-                              <span className="rank-score-badge">
-                                否定期待差 {formatPctSigned(item.invalidationExpectedDeltaMean)}
-                              </span>
-                            )}
-                            {Number.isFinite(item.playbookScoreBonus ?? NaN) &&
-                              Math.abs(item.playbookScoreBonus ?? 0) > 1e-9 && (
-                                <span className="rank-score-badge">
-                                  Playbook補正 {formatPctSigned(item.playbookScoreBonus)}
-                                </span>
-                              )}
-                            {item.recommendedHoldReason && (
-                              <span className="rank-score-badge">
-                                保有根拠 {item.recommendedHoldReason}
-                              </span>
-                            )}
-                            {Number.isFinite(item.mtfWinD ?? NaN) && (
-                              <span className="rank-score-badge">D勝 {formatPct(item.mtfWinD)}</span>
-                            )}
-                            {Number.isFinite(item.mtfWinW ?? NaN) && (
-                              <span className="rank-score-badge">W勝 {formatPct(item.mtfWinW)}</span>
-                            )}
-                            {Number.isFinite(item.mtfWinM ?? NaN) && (
-                              <span className="rank-score-badge">M勝 {formatPct(item.mtfWinM)}</span>
-                            )}
-                            {Number.isFinite(item.mtfCoverage ?? NaN) && (
-                              <span className="rank-score-badge">MTF充足 {formatPct(item.mtfCoverage)}</span>
-                            )}
-                            {Number.isFinite(item.mtfLiquidity20d ?? NaN) && (
-                              <span className="rank-score-badge">MTF流動 {(item.mtfLiquidity20d ?? 0).toFixed(0)}</span>
-                            )}
-                            <span className="rank-score-badge">RankUp {formatRankScore(item.mlRankUp)}</span>
-                            <span className="rank-score-badge">RankDown {formatRankScore(item.mlRankDown)}</span>
-                            <span className="rank-score-badge">
-                              {dir === "up"
-                                ? `転換買い ${formatTurnProb(item.mlPTurnUp, item.mlPTurnDown)}`
-                                : `転換売り ${formatTurnProb(item.mlPTurnUp, item.mlPTurnDown)}`}
-                            </span>
-                            {Number.isFinite(item.prob5d ?? NaN) && (
-                              <span className="rank-score-badge">5D確率 {formatPct(item.prob5d)}</span>
-                            )}
-                            {Number.isFinite(item.prob10d ?? NaN) && (
-                              <span className="rank-score-badge">10D確率 {formatPct(item.prob10d)}</span>
-                            )}
-                            {Number.isFinite(item.prob20d ?? NaN) && (
-                              <span className="rank-score-badge">20D確率 {formatPct(item.prob20d)}</span>
-                            )}
-                            {Number.isFinite(item.maStreak60Up ?? NaN) && (
-                              <span className="rank-score-badge">60上 {Math.round(item.maStreak60Up ?? 0)}</span>
-                            )}
-                            {Number.isFinite(item.maStreak100Up ?? NaN) && (
-                              <span className="rank-score-badge">100上 {Math.round(item.maStreak100Up ?? 0)}</span>
-                            )}
-                            {item.maStreakAligned === true && (
-                              <span className="rank-score-badge">MA本数 適合</span>
-                            )}
-                            {item.weakEarlyPattern === true && (
-                              <span className="rank-score-badge">初期弱含み 警戒</span>
-                            )}
-                            {item.patternA1MaturedBreakout === true && (
-                              <span className="rank-score-badge">A1 成熟Box抜け</span>
-                            )}
-                            {item.patternA2BoxTrend === true && (
-                              <span className="rank-score-badge">A2 Box上半トレンド</span>
-                            )}
-                            {item.patternA3CapitulationRebound === true && (
-                              <span className="rank-score-badge">A3 反発余地</span>
-                            )}
-                            {item.patternS1WeakBreakdown === true && (
-                              <span className="rank-score-badge">S1 下抜け弱形 警戒</span>
-                            )}
-                            {item.patternS2WeakBox === true && (
-                              <span className="rank-score-badge">S2 Box下限弱形 警戒</span>
-                            )}
-                            {item.patternS3LateBreakout === true && (
-                              <span className="rank-score-badge">S3 伸び切り 警戒</span>
-                            )}
-                            {item.patternD1ShortBreakdown === true && (
-                              <span className="rank-score-badge">D1 弱形下抜け 売り</span>
-                            )}
-                            {item.patternD2ShortMixedFar === true && (
-                              <span className="rank-score-badge">D2 混在→崩れ 売り</span>
-                            )}
-                            {item.patternD3ShortNaBelow === true && (
-                              <span className="rank-score-badge">D3 初期弱含み 売り</span>
-                            )}
-                            {item.patternD4ShortDoubleTop === true && (
-                              <span className="rank-score-badge">D4 ダブルトップ 売り</span>
-                            )}
-                            {item.patternD5ShortHeadShoulders === true && (
-                              <span className="rank-score-badge">D5 三尊天井 売り</span>
-                            )}
-                            {item.patternDTrapStackDownFar === true && (
-                              <span className="rank-score-badge">D罠 売られ過ぎ 警戒</span>
-                            )}
-                            {item.patternDTrapOverheatMomentum === true && (
-                              <span className="rank-score-badge">D罠 過熱順行 警戒</span>
-                            )}
-                            {item.patternDTrapTopFakeout === true && (
-                              <span className="rank-score-badge">D罠 天井だまし 警戒</span>
-                            )}
-                            <span className="rank-score-badge">
-                              確率カーブ {item.probCurveAligned === false ? "NG" : item.probCurveAligned === true ? "OK" : "--"}
-                            </span>
-                            <span className="rank-score-badge">
-                              {dir === "up"
-                                ? `3本買い ${formatPct(displayTripletProb)}`
-                                : `3本売り ${formatPct(displayTripletProb)}`}
-                            </span>
-                            <span className="rank-score-badge">
-                              {dir === "up"
-                                ? `月抜け ${formatPct(displayMonthlyBreakoutProb)}`
-                                : `月下抜け ${formatPct(displayMonthlyBreakoutProb)}`}
-                            </span>
-                            <span className="rank-score-badge">
-                              月レンジ {formatPct(item.monthlyRangeProb)}
-                            </span>
-                            {isMonthlyList && Number.isFinite(item.target20Gate ?? NaN) && (
-                              <span className="rank-score-badge">
-                                20%ゲート {formatPct(item.target20Gate)}
-                              </span>
-                            )}
-                            {isMonthlyList && Number.isFinite(item.breakoutReadiness ?? NaN) && (
-                              <span className="rank-score-badge">
-                                抜け準備 {formatPct(item.breakoutReadiness)}
-                              </span>
-                            )}
-                            {isMonthlyList && Number.isFinite(item.accumulationScore ?? NaN) && (
-                              <span className="rank-score-badge">
-                                貯め度 {formatPct(item.accumulationScore)}
-                              </span>
-                            )}
-                            {isMonthlyList && (
-                              <span className="rank-score-badge">
-                                EDI状態 {formatEdinetStatus(item.edinetStatus)}
-                              </span>
-                            )}
-                            {isMonthlyList && item.edinetStatus && item.edinetStatus !== "ok" && (
-                              <span className="rank-score-badge">
-                                {formatEdinetNotAppliedReason(item.edinetStatus)}
-                              </span>
-                            )}
-                            {isMonthlyList && Number.isFinite(item.edinetFreshnessDays ?? NaN) && (
-                              <span className="rank-score-badge">
-                                EDI鮮度 {Math.max(0, Math.round(item.edinetFreshnessDays ?? 0))}日
-                              </span>
-                            )}
-                            {isMonthlyList && Number.isFinite(item.edinetQualityScore ?? NaN) && (
-                              <span className="rank-score-badge">
-                                EDI品質 {formatPct(item.edinetQualityScore)}
-                              </span>
-                            )}
-                            {isMonthlyList && Number.isFinite(item.edinetScoreBonus ?? NaN) && (
-                              <span className="rank-score-badge">
-                                EDI補正 {formatPctSigned(item.edinetScoreBonus)}
-                              </span>
-                            )}
-                            {isMonthlyList && Number.isFinite(item.edinetRoe ?? NaN) && (
-                              <span className="rank-score-badge">ROE {formatPct(item.edinetRoe)}</span>
-                            )}
-                            {isMonthlyList && Number.isFinite(item.edinetEquityRatio ?? NaN) && (
-                              <span className="rank-score-badge">自己資本比率 {formatPct(item.edinetEquityRatio)}</span>
-                            )}
-                            {isMonthlyList && Number.isFinite(item.edinetDebtRatio ?? NaN) && (
-                              <span className="rank-score-badge">D/E {formatRankScore(item.edinetDebtRatio)}</span>
-                            )}
-                            {isMonthlyList && Number.isFinite(item.edinetOperatingCfMargin ?? NaN) && (
-                              <span className="rank-score-badge">営業CF率 {formatPct(item.edinetOperatingCfMargin)}</span>
-                            )}
-                            {isMonthlyList && Number.isFinite(item.edinetRevenueGrowthYoy ?? NaN) && (
-                              <span className="rank-score-badge">売上成長率 {formatPct(item.edinetRevenueGrowthYoy)}</span>
-                            )}
-                          </>
-                        )}
-                        <span className="rank-score-badge">
-                          総合 {formatPct(item.hybridScore)}
-                        </span>
-                        {showExtendedMetrics && (
-                          <span className="rank-score-badge">日付 {formatAsOf(item.asOf)}</span>
                         )}
                         <button
                           type="button"
-                          className={`favorite-toggle ${item.is_favorite ? "active" : ""}`}
-                          aria-pressed={Boolean(item.is_favorite)}
+                          className={item.is_favorite ? "favorite-toggle active" : "favorite-toggle"}
                           aria-label={item.is_favorite ? "お気に入り解除" : "お気に入り追加"}
+                          aria-pressed={Boolean(item.is_favorite)}
                           onClick={(event) => {
                             event.stopPropagation();
                             handleToggleFavorite(item.code, Boolean(item.is_favorite));
@@ -1846,7 +1417,7 @@ export default function RankingView() {
                         >
                           {item.is_favorite ? <IconHeartFilled size={16} /> : <IconHeart size={16} />}
                         </button>
-                      </>
+                      </div>
                     }
                   />
                 );

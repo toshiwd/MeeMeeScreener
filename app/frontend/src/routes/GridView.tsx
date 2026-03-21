@@ -707,7 +707,7 @@ export default function GridView() {
   );
 
   const gridPresetLabel = useMemo(() => {
-    return gridPresetOptions.find((item) => item.value === rows)?.label ?? `${rows}×${columns}`;
+    return gridPresetOptions.find((item) => item.value === rows)?.label ?? `${rows}x${columns}`;
   }, [rows, columns]);
 
   const sortDirLabel = sortDir === "desc" ? "降順" : "昇順";
@@ -1302,6 +1302,7 @@ export default function GridView() {
   const innerHeight = Math.max(0, gridHeight);
   const rowCount = Math.ceil(sortedTickers.length / columns);
   const columnWidth = gridWidth > 0 ? gridWidth / columns : 300;
+  const compactTileHeader = columns >= 3 && rows >= 3;
   const showSkeleton = backendReady && loadingList && tickers.length === 0;
   const visibleMaSignature = useMemo(
     () =>
@@ -2632,10 +2633,10 @@ export default function GridView() {
                 <div className="popover-anchor" ref={displayRef}>
                   <IconButton
                     icon={<IconLayoutGrid size={18} />}
-                    label="表示"
+                    label="表示密度"
                     variant="iconLabel"
-                    tooltip="表示設定"
-                    ariaLabel="表示設定メニューを開く"
+                    tooltip="表示密度"
+                    ariaLabel="表示密度メニューを開く"
                     selected={displayOpen}
                     onClick={() => {
                       setDisplayOpen(!displayOpen);
@@ -2647,11 +2648,12 @@ export default function GridView() {
                   {displayOpen && (
                     <div className="popover-panel">
                       <div className="popover-section">
-                        <div className="popover-title">グリッド</div>
+                        <div className="popover-title">表示密度</div>
                         <div className="segmented segmented-grid-preset">
                           {gridPresetOptions.map((preset) => (
                             <button
                               key={preset.value}
+                              type="button"
                               className={rows === preset.value && columns === preset.value ? "active" : ""}
                               onClick={() => setRows(preset.value)}
                             >
@@ -3816,6 +3818,7 @@ export default function GridView() {
                               maxBars={gridMaxBars}
                               active={activeCode === item.ticker.code}
                               kept={keepSet.has(item.ticker.code)}
+                              compactHeader={compactTileHeader}
                               asofLabel={asofLabel}
                               asofTooltip={asofTooltip}
                               onActivate={activateByCode}

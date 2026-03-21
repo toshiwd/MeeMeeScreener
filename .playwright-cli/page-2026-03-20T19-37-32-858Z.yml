@@ -1,0 +1,73 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - generic [ref=e8]: MeeMee
+          - generic [ref=e9]: Screener
+        - navigation [ref=e10]:
+          - link "一覧" [ref=e11] [cursor=pointer]:
+            - /url: /
+          - link "ランキング" [ref=e12] [cursor=pointer]:
+            - /url: /ranking
+          - link "市場" [ref=e13] [cursor=pointer]:
+            - /url: /market
+          - link "建玉" [ref=e14] [cursor=pointer]:
+            - /url: /positions
+          - link "お気に入り" [ref=e15] [cursor=pointer]:
+            - /url: /favorites
+          - link "候補" [ref=e16] [cursor=pointer]:
+            - /url: /candidates
+          - link "研究" [ref=e17] [cursor=pointer]:
+            - /url: /tradex-tags
+          - link "運用" [ref=e18] [cursor=pointer]:
+            - /url: /ops/publish
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e21]: 期間
+          - generic [ref=e22]:
+            - button "1日" [ref=e23] [cursor=pointer]
+            - button "1週" [ref=e24] [cursor=pointer]
+            - button "1ヶ月" [ref=e25] [cursor=pointer]
+        - generic [ref=e26]:
+          - generic [ref=e27]: 指標
+          - generic [ref=e28]:
+            - button "騰落率" [ref=e29] [cursor=pointer]
+            - button "資金フロー" [ref=e30] [cursor=pointer]
+            - button "両方" [ref=e31] [cursor=pointer]
+        - generic [ref=e32]:
+          - generic [ref=e33]: 表示形式
+          - generic [ref=e34]:
+            - button "ヒートマップ" [ref=e35] [cursor=pointer]
+            - button "回転図" [ref=e36] [cursor=pointer]
+        - generic [ref=e37]:
+          - generic [ref=e38]: scope
+          - strong [ref=e39]: 監視銘柄関連セクター
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - button "監視銘柄関連セクター" [ref=e42] [cursor=pointer]
+          - button "全市場" [ref=e43] [cursor=pointer]
+        - generic [ref=e44]:
+          - generic [ref=e45]: 最新
+          - slider [disabled] [ref=e46]: "0"
+          - generic [ref=e47]: 0/0
+    - main [ref=e48]:
+      - generic [ref=e51]:
+        - generic [ref=e52]: データ取得中...
+        - generic [ref=e53]: 市場データを読み込んでいます。
+      - complementary [ref=e54]:
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - generic [ref=e57]: 監視銘柄
+            - generic [ref=e58]: 未選択
+          - button "開く" [ref=e60] [cursor=pointer]
+        - generic [ref=e61]: セクターをクリックすると監視銘柄一覧を表示します。

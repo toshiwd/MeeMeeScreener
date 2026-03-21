@@ -1,0 +1,75 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e6]:
+          - generic [ref=e7]:
+            - generic [ref=e8]: MeeMee
+            - generic [ref=e9]: Screener
+          - navigation [ref=e10]:
+            - link "一覧" [ref=e11] [cursor=pointer]:
+              - /url: /
+            - link "ランキング" [ref=e12] [cursor=pointer]:
+              - /url: /ranking
+            - link "市場" [ref=e13] [cursor=pointer]:
+              - /url: /market
+            - link "建玉" [ref=e14] [cursor=pointer]:
+              - /url: /positions
+            - link "お気に入り" [ref=e15] [cursor=pointer]:
+              - /url: /favorites
+            - link "候補" [ref=e16] [cursor=pointer]:
+              - /url: /candidates
+            - link "研究" [ref=e17] [cursor=pointer]:
+              - /url: /tradex-tags
+            - link "運用" [ref=e18] [cursor=pointer]:
+              - /url: /ops/publish
+        - generic [ref=e19]:
+          - generic [ref=e20]:
+            - generic [ref=e21]: 期間
+            - generic [ref=e22]:
+              - button "1日" [ref=e23] [cursor=pointer]
+              - button "1週" [ref=e24] [cursor=pointer]
+              - button "1ヶ月" [ref=e25] [cursor=pointer]
+          - generic [ref=e26]:
+            - generic [ref=e27]: 指標
+            - generic [ref=e28]:
+              - button "騰落率" [ref=e29] [cursor=pointer]
+              - button "資金フロー" [ref=e30] [cursor=pointer]
+              - button "両方" [ref=e31] [cursor=pointer]
+          - generic [ref=e32]:
+            - generic [ref=e33]: scope
+            - generic [ref=e34]:
+              - button "監視銘柄関連セクター" [ref=e35] [cursor=pointer]
+              - button "全市場" [ref=e36] [cursor=pointer]
+          - generic [ref=e37]:
+            - generic [ref=e38]: 最新
+            - slider [disabled] [ref=e39]: "0"
+            - generic [ref=e40]: 0/0
+      - main [ref=e41]:
+        - generic [ref=e44]:
+          - generic [ref=e45]: データ取得中...
+          - generic [ref=e46]: 市場データを読み込んでいます。
+        - complementary [ref=e47]:
+          - button "セクター詳細を開く" [ref=e48] [cursor=pointer]:
+            - generic [ref=e49]: セクター詳細
+            - generic [ref=e50]: 監視銘柄
+            - generic [ref=e51]: ›
+    - generic:
+      - status:
+        - generic:
+          - generic:
+            - generic:
+              - generic: M
+          - generic: MeeMee Screener
+        - generic:
+          - generic: 準備完了
+          - generic: 試行 1 回 · 経過 0s

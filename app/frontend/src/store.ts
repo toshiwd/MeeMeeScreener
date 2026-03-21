@@ -17,10 +17,8 @@ import {
   BATCH_TTL_MS,
   COMPARE_MA_STORAGE_PREFIX,
   ENSURE_COALESCE_MS,
-  LIST_COLS_KEY,
   LIST_RANGE_KEY,
   LIST_RANGE_VALUES,
-  LIST_ROWS_KEY,
   LIST_TIMEFRAME_KEY,
   WATCHLIST_AUTO_REPAIR_COOLDOWN_MS,
   WATCHLIST_AUTO_REPAIR_MIN_MISSING,
@@ -36,9 +34,7 @@ import {
   ensurePendingWaiters,
   getFetchedLimit,
   getInitialColumns,
-  getInitialListColumns,
   getInitialListRangeBars,
-  getInitialListRows,
   getInitialRows,
   getInitialSortDir,
   getInitialSortKey,
@@ -121,8 +117,6 @@ export const useStore = create<StoreState>((set, get) => ({
   settings: {
     columns: getInitialColumns(),
     rows: getInitialRows(),
-    listColumns: getInitialListColumns(),
-    listRows: getInitialListRows(),
     listRangeBars: getInitialListRangeBars(),
     search: "",
     gridScrollTop: 0,
@@ -1101,18 +1095,6 @@ export const useStore = create<StoreState>((set, get) => ({
       window.localStorage.setItem(LIST_RANGE_KEY, String(normalized));
     }
     set((state) => ({ settings: { ...state.settings, listRangeBars: normalized } }));
-  },
-  setListColumns: (value) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(LIST_COLS_KEY, String(value));
-    }
-    set((state) => ({ settings: { ...state.settings, listColumns: value } }));
-  },
-  setListRows: (value) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(LIST_ROWS_KEY, String(value));
-    }
-    set((state) => ({ settings: { ...state.settings, listRows: value } }));
   },
   setSearch: (search) => {
     set((state) => ({ settings: { ...state.settings, search } }));
