@@ -40,7 +40,7 @@ export default function TradexApp() {
               <Route path="/verify" element={<TradexVerifyPage />} />
               <Route path="/compare" element={<TradexComparePage />} />
               <Route path="/adopt" element={<TradexAdoptPage />} />
-              <Route path="/detail/:candidateId" element={<TradexCandidateDetailPage />} />
+              <Route path="/detail/:runId" element={<TradexCandidateDetailPage />} />
               <Route path="/legacy/tags" element={<TradexLegacyTagsPage />} />
               <Route path="/legacy/publish" element={<TradexLegacyPublishPage />} />
               <Route path="/legacy/sim" element={<TradexLegacySimPage />} />

@@ -1,117 +1,323 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useTradexBootstrap } from "../useTradexBootstrap";
-import { tradexCandidateStatusLabel, tradexFreshnessLabel, tradexReplayLabel } from "../labels";
+import {
+  createTradexFamily,
+  createTradexRun,
+  loadTradexFamilies,
+  loadTradexRun,
+  type TradexFamily,
+  type TradexPlanSpec,
+  type TradexPeriodSegment,
+} from "../experimentApi";
+import { readTradexLocal, tradexStorageKeys, writeTradexLocal } from "../storage";
 
-const formatNumber = (value: number | null | undefined, digits = 3) => {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "--";
-  return value.toFixed(digits);
+const defaultUniverse = ["7203", "6758", "9984", "8306", "9983", "4063", "9432", "7974", "6902", "6861", "6098", "8035", "6501", "6954", "4519", "8801", "9020", "6503", "8308", "8058"];
+
+const defaultSegments: TradexPeriodSegment[] = [
+  { label: "phase-1", start_date: "2025-01-01", end_date: "2025-01-31" },
+  { label: "phase-2", start_date: "2025-02-01", end_date: "2025-02-28" }
+];
+
+const defaultBaselinePlan: TradexPlanSpec = {
+  plan_id: "baseline",
+  plan_version: "v1",
+  label: "Baseline",
+  minimum_confidence: 0.4,
+  minimum_ready_rate: 0.4,
+  signal_bias: "balanced",
+  top_k: 3
 };
 
+const defaultCandidatePlans: TradexPlanSpec[] = [
+  { plan_id: "candidate-a", plan_version: "v1", label: "Candidate A", minimum_confidence: 0.45, signal_bias: "buy", top_k: 3 },
+  { plan_id: "candidate-b", plan_version: "v1", label: "Candidate B", minimum_confidence: 0.5, signal_bias: "balanced", top_k: 3 },
+  { plan_id: "candidate-c", plan_version: "v1", label: "Candidate C", minimum_confidence: 0.55, signal_bias: "sell", top_k: 3 }
+];
+
+const pretty = (value: unknown) => JSON.stringify(value, null, 2);
+
+function FamilyCard({ family, active, onSelect }: { family: TradexFamily; active: boolean; onSelect: (familyId: string) => void }) {
+  return (
+    <button type="button" className={`tradex-candidate-select-item${active ? " is-active" : ""}`} onClick={() => onSelect(family.family_id)}>
+      <strong>{family.family_name}</strong>
+      <span>{family.family_id}</span>
+      <span>{family.status_summary?.total_runs ? `${family.status_summary.total_runs} runs` : "no runs"}</span>
+    </button>
+  );
+}
+
 export default function TradexVerifyPage() {
-  const { data, loading, error } = useTradexBootstrap();
-  const summary = data?.summary;
-  const candidateRows = data?.candidates ?? [];
-  const currentReplay = data?.raw.replay_progress as Record<string, unknown> | null;
-  const actionQueue = data?.raw.action_queue as Record<string, unknown> | null;
+  const [families, setFamilies] = useState<TradexFamily[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedFamilyId, setSelectedFamilyId] = useState<string>(readTradexLocal<string>(tradexStorageKeys.familyId, ""));
+  const [submitting, setSubmitting] = useState(false);
+  const [familyName, setFamilyName] = useState("small-start family");
+  const [universeText, setUniverseText] = useState(defaultUniverse.join(", "));
+  const [segmentsText, setSegmentsText] = useState(pretty(defaultSegments));
+  const [baselinePlanText, setBaselinePlanText] = useState(pretty(defaultBaselinePlan));
+  const [candidatePlansText, setCandidatePlansText] = useState(pretty(defaultCandidatePlans));
+  const selectedFamily = useMemo(() => families.find((item) => item.family_id === selectedFamilyId) ?? families[0] ?? null, [families, selectedFamilyId]);
+
+  const refresh = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await loadTradexFamilies();
+      setFamilies(response.items ?? []);
+      const stored = readTradexLocal<string>(tradexStorageKeys.familyId, "");
+      if (stored && response.items?.some((item) => item.family_id === stored)) {
+        setSelectedFamilyId(stored);
+      } else if (!selectedFamilyId && response.items?.[0]) {
+        setSelectedFamilyId(response.items[0].family_id);
+        writeTradexLocal(tradexStorageKeys.familyId, response.items[0].family_id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to load families");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const selectFamily = (familyId: string) => {
+    setSelectedFamilyId(familyId);
+    writeTradexLocal(tradexStorageKeys.familyId, familyId);
+  };
+
+  const handleCreateFamily = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const universe = universeText
+        .split(/[\s,]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const period = JSON.parse(segmentsText) as { label?: string; start_date: string; end_date: string }[];
+      const baselinePlan = JSON.parse(baselinePlanText) as TradexPlanSpec;
+      const candidatePlans = JSON.parse(candidatePlansText) as TradexPlanSpec[];
+      const response = await createTradexFamily({
+        family_name: familyName,
+        universe,
+        period: { segments: period },
+        baseline_plan: baselinePlan,
+        candidate_plans: candidatePlans,
+      });
+      setSelectedFamilyId(response.family.family_id);
+      writeTradexLocal(tradexStorageKeys.familyId, response.family.family_id);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to create family");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const runBaseline = async () => {
+    if (!selectedFamily) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await createTradexRun(selectedFamily.family_id, { run_kind: "baseline", notes: "baseline run" });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to run baseline");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const runCandidate = async (planId: string) => {
+    if (!selectedFamily) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await createTradexRun(selectedFamily.family_id, { run_kind: "candidate", plan_id: planId, notes: `candidate run: ${planId}` });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to run candidate");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="tradex-page tradex-verify-page">
       <section className="tradex-panel">
         <div className="tradex-panel-head">
           <div>
-            <div className="tradex-panel-title">検証</div>
-            <div className="tradex-panel-caption">研究候補の進捗と異常を見て、次に比較する対象を選びます。</div>
+            <div className="tradex-panel-title">Family Verify</div>
+            <div className="tradex-panel-caption">Create a frozen family, run baseline/candidates, and keep the research loop read-only except adopt.</div>
           </div>
-          <span className="tradex-pill">{loading ? "読み込み中" : tradexReplayLabel(summary?.replay_status)}</span>
+          <button type="button" className="tradex-secondary-action" onClick={() => void refresh()} disabled={loading || submitting}>
+            refresh
+          </button>
         </div>
-        {error ? <div className="tradex-inline-error">{error}</div> : null}
-        <div className="tradex-status-grid">
-          <article className="tradex-status-card">
-            <div className="tradex-status-label">基準日</div>
-            <div className="tradex-status-value">{summary?.as_of_date ?? "--"}</div>
-          </article>
-          <article className="tradex-status-card">
-            <div className="tradex-status-label">鮮度</div>
-            <div className="tradex-status-value">{tradexFreshnessLabel(summary?.freshness_state)}</div>
-          </article>
-          <article className="tradex-status-card">
-            <div className="tradex-status-label">注目件数</div>
-            <div className="tradex-status-value">{summary?.attention_count?.toLocaleString("ja-JP") ?? "0"}</div>
-          </article>
-          <article className="tradex-status-card">
-            <div className="tradex-status-label">候補件数</div>
-            <div className="tradex-status-value">{summary?.candidate_count?.toLocaleString("ja-JP") ?? "0"}</div>
-          </article>
-        </div>
-      </section>
+        {error ? <div className="tradex-shell-alert is-error">{error}</div> : null}
 
-      <section className="tradex-panel tradex-grid-panel">
-        <div className="tradex-panel-head">
-          <div>
-            <div className="tradex-panel-title">研究候補一覧</div>
-            <div className="tradex-panel-caption">実行待機 / 実行中 / 完了 / 異常 の状態をまとめて確認します。</div>
-          </div>
-          <Link className="tradex-secondary-action" to="/compare">候補比較へ</Link>
-        </div>
-        <div className="tradex-table-wrap">
-          <table className="tradex-table">
-            <thead>
-              <tr>
-                <th>候補</th>
-                <th>状態</th>
-                <th>件数</th>
-                <th>期待値差分</th>
-                <th>詳細</th>
-              </tr>
-            </thead>
-            <tbody>
-              {candidateRows.slice(0, 10).map((candidate) => (
-                <tr key={candidate.candidate_id}>
-                  <td>
-                    <strong>{candidate.name}</strong>
-                    <div className="tradex-table-sub">{candidate.candidate_id}</div>
-                  </td>
-                  <td>{tradexCandidateStatusLabel(candidate.status)}</td>
-                  <td>{candidate.sample_count == null ? "--" : candidate.sample_count.toLocaleString("ja-JP")}</td>
-                  <td>{candidate.expectancy_delta == null ? "--" : formatNumber(candidate.expectancy_delta, 4)}</td>
-                  <td>
-                    <Link to={`/detail/${encodeURIComponent(candidate.candidate_id)}`}>
-                      候補詳細
-                    </Link>
-                  </td>
-                </tr>
+        <div className="tradex-compare-layout">
+          <aside className="tradex-compare-sidebar">
+            <div className="tradex-section-title">families</div>
+            <div className="tradex-candidate-select-list">
+              {families.map((family) => (
+                <FamilyCard key={family.family_id} family={family} active={family.family_id === selectedFamily?.family_id} onSelect={selectFamily} />
               ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+            </div>
+          </aside>
 
-      <section className="tradex-panel">
-        <div className="tradex-panel-head">
-          <div>
-            <div className="tradex-panel-title">実行状況</div>
-            <div className="tradex-panel-caption">再生進捗とアクションキューを、必要な範囲だけ確認します。</div>
+          <div className="tradex-compare-main">
+            <div className="tradex-panel">
+              <div className="tradex-panel-head">
+                <div>
+                  <div className="tradex-panel-title">Create Family</div>
+                  <div className="tradex-panel-caption">universe 20-50 symbols, period needs at least 2 segments.</div>
+                </div>
+              </div>
+              <div className="tradex-form-stack">
+                <label className="tradex-field">
+                  <span>family name</span>
+                  <input value={familyName} onChange={(event) => setFamilyName(event.target.value)} />
+                </label>
+                <label className="tradex-field">
+                  <span>universe</span>
+                  <textarea rows={3} value={universeText} onChange={(event) => setUniverseText(event.target.value)} />
+                </label>
+                <label className="tradex-field">
+                  <span>period segments JSON</span>
+                  <textarea rows={6} value={segmentsText} onChange={(event) => setSegmentsText(event.target.value)} />
+                </label>
+                <label className="tradex-field">
+                  <span>baseline plan JSON</span>
+                  <textarea rows={6} value={baselinePlanText} onChange={(event) => setBaselinePlanText(event.target.value)} />
+                </label>
+                <label className="tradex-field">
+                  <span>candidate plans JSON</span>
+                  <textarea rows={10} value={candidatePlansText} onChange={(event) => setCandidatePlansText(event.target.value)} />
+                </label>
+                <div className="tradex-action-row">
+                  <button type="button" className="tradex-primary-action" onClick={() => void handleCreateFamily()} disabled={submitting}>
+                    create family
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {selectedFamily ? (
+              <div className="tradex-panel">
+                <div className="tradex-panel-head">
+                  <div>
+                    <div className="tradex-panel-title">{selectedFamily.family_name}</div>
+                    <div className="tradex-panel-caption">{selectedFamily.family_id}</div>
+                  </div>
+                  <span className="tradex-pill">{selectedFamily.frozen ? "frozen" : "open"}</span>
+                </div>
+                <div className="tradex-inline-grid">
+                  <div><span>baseline</span><strong>{selectedFamily.baseline_plan?.plan_id ?? "--"}</strong></div>
+                  <div><span>input_dataset_version</span><strong>{selectedFamily.input_dataset_version}</strong></div>
+                  <div><span>code_revision</span><strong>{selectedFamily.code_revision}</strong></div>
+                  <div><span>confirmed_only</span><strong>{String(selectedFamily.confirmed_only)}</strong></div>
+                </div>
+                <div className="tradex-action-row">
+                  <button type="button" className="tradex-primary-action" onClick={() => void runBaseline()} disabled={submitting || Boolean(selectedFamily.baseline_run_id)}>
+                    run baseline
+                  </button>
+                  {selectedFamily.candidate_plans.map((plan) => (
+                    <button key={plan.plan_id} type="button" className="tradex-secondary-action" onClick={() => void runCandidate(plan.plan_id)} disabled={submitting || !selectedFamily.baseline_run_id}>
+                      run {plan.plan_id}
+                    </button>
+                  ))}
+                </div>
+                <details className="tradex-json-panel">
+                  <summary>family json</summary>
+                  <pre>{JSON.stringify(selectedFamily, null, 2)}</pre>
+                </details>
+              </div>
+            ) : null}
+
+            {selectedFamily ? (
+              <div className="tradex-panel">
+                <div className="tradex-panel-head">
+                  <div>
+                    <div className="tradex-panel-title">Runs</div>
+                    <div className="tradex-panel-caption">baseline first, then up to 3 candidates.</div>
+                  </div>
+                  <Link className="tradex-secondary-action" to="/compare">
+                    family compare
+                  </Link>
+                </div>
+                <div className="tradex-table-wrap">
+                  <table className="tradex-table">
+                    <thead>
+                      <tr>
+                        <th>run</th>
+                        <th>kind</th>
+                        <th>plan</th>
+                        <th>status</th>
+                        <th>signals</th>
+                        <th>detail</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedFamily.run_ids ?? []).map((runId) => (
+                        <RunRow key={runId} familyId={selectedFamily.family_id} runId={runId} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
-
-        <div className="tradex-info-grid">
-          <article className="tradex-info-card">
-            <div className="tradex-info-label">現在の再生</div>
-            <div className="tradex-info-value">{currentReplay ? String((currentReplay as Record<string, unknown>).status ?? "--") : "--"}</div>
-            <div className="tradex-info-note">{currentReplay ? `進捗 ${String((currentReplay as Record<string, unknown>).progress_pct ?? "--")}` : "再生情報はありません"}</div>
-          </article>
-          <article className="tradex-info-card">
-            <div className="tradex-info-label">アクションキュー</div>
-            <div className="tradex-info-value">{actionQueue && Array.isArray(actionQueue.actions) ? actionQueue.actions.length.toLocaleString("ja-JP") : "0"}</div>
-            <div className="tradex-info-note">採用前に確認する件数の目安です。</div>
-          </article>
-        </div>
-
-        <details className="tradex-json-panel">
-          <summary>再生進捗とアクションキューの詳細</summary>
-          <pre>{JSON.stringify({ replay_progress: currentReplay, action_queue: actionQueue }, null, 2)}</pre>
-        </details>
       </section>
     </div>
+  );
+}
+
+function RunRow({ familyId, runId }: { familyId: string; runId: string }) {
+  const [run, setRun] = useState<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const response = await loadTradexRun(runId);
+        if (active) {
+          setRun(response.run);
+        }
+      } catch {
+        if (active) setRun(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [runId]);
+
+  const summary = (run?.summary as Record<string, unknown> | undefined) ?? {};
+  const signals = summary.signal_count as number | undefined;
+  const byCode = (run?.analysis as Record<string, unknown> | undefined)?.by_code as Record<string, unknown> | undefined;
+  const firstCode = byCode ? Object.keys(byCode)[0] ?? "" : "";
+  return (
+    <tr>
+      <td>
+        <strong>{runId}</strong>
+        <div className="tradex-table-sub">{familyId}</div>
+      </td>
+      <td>{String(run?.run_kind ?? "--")}</td>
+      <td>{String(run?.plan_id ?? "--")}</td>
+      <td>{String(run?.status ?? "loading")}</td>
+      <td>{typeof signals === "number" ? signals.toLocaleString("ja-JP") : "--"}</td>
+      <td>
+        {firstCode ? (
+          <Link to={`/detail/${encodeURIComponent(runId)}?code=${encodeURIComponent(firstCode)}`} onClick={() => writeTradexLocal(tradexStorageKeys.runId, runId)}>
+            detail
+          </Link>
+        ) : (
+          <span className="tradex-inline-note">loading</span>
+        )}
+      </td>
+    </tr>
   );
 }

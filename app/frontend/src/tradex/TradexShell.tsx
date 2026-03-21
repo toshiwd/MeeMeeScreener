@@ -21,11 +21,9 @@ function SummaryCard({ label, value, tone = "neutral" }: { label: string; value:
 export default function TradexShell() {
   const { loading, error, data } = useTradexBootstrap();
   const summary = data?.summary;
-  const candidates = data?.candidates ?? [];
-  const detailCandidateId = readTradexLocal<string>(tradexStorageKeys.detailCandidateId, "");
-  const fallbackDetailCandidateId = candidates[0]?.candidate_id ?? "";
-  const detailTarget = detailCandidateId || fallbackDetailCandidateId;
-  const detailHref = detailTarget ? `/detail/${encodeURIComponent(detailTarget)}` : null;
+  const runId = readTradexLocal<string>(tradexStorageKeys.runId, "");
+  const detailCode = readTradexLocal<string>(tradexStorageKeys.detailCode, "");
+  const detailHref = runId ? `/detail/${encodeURIComponent(runId)}${detailCode ? `?code=${encodeURIComponent(detailCode)}` : ""}` : null;
 
   return (
     <div className="tradex-shell">

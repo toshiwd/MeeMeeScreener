@@ -1,0 +1,22 @@
+{
+  "schema_version": "tradex_adopt_gate_v1",
+  "primary_metrics": [
+    "signal_rate",
+    "ready_rate",
+    "mean_confidence"
+  ],
+  "metric_direction": {
+    "signal_rate": "higher",
+    "ready_rate": "higher",
+    "mean_confidence": "higher"
+  },
+  "minimum_effect_size": {
+    "signal_rate": 0.01,
+    "ready_rate": 0.01,
+    "mean_confidence": 0.01
+  },
+  "by_period_deterioration_limit": 0.5,
+  "symbol_concentration_limit": 0.35,
+  "detail_reason_required": true,
+  "confirmed_rerun_match_required": true
+}
