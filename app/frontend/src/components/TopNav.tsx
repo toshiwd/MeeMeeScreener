@@ -1,5 +1,4 @@
 import { NavLink } from "react-router-dom";
-import { shouldShowOperatorConsole } from "../utils/operatorConsole";
 
 const navItems = [
   { to: "/", label: "一覧", end: true },
@@ -7,16 +6,10 @@ const navItems = [
   { to: "/market", label: "市場" },
   { to: "/positions", label: "建玉" },
   { to: "/favorites", label: "お気に入り" },
-  { to: "/candidates", label: "候補" },
-  { to: "/tradex-tags", label: "研究" }
+  { to: "/candidates", label: "候補" }
 ];
 
 export default function TopNav() {
-  const items = [...navItems];
-  if (shouldShowOperatorConsole()) {
-    items.push({ to: "/ops/publish", label: "運用" });
-  }
-
   return (
     <>
       <div className="app-brand">
@@ -24,7 +17,7 @@ export default function TopNav() {
         <div className="app-brand-sub">Screener</div>
       </div>
       <nav className="list-tabs">
-        {items.map((item) => (
+        {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

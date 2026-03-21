@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -9,11 +10,13 @@ from typing import Any
 from app.backend.tdnetdb.repository import TdnetdbRepository
 from app.core.config import config
 
+logger = logging.getLogger(__name__)
 
-def _resolve_fetch_command(*, code: str | None, limit: int) -> str:
+
+def _resolve_fetch_command(*, code: str | None, limit: int) -> str | None:
     template = str(os.getenv("TDNET_MCP_FETCH_COMMAND") or "").strip()
     if not template:
-        raise RuntimeError("TDNET_MCP_FETCH_COMMAND is not set")
+        return None
     return template.replace("{code}", (code or "").strip()).replace("{limit}", str(int(limit)))
 
 
@@ -30,6 +33,19 @@ def _load_items_from_stdout(stdout_text: str) -> list[dict[str, Any]]:
 
 def import_tdnet_from_mcp(*, code: str | None = None, limit: int = 50, db_path: str | Path | None = None) -> dict[str, Any]:
     command = _resolve_fetch_command(code=code, limit=limit)
+    if not command:
+        reason = "TDNET_MCP_FETCH_COMMAND is not set"
+        logger.warning("%s. Skip tdnet_import.", reason)
+        return {
+            "status": "skipped",
+            "reason": reason,
+            "summary": "tdnet_import=skipped(env_missing)",
+            "saved": 0,
+            "fetched": 0,
+            "code": (code or "").strip() or None,
+            "limit": int(limit),
+            "command": None,
+        }
     completed = subprocess.run(
         command,
         shell=True,

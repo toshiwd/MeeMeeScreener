@@ -189,6 +189,7 @@ from app.backend.api.routers import (
     market,
     memo,
     quality,
+    tradex,
     toredex,
 )
 from app.backend.services.operator_mutation_lock import (
@@ -507,6 +508,7 @@ def create_app() -> FastAPI:
     app.include_router(market.router)
     app.include_router(memo.router)
     app.include_router(quality.router)
+    app.include_router(tradex.router)
     app.include_router(toredex.router)
     app.include_router(rankings.router)
     app.include_router(watchlist_routes.router)

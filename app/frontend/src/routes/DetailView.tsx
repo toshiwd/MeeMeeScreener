@@ -4025,7 +4025,8 @@ export default function DetailView() {
       candidate === "/ranking" ||
       candidate === "/favorites" ||
       candidate === "/candidates" ||
-      candidate === "/tradex-tags"
+      candidate === "/tradex/legacy/tags" ||
+      candidate === "/tradex/verify"
     ) {
       return candidate;
     }

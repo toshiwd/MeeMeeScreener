@@ -27,13 +27,16 @@ describe("operator console hardening", () => {
     expect(markup).not.toContain("<pre>");
   });
 
-  it("shows the ops nav item by default", () => {
+  it("does not expose the ops nav item in MeeMee TopNav", () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>
         <TopNav />
       </MemoryRouter>
     );
 
-    expect(markup).toContain("/ops/publish");
+    expect(markup).not.toContain("/ops/publish");
+    expect(markup).not.toContain("研究");
+    expect(markup).not.toContain("運用");
+    expect(markup).toContain("/candidates");
   });
 });

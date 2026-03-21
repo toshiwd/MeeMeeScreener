@@ -268,7 +268,7 @@ export const getScreenType = (pathname: string): string => {
     if (pathname === "/ranking") return "Ranking";
     if (pathname === "/favorites") return "Favorites";
     if (pathname === "/candidates") return "Candidates";
-    if (pathname === "/tradex-tags") return "AIResearch";
+    if (pathname === "/tradex/verify" || pathname === "/tradex/legacy/tags") return "TRADEX";
     if (pathname === "/") return "Grid";
     return "Screen";
 };

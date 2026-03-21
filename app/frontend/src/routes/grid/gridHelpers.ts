@@ -221,7 +221,7 @@ export const toWalkforwardParams = (value: unknown): WalkforwardParams => {
   };
 };
 
-export const TERMINAL_JOB_STATUS = new Set(["success", "failed", "canceled"]);
+export const TERMINAL_JOB_STATUS = new Set(["success", "failed", "canceled", "skipped"]);
 export const ACTIVE_JOB_STATUS = new Set(["queued", "running", "cancel_requested"]);
 
 export const extractErrorDetail = (err: unknown, fallback = "不明なエラー"): string => {

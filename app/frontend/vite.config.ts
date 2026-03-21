@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin, type PreviewServer, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -10,10 +10,58 @@ const packageJson = JSON.parse(
 ) as { version?: string };
 const appVersion = packageJson.version ?? "0.0.0";
 
+const hasFileExtension = (pathname: string) => /\.[a-zA-Z0-9]+$/.test(pathname);
+
+const shouldBypassRewrite = (pathname: string) => {
+  if (!pathname) return true;
+  if (pathname.startsWith("/api/")) return true;
+  if (pathname.startsWith("/src/")) return true;
+  if (pathname.startsWith("/@")) return true;
+  if (pathname.startsWith("/node_modules/")) return true;
+  if (pathname.startsWith("/assets/")) return true;
+  if (pathname === "/favicon.ico") return true;
+  return hasFileExtension(pathname);
+};
+
+const createSpaRewritePlugin = (): Plugin => {
+  const rewrite = (req: Parameters<ViteDevServer["middlewares"]["use"]>[0], next: () => void) => {
+    const rawUrl = req.url;
+    if (!rawUrl) {
+      next();
+      return;
+    }
+    const parsed = new URL(rawUrl, "http://localhost");
+    const { pathname, search } = parsed;
+    if (shouldBypassRewrite(pathname)) {
+      next();
+      return;
+    }
+
+    if (pathname === "/tradex" || pathname.startsWith("/tradex/")) {
+      req.url = `/tradex/index.html${search}`;
+      next();
+      return;
+    }
+
+    req.url = `/index.html${search}`;
+    next();
+  };
+
+  return {
+    name: "meemee-tradex-spa-rewrite",
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => rewrite(req, next));
+    },
+    configurePreviewServer(server: PreviewServer) {
+      server.middlewares.use((req, _res, next) => rewrite(req, next));
+    }
+  };
+};
+
 export default defineConfig({
   root,
-  appType: "spa",
-  plugins: [react()],
+  appType: "mpa",
+  plugins: [react(), createSpaRewritePlugin()],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion)
   },
@@ -25,7 +73,10 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      input: resolve(root, "index.html")
+      input: {
+        main: resolve(root, "index.html"),
+        tradex: resolve(root, "tradex/index.html")
+      }
     }
   }
 });

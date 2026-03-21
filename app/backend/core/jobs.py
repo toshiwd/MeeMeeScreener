@@ -301,7 +301,7 @@ class JobManager:
 
             job_type = row[0]
             status = row[1]
-            if status in ("success", "failed", "canceled"):
+            if status in ("success", "failed", "canceled", "skipped"):
                 return False
 
             self._mark_cancel_requested(job_id)

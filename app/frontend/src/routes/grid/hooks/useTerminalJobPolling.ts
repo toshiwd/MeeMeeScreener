@@ -13,7 +13,7 @@ type UseTerminalJobPollingParams = {
   onTerminalJob: (item: JobHistoryItem) => void | Promise<void>;
 };
 
-const TERMINAL_JOB_STATUS = new Set(["success", "failed", "canceled"]);
+const TERMINAL_JOB_STATUS = new Set(["success", "failed", "canceled", "skipped"]);
 const ACTIVE_JOB_STATUS = new Set(["queued", "running", "cancel_requested"]);
 
 export function useTerminalJobPolling({ enabled, onTerminalJob }: UseTerminalJobPollingParams) {

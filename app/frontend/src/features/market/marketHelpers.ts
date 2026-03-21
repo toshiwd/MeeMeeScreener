@@ -69,6 +69,7 @@ export type MarketTimelineItem = {
 
 export type MarketTimelineFrame = {
   asof: number;
+  date?: string | null;
   label: string;
   items: MarketTimelineItem[];
 };

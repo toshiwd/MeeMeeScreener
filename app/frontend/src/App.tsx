@@ -9,15 +9,10 @@ const FavoritesView = lazy(() => import("./routes/FavoritesView"));
 const CandidatesView = lazy(() => import("./routes/CandidatesView"));
 const PositionsView = lazy(() => import("./routes/PositionsView"));
 const MarketView = lazy(() => import("./routes/MarketView"));
-const ToredexSimulationView = lazy(() => import("./routes/ToredexSimulationView"));
-const TradexTagValidationView = lazy(() => import("./routes/TradexTagValidationView"));
-const PublishOpsView = lazy(() => import("./routes/PublishOpsView"));
-const PublishOpsRouteGuard = lazy(() => import("./routes/PublishOpsRouteGuard"));
 const DetailView = lazy(() => import("./routes/DetailView"));
 const PracticeView = lazy(() => import("./routes/PracticeView"));
 
 export default function App() {
-  // Initialize theme on app mount
   useLayoutEffect(() => {
     const theme = getStoredTheme();
     applyTheme(theme);
@@ -33,16 +28,6 @@ export default function App() {
           <Route path="/candidates" element={<CandidatesView />} />
           <Route path="/positions" element={<PositionsView />} />
           <Route path="/market" element={<MarketView />} />
-          <Route path="/toredex-sim" element={<ToredexSimulationView />} />
-          <Route path="/tradex-tags" element={<TradexTagValidationView />} />
-          <Route
-            path="/ops/publish"
-            element={
-              <PublishOpsRouteGuard>
-                <PublishOpsView />
-              </PublishOpsRouteGuard>
-            }
-          />
           <Route path="/detail/:code" element={<DetailView />} />
           <Route path="/practice/:code" element={<PracticeView />} />
         </Routes>

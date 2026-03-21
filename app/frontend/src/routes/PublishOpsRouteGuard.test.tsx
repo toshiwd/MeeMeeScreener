@@ -22,11 +22,11 @@ describe("PublishOpsRouteGuard", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/ops/publish"]}>
+        <MemoryRouter initialEntries={["/tradex/legacy/publish"]}>
           <Routes>
-            <Route path="/" element={<div>home</div>} />
+            <Route path="/tradex/" element={<div>home</div>} />
             <Route
-              path="/ops/publish"
+              path="/tradex/legacy/publish"
               element={
                 <PublishOpsRouteGuard>
                   <div>ops</div>

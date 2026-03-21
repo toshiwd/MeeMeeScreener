@@ -2443,6 +2443,10 @@ export default function GridView() {
       showToast(`${label}をキャンセルしました。`);
       return;
     }
+    if (status === "skipped") {
+      showToast(`${label}はスキップされました。(${detail ?? "詳細不明"})`);
+      return;
+    }
 
     let action: ToastAction | null = null;
     if (type === "phase_rebuild") {
