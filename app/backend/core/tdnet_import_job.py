@@ -43,6 +43,19 @@ def handle_tdnet_import(job_id: str, payload: dict) -> None:
         )
         return
 
+    if str(result.get("status") or "").strip().lower() == "skipped":
+        summary = str(result.get("summary") or "tdnet_import=skipped(env_missing)")
+        reason = str(result.get("reason") or "TDNET_MCP_FETCH_COMMAND is not set")
+        job_manager._update_db(
+            job_id,
+            TDNET_IMPORT_JOB_TYPE,
+            "skipped",
+            progress=100,
+            message=f"{summary} ({reason})",
+            finished_at=datetime.now(),
+        )
+        return
+
     message = (
         f"TDNET import completed (saved={result.get('saved')}, fetched={result.get('fetched')}, "
         f"code={result.get('code') or 'all'})"

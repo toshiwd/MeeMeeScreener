@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAvailableSectorOptions,
+  TERMINAL_JOB_STATUS,
   gridPresetOptions,
   mergeHealthStatus,
   normalizeHealthStatus,
@@ -73,15 +74,15 @@ describe("buildAvailableSectorOptions", () => {
     expect(
       buildAvailableSectorOptions([
         { sector33Code: null, sector33Name: null },
-        { sector33Code: "30", sector33Name: "霈ｸ騾∫畑讖溷勣" },
-        { sector33Code: "10", sector33Name: "驫陦梧･ｭ" },
-        { sector33Code: "30", sector33Name: "霈ｸ騾∫畑讖溷勣" },
+        { sector33Code: "30", sector33Name: "髴茨ｽｸ鬨ｾ竏ｫ逡題ｮ匁ｺｷ蜍｣" },
+        { sector33Code: "10", sector33Name: "鬩ｫﾂ髯ｦ譴ｧ・･・ｭ" },
+        { sector33Code: "30", sector33Name: "髴茨ｽｸ鬨ｾ竏ｫ逡題ｮ匁ｺｷ蜍｣" },
         { sector33Code: "99", sector33Name: "" }
       ])
     ).toEqual([
       { code: "99", name: "99" },
-      { code: "10", name: "驫陦梧･ｭ" },
-      { code: "30", name: "霈ｸ騾∫畑讖溷勣" }
+      { code: "30", name: "髴茨ｽｸ鬨ｾ竏ｫ逡題ｮ匁ｺｷ蜍｣" },
+      { code: "10", name: "鬩ｫﾂ髯ｦ譴ｧ・･・ｭ" }
     ]);
   });
 
@@ -102,5 +103,11 @@ describe("resolveGridVolumeSurgeRatio", () => {
 
   it("returns null when there is no usable volume", () => {
     expect(resolveGridVolumeSurgeRatio([[1, 1, 1, 1, 10, 0]])).toBeNull();
+  });
+});
+
+describe("TERMINAL_JOB_STATUS", () => {
+  it("treats skipped as terminal", () => {
+    expect(TERMINAL_JOB_STATUS.has("skipped")).toBe(true);
   });
 });
