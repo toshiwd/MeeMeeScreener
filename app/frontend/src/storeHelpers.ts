@@ -10,6 +10,11 @@ import type {
   SortKey,
   StoreState
 } from "./storeTypes";
+import {
+  DEFAULT_DENSITY_PRESET,
+  normalizeDensityPreset,
+  type DensityPreset
+} from "./density";
 
 export const MA_COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#a855f7", "#f59e0b"];
 export const THUMB_BARS = 60;
@@ -376,31 +381,13 @@ export const getInitialListTimeframe = (): Settings["listTimeframe"] => {
 };
 
 export const getInitialColumns = (): Settings["columns"] => {
-  if (typeof window === "undefined") return 3;
+  if (typeof window === "undefined") return DEFAULT_DENSITY_PRESET;
   return getStoredGridPreset();
 };
 
 export const getInitialRows = (): Settings["rows"] => {
-  if (typeof window === "undefined") return 3;
+  if (typeof window === "undefined") return DEFAULT_DENSITY_PRESET;
   return getStoredGridPreset();
-};
-
-export const getInitialListColumns = (): Settings["listColumns"] => {
-  if (typeof window === "undefined") return 3;
-  const saved = Number(window.localStorage.getItem(LIST_COLS_KEY));
-  if (saved >= 1 && saved <= 4) {
-    return saved as Settings["listColumns"];
-  }
-  return 3;
-};
-
-export const getInitialListRows = (): Settings["listRows"] => {
-  if (typeof window === "undefined") return 3;
-  const saved = Number(window.localStorage.getItem(LIST_ROWS_KEY));
-  if (saved >= 1 && saved <= 6) {
-    return saved as Settings["listRows"];
-  }
-  return 3;
 };
 
 export const getInitialListRangeBars = (): Settings["listRangeBars"] => {
@@ -490,30 +477,40 @@ export const persistKeepList = (list: string[]) => {
   window.localStorage.setItem(KEEP_STORAGE_KEY, JSON.stringify(list));
 };
 
-const normalizeGridPreset = (value: unknown) => {
-  const preset = Number(value);
-  if (!Number.isFinite(preset)) return null;
-  if (preset < 1 || preset > 5) return null;
-  return Math.floor(preset) as Settings["columns"];
+const readLegacyDensityPair = (columnsKey: string, rowsKey: string): DensityPreset | null => {
+  if (typeof window === "undefined") return null;
+  const rawColumns = window.localStorage.getItem(columnsKey);
+  const rawRows = window.localStorage.getItem(rowsKey);
+  const hasColumns = rawColumns != null;
+  const hasRows = rawRows != null;
+  if (!hasColumns && !hasRows) return null;
+  if (hasColumns && hasRows) {
+    const columns = normalizeDensityPreset(rawColumns);
+    const rows = normalizeDensityPreset(rawRows);
+    return normalizeDensityPreset(Math.min(columns, rows));
+  }
+  const columns = normalizeDensityPreset(rawColumns ?? rawRows);
+  const rows = normalizeDensityPreset(rawRows ?? rawColumns);
+  return normalizeDensityPreset(Math.min(columns, rows));
 };
 
 export const getStoredGridPreset = () => {
-  if (typeof window === "undefined") return 3 as Settings["columns"];
-  const preset = normalizeGridPreset(window.localStorage.getItem(GRID_PRESET_KEY));
-  if (preset != null) return preset;
-  const legacyCols = normalizeGridPreset(window.localStorage.getItem(GRID_COLS_KEY));
-  const legacyRows = normalizeGridPreset(window.localStorage.getItem(GRID_ROWS_KEY));
-  if (legacyCols != null && legacyRows != null) {
-    return legacyCols === legacyRows ? legacyCols : (3 as Settings["columns"]);
-  }
-  if (legacyCols != null) return legacyCols;
-  if (legacyRows != null) return legacyRows;
-  return 3 as Settings["columns"];
+  if (typeof window === "undefined") return DEFAULT_DENSITY_PRESET;
+  const stored = window.localStorage.getItem(GRID_PRESET_KEY);
+  if (stored != null) return normalizeDensityPreset(stored);
+  const legacyGrid = readLegacyDensityPair(GRID_COLS_KEY, GRID_ROWS_KEY);
+  if (legacyGrid != null) return legacyGrid;
+  const legacyList = readLegacyDensityPair(LIST_COLS_KEY, LIST_ROWS_KEY);
+  if (legacyList != null) return legacyList;
+  return DEFAULT_DENSITY_PRESET;
 };
 
 export const persistGridPreset = (preset: Settings["columns"]) => {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(GRID_PRESET_KEY, String(preset));
+  const normalized = normalizeDensityPreset(preset);
+  window.localStorage.setItem(GRID_PRESET_KEY, String(normalized));
   window.localStorage.removeItem(GRID_COLS_KEY);
   window.localStorage.removeItem(GRID_ROWS_KEY);
+  window.localStorage.removeItem(LIST_COLS_KEY);
+  window.localStorage.removeItem(LIST_ROWS_KEY);
 };

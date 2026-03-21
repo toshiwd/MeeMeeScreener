@@ -63,6 +63,12 @@ const formatPrice = (value: number) => {
   return Math.round(value).toLocaleString("ja-JP");
 };
 
+const formatChangeRate = (value: number | null) => {
+  if (value == null || Number.isNaN(value)) return "--";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${(value * 100).toFixed(1)}%`;
+};
+
 function buildTimeTickIndexes(barCount: number, plotWidth: number) {
   if (barCount <= 0) return [];
   const requestedTickCount = Math.max(3, Math.min(6, Math.round(plotWidth / 140)));
@@ -671,6 +677,17 @@ export default function ThumbnailCanvas({
   const activeIndex =
     safeHoverIndex !== null ? safeHoverIndex : displayBars.length ? displayBars.length - 1 : null;
   const activeBar = activeIndex !== null ? displayBars[activeIndex] : null;
+  const prevBar = activeIndex !== null && activeIndex > 0 ? displayBars[activeIndex - 1] : null;
+  const dayChange =
+    activeBar && prevBar && Number.isFinite(activeBar[4]) && Number.isFinite(prevBar[4]) && prevBar[4] !== 0
+      ? (Number(activeBar[4]) - Number(prevBar[4])) / Number(prevBar[4])
+      : null;
+  const changeTone =
+    typeof dayChange === "number" && !Number.isNaN(dayChange)
+      ? dayChange >= 0
+        ? "up"
+        : "down"
+      : "flat";
   const crosshairLeft =
     safeHoverIndex !== null && displayBars.length
       ? `${((safeHoverIndex + 0.5) / displayBars.length) * 100}%`
@@ -691,6 +708,10 @@ export default function ThumbnailCanvas({
           <div className="thumb-overlay-value">{formatDate(activeBar[0])}</div>
           <div className="thumb-overlay-label">終値</div>
           <div className="thumb-overlay-value">{formatPrice(activeBar[4])}</div>
+          <div className="thumb-overlay-label">前日比</div>
+          <div className={`thumb-overlay-value thumb-overlay-change ${changeTone}`}>
+            {formatChangeRate(dayChange)}
+          </div>
         </div>
       )}
       {crosshairLeft && <div className="thumb-crosshair" style={{ left: crosshairLeft }} />}

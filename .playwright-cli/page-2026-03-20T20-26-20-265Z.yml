@@ -1,0 +1,126 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - generic [ref=e8]: MeeMee
+          - generic [ref=e9]: Screener
+        - navigation [ref=e10]:
+          - link "一覧" [ref=e11] [cursor=pointer]:
+            - /url: /
+          - link "ランキング" [ref=e12] [cursor=pointer]:
+            - /url: /ranking
+          - link "市場" [ref=e13] [cursor=pointer]:
+            - /url: /market
+          - link "建玉" [ref=e14] [cursor=pointer]:
+            - /url: /positions
+          - link "お気に入り" [ref=e15] [cursor=pointer]:
+            - /url: /favorites
+          - link "候補" [ref=e16] [cursor=pointer]:
+            - /url: /candidates
+          - link "研究" [ref=e17] [cursor=pointer]:
+            - /url: /tradex-tags
+          - link "運用" [ref=e18] [cursor=pointer]:
+            - /url: /ops/publish
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e21]: 期間
+          - generic [ref=e22]:
+            - button "1日" [ref=e23] [cursor=pointer]
+            - button "1週" [ref=e24] [cursor=pointer]
+            - button "1ヶ月" [ref=e25] [cursor=pointer]
+        - generic [ref=e26]:
+          - generic [ref=e27]: 指標
+          - generic [ref=e28]:
+            - button "騰落率" [ref=e29] [cursor=pointer]
+            - button "資金フロー" [ref=e30] [cursor=pointer]
+            - button "両方" [ref=e31] [cursor=pointer]
+        - generic [ref=e32]:
+          - generic [ref=e33]: 表示形式
+          - generic [ref=e34]:
+            - button "ヒートマップ" [ref=e35] [cursor=pointer]
+            - button "回転図" [ref=e36] [cursor=pointer]
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - generic [ref=e39]: scope
+          - generic [ref=e40]:
+            - button "監視銘柄関連セクター" [ref=e41] [cursor=pointer]
+            - button "全市場" [ref=e42] [cursor=pointer]
+        - generic [ref=e43]:
+          - generic [ref=e44]: 2025-06-24
+          - slider [ref=e45]: "0"
+          - generic [ref=e46]: 1/180
+    - main [ref=e47]:
+      - generic [ref=e381]:
+        - generic [ref=e382]:
+          - generic [ref=e383]: 上昇
+          - generic [ref=e385]: 中立
+          - generic [ref=e387]: 下落
+          - generic [ref=e389]: 騰落率
+        - img [ref=e394]:
+          - generic [ref=e399]:
+            - generic [ref=e401]: "-5.0%%"
+            - generic [ref=e403]: "-2.0%%"
+            - generic [ref=e405]: 1.0%%
+            - generic [ref=e407]: 5.0%%
+          - generic [ref=e409]:
+            - generic [ref=e495]: "-10.4億"
+            - generic [ref=e497]: "-4.9億"
+            - generic [ref=e499]: +55.3百万
+            - generic [ref=e417]: +10.4億
+          - generic [ref=e500]:
+            - img [ref=e501]
+            - img [ref=e503]
+            - img [ref=e505]
+            - img [ref=e507]
+            - img [ref=e509]
+            - img [ref=e511]
+            - img [ref=e513]
+            - img [ref=e515]
+            - img [ref=e517]
+            - img [ref=e519]
+            - img [ref=e521]
+            - img [ref=e523]
+            - img [ref=e525]
+            - img [ref=e527]
+            - img [ref=e529]
+            - img [ref=e531]
+            - img [ref=e533]
+            - img [ref=e535]
+            - img [ref=e537]
+            - img [ref=e539]
+            - img [ref=e541]
+            - img [ref=e543]
+            - img [ref=e545]
+            - img [ref=e547]
+            - img [ref=e549]
+            - img [ref=e551]
+            - img [ref=e553]
+            - img [ref=e555]
+            - img [ref=e557]
+            - img [ref=e559]
+            - img [ref=e561]
+            - img [ref=e563]
+            - img [ref=e565]
+            - img [ref=e567]
+        - generic [ref=e489]:
+          - generic [ref=e490]: "横軸: 騰落率"
+          - generic [ref=e491]: "縦軸: 資金フロー"
+          - generic [ref=e492]: "大きさ: 売買代金"
+      - complementary [ref=e53]:
+        - generic [ref=e569]:
+          - generic [ref=e570]:
+            - generic [ref=e571]: セクター詳細
+            - generic [ref=e572]: 未選択
+          - button "閉じる" [ref=e574] [cursor=pointer]
+        - generic [ref=e575]: セクターをクリックすると監視銘柄一覧を表示します。
+  - generic [ref=e493]: "-10.4億"

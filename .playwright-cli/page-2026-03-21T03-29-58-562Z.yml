@@ -1,0 +1,365 @@
+- generic [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - generic [ref=e8]: MeeMee
+          - generic [ref=e9]: Screener
+        - navigation [ref=e10]:
+          - link "一覧" [ref=e11] [cursor=pointer]:
+            - /url: /
+          - link "ランキング" [ref=e12] [cursor=pointer]:
+            - /url: /ranking
+          - link "市場" [ref=e13] [cursor=pointer]:
+            - /url: /market
+          - link "建玉" [ref=e14] [cursor=pointer]:
+            - /url: /positions
+          - link "お気に入り" [ref=e15] [cursor=pointer]:
+            - /url: /favorites
+          - link "候補" [ref=e16] [cursor=pointer]:
+            - /url: /candidates
+          - link "研究" [ref=e17] [cursor=pointer]:
+            - /url: /tradex-tags
+          - link "運用" [ref=e18] [cursor=pointer]:
+            - /url: /ops/publish
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e21]: 期間
+          - generic [ref=e22]:
+            - button "1日" [ref=e23] [cursor=pointer]
+            - button "1週" [ref=e24] [cursor=pointer]
+            - button "1ヶ月" [ref=e25] [cursor=pointer]
+        - generic [ref=e26]:
+          - generic [ref=e27]: 指標
+          - generic [ref=e28]:
+            - button "騰落率" [ref=e29] [cursor=pointer]
+            - button "資金フロー" [ref=e30] [cursor=pointer]
+            - button "両方" [ref=e31] [cursor=pointer]
+        - generic [ref=e32]:
+          - generic [ref=e33]: scope
+          - generic [ref=e34]:
+            - button "監視銘柄関連セクター" [ref=e35] [cursor=pointer]
+            - button "全市場" [active] [ref=e36] [cursor=pointer]
+        - generic [ref=e37]:
+          - generic [ref=e38]: 2026-03-20
+          - slider [disabled] [ref=e39]: "0"
+          - generic [ref=e40]: 1/1
+    - main [ref=e41]:
+      - generic [ref=e43]:
+        - generic [ref=e44]:
+          - generic [ref=e53]: 上昇
+          - generic [ref=e55]: 中立
+          - generic [ref=e57]: 下落
+          - generic [ref=e59]: 騰落率
+        - generic [ref=e62]:
+          - button "水産・農林業 01 0.0% 監視 0件 0 代表 --" [ref=e63] [cursor=pointer]:
+            - generic [ref=e64]:
+              - generic [ref=e65]: 水産・農林業
+              - generic [ref=e66]: "01"
+            - generic [ref=e67]: 0.0%
+            - generic [ref=e68]:
+              - generic [ref=e69]: 監視 0件
+              - generic [ref=e70]: "0"
+            - generic [ref=e71]: 代表 --
+          - button "鉱業 02 0.0% 監視 0件 0 代表 --" [ref=e72] [cursor=pointer]:
+            - generic [ref=e73]:
+              - generic [ref=e74]: 鉱業
+              - generic [ref=e75]: "02"
+            - generic [ref=e76]: 0.0%
+            - generic [ref=e77]:
+              - generic [ref=e78]: 監視 0件
+              - generic [ref=e79]: "0"
+            - generic [ref=e80]: 代表 --
+          - button "建設業 03 0.0% 監視 0件 0 代表 --" [ref=e81] [cursor=pointer]:
+            - generic [ref=e82]:
+              - generic [ref=e83]: 建設業
+              - generic [ref=e84]: "03"
+            - generic [ref=e85]: 0.0%
+            - generic [ref=e86]:
+              - generic [ref=e87]: 監視 0件
+              - generic [ref=e88]: "0"
+            - generic [ref=e89]: 代表 --
+          - button "食料品 04 0.0% 監視 0件 0 代表 --" [ref=e90] [cursor=pointer]:
+            - generic [ref=e91]:
+              - generic [ref=e92]: 食料品
+              - generic [ref=e93]: "04"
+            - generic [ref=e94]: 0.0%
+            - generic [ref=e95]:
+              - generic [ref=e96]: 監視 0件
+              - generic [ref=e97]: "0"
+            - generic [ref=e98]: 代表 --
+          - button "繊維製品 05 0.0% 監視 0件 0 代表 --" [ref=e99] [cursor=pointer]:
+            - generic [ref=e100]:
+              - generic [ref=e101]: 繊維製品
+              - generic [ref=e102]: "05"
+            - generic [ref=e103]: 0.0%
+            - generic [ref=e104]:
+              - generic [ref=e105]: 監視 0件
+              - generic [ref=e106]: "0"
+            - generic [ref=e107]: 代表 --
+          - button "パルプ・紙 06 0.0% 監視 0件 0 代表 --" [ref=e108] [cursor=pointer]:
+            - generic [ref=e109]:
+              - generic [ref=e110]: パルプ・紙
+              - generic [ref=e111]: "06"
+            - generic [ref=e112]: 0.0%
+            - generic [ref=e113]:
+              - generic [ref=e114]: 監視 0件
+              - generic [ref=e115]: "0"
+            - generic [ref=e116]: 代表 --
+          - button "化学 07 0.0% 監視 0件 0 代表 --" [ref=e117] [cursor=pointer]:
+            - generic [ref=e118]:
+              - generic [ref=e119]: 化学
+              - generic [ref=e120]: "07"
+            - generic [ref=e121]: 0.0%
+            - generic [ref=e122]:
+              - generic [ref=e123]: 監視 0件
+              - generic [ref=e124]: "0"
+            - generic [ref=e125]: 代表 --
+          - button "医薬品 08 0.0% 監視 0件 0 代表 --" [ref=e126] [cursor=pointer]:
+            - generic [ref=e127]:
+              - generic [ref=e128]: 医薬品
+              - generic [ref=e129]: "08"
+            - generic [ref=e130]: 0.0%
+            - generic [ref=e131]:
+              - generic [ref=e132]: 監視 0件
+              - generic [ref=e133]: "0"
+            - generic [ref=e134]: 代表 --
+          - button "石油・石炭製品 09 0.0% 監視 0件 0 代表 --" [ref=e135] [cursor=pointer]:
+            - generic [ref=e136]:
+              - generic [ref=e137]: 石油・石炭製品
+              - generic [ref=e138]: "09"
+            - generic [ref=e139]: 0.0%
+            - generic [ref=e140]:
+              - generic [ref=e141]: 監視 0件
+              - generic [ref=e142]: "0"
+            - generic [ref=e143]: 代表 --
+          - button "ゴム製品 10 0.0% 監視 0件 0 代表 --" [ref=e144] [cursor=pointer]:
+            - generic [ref=e145]:
+              - generic [ref=e146]: ゴム製品
+              - generic [ref=e147]: "10"
+            - generic [ref=e148]: 0.0%
+            - generic [ref=e149]:
+              - generic [ref=e150]: 監視 0件
+              - generic [ref=e151]: "0"
+            - generic [ref=e152]: 代表 --
+          - button "ガラス・土石製品 11 0.0% 監視 0件 0 代表 --" [ref=e153] [cursor=pointer]:
+            - generic [ref=e154]:
+              - generic [ref=e155]: ガラス・土石製品
+              - generic [ref=e156]: "11"
+            - generic [ref=e157]: 0.0%
+            - generic [ref=e158]:
+              - generic [ref=e159]: 監視 0件
+              - generic [ref=e160]: "0"
+            - generic [ref=e161]: 代表 --
+          - button "鉄鋼 12 0.0% 監視 0件 0 代表 --" [ref=e162] [cursor=pointer]:
+            - generic [ref=e163]:
+              - generic [ref=e164]: 鉄鋼
+              - generic [ref=e165]: "12"
+            - generic [ref=e166]: 0.0%
+            - generic [ref=e167]:
+              - generic [ref=e168]: 監視 0件
+              - generic [ref=e169]: "0"
+            - generic [ref=e170]: 代表 --
+          - button "非鉄金属 13 0.0% 監視 0件 0 代表 --" [ref=e171] [cursor=pointer]:
+            - generic [ref=e172]:
+              - generic [ref=e173]: 非鉄金属
+              - generic [ref=e174]: "13"
+            - generic [ref=e175]: 0.0%
+            - generic [ref=e176]:
+              - generic [ref=e177]: 監視 0件
+              - generic [ref=e178]: "0"
+            - generic [ref=e179]: 代表 --
+          - button "金属製品 14 0.0% 監視 0件 0 代表 --" [ref=e180] [cursor=pointer]:
+            - generic [ref=e181]:
+              - generic [ref=e182]: 金属製品
+              - generic [ref=e183]: "14"
+            - generic [ref=e184]: 0.0%
+            - generic [ref=e185]:
+              - generic [ref=e186]: 監視 0件
+              - generic [ref=e187]: "0"
+            - generic [ref=e188]: 代表 --
+          - button "機械 15 0.0% 監視 0件 0 代表 --" [ref=e189] [cursor=pointer]:
+            - generic [ref=e190]:
+              - generic [ref=e191]: 機械
+              - generic [ref=e192]: "15"
+            - generic [ref=e193]: 0.0%
+            - generic [ref=e194]:
+              - generic [ref=e195]: 監視 0件
+              - generic [ref=e196]: "0"
+            - generic [ref=e197]: 代表 --
+          - button "電気機器 16 0.0% 監視 0件 0 代表 --" [ref=e198] [cursor=pointer]:
+            - generic [ref=e199]:
+              - generic [ref=e200]: 電気機器
+              - generic [ref=e201]: "16"
+            - generic [ref=e202]: 0.0%
+            - generic [ref=e203]:
+              - generic [ref=e204]: 監視 0件
+              - generic [ref=e205]: "0"
+            - generic [ref=e206]: 代表 --
+          - button "輸送用機器 17 0.0% 監視 0件 0 代表 --" [ref=e207] [cursor=pointer]:
+            - generic [ref=e208]:
+              - generic [ref=e209]: 輸送用機器
+              - generic [ref=e210]: "17"
+            - generic [ref=e211]: 0.0%
+            - generic [ref=e212]:
+              - generic [ref=e213]: 監視 0件
+              - generic [ref=e214]: "0"
+            - generic [ref=e215]: 代表 --
+          - button "精密機器 18 0.0% 監視 0件 0 代表 --" [ref=e216] [cursor=pointer]:
+            - generic [ref=e217]:
+              - generic [ref=e218]: 精密機器
+              - generic [ref=e219]: "18"
+            - generic [ref=e220]: 0.0%
+            - generic [ref=e221]:
+              - generic [ref=e222]: 監視 0件
+              - generic [ref=e223]: "0"
+            - generic [ref=e224]: 代表 --
+          - button "その他製品 19 0.0% 監視 0件 0 代表 --" [ref=e225] [cursor=pointer]:
+            - generic [ref=e226]:
+              - generic [ref=e227]: その他製品
+              - generic [ref=e228]: "19"
+            - generic [ref=e229]: 0.0%
+            - generic [ref=e230]:
+              - generic [ref=e231]: 監視 0件
+              - generic [ref=e232]: "0"
+            - generic [ref=e233]: 代表 --
+          - button "電気・ガス業 20 0.0% 監視 0件 0 代表 --" [ref=e234] [cursor=pointer]:
+            - generic [ref=e235]:
+              - generic [ref=e236]: 電気・ガス業
+              - generic [ref=e237]: "20"
+            - generic [ref=e238]: 0.0%
+            - generic [ref=e239]:
+              - generic [ref=e240]: 監視 0件
+              - generic [ref=e241]: "0"
+            - generic [ref=e242]: 代表 --
+          - button "陸運業 21 0.0% 監視 0件 0 代表 --" [ref=e243] [cursor=pointer]:
+            - generic [ref=e244]:
+              - generic [ref=e245]: 陸運業
+              - generic [ref=e246]: "21"
+            - generic [ref=e247]: 0.0%
+            - generic [ref=e248]:
+              - generic [ref=e249]: 監視 0件
+              - generic [ref=e250]: "0"
+            - generic [ref=e251]: 代表 --
+          - button "海運業 22 0.0% 監視 0件 0 代表 --" [ref=e252] [cursor=pointer]:
+            - generic [ref=e253]:
+              - generic [ref=e254]: 海運業
+              - generic [ref=e255]: "22"
+            - generic [ref=e256]: 0.0%
+            - generic [ref=e257]:
+              - generic [ref=e258]: 監視 0件
+              - generic [ref=e259]: "0"
+            - generic [ref=e260]: 代表 --
+          - button "空運業 23 0.0% 監視 0件 0 代表 --" [ref=e261] [cursor=pointer]:
+            - generic [ref=e262]:
+              - generic [ref=e263]: 空運業
+              - generic [ref=e264]: "23"
+            - generic [ref=e265]: 0.0%
+            - generic [ref=e266]:
+              - generic [ref=e267]: 監視 0件
+              - generic [ref=e268]: "0"
+            - generic [ref=e269]: 代表 --
+          - button "倉庫・運輸関連業 24 0.0% 監視 0件 0 代表 --" [ref=e270] [cursor=pointer]:
+            - generic [ref=e271]:
+              - generic [ref=e272]: 倉庫・運輸関連業
+              - generic [ref=e273]: "24"
+            - generic [ref=e274]: 0.0%
+            - generic [ref=e275]:
+              - generic [ref=e276]: 監視 0件
+              - generic [ref=e277]: "0"
+            - generic [ref=e278]: 代表 --
+          - button "情報・通信業 25 0.0% 監視 0件 0 代表 --" [ref=e279] [cursor=pointer]:
+            - generic [ref=e280]:
+              - generic [ref=e281]: 情報・通信業
+              - generic [ref=e282]: "25"
+            - generic [ref=e283]: 0.0%
+            - generic [ref=e284]:
+              - generic [ref=e285]: 監視 0件
+              - generic [ref=e286]: "0"
+            - generic [ref=e287]: 代表 --
+          - button "卸売業 26 0.0% 監視 0件 0 代表 --" [ref=e288] [cursor=pointer]:
+            - generic [ref=e289]:
+              - generic [ref=e290]: 卸売業
+              - generic [ref=e291]: "26"
+            - generic [ref=e292]: 0.0%
+            - generic [ref=e293]:
+              - generic [ref=e294]: 監視 0件
+              - generic [ref=e295]: "0"
+            - generic [ref=e296]: 代表 --
+          - button "小売業 27 0.0% 監視 0件 0 代表 --" [ref=e297] [cursor=pointer]:
+            - generic [ref=e298]:
+              - generic [ref=e299]: 小売業
+              - generic [ref=e300]: "27"
+            - generic [ref=e301]: 0.0%
+            - generic [ref=e302]:
+              - generic [ref=e303]: 監視 0件
+              - generic [ref=e304]: "0"
+            - generic [ref=e305]: 代表 --
+          - button "銀行業 28 0.0% 監視 0件 0 代表 --" [ref=e306] [cursor=pointer]:
+            - generic [ref=e307]:
+              - generic [ref=e308]: 銀行業
+              - generic [ref=e309]: "28"
+            - generic [ref=e310]: 0.0%
+            - generic [ref=e311]:
+              - generic [ref=e312]: 監視 0件
+              - generic [ref=e313]: "0"
+            - generic [ref=e314]: 代表 --
+          - button "証券・商品先物取引業 29 0.0% 監視 0件 0 代表 --" [ref=e315] [cursor=pointer]:
+            - generic [ref=e316]:
+              - generic [ref=e317]: 証券・商品先物取引業
+              - generic [ref=e318]: "29"
+            - generic [ref=e319]: 0.0%
+            - generic [ref=e320]:
+              - generic [ref=e321]: 監視 0件
+              - generic [ref=e322]: "0"
+            - generic [ref=e323]: 代表 --
+          - button "保険業 30 0.0% 監視 0件 0 代表 --" [ref=e324] [cursor=pointer]:
+            - generic [ref=e325]:
+              - generic [ref=e326]: 保険業
+              - generic [ref=e327]: "30"
+            - generic [ref=e328]: 0.0%
+            - generic [ref=e329]:
+              - generic [ref=e330]: 監視 0件
+              - generic [ref=e331]: "0"
+            - generic [ref=e332]: 代表 --
+          - button "その他金融業 31 0.0% 監視 0件 0 代表 --" [ref=e333] [cursor=pointer]:
+            - generic [ref=e334]:
+              - generic [ref=e335]: その他金融業
+              - generic [ref=e336]: "31"
+            - generic [ref=e337]: 0.0%
+            - generic [ref=e338]:
+              - generic [ref=e339]: 監視 0件
+              - generic [ref=e340]: "0"
+            - generic [ref=e341]: 代表 --
+          - button "不動産業 32 0.0% 監視 0件 0 代表 --" [ref=e342] [cursor=pointer]:
+            - generic [ref=e343]:
+              - generic [ref=e344]: 不動産業
+              - generic [ref=e345]: "32"
+            - generic [ref=e346]: 0.0%
+            - generic [ref=e347]:
+              - generic [ref=e348]: 監視 0件
+              - generic [ref=e349]: "0"
+            - generic [ref=e350]: 代表 --
+          - button "サービス業 33 0.0% 監視 0件 0 代表 --" [ref=e351] [cursor=pointer]:
+            - generic [ref=e352]:
+              - generic [ref=e353]: サービス業
+              - generic [ref=e354]: "33"
+            - generic [ref=e355]: 0.0%
+            - generic [ref=e356]:
+              - generic [ref=e357]: 監視 0件
+              - generic [ref=e358]: "0"
+            - generic [ref=e359]: 代表 --
+      - complementary [ref=e47]:
+        - button "セクター詳細を開く" [ref=e48] [cursor=pointer]:
+          - generic [ref=e49]: セクター詳細
+          - generic [ref=e50]: 監視銘柄
+          - generic [ref=e51]: ›

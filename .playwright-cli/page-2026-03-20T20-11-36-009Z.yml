@@ -1,0 +1,401 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - generic [ref=e8]: MeeMee
+          - generic [ref=e9]: Screener
+        - navigation [ref=e10]:
+          - link "一覧" [ref=e11] [cursor=pointer]:
+            - /url: /
+          - link "ランキング" [ref=e12] [cursor=pointer]:
+            - /url: /ranking
+          - link "市場" [ref=e13] [cursor=pointer]:
+            - /url: /market
+          - link "建玉" [ref=e14] [cursor=pointer]:
+            - /url: /positions
+          - link "お気に入り" [ref=e15] [cursor=pointer]:
+            - /url: /favorites
+          - link "候補" [ref=e16] [cursor=pointer]:
+            - /url: /candidates
+          - link "研究" [ref=e17] [cursor=pointer]:
+            - /url: /tradex-tags
+          - link "運用" [ref=e18] [cursor=pointer]:
+            - /url: /ops/publish
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e21]: 期間
+          - generic [ref=e22]:
+            - button "1日" [ref=e23] [cursor=pointer]
+            - button "1週" [ref=e24] [cursor=pointer]
+            - button "1ヶ月" [ref=e25] [cursor=pointer]
+        - generic [ref=e26]:
+          - generic [ref=e27]: 指標
+          - generic [ref=e28]:
+            - button "騰落率" [ref=e29] [cursor=pointer]
+            - button "資金フロー" [ref=e30] [cursor=pointer]
+            - button "両方" [ref=e31] [cursor=pointer]
+        - generic [ref=e32]:
+          - generic [ref=e33]: 表示形式
+          - generic [ref=e34]:
+            - button "ヒートマップ" [ref=e35] [cursor=pointer]
+            - button "回転図" [ref=e36] [cursor=pointer]
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - generic [ref=e39]: scope
+          - generic [ref=e40]:
+            - button "監視銘柄関連セクター" [ref=e41] [cursor=pointer]
+            - button "全市場" [ref=e42] [cursor=pointer]
+        - generic [ref=e43]:
+          - generic [ref=e44]: 2025-06-24
+          - slider [ref=e45]: "0"
+          - generic [ref=e46]: 1/180
+    - main [ref=e47]:
+      - generic [ref=e49]:
+        - generic [ref=e50]:
+          - generic [ref=e61]: 上昇
+          - generic [ref=e63]: 中立
+          - generic [ref=e65]: 下落
+          - generic [ref=e67]: 騰落率
+        - generic [ref=e69]:
+          - generic [ref=e70]:
+            - button "電気機器 3650 +1.1% 監視 0件 10.4億 代表 3105 日清紡 / 4062 イビデン" [ref=e71] [cursor=pointer]:
+              - generic [ref=e72]:
+                - generic [ref=e73]: 電気機器
+                - generic [ref=e74]: "3650"
+              - generic [ref=e75]: +1.1%
+              - generic [ref=e76]:
+                - generic [ref=e77]: 監視 0件
+                - generic [ref=e78]: 10.4億
+              - generic [ref=e79]: 代表 3105 日清紡 / 4062 イビデン
+            - button "機械 3600 +0.5% 監視 0件 5.2億 代表 5631 日本製鋼所 / 6005 三浦工業" [ref=e80] [cursor=pointer]:
+              - generic [ref=e81]:
+                - generic [ref=e82]: 機械
+                - generic [ref=e83]: "3600"
+              - generic [ref=e84]: +0.5%
+              - generic [ref=e85]:
+                - generic [ref=e86]: 監視 0件
+                - generic [ref=e87]: 5.2億
+              - generic [ref=e88]: 代表 5631 日本製鋼所 / 6005 三浦工業
+            - button "情報・通信業 5250 +1.8% 監視 0件 3.6億 代表 2317 システナ(シスプロカテナ) / 2327 日鉄ソリューションズ" [ref=e89] [cursor=pointer]:
+              - generic [ref=e90]:
+                - generic [ref=e91]: 情報・通信業
+                - generic [ref=e92]: "5250"
+              - generic [ref=e93]: +1.8%
+              - generic [ref=e94]:
+                - generic [ref=e95]: 監視 0件
+                - generic [ref=e96]: 3.6億
+              - generic [ref=e97]: 代表 2317 システナ(シスプロカテナ) / 2327 日鉄ソリューションズ
+            - button "卸売業 6050 0.0% 監視 0件 2.6億 代表 2700 木徳神糧 / 2768 双日HD(ニチメン日商岩井)" [ref=e98] [cursor=pointer]:
+              - generic [ref=e99]:
+                - generic [ref=e100]: 卸売業
+                - generic [ref=e101]: "6050"
+              - generic [ref=e102]: 0.0%
+              - generic [ref=e103]:
+                - generic [ref=e104]: 監視 0件
+                - generic [ref=e105]: 2.6億
+              - generic [ref=e106]: 代表 2700 木徳神糧 / 2768 双日HD(ニチメン日商岩井)
+            - button "非鉄金属 3500 +2.3% 監視 0件 1.9億 代表 5016 JX金属(新日鉱) / 5706 三井金属鉱業" [ref=e107] [cursor=pointer]:
+              - generic [ref=e108]:
+                - generic [ref=e109]: 非鉄金属
+                - generic [ref=e110]: "3500"
+              - generic [ref=e111]: +2.3%
+              - generic [ref=e112]:
+                - generic [ref=e113]: 監視 0件
+                - generic [ref=e114]: 1.9億
+              - generic [ref=e115]: 代表 5016 JX金属(新日鉱) / 5706 三井金属鉱業
+            - button "輸送用機器 3700 -0.1% 監視 0件 1.9億 代表 3116 トヨタ紡織(豊田紡織) / 5949 ユニプレス" [ref=e116] [cursor=pointer]:
+              - generic [ref=e117]:
+                - generic [ref=e118]: 輸送用機器
+                - generic [ref=e119]: "3700"
+              - generic [ref=e120]: "-0.1%"
+              - generic [ref=e121]:
+                - generic [ref=e122]: 監視 0件
+                - generic [ref=e123]: 1.9億
+              - generic [ref=e124]: 代表 3116 トヨタ紡織(豊田紡織) / 5949 ユニプレス
+            - button "銀行業 7050 +0.7% 監視 0件 1.8億 代表 5830 いよぎんHD / 5831 しずおかFG" [ref=e125] [cursor=pointer]:
+              - generic [ref=e126]:
+                - generic [ref=e127]: 銀行業
+                - generic [ref=e128]: "7050"
+              - generic [ref=e129]: +0.7%
+              - generic [ref=e130]:
+                - generic [ref=e131]: 監視 0件
+                - generic [ref=e132]: 1.8億
+              - generic [ref=e133]: 代表 5830 いよぎんHD / 5831 しずおかFG
+            - button "小売業 6100 -0.1% 監視 0件 1.8億 代表 2670 エービーシー・マート / 2678 アスクル" [ref=e134] [cursor=pointer]:
+              - generic [ref=e135]:
+                - generic [ref=e136]: 小売業
+                - generic [ref=e137]: "6100"
+              - generic [ref=e138]: "-0.1%"
+              - generic [ref=e139]:
+                - generic [ref=e140]: 監視 0件
+                - generic [ref=e141]: 1.8億
+              - generic [ref=e142]: 代表 2670 エービーシー・マート / 2678 アスクル
+            - button "化学 3200 +0.5% 監視 0件 1.1億 代表 3405 クラレ / 3407 旭化成工業" [ref=e143] [cursor=pointer]:
+              - generic [ref=e144]:
+                - generic [ref=e145]: 化学
+                - generic [ref=e146]: "3200"
+              - generic [ref=e147]: +0.5%
+              - generic [ref=e148]:
+                - generic [ref=e149]: 監視 0件
+                - generic [ref=e150]: 1.1億
+              - generic [ref=e151]: 代表 3405 クラレ / 3407 旭化成工業
+            - button "医薬品 3250 0.0% 監視 0件 98.0百万 代表 2160 ジーエヌアイグループ / 4151 協和キリン" [ref=e152] [cursor=pointer]:
+              - generic [ref=e153]:
+                - generic [ref=e154]: 医薬品
+                - generic [ref=e155]: "3250"
+              - generic [ref=e156]: 0.0%
+              - generic [ref=e157]:
+                - generic [ref=e158]: 監視 0件
+                - generic [ref=e159]: 98.0百万
+              - generic [ref=e160]: 代表 2160 ジーエヌアイグループ / 4151 協和キリン
+            - button "サービス業 9050 +1.0% 監視 0件 97.0百万 代表 1717 明豊ファシリティワークス / 2120 LIFULL(ネクスト)" [ref=e161] [cursor=pointer]:
+              - generic [ref=e162]:
+                - generic [ref=e163]: サービス業
+                - generic [ref=e164]: "9050"
+              - generic [ref=e165]: +1.0%
+              - generic [ref=e166]:
+                - generic [ref=e167]: 監視 0件
+                - generic [ref=e168]: 97.0百万
+              - generic [ref=e169]: 代表 1717 明豊ファシリティワークス / 2120 LIFULL(ネクスト)
+            - button "その他製品 3800 +1.0% 監視 0件 89.4百万 代表 1518 三井松島HD / 7794 イーディーピー" [ref=e170] [cursor=pointer]:
+              - generic [ref=e171]:
+                - generic [ref=e172]: その他製品
+                - generic [ref=e173]: "3800"
+              - generic [ref=e174]: +1.0%
+              - generic [ref=e175]:
+                - generic [ref=e176]: 監視 0件
+                - generic [ref=e177]: 89.4百万
+              - generic [ref=e178]: 代表 1518 三井松島HD / 7794 イーディーピー
+            - button "食料品 3050 -0.1% 監視 0件 60.6百万 代表 2002 日清製粉G / 2201 森永製菓" [ref=e179] [cursor=pointer]:
+              - generic [ref=e180]:
+                - generic [ref=e181]: 食料品
+                - generic [ref=e182]: "3050"
+              - generic [ref=e183]: "-0.1%"
+              - generic [ref=e184]:
+                - generic [ref=e185]: 監視 0件
+                - generic [ref=e186]: 60.6百万
+              - generic [ref=e187]: 代表 2002 日清製粉G / 2201 森永製菓
+            - button "海運業 5100 -1.3% 監視 0件 57.7百万 代表 9101 日本郵船 / 9104 商船三井" [ref=e188] [cursor=pointer]:
+              - generic [ref=e189]:
+                - generic [ref=e190]: 海運業
+                - generic [ref=e191]: "5100"
+              - generic [ref=e192]: "-1.3%"
+              - generic [ref=e193]:
+                - generic [ref=e194]: 監視 0件
+                - generic [ref=e195]: 57.7百万
+              - generic [ref=e196]: 代表 9101 日本郵船 / 9104 商船三井
+            - button "建設業 2050 0.0% 監視 0件 52.2百万 代表 1414 ショーボンドHD / 1417 ミライト・ワン" [ref=e197] [cursor=pointer]:
+              - generic [ref=e198]:
+                - generic [ref=e199]: 建設業
+                - generic [ref=e200]: "2050"
+              - generic [ref=e201]: 0.0%
+              - generic [ref=e202]:
+                - generic [ref=e203]: 監視 0件
+                - generic [ref=e204]: 52.2百万
+              - generic [ref=e205]: 代表 1414 ショーボンドHD / 1417 ミライト・ワン
+            - button "保険業 7150 +0.4% 監視 0件 48.5百万 代表 7181 かんぽ生命保険 / 8630 SOMPO HD(損保ジャパン)" [ref=e206] [cursor=pointer]:
+              - generic [ref=e207]:
+                - generic [ref=e208]: 保険業
+                - generic [ref=e209]: "7150"
+              - generic [ref=e210]: +0.4%
+              - generic [ref=e211]:
+                - generic [ref=e212]: 監視 0件
+                - generic [ref=e213]: 48.5百万
+              - generic [ref=e214]: 代表 7181 かんぽ生命保険 / 8630 SOMPO HD(損保ジャパン)
+            - button "電気・ガス業 4050 +0.1% 監視 0件 47.6百万 代表 9501 東京電力HD / 9502 中部電力" [ref=e215] [cursor=pointer]:
+              - generic [ref=e216]:
+                - generic [ref=e217]: 電気・ガス業
+                - generic [ref=e218]: "4050"
+              - generic [ref=e219]: +0.1%
+              - generic [ref=e220]:
+                - generic [ref=e221]: 監視 0件
+                - generic [ref=e222]: 47.6百万
+              - generic [ref=e223]: 代表 9501 東京電力HD / 9502 中部電力
+            - button "陸運業 5050 +0.4% 監視 0件 47.5百万 代表 9001 東武鉄道 / 9005 東急(東京急行電鉄)" [ref=e224] [cursor=pointer]:
+              - generic [ref=e225]:
+                - generic [ref=e226]: 陸運業
+                - generic [ref=e227]: "5050"
+              - generic [ref=e228]: +0.4%
+              - generic [ref=e229]:
+                - generic [ref=e230]: 監視 0件
+                - generic [ref=e231]: 47.5百万
+              - generic [ref=e232]: 代表 9001 東武鉄道 / 9005 東急(東京急行電鉄)
+            - button "- - -0.8% 監視 0件 44.5百万 代表 1306 NEXT TOPIX ETF / 1308 日興TOPIX ETF" [ref=e233] [cursor=pointer]:
+              - generic [ref=e234]:
+                - generic [ref=e235]: "-"
+                - generic [ref=e236]: "-"
+              - generic [ref=e237]: "-0.8%"
+              - generic [ref=e238]:
+                - generic [ref=e239]: 監視 0件
+                - generic [ref=e240]: 44.5百万
+              - generic [ref=e241]: 代表 1306 NEXT TOPIX ETF / 1308 日興TOPIX ETF
+            - button "鉱業 1050 -5.0% 監視 0件 41.4百万 代表 1514 住石HD / 1605 INPEX(国際石油開発帝石)" [ref=e242] [cursor=pointer]:
+              - generic [ref=e243]:
+                - generic [ref=e244]: 鉱業
+                - generic [ref=e245]: "1050"
+              - generic [ref=e246]: "-5.0%"
+              - generic [ref=e247]:
+                - generic [ref=e248]: 監視 0件
+                - generic [ref=e249]: 41.4百万
+              - generic [ref=e250]: 代表 1514 住石HD / 1605 INPEX(国際石油開発帝石)
+            - button "不動産業 8050 -0.4% 監視 0件 40.4百万 代表 1878 大東建託 / 2980 SRE HD" [ref=e251] [cursor=pointer]:
+              - generic [ref=e252]:
+                - generic [ref=e253]: 不動産業
+                - generic [ref=e254]: "8050"
+              - generic [ref=e255]: "-0.4%"
+              - generic [ref=e256]:
+                - generic [ref=e257]: 監視 0件
+                - generic [ref=e258]: 40.4百万
+              - generic [ref=e259]: 代表 1878 大東建託 / 2980 SRE HD
+            - button "精密機器 3750 +0.2% 監視 0件 34.1百万 代表 4543 テルモ / 6376 日機装" [ref=e260] [cursor=pointer]:
+              - generic [ref=e261]:
+                - generic [ref=e262]: 精密機器
+                - generic [ref=e263]: "3750"
+              - generic [ref=e264]: +0.2%
+              - generic [ref=e265]:
+                - generic [ref=e266]: 監視 0件
+                - generic [ref=e267]: 34.1百万
+              - generic [ref=e268]: 代表 4543 テルモ / 6376 日機装
+            - button "証券、商品先物取引業 7100 +1.3% 監視 0件 29.7百万 代表 7172 ジャパンインベストメント / 8473 SBI HD" [ref=e269] [cursor=pointer]:
+              - generic [ref=e270]:
+                - generic [ref=e271]: 証券、商品先物取引業
+                - generic [ref=e272]: "7100"
+              - generic [ref=e273]: +1.3%
+              - generic [ref=e274]:
+                - generic [ref=e275]: 監視 0件
+                - generic [ref=e276]: 29.7百万
+              - generic [ref=e277]: 代表 7172 ジャパンインベストメント / 8473 SBI HD
+            - button "その他金融業 7200 -0.8% 監視 0件 24.5百万 代表 7383 ネットプロテクションズHD / 8253 クレディセゾン" [ref=e278] [cursor=pointer]:
+              - generic [ref=e279]:
+                - generic [ref=e280]: その他金融業
+                - generic [ref=e281]: "7200"
+              - generic [ref=e282]: "-0.8%"
+              - generic [ref=e283]:
+                - generic [ref=e284]: 監視 0件
+                - generic [ref=e285]: 24.5百万
+              - generic [ref=e286]: 代表 7383 ネットプロテクションズHD / 8253 クレディセゾン
+            - button "鉄鋼 3450 +0.1% 監視 0件 21.6百万 代表 5401 日本製鉄(新日鐵) / 5406 神戸製鋼所" [ref=e287] [cursor=pointer]:
+              - generic [ref=e288]:
+                - generic [ref=e289]: 鉄鋼
+                - generic [ref=e290]: "3450"
+              - generic [ref=e291]: +0.1%
+              - generic [ref=e292]:
+                - generic [ref=e293]: 監視 0件
+                - generic [ref=e294]: 21.6百万
+              - generic [ref=e295]: 代表 5401 日本製鉄(新日鐵) / 5406 神戸製鋼所
+            - button "ゴム製品 3350 +1.2% 監視 0件 20.3百万 代表 5101 横浜ゴム / 5105 TOYO TIRE(東洋ゴム)" [ref=e296] [cursor=pointer]:
+              - generic [ref=e297]:
+                - generic [ref=e298]: ゴム製品
+                - generic [ref=e299]: "3350"
+              - generic [ref=e300]: +1.2%
+              - generic [ref=e301]:
+                - generic [ref=e302]: 監視 0件
+                - generic [ref=e303]: 20.3百万
+              - generic [ref=e304]: 代表 5101 横浜ゴム / 5105 TOYO TIRE(東洋ゴム)
+            - button "石油・石炭製品 3300 -2.9% 監視 0件 18.1百万 代表 5019 出光興産 / 5020 ENEOS HD(JXTG)" [ref=e305] [cursor=pointer]:
+              - generic [ref=e306]:
+                - generic [ref=e307]: 石油・石炭製品
+                - generic [ref=e308]: "3300"
+              - generic [ref=e309]: "-2.9%"
+              - generic [ref=e310]:
+                - generic [ref=e311]: 監視 0件
+                - generic [ref=e312]: 18.1百万
+              - generic [ref=e313]: 代表 5019 出光興産 / 5020 ENEOS HD(JXTG)
+            - button "ガラス・土石製品 3400 +0.8% 監視 0件 16.9百万 代表 3110 日東紡績 / 5201 AGC(旭硝子)" [ref=e314] [cursor=pointer]:
+              - generic [ref=e315]:
+                - generic [ref=e316]: ガラス・土石製品
+                - generic [ref=e317]: "3400"
+              - generic [ref=e318]: +0.8%
+              - generic [ref=e319]:
+                - generic [ref=e320]: 監視 0件
+                - generic [ref=e321]: 16.9百万
+              - generic [ref=e322]: 代表 3110 日東紡績 / 5201 AGC(旭硝子)
+            - button "空運業 5150 +2.7% 監視 0件 14.3百万 代表 9201 日本航空 / 9202 ANA HD(全日本空輸)" [ref=e323] [cursor=pointer]:
+              - generic [ref=e324]:
+                - generic [ref=e325]: 空運業
+                - generic [ref=e326]: "5150"
+              - generic [ref=e327]: +2.7%
+              - generic [ref=e328]:
+                - generic [ref=e329]: 監視 0件
+                - generic [ref=e330]: 14.3百万
+              - generic [ref=e331]: 代表 9201 日本航空 / 9202 ANA HD(全日本空輸)
+            - button "金属製品 3550 +0.1% 監視 0件 10.5百万 代表 3431 宮地エンジニアリング / 3436 SUMCO" [ref=e332] [cursor=pointer]:
+              - generic [ref=e333]:
+                - generic [ref=e334]: 金属製品
+                - generic [ref=e335]: "3550"
+              - generic [ref=e336]: +0.1%
+              - generic [ref=e337]:
+                - generic [ref=e338]: 監視 0件
+                - generic [ref=e339]: 10.5百万
+              - generic [ref=e340]: 代表 3431 宮地エンジニアリング / 3436 SUMCO
+            - button "パルプ・紙 3150 0.0% 監視 0件 4.0百万 代表 3861 王子製紙 / 3864 三菱製紙" [ref=e341] [cursor=pointer]:
+              - generic [ref=e342]:
+                - generic [ref=e343]: パルプ・紙
+                - generic [ref=e344]: "3150"
+              - generic [ref=e345]: 0.0%
+              - generic [ref=e346]:
+                - generic [ref=e347]: 監視 0件
+                - generic [ref=e348]: 4.0百万
+              - generic [ref=e349]: 代表 3861 王子製紙 / 3864 三菱製紙
+            - button "繊維製品 3100 +0.4% 監視 0件 3.6百万 代表 3401 帝人 / 3402 東レ" [ref=e350] [cursor=pointer]:
+              - generic [ref=e351]:
+                - generic [ref=e352]: 繊維製品
+                - generic [ref=e353]: "3100"
+              - generic [ref=e354]: +0.4%
+              - generic [ref=e355]:
+                - generic [ref=e356]: 監視 0件
+                - generic [ref=e357]: 3.6百万
+              - generic [ref=e358]: 代表 3401 帝人 / 3402 東レ
+            - button "倉庫・運輸関連業 5200 -0.4% 監視 0件 1.2百万 代表 9301 三菱倉庫 / 9324 安田倉庫" [ref=e359] [cursor=pointer]:
+              - generic [ref=e360]:
+                - generic [ref=e361]: 倉庫・運輸関連業
+                - generic [ref=e362]: "5200"
+              - generic [ref=e363]: "-0.4%"
+              - generic [ref=e364]:
+                - generic [ref=e365]: 監視 0件
+                - generic [ref=e366]: 1.2百万
+              - generic [ref=e367]: 代表 9301 三菱倉庫 / 9324 安田倉庫
+            - button "水産・農林業 50 -0.4% 監視 0件 743,223 代表 1332 ニッスイ(日本水産) / 1375 ユキグニ(雪国まいたけ)" [ref=e368] [cursor=pointer]:
+              - generic [ref=e369]:
+                - generic [ref=e370]: 水産・農林業
+                - generic [ref=e371]: "50"
+              - generic [ref=e372]: "-0.4%"
+              - generic [ref=e373]:
+                - generic [ref=e374]: 監視 0件
+                - generic [ref=e375]: 743,223
+              - generic [ref=e376]: 代表 1332 ニッスイ(日本水産) / 1375 ユキグニ(雪国まいたけ)
+          - generic:
+            - generic: 電気機器
+            - generic: "3650"
+            - generic:
+              - generic: 指標
+              - generic: +1.1%
+            - generic:
+              - generic: 資金フロー
+              - generic: +10.4億
+            - generic:
+              - generic: 売買代金
+              - generic: 10.4億
+            - generic:
+              - generic: 監視銘柄
+              - generic: 0件
+            - generic:
+              - generic: 代表銘柄
+              - generic: 3105 日清紡 / 4062 イビデン
+      - complementary [ref=e53]:
+        - generic [ref=e54]:
+          - generic [ref=e55]:
+            - generic [ref=e56]: セクター詳細
+            - generic [ref=e57]: 未選択
+          - button "閉じる" [ref=e59] [cursor=pointer]
+        - generic [ref=e60]: セクターをクリックすると監視銘柄一覧を表示します。

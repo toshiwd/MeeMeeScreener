@@ -106,12 +106,12 @@ export default function CandidatesView() {
   const maSettings = useStore((state) => state.maSettings);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
   const listRangeBars = useStore((state) => state.settings.listRangeBars);
-  const listColumns = useStore((state) => state.settings.listColumns);
-  const listRows = useStore((state) => state.settings.listRows);
+  const columns = useStore((state) => state.settings.columns);
+  const rows = useStore((state) => state.settings.rows);
   const setListTimeframe = useStore((state) => state.setListTimeframe);
   const setListRangeBars = useStore((state) => state.setListRangeBars);
-  const setListColumns = useStore((state) => state.setListColumns);
-  const setListRows = useStore((state) => state.setListRows);
+  const setColumns = useStore((state) => state.setColumns);
+  const setRows = useStore((state) => state.setRows);
 
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<CandidateSortKey>("code");
@@ -202,12 +202,12 @@ export default function CandidatesView() {
   const listStyles = useMemo(
     () =>
     ({
-      "--list-cols": listColumns,
-      "--list-rows": listRows
+      "--list-cols": columns,
+      "--list-rows": rows
     } as CSSProperties),
-    [listColumns, listRows]
+    [columns, rows]
   );
-  const densityKey = `${listColumns}x${listRows}`;
+  const densityKey = `${columns}x${rows}`;
 
   const sortOptions = useMemo(
     () => [
@@ -560,7 +560,7 @@ export default function CandidatesView() {
         : "候補がありません。"
       : null;
 
-  const isSingleDensity = listColumns === 1 && listRows === 1;
+  const isSingleDensity = columns === 1 && rows === 1;
   const selectedChips = useMemo(() => {
     const limit = 6;
     const visible = consultTargets.slice(0, limit);
@@ -580,10 +580,10 @@ export default function CandidatesView() {
         sortValue={sortKey}
         sortOptions={sortOptions}
         onSortChange={(value) => setSortKey(value as CandidateSortKey)}
-        columns={listColumns}
-        rows={listRows}
-        onColumnsChange={setListColumns}
-        onRowsChange={setListRows}
+        columns={columns}
+        rows={rows}
+        onColumnsChange={setColumns}
+        onRowsChange={setRows}
         filterItems={filterItems}
         helpLabel="相談"
         onHelpClick={() => {

@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 import type { HealthDeepResponse, HealthReadyResponse } from "../../backendReady";
+import { DENSITY_PRESET_OPTIONS, densityPresetToBars } from "../../density";
 import { getSignalDirectionSummary, type SignalMetrics } from "../../utils/signals";
 import type { TechnicalFilterState } from "../../utils/technicalFilter";
 import type { HealthStatus, Timeframe, WalkforwardParams } from "./gridTypes";
@@ -16,13 +17,7 @@ export const rangeOptions = [
   { label: "360本", count: 360 }
 ];
 
-export const gridPresetOptions = [
-  { value: 1, label: "1×1", bars: 180 },
-  { value: 2, label: "2×2", bars: 90 },
-  { value: 3, label: "3×3", bars: 60 },
-  { value: 4, label: "4×4", bars: 45 },
-  { value: 5, label: "5×5", bars: 30 }
-] as const;
+export const gridPresetOptions = DENSITY_PRESET_OPTIONS;
 
 export type SectorOption = {
   code: string;
@@ -49,20 +44,8 @@ export const buildAvailableSectorOptions = (
 
 export const resolveGridRangeBars = (rows: number, columns: number, fallback = 60) => {
   if (rows !== columns) return fallback;
-  switch (rows) {
-    case 1:
-      return 180;
-    case 2:
-      return 90;
-    case 3:
-      return 60;
-    case 4:
-      return 45;
-    case 5:
-      return 30;
-    default:
-      return fallback;
-  }
+  if (rows < 1 || rows > 4) return fallback;
+  return densityPresetToBars(rows as 1 | 2 | 3 | 4);
 };
 
 export const resolveGridVolumeSurgeRatio = (bars: number[][] | undefined, window = 20) => {

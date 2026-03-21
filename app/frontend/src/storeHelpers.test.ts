@@ -4,7 +4,8 @@ import {
   getInitialListRangeBars,
   getInitialRows,
   getInitialSortDir,
-  getInitialSortKey
+  getInitialSortKey,
+  persistGridPreset
 } from "./storeHelpers";
 
 vi.mock("./api", () => ({
@@ -64,8 +65,28 @@ describe("storeHelpers defaults", () => {
 
     expect(getInitialSortKey()).toBe("ma20Dev");
     expect(getInitialSortDir()).toBe("desc");
-    expect(getInitialColumns()).toBe(5);
-    expect(getInitialRows()).toBe(5);
+    expect(getInitialColumns()).toBe(4);
+    expect(getInitialRows()).toBe(4);
     expect(getInitialListRangeBars()).toBe(90);
+  });
+
+  it("clamps written density presets to 4x4", () => {
+    const stub = createWindowStub() as Window & {
+      localStorage: {
+        getItem: (key: string) => string | null;
+        setItem: (key: string, value: string) => void;
+        removeItem: (key: string) => void;
+        clear: () => void;
+      };
+    };
+    vi.stubGlobal("window", stub);
+
+    persistGridPreset(5 as unknown as 1 | 2 | 3 | 4);
+
+    expect(stub.localStorage.getItem("gridPreset")).toBe("4");
+    expect(stub.localStorage.getItem("gridCols")).toBeNull();
+    expect(stub.localStorage.getItem("gridRows")).toBeNull();
+    expect(stub.localStorage.getItem("listCols")).toBeNull();
+    expect(stub.localStorage.getItem("listRows")).toBeNull();
   });
 });

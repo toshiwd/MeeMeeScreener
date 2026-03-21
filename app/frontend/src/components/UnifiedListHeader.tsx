@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import TopNav from "./TopNav";
 import { useStore } from "../store";
+import { DENSITY_PRESET_OPTIONS, type DensityPreset } from "../density";
 import { formatEventDateYmd, parseEventDateMs } from "../utils/events";
 
 type ListTimeframe = "monthly" | "weekly" | "daily";
@@ -28,10 +30,12 @@ type UnifiedListHeaderProps = {
   sortValue: string;
   sortOptions: SortOption[];
   onSortChange: (value: string) => void;
-  columns: 1 | 2 | 3 | 4;
-  rows: 1 | 2 | 3 | 4 | 5 | 6;
-  onColumnsChange: (value: 1 | 2 | 3 | 4) => void;
-  onRowsChange: (value: 1 | 2 | 3 | 4 | 5 | 6) => void;
+  hideSort?: boolean;
+  topRowLeftExtra?: ReactNode;
+  columns: DensityPreset;
+  rows: DensityPreset;
+  onColumnsChange: (value: DensityPreset) => void;
+  onRowsChange: (value: DensityPreset) => void;
   filterItems?: FilterItem[];
   filterLabel?: string;
   onHelpClick?: () => void;
@@ -77,6 +81,8 @@ export default function UnifiedListHeader({
   sortValue,
   sortOptions,
   onSortChange,
+  hideSort,
+  topRowLeftExtra,
   columns,
   rows,
   onColumnsChange,
@@ -108,6 +114,8 @@ export default function UnifiedListHeader({
   const filterItemsSafe = filterItems ?? [];
   const hasFilters = filterItemsSafe.length > 0;
   const isFiltering = filterItemsSafe.some((item) => item.checked);
+  const showSortControls = !hideSort && sortOptions.length > 0;
+  const densityOptions = DENSITY_PRESET_OPTIONS;
 
   const sortLabel = useMemo(() => {
     const match = sortOptions.find((option) => option.value === sortValue);
@@ -172,52 +180,55 @@ export default function UnifiedListHeader({
         <div className="dynamic-header-row header-row-top">
           <div className="header-row-left">
             <TopNav />
+            {topRowLeftExtra}
           </div>
 
           <div className="list-header-actions-wrapper">
             <div className="list-header-actions">
-              <div className="popover-anchor" ref={sortRef}>
-                <button
-                  type="button"
-                  className={`sort-button ${sortOpen ? "is-sorting" : ""}`}
-                  onClick={() => {
-                    setSortOpen((prev) => !prev);
-                    setDensityOpen(false);
-                    setFilterOpen(false);
-                    setMoreOpen(false);
-                  }}
-                >
-                  {`${LABELS.sort}\uFF1A${sortLabel}`}
-                  <span className="caret">{"\u25BC"}</span>
-                </button>
-                {sortOpen && (
-                  <div className="popover-panel">
-                    <div className="popover-section">
-                      <div className="popover-title">{LABELS.sort}</div>
-                      <div className="popover-list">
-                        {sortOptions.map((option) => (
-                          <button
-                            type="button"
-                            key={option.value}
-                            className={
-                              sortValue === option.value ? "popover-item active" : "popover-item"
-                            }
-                            onClick={() => {
-                              onSortChange(option.value);
-                              setSortOpen(false);
-                            }}
-                          >
-                            <span>{option.label}</span>
-                            {sortValue === option.value && (
-                              <span className="popover-status">{LABELS.selected}</span>
-                            )}
-                          </button>
-                        ))}
+              {showSortControls && (
+                <div className="popover-anchor" ref={sortRef}>
+                  <button
+                    type="button"
+                    className={`sort-button ${sortOpen ? "is-sorting" : ""}`}
+                    onClick={() => {
+                      setSortOpen((prev) => !prev);
+                      setDensityOpen(false);
+                      setFilterOpen(false);
+                      setMoreOpen(false);
+                    }}
+                  >
+                    {`${LABELS.sort}\uFF1A${sortLabel}`}
+                    <span className="caret">{"\u25BC"}</span>
+                  </button>
+                  {sortOpen && (
+                    <div className="popover-panel">
+                      <div className="popover-section">
+                        <div className="popover-title">{LABELS.sort}</div>
+                        <div className="popover-list">
+                          {sortOptions.map((option) => (
+                            <button
+                              type="button"
+                              key={option.value}
+                              className={
+                                sortValue === option.value ? "popover-item active" : "popover-item"
+                              }
+                              onClick={() => {
+                                onSortChange(option.value);
+                                setSortOpen(false);
+                              }}
+                            >
+                              <span>{option.label}</span>
+                              {sortValue === option.value && (
+                                <span className="popover-status">{LABELS.selected}</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
               <div className="popover-anchor" ref={densityRef}>
                 <button
                   type="button"
@@ -235,29 +246,19 @@ export default function UnifiedListHeader({
                 {densityOpen && (
                   <div className="popover-panel">
                     <div className="popover-section">
-                      <div className="popover-title">{LABELS.columns}</div>
-                      <div className="segmented">
-                        {[1, 2, 3, 4].map((count) => (
+                      <div className="popover-title">{LABELS.displayDensity}</div>
+                      <div className="segmented segmented-grid-preset">
+                        {densityOptions.map((option) => (
                           <button
-                            key={count}
-                            className={columns === count ? "active" : ""}
-                            onClick={() => onColumnsChange(count as 1 | 2 | 3 | 4)}
+                            key={option.value}
+                            type="button"
+                            className={columns === option.value && rows === option.value ? "active" : ""}
+                            onClick={() => {
+                              onColumnsChange(option.value);
+                              onRowsChange(option.value);
+                            }}
                           >
-                            {`${count}\u5217`}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="popover-section">
-                      <div className="popover-title">{LABELS.rows}</div>
-                      <div className="segmented">
-                        {[1, 2, 3, 4, 5, 6].map((count) => (
-                          <button
-                            key={count}
-                            className={rows === count ? "active" : ""}
-                            onClick={() => onRowsChange(count as 1 | 2 | 3 | 4 | 5 | 6)}
-                          >
-                            {`${count}\u884c`}
+                            {option.label}
                           </button>
                         ))}
                       </div>
@@ -341,68 +342,57 @@ export default function UnifiedListHeader({
               </button>
               {moreOpen && (
                 <div className="popover-panel list-header-menu">
+                  {showSortControls && (
+                    <div className="popover-section">
+                      <div className="popover-title">{LABELS.sort}</div>
+                      <div className="popover-list">
+                        {sortOptions.map((option) => (
+                          <button
+                            type="button"
+                            key={`more-${option.value}`}
+                            className={
+                              sortValue === option.value
+                                ? "popover-item active"
+                                : "popover-item"
+                            }
+                            onClick={() => {
+                              onSortChange(option.value);
+                              setMoreOpen(false);
+                            }}
+                          >
+                            <span>{option.label}</span>
+                            {sortValue === option.value && (
+                              <span className="popover-status">{LABELS.selected}</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="popover-section">
-                    <div className="popover-title">{LABELS.sort}</div>
+                    <div className="popover-title">{LABELS.displayDensity}</div>
                     <div className="popover-list">
-                      {sortOptions.map((option) => (
+                      {densityOptions.map((option) => (
                         <button
+                          key={`more-density-${option.value}`}
                           type="button"
-                          key={`more-${option.value}`}
                           className={
-                            sortValue === option.value
+                            columns === option.value && rows === option.value
                               ? "popover-item active"
                               : "popover-item"
                           }
                           onClick={() => {
-                            onSortChange(option.value);
+                            onColumnsChange(option.value);
+                            onRowsChange(option.value);
                             setMoreOpen(false);
                           }}
                         >
                           <span>{option.label}</span>
-                          {sortValue === option.value && (
+                          {columns === option.value && rows === option.value && (
                             <span className="popover-status">{LABELS.selected}</span>
                           )}
                         </button>
                       ))}
-                    </div>
-                  </div>
-                  <div className="popover-section">
-                    <div className="popover-title">{LABELS.displayDensity}</div>
-                    <div className="popover-list">
-                      <div className="popover-group">
-                        <div className="popover-group-title">{LABELS.columns}</div>
-                        <div className="segmented">
-                          {[1, 2, 3, 4].map((count) => (
-                            <button
-                              key={`more-col-${count}`}
-                              className={columns === count ? "active" : ""}
-                              onClick={() =>
-                                onColumnsChange(count as 1 | 2 | 3 | 4)
-                              }
-                            >
-                              {`${count}\u5217`}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="popover-group">
-                        <div className="popover-group-title">{LABELS.rows}</div>
-                        <div className="segmented">
-                          {[1, 2, 3, 4, 5, 6].map((count) => (
-                            <button
-                              key={`more-row-${count}`}
-                              className={rows === count ? "active" : ""}
-                              onClick={() =>
-                                onRowsChange(
-                                  count as 1 | 2 | 3 | 4 | 5 | 6
-                                )
-                              }
-                            >
-                              {`${count}\u884c`}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
                       <button
                         type="button"
                         className="popover-reset"
