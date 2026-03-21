@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import { useStore } from "../store";
@@ -15,17 +15,14 @@ import {
   type MarketTimelineItem
 } from "../features/market/marketHelpers";
 import { formatMarketFlow, formatMarketRate } from "../features/market/marketHelpers";
-
-type StoredMarketViewState = {
-  stateVersion: number;
-  period: MarketPeriodKey;
-  metric: MarketMetricKey;
-  cursorIndex: number;
-  selectedSector: string | null;
-};
-
-const MARKET_VIEW_STATE_KEY = "marketViewState";
-const MARKET_VIEW_STATE_VERSION = 3;
+import {
+  buildPersistedMarketViewState,
+  getMarketTimelineFrameDateKey,
+  MARKET_VIEW_STATE_KEY,
+  MARKET_VIEW_STATE_VERSION,
+  resolveInitialMarketCursor,
+  type StoredMarketViewState
+} from "./marketViewState";
 const TIMELINE_LIMIT = 180;
 
 const PERIOD_OPTIONS: { key: MarketPeriodKey; label: string }[] = [
@@ -70,25 +67,29 @@ export default function MarketView() {
   const [metric, setMetric] = useState<MarketMetricKey>(stored?.metric ?? "rate");
   const [selectedSector, setSelectedSector] = useState<string | null>(stored?.selectedSector ?? null);
   const [cursorIndex, setCursorIndex] = useState(stored?.cursorIndex ?? 0);
+  const [cursorUserInteracted, setCursorUserInteracted] = useState(false);
   const [frames, setFrames] = useState<MarketTimelineFrame[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cursorInitializedPeriodRef = useRef<MarketPeriodKey | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const payload: StoredMarketViewState = {
-        stateVersion: MARKET_VIEW_STATE_VERSION,
+      const payload = buildPersistedMarketViewState({
         period,
         metric,
+        selectedSector,
         cursorIndex,
-        selectedSector
-      };
+        cursorDate: activeFrameDateKey,
+        cursorUserInteracted,
+        previous: readStoredState()
+      });
       window.sessionStorage.setItem(MARKET_VIEW_STATE_KEY, JSON.stringify(payload));
     } catch {
       // ignore storage failures
     }
-  }, [period, metric, cursorIndex, selectedSector]);
+  }, [period, metric, cursorIndex, cursorUserInteracted, selectedSector, activeFrameDateKey]);
 
   useEffect(() => {
     if (!ensureListLoaded) return;
@@ -109,20 +110,27 @@ export default function MarketView() {
         const hasItems = rawFrames.some((frame) => Array.isArray(frame.items) && frame.items.length > 0);
         if (rawFrames.length > 0 && hasItems) {
           setFrames(rawFrames);
-          setCursorIndex((current) => Math.min(Math.max(current, 0), rawFrames.length - 1));
+          if (cursorInitializedPeriodRef.current !== period) {
+            const resolved = resolveInitialMarketCursor(rawFrames, readStoredState());
+            setCursorIndex(resolved.index);
+            cursorInitializedPeriodRef.current = period;
+          }
           return;
         }
         const fallback = await api.get("/market/heatmap", { params: { period } });
         if (canceled) return;
         const items = Array.isArray(fallback.data?.items) ? (fallback.data.items as MarketTimelineItem[]) : [];
-        setFrames([
-          {
-            asof: Math.floor(Date.now() / 1000),
-            label: new Date().toISOString().slice(0, 10),
-            items
-          }
-        ]);
-        setCursorIndex(0);
+        const fallbackFrame = {
+          asof: Math.floor(Date.now() / 1000),
+          label: new Date().toISOString().slice(0, 10),
+          items
+        };
+        setFrames([fallbackFrame]);
+        if (cursorInitializedPeriodRef.current !== period) {
+          const resolved = resolveInitialMarketCursor([fallbackFrame], readStoredState());
+          setCursorIndex(resolved.index);
+          cursorInitializedPeriodRef.current = period;
+        }
       } catch (loadError) {
         if (canceled) return;
         const message = loadError instanceof Error && loadError.message.trim()
@@ -151,6 +159,10 @@ export default function MarketView() {
     const safeIndex = Math.min(Math.max(cursorIndex, 0), frames.length - 1);
     return frames[safeIndex] ?? null;
   }, [frames, cursorIndex]);
+  const activeFrameDateKey = useMemo(
+    () => (activeFrame ? getMarketTimelineFrameDateKey(activeFrame) : null),
+    [activeFrame]
+  );
 
   const allActiveItems = useMemo(() => {
     if (!activeFrame) return [];
@@ -190,6 +202,12 @@ export default function MarketView() {
     setSelectedSector(item.sector33_code);
   }, []);
 
+  const handlePeriodChange = useCallback((nextPeriod: MarketPeriodKey) => {
+    cursorInitializedPeriodRef.current = null;
+    setCursorUserInteracted(false);
+    setPeriod(nextPeriod);
+  }, []);
+
   const handleDetailOpen = useCallback(
     (code: string) => {
       try {
@@ -225,7 +243,7 @@ export default function MarketView() {
                   key={option.key}
                   type="button"
                   className={period === option.key ? "active" : ""}
-                  onClick={() => setPeriod(option.key)}
+                  onClick={() => handlePeriodChange(option.key)}
                 >
                   {option.label}
                 </button>
@@ -257,7 +275,10 @@ export default function MarketView() {
               min={0}
               max={timelineMax}
               value={Math.min(Math.max(cursorIndex, 0), timelineMax)}
-              onChange={(event) => setCursorIndex(Number(event.target.value))}
+              onChange={(event) => {
+                setCursorUserInteracted(true);
+                setCursorIndex(Number(event.target.value));
+              }}
               disabled={timelineMax <= 0}
             />
             <span className="market-timeline-meta">
