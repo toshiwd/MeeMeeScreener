@@ -74,8 +74,7 @@ export default function TradexAdoptPage() {
     ? buildComparisonDraft(data?.baseline ?? { logic_id: null, version: null, published_at: null, publish_id: null }, activeCandidate)
     : null;
   const readyToSubmit = Boolean(activeCandidate && comparison && comparisonConfirmed && submissionState !== "submitting");
-  const isAdopted = comparison?.decision_summary.suggested_action === "採用";
-  const isPending = comparison?.decision_summary.suggested_action !== "採用";
+  const adoptable = comparison?.decision_summary.suggested_action === "採用";
 
   const selectCandidate = (candidateId: string) => {
     setSelectedId(candidateId);
@@ -102,11 +101,18 @@ export default function TradexAdoptPage() {
           actor: "tradex-ui"
         })
       });
-      setSubmissionState(response.ok ? "success" : "error");
-      setMessage(response.ok ? "採用処理を送信しました。backend の反映結果を確認してください。" : "採用処理は受理されませんでした。");
+
+      if (response.ok) {
+        setSubmissionState("success");
+        setMessage("採用要求を送信しました。backend の判定結果をご確認ください。");
+        return;
+      }
+
+      setSubmissionState("error");
+      setMessage("採用要求は拒否されました。現行版との差分確認と基準 ID を見直してください。");
     } catch (error) {
       setSubmissionState("error");
-      setMessage(error instanceof Error ? error.message : "採用処理に失敗しました。");
+      setMessage(error instanceof Error ? error.message : "採用要求の送信に失敗しました。");
     }
   };
 
@@ -117,7 +123,7 @@ export default function TradexAdoptPage() {
           <div>
             <div className="tradex-panel-title">反映判定</div>
             <div className="tradex-panel-caption">
-              候補比較で差分を確認したうえで、現行版に反映するかを判断します。正式採用は backend の判定結果に従います。
+              候補比較で差分を確認したうえで、現行版に反映するかを判断します。採用要求は backend で差分照合されます。
             </div>
           </div>
           <Link className="tradex-secondary-action" to="/compare">
@@ -149,7 +155,7 @@ export default function TradexAdoptPage() {
                 </div>
 
                 <div className="tradex-compare-summaries">
-                  <article className={`tradex-summary-card${isAdopted ? " is-ok" : ""}${isPending ? " is-warn" : ""}`}>
+                  <article className={`tradex-summary-card${adoptable ? " is-ok" : ""}${comparisonConfirmed ? " is-warn" : ""}`}>
                     <div className="tradex-summary-card-label">総合点差分</div>
                     <div className="tradex-summary-card-value">{formatNumber(comparison.metric_deltas.total_score_delta, 4)}</div>
                   </article>
@@ -216,7 +222,7 @@ export default function TradexAdoptPage() {
                       採用を送信
                     </button>
                     <span className="tradex-inline-note">
-                      backend enforcement が未対応の場合は保留扱いのままです。正式採用は backend の応答に従います。
+                      採用要求は backend の比較照合を通した場合のみ送信されます。差分確認が未完了なら送信できません。
                     </span>
                   </div>
 
