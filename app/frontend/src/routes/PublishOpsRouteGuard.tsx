@@ -10,7 +10,7 @@ export default function PublishOpsRouteGuard({ children }: Props) {
   const location = useLocation();
 
   if (!shouldShowOperatorConsole()) {
-    return <Navigate to="/" replace state={{ from: location.pathname, reason: "operator-console-disabled" }} />;
+    return <Navigate to="/tradex/" replace state={{ from: location.pathname, reason: "operator-console-disabled" }} />;
   }
 
   return <>{children}</>;

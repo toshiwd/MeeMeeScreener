@@ -40,7 +40,8 @@ def serve_spa(full_path: str):
     resolved = resolve_static_file(full_path)
     if resolved:
         return _file_response(resolved)
-    index_path = resolve_static_file("index.html")
+    index_name = "tradex/index.html" if full_path == "tradex" or full_path.startswith("tradex/") else "index.html"
+    index_path = resolve_static_file(index_name)
     if not index_path:
         return JSONResponse(status_code=404, content={"error": "static_not_found"})
     return _file_response(index_path)
