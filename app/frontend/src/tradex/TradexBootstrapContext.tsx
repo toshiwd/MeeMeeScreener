@@ -18,7 +18,7 @@ export function TradexBootstrapProvider({ children }: { children: ReactNode }) {
       const next = await loadTradexBootstrap();
       setData(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "TRADEX 初期データの読み込みに失敗しました。");
+      setError(err instanceof Error ? err.message : "TRADEX の初期データを取得できませんでした。");
     } finally {
       setLoading(false);
     }
@@ -33,12 +33,7 @@ export function TradexBootstrapProvider({ children }: { children: ReactNode }) {
   }, [ready, refresh]);
 
   const value = useMemo(
-    () => ({
-      loading,
-      error,
-      data,
-      refresh
-    }),
+    () => ({ loading, error, data, refresh }),
     [data, error, loading, refresh]
   );
 

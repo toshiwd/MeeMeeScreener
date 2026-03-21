@@ -17,7 +17,7 @@ const NotFound = lazy(async () => ({
       <div className="tradex-page">
         <section className="tradex-panel">
           <div className="tradex-panel-title">ページが見つかりません</div>
-          <div className="tradex-inline-note">TRADEX の入口に戻って比較からやり直してください。</div>
+          <div className="tradex-inline-note">TRADEX の正規ルートから開いてください。</div>
         </section>
       </div>
     );
@@ -53,4 +53,3 @@ export default function TradexApp() {
     </BackendReadyProvider>
   );
 }
-

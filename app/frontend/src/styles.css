@@ -10110,6 +10110,67 @@ body {
   gap: 14px;
 }
 
+.tradex-form-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.tradex-checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--theme-border-subtle);
+  background: rgba(14, 18, 30, 0.74);
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.tradex-checkbox-row input {
+  margin-top: 3px;
+}
+
+.tradex-field {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--theme-border-subtle);
+  background: rgba(14, 18, 30, 0.74);
+}
+
+.tradex-field > span {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--theme-text-secondary);
+}
+
+.tradex-field textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  border-radius: 12px;
+  border: 1px solid var(--theme-border-subtle);
+  background: rgba(6, 10, 18, 0.9);
+  color: var(--theme-text-primary);
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.tradex-field textarea:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.28);
+  outline-offset: 1px;
+}
+
+.tradex-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
 .tradex-compare-baseline,
 .tradex-compare-candidate,
 .tradex-detail-card,

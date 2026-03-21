@@ -1,14 +1,53 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { tradexFetchJson } from "../http";
 import { useTradexBootstrap } from "../useTradexBootstrap";
 import { buildComparisonDraft, findTradexCandidate } from "../data";
 import { readTradexLocal, tradexStorageKeys, writeTradexLocal } from "../storage";
+import { tradexCandidateStatusLabel, tradexDecisionActionLabel, tradexDecisionDirectionLabel } from "../labels";
+import type { TradexAdoptResponse, TradexCandidate } from "../contracts";
 
 const formatNumber = (value: number | null | undefined, digits = 3) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(digits)}`;
 };
+
+function CandidateSelectList({
+  candidates,
+  selectedId,
+  onSelect
+}: {
+  candidates: TradexCandidate[];
+  selectedId: string | null;
+  onSelect: (candidateId: string) => void;
+}) {
+  return (
+    <div className="tradex-candidate-select-list">
+      {candidates.slice(0, 12).map((candidate) => (
+        <button
+          key={candidate.candidate_id}
+          type="button"
+          className={`tradex-candidate-select-item${candidate.candidate_id === selectedId ? " is-active" : ""}`}
+          onClick={() => onSelect(candidate.candidate_id)}
+        >
+          <strong>{candidate.name}</strong>
+          <span>{candidate.candidate_id}</span>
+          <span>{tradexCandidateStatusLabel(candidate.status)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ComparisonMetric({ label, value }: { label: string; value: number | string | null }) {
+  return (
+    <div className="tradex-metric-pill">
+      <span>{label}</span>
+      <strong>{value ?? "--"}</strong>
+    </div>
+  );
+}
 
 export default function TradexAdoptPage() {
   const { data } = useTradexBootstrap();
@@ -21,7 +60,9 @@ export default function TradexAdoptPage() {
   );
   const [selectedId, setSelectedId] = useState<string | null>(selectedCandidate?.candidate_id ?? null);
   const [comparisonConfirmed, setComparisonConfirmed] = useState(false);
-  const [savedNote, setSavedNote] = useState<string | null>(null);
+  const [submissionState, setSubmissionState] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
 
   useEffect(() => {
     if (!selectedCandidate) return;
@@ -32,20 +73,41 @@ export default function TradexAdoptPage() {
   const comparison = activeCandidate
     ? buildComparisonDraft(data?.baseline ?? { logic_id: null, version: null, published_at: null, publish_id: null }, activeCandidate)
     : null;
+  const readyToSubmit = Boolean(activeCandidate && comparison && comparisonConfirmed && submissionState !== "submitting");
+  const isAdopted = comparison?.decision_summary.suggested_action === "採用";
+  const isPending = comparison?.decision_summary.suggested_action !== "採用";
 
   const selectCandidate = (candidateId: string) => {
     setSelectedId(candidateId);
     writeTradexLocal(tradexStorageKeys.adoptCandidateId, candidateId);
     setSearchParams({ candidateId });
+    setComparisonConfirmed(false);
+    setSubmissionState("idle");
+    setMessage(null);
+    setReason("");
   };
 
-  const savePending = () => {
-    if (!activeCandidate) return;
-    writeTradexLocal(
-      tradexStorageKeys.adoptCandidateId,
-      JSON.stringify({ candidateId: activeCandidate.candidate_id, confirmed: comparisonConfirmed, at: new Date().toISOString() })
-    );
-    setSavedNote("採用は保留として記録しました。backend の最終強制はまだ未実装です。");
+  const submitAdoption = async () => {
+    if (!activeCandidate || !comparison || !comparisonConfirmed) return;
+    setSubmissionState("submitting");
+    setMessage(null);
+    try {
+      const response = await tradexFetchJson<TradexAdoptResponse>("/tradex/adopt", {
+        method: "POST",
+        body: JSON.stringify({
+          candidate_id: activeCandidate.candidate_id,
+          baseline_publish_id: comparison.baseline_publish_id ?? "",
+          comparison_snapshot_id: comparison.comparison_snapshot_id,
+          reason: reason.trim() || undefined,
+          actor: "tradex-ui"
+        })
+      });
+      setSubmissionState(response.ok ? "success" : "error");
+      setMessage(response.ok ? "採用処理を送信しました。backend の反映結果を確認してください。" : "採用処理は受理されませんでした。");
+    } catch (error) {
+      setSubmissionState("error");
+      setMessage(error instanceof Error ? error.message : "採用処理に失敗しました。");
+    }
   };
 
   return (
@@ -54,75 +116,130 @@ export default function TradexAdoptPage() {
         <div className="tradex-panel-head">
           <div>
             <div className="tradex-panel-title">反映判定</div>
-            <div className="tradex-panel-caption">比較確認を済ませてから、採用するか保留にするかを決めます。</div>
-          </div>
-          <span className="tradex-pill is-warn">backend enforcement 保留</span>
-        </div>
-        <div className="tradex-adopt-layout">
-          <aside className="tradex-compare-aside">
-            <div className="tradex-subtitle">候補を選ぶ</div>
-            <div className="tradex-candidate-select-list">
-              {candidates.slice(0, 12).map((candidate) => (
-                <button
-                  key={candidate.candidate_id}
-                  type="button"
-                  className={`tradex-candidate-select-item${candidate.candidate_id === activeCandidate?.candidate_id ? " is-active" : ""}`}
-                  onClick={() => selectCandidate(candidate.candidate_id)}
-                >
-                  <strong>{candidate.name}</strong>
-                  <span>{candidate.candidate_id}</span>
-                  <span>{candidate.status}</span>
-                </button>
-              ))}
+            <div className="tradex-panel-caption">
+              候補比較で差分を確認したうえで、現行版に反映するかを判断します。正式採用は backend の判定結果に従います。
             </div>
+          </div>
+          <Link className="tradex-secondary-action" to="/compare">
+            候補比較へ
+          </Link>
+        </div>
+
+        <div className="tradex-compare-layout">
+          <aside className="tradex-compare-sidebar">
+            <div className="tradex-section-title">候補を選ぶ</div>
+            <CandidateSelectList candidates={candidates} selectedId={selectedId} onSelect={selectCandidate} />
           </aside>
 
-          <section className="tradex-adopt-main">
-            {!activeCandidate || !comparison ? (
-              <div className="tradex-inline-note">候補を選ぶと反映判定が表示されます。</div>
-            ) : (
+          <div className="tradex-compare-main">
+            {activeCandidate && comparison ? (
               <>
-                <div className="tradex-warning-card">
-                  <div className="tradex-subtitle">比較確認が前提</div>
-                  <p>
-                    ここでは現行版との差分を見たうえで、採用するか保留にするかを決めます。
-                    最終採用の backend enforcement はまだ未実装なので、今は保留記録までに留めています。
-                  </p>
+                <div className="tradex-compare-header">
+                  <div>
+                    <div className="tradex-panel-title">{activeCandidate.name}</div>
+                    <div className="tradex-panel-caption">
+                      {activeCandidate.candidate_id} / {activeCandidate.logic_key}
+                    </div>
+                  </div>
+                  <div className="tradex-compare-header-meta">
+                    <span className="tradex-pill">{tradexCandidateStatusLabel(activeCandidate.status)}</span>
+                    <span className="tradex-pill is-muted">基準 {comparison.baseline_publish_id ?? "--"}</span>
+                    <span className="tradex-pill is-muted">比較 {comparison.comparison_snapshot_id}</span>
+                  </div>
                 </div>
 
-                <div className="tradex-inline-grid">
-                  <div><span>candidate_id</span><strong>{activeCandidate.candidate_id}</strong></div>
-                  <div><span>name</span><strong>{activeCandidate.name}</strong></div>
-                  <div><span>baseline_publish_id</span><strong>{comparison.baseline_publish_id ?? "--"}</strong></div>
-                  <div><span>expected_value_delta</span><strong>{formatNumber(comparison.metric_deltas.expected_value_delta, 4)}</strong></div>
+                <div className="tradex-compare-summaries">
+                  <article className={`tradex-summary-card${isAdopted ? " is-ok" : ""}${isPending ? " is-warn" : ""}`}>
+                    <div className="tradex-summary-card-label">総合点差分</div>
+                    <div className="tradex-summary-card-value">{formatNumber(comparison.metric_deltas.total_score_delta, 4)}</div>
+                  </article>
+                  <article className="tradex-summary-card">
+                    <div className="tradex-summary-card-label">最大損失差分</div>
+                    <div className="tradex-summary-card-value">{formatNumber(comparison.metric_deltas.max_drawdown_delta, 4)}</div>
+                  </article>
+                  <article className="tradex-summary-card">
+                    <div className="tradex-summary-card-label">件数差分</div>
+                    <div className="tradex-summary-card-value">{formatNumber(comparison.metric_deltas.sample_count_delta, 0)}</div>
+                  </article>
+                  <article className="tradex-summary-card">
+                    <div className="tradex-summary-card-label">勝率差分</div>
+                    <div className="tradex-summary-card-value">{formatNumber(comparison.metric_deltas.win_rate_delta, 4)}</div>
+                  </article>
+                  <article className="tradex-summary-card">
+                    <div className="tradex-summary-card-label">期待値差分</div>
+                    <div className="tradex-summary-card-value">{formatNumber(comparison.metric_deltas.expected_value_delta, 4)}</div>
+                  </article>
                 </div>
 
-                <label className="tradex-check-row">
-                  <input type="checkbox" checked={comparisonConfirmed} onChange={(event) => setComparisonConfirmed(event.target.checked)} />
-                  <span>現行版との差分を確認した</span>
-                </label>
-
-                <div className="tradex-adopt-actions">
-                  <button type="button" className="tradex-primary-action" disabled={!comparisonConfirmed} onClick={savePending}>
-                    保留として記録
-                  </button>
-                  <Link to={`/compare?candidateId=${encodeURIComponent(activeCandidate.candidate_id)}`} className="tradex-secondary-action">
-                    比較に戻る
-                  </Link>
-                  <Link to={`/detail/${encodeURIComponent(activeCandidate.candidate_id)}`} className="tradex-secondary-action">
-                    候補詳細へ
-                  </Link>
+                <div className="tradex-compare-metric-row">
+                  <ComparisonMetric label="現行順位" value={comparison.ranking_impact.current_rank ?? null} />
+                  <ComparisonMetric label="候補順位" value={comparison.ranking_impact.candidate_rank ?? null} />
+                  <ComparisonMetric label="順位変化" value={comparison.ranking_impact.rank_shift ?? null} />
+                  <div className="tradex-metric-pill">
+                    <span>方向</span>
+                    <strong>{tradexDecisionDirectionLabel(comparison.ranking_impact.direction)}</strong>
+                  </div>
+                  <div className="tradex-metric-pill">
+                    <span>判断</span>
+                    <strong>{tradexDecisionActionLabel(comparison.decision_summary.suggested_action)}</strong>
+                  </div>
                 </div>
 
-                {savedNote ? <div className="tradex-inline-note">{savedNote}</div> : null}
+                <div className="tradex-decision-box">
+                  <div className="tradex-decision-box-title">判断要約</div>
+                  <div className="tradex-decision-box-headline">{comparison.decision_summary.headline || "--"}</div>
+                  <p className="tradex-decision-box-detail">{comparison.decision_summary.detail || "判断材料を確認してください。"}</p>
+                </div>
+
+                <div className="tradex-form-stack">
+                  <label className="tradex-checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={comparisonConfirmed}
+                      onChange={(event) => setComparisonConfirmed(event.target.checked)}
+                    />
+                    <span>現行版との差分を確認し、内容を理解したうえで判定します。</span>
+                  </label>
+
+                  <label className="tradex-field">
+                    <span>判定理由</span>
+                    <textarea
+                      rows={4}
+                      value={reason}
+                      onChange={(event) => setReason(event.target.value)}
+                      placeholder="採用または保留の理由を簡潔に記入してください。"
+                    />
+                  </label>
+
+                  <div className="tradex-action-row">
+                    <button type="button" className="tradex-primary-action" disabled={!readyToSubmit} onClick={submitAdoption}>
+                      採用を送信
+                    </button>
+                    <span className="tradex-inline-note">
+                      backend enforcement が未対応の場合は保留扱いのままです。正式採用は backend の応答に従います。
+                    </span>
+                  </div>
+
+                  {message ? (
+                    <div className={`tradex-shell-alert ${submissionState === "error" ? "is-error" : "is-success"}`}>{message}</div>
+                  ) : null}
+                </div>
 
                 <details className="tradex-json-panel">
-                  <summary>比較結果</summary>
+                  <summary>比較データの詳細</summary>
                   <pre>{JSON.stringify(comparison, null, 2)}</pre>
                 </details>
               </>
+            ) : (
+              <div className="tradex-empty-state">
+                <strong>比較対象が見つかりません。</strong>
+                <p>候補一覧から選ぶか、検証画面から候補を確認してください。</p>
+                <div className="tradex-empty-actions">
+                  <Link to="/verify">検証へ</Link>
+                </div>
+              </div>
             )}
-          </section>
+          </div>
         </div>
       </section>
     </div>

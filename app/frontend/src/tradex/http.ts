@@ -2,6 +2,13 @@ import { attachOperatorConsoleHeader } from "../utils/operatorConsole";
 
 type AnyRecord = Record<string, unknown>;
 
+const normalizeTradexUrl = (url: string) => {
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("/api/")) return url;
+  if (url.startsWith("/")) return `/api${url}`;
+  return `/api/${url}`;
+};
+
 const parseJson = (text: string): unknown => {
   if (!text) return null;
   try {
@@ -14,7 +21,7 @@ const parseJson = (text: string): unknown => {
 export async function tradexFetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = attachOperatorConsoleHeader(init?.headers);
   if (init?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const response = await fetch(url, { ...init, headers });
+  const response = await fetch(normalizeTradexUrl(url), { ...init, headers });
   const payload = parseJson(await response.text());
   if (!response.ok) {
     const reason = payload && typeof payload === "object" ? (payload as AnyRecord).reason : null;
@@ -42,4 +49,3 @@ export async function tradexFetchJsonWithRetry<T>(url: string, init?: RequestIni
   }
   throw lastError instanceof Error ? lastError : new Error("request failed");
 }
-

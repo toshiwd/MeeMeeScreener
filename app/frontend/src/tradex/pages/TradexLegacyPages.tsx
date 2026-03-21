@@ -1,37 +1,34 @@
-import LegacyViewFrame from "../LegacyViewFrame";
-import PublishOpsRouteGuard from "../../routes/PublishOpsRouteGuard";
+import { TradexLegacyFrame } from "../LegacyViewFrame";
+import TradexTagValidationView from "../../routes/TradexTagValidationView";
 import PublishOpsView from "../../routes/PublishOpsView";
 import ToredexSimulationView from "../../routes/ToredexSimulationView";
-import TradexTagValidationView from "../../routes/TradexTagValidationView";
 
 export function TradexLegacyTagsPage() {
   return (
-    <LegacyViewFrame title="検証（旧）" description="移行中の検証画面です。新しい TRADEX では候補比較と反映判定を優先します。">
+    <TradexLegacyFrame title="検証（旧）" description="移行中の旧検証画面です。まずは新しい候補比較と反映判定を使ってください。">
       <div className="tradex-legacy-embed">
         <TradexTagValidationView />
       </div>
-    </LegacyViewFrame>
+    </TradexLegacyFrame>
   );
 }
 
 export function TradexLegacyPublishPage() {
   return (
-    <LegacyViewFrame title="反映（旧）" description="移行中の運用画面です。通常導線ではなく legacy 配下に閉じ込めています。">
+    <TradexLegacyFrame title="反映（旧）" description="移行中の旧反映画面です。新しい反映判定を優先してください。">
       <div className="tradex-legacy-embed">
-        <PublishOpsRouteGuard>
-          <PublishOpsView />
-        </PublishOpsRouteGuard>
+        <PublishOpsView />
       </div>
-    </LegacyViewFrame>
+    </TradexLegacyFrame>
   );
 }
 
 export function TradexLegacySimPage() {
   return (
-    <LegacyViewFrame title="検証シミュレーション（旧）" description="候補確認の補助に使う移行中画面です。">
+    <TradexLegacyFrame title="検証シミュレーション（旧）" description="移行中の旧シミュレーション画面です。">
       <div className="tradex-legacy-embed">
         <ToredexSimulationView />
       </div>
-    </LegacyViewFrame>
+    </TradexLegacyFrame>
   );
 }

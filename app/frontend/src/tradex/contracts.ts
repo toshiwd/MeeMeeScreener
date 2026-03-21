@@ -18,18 +18,19 @@ export type TradexRankingImpact = {
   candidate_rank: number | null;
   rank_shift: number | null;
   score_delta: number | null;
-  direction: "改善" | "維持" | "悪化";
+  direction: "上昇" | "中立" | "下落";
   note: string;
 };
 
 export type TradexDecisionSummary = {
   headline: string;
   detail: string;
-  suggested_action: "比較済み" | "保留" | "要再検証";
+  suggested_action: "採用" | "保留" | "再検証";
   confidence: number | null;
 };
 
 export type TradexDiffVsCurrent = {
+  comparison_snapshot_id: string;
   baseline_publish_id: string | null;
   metric_deltas: TradexMetricDeltas;
   ranking_impact: TradexRankingImpact;
@@ -76,6 +77,7 @@ export type TradexCandidate = {
   published_logic_artifact: Record<string, unknown> | null;
   published_ranking_snapshot: Record<string, unknown> | null;
   comparison_snapshot: TradexDiffVsCurrent;
+  comparison_snapshot_id: string;
   validation_result: TradexValidationResult;
   anomaly_report: TradexAnomalyReport | null;
 };
@@ -105,3 +107,19 @@ export type TradexBootstrapData = {
   };
 };
 
+export type TradexAdoptRequest = {
+  candidate_id: string;
+  baseline_publish_id: string;
+  comparison_snapshot_id: string;
+  reason?: string | null;
+  actor?: string | null;
+};
+
+export type TradexAdoptResponse = {
+  ok: boolean;
+  candidate_id: string;
+  logic_key: string;
+  baseline_publish_id: string | null;
+  comparison_snapshot_id: string;
+  result: Record<string, unknown>;
+};
