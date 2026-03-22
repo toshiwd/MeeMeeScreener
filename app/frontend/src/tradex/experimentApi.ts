@@ -75,7 +75,26 @@ export type TradexCompare = {
   family_id: string;
   generated_at: string;
   baseline_run_id: string;
-  candidate_results: Array<Record<string, unknown>>;
+  candidate_results: TradexCompareCandidateResult[];
+};
+
+export type TradexCompareCandidateResult = {
+  run_id: string;
+  plan_id: string;
+  plan_version: string;
+  status: string;
+  metric_directions?: Record<string, string>;
+  baseline_absolute?: Record<string, unknown>;
+  candidate_absolute?: Record<string, unknown>;
+  absolute_metric_comparisons?: Array<Record<string, unknown>>;
+  primary_metric_deltas?: Record<string, unknown>;
+  target_symbol_count_delta?: number;
+  signal_date_deltas?: Record<string, unknown>;
+  winning_examples?: Array<Record<string, unknown>>;
+  losing_examples?: Array<Record<string, unknown>>;
+  top_conditions?: Array<Record<string, unknown>>;
+  review_focus?: Array<Record<string, unknown>>;
+  symbol_summary?: Record<string, unknown>;
 };
 
 export type TradexDetail = {
@@ -181,4 +200,3 @@ export function adoptTradexRun(payload: TradexAdoptRequest) {
     body: JSON.stringify(payload),
   });
 }
-

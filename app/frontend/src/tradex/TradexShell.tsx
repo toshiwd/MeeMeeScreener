@@ -9,12 +9,12 @@ const navItems = [
   { to: "/adopt", label: "反映判定" }
 ] as const;
 
-function SummaryCard({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "ok" | "warn" }) {
+function SummaryMetric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "ok" | "warn" }) {
   return (
-    <article className={`tradex-summary-card ${tone === "ok" ? "is-ok" : tone === "warn" ? "is-warn" : ""}`}>
-      <div className="tradex-summary-card-label">{label}</div>
-      <div className="tradex-summary-card-value">{value}</div>
-    </article>
+    <div className={`tradex-summary-metric ${tone === "ok" ? "is-ok" : tone === "warn" ? "is-warn" : ""}`}>
+      <span className="tradex-summary-metric-label">{label}</span>
+      <strong className="tradex-summary-metric-value">{value}</strong>
+    </div>
   );
 }
 
@@ -37,10 +37,10 @@ export default function TradexShell() {
         </div>
 
         <div className="tradex-summary-strip" aria-label="TRADEX summary">
-          <SummaryCard label="基準日" value={summary?.as_of_date ?? (loading ? "読み込み中" : "--")} />
-          <SummaryCard label="鮮度" value={tradexFreshnessLabel(summary?.freshness_state)} tone={summary?.freshness_state ? "ok" : "neutral"} />
-          <SummaryCard label="実行状況" value={tradexReplayLabel(summary?.replay_status)} tone={summary?.replay_status?.includes("error") ? "warn" : "ok"} />
-          <SummaryCard label="注目件数" value={typeof summary?.attention_count === "number" ? summary.attention_count.toLocaleString("ja-JP") : "0"} />
+          <SummaryMetric label="基準日" value={summary?.as_of_date ?? (loading ? "読み込み中" : "--")} />
+          <SummaryMetric label="鮮度" value={tradexFreshnessLabel(summary?.freshness_state)} tone={summary?.freshness_state ? "ok" : "neutral"} />
+          <SummaryMetric label="実行状況" value={tradexReplayLabel(summary?.replay_status)} tone={summary?.replay_status?.includes("error") ? "warn" : "ok"} />
+          <SummaryMetric label="注目件数" value={typeof summary?.attention_count === "number" ? summary.attention_count.toLocaleString("ja-JP") : "0"} />
         </div>
 
         <nav className="tradex-primary-nav" aria-label="TRADEX primary navigation">

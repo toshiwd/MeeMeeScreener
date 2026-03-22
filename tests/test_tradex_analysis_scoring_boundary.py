@@ -3,8 +3,11 @@ from __future__ import annotations
 import pytest
 
 from app.backend.services.analysis.analysis_decision import build_analysis_decision, compute_analysis_decision_core
+import app.backend.services.tradex_experiment_service as tradex_service
 from external_analysis.runtime import analysis_adapter
 from external_analysis.runtime.analysis_adapter import build_tradex_analysis_payload
+from external_analysis.runtime.input_normalization import normalize_tradex_analysis_input
+from external_analysis.runtime.orchestrator import run_tradex_analysis
 from external_analysis.runtime.score_axes import (
     score_ev_upside_downside,
     score_short_bias_penalty,
@@ -232,3 +235,63 @@ def test_axis_scores_use_a_stable_small_shape() -> None:
         assert isinstance(payload["components"], dict)
         assert isinstance(payload["reasons"], list)
         assert axis["score"] == pytest.approx(payload["score"])
+
+
+def test_playbook_up_score_bonus_reaches_normalized_input_and_changes_score() -> None:
+    point = {
+        "pUp": 0.88,
+        "pDown": 0.08,
+        "pTurnUp": 0.64,
+        "pTurnDown": 0.12,
+        "ev20Net": 0.03,
+        "sellPDown": 0.08,
+        "sellPTurnDown": 0.05,
+        "trendDown": False,
+        "trendDownStrict": False,
+        "shortRet5": 0.01,
+        "shortRet10": 0.02,
+        "shortRet20": 0.03,
+        "shortWin5": True,
+        "shortWin10": True,
+        "shortWin20": True,
+    }
+    baseline_plan = {
+        "plan_id": "baseline",
+        "plan_version": "v1",
+        "label": "Baseline",
+        "minimum_confidence": 0.0,
+        "minimum_ready_rate": 0.0,
+        "signal_bias": "balanced",
+        "top_k": 3,
+        "playbook_up_score_bonus": 0.0,
+    }
+    candidate_plan = {
+        **baseline_plan,
+        "plan_id": "candidate",
+        "label": "Candidate",
+        "playbook_up_score_bonus": 0.04,
+    }
+
+    baseline_contract = tradex_service._analysis_input(
+        "7203",
+        20260319,
+        point,
+        plan_effective=tradex_service._plan_effective_parameters(baseline_plan),
+    )
+    candidate_contract = tradex_service._analysis_input(
+        "7203",
+        20260319,
+        point,
+        plan_effective=tradex_service._plan_effective_parameters(candidate_plan),
+    )
+
+    baseline_normalized = normalize_tradex_analysis_input(baseline_contract)
+    candidate_normalized = normalize_tradex_analysis_input(candidate_contract)
+    baseline_output = run_tradex_analysis(baseline_contract)
+    candidate_output = run_tradex_analysis(candidate_contract)
+
+    assert baseline_normalized.decision_kwargs["playbook_up_score_bonus"] == 0.0
+    assert candidate_normalized.decision_kwargs["playbook_up_score_bonus"] == 0.04
+    assert baseline_contract.diagnostics["engine_plan_hash"] != candidate_contract.diagnostics["engine_plan_hash"]
+    assert baseline_contract.diagnostics["engine_input_hash"] != candidate_contract.diagnostics["engine_input_hash"]
+    assert candidate_output.confidence > baseline_output.confidence

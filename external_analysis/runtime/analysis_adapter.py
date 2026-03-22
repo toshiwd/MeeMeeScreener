@@ -32,4 +32,6 @@ def build_tradex_analysis_payload(normalized_input: NormalizedTradexAnalysisInpu
     override_state = normalize_override_state_payload(normalized_input.override_state)
     if override_state is not None:
         payload["override_state"] = override_state
+    if normalized_input.diagnostics is not None:
+        payload["diagnostics"] = dict(normalized_input.diagnostics)
     return payload

@@ -21,6 +21,18 @@ def _as_dict(value: Any) -> dict[str, Any] | None:
     return None
 
 
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        out = float(value)
+    except Exception:
+        return None
+    if out != out:
+        return None
+    return out
+
+
 @dataclass(frozen=True)
 class AnalysisInputContract:
     symbol: str
@@ -37,6 +49,7 @@ class AnalysisInputContract:
     scenarios: tuple[dict[str, Any], ...] = ()
     publish_readiness: AnalysisPublishReadiness | dict[str, Any] | None = None
     override_state: AnalysisOverrideState | dict[str, Any] | None = None
+    diagnostics: dict[str, Any] | None = None
     source: str = "tradex_analysis_input"
     schema_version: str = ANALYSIS_INPUT_SCHEMA_VERSION
 
@@ -51,6 +64,10 @@ class AnalysisInputContract:
             payload["override_state"] = self.override_state.to_dict()
         else:
             payload["override_state"] = _as_dict(self.override_state)
+        if self.diagnostics is not None:
+            payload["diagnostics"] = dict(self.diagnostics)
+        else:
+            payload.pop("diagnostics", None)
         return payload
 
     def to_runtime_kwargs(self) -> dict[str, Any]:
@@ -62,8 +79,8 @@ class AnalysisInputContract:
             "analysis_p_turn_up": self.analysis_p_turn_up,
             "analysis_p_turn_down": self.analysis_p_turn_down,
             "analysis_ev_net": self.analysis_ev_net,
-            "playbook_up_score_bonus": self.playbook_up_score_bonus,
-            "playbook_down_score_bonus": self.playbook_down_score_bonus,
+            "playbook_up_score_bonus": _to_float(self.playbook_up_score_bonus) or 0.0,
+            "playbook_down_score_bonus": _to_float(self.playbook_down_score_bonus) or 0.0,
             "additive_signals": _as_dict(self.additive_signals),
             "sell_analysis": _as_dict(self.sell_analysis),
             "scenarios": [dict(item) for item in self.scenarios],

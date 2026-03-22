@@ -8,14 +8,10 @@ export type Theme = "dark" | "light";
 const STORAGE_KEY = "meemee-theme";
 
 export const getStoredTheme = (): Theme => {
-    if (typeof window === "undefined") return "dark";
+    if (typeof window === "undefined") return "light";
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (stored === "light" || stored === "dark") return stored;
-    // Check system preference
-    if (window.matchMedia?.("(prefers-color-scheme: light)").matches) {
-        return "light";
-    }
-    return "dark";
+    return "light";
 };
 
 export const setStoredTheme = (theme: Theme): void => {
@@ -29,9 +25,9 @@ export const applyTheme = (theme: Theme): void => {
 };
 
 export const getDomTheme = (): Theme => {
-    if (typeof document === "undefined") return "dark";
+    if (typeof document === "undefined") return "light";
     const value = document.documentElement.getAttribute("data-theme");
-    return value === "light" ? "light" : "dark";
+    return value === "dark" ? "dark" : "light";
 };
 
 export const toggleTheme = (current: Theme): Theme => {

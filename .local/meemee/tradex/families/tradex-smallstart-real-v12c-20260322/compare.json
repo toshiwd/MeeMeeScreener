@@ -1,0 +1,2660 @@
+{
+  "baseline_run_id": "tradex-smallstart-real-v12c-20260322-baseline",
+  "candidate_results": [
+    {
+      "absolute_metric_comparisons": [
+        {
+          "baseline": 0.24258995709208434,
+          "candidate": 0.24258995709208434,
+          "delta": 0.0,
+          "direction": "higher",
+          "metric": "overall_score",
+          "pass": true
+        },
+        {
+          "baseline": 0.9862875431376175,
+          "candidate": 0.9862875431376175,
+          "delta": 0.0,
+          "direction": "higher",
+          "metric": "by_period_stability",
+          "pass": true
+        },
+        {
+          "baseline": 0.0,
+          "candidate": 0.0,
+          "delta": 0.0,
+          "direction": "lower",
+          "metric": "symbol_concentration",
+          "pass": true
+        }
+      ],
+      "baseline_absolute": {
+        "by_period_stability": 0.9862875431376175,
+        "overall_score": 0.24258995709208434,
+        "symbol_concentration": 0.0,
+        "target_symbol_count": 20
+      },
+      "candidate_absolute": {
+        "by_period_stability": 0.9862875431376175,
+        "overall_score": 0.24258995709208434,
+        "symbol_concentration": 0.0,
+        "target_symbol_count": 20
+      },
+      "losing_examples": [
+        {
+          "candidate_reasons": [],
+          "code": "1375",
+          "confidence": 0.5018143139281361,
+          "date": "2026-02-03",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": 0.01983207420607551,
+            "analysis_p_down": 0.3534611879685329,
+            "analysis_p_turn_down": 0.060685781945624524,
+            "analysis_p_turn_up": 0.22855856531395488,
+            "analysis_p_up": 0.6465388120314671,
+            "asof": "2026-02-03",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260203,
+              "pDown": 0.3534611879685329,
+              "pTurnDown": 0.060685781945624524,
+              "shortRet10": -0.027306967984934087,
+              "shortRet20": null,
+              "shortRet5": -0.02919020715630885,
+              "shortWin10": false,
+              "shortWin20": null,
+              "shortWin5": false,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1375"
+          },
+          "output": {
+            "asof": "2026-02-03",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5525053862308524,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.5018143139281361,
+                "score_delta": -0.0506910723027163
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.2876602953047639,
+                "score_delta": -0.26484509092608854
+              }
+            ],
+            "confidence": 0.5018143139281361,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5525053862308524,
+              "neutral": 0.5018143139281361,
+              "sell": 0.2876602953047639
+            },
+            "source": "tradex_analysis",
+            "symbol": "1375"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5525053862308524,
+            "neutral": 0.5018143139281361,
+            "sell": 0.2876602953047639
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1717",
+          "confidence": 0.5199710603843142,
+          "date": "2026-02-18",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": 0.020763177591084717,
+            "analysis_p_down": 0.26511335807088426,
+            "analysis_p_turn_down": 0.157905843198334,
+            "analysis_p_turn_up": 0.2668597030729145,
+            "analysis_p_up": 0.5740753696202904,
+            "asof": "2026-02-18",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260218,
+              "pDown": 0.26511335807088426,
+              "pTurnDown": 0.157905843198334,
+              "shortRet10": null,
+              "shortRet20": null,
+              "shortRet5": null,
+              "shortWin10": null,
+              "shortWin20": null,
+              "shortWin5": null,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1717"
+          },
+          "output": {
+            "asof": "2026-02-18",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5244869329506399,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.5199710603843142,
+                "score_delta": -0.004515872566325685
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.26789553024890433,
+                "score_delta": -0.2565914027017355
+              }
+            ],
+            "confidence": 0.5199710603843142,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5244869329506399,
+              "neutral": 0.5199710603843142,
+              "sell": 0.26789553024890433
+            },
+            "source": "tradex_analysis",
+            "symbol": "1717"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5244869329506399,
+            "neutral": 0.5199710603843142,
+            "sell": 0.26789553024890433
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1375",
+          "confidence": 0.5250316447984993,
+          "date": "2026-01-05",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": 0.022473363827988597,
+            "analysis_p_down": 0.3891744739166064,
+            "analysis_p_turn_down": 0.08686294935052369,
+            "analysis_p_turn_up": 0.17978885128511038,
+            "analysis_p_up": 0.6108255260833936,
+            "asof": "2026-01-05",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260105,
+              "pDown": 0.3891744739166064,
+              "pTurnDown": 0.08686294935052369,
+              "shortRet10": -0.021967526265520534,
+              "shortRet20": -0.014326647564469915,
+              "shortRet5": 0.0019102196752626551,
+              "shortWin10": false,
+              "shortWin20": false,
+              "shortWin5": true,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1375"
+          },
+          "output": {
+            "asof": "2026-01-05",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5296120216960005,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.5250316447984993,
+                "score_delta": -0.004580376897501237
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.3055283163776052,
+                "score_delta": -0.22408370531839533
+              }
+            ],
+            "confidence": 0.5250316447984993,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5296120216960005,
+              "neutral": 0.5250316447984993,
+              "sell": 0.3055283163776052
+            },
+            "source": "tradex_analysis",
+            "symbol": "1375"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5296120216960005,
+            "neutral": 0.5250316447984993,
+            "sell": 0.3055283163776052
+          },
+          "signal": false
+        }
+      ],
+      "metric_directions": {
+        "by_period_stability": "higher",
+        "overall_score": "higher",
+        "symbol_concentration": "lower"
+      },
+      "plan_id": "candidate-a",
+      "plan_version": "v1",
+      "primary_metric_deltas": {
+        "mean_confidence": 0.0,
+        "ready_rate": 0.0,
+        "signal_rate": 0.0
+      },
+      "review_focus": [
+        {
+          "code": "1357",
+          "label": "signal-1",
+          "mean_confidence": 0.7922098385816637,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "top_signal",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1605",
+          "label": "signal-2",
+          "mean_confidence": 0.7694051572106712,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "top_signal",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1540",
+          "label": "signal-3",
+          "mean_confidence": 0.7628465007469203,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "top_signal",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1801",
+          "label": "winning-example",
+          "mean_confidence": 0.7465459754458086,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "winning_example",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1375",
+          "label": "losing-example",
+          "mean_confidence": 0.6592844377322775,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "losing_example",
+          "top_symbol_share": 0.0
+        }
+      ],
+      "run_id": "tradex-smallstart-real-v12c-20260322-candidate-a",
+      "signal_date_deltas": {
+        "baseline": [],
+        "candidate": []
+      },
+      "status": "rejected",
+      "symbol_summary": {
+        "baseline_symbols": 20,
+        "candidate_symbols": 20,
+        "shared_symbols": 20
+      },
+      "target_symbol_count_delta": 0,
+      "top_conditions": [
+        {
+          "count": 1580,
+          "reason": "version=2026-03-04-v2"
+        },
+        {
+          "count": 1519,
+          "reason": "pattern=往復レンジ（上下振れ）"
+        },
+        {
+          "count": 1519,
+          "reason": "tone=neutral"
+        }
+      ],
+      "winning_examples": [
+        {
+          "candidate_reasons": [],
+          "code": "1357",
+          "confidence": 0.8780664231574782,
+          "date": "2025-11-06",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": -0.0023051945256238153,
+            "analysis_p_down": 0.509755214579537,
+            "analysis_p_turn_down": 0.6579885581640892,
+            "analysis_p_turn_up": 0.6627879492065475,
+            "analysis_p_up": 0.490244785420463,
+            "asof": "2025-11-06",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20251106,
+              "pDown": 0.509755214579537,
+              "pTurnDown": 0.6579885581640892,
+              "shortRet10": -0.02943189596167009,
+              "shortRet20": 0.0023956194387405884,
+              "shortRet5": 0.019507186858316223,
+              "shortWin10": false,
+              "shortWin20": true,
+              "shortWin5": true,
+              "trendDown": true,
+              "trendDownStrict": true
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1357"
+          },
+          "output": {
+            "asof": "2025-11-06",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.8780664231574782,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.5926051211453269,
+                "score_delta": -0.28546130201215125
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.44115853132277627,
+                "score_delta": -0.4369078918347019
+              }
+            ],
+            "confidence": 0.8780664231574782,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=??????????????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.44115853132277627,
+              "neutral": 0.8780664231574782,
+              "sell": 0.5926051211453269
+            },
+            "source": "tradex_analysis",
+            "symbol": "1357"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=??????????????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.44115853132277627,
+            "neutral": 0.8780664231574782,
+            "sell": 0.5926051211453269
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1357",
+          "confidence": 0.8696368140769172,
+          "date": "2026-01-27",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": -0.0008784361459895367,
+            "analysis_p_down": 0.512087998809726,
+            "analysis_p_turn_down": 0.654051785775063,
+            "analysis_p_turn_up": 0.6123313128488187,
+            "analysis_p_up": 0.48791200119027395,
+            "asof": "2026-01-27",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260127,
+              "pDown": 0.512087998809726,
+              "pTurnDown": 0.654051785775063,
+              "shortRet10": 0.1559650824442289,
+              "shortRet20": null,
+              "shortRet5": 0.058195926285160036,
+              "shortWin10": true,
+              "shortWin20": null,
+              "shortWin5": true,
+              "trendDown": true,
+              "trendDownStrict": true
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1357"
+          },
+          "output": {
+            "asof": "2026-01-27",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.8696368140769172,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.590648646553875,
+                "score_delta": -0.27898816752304223
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.43293118570110584,
+                "score_delta": -0.43670562837581134
+              }
+            ],
+            "confidence": 0.8696368140769172,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=??????????????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.43293118570110584,
+              "neutral": 0.8696368140769172,
+              "sell": 0.590648646553875
+            },
+            "source": "tradex_analysis",
+            "symbol": "1357"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=??????????????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.43293118570110584,
+            "neutral": 0.8696368140769172,
+            "sell": 0.590648646553875
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1801",
+          "confidence": 0.865367370027939,
+          "date": "2025-11-13",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": -0.0009641634038801115,
+            "analysis_p_down": 0.5007430303900835,
+            "analysis_p_turn_down": 0.5805333277885298,
+            "analysis_p_turn_up": 0.5692753711980212,
+            "analysis_p_up": 0.49925696960991645,
+            "asof": "2025-11-13",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20251113,
+              "pDown": 0.5007430303900835,
+              "pTurnDown": 0.5805333277885298,
+              "shortRet10": -0.038910505836575876,
+              "shortRet20": -0.12178988326848249,
+              "shortRet5": -0.01634241245136187,
+              "shortWin10": false,
+              "shortWin20": false,
+              "shortWin5": false,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1801"
+          },
+          "output": {
+            "asof": "2025-11-13",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.865367370027939,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5107321534651053,
+                "score_delta": -0.3546352165628337
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.49949794089483435,
+                "score_delta": -0.3658694291331046
+              }
+            ],
+            "confidence": 0.865367370027939,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5107321534651053,
+              "neutral": 0.865367370027939,
+              "sell": 0.49949794089483435
+            },
+            "source": "tradex_analysis",
+            "symbol": "1801"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5107321534651053,
+            "neutral": 0.865367370027939,
+            "sell": 0.49949794089483435
+          },
+          "signal": false
+        }
+      ]
+    },
+    {
+      "absolute_metric_comparisons": [
+        {
+          "baseline": 0.24258995709208434,
+          "candidate": 0.24258995709208434,
+          "delta": 0.0,
+          "direction": "higher",
+          "metric": "overall_score",
+          "pass": true
+        },
+        {
+          "baseline": 0.9862875431376175,
+          "candidate": 0.9862875431376175,
+          "delta": 0.0,
+          "direction": "higher",
+          "metric": "by_period_stability",
+          "pass": true
+        },
+        {
+          "baseline": 0.0,
+          "candidate": 0.0,
+          "delta": 0.0,
+          "direction": "lower",
+          "metric": "symbol_concentration",
+          "pass": true
+        }
+      ],
+      "baseline_absolute": {
+        "by_period_stability": 0.9862875431376175,
+        "overall_score": 0.24258995709208434,
+        "symbol_concentration": 0.0,
+        "target_symbol_count": 20
+      },
+      "candidate_absolute": {
+        "by_period_stability": 0.9862875431376175,
+        "overall_score": 0.24258995709208434,
+        "symbol_concentration": 0.0,
+        "target_symbol_count": 20
+      },
+      "losing_examples": [
+        {
+          "candidate_reasons": [],
+          "code": "1375",
+          "confidence": 0.5018143139281361,
+          "date": "2026-02-03",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": 0.01983207420607551,
+            "analysis_p_down": 0.3534611879685329,
+            "analysis_p_turn_down": 0.060685781945624524,
+            "analysis_p_turn_up": 0.22855856531395488,
+            "analysis_p_up": 0.6465388120314671,
+            "asof": "2026-02-03",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260203,
+              "pDown": 0.3534611879685329,
+              "pTurnDown": 0.060685781945624524,
+              "shortRet10": -0.027306967984934087,
+              "shortRet20": null,
+              "shortRet5": -0.02919020715630885,
+              "shortWin10": false,
+              "shortWin20": null,
+              "shortWin5": false,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1375"
+          },
+          "output": {
+            "asof": "2026-02-03",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5525053862308524,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.5018143139281361,
+                "score_delta": -0.0506910723027163
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.2876602953047639,
+                "score_delta": -0.26484509092608854
+              }
+            ],
+            "confidence": 0.5018143139281361,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5525053862308524,
+              "neutral": 0.5018143139281361,
+              "sell": 0.2876602953047639
+            },
+            "source": "tradex_analysis",
+            "symbol": "1375"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5525053862308524,
+            "neutral": 0.5018143139281361,
+            "sell": 0.2876602953047639
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1717",
+          "confidence": 0.5199710603843142,
+          "date": "2026-02-18",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": 0.020763177591084717,
+            "analysis_p_down": 0.26511335807088426,
+            "analysis_p_turn_down": 0.157905843198334,
+            "analysis_p_turn_up": 0.2668597030729145,
+            "analysis_p_up": 0.5740753696202904,
+            "asof": "2026-02-18",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260218,
+              "pDown": 0.26511335807088426,
+              "pTurnDown": 0.157905843198334,
+              "shortRet10": null,
+              "shortRet20": null,
+              "shortRet5": null,
+              "shortWin10": null,
+              "shortWin20": null,
+              "shortWin5": null,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1717"
+          },
+          "output": {
+            "asof": "2026-02-18",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5244869329506399,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.5199710603843142,
+                "score_delta": -0.004515872566325685
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.26789553024890433,
+                "score_delta": -0.2565914027017355
+              }
+            ],
+            "confidence": 0.5199710603843142,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5244869329506399,
+              "neutral": 0.5199710603843142,
+              "sell": 0.26789553024890433
+            },
+            "source": "tradex_analysis",
+            "symbol": "1717"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5244869329506399,
+            "neutral": 0.5199710603843142,
+            "sell": 0.26789553024890433
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1375",
+          "confidence": 0.5250316447984993,
+          "date": "2026-01-05",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": 0.022473363827988597,
+            "analysis_p_down": 0.3891744739166064,
+            "analysis_p_turn_down": 0.08686294935052369,
+            "analysis_p_turn_up": 0.17978885128511038,
+            "analysis_p_up": 0.6108255260833936,
+            "asof": "2026-01-05",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260105,
+              "pDown": 0.3891744739166064,
+              "pTurnDown": 0.08686294935052369,
+              "shortRet10": -0.021967526265520534,
+              "shortRet20": -0.014326647564469915,
+              "shortRet5": 0.0019102196752626551,
+              "shortWin10": false,
+              "shortWin20": false,
+              "shortWin5": true,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1375"
+          },
+          "output": {
+            "asof": "2026-01-05",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5296120216960005,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.5250316447984993,
+                "score_delta": -0.004580376897501237
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.3055283163776052,
+                "score_delta": -0.22408370531839533
+              }
+            ],
+            "confidence": 0.5250316447984993,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5296120216960005,
+              "neutral": 0.5250316447984993,
+              "sell": 0.3055283163776052
+            },
+            "source": "tradex_analysis",
+            "symbol": "1375"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5296120216960005,
+            "neutral": 0.5250316447984993,
+            "sell": 0.3055283163776052
+          },
+          "signal": false
+        }
+      ],
+      "metric_directions": {
+        "by_period_stability": "higher",
+        "overall_score": "higher",
+        "symbol_concentration": "lower"
+      },
+      "plan_id": "candidate-b",
+      "plan_version": "v1",
+      "primary_metric_deltas": {
+        "mean_confidence": 0.0,
+        "ready_rate": 0.0,
+        "signal_rate": 0.0
+      },
+      "review_focus": [
+        {
+          "code": "1357",
+          "label": "signal-1",
+          "mean_confidence": 0.7922098385816637,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "top_signal",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1605",
+          "label": "signal-2",
+          "mean_confidence": 0.7694051572106712,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "top_signal",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1540",
+          "label": "signal-3",
+          "mean_confidence": 0.7628465007469203,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "top_signal",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1801",
+          "label": "winning-example",
+          "mean_confidence": 0.7465459754458086,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "winning_example",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1375",
+          "label": "losing-example",
+          "mean_confidence": 0.6592844377322775,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "losing_example",
+          "top_symbol_share": 0.0
+        }
+      ],
+      "run_id": "tradex-smallstart-real-v12c-20260322-candidate-b",
+      "signal_date_deltas": {
+        "baseline": [],
+        "candidate": []
+      },
+      "status": "compared",
+      "symbol_summary": {
+        "baseline_symbols": 20,
+        "candidate_symbols": 20,
+        "shared_symbols": 20
+      },
+      "target_symbol_count_delta": 0,
+      "top_conditions": [
+        {
+          "count": 1580,
+          "reason": "version=2026-03-04-v2"
+        },
+        {
+          "count": 1519,
+          "reason": "pattern=往復レンジ（上下振れ）"
+        },
+        {
+          "count": 1519,
+          "reason": "tone=neutral"
+        }
+      ],
+      "winning_examples": [
+        {
+          "candidate_reasons": [],
+          "code": "1357",
+          "confidence": 0.8780664231574782,
+          "date": "2025-11-06",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": -0.0023051945256238153,
+            "analysis_p_down": 0.509755214579537,
+            "analysis_p_turn_down": 0.6579885581640892,
+            "analysis_p_turn_up": 0.6627879492065475,
+            "analysis_p_up": 0.490244785420463,
+            "asof": "2025-11-06",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20251106,
+              "pDown": 0.509755214579537,
+              "pTurnDown": 0.6579885581640892,
+              "shortRet10": -0.02943189596167009,
+              "shortRet20": 0.0023956194387405884,
+              "shortRet5": 0.019507186858316223,
+              "shortWin10": false,
+              "shortWin20": true,
+              "shortWin5": true,
+              "trendDown": true,
+              "trendDownStrict": true
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1357"
+          },
+          "output": {
+            "asof": "2025-11-06",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.8780664231574782,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.5926051211453269,
+                "score_delta": -0.28546130201215125
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.44115853132277627,
+                "score_delta": -0.4369078918347019
+              }
+            ],
+            "confidence": 0.8780664231574782,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=??????????????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.44115853132277627,
+              "neutral": 0.8780664231574782,
+              "sell": 0.5926051211453269
+            },
+            "source": "tradex_analysis",
+            "symbol": "1357"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=??????????????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.44115853132277627,
+            "neutral": 0.8780664231574782,
+            "sell": 0.5926051211453269
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1357",
+          "confidence": 0.8696368140769172,
+          "date": "2026-01-27",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": -0.0008784361459895367,
+            "analysis_p_down": 0.512087998809726,
+            "analysis_p_turn_down": 0.654051785775063,
+            "analysis_p_turn_up": 0.6123313128488187,
+            "analysis_p_up": 0.48791200119027395,
+            "asof": "2026-01-27",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260127,
+              "pDown": 0.512087998809726,
+              "pTurnDown": 0.654051785775063,
+              "shortRet10": 0.1559650824442289,
+              "shortRet20": null,
+              "shortRet5": 0.058195926285160036,
+              "shortWin10": true,
+              "shortWin20": null,
+              "shortWin5": true,
+              "trendDown": true,
+              "trendDownStrict": true
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1357"
+          },
+          "output": {
+            "asof": "2026-01-27",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.8696368140769172,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.590648646553875,
+                "score_delta": -0.27898816752304223
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.43293118570110584,
+                "score_delta": -0.43670562837581134
+              }
+            ],
+            "confidence": 0.8696368140769172,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=??????????????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.43293118570110584,
+              "neutral": 0.8696368140769172,
+              "sell": 0.590648646553875
+            },
+            "source": "tradex_analysis",
+            "symbol": "1357"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=??????????????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.43293118570110584,
+            "neutral": 0.8696368140769172,
+            "sell": 0.590648646553875
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1801",
+          "confidence": 0.865367370027939,
+          "date": "2025-11-13",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": -0.0009641634038801115,
+            "analysis_p_down": 0.5007430303900835,
+            "analysis_p_turn_down": 0.5805333277885298,
+            "analysis_p_turn_up": 0.5692753711980212,
+            "analysis_p_up": 0.49925696960991645,
+            "asof": "2025-11-13",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20251113,
+              "pDown": 0.5007430303900835,
+              "pTurnDown": 0.5805333277885298,
+              "shortRet10": -0.038910505836575876,
+              "shortRet20": -0.12178988326848249,
+              "shortRet5": -0.01634241245136187,
+              "shortWin10": false,
+              "shortWin20": false,
+              "shortWin5": false,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1801"
+          },
+          "output": {
+            "asof": "2025-11-13",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.865367370027939,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5107321534651053,
+                "score_delta": -0.3546352165628337
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.49949794089483435,
+                "score_delta": -0.3658694291331046
+              }
+            ],
+            "confidence": 0.865367370027939,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5107321534651053,
+              "neutral": 0.865367370027939,
+              "sell": 0.49949794089483435
+            },
+            "source": "tradex_analysis",
+            "symbol": "1801"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5107321534651053,
+            "neutral": 0.865367370027939,
+            "sell": 0.49949794089483435
+          },
+          "signal": false
+        }
+      ]
+    },
+    {
+      "absolute_metric_comparisons": [
+        {
+          "baseline": 0.24258995709208434,
+          "candidate": 0.24258995709208434,
+          "delta": 0.0,
+          "direction": "higher",
+          "metric": "overall_score",
+          "pass": true
+        },
+        {
+          "baseline": 0.9862875431376175,
+          "candidate": 0.9862875431376175,
+          "delta": 0.0,
+          "direction": "higher",
+          "metric": "by_period_stability",
+          "pass": true
+        },
+        {
+          "baseline": 0.0,
+          "candidate": 0.0,
+          "delta": 0.0,
+          "direction": "lower",
+          "metric": "symbol_concentration",
+          "pass": true
+        }
+      ],
+      "baseline_absolute": {
+        "by_period_stability": 0.9862875431376175,
+        "overall_score": 0.24258995709208434,
+        "symbol_concentration": 0.0,
+        "target_symbol_count": 20
+      },
+      "candidate_absolute": {
+        "by_period_stability": 0.9862875431376175,
+        "overall_score": 0.24258995709208434,
+        "symbol_concentration": 0.0,
+        "target_symbol_count": 20
+      },
+      "losing_examples": [
+        {
+          "candidate_reasons": [],
+          "code": "1375",
+          "confidence": 0.5018143139281361,
+          "date": "2026-02-03",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": 0.01983207420607551,
+            "analysis_p_down": 0.3534611879685329,
+            "analysis_p_turn_down": 0.060685781945624524,
+            "analysis_p_turn_up": 0.22855856531395488,
+            "analysis_p_up": 0.6465388120314671,
+            "asof": "2026-02-03",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260203,
+              "pDown": 0.3534611879685329,
+              "pTurnDown": 0.060685781945624524,
+              "shortRet10": -0.027306967984934087,
+              "shortRet20": null,
+              "shortRet5": -0.02919020715630885,
+              "shortWin10": false,
+              "shortWin20": null,
+              "shortWin5": false,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1375"
+          },
+          "output": {
+            "asof": "2026-02-03",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5525053862308524,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.5018143139281361,
+                "score_delta": -0.0506910723027163
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.2876602953047639,
+                "score_delta": -0.26484509092608854
+              }
+            ],
+            "confidence": 0.5018143139281361,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5525053862308524,
+              "neutral": 0.5018143139281361,
+              "sell": 0.2876602953047639
+            },
+            "source": "tradex_analysis",
+            "symbol": "1375"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5525053862308524,
+            "neutral": 0.5018143139281361,
+            "sell": 0.2876602953047639
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1717",
+          "confidence": 0.5199710603843142,
+          "date": "2026-02-18",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": 0.020763177591084717,
+            "analysis_p_down": 0.26511335807088426,
+            "analysis_p_turn_down": 0.157905843198334,
+            "analysis_p_turn_up": 0.2668597030729145,
+            "analysis_p_up": 0.5740753696202904,
+            "asof": "2026-02-18",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260218,
+              "pDown": 0.26511335807088426,
+              "pTurnDown": 0.157905843198334,
+              "shortRet10": null,
+              "shortRet20": null,
+              "shortRet5": null,
+              "shortWin10": null,
+              "shortWin20": null,
+              "shortWin5": null,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1717"
+          },
+          "output": {
+            "asof": "2026-02-18",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5244869329506399,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.5199710603843142,
+                "score_delta": -0.004515872566325685
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.26789553024890433,
+                "score_delta": -0.2565914027017355
+              }
+            ],
+            "confidence": 0.5199710603843142,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5244869329506399,
+              "neutral": 0.5199710603843142,
+              "sell": 0.26789553024890433
+            },
+            "source": "tradex_analysis",
+            "symbol": "1717"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5244869329506399,
+            "neutral": 0.5199710603843142,
+            "sell": 0.26789553024890433
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1375",
+          "confidence": 0.5250316447984993,
+          "date": "2026-01-05",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": 0.022473363827988597,
+            "analysis_p_down": 0.3891744739166064,
+            "analysis_p_turn_down": 0.08686294935052369,
+            "analysis_p_turn_up": 0.17978885128511038,
+            "analysis_p_up": 0.6108255260833936,
+            "asof": "2026-01-05",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260105,
+              "pDown": 0.3891744739166064,
+              "pTurnDown": 0.08686294935052369,
+              "shortRet10": -0.021967526265520534,
+              "shortRet20": -0.014326647564469915,
+              "shortRet5": 0.0019102196752626551,
+              "shortWin10": false,
+              "shortWin20": false,
+              "shortWin5": true,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1375"
+          },
+          "output": {
+            "asof": "2026-01-05",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5296120216960005,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.5250316447984993,
+                "score_delta": -0.004580376897501237
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.3055283163776052,
+                "score_delta": -0.22408370531839533
+              }
+            ],
+            "confidence": 0.5250316447984993,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5296120216960005,
+              "neutral": 0.5250316447984993,
+              "sell": 0.3055283163776052
+            },
+            "source": "tradex_analysis",
+            "symbol": "1375"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5296120216960005,
+            "neutral": 0.5250316447984993,
+            "sell": 0.3055283163776052
+          },
+          "signal": false
+        }
+      ],
+      "metric_directions": {
+        "by_period_stability": "higher",
+        "overall_score": "higher",
+        "symbol_concentration": "lower"
+      },
+      "plan_id": "candidate-c",
+      "plan_version": "v1",
+      "primary_metric_deltas": {
+        "mean_confidence": 0.0,
+        "ready_rate": 0.0,
+        "signal_rate": 0.0
+      },
+      "review_focus": [
+        {
+          "code": "1357",
+          "label": "signal-1",
+          "mean_confidence": 0.7922098385816637,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "top_signal",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1605",
+          "label": "signal-2",
+          "mean_confidence": 0.7694051572106712,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "top_signal",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1540",
+          "label": "signal-3",
+          "mean_confidence": 0.7628465007469203,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "top_signal",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1801",
+          "label": "winning-example",
+          "mean_confidence": 0.7465459754458086,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "winning_example",
+          "top_symbol_share": 0.0
+        },
+        {
+          "code": "1375",
+          "label": "losing-example",
+          "mean_confidence": 0.6592844377322775,
+          "ready_rate": 0.0,
+          "signal_count": 0,
+          "signal_rate": 0.0,
+          "source": "losing_example",
+          "top_symbol_share": 0.0
+        }
+      ],
+      "run_id": "tradex-smallstart-real-v12c-20260322-candidate-c",
+      "signal_date_deltas": {
+        "baseline": [],
+        "candidate": []
+      },
+      "status": "compared",
+      "symbol_summary": {
+        "baseline_symbols": 20,
+        "candidate_symbols": 20,
+        "shared_symbols": 20
+      },
+      "target_symbol_count_delta": 0,
+      "top_conditions": [
+        {
+          "count": 1580,
+          "reason": "version=2026-03-04-v2"
+        },
+        {
+          "count": 1519,
+          "reason": "pattern=往復レンジ（上下振れ）"
+        },
+        {
+          "count": 1519,
+          "reason": "tone=neutral"
+        }
+      ],
+      "winning_examples": [
+        {
+          "candidate_reasons": [],
+          "code": "1357",
+          "confidence": 0.8780664231574782,
+          "date": "2025-11-06",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": -0.0023051945256238153,
+            "analysis_p_down": 0.509755214579537,
+            "analysis_p_turn_down": 0.6579885581640892,
+            "analysis_p_turn_up": 0.6627879492065475,
+            "analysis_p_up": 0.490244785420463,
+            "asof": "2025-11-06",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20251106,
+              "pDown": 0.509755214579537,
+              "pTurnDown": 0.6579885581640892,
+              "shortRet10": -0.02943189596167009,
+              "shortRet20": 0.0023956194387405884,
+              "shortRet5": 0.019507186858316223,
+              "shortWin10": false,
+              "shortWin20": true,
+              "shortWin5": true,
+              "trendDown": true,
+              "trendDownStrict": true
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1357"
+          },
+          "output": {
+            "asof": "2025-11-06",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.8780664231574782,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.5926051211453269,
+                "score_delta": -0.28546130201215125
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.44115853132277627,
+                "score_delta": -0.4369078918347019
+              }
+            ],
+            "confidence": 0.8780664231574782,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=??????????????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.44115853132277627,
+              "neutral": 0.8780664231574782,
+              "sell": 0.5926051211453269
+            },
+            "source": "tradex_analysis",
+            "symbol": "1357"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=??????????????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.44115853132277627,
+            "neutral": 0.8780664231574782,
+            "sell": 0.5926051211453269
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1357",
+          "confidence": 0.8696368140769172,
+          "date": "2026-01-27",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": -0.0008784361459895367,
+            "analysis_p_down": 0.512087998809726,
+            "analysis_p_turn_down": 0.654051785775063,
+            "analysis_p_turn_up": 0.6123313128488187,
+            "analysis_p_up": 0.48791200119027395,
+            "asof": "2026-01-27",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20260127,
+              "pDown": 0.512087998809726,
+              "pTurnDown": 0.654051785775063,
+              "shortRet10": 0.1559650824442289,
+              "shortRet20": null,
+              "shortRet5": 0.058195926285160036,
+              "shortWin10": true,
+              "shortWin20": null,
+              "shortWin5": true,
+              "trendDown": true,
+              "trendDownStrict": true
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1357"
+          },
+          "output": {
+            "asof": "2026-01-27",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.8696368140769172,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.590648646553875,
+                "score_delta": -0.27898816752304223
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.43293118570110584,
+                "score_delta": -0.43670562837581134
+              }
+            ],
+            "confidence": 0.8696368140769172,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=??????????????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.43293118570110584,
+              "neutral": 0.8696368140769172,
+              "sell": 0.590648646553875
+            },
+            "source": "tradex_analysis",
+            "symbol": "1357"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=??????????????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.43293118570110584,
+            "neutral": 0.8696368140769172,
+            "sell": 0.590648646553875
+          },
+          "signal": false
+        },
+        {
+          "candidate_reasons": [],
+          "code": "1801",
+          "confidence": 0.865367370027939,
+          "date": "2025-11-13",
+          "input": {
+            "additive_signals": null,
+            "analysis_ev_net": -0.0009641634038801115,
+            "analysis_p_down": 0.5007430303900835,
+            "analysis_p_turn_down": 0.5805333277885298,
+            "analysis_p_turn_up": 0.5692753711980212,
+            "analysis_p_up": 0.49925696960991645,
+            "asof": "2025-11-13",
+            "override_state": null,
+            "playbook_down_score_bonus": null,
+            "playbook_up_score_bonus": null,
+            "publish_readiness": null,
+            "scenarios": [],
+            "schema_version": "tradex_analysis_input_v1",
+            "sell_analysis": {
+              "dt": 20251113,
+              "pDown": 0.5007430303900835,
+              "pTurnDown": 0.5805333277885298,
+              "shortRet10": -0.038910505836575876,
+              "shortRet20": -0.12178988326848249,
+              "shortRet5": -0.01634241245136187,
+              "shortWin10": false,
+              "shortWin20": false,
+              "shortWin5": false,
+              "trendDown": false,
+              "trendDownStrict": false
+            },
+            "source": "tradex_analysis_input",
+            "symbol": "1801"
+          },
+          "output": {
+            "asof": "2025-11-13",
+            "candidate_comparisons": [
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "range",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 1,
+                "reasons": [
+                  "key=range",
+                  "label=往復レンジ（上下振れ）",
+                  "tone=neutral"
+                ],
+                "score": 0.865367370027939,
+                "score_delta": 0.0
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "up",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 2,
+                "reasons": [
+                  "key=up",
+                  "label=上昇継続（押し目再開）",
+                  "tone=up"
+                ],
+                "score": 0.5107321534651053,
+                "score_delta": -0.3546352165628337
+              },
+              {
+                "baseline_key": "neutral",
+                "candidate_key": "down",
+                "comparison_scope": "decision_scenarios",
+                "publish_ready": null,
+                "rank": 3,
+                "reasons": [
+                  "key=down",
+                  "label=下落継続（戻り売り優位）",
+                  "tone=down"
+                ],
+                "score": 0.49949794089483435,
+                "score_delta": -0.3658694291331046
+              }
+            ],
+            "confidence": 0.865367370027939,
+            "override_state": {
+              "logic_key": null,
+              "logic_version": null,
+              "present": false,
+              "reason": null,
+              "source": null
+            },
+            "publish_readiness": {
+              "approved": null,
+              "candidate_key": null,
+              "ready": false,
+              "reasons": [],
+              "status": "not_evaluated"
+            },
+            "reasons": [
+              "tone=neutral",
+              "pattern=往復レンジ（上下振れ）",
+              "environment=?????",
+              "version=2026-03-04-v2"
+            ],
+            "schema_version": "tradex_analysis_output_v1",
+            "side_ratios": {
+              "buy": 0.5107321534651053,
+              "neutral": 0.865367370027939,
+              "sell": 0.49949794089483435
+            },
+            "source": "tradex_analysis",
+            "symbol": "1801"
+          },
+          "publish_ready": false,
+          "reasons": [
+            "tone=neutral",
+            "pattern=往復レンジ（上下振れ）",
+            "environment=?????",
+            "version=2026-03-04-v2"
+          ],
+          "side_ratios": {
+            "buy": 0.5107321534651053,
+            "neutral": 0.865367370027939,
+            "sell": 0.49949794089483435
+          },
+          "signal": false
+        }
+      ]
+    }
+  ],
+  "family_id": "tradex-smallstart-real-v12c-20260322",
+  "generated_at": "2026-03-21T19:42:08.856213+00:00",
+  "schema_version": "tradex_experiment_compare_v1"
+}

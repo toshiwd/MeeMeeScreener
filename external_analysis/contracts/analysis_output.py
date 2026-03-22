@@ -105,6 +105,7 @@ class AnalysisOutputContract:
     candidate_comparisons: tuple[AnalysisCandidateComparison, ...]
     publish_readiness: AnalysisPublishReadiness
     override_state: AnalysisOverrideState
+    diagnostics: dict[str, Any] | None = None
     source: str = "tradex_analysis"
     schema_version: str = ANALYSIS_OUTPUT_SCHEMA_VERSION
 
@@ -115,6 +116,10 @@ class AnalysisOutputContract:
         payload["publish_readiness"] = self.publish_readiness.to_dict()
         payload["override_state"] = self.override_state.to_dict()
         payload["reasons"] = list(self.reasons)
+        if self.diagnostics is not None:
+            payload["diagnostics"] = dict(self.diagnostics)
+        else:
+            payload.pop("diagnostics", None)
         return payload
 
 
@@ -194,6 +199,7 @@ def analysis_output_from_decision(
     publish_readiness: AnalysisPublishReadiness | dict[str, Any] | None = None,
     override_state: AnalysisOverrideState | dict[str, Any] | None = None,
     candidate_comparisons: Iterable[AnalysisCandidateComparison] | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> AnalysisOutputContract:
     payload = decision or {}
     ratios = build_side_ratios(
@@ -239,6 +245,7 @@ def analysis_output_from_decision(
         candidate_comparisons=tuple(candidate_comparisons),
         publish_readiness=publish_readiness,
         override_state=override_state,
+        diagnostics=dict(diagnostics) if diagnostics is not None else None,
     )
 
 
@@ -256,6 +263,9 @@ def analysis_output_from_result(
     publish_readiness = payload.get("publish_readiness")
     override_state = payload.get("override_state")
     candidate_comparisons = payload.get("candidate_comparisons")
+    diagnostics = payload.get("diagnostics")
+    if diagnostics is not None and not isinstance(diagnostics, dict):
+        diagnostics = None
     if isinstance(candidate_comparisons, list):
         candidate_comparisons = tuple(
             AnalysisCandidateComparison(
@@ -279,4 +289,5 @@ def analysis_output_from_result(
         publish_readiness=publish_readiness if isinstance(publish_readiness, dict) or publish_readiness is None else publish_readiness,
         override_state=override_state if isinstance(override_state, dict) or override_state is None else override_state,
         candidate_comparisons=candidate_comparisons,
+        diagnostics=diagnostics,
     )

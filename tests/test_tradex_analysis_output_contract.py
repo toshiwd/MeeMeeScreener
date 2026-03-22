@@ -111,6 +111,10 @@ def test_tradex_analysis_output_contract_maps_existing_result_payload_shape() ->
             "logic_version": "v4",
             "reason": "operator pin",
         },
+        "diagnostics": {
+            "engine_input_hash": "input-hash",
+            "engine_plan_hash": "plan-hash",
+        },
     }
 
     output = analysis_output_from_result(result=result_payload)
@@ -129,4 +133,7 @@ def test_tradex_analysis_output_contract_maps_existing_result_payload_shape() ->
     assert len(output.candidate_comparisons) == 1
     assert output.candidate_comparisons[0].candidate_key == "logic_family_a:v2"
     assert output.candidate_comparisons[0].comparison_scope == "external_result"
+    assert output.diagnostics is not None
+    assert output.diagnostics["engine_input_hash"] == "input-hash"
+    assert output.diagnostics["engine_plan_hash"] == "plan-hash"
     assert "debug_note" not in output.candidate_comparisons[0].to_dict()

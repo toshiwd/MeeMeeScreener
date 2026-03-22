@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import subprocess
 from datetime import date, datetime, timezone
@@ -30,6 +31,7 @@ from app.backend.services.tradex_experiment_store import (
 )
 from external_analysis.contracts.analysis_input import AnalysisInputContract
 from external_analysis.contracts.analysis_output import ANALYSIS_OUTPUT_SCHEMA_VERSION
+from external_analysis.runtime.input_normalization import normalize_tradex_analysis_input
 from external_analysis.runtime.orchestrator import run_tradex_analysis
 
 TRADEX_FAMILY_SCHEMA_VERSION = "tradex_experiment_family_v1"
@@ -111,14 +113,137 @@ def _git_commit() -> str:
         return "unknown"
 
 
+def _stable_hash(value: Any) -> str:
+    payload = json.dumps(_json_ready(value), ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _percentile(values: list[float], percent: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(float(item) for item in values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * max(0.0, min(1.0, float(percent)))
+    lower = int(math.floor(position))
+    upper = int(math.ceil(position))
+    if lower == upper:
+        return ordered[lower]
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+
+def _plan_effective_parameters(plan: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "plan_id": _text(plan.get("plan_id")),
+        "plan_version": _text(plan.get("plan_version"), fallback="v1"),
+        "label": _text(plan.get("label")),
+        "minimum_confidence": _float(plan.get("minimum_confidence")),
+        "minimum_ready_rate": _float(plan.get("minimum_ready_rate")),
+        "signal_bias": _text(plan.get("signal_bias"), fallback="balanced"),
+        "top_k": max(1, _int(plan.get("top_k")) or 3),
+        "playbook_up_score_bonus": _float(plan.get("playbook_up_score_bonus")) or 0.0,
+        "playbook_down_score_bonus": _float(plan.get("playbook_down_score_bonus")) or 0.0,
+        "notes": _text(plan.get("notes")),
+    }
+
+
+def _readiness_config_hash() -> str:
+    return _stable_hash(_load_gate_config())
+
+
+def _sample_gate_reason(output: dict[str, Any], plan: dict[str, Any]) -> str:
+    readiness = output.get("publish_readiness") if isinstance(output.get("publish_readiness"), dict) else {}
+    confidence = _float(output.get("confidence")) or 0.0
+    min_confidence = _float(plan.get("minimum_confidence"))
+    bias = _text(plan.get("signal_bias"), fallback="balanced")
+    ratios = output.get("side_ratios") if isinstance(output.get("side_ratios"), dict) else {}
+    buy = _float(ratios.get("buy")) or 0.0
+    sell = _float(ratios.get("sell")) or 0.0
+    if not _bool(readiness.get("ready"), False):
+        return "publish_not_ready"
+    if min_confidence is not None and confidence < min_confidence:
+        return "confidence_below_minimum"
+    if bias == "buy" and buy < sell:
+        return "bias_mismatch"
+    if bias == "sell" and sell < buy:
+        return "bias_mismatch"
+    return "passed"
+
+
+def _readiness_summary(samples: list[dict[str, Any]], plan: dict[str, Any]) -> dict[str, Any]:
+    confidences = [float(item.get("confidence") or 0.0) for item in samples]
+    ready_count = sum(1 for item in samples if item.get("publish_ready"))
+    signal_count = sum(1 for item in samples if item.get("signal"))
+    gate_reason_counts: dict[str, int] = {}
+    for item in samples:
+        reasons = _safe_list(item.get("publish_not_ready_reasons"))
+        if not reasons and not _bool(item.get("publish_ready"), False):
+            reasons = ["other_fallback"]
+        for reason in reasons:
+            gate_reason_counts[reason] = gate_reason_counts.get(reason, 0) + 1
+    sample_count = len(samples)
+    minimum_ready_rate = _float(plan.get("minimum_ready_rate"))
+    ready_post_gate_rate = signal_count / float(sample_count) if sample_count else 0.0
+    ready_pre_gate_rate = ready_count / float(sample_count) if sample_count else 0.0
+    if sample_count and minimum_ready_rate is not None and ready_post_gate_rate < minimum_ready_rate:
+        gate_reason_counts["minimum_ready_rate_not_met"] = sample_count
+    return {
+        "sample_count": sample_count,
+        "ready_pre_gate_rate": ready_pre_gate_rate,
+        "ready_post_gate_rate": ready_post_gate_rate,
+        "raw_readiness_score": {
+            "mean": (sum(confidences) / float(sample_count)) if sample_count else 0.0,
+            "p50": _percentile(confidences, 0.50),
+            "p90": _percentile(confidences, 0.90),
+        },
+        "signal_pre_filter_count": ready_count,
+        "signal_post_filter_count": signal_count,
+        "gate_reason_counts": dict(sorted(gate_reason_counts.items(), key=lambda item: (-item[1], item[0]))),
+        "plan_thresholds": {
+            "minimum_confidence": _float(plan.get("minimum_confidence")),
+            "minimum_ready_rate": minimum_ready_rate,
+            "signal_bias": _text(plan.get("signal_bias"), fallback="balanced"),
+            "top_k": max(1, _int(plan.get("top_k")) or 3),
+        },
+    }
+
+
 def _iso_date(value: Any) -> str | None:
     if value is None:
         return None
     if isinstance(value, date):
         return value.isoformat()
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        numeric = int(value)
+        if 10000000 <= numeric <= 99999999:
+            try:
+                return datetime.strptime(str(numeric), "%Y%m%d").date().isoformat()
+            except ValueError:
+                pass
+        if numeric >= 1000000000000:
+            numeric = int(numeric / 1000)
+        if numeric >= 1000000000:
+            return datetime.fromtimestamp(numeric, tz=timezone.utc).date().isoformat()
     text = str(value).strip()
     if not text:
         return None
+    if text.isdigit():
+        if len(text) == 8:
+            try:
+                return datetime.strptime(text, "%Y%m%d").date().isoformat()
+            except ValueError:
+                return None
+        if len(text) == 10:
+            try:
+                return datetime.fromtimestamp(int(text), tz=timezone.utc).date().isoformat()
+            except Exception:
+                return None
+        if len(text) == 13:
+            try:
+                return datetime.fromtimestamp(int(text) / 1000.0, tz=timezone.utc).date().isoformat()
+            except Exception:
+                return None
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
         try:
             return datetime.strptime(text[:10] if fmt != "%Y%m%d" else text[:8], fmt).date().isoformat()
@@ -188,8 +313,34 @@ def _normalize_plan(plan: dict[str, Any], *, default_plan_id: str) -> dict[str, 
         "minimum_ready_rate": _float(plan.get("minimum_ready_rate")),
         "signal_bias": signal_bias,
         "top_k": max(1, _int(plan.get("top_k")) or 3),
+        "playbook_up_score_bonus": _float(plan.get("playbook_up_score_bonus")) or 0.0,
+        "playbook_down_score_bonus": _float(plan.get("playbook_down_score_bonus")) or 0.0,
         "notes": _text(plan.get("notes")),
     }
+
+
+def _normalize_probes(values: Any) -> list[dict[str, str]]:
+    if values is None:
+        return []
+    if not isinstance(values, list):
+        raise ValueError("probes must be an array")
+    out: list[dict[str, str]] = []
+    for index, item in enumerate(values, start=1):
+        if not isinstance(item, dict):
+            continue
+        code = _text(item.get("code"))
+        date_text = _iso_date(item.get("date"))
+        if not code or not date_text:
+            continue
+        probe_id = _text(item.get("probe_id"), fallback=f"probe-{index}")
+        payload = {"probe_id": probe_id, "code": code, "date": date_text}
+        label = _text(item.get("label"))
+        if label:
+            payload["label"] = label
+        out.append(payload)
+    if values and len(out) != 3:
+        raise ValueError("probes must contain exactly 3 items")
+    return out
 
 
 def tradex_gate_config_file() -> Path:
@@ -281,33 +432,58 @@ def _period_segments(family: dict[str, Any]) -> list[dict[str, str]]:
 def _analysis_points(repo: StockRepository, code: str, start_date: str, end_date: str) -> list[dict[str, Any]]:
     timeline = repo.get_analysis_timeline(code, _epoch_from_date(end_date), limit=1000)
     out: list[dict[str, Any]] = []
-    start_key = start_date.replace("-", "")
-    end_key = end_date.replace("-", "")
+    start_key = start_date
+    end_key = end_date
     for row in timeline:
         if not isinstance(row, dict):
             continue
-        dt_key = _int(row.get("dt"))
-        if dt_key is None:
+        dt_iso = _iso_date(row.get("dt"))
+        if not dt_iso:
             continue
-        text = str(dt_key)
-        if len(text) != 8 or text < start_key or text > end_key:
+        if dt_iso < start_key or dt_iso > end_key:
             continue
         out.append(row)
     return out
 
 
-def _analysis_input(code: str, dt_key: int, point: dict[str, Any]) -> AnalysisInputContract:
-    ymd = str(dt_key)
-    return AnalysisInputContract(
-        symbol=code,
-        asof=f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:8]}",
-        analysis_p_up=point.get("pUp"),
-        analysis_p_down=point.get("pDown"),
-        analysis_p_turn_up=point.get("pTurnUp"),
-        analysis_p_turn_down=point.get("pTurnDown"),
-        analysis_ev_net=point.get("ev20Net"),
-        sell_analysis={
-            "dt": dt_key,
+def _family_probes(family: dict[str, Any]) -> list[dict[str, str]]:
+    probes = family.get("probes")
+    if isinstance(probes, list):
+        normalized = _normalize_probes(probes) if probes else []
+        if normalized:
+            return normalized
+    return []
+
+
+def _analysis_input(
+    code: str,
+    dt_key: int,
+    point: dict[str, Any],
+    *,
+    plan_effective: dict[str, Any] | None = None,
+    feature_flags: dict[str, str] | None = None,
+    readiness_config_hash: str | None = None,
+) -> AnalysisInputContract:
+    ymd = _iso_date(dt_key)
+    if not ymd:
+        raise ValueError("invalid analysis dt")
+    compact = ymd.replace("-", "")
+    effective_parameters = dict(plan_effective or _plan_effective_parameters({}))
+    playbook_up_score_bonus = _float(effective_parameters.get("playbook_up_score_bonus")) or 0.0
+    playbook_down_score_bonus = _float(effective_parameters.get("playbook_down_score_bonus")) or 0.0
+    runtime_kwargs = {
+        "symbol": code,
+        "asof": ymd,
+        "analysis_p_up": point.get("pUp"),
+        "analysis_p_down": point.get("pDown"),
+        "analysis_p_turn_up": point.get("pTurnUp"),
+        "analysis_p_turn_down": point.get("pTurnDown"),
+        "analysis_ev_net": point.get("ev20Net"),
+        "playbook_up_score_bonus": playbook_up_score_bonus,
+        "playbook_down_score_bonus": playbook_down_score_bonus,
+        "additive_signals": None,
+        "sell_analysis": {
+            "dt": int(compact) if compact.isdigit() else dt_key,
             "pDown": point.get("sellPDown"),
             "pTurnDown": point.get("sellPTurnDown"),
             "trendDown": point.get("trendDown"),
@@ -319,7 +495,48 @@ def _analysis_input(code: str, dt_key: int, point: dict[str, Any]) -> AnalysisIn
             "shortWin10": point.get("shortWin10"),
             "shortWin20": point.get("shortWin20"),
         },
+        "scenarios": [],
+    }
+    input_contract = AnalysisInputContract(
+        symbol=code,
+        asof=ymd,
+        analysis_p_up=point.get("pUp"),
+        analysis_p_down=point.get("pDown"),
+        analysis_p_turn_up=point.get("pTurnUp"),
+        analysis_p_turn_down=point.get("pTurnDown"),
+        analysis_ev_net=point.get("ev20Net"),
+        playbook_up_score_bonus=playbook_up_score_bonus,
+        playbook_down_score_bonus=playbook_down_score_bonus,
+        sell_analysis=runtime_kwargs["sell_analysis"],
+        diagnostics={},
     )
+    normalized_input = normalize_tradex_analysis_input(input_contract)
+    engine_input_hash = _stable_hash(normalized_input.decision_kwargs)
+    diagnostics = {
+        "feature_hash": engine_input_hash,
+        "engine_plan_hash": _stable_hash(effective_parameters),
+        "engine_feature_flags": dict(feature_flags or _feature_flags()),
+        "engine_scoring_params": {
+            "analysis_p_up": runtime_kwargs["analysis_p_up"],
+            "analysis_p_down": runtime_kwargs["analysis_p_down"],
+            "analysis_p_turn_up": runtime_kwargs["analysis_p_turn_up"],
+            "analysis_p_turn_down": runtime_kwargs["analysis_p_turn_down"],
+            "analysis_ev_net": runtime_kwargs["analysis_ev_net"],
+            "playbook_up_score_bonus": runtime_kwargs["playbook_up_score_bonus"],
+            "playbook_down_score_bonus": runtime_kwargs["playbook_down_score_bonus"],
+            "sell_analysis": runtime_kwargs["sell_analysis"],
+        },
+        "engine_readiness_params": {
+            "minimum_confidence": _float(effective_parameters.get("minimum_confidence")),
+            "minimum_ready_rate": _float(effective_parameters.get("minimum_ready_rate")),
+            "signal_bias": _text(effective_parameters.get("signal_bias"), fallback="balanced"),
+            "top_k": max(1, _int(effective_parameters.get("top_k")) or 3),
+            "readiness_config_hash": readiness_config_hash or _readiness_config_hash(),
+        },
+        "engine_input_hash": engine_input_hash,
+    }
+    input_contract.diagnostics.update(diagnostics)
+    return input_contract
 
 
 def _signal_flag(output: dict[str, Any], plan: dict[str, Any]) -> bool:
@@ -338,12 +555,78 @@ def _signal_flag(output: dict[str, Any], plan: dict[str, Any]) -> bool:
     return bool(confidence >= min_confidence and _bool(readiness.get("ready"), False) and bias_ok)
 
 
-def _sample_trace(code: str, dt_key: int, input_contract: AnalysisInputContract, output: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+def _publish_not_ready_reasons(input_contract: AnalysisInputContract, output: dict[str, Any], plan: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    runtime_kwargs = input_contract.to_runtime_kwargs()
+    sell_analysis = dict(runtime_kwargs.get("sell_analysis") or {})
+    required_fields = [
+        runtime_kwargs.get("analysis_p_up"),
+        runtime_kwargs.get("analysis_p_down"),
+        runtime_kwargs.get("analysis_p_turn_up"),
+        runtime_kwargs.get("analysis_p_turn_down"),
+        runtime_kwargs.get("analysis_ev_net"),
+        sell_analysis.get("pDown"),
+        sell_analysis.get("pTurnDown"),
+        sell_analysis.get("trendDown"),
+        sell_analysis.get("trendDownStrict"),
+    ]
+    if any(value is None for value in required_fields):
+        reasons.append("missing_feature")
+    output_reasons = _safe_list(output.get("reasons"))
+    if any(("environment=" in reason and ("?" in reason or "unknown" in reason.lower())) for reason in output_reasons):
+        reasons.append("environment_unresolved")
+    confidence = _float(output.get("confidence")) or 0.0
+    min_confidence = _float(plan.get("minimum_confidence"))
+    if min_confidence is not None and confidence < min_confidence:
+        reasons.append("confidence_below_threshold")
+    tone = _text(output.get("tone"))
+    bias = _text(plan.get("signal_bias"), fallback="balanced")
+    if bias == "buy" and tone not in {"up", "neutral"}:
+        reasons.append("pattern_not_eligible")
+    elif bias == "sell" and tone not in {"down", "neutral"}:
+        reasons.append("pattern_not_eligible")
+    comparisons = output.get("candidate_comparisons") if isinstance(output.get("candidate_comparisons"), list) else []
+    top_k = max(1, _int(plan.get("top_k")) or 3)
+    selected_rank = None
+    for item in comparisons:
+        if not isinstance(item, dict):
+            continue
+        if item.get("publish_ready") is True:
+            selected_rank = _int(item.get("rank")) or selected_rank
+            break
+    if selected_rank is not None and selected_rank > top_k:
+        reasons.append("top_k_excluded")
+    if not reasons:
+        reasons.append("other_fallback")
+    return reasons
+
+
+def _sample_trace(
+    code: str,
+    dt_key: int,
+    input_contract: AnalysisInputContract,
+    output: dict[str, Any],
+    plan: dict[str, Any],
+    *,
+    plan_effective: dict[str, Any] | None = None,
+    feature_flags: dict[str, str] | None = None,
+    readiness_config_hash: str | None = None,
+) -> dict[str, Any]:
+    ymd = _iso_date(dt_key)
+    raw_readiness_score = _float(output.get("confidence")) or 0.0
+    effective_parameters = dict(plan_effective or _plan_effective_parameters(plan))
+    engine_input = input_contract.to_runtime_kwargs()
+    input_diagnostics = dict(input_contract.diagnostics or {})
+    output_diagnostics = dict(output.get("diagnostics") or {}) if isinstance(output.get("diagnostics"), dict) else {}
+    publish_not_ready_reasons = _publish_not_ready_reasons(input_contract, output, plan)
     return {
         "code": code,
-        "date": f"{str(dt_key)[:4]}-{str(dt_key)[4:6]}-{str(dt_key)[6:8]}",
+        "date": ymd or str(dt_key),
         "signal": _signal_flag(output, plan),
-        "confidence": _float(output.get("confidence")) or 0.0,
+        "feature_hash": _text(input_diagnostics.get("feature_hash") or input_diagnostics.get("engine_input_hash")),
+        "confidence": raw_readiness_score,
+        "readiness_pre_score": raw_readiness_score,
+        "raw_readiness_score": raw_readiness_score,
         "reasons": _safe_list(output.get("reasons")),
         "candidate_reasons": _safe_list(
             reason
@@ -352,9 +635,33 @@ def _sample_trace(code: str, dt_key: int, input_contract: AnalysisInputContract,
             for reason in (comparison.get("reasons") or [])
         ),
         "publish_ready": _bool((output.get("publish_readiness") or {}).get("ready"), False) if isinstance(output.get("publish_readiness"), dict) else False,
+        "publish_not_ready_reasons": publish_not_ready_reasons,
+        "publish_not_ready_reason_label": "+".join(publish_not_ready_reasons),
         "side_ratios": _json_ready(output.get("side_ratios") or {}),
         "input": _json_ready(input_contract.to_dict()),
         "output": _json_ready(output),
+        "engine_input_hash": _text(input_diagnostics.get("engine_input_hash") or _stable_hash(engine_input)),
+        "engine_plan_hash": _text(input_diagnostics.get("engine_plan_hash") or _stable_hash(effective_parameters)),
+        "engine_feature_flags": dict(input_diagnostics.get("engine_feature_flags") or feature_flags or _feature_flags()),
+        "engine_scoring_params": dict(input_diagnostics.get("engine_scoring_params") or {
+            "analysis_p_up": engine_input.get("analysis_p_up"),
+            "analysis_p_down": engine_input.get("analysis_p_down"),
+            "analysis_p_turn_up": engine_input.get("analysis_p_turn_up"),
+            "analysis_p_turn_down": engine_input.get("analysis_p_turn_down"),
+            "analysis_ev_net": engine_input.get("analysis_ev_net"),
+            "playbook_up_score_bonus": engine_input.get("playbook_up_score_bonus"),
+            "playbook_down_score_bonus": engine_input.get("playbook_down_score_bonus"),
+            "sell_analysis": engine_input.get("sell_analysis"),
+        }),
+        "engine_readiness_params": dict(input_diagnostics.get("engine_readiness_params") or {
+            "minimum_confidence": _float(effective_parameters.get("minimum_confidence")),
+            "minimum_ready_rate": _float(effective_parameters.get("minimum_ready_rate")),
+            "signal_bias": _text(effective_parameters.get("signal_bias"), fallback="balanced"),
+            "top_k": max(1, _int(effective_parameters.get("top_k")) or 3),
+            "readiness_config_hash": readiness_config_hash or _readiness_config_hash(),
+        }),
+        "engine_input_diagnostics": _json_ready(input_diagnostics),
+        "engine_output_diagnostics": _json_ready(output_diagnostics),
     }
 
 
@@ -388,6 +695,8 @@ def _aggregate(samples: list[dict[str, Any]]) -> dict[str, Any]:
             code = _text(item.get("code"))
             symbol_counts[code] = symbol_counts.get(code, 0) + 1
         for reason in _safe_list(item.get("reasons")) + _safe_list(item.get("candidate_reasons")):
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        for reason in _safe_list(item.get("publish_not_ready_reasons")):
             reason_counts[reason] = reason_counts.get(reason, 0) + 1
     top_symbol_share = (max(symbol_counts.values()) / signal_count) if signal_count else 0.0
     ordered_reasons = sorted(reason_counts.items(), key=lambda pair: (-pair[1], pair[0]))[:3]
@@ -429,15 +738,317 @@ def _compare_signature(compare: dict[str, Any]) -> str:
 
 def _run_compare_signature(compare: dict[str, Any]) -> str:
     payload = {
+        "metric_directions": compare.get("metric_directions"),
+        "baseline_absolute": compare.get("baseline_absolute"),
+        "candidate_absolute": compare.get("candidate_absolute"),
+        "absolute_metric_comparisons": compare.get("absolute_metric_comparisons"),
         "primary_metric_deltas": compare.get("primary_metric_deltas"),
         "target_symbol_count_delta": compare.get("target_symbol_count_delta"),
         "signal_date_deltas": compare.get("signal_date_deltas"),
         "winning_examples": compare.get("winning_examples"),
         "losing_examples": compare.get("losing_examples"),
         "top_conditions": compare.get("top_conditions"),
+        "review_focus": compare.get("review_focus"),
+        "diagnostics": compare.get("diagnostics"),
         "symbol_summary": compare.get("symbol_summary"),
     }
     return hashlib.sha256(json.dumps(_json_ready(payload), ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _candidate_review_focus(candidate: dict[str, Any]) -> list[dict[str, Any]]:
+    analysis = candidate.get("analysis") if isinstance(candidate.get("analysis"), dict) else {}
+    by_code = analysis.get("by_code") if isinstance(analysis.get("by_code"), dict) else {}
+    overall = candidate.get("metrics", {}).get("overall") if isinstance(candidate.get("metrics"), dict) else {}
+    winning_examples = overall.get("winning_examples") if isinstance(overall, dict) and isinstance(overall.get("winning_examples"), list) else []
+    losing_examples = overall.get("losing_examples") if isinstance(overall, dict) and isinstance(overall.get("losing_examples"), list) else []
+    ranked_codes = sorted(
+        [item for item in by_code.values() if isinstance(item, dict)],
+        key=lambda item: (
+            -int(item.get("signal_count") or 0),
+            -float(item.get("mean_confidence") or 0.0),
+            _text(item.get("code")),
+        ),
+    )
+    focus: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add_code(code: str, *, source: str, label: str) -> None:
+        resolved = _text(code)
+        if not resolved or resolved in seen:
+            return
+        item = by_code.get(resolved)
+        seen.add(resolved)
+        focus.append(
+            {
+                "code": resolved,
+                "source": source,
+                "label": label,
+                "signal_count": int(item.get("signal_count") or 0) if isinstance(item, dict) else 0,
+                "signal_rate": _float(item.get("signal_rate")) if isinstance(item, dict) else None,
+                "ready_rate": _float(item.get("ready_rate")) if isinstance(item, dict) else None,
+                "mean_confidence": _float(item.get("mean_confidence")) if isinstance(item, dict) else None,
+                "top_symbol_share": _float(item.get("top_symbol_share")) if isinstance(item, dict) else None,
+            }
+        )
+
+    for index, item in enumerate(ranked_codes[:3]):
+        add_code(_text(item.get("code")), source="top_signal", label=f"signal-{index + 1}")
+
+    for item in winning_examples:
+        if isinstance(item, dict):
+            add_code(_text(item.get("code")), source="winning_example", label="winning-example")
+            if len(focus) >= 5:
+                break
+
+    for item in losing_examples:
+        if len(focus) >= 5:
+            break
+        if isinstance(item, dict):
+            add_code(_text(item.get("code")), source="losing_example", label="losing-example")
+
+    return focus[:5]
+
+
+def _sample_key(sample: dict[str, Any]) -> tuple[str, str]:
+    return _text(sample.get("code")), _text(sample.get("date"))
+
+
+def _compact_sample(sample: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "code": _text(sample.get("code")),
+        "date": _text(sample.get("date")),
+        "feature_hash": _text(sample.get("feature_hash")),
+        "engine_input_hash": _text(sample.get("engine_input_hash")),
+        "engine_plan_hash": _text(sample.get("engine_plan_hash")),
+        "engine_feature_flags": _json_ready(sample.get("engine_feature_flags") or {}),
+        "engine_scoring_params": _json_ready(sample.get("engine_scoring_params") or {}),
+        "engine_readiness_params": _json_ready(sample.get("engine_readiness_params") or {}),
+        "signal": _bool(sample.get("signal"), False),
+        "publish_ready": _bool(sample.get("publish_ready"), False),
+        "gate_reason": _text(sample.get("gate_reason")),
+        "confidence": _float(sample.get("confidence")) or 0.0,
+        "readiness_pre_score": _float(sample.get("readiness_pre_score")) or 0.0,
+        "raw_readiness_score": _float(sample.get("raw_readiness_score")) or 0.0,
+        "reasons": _safe_list(sample.get("reasons")),
+        "candidate_reasons": _safe_list(sample.get("candidate_reasons")),
+        "publish_not_ready_reasons": _safe_list(sample.get("publish_not_ready_reasons")),
+        "publish_not_ready_reason_label": _text(sample.get("publish_not_ready_reason_label")),
+        "side_ratios": _json_ready(sample.get("side_ratios") or {}),
+        "input_diagnostics": _json_ready(sample.get("engine_input_diagnostics") or {}),
+        "output_diagnostics": _json_ready(sample.get("engine_output_diagnostics") or {}),
+        "trace_hash": _stable_hash({"input": sample.get("input"), "output": sample.get("output")}),
+    }
+
+
+def _probe_run_entry(sample: dict[str, Any], probe: dict[str, Any]) -> dict[str, Any]:
+    compact = _compact_sample(sample)
+    return {
+        "probe_id": _text(probe.get("probe_id")),
+        "code": _text(probe.get("code")),
+        "date": _text(probe.get("date")),
+        "label": _text(probe.get("label")),
+        "feature_hash": compact["feature_hash"],
+        "engine_input_hash": compact["engine_input_hash"],
+        "engine_plan_hash": compact["engine_plan_hash"],
+        "engine_feature_flags": compact["engine_feature_flags"],
+        "engine_scoring_params": compact["engine_scoring_params"],
+        "engine_readiness_params": compact["engine_readiness_params"],
+        "raw_readiness_score": compact["raw_readiness_score"],
+        "readiness_pre_score": compact["readiness_pre_score"],
+        "publish_ready": compact["publish_ready"],
+        "publish_not_ready_reasons": compact["publish_not_ready_reasons"],
+        "publish_not_ready_reason_label": compact["publish_not_ready_reason_label"],
+        "rejection_reason": compact["gate_reason"],
+        "missing_feature": "missing_feature" in compact["publish_not_ready_reasons"],
+        "environment_unresolved": "environment_unresolved" in compact["publish_not_ready_reasons"],
+        "trace_hash": compact["trace_hash"],
+    }
+
+
+def _probe_run_entries(by_code: dict[str, Any], family: dict[str, Any]) -> list[dict[str, Any]]:
+    probes = _family_probes(family)
+    entries: list[dict[str, Any]] = []
+    for probe in probes:
+        code = _text(probe.get("code"))
+        date_text = _text(probe.get("date"))
+        if not code or not date_text:
+            continue
+        item = by_code.get(code)
+        samples = item.get("samples") if isinstance(item, dict) and isinstance(item.get("samples"), list) else []
+        sample = next((sample for sample in samples if isinstance(sample, dict) and _text(sample.get("date")) == date_text), None)
+        if isinstance(sample, dict):
+            entries.append(_probe_run_entry(sample, probe))
+    return entries
+
+
+def _row_diff_entries(baseline: dict[str, Any], candidate: dict[str, Any], *, limit: int = 5) -> list[dict[str, Any]]:
+    baseline_analysis = baseline.get("analysis") if isinstance(baseline.get("analysis"), dict) else {}
+    candidate_analysis = candidate.get("analysis") if isinstance(candidate.get("analysis"), dict) else {}
+    baseline_metrics = baseline.get("metrics") if isinstance(baseline.get("metrics"), dict) else {}
+    candidate_metrics = candidate.get("metrics") if isinstance(candidate.get("metrics"), dict) else {}
+    baseline_samples = baseline_analysis.get("samples") if isinstance(baseline_analysis.get("samples"), list) else baseline_metrics.get("samples") if isinstance(baseline_metrics.get("samples"), list) else []
+    candidate_samples = candidate_analysis.get("samples") if isinstance(candidate_analysis.get("samples"), list) else candidate_metrics.get("samples") if isinstance(candidate_metrics.get("samples"), list) else []
+    baseline_map: dict[tuple[str, str], dict[str, Any]] = {}
+    candidate_map: dict[tuple[str, str], dict[str, Any]] = {}
+    for sample in baseline_samples:
+        if isinstance(sample, dict):
+            baseline_map[_sample_key(sample)] = sample
+    for sample in candidate_samples:
+        if isinstance(sample, dict):
+            candidate_map[_sample_key(sample)] = sample
+    keys: list[tuple[str, str]] = []
+    focus_codes = [_text(item.get("code")) for item in _candidate_review_focus(candidate)]
+    for code in focus_codes:
+        if not code:
+            continue
+        matching = sorted(
+            [key for key in candidate_map if key[0] == code and key in baseline_map],
+            key=lambda key: key[1],
+        )
+        if matching:
+            key = matching[0]
+            if key not in keys:
+                keys.append(key)
+        if len(keys) >= limit:
+            break
+    if len(keys) < limit:
+        for key in sorted(set(baseline_map) & set(candidate_map), key=lambda value: (value[0], value[1])):
+            if key not in keys:
+                keys.append(key)
+            if len(keys) >= limit:
+                break
+    rows: list[dict[str, Any]] = []
+    for code, date_text in keys[:limit]:
+        baseline_sample = baseline_map.get((code, date_text))
+        candidate_sample = candidate_map.get((code, date_text))
+        if not isinstance(baseline_sample, dict) or not isinstance(candidate_sample, dict):
+            continue
+        baseline_compact = _compact_sample(baseline_sample)
+        candidate_compact = _compact_sample(candidate_sample)
+        rows.append(
+            {
+                "code": code,
+                "date": date_text,
+                "baseline": baseline_compact,
+                "candidate": candidate_compact,
+                "delta": {
+                    "feature_hash_changed": baseline_compact["feature_hash"] != candidate_compact["feature_hash"],
+                    "engine_input_hash_changed": baseline_compact["engine_input_hash"] != candidate_compact["engine_input_hash"],
+                    "engine_plan_hash_changed": baseline_compact["engine_plan_hash"] != candidate_compact["engine_plan_hash"],
+                    "confidence": candidate_compact["confidence"] - baseline_compact["confidence"],
+                    "readiness_pre_score": candidate_compact["readiness_pre_score"] - baseline_compact["readiness_pre_score"],
+                    "raw_readiness_score": candidate_compact["raw_readiness_score"] - baseline_compact["raw_readiness_score"],
+                    "signal_changed": baseline_compact["signal"] != candidate_compact["signal"],
+                    "publish_ready_changed": baseline_compact["publish_ready"] != candidate_compact["publish_ready"],
+                    "gate_reason_changed": baseline_compact["gate_reason"] != candidate_compact["gate_reason"],
+                    "publish_not_ready_reason_changed": baseline_compact["publish_not_ready_reason_label"] != candidate_compact["publish_not_ready_reason_label"],
+                    "trace_hash_changed": baseline_compact["trace_hash"] != candidate_compact["trace_hash"],
+                },
+            }
+        )
+    return rows
+
+
+def _probe_row_comparison(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any] | None:
+    rows = _row_diff_entries(baseline, candidate, limit=1)
+    if not rows:
+        return None
+    row = rows[0]
+    baseline_sample = row.get("baseline") if isinstance(row.get("baseline"), dict) else {}
+    candidate_sample = row.get("candidate") if isinstance(row.get("candidate"), dict) else {}
+    return {
+        "code": row.get("code"),
+        "date": row.get("date"),
+        "baseline": {
+            "feature_hash": baseline_sample.get("feature_hash"),
+            "engine_input_hash": baseline_sample.get("engine_input_hash"),
+            "engine_plan_hash": baseline_sample.get("engine_plan_hash"),
+            "engine_feature_flags": baseline_sample.get("engine_feature_flags"),
+            "engine_scoring_params": baseline_sample.get("engine_scoring_params"),
+            "engine_readiness_params": baseline_sample.get("engine_readiness_params"),
+            "raw_readiness_score": baseline_sample.get("raw_readiness_score"),
+            "readiness_pre_score": baseline_sample.get("readiness_pre_score"),
+            "publish_ready": baseline_sample.get("publish_ready"),
+            "publish_not_ready_reasons": baseline_sample.get("publish_not_ready_reasons"),
+            "publish_not_ready_reason_label": baseline_sample.get("publish_not_ready_reason_label"),
+            "trace_hash": baseline_sample.get("trace_hash"),
+        },
+        "candidate": {
+            "feature_hash": candidate_sample.get("feature_hash"),
+            "engine_input_hash": candidate_sample.get("engine_input_hash"),
+            "engine_plan_hash": candidate_sample.get("engine_plan_hash"),
+            "engine_feature_flags": candidate_sample.get("engine_feature_flags"),
+            "engine_scoring_params": candidate_sample.get("engine_scoring_params"),
+            "engine_readiness_params": candidate_sample.get("engine_readiness_params"),
+            "raw_readiness_score": candidate_sample.get("raw_readiness_score"),
+            "readiness_pre_score": candidate_sample.get("readiness_pre_score"),
+            "publish_ready": candidate_sample.get("publish_ready"),
+            "publish_not_ready_reasons": candidate_sample.get("publish_not_ready_reasons"),
+            "publish_not_ready_reason_label": candidate_sample.get("publish_not_ready_reason_label"),
+            "trace_hash": candidate_sample.get("trace_hash"),
+        },
+        "delta": row.get("delta") if isinstance(row.get("delta"), dict) else {},
+    }
+
+
+def _probe_row_comparisons(
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+    family: dict[str, Any],
+) -> list[dict[str, Any]]:
+    comparisons: list[dict[str, Any]] = []
+    probes = _family_probes(family)
+    baseline_analysis = baseline.get("analysis") if isinstance(baseline.get("analysis"), dict) else {}
+    candidate_analysis = candidate.get("analysis") if isinstance(candidate.get("analysis"), dict) else {}
+    baseline_by_code = baseline_analysis.get("by_code") if isinstance(baseline_analysis.get("by_code"), dict) else {}
+    candidate_by_code = candidate_analysis.get("by_code") if isinstance(candidate_analysis.get("by_code"), dict) else {}
+    for probe in probes:
+        code = _text(probe.get("code"))
+        date_text = _text(probe.get("date"))
+        if not code or not date_text:
+            continue
+        baseline_item = baseline_by_code.get(code)
+        candidate_item = candidate_by_code.get(code)
+        baseline_samples = baseline_item.get("samples") if isinstance(baseline_item, dict) and isinstance(baseline_item.get("samples"), list) else []
+        candidate_samples = candidate_item.get("samples") if isinstance(candidate_item, dict) and isinstance(candidate_item.get("samples"), list) else []
+        baseline_sample = next((sample for sample in baseline_samples if isinstance(sample, dict) and _text(sample.get("date")) == date_text), None)
+        candidate_sample = next((sample for sample in candidate_samples if isinstance(sample, dict) and _text(sample.get("date")) == date_text), None)
+        if not isinstance(baseline_sample, dict) or not isinstance(candidate_sample, dict):
+            continue
+        baseline_compact = _compact_sample(baseline_sample)
+        candidate_compact = _compact_sample(candidate_sample)
+        comparisons.append(
+            {
+                "probe_id": _text(probe.get("probe_id")),
+                "code": code,
+                "date": date_text,
+                "label": _text(probe.get("label")),
+                "baseline": baseline_compact,
+                "candidate": candidate_compact,
+                "delta": {
+                    "feature_hash_changed": baseline_compact["feature_hash"] != candidate_compact["feature_hash"],
+                    "engine_input_hash_changed": baseline_compact["engine_input_hash"] != candidate_compact["engine_input_hash"],
+                    "engine_plan_hash_changed": baseline_compact["engine_plan_hash"] != candidate_compact["engine_plan_hash"],
+                    "confidence": candidate_compact["confidence"] - baseline_compact["confidence"],
+                    "readiness_pre_score": candidate_compact["readiness_pre_score"] - baseline_compact["readiness_pre_score"],
+                    "raw_readiness_score": candidate_compact["raw_readiness_score"] - baseline_compact["raw_readiness_score"],
+                    "signal_changed": baseline_compact["signal"] != candidate_compact["signal"],
+                    "publish_ready_changed": baseline_compact["publish_ready"] != candidate_compact["publish_ready"],
+                    "gate_reason_changed": baseline_compact["gate_reason"] != candidate_compact["gate_reason"],
+                    "publish_not_ready_reason_changed": baseline_compact["publish_not_ready_reason_label"] != candidate_compact["publish_not_ready_reason_label"],
+                    "trace_hash_changed": baseline_compact["trace_hash"] != candidate_compact["trace_hash"],
+                },
+                "missing_feature": {
+                    "baseline": "missing_feature" in baseline_compact["publish_not_ready_reasons"],
+                    "candidate": "missing_feature" in candidate_compact["publish_not_ready_reasons"],
+                },
+                "environment_unresolved": {
+                    "baseline": "environment_unresolved" in baseline_compact["publish_not_ready_reasons"],
+                    "candidate": "environment_unresolved" in candidate_compact["publish_not_ready_reasons"],
+                },
+            }
+        )
+    return comparisons
 
 
 def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, Any]:
@@ -448,9 +1059,14 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
     )
     if not isinstance(plan, dict):
         raise ValueError("plan not found")
+    plan_effective = _plan_effective_parameters(plan)
+    feature_flags = _feature_flags()
+    readiness_config_hash = _readiness_config_hash()
+    family_probes = _family_probes(family)
     segments = _period_segments(family)
     by_code: dict[str, dict[str, Any]] = {}
     all_samples: list[dict[str, Any]] = []
+    probe_lookup = {( _text(item.get("code")), _text(item.get("date")) ): item for item in family_probes}
     for code in family.get("universe") or []:
         normalized_code = _text(code)
         if not normalized_code:
@@ -462,9 +1078,29 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
                 dt_key = _int(point.get("dt"))
                 if dt_key is None:
                     continue
-                sample_input = _analysis_input(normalized_code, dt_key, point)
+                sample_input = _analysis_input(
+                    normalized_code,
+                    dt_key,
+                    point,
+                    plan_effective=plan_effective,
+                    feature_flags=feature_flags,
+                    readiness_config_hash=readiness_config_hash,
+                )
                 sample_output = run_tradex_analysis(sample_input).to_dict()
-                sample_trace = _sample_trace(normalized_code, dt_key, sample_input, sample_output, plan)
+                sample_trace = _sample_trace(
+                    normalized_code,
+                    dt_key,
+                    sample_input,
+                    sample_output,
+                    plan,
+                    plan_effective=plan_effective,
+                    feature_flags=feature_flags,
+                    readiness_config_hash=readiness_config_hash,
+                )
+                probe = probe_lookup.get((normalized_code, _text(sample_trace.get("date"))))
+                if probe:
+                    sample_trace["probe_id"] = _text(probe.get("probe_id"))
+                    sample_trace["probe_label"] = _text(probe.get("label"))
                 code_samples.append(sample_trace)
                 all_samples.append(sample_trace)
         if code_samples:
@@ -519,10 +1155,36 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
         "by_code": by_code,
         "samples": all_samples,
     }
+    readiness_summary = _readiness_summary(all_samples, plan)
+    engine_probe = all_samples[0] if all_samples else {}
+    probe_entries = _probe_run_entries(by_code, family)
+    probe_summary = probe_entries[0] if probe_entries else None
     run["status"] = "succeeded"
     run["completed_at"] = datetime.now(timezone.utc).isoformat()
     run["error"] = None
     run["metrics"] = metrics
+    run["readiness_summary"] = readiness_summary
+    run["engine_diagnostics"] = {
+        "plan_effective": plan_effective,
+        "feature_flags": feature_flags,
+        "readiness_config_hash": readiness_config_hash,
+        "probe": {
+            "code": probe_summary.get("code") if isinstance(probe_summary, dict) else engine_probe.get("code"),
+            "date": probe_summary.get("date") if isinstance(probe_summary, dict) else engine_probe.get("date"),
+            "feature_hash": probe_summary.get("feature_hash") if isinstance(probe_summary, dict) else engine_probe.get("feature_hash"),
+            "engine_input_hash": probe_summary.get("engine_input_hash") if isinstance(probe_summary, dict) else engine_probe.get("engine_input_hash"),
+            "engine_plan_hash": probe_summary.get("engine_plan_hash") if isinstance(probe_summary, dict) else engine_probe.get("engine_plan_hash"),
+            "engine_feature_flags": probe_summary.get("engine_feature_flags") if isinstance(probe_summary, dict) else engine_probe.get("engine_feature_flags"),
+            "engine_scoring_params": probe_summary.get("engine_scoring_params") if isinstance(probe_summary, dict) else engine_probe.get("engine_scoring_params"),
+            "engine_readiness_params": probe_summary.get("engine_readiness_params") if isinstance(probe_summary, dict) else engine_probe.get("engine_readiness_params"),
+            "raw_readiness_score": probe_summary.get("raw_readiness_score") if isinstance(probe_summary, dict) else engine_probe.get("raw_readiness_score"),
+            "readiness_pre_score": probe_summary.get("readiness_pre_score") if isinstance(probe_summary, dict) else engine_probe.get("readiness_pre_score"),
+            "publish_ready": probe_summary.get("publish_ready") if isinstance(probe_summary, dict) else engine_probe.get("publish_ready"),
+            "publish_not_ready_reasons": probe_summary.get("publish_not_ready_reasons") if isinstance(probe_summary, dict) else engine_probe.get("publish_not_ready_reasons"),
+            "publish_not_ready_reason_label": probe_summary.get("publish_not_ready_reason_label") if isinstance(probe_summary, dict) else engine_probe.get("publish_not_ready_reason_label"),
+        },
+        "probes": probe_entries,
+    }
     run["summary"] = {
         "run_signature": _metrics_signature(metrics),
         "sample_count": overall["sample_count"],
@@ -534,11 +1196,20 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
         "overall_score": overall_score,
         "by_period_stability": period_stability,
     }
-    run["analysis"] = {"segments": segments, "by_code": by_code, "signature": run["summary"]["run_signature"]}
+    run["analysis"] = {
+        "segments": segments,
+        "by_code": by_code,
+        "signature": run["summary"]["run_signature"],
+        "readiness_summary": readiness_summary,
+        "effective_config": run.get("effective_config") or {},
+        "engine_diagnostics": run["engine_diagnostics"],
+        "probes": probe_entries,
+    }
     return run
 
 
 def _run_base(family: dict[str, Any], run_id: str, run_kind: str, plan: dict[str, Any], notes: str | None) -> dict[str, Any]:
+    effective_parameters = _plan_effective_parameters(plan)
     return {
         "schema_version": TRADEX_RUN_SCHEMA_VERSION,
         "family_id": family["family_id"],
@@ -560,8 +1231,17 @@ def _run_base(family: dict[str, Any], run_id: str, run_kind: str, plan: dict[str
         "data_cutoff_at": _text(family.get("data_cutoff_at")),
         "random_seed": _int(family.get("random_seed")) or 0,
         "notes": _text(notes),
+        "effective_config": {
+            "plan_id": effective_parameters["plan_id"],
+            "plan_version": effective_parameters["plan_version"],
+            "plan_hash": _stable_hash(effective_parameters),
+            "effective_parameters": effective_parameters,
+            "readiness_config_hash": _readiness_config_hash(),
+        },
         "metrics": {},
         "summary": {},
+        "readiness_summary": {},
+        "engine_diagnostics": {},
         "analysis": {},
     }
 
@@ -590,6 +1270,7 @@ def create_family(body: dict[str, Any]) -> dict[str, Any]:
     if len(candidate_plans_raw) > 3:
         raise ValueError("candidate_plans must be at most 3")
     candidate_plans = [_normalize_plan(plan, default_plan_id=f"candidate-{idx + 1}") for idx, plan in enumerate(candidate_plans_raw)]
+    probes = _normalize_probes(body.get("probes"))
     family = {
         "schema_version": TRADEX_FAMILY_SCHEMA_VERSION,
         "family_id": family_id,
@@ -608,6 +1289,7 @@ def create_family(body: dict[str, Any]) -> dict[str, Any]:
         "random_seed": _int(body.get("random_seed")) or 0,
         "baseline_plan": baseline_plan,
         "candidate_plans": candidate_plans,
+        "probes": probes,
         "candidate_limit": 3,
         "run_ids": [],
         "baseline_run_id": None,
@@ -696,6 +1378,12 @@ def get_run(family_id: str, run_id: str) -> dict[str, Any] | None:
 def _compare_payload(family: dict[str, Any], baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
     baseline_metrics = baseline.get("metrics") if isinstance(baseline.get("metrics"), dict) else {}
     candidate_metrics = candidate.get("metrics") if isinstance(candidate.get("metrics"), dict) else {}
+    baseline_effective_config = baseline.get("effective_config") if isinstance(baseline.get("effective_config"), dict) else {}
+    candidate_effective_config = candidate.get("effective_config") if isinstance(candidate.get("effective_config"), dict) else {}
+    baseline_readiness = baseline.get("readiness_summary") if isinstance(baseline.get("readiness_summary"), dict) else {}
+    candidate_readiness = candidate.get("readiness_summary") if isinstance(candidate.get("readiness_summary"), dict) else {}
+    baseline_engine_diagnostics = baseline.get("engine_diagnostics") if isinstance(baseline.get("engine_diagnostics"), dict) else {}
+    candidate_engine_diagnostics = candidate.get("engine_diagnostics") if isinstance(candidate.get("engine_diagnostics"), dict) else {}
     baseline_overall = baseline_metrics.get("overall") if isinstance(baseline_metrics.get("overall"), dict) else {}
     candidate_overall = candidate_metrics.get("overall") if isinstance(candidate_metrics.get("overall"), dict) else {}
     baseline_primary = baseline_overall.get("primary") if isinstance(baseline_overall.get("primary"), dict) else {}
@@ -743,6 +1431,7 @@ def _compare_payload(family: dict[str, Any], baseline: dict[str, Any], candidate
             "pass": candidate_metrics_absolute["symbol_concentration"] <= baseline_metrics_absolute["symbol_concentration"],
         },
     ]
+    probe_row_comparisons = _probe_row_comparisons(baseline, candidate, family)
     return {
         "run_id": candidate.get("run_id"),
         "plan_id": candidate.get("plan_id"),
@@ -765,6 +1454,17 @@ def _compare_payload(family: dict[str, Any], baseline: dict[str, Any], candidate
         "losing_examples": (candidate_overall.get("losing_examples") or [])[:3],
         "top_conditions": (candidate_overall.get("top_reasons") or [])[:3],
         "review_focus": _candidate_review_focus(candidate),
+        "diagnostics": {
+            "baseline_effective_config": baseline_effective_config,
+            "candidate_effective_config": candidate_effective_config,
+            "baseline_engine_diagnostics": baseline_engine_diagnostics,
+            "candidate_engine_diagnostics": candidate_engine_diagnostics,
+            "baseline_readiness_summary": baseline_readiness,
+            "candidate_readiness_summary": candidate_readiness,
+            "row_diffs": _row_diff_entries(baseline, candidate, limit=5),
+            "probe_row_comparisons": probe_row_comparisons,
+            "probe_row_comparison": (probe_row_comparisons or [None])[0],
+        },
         "symbol_summary": {
             "baseline_symbols": len(baseline_metrics.get("by_code") or {}),
             "candidate_symbols": len(candidate_metrics.get("by_code") or {}),
@@ -780,11 +1480,16 @@ def _generate_compare(family: dict[str, Any]) -> dict[str, Any] | None:
         return None
     candidate_ids = [str(item) for item in family.get("candidate_run_ids") or [] if _text(item)]
     candidates = [load_run(family["family_id"], run_id) for run_id in candidate_ids]
-    candidates = [run for run in candidates if isinstance(run, dict) and _text(run.get("status")) == "succeeded"]
+    candidates = [
+        run
+        for run in candidates
+        if isinstance(run, dict) and _text(run.get("status")) in {"succeeded", "compared", "adopt_candidate", "rejected"}
+    ]
     if not candidates:
         return None
     for candidate in candidates:
-        candidate["status"] = "compared"
+        if _text(candidate.get("status")) == "succeeded":
+            candidate["status"] = "compared"
         write_json(run_file(family["family_id"], str(candidate["run_id"])), candidate)
     payload = {
         "schema_version": TRADEX_COMPARE_SCHEMA_VERSION,
@@ -990,5 +1695,6 @@ def adopt_run(*, family_id: str, run_id: str, reason: str | None = None, actor: 
         }
         write_json(run_file(family_id, run_id), run)
         write_json(run_adopt_file(family_id, run_id), run["adopt"])
+        _generate_compare(family)
         _update_family_file(family)
         return {"ok": True, "family_id": family_id, "run_id": run_id, "status": status, "gate": gate, "adopt": run["adopt"], "compare": compare}

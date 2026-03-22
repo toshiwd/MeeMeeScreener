@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from external_analysis.contracts.analysis_input import ANALYSIS_INPUT_SCHEMA_VERSION, AnalysisInputContract
 from external_analysis.contracts.analysis_output import build_override_state, build_publish_readiness
+from external_analysis.runtime.input_normalization import normalize_tradex_analysis_input
 
 
 def test_tradex_analysis_input_contract_serializes_stably() -> None:
@@ -49,4 +50,18 @@ def test_tradex_analysis_input_contract_serializes_stably() -> None:
     assert payload["override_state"]["logic_key"] == "logic_family_a:v4"
     assert runtime_kwargs["symbol"] == "7203"
     assert runtime_kwargs["asof"] == "2026-03-19"
+    assert runtime_kwargs["playbook_up_score_bonus"] == 0.02
+    assert runtime_kwargs["playbook_down_score_bonus"] == 0.01
     assert runtime_kwargs["scenarios"][1]["key"] == "down"
+
+
+def test_tradex_analysis_input_contract_normalizes_missing_playbook_bonus_to_zero() -> None:
+    omitted = AnalysisInputContract(symbol="7203", asof="2026-03-19")
+    explicit_zero = AnalysisInputContract(symbol="7203", asof="2026-03-19", playbook_up_score_bonus=0.0)
+
+    omitted_kwargs = normalize_tradex_analysis_input(omitted).decision_kwargs
+    zero_kwargs = normalize_tradex_analysis_input(explicit_zero).decision_kwargs
+
+    assert omitted_kwargs["playbook_up_score_bonus"] == 0.0
+    assert zero_kwargs["playbook_up_score_bonus"] == 0.0
+    assert omitted_kwargs == zero_kwargs
