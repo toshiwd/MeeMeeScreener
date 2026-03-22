@@ -1,5 +1,6 @@
-:root {
-  color-scheme: dark;
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
   font-family: "Noto Sans JP", "IBM Plex Sans", "Segoe UI", sans-serif;
 
   --space-2: 8px;
@@ -9,19 +10,97 @@
 
   --font-page-title: 18px;
   --font-section-title: 14px;
-  --font-body: 12px;
-  --font-caption: 11px;
+  --font-body: 14px;
+  --font-caption: 13px;
+
+  --bg-app: #f7f3eb;
+  --bg-surface: #ffffff;
+  --text-primary: #09314e;
+  --text-secondary: #5f7487;
+  --border-subtle: rgba(9, 49, 78, 0.12);
+  --action-primary: #1562a0;
+  --action-hover: #0f4f82;
+  --accent: #f7c215;
+
+  --color-background: var(--bg-app);
+  --color-background-elevated: var(--bg-surface);
+  --color-background-surface: color-mix(in srgb, var(--bg-surface) 92%, var(--bg-app) 8%);
+  --color-border: var(--border-subtle);
+  --color-accent: var(--action-primary);
+  --color-success: #0f8a57;
+  --color-danger: #b64545;
+  --color-muted: var(--text-secondary);
+
+  --theme-bg-primary: var(--bg-app);
+  --theme-bg-secondary: var(--bg-surface);
+  --theme-bg-tertiary: color-mix(in srgb, var(--bg-surface) 84%, var(--bg-app) 16%);
+  --theme-bg-card: color-mix(in srgb, var(--bg-surface) 92%, var(--bg-app) 8%);
+  --theme-bg-hover: color-mix(in srgb, var(--bg-surface) 82%, var(--action-primary) 18%);
+  --theme-bg-gradient: linear-gradient(180deg, #fbf8f1 0%, #f3eddf 52%, #ede5d4 100%);
+  --theme-text-primary: var(--text-primary);
+  --theme-text-secondary: var(--text-secondary);
+  --theme-text-muted: #7f8f9f;
+  --theme-border: rgba(9, 49, 78, 0.08);
+  --theme-border-subtle: var(--border-subtle);
+  --theme-accent: var(--action-primary);
+  --theme-accent-hover: var(--action-hover);
+  --theme-chart-bg: var(--bg-surface);
+  --theme-chart-text: var(--text-primary);
+  --theme-chart-grid: rgba(9, 49, 78, 0.06);
+  --theme-gap-band-fill: rgba(9, 49, 78, 0.08);
+  --theme-event-earnings: #b64545;
+
+  --btn-radius: 10px;
+  --btn-radius-pill: 999px;
+  --btn-radius-sm: 8px;
+  --btn-font-sm: 13px;
+  --btn-font-md: 14px;
+  --btn-padding-sm: 5px 11px;
+  --btn-padding-md: 7px 13px;
+  --btn-border: 1px solid var(--border-subtle);
+  --btn-bg: var(--bg-surface);
+  --btn-color: var(--text-primary);
+  --btn-hover-bg: var(--theme-bg-hover);
+  --btn-active-bg: var(--action-primary);
+  --btn-active-color: #fff;
+  --btn-transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  --theme-active-shadow: 0 0 0 1px rgba(21, 98, 160, 0.22), 0 1px 2px rgba(9, 49, 78, 0.08);
+  --theme-active-bg: color-mix(in srgb, var(--bg-surface) 78%, var(--action-primary) 22%);
+
+  --broker-rakuten: #09314e;
+  --broker-rakuten-soft: rgba(9, 49, 78, 0.08);
+  --broker-sbi: #b68d12;
+  --broker-sbi-soft: rgba(247, 194, 21, 0.18);
+  --broker-unknown: #7f8f9f;
+  --broker-unknown-soft: rgba(127, 143, 159, 0.18);
+  --color-bg-3: rgba(127, 143, 159, 0.22);
+  --color-pnl-up: #b64545;
+  --color-pnl-down: #0f8a57;
+  --color-fg-4: #7f8f9f;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-app: #0b1020;
+  --bg-surface: rgba(15, 23, 42, 0.88);
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --border-subtle: rgba(148, 163, 184, 0.28);
+  --action-primary: #67a6d9;
+  --action-hover: #8bbde0;
+  --accent: #f7c215;
 
   --color-background: #0b1020;
   --color-background-elevated: rgba(8, 12, 24, 0.92);
   --color-background-surface: rgba(15, 23, 42, 0.65);
   --color-border: rgba(255, 255, 255, 0.06);
-  --color-accent: #2563eb;
+  --color-accent: var(--action-primary);
   --color-success: #22c55e;
   --color-danger: #ef4444;
   --color-muted: #64748b;
 
-  /* Theme variables - Dark mode (default) */
   --theme-bg-primary: #0b1020;
   --theme-bg-secondary: rgba(8, 12, 24, 0.92);
   --theme-bg-tertiary: rgba(15, 23, 42, 0.8);
@@ -31,23 +110,23 @@
   --theme-text-primary: #e2e8f0;
   --theme-text-secondary: #94a3b8;
   --theme-text-muted: #64748b;
-  --text-primary: var(--theme-text-primary);
   --theme-border: rgba(255, 255, 255, 0.06);
   --theme-border-subtle: rgba(148, 163, 184, 0.3);
-  --theme-accent: #2563eb;
-  --theme-accent-hover: #1d4ed8;
+  --theme-accent: var(--action-primary);
+  --theme-accent-hover: var(--action-hover);
   --theme-chart-bg: #0b1020;
+  --theme-chart-text: #cbd5f5;
+  --theme-chart-grid: rgba(148, 163, 184, 0.14);
   --theme-gap-band-fill: rgba(128, 128, 128, 0.14);
   --theme-event-earnings: #ef4444;
 
-  /* Button design tokens */
-  --btn-radius: 8px;
+  --btn-radius: 10px;
   --btn-radius-pill: 999px;
-  --btn-radius-sm: 6px;
-  --btn-font-sm: 12px;
-  --btn-font-md: 13px;
-  --btn-padding-sm: 4px 10px;
-  --btn-padding-md: 6px 12px;
+  --btn-radius-sm: 8px;
+  --btn-font-sm: 13px;
+  --btn-font-md: 14px;
+  --btn-padding-sm: 5px 11px;
+  --btn-padding-md: 7px 13px;
   --btn-border: 1px solid var(--theme-border-subtle);
   --btn-bg: var(--theme-bg-card);
   --btn-color: var(--theme-text-primary);
@@ -56,9 +135,9 @@
   --btn-active-color: #fff;
   --btn-transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 
-  /* Legacy variables for compatibility */
-  background: var(--theme-bg-primary);
-  color: var(--theme-text-primary);
+  --theme-active-shadow: 0 0 0 1px var(--theme-accent), 0 1px 2px rgba(0, 0, 0, 0.1);
+  --theme-active-bg: #eff6ff;
+
   --broker-rakuten: #e2e8f0;
   --broker-rakuten-soft: rgba(226, 232, 240, 0.18);
   --broker-sbi: #f6c453;
@@ -69,64 +148,4 @@
   --color-pnl-up: #ef4444;
   --color-pnl-down: #22c55e;
   --color-fg-4: #94a3b8;
-}
-
-/* Light mode theme - Full Light Adjustment */
-:root[data-theme="light"] {
-  color-scheme: light;
-
-  --color-background: #f1f5f9;
-  --color-background-elevated: #ffffff;
-  --color-background-surface: #ffffff;
-  --color-border: #cbd5e1;
-  --color-accent: #2563eb;
-  --color-success: #16a34a;
-  --color-danger: #dc2626;
-  --color-muted: #94a3b8;
-
-  /* Backgrounds */
-  --theme-bg-primary: #f1f5f9;
-  --theme-bg-secondary: #ffffff;
-  --theme-bg-tertiary: #e2e8f0;
-  --theme-bg-card: #ffffff;
-  --theme-bg-hover: #f8fafc;
-  --theme-bg-gradient: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
-
-  /* Text */
-  --theme-text-primary: #0f172a;
-  --theme-text-secondary: #475569;
-  --theme-text-muted: #94a3b8;
-  --text-primary: var(--theme-text-primary);
-
-  /* Borders */
-  --theme-border: #cbd5e1;
-  --theme-border-subtle: #e2e8f0;
-
-  /* Accents */
-  --theme-accent: #2563eb;
-  --theme-accent-hover: #1d4ed8;
-
-  /* Chart Specific */
-  --theme-chart-bg: #ffffff;
-  --theme-chart-text: #334155;
-  --theme-chart-grid: #f1f5f9;
-  --theme-gap-band-fill: rgba(128, 128, 128, 0.12);
-  --theme-event-earnings: #dc2626;
-
-  /* Legacy overrides */
-  background: var(--theme-bg-primary);
-  color: var(--theme-text-primary);
-  --broker-rakuten: #0f172a;
-  --broker-rakuten-soft: rgba(15, 23, 42, 0.08);
-  --broker-sbi: #1e3a8a;
-  --broker-sbi-soft: rgba(30, 58, 138, 0.12);
-  --broker-unknown: #64748b;
-  --broker-unknown-soft: rgba(100, 116, 139, 0.12);
-  --color-fg-4: #64748b;
-  --color-pnl-up: #ef4444;
-  --color-pnl-down: #22c55e;
-
-  /* Shadow for active states instead of fill */
-  --theme-active-shadow: 0 0 0 1px var(--theme-accent), 0 1px 2px rgba(0, 0, 0, 0.1);
-  --theme-active-bg: #eff6ff;
 }

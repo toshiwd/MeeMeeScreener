@@ -1,0 +1,90 @@
+{
+  "actor": "",
+  "evaluated_at": "2026-03-21T19:42:05.768396+00:00",
+  "family_id": "tradex-smallstart-real-v12c-20260322",
+  "gate": {
+    "by_period_results": [
+      {
+        "baseline": 0.0,
+        "candidate": 0.0,
+        "delta": 0.0,
+        "end_date": "2025-12-28",
+        "label": "first-half",
+        "pass": true,
+        "start_date": "2025-10-29"
+      },
+      {
+        "baseline": 0.0,
+        "candidate": 0.0,
+        "delta": 0.0,
+        "end_date": "2026-02-26",
+        "label": "second-half",
+        "pass": true,
+        "start_date": "2025-12-29"
+      }
+    ],
+    "config": {
+      "by_period_deterioration_limit": 0.5,
+      "confirmed_rerun_match_required": true,
+      "detail_reason_required": true,
+      "metric_direction": {
+        "mean_confidence": "higher",
+        "ready_rate": "higher",
+        "signal_rate": "higher"
+      },
+      "minimum_effect_size": {
+        "mean_confidence": 0.01,
+        "ready_rate": 0.01,
+        "signal_rate": 0.01
+      },
+      "primary_metrics": [
+        "signal_rate",
+        "ready_rate",
+        "mean_confidence"
+      ],
+      "schema_version": "tradex_adopt_gate_v1",
+      "symbol_concentration_limit": 0.35
+    },
+    "detail_reason": "version=2026-03-04-v2",
+    "pass": false,
+    "primary_results": [
+      {
+        "baseline": 0.0,
+        "candidate": 0.0,
+        "delta": 0.0,
+        "direction": "higher",
+        "metric": "signal_rate",
+        "minimum_effect_size": 0.01,
+        "pass": false
+      },
+      {
+        "baseline": 0.0,
+        "candidate": 0.0,
+        "delta": 0.0,
+        "direction": "higher",
+        "metric": "ready_rate",
+        "minimum_effect_size": 0.01,
+        "pass": false
+      },
+      {
+        "baseline": 0.727769871276253,
+        "candidate": 0.727769871276253,
+        "delta": 0.0,
+        "direction": "higher",
+        "metric": "mean_confidence",
+        "minimum_effect_size": 0.01,
+        "pass": false
+      }
+    ],
+    "reasons": [
+      "primary_metric_not_improved"
+    ],
+    "rerun_match": true,
+    "schema_version": "tradex_experiment_adopt_v1",
+    "symbol_concentration": 0.0,
+    "symbol_concentration_limit": 0.35
+  },
+  "reason": "initial real-data operational confirmation",
+  "run_id": "tradex-smallstart-real-v12c-20260322-candidate-a",
+  "schema_version": "tradex_experiment_adopt_v1"
+}

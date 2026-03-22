@@ -67,6 +67,7 @@ class TradexCreateFamilyRequest(BaseModel):
     family_name: str | None = None
     universe: list[str] = Field(default_factory=list)
     period: dict[str, Any] = Field(default_factory=dict)
+    probes: list[dict[str, Any]] = Field(default_factory=list)
     baseline_plan: TradexPlanSpec = Field(default_factory=lambda: TradexPlanSpec(plan_id="baseline"))
     candidate_plans: list[TradexPlanSpec] = Field(default_factory=list)
     confirmed_only: bool = True

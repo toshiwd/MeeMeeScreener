@@ -1,0 +1,117 @@
+{
+  "baseline_plan": {
+    "label": "baseline",
+    "minimum_confidence": 0.25,
+    "minimum_ready_rate": 0.45,
+    "notes": "baseline reference",
+    "plan_id": "baseline",
+    "plan_version": "v1",
+    "signal_bias": "balanced",
+    "top_k": 3
+  },
+  "baseline_run_id": "tradex-smallstart-real-v12-20260322-baseline",
+  "candidate_limit": 3,
+  "candidate_plans": [
+    {
+      "label": "A stronger",
+      "minimum_confidence": 0.35,
+      "minimum_ready_rate": 0.55,
+      "notes": "baseline stronger version",
+      "plan_id": "candidate-a",
+      "plan_version": "v1",
+      "signal_bias": "buy",
+      "top_k": 5
+    },
+    {
+      "label": "B simpler",
+      "minimum_confidence": 0.1,
+      "minimum_ready_rate": 0.2,
+      "notes": "baseline simplified version",
+      "plan_id": "candidate-b",
+      "plan_version": "v1",
+      "signal_bias": "balanced",
+      "top_k": 1
+    },
+    {
+      "label": "C alternative",
+      "minimum_confidence": 0.22,
+      "minimum_ready_rate": 0.4,
+      "notes": "alternative hypothesis",
+      "plan_id": "candidate-c",
+      "plan_version": "v1",
+      "signal_bias": "sell",
+      "top_k": 3
+    }
+  ],
+  "candidate_run_ids": [
+    "tradex-smallstart-real-v12-20260322-candidate-a",
+    "tradex-smallstart-real-v12-20260322-candidate-b",
+    "tradex-smallstart-real-v12-20260322-candidate-c"
+  ],
+  "code_revision": "real-data-v1.2",
+  "confirmed_only": true,
+  "created_at": "2026-03-21T19:39:56.481641+00:00",
+  "data_cutoff_at": "2026-02-26",
+  "family_id": "tradex-smallstart-real-v12-20260322",
+  "family_name": "small-start-real-v12",
+  "frozen": true,
+  "frozen_at": "2026-03-21T19:39:56.583150+00:00",
+  "input_dataset_version": "stocks_research:2026-02-26",
+  "notes": "Initial real-data operational confirmation v1.2",
+  "period": {
+    "segments": [
+      {
+        "end_date": "2025-12-28",
+        "label": "first-half",
+        "start_date": "2025-10-29"
+      },
+      {
+        "end_date": "2026-02-26",
+        "label": "second-half",
+        "start_date": "2025-12-29"
+      }
+    ]
+  },
+  "price_source": "daily_bars",
+  "random_seed": 42,
+  "run_ids": [
+    "tradex-smallstart-real-v12-20260322-baseline",
+    "tradex-smallstart-real-v12-20260322-candidate-a",
+    "tradex-smallstart-real-v12-20260322-candidate-b",
+    "tradex-smallstart-real-v12-20260322-candidate-c"
+  ],
+  "schema_version": "tradex_experiment_family_v1",
+  "status_summary": {
+    "baseline_runs": 1,
+    "candidate_runs": 3,
+    "status_counts": {
+      "compared": 2,
+      "rejected": 1,
+      "succeeded": 1
+    },
+    "total_runs": 4
+  },
+  "timezone": "Asia/Tokyo",
+  "universe": [
+    "1357",
+    "1375",
+    "1925",
+    "1332",
+    "1414",
+    "1717",
+    "1719",
+    "1720",
+    "1721",
+    "1801",
+    "1911",
+    "1417",
+    "1419",
+    "1478",
+    "1489",
+    "1514",
+    "1518",
+    "1540",
+    "1545",
+    "1605"
+  ]
+}

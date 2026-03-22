@@ -29,9 +29,9 @@ const defaultBaselinePlan: TradexPlanSpec = {
 };
 
 const defaultCandidatePlans: TradexPlanSpec[] = [
-  { plan_id: "candidate-a", plan_version: "v1", label: "Candidate A", minimum_confidence: 0.45, signal_bias: "buy", top_k: 3 },
-  { plan_id: "candidate-b", plan_version: "v1", label: "Candidate B", minimum_confidence: 0.5, signal_bias: "balanced", top_k: 3 },
-  { plan_id: "candidate-c", plan_version: "v1", label: "Candidate C", minimum_confidence: 0.55, signal_bias: "sell", top_k: 3 }
+  { plan_id: "candidate-a", plan_version: "v1", label: "Candidate A / stronger", minimum_confidence: 0.58, minimum_ready_rate: 0.55, signal_bias: "balanced", top_k: 4 },
+  { plan_id: "candidate-b", plan_version: "v1", label: "Candidate B / simpler", minimum_confidence: 0.36, minimum_ready_rate: 0.25, signal_bias: "balanced", top_k: 2 },
+  { plan_id: "candidate-c", plan_version: "v1", label: "Candidate C / alternative", minimum_confidence: 0.48, minimum_ready_rate: 0.4, signal_bias: "sell", top_k: 3 }
 ];
 
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
@@ -298,7 +298,16 @@ function RunRow({ familyId, runId }: { familyId: string; runId: string }) {
   const summary = (run?.summary as Record<string, unknown> | undefined) ?? {};
   const signals = summary.signal_count as number | undefined;
   const byCode = (run?.analysis as Record<string, unknown> | undefined)?.by_code as Record<string, unknown> | undefined;
-  const firstCode = byCode ? Object.keys(byCode)[0] ?? "" : "";
+  const sortedCodes = byCode
+    ? Object.values(byCode)
+        .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+        .sort((left, right) => {
+          const leftCount = typeof left.signal_count === "number" ? left.signal_count : 0;
+          const rightCount = typeof right.signal_count === "number" ? right.signal_count : 0;
+          return rightCount - leftCount || String(left.code ?? "").localeCompare(String(right.code ?? ""));
+        })
+    : [];
+  const firstCode = sortedCodes.length > 0 ? String(sortedCodes[0].code ?? "") : "";
   return (
     <tr>
       <td>

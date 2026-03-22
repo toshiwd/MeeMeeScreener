@@ -14,6 +14,7 @@ export default function TradexAdoptPage() {
   const [compare, setCompare] = useState<TradexCompare | null>(null);
   const [selectedFamilyId, setSelectedFamilyId] = useState(readTradexLocal<string>(tradexStorageKeys.familyId, ""));
   const [message, setMessage] = useState<string | null>(null);
+  const [gate, setGate] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submittingRunId, setSubmittingRunId] = useState<string | null>(null);
 
@@ -29,8 +30,10 @@ export default function TradexAdoptPage() {
       try {
         const compareResponse = await loadTradexFamilyCompare(family.family_id);
         setCompare(compareResponse.compare);
+        setGate(null);
       } catch {
         setCompare(null);
+        setGate(null);
       }
     }
   };
@@ -44,6 +47,7 @@ export default function TradexAdoptPage() {
     writeTradexLocal(tradexStorageKeys.familyId, familyId);
     setError(null);
     setMessage(null);
+    setGate(null);
     try {
       const compareResponse = await loadTradexFamilyCompare(familyId);
       setCompare(compareResponse.compare);
@@ -62,6 +66,7 @@ export default function TradexAdoptPage() {
       const result = await adoptTradexRun({ family_id: selectedFamily.family_id, run_id: runId, reason: "small-start gate", actor: "tradex-ui" });
       setMessage(`adopt ${result.status}: ${runId}`);
       await refresh();
+      setGate(result.gate);
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to adopt run");
     } finally {
@@ -153,6 +158,14 @@ export default function TradexAdoptPage() {
                     </tbody>
                   </table>
                 </div>
+                {gate ? (
+                  <div className="tradex-inline-grid" style={{ marginTop: 16 }}>
+                    <div><span>gate pass</span><strong>{String(gate.pass ?? false)}</strong></div>
+                    <div><span>rerun match</span><strong>{String(gate.rerun_match ?? false)}</strong></div>
+                    <div><span>detail reason</span><strong>{String(gate.detail_reason ?? "--")}</strong></div>
+                    <div><span>reasons</span><strong>{JSON.stringify(gate.reasons ?? [])}</strong></div>
+                  </div>
+                ) : null}
                 <details className="tradex-json-panel">
                   <summary>compare json</summary>
                   <pre>{JSON.stringify(compare, null, 2)}</pre>

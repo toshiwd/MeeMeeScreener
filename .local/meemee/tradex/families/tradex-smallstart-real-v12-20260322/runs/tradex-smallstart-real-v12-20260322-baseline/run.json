@@ -1,0 +1,145 @@
+{
+  "analysis": {
+    "by_code": {},
+    "segments": [
+      {
+        "end_date": "2025-12-28",
+        "label": "first-half",
+        "start_date": "2025-10-29"
+      },
+      {
+        "end_date": "2026-02-26",
+        "label": "second-half",
+        "start_date": "2025-12-29"
+      }
+    ],
+    "signature": "8b58dd06182a7abb8038e81ff82a6c1cc482178be1bd72d11946c5d7cfef4dec"
+  },
+  "baseline_version": "v1",
+  "completed_at": "2026-03-21T19:39:56.581147+00:00",
+  "confirmed_only": true,
+  "data_cutoff_at": "2026-02-26",
+  "error": null,
+  "family_id": "tradex-smallstart-real-v12-20260322",
+  "input_dataset_version": "stocks_research:2026-02-26",
+  "metrics": {
+    "by_code": {},
+    "by_period": [
+      {
+        "end_date": "2025-12-28",
+        "label": "first-half",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2025-10-29"
+      },
+      {
+        "end_date": "2026-02-26",
+        "label": "second-half",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2025-12-29"
+      }
+    ],
+    "overall": {
+      "by_period_stability": 1.0,
+      "losing_examples": [],
+      "mean_confidence": 0.0,
+      "overall_score": 0.0,
+      "primary": {
+        "mean_confidence": 0.0,
+        "ready_rate": 0.0,
+        "signal_rate": 0.0
+      },
+      "ready_rate": 0.0,
+      "sample_count": 0,
+      "signal_count": 0,
+      "signal_dates": [],
+      "signal_rate": 0.0,
+      "target_symbol_count": 0,
+      "top_reasons": [],
+      "top_symbol_share": 0.0,
+      "winning_examples": []
+    },
+    "samples": []
+  },
+  "notes": "",
+  "period": {
+    "segments": [
+      {
+        "end_date": "2025-12-28",
+        "label": "first-half",
+        "start_date": "2025-10-29"
+      },
+      {
+        "end_date": "2026-02-26",
+        "label": "second-half",
+        "start_date": "2025-12-29"
+      }
+    ]
+  },
+  "plan_id": "baseline",
+  "plan_version": "v1",
+  "price_source": "daily_bars",
+  "random_seed": 42,
+  "run_id": "tradex-smallstart-real-v12-20260322-baseline",
+  "run_kind": "baseline",
+  "schema_version": "tradex_experiment_run_v1",
+  "started_at": "2026-03-21T19:39:56.577147+00:00",
+  "status": "succeeded",
+  "summary": {
+    "by_period_stability": 1.0,
+    "overall_score": 0.0,
+    "run_signature": "8b58dd06182a7abb8038e81ff82a6c1cc482178be1bd72d11946c5d7cfef4dec",
+    "sample_count": 0,
+    "signal_count": 0,
+    "signal_dates": [],
+    "target_symbol_count": 0,
+    "top_reasons": [],
+    "top_symbol_share": 0.0
+  },
+  "timezone": "Asia/Tokyo",
+  "universe": [
+    "1357",
+    "1375",
+    "1925",
+    "1332",
+    "1414",
+    "1717",
+    "1719",
+    "1720",
+    "1721",
+    "1801",
+    "1911",
+    "1417",
+    "1419",
+    "1478",
+    "1489",
+    "1514",
+    "1518",
+    "1540",
+    "1545",
+    "1605"
+  ]
+}

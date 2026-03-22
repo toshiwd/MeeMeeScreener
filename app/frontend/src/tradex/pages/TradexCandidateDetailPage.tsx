@@ -3,6 +3,15 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { loadTradexRun, loadTradexRunDetail, type TradexDetail, type TradexRun } from "../experimentApi";
 import { readTradexLocal, tradexStorageKeys, writeTradexLocal } from "../storage";
 
+function SummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="tradex-summary-metric">
+      <span className="tradex-summary-metric-label">{label}</span>
+      <strong className="tradex-summary-metric-value">{value}</strong>
+    </div>
+  );
+}
+
 export default function TradexCandidateDetailPage() {
   const { runId: runIdParam } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -15,8 +24,17 @@ export default function TradexCandidateDetailPage() {
   const runId = runIdParam || readTradexLocal<string>(tradexStorageKeys.runId, "");
 
   const codeOptions = useMemo(() => {
-    const byCode = (run?.analysis as Record<string, unknown> | undefined)?.by_code as Record<string, unknown> | undefined;
-    return byCode ? Object.keys(byCode) : [];
+    const byCode = (run?.analysis as Record<string, unknown> | undefined)?.by_code as Record<string, Record<string, unknown>> | undefined;
+    if (!byCode) return [];
+    return Object.values(byCode)
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+      .sort((left, right) => {
+        const leftCount = typeof left.signal_count === "number" ? left.signal_count : 0;
+        const rightCount = typeof right.signal_count === "number" ? right.signal_count : 0;
+        return rightCount - leftCount || String(left.code ?? "").localeCompare(String(right.code ?? ""));
+      })
+      .map((item) => String(item.code ?? ""))
+      .filter(Boolean);
   }, [run]);
 
   const load = async (targetRunId: string, targetCode: string) => {
@@ -25,7 +43,18 @@ export default function TradexCandidateDetailPage() {
     try {
       const runResponse = await loadTradexRun(targetRunId);
       setRun(runResponse.run);
-      const nextCode = targetCode || Object.keys(((runResponse.run.analysis as Record<string, unknown> | undefined)?.by_code as Record<string, unknown> | undefined) ?? {})[0] || "";
+      const byCode = (runResponse.run.analysis as Record<string, unknown> | undefined)?.by_code as Record<string, Record<string, unknown>> | undefined;
+      const nextCode = targetCode
+        || (byCode
+          ? Object.values(byCode)
+              .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+              .sort((left, right) => {
+                const leftCount = typeof left.signal_count === "number" ? left.signal_count : 0;
+                const rightCount = typeof right.signal_count === "number" ? right.signal_count : 0;
+                return rightCount - leftCount || String(left.code ?? "").localeCompare(String(right.code ?? ""));
+              })[0]?.code
+          : "")
+        || "";
       setCode(nextCode);
       writeTradexLocal(tradexStorageKeys.runId, targetRunId);
       if (nextCode) {
@@ -98,11 +127,16 @@ export default function TradexCandidateDetailPage() {
         </div>
 
         <div className="tradex-action-row">
-          {codeOptions.map((item) => (
-            <button key={item} type="button" className="tradex-secondary-action" onClick={() => void loadSelectedCode(item)} disabled={loading}>
-              {item}
-            </button>
-          ))}
+          {codeOptions.map((item) => {
+            const byCode = (run?.analysis as Record<string, unknown> | undefined)?.by_code as Record<string, Record<string, unknown>> | undefined;
+            const signalCount = byCode?.[item]?.signal_count;
+            return (
+              <button key={item} type="button" className="tradex-secondary-action" onClick={() => void loadSelectedCode(item)} disabled={loading}>
+                {item}
+                {typeof signalCount === "number" ? ` (${signalCount})` : ""}
+              </button>
+            );
+          })}
         </div>
 
         <label className="tradex-field">
@@ -117,12 +151,9 @@ export default function TradexCandidateDetailPage() {
 
         {detail ? (
           <>
-            <div className="tradex-compare-summaries">
+            <div className="tradex-summary-strip tradex-summary-strip--compact" aria-label="detail summary">
               {Object.entries(detail.summary ?? {}).map(([key, value]) => (
-                <article key={key} className="tradex-summary-card">
-                  <div className="tradex-summary-card-label">{key}</div>
-                  <div className="tradex-summary-card-value">{typeof value === "number" ? value.toFixed(4) : JSON.stringify(value)}</div>
-                </article>
+                <SummaryMetric key={key} label={key} value={typeof value === "number" ? value.toFixed(4) : JSON.stringify(value)} />
               ))}
             </div>
 
@@ -146,4 +177,3 @@ export default function TradexCandidateDetailPage() {
     </div>
   );
 }
-

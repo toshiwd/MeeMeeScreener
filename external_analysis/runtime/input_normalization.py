@@ -16,6 +16,7 @@ class NormalizedTradexAnalysisInput:
     override_state: AnalysisOverrideState | dict[str, Any] | None
     scenarios: tuple[dict[str, Any], ...]
     source: str
+    diagnostics: dict[str, Any] | None = None
 
 
 def normalize_tradex_analysis_input(input_contract: AnalysisInputContract) -> NormalizedTradexAnalysisInput:
@@ -36,6 +37,7 @@ def normalize_tradex_analysis_input(input_contract: AnalysisInputContract) -> No
         },
         publish_readiness=input_contract.publish_readiness,
         override_state=input_contract.override_state,
+        diagnostics=dict(input_contract.diagnostics) if isinstance(input_contract.diagnostics, dict) else None,
         scenarios=tuple(dict(item) for item in runtime_kwargs["scenarios"]),
         source=str(input_contract.source),
     )
