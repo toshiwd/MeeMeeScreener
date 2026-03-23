@@ -12,6 +12,9 @@ PUBLISH_PROMOTION_AUDIT_PATH = "publish_promotion_audit.jsonl"
 PUBLISH_REGISTRY_SCHEMA_VERSION = "publish_registry_v1"
 LAST_KNOWN_GOOD_DIRNAME = "last_known_good"
 LAST_KNOWN_GOOD_ARTIFACT_SCHEMA_VERSION = "last_known_good_v1"
+AI_EXPLAIN_SETTINGS_SCHEMA_VERSION = "ai_explain_settings_v1"
+AI_EXPLAIN_CACHE_SCHEMA_VERSION = "ai_explain_cache_v1"
+AI_EXPLAIN_USAGE_SCHEMA_VERSION = "ai_explain_usage_v1"
 
 class ConfigRepository:
     def __init__(self, data_dir: str):
@@ -20,9 +23,12 @@ class ConfigRepository:
         self.rank_config_path = os.path.join(data_dir, "config", "rank_config.json")
         self.logic_selection_path = os.path.join(data_dir, "config", "logic_selection.json")
         self.publish_registry_path = os.path.join(data_dir, "config", "publish_registry.json")
+        self.ai_explain_settings_path = os.path.join(data_dir, "config", "ai_explain_settings.json")
         self.runtime_selection_dir = os.path.join(data_dir, "runtime_selection")
         self.logic_selection_audit_path = os.path.join(self.runtime_selection_dir, LOGIC_SELECTION_AUDIT_PATH)
         self.publish_promotion_audit_path = os.path.join(self.runtime_selection_dir, PUBLISH_PROMOTION_AUDIT_PATH)
+        self.ai_explain_cache_path = os.path.join(self.runtime_selection_dir, "ai_explain_cache.json")
+        self.ai_explain_usage_path = os.path.join(self.runtime_selection_dir, "ai_explain_usage.json")
         self.last_known_good_root = os.path.join(self.runtime_selection_dir, LAST_KNOWN_GOOD_DIRNAME)
 
     def load_update_state(self) -> Dict[str, Any]:
@@ -110,6 +116,60 @@ class ConfigRepository:
             json.dumps(checksum_source, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
         ).hexdigest()
         return self._atomic_write_json(self.publish_registry_path, payload)
+
+    def load_ai_explain_settings_state(self) -> Dict[str, Any]:
+        if not os.path.exists(self.ai_explain_settings_path):
+            return {}
+        try:
+            with open(self.ai_explain_settings_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            return {}
+        return {}
+
+    def save_ai_explain_settings_state(self, state: Dict[str, Any]) -> str:
+        payload = dict(state or {})
+        payload["schema_version"] = str(payload.get("schema_version") or AI_EXPLAIN_SETTINGS_SCHEMA_VERSION)
+        payload["updated_at"] = str(payload.get("updated_at") or datetime.now(timezone.utc).isoformat())
+        return self._atomic_write_json(self.ai_explain_settings_path, payload)
+
+    def load_ai_explain_cache_state(self) -> Dict[str, Any]:
+        if not os.path.exists(self.ai_explain_cache_path):
+            return {}
+        try:
+            with open(self.ai_explain_cache_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            return {}
+        return {}
+
+    def save_ai_explain_cache_state(self, state: Dict[str, Any]) -> str:
+        payload = dict(state or {})
+        payload["schema_version"] = str(payload.get("schema_version") or AI_EXPLAIN_CACHE_SCHEMA_VERSION)
+        payload["updated_at"] = str(payload.get("updated_at") or datetime.now(timezone.utc).isoformat())
+        return self._atomic_write_json(self.ai_explain_cache_path, payload)
+
+    def load_ai_explain_usage_state(self) -> Dict[str, Any]:
+        if not os.path.exists(self.ai_explain_usage_path):
+            return {}
+        try:
+            with open(self.ai_explain_usage_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            return {}
+        return {}
+
+    def save_ai_explain_usage_state(self, state: Dict[str, Any]) -> str:
+        payload = dict(state or {})
+        payload["schema_version"] = str(payload.get("schema_version") or AI_EXPLAIN_USAGE_SCHEMA_VERSION)
+        payload["updated_at"] = str(payload.get("updated_at") or datetime.now(timezone.utc).isoformat())
+        return self._atomic_write_json(self.ai_explain_usage_path, payload)
 
     def _logic_key_dirname(self, logic_key: str) -> str:
         safe = str(logic_key or "").strip().replace(":", "__")

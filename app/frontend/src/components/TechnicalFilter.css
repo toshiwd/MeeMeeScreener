@@ -471,7 +471,7 @@
   justify-content: center;
   padding: 2px 8px;
   border-radius: 10px;
-  background: #f97316;
+  background: var(--theme-accent);
   color: #fff;
   font-size: 12px;
   font-weight: 700;
@@ -502,8 +502,8 @@
 }
 
 .tech-filter-tab.active {
-  color: #f97316;
-  border-bottom: 2px solid #f97316;
+  color: var(--theme-accent);
+  border-bottom: 2px solid var(--theme-accent);
   font-weight: 600;
 }
 
@@ -538,7 +538,7 @@
 }
 
 .tech-filter-sidebar-item.active {
-  color: #f97316;
+  color: var(--theme-accent);
   font-weight: 600;
 }
 
@@ -608,9 +608,9 @@
 }
 
 .tech-filter-pill.active {
-  border-color: #f97316;
-  color: #f97316;
-  background: rgba(249, 115, 22, 0.08);
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
   font-weight: 600;
 }
 
@@ -709,8 +709,8 @@
 }
 
 .tech-filter-footer-actions .primary {
-  background: #f97316;
-  border-color: #f97316;
+  background: var(--theme-accent);
+  border-color: var(--theme-accent);
   color: #fff;
 }
 

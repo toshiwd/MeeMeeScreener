@@ -1,0 +1,130 @@
+{
+  "baseline_plan": {
+    "label": "Baseline",
+    "minimum_confidence": 0.0,
+    "minimum_ready_rate": 0.0,
+    "notes": "plumbing baseline",
+    "plan_id": "baseline",
+    "plan_version": "v1",
+    "playbook_down_score_bonus": 0.0,
+    "playbook_up_score_bonus": 0.0,
+    "signal_bias": "balanced",
+    "top_k": 3
+  },
+  "baseline_run_id": "tradex-plumbing-bonus-20260322-baseline",
+  "candidate_limit": 3,
+  "candidate_plans": [
+    {
+      "label": "Candidate A",
+      "minimum_confidence": 0.0,
+      "minimum_ready_rate": 0.0,
+      "notes": "playbook bonus 0.15",
+      "plan_id": "candidate-a",
+      "plan_version": "v1",
+      "playbook_down_score_bonus": 0.0,
+      "playbook_up_score_bonus": 0.15,
+      "signal_bias": "balanced",
+      "top_k": 3
+    },
+    {
+      "label": "Candidate B",
+      "minimum_confidence": 0.0,
+      "minimum_ready_rate": 0.0,
+      "notes": "playbook bonus 0.35",
+      "plan_id": "candidate-b",
+      "plan_version": "v1",
+      "playbook_down_score_bonus": 0.0,
+      "playbook_up_score_bonus": 0.35,
+      "signal_bias": "balanced",
+      "top_k": 3
+    }
+  ],
+  "candidate_run_ids": [
+    "tradex-plumbing-bonus-20260322-candidate-a",
+    "tradex-plumbing-bonus-20260322-candidate-b"
+  ],
+  "code_revision": "445628eed7b067ff5155745b5f902c453b2c3d07",
+  "confirmed_only": true,
+  "created_at": "2026-03-22T04:12:15.319932+00:00",
+  "data_cutoff_at": "2026-02-26",
+  "family_id": "tradex-plumbing-bonus-20260322",
+  "family_name": "plumbing bonus check",
+  "frozen": true,
+  "frozen_at": "2026-03-22T04:12:20.177669+00:00",
+  "input_dataset_version": "data_cutoff:2026-02-26",
+  "notes": "single-knob plumbing confirmation: playbook_up_score_bonus",
+  "period": {
+    "segments": [
+      {
+        "end_date": "2025-12-28",
+        "label": "first-half",
+        "start_date": "2025-10-29"
+      },
+      {
+        "end_date": "2026-02-26",
+        "label": "second-half",
+        "start_date": "2025-12-29"
+      }
+    ]
+  },
+  "price_source": "daily_bars",
+  "probes": [
+    {
+      "code": "8214",
+      "date": "2025-11-18",
+      "label": "up-sensitive-1",
+      "probe_id": "probe-1"
+    },
+    {
+      "code": "8410",
+      "date": "2026-02-03",
+      "label": "up-sensitive-2",
+      "probe_id": "probe-2"
+    },
+    {
+      "code": "7630",
+      "date": "2025-11-18",
+      "label": "control",
+      "probe_id": "probe-3"
+    }
+  ],
+  "random_seed": 0,
+  "run_ids": [
+    "tradex-plumbing-bonus-20260322-baseline",
+    "tradex-plumbing-bonus-20260322-candidate-a",
+    "tradex-plumbing-bonus-20260322-candidate-b"
+  ],
+  "schema_version": "tradex_experiment_family_v1",
+  "status_summary": {
+    "baseline_runs": 1,
+    "candidate_runs": 2,
+    "status_counts": {
+      "compared": 2,
+      "succeeded": 1
+    },
+    "total_runs": 3
+  },
+  "timezone": "Asia/Tokyo",
+  "universe": [
+    "7630",
+    "8410",
+    "9023",
+    "9006",
+    "3167",
+    "9432",
+    "8593",
+    "9831",
+    "9603",
+    "7868",
+    "2317",
+    "8425",
+    "8214",
+    "4666",
+    "4246",
+    "6412",
+    "9842",
+    "9076",
+    "9048",
+    "9504"
+  ]
+}

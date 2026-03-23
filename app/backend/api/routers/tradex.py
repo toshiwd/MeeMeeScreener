@@ -55,6 +55,10 @@ class TradexPlanSpec(BaseModel):
     plan_id: str = Field(min_length=1)
     plan_version: str | None = None
     label: str | None = None
+    method_id: str | None = None
+    method_title: str | None = None
+    method_thesis: str | None = None
+    method_family: str | None = None
     minimum_confidence: float | None = None
     minimum_ready_rate: float | None = None
     signal_bias: str | None = None

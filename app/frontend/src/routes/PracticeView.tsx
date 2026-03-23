@@ -129,6 +129,7 @@ export default function PracticeView() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionManagerOpen, setSessionManagerOpen] = useState(false);
+  const [startDatePickerOpen, setStartDatePickerOpen] = useState(false);
   const [startDate, setStartDate] = useState<string | null>(null);
   const [endDate, setEndDate] = useState<string | null>(null);
   const [startDateDraft, setStartDateDraft] = useState<string>("");
@@ -159,6 +160,7 @@ export default function PracticeView() {
   const [activeLineOpacity, setActiveLineOpacity] = useState(0.8);
   const [activeLineWidth, setActiveLineWidth] = useState(2);
   const [selectedDrawing, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
+  const suppressSessionFallbackRef = useRef(false);
   const COLOR_PALETTE = ["#ef4444", "#22c55e", "#0ea5e9", "#f59e0b", "#64748b"];
   const activeDrawColor = COLOR_PALETTE[activeDrawColorIndex] ?? "#64748b";
   const selectDrawTool = (tool: DrawTool | null) => {
@@ -226,6 +228,14 @@ export default function PracticeView() {
     void loadFavorites();
   }, [backendReady, favoritesLoaded, loadFavorites]);
 
+  useEffect(() => {
+    if (!startDatePickerOpen) return;
+    const timer = window.setTimeout(() => {
+      startDateInputRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [startDatePickerOpen]);
+
   const refreshSessions = useCallback((selectId?: string | null) => {
     if (!backendReady || !code) return;
     setSessionsLoading(true);
@@ -237,11 +247,20 @@ export default function PracticeView() {
         setSessions(items);
 
         if (selectId) {
+          suppressSessionFallbackRef.current = false;
           setSessionId(selectId);
           return;
         }
 
-        if (!sessionId || !items.some((item) => item.session_id === sessionId)) {
+        const hasCurrentSession = Boolean(sessionId && items.some((item) => item.session_id === sessionId));
+        if (suppressSessionFallbackRef.current) {
+          if (!hasCurrentSession) {
+            setSessionId(null);
+          }
+          return;
+        }
+
+        if (!hasCurrentSession) {
           const stored = sessionStorageKey ? localStorage.getItem(sessionStorageKey) : null;
           const fallback = items.find((item) => item.session_id === stored) ?? items[0] ?? null;
           if (fallback) {
@@ -260,6 +279,7 @@ export default function PracticeView() {
 
   useEffect(() => {
     if (!sessionStorageKey || !sessionId) return;
+    suppressSessionFallbackRef.current = false;
     localStorage.setItem(sessionStorageKey, sessionId);
   }, [sessionStorageKey, sessionId]);
 
@@ -652,15 +672,20 @@ export default function PracticeView() {
     cursorCandle && progressIndex != null ? `${headerDateLabel} (${headerDayLabel})` : headerDateLabel;
   const guideText = useMemo(() => {
     if (sessionsLoading) return "セッションを読み込んでいます...";
-    if (!sessionId) return "練習開始日を選んで開始日を確定してください。過去の練習は上部のボタンから開けます。";
-    if (!startDate) return "開始日を選んで「開始日を確定」を押してください";
+    if (!sessionId) return "開始日時を選んで練習を開始してください。";
+    if (!startDate) return "開始日を選んで練習を開始してください。";
     if (isLocked) return "過去日を表示中です。最新日に戻ると操作できます";
     return "建玉を操作して「翌日」で進めます（→キーでも可）";
   }, [sessionsLoading, sessionId, startDate, isLocked]);
   const sessionStateLabel = !sessionId ? "未開始" : endDate ? "終了済み" : "進行中";
   const sessionRangeLabel = sessionId
-    ? `開始 ${startDate ?? "--"} / 終了 ${endDate ?? "--"}`
+    ? endDate
+      ? `開始 ${startDate ?? "--"} / 終了 ${endDate ?? "--"}`
+      : `開始 ${startDate ?? "--"}`
     : "セッション未選択";
+  const sessionLauncherSummary = sessionId
+    ? `${sessionStateLabel} · ${sessionRangeLabel}`
+    : "開始日時を選択";
   const canUndo =
     !isLocked &&
     cursorTime != null &&
@@ -761,6 +786,10 @@ export default function PracticeView() {
         return;
       }
       if (event.key === "Escape") {
+        if (startDatePickerOpen) {
+          setStartDatePickerOpen(false);
+          return;
+        }
         setSessionManagerOpen(false);
         togglePanel(true);
         return;
@@ -774,13 +803,7 @@ export default function PracticeView() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleStep, toggleNotes, togglePanel, toggleTradeLog]);
-
-  useEffect(() => {
-    if (!panelCollapsed && !startDate && startDateInputRef.current) {
-      startDateInputRef.current.focus();
-    }
-  }, [panelCollapsed, startDate]);
+  }, [handleStep, startDatePickerOpen, toggleNotes, togglePanel, toggleTradeLog]);
 
   useEffect(() => {
     const handleMove = (event: MouseEvent | TouchEvent) => {
@@ -1041,10 +1064,12 @@ export default function PracticeView() {
   }, [editingTradeId, trades, cursorTime, isLocked]);
 
   const handleInitiateNewSession = () => {
+    suppressSessionFallbackRef.current = true;
     setSessionId(null);
     setStartDate(null);
     setEndDate(null);
     setStartDateDraft("");
+    setStartDatePickerOpen(false);
     setTrades([]);
     setSessionNotes("");
     setCursorTime(null);
@@ -1055,8 +1080,10 @@ export default function PracticeView() {
 
   const handleSelectSession = (nextId: string) => {
     if (nextId === sessionId) return;
+    suppressSessionFallbackRef.current = false;
     setSessionId(nextId);
     setSessionManagerOpen(false);
+    setStartDatePickerOpen(false);
   };
 
   const _handleEndSession = () => {
@@ -1070,6 +1097,7 @@ export default function PracticeView() {
     setToastMessage("練習を終了しました。");
     void persistSession({ endDate: date }).finally(() => {
       setSessionManagerOpen(false);
+      setStartDatePickerOpen(false);
       if (code) {
         navigate(`/detail/${code}`);
         return;
@@ -1468,7 +1496,9 @@ export default function PracticeView() {
         .post("/practice/session", payload)
         .then(() => {
           setToastMessage(startToast);
-          togglePanel(true);
+          suppressSessionFallbackRef.current = false;
+          setStartDatePickerOpen(false);
+          togglePanel(false);
           if (isNew) {
             refreshSessions(targetSessionId);
           } else {
@@ -1686,6 +1716,7 @@ export default function PracticeView() {
   const headerModeControls = (
     <DetailModeTabs
       activeMode="practice"
+      showAnalysis={false}
       onChart={() => {
         if (code) navigate(`/detail/${code}`);
       }}
@@ -1730,45 +1761,50 @@ export default function PracticeView() {
 
   const practiceTopbarControls = (
     <div className="practice-topbar-controls">
-      <div className="practice-session-launcher">
-        <div className="practice-header-label">練習開始日</div>
-        <div className="practice-session-controls">
-          <input
-            ref={startDateInputRef}
-            type="date"
-            value={startDateDraft}
-            onChange={(event) => {
-              const next = event.target.value;
-              setStartDateDraft(next);
-              if (!sessionId && next.length === 10) {
-                handleApplyStartDate(next);
-              }
-            }}
-          />
-          <button
-            className="indicator-button practice-session-confirm-button"
-            onClick={() => handleApplyStartDate()}
-          >
-            開始日を確定
-          </button>
-          <button
-            className="indicator-button practice-session-open-button"
-            onClick={() => setSessionManagerOpen(true)}
-          >
-            過去の練習を開く
-          </button>
-          <button
-            className="indicator-button practice-session-end-button"
-            onClick={() => _handleEndSession()}
-            disabled={!sessionId || Boolean(endDate)}
-          >
-            練習を終了
-          </button>
+      <div className={`practice-session-launcher ${sessionId ? "is-active" : "is-new"}`}>
+        <div className="practice-session-launcher-head">
+          <div className="practice-session-launcher-state">
+            <span className="practice-session-launcher-pill">{sessionStateLabel}</span>
+            <span className="practice-session-launcher-summary">{sessionLauncherSummary}</span>
+          </div>
+          <div className="practice-session-launcher-actions">
+            <button
+              className="indicator-button practice-session-open-button"
+              onClick={() => setSessionManagerOpen(true)}
+            >
+              過去の練習
+            </button>
+            {!sessionId && (
+              <button
+                className="indicator-button is-primary practice-session-open-button"
+                onClick={() => setStartDatePickerOpen((prev) => !prev)}
+              >
+                開始日時
+              </button>
+            )}
+          </div>
         </div>
-        <div className="practice-session-meta">
-          <span className="practice-session-state-text">{sessionStateLabel}</span>
-          <span className="practice-session-range-text">{sessionRangeLabel}</span>
-        </div>
+        {!sessionId && startDatePickerOpen && (
+          <div className="practice-session-picker">
+            <div className="practice-session-picker-title">開始日時</div>
+            <div className="practice-session-start-row">
+              <input
+                ref={startDateInputRef}
+                type="date"
+                value={startDateDraft}
+                onChange={(event) => {
+                  setStartDateDraft(event.target.value);
+                }}
+              />
+              <button
+                className="indicator-button is-primary practice-session-confirm-button"
+                onClick={() => handleApplyStartDate()}
+              >
+                練習を開始
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1908,7 +1944,7 @@ export default function PracticeView() {
         </div>
       )}
 
-      <div className={`practice-content-grid ${panelCollapsed ? "panel-collapsed" : ""}`}>
+      <div className={`practice-content-grid ${panelCollapsed || !sessionId ? "panel-collapsed" : ""}`}>
         <div className="practice-left-column">
           <div className="practice-charts">
             <div className="detail-split practice-split">
@@ -2254,6 +2290,7 @@ export default function PracticeView() {
             )}
           </div>
         </div>
+        {sessionId && !endDate && (
         <div className="practice-panel">
           <div className="practice-panel-header">
             <div>
@@ -2389,9 +2426,24 @@ export default function PracticeView() {
                       全決済
                     </button>
                   </div>
+                  {!endDate && sessionId && (
+                    <div className="practice-hud-footer">
+                      <div className="practice-hud-footer-note">
+                        現在の建玉を保持したままセッションを保存して終了します。
+                      </div>
+                      <button
+                        className="indicator-button is-primary practice-session-end-button"
+                        onClick={() => _handleEndSession()}
+                        disabled={!sessionId}
+                      >
+                        練習を終了
+                      </button>
+                    </div>
+                  )}
             </div>
           )}
         </div>
+        )}
       </div>
       <Toast
         message={toastMessage}

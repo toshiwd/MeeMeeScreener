@@ -2,8 +2,11 @@ type DetailMode = "chart" | "analysis" | "financial" | "practice" | "positions";
 
 type DetailModeTabsProps = {
   activeMode: DetailMode;
+  similarActive?: boolean;
+  showAnalysis?: boolean;
   onChart: () => void;
   onAnalysis: () => void;
+  onSimilar: () => void;
   onFinancial: () => void;
   onPractice: () => void;
   onPositions: () => void;
@@ -11,8 +14,11 @@ type DetailModeTabsProps = {
 
 export default function DetailModeTabs({
   activeMode,
+  similarActive,
+  showAnalysis = true,
   onChart,
   onAnalysis,
+  onSimilar,
   onFinancial,
   onPractice,
   onPositions
@@ -23,8 +29,13 @@ export default function DetailModeTabs({
         <button className={activeMode === "chart" ? "active" : ""} onClick={onChart}>
           チャート
         </button>
-        <button className={activeMode === "analysis" ? "active" : ""} onClick={onAnalysis}>
-          分析
+        {showAnalysis && (
+          <button className={activeMode === "analysis" ? "active" : ""} onClick={onAnalysis}>
+            分析
+          </button>
+        )}
+        <button className={similarActive ? "active" : ""} onClick={onSimilar} title="類似チャート検索">
+          類似
         </button>
         <button className={activeMode === "financial" ? "active" : ""} onClick={onFinancial}>
           財務

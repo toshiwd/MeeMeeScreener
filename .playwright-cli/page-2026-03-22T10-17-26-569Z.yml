@@ -1,0 +1,352 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]:
+          - generic [ref=e7]:
+            - generic [ref=e8]:
+              - generic [ref=e9]: MeeMee
+              - generic [ref=e10]: Screener
+            - navigation [ref=e11]:
+              - link "一覧" [ref=e12] [cursor=pointer]:
+                - /url: /
+              - link "ランキング" [ref=e13] [cursor=pointer]:
+                - /url: /ranking
+              - link "市場" [ref=e14] [cursor=pointer]:
+                - /url: /market
+              - link "建玉" [ref=e15] [cursor=pointer]:
+                - /url: /positions
+              - link "お気に入り" [ref=e16] [cursor=pointer]:
+                - /url: /favorites
+              - link "候補" [ref=e17] [cursor=pointer]:
+                - /url: /candidates
+          - generic [ref=e67]:
+            - button "並び替えメニューを開く" [ref=e69] [cursor=pointer]:
+              - generic [ref=e70]: "並び: コード順"
+            - button "表示密度メニューを開く" [ref=e72] [cursor=pointer]:
+              - generic [ref=e73]: 表示密度
+            - button "フィルタ" [ref=e75] [cursor=pointer]:
+              - generic [ref=e76]: フィルタ
+            - button "日次更新" [ref=e78] [cursor=pointer]:
+              - generic [ref=e79]: 日次更新
+            - button "設定メニューを開く" [ref=e81] [cursor=pointer]:
+              - img [ref=e83]
+        - generic [ref=e18]:
+          - generic [ref=e19]:
+            - button "月足" [ref=e20] [cursor=pointer]
+            - button "週足" [ref=e21] [cursor=pointer]
+            - button "日足" [ref=e22] [cursor=pointer]
+          - generic "グリッド表示本数" [ref=e23]:
+            - generic [ref=e24]: 3x3
+            - generic [ref=e25]: 60本
+          - button "業種" [ref=e87] [cursor=pointer]:
+            - generic [ref=e88]: 業種
+          - searchbox "コード / 銘柄名で検索" [ref=e27]
+          - generic [ref=e28]:
+            - generic [ref=e29]: "状態: 待機中"
+            - generic [ref=e30]: "イベント最終更新: 2026/03/22"
+            - generic [ref=e31]: "権利データ範囲: ～2026/03/27"
+    - generic [ref=e91]:
+      - button "1001 日経225 お気に入り追加 候補に追加 除外 詳細を開く 日付 24/08/01 終値 38,647 前日比 -1.2%" [ref=e93] [cursor=pointer]:
+        - generic [ref=e94]:
+          - generic [ref=e95]:
+            - generic [ref=e96]: "1001"
+            - generic [ref=e97]: 日経225
+          - generic [ref=e99]:
+            - button "お気に入り追加" [ref=e100]:
+              - img [ref=e101]
+            - button "候補に追加" [ref=e103]: +
+            - button "除外" [ref=e104]: x
+            - button "詳細を開く" [ref=e105]: ">"
+        - generic [ref=e108]:
+          - generic:
+            - generic: 日付
+            - generic: 24/08/01
+            - generic: 終値
+            - generic: 38,647
+            - generic: 前日比
+            - generic: "-1.2%"
+      - button "1306 NEXT TOPIX ETF お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 3,791 前日比 -8.2%" [ref=e111] [cursor=pointer]:
+        - generic [ref=e112]:
+          - generic [ref=e113]:
+            - generic [ref=e114]: "1306"
+            - generic [ref=e115]: NEXT TOPIX ETF
+          - generic [ref=e117]:
+            - button "お気に入り追加" [ref=e118]:
+              - img [ref=e119]
+            - button "候補に追加" [ref=e121]: +
+            - button "除外" [ref=e122]: x
+            - button "詳細を開く" [ref=e123]: ">"
+        - generic [ref=e126]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 3,791
+            - generic: 前日比
+            - generic: "-8.2%"
+      - button "1308 日興TOPIX ETF お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 3,747 前日比 -8.3%" [ref=e129] [cursor=pointer]:
+        - generic [ref=e130]:
+          - generic [ref=e131]:
+            - generic [ref=e132]: "1308"
+            - generic [ref=e133]: 日興TOPIX ETF
+          - generic [ref=e135]:
+            - button "お気に入り追加" [ref=e136]:
+              - img [ref=e137]
+            - button "候補に追加" [ref=e139]: +
+            - button "除外" [ref=e140]: x
+            - button "詳細を開く" [ref=e141]: ">"
+        - generic [ref=e144]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 3,747
+            - generic: 前日比
+            - generic: "-8.3%"
+      - button "1332 ニッスイ(日本水産) お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 1,372 前日比 -11.4%" [ref=e147] [cursor=pointer]:
+        - generic [ref=e148]:
+          - generic [ref=e149]:
+            - generic [ref=e150]: "1332"
+            - generic [ref=e151]: ニッスイ(日本水産)
+          - generic [ref=e153]:
+            - button "お気に入り追加" [ref=e154]:
+              - img [ref=e155]
+            - button "候補に追加" [ref=e157]: +
+            - button "除外" [ref=e158]: x
+            - button "詳細を開く" [ref=e159]: ">"
+        - generic [ref=e162]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 1,372
+            - generic: 前日比
+            - generic: "-11.4%"
+      - button "1357 NEXT日経ダブルインバETF お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 4,936 前日比 +18.7%" [ref=e165] [cursor=pointer]:
+        - generic [ref=e166]:
+          - generic [ref=e167]:
+            - generic [ref=e168]: "1357"
+            - generic [ref=e169]: NEXT日経ダブルインバETF
+          - generic [ref=e171]:
+            - button "お気に入り追加" [ref=e172]:
+              - img [ref=e173]
+            - button "候補に追加" [ref=e175]: +
+            - button "除外" [ref=e176]: x
+            - button "詳細を開く" [ref=e177]: ">"
+        - generic [ref=e180]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 4,936
+            - generic: 前日比
+            - generic: +18.7%
+      - button "1375 ユキグニ(雪国まいたけ) お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 1,069 前日比 -3.0%" [ref=e183] [cursor=pointer]:
+        - generic [ref=e184]:
+          - generic [ref=e185]:
+            - generic [ref=e186]: "1375"
+            - generic [ref=e187]: ユキグニ(雪国まいたけ)
+          - generic [ref=e189]:
+            - button "お気に入り追加" [ref=e190]:
+              - img [ref=e191]
+            - button "候補に追加" [ref=e193]: +
+            - button "除外" [ref=e194]: x
+            - button "詳細を開く" [ref=e195]: ">"
+        - generic [ref=e198]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 1,069
+            - generic: 前日比
+            - generic: "-3.0%"
+      - button "1414 ショーボンドHD お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 1,413 前日比 -3.9%" [ref=e201] [cursor=pointer]:
+        - generic [ref=e202]:
+          - generic [ref=e203]:
+            - generic [ref=e204]: "1414"
+            - generic [ref=e205]: ショーボンドHD
+          - generic [ref=e207]:
+            - button "お気に入り追加" [ref=e208]:
+              - img [ref=e209]
+            - button "候補に追加" [ref=e211]: +
+            - button "除外" [ref=e212]: x
+            - button "詳細を開く" [ref=e213]: ">"
+        - generic [ref=e216]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 1,413
+            - generic: 前日比
+            - generic: "-3.9%"
+      - button "1417 ミライト・ワン お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 3,658 前日比 -9.9%" [ref=e219] [cursor=pointer]:
+        - generic [ref=e220]:
+          - generic [ref=e221]:
+            - generic [ref=e222]: "1417"
+            - generic [ref=e223]: ミライト・ワン
+          - generic [ref=e225]:
+            - button "お気に入り追加" [ref=e226]:
+              - img [ref=e227]
+            - button "候補に追加" [ref=e229]: +
+            - button "除外" [ref=e230]: x
+            - button "詳細を開く" [ref=e231]: ">"
+        - generic [ref=e234]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 3,658
+            - generic: 前日比
+            - generic: "-9.9%"
+      - button "1419 タマホーム お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 3,960 前日比 -1.0%" [ref=e237] [cursor=pointer]:
+        - generic [ref=e238]:
+          - generic [ref=e239]:
+            - generic [ref=e240]: "1419"
+            - generic [ref=e241]: タマホーム
+          - generic [ref=e243]:
+            - button "お気に入り追加" [ref=e244]:
+              - img [ref=e245]
+            - button "候補に追加" [ref=e247]: +
+            - button "除外" [ref=e248]: x
+            - button "詳細を開く" [ref=e249]: ">"
+        - generic [ref=e252]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 3,960
+            - generic: 前日比
+            - generic: "-1.0%"
+      - button "1478 iシェア高配当ETF お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 4,864 前日比 -7.5%" [ref=e255] [cursor=pointer]:
+        - generic [ref=e256]:
+          - generic [ref=e257]:
+            - generic [ref=e258]: "1478"
+            - generic [ref=e259]: iシェア高配当ETF
+          - generic [ref=e261]:
+            - button "お気に入り追加" [ref=e262]:
+              - img [ref=e263]
+            - button "候補に追加" [ref=e265]: +
+            - button "除外" [ref=e266]: x
+            - button "詳細を開く" [ref=e267]: ">"
+        - generic [ref=e270]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 4,864
+            - generic: 前日比
+            - generic: "-7.5%"
+      - button "1489 NEXT日経平均高配当50ETF お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 3,110 前日比 -8.5%" [ref=e273] [cursor=pointer]:
+        - generic [ref=e274]:
+          - generic [ref=e275]:
+            - generic [ref=e276]: "1489"
+            - generic [ref=e277]: NEXT日経平均高配当50ETF
+          - generic [ref=e279]:
+            - button "お気に入り追加" [ref=e280]:
+              - img [ref=e281]
+            - button "候補に追加" [ref=e283]: +
+            - button "除外" [ref=e284]: x
+            - button "詳細を開く" [ref=e285]: ">"
+        - generic [ref=e288]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 3,110
+            - generic: 前日比
+            - generic: "-8.5%"
+      - button "1514 住石HD お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 185 前日比 +1.8%" [ref=e291] [cursor=pointer]:
+        - generic [ref=e292]:
+          - generic [ref=e293]:
+            - generic [ref=e294]: "1514"
+            - generic [ref=e295]: 住石HD
+          - generic [ref=e297]:
+            - button "お気に入り追加" [ref=e298]:
+              - img [ref=e299]
+            - button "候補に追加" [ref=e301]: +
+            - button "除外" [ref=e302]: x
+            - button "詳細を開く" [ref=e303]: ">"
+        - generic [ref=e306]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: "185"
+            - generic: 前日比
+            - generic: +1.8%
+      - button "1518 三井松島HD お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 1,395 前日比 -7.7%" [ref=e309] [cursor=pointer]:
+        - generic [ref=e310]:
+          - generic [ref=e311]:
+            - generic [ref=e312]: "1518"
+            - generic [ref=e313]: 三井松島HD
+          - generic [ref=e315]:
+            - button "お気に入り追加" [ref=e316]:
+              - img [ref=e317]
+            - button "候補に追加" [ref=e319]: +
+            - button "除外" [ref=e320]: x
+            - button "詳細を開く" [ref=e321]: ">"
+        - generic [ref=e324]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 1,395
+            - generic: 前日比
+            - generic: "-7.7%"
+      - button "1540 純金ETF お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 23,040 前日比 -6.4%" [ref=e327] [cursor=pointer]:
+        - generic [ref=e328]:
+          - generic [ref=e329]:
+            - generic [ref=e330]: "1540"
+            - generic [ref=e331]: 純金ETF
+          - generic [ref=e333]:
+            - button "お気に入り追加" [ref=e334]:
+              - img [ref=e335]
+            - button "候補に追加" [ref=e337]: +
+            - button "除外" [ref=e338]: x
+            - button "詳細を開く" [ref=e339]: ">"
+        - generic [ref=e342]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 23,040
+            - generic: 前日比
+            - generic: "-6.4%"
+      - button "1545 NEXT NASDAQ-100 ETF お気に入り追加 候補に追加 除外 詳細を開く 日付 26/03/01 終値 39,350 前日比 +0.1%" [ref=e345] [cursor=pointer]:
+        - generic [ref=e346]:
+          - generic [ref=e347]:
+            - generic [ref=e348]: "1545"
+            - generic [ref=e349]: NEXT NASDAQ-100 ETF
+          - generic [ref=e351]:
+            - button "お気に入り追加" [ref=e352]:
+              - img [ref=e353]
+            - button "候補に追加" [ref=e355]: +
+            - button "除外" [ref=e356]: x
+            - button "詳細を開く" [ref=e357]: ">"
+        - generic [ref=e360]:
+          - generic:
+            - generic: 日付
+            - generic: 26/03/01
+            - generic: 終値
+            - generic: 39,350
+            - generic: 前日比
+            - generic: +0.1%
+    - generic:
+      - button "相談バーを展開する"
+      - generic:
+        - generic:
+          - generic: 候補 0件
+        - generic:
+          - button "相談作成" [disabled]
+          - button "コピー" [disabled]
+          - button "閉じる"
