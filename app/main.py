@@ -174,6 +174,7 @@ sys.path.insert(0, os.getcwd())
 from app.backend.api.dependencies import get_config_repo, init_resources
 from app.backend.api.routers import (
     analysis_bridge,
+    ai_explain,
     bars,
     grid,
     system,
@@ -511,6 +512,7 @@ def create_app() -> FastAPI:
     app.include_router(tradex.router)
     app.include_router(toredex.router)
     app.include_router(rankings.router)
+    app.include_router(ai_explain.router)
     app.include_router(watchlist_routes.router)
     app.include_router(spa.router)
 

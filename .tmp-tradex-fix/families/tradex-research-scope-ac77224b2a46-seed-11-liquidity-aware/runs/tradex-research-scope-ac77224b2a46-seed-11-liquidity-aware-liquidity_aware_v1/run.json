@@ -1,0 +1,110 @@
+{
+  "analysis": {},
+  "baseline_version": "v1",
+  "completed_at": "2026-03-23T08:58:07.792199+00:00",
+  "confirmed_only": true,
+  "data_cutoff_at": "2000-01-05",
+  "diagnostics_schema_version": "tradex_diagnostics_v1",
+  "effective_config": {
+    "effective_parameters": {
+      "label": "流動性ふるい残し",
+      "method_family": "liquidity-aware",
+      "method_id": "liquidity_aware_v1",
+      "method_thesis": "流動性の弱い候補を上位から外しやすくする。",
+      "method_title": "流動性ふるい残し",
+      "minimum_confidence": 0.6,
+      "minimum_ready_rate": 0.5,
+      "notes": "liquidity-aware:liquidity_aware_v1",
+      "plan_id": "liquidity_aware_v1",
+      "plan_version": "v1",
+      "playbook_down_score_bonus": 0.0,
+      "playbook_up_score_bonus": 0.015,
+      "ret20_source_mode": "precomputed",
+      "signal_bias": "balanced",
+      "top_k": 5
+    },
+    "method_metadata": {
+      "method_family": "liquidity-aware",
+      "method_id": "liquidity_aware_v1",
+      "method_thesis": "流動性の弱い候補を上位から外しやすくする。",
+      "method_title": "流動性ふるい残し"
+    },
+    "plan_hash": "92d4e19913124737ccd83e82c7313469b4d11b6b8a1161a49c1f8cfab86e965d",
+    "plan_id": "liquidity_aware_v1",
+    "plan_version": "v1",
+    "readiness_config_hash": "c1b557ee73d70c35406f0f3b5b11ee4fcb6ab40e45f5ec8f35c3260943073a95"
+  },
+  "engine_diagnostics": {},
+  "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener-dev\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n\nFile is already open in \nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 4728)",
+  "family_id": "tradex-research-scope-ac77224b2a46-seed-11-liquidity-aware",
+  "input_dataset_version": "session:scope-ac77224b2a46-seed-11:seed:11",
+  "method_family": "liquidity-aware",
+  "method_id": "liquidity_aware_v1",
+  "method_thesis": "流動性の弱い候補を上位から外しやすくする。",
+  "method_title": "流動性ふるい残し",
+  "metrics": {},
+  "notes": "流動性ふるい残し",
+  "period": {
+    "segments": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "start_date": "1999-10-29"
+      }
+    ]
+  },
+  "plan_id": "liquidity_aware_v1",
+  "plan_version": "v1",
+  "price_source": "daily_bars",
+  "random_seed": 11,
+  "readiness_summary": {},
+  "run_id": "tradex-research-scope-ac77224b2a46-seed-11-liquidity-aware-liquidity_aware_v1",
+  "run_kind": "candidate",
+  "schema_version": "tradex_experiment_run_v1",
+  "started_at": "2026-03-23T08:58:04.097886+00:00",
+  "status": "failed",
+  "summary": {},
+  "timezone": "Asia/Tokyo",
+  "universe": [
+    "2503",
+    "2587",
+    "2695",
+    "2871",
+    "3401",
+    "3548",
+    "4063",
+    "4301",
+    "4565",
+    "5019",
+    "5713",
+    "6178",
+    "6814",
+    "6857",
+    "7180",
+    "7203",
+    "7272",
+    "7337",
+    "7419",
+    "7747",
+    "7912",
+    "8359",
+    "8698",
+    "8984",
+    "9202",
+    "9467",
+    "9616",
+    "9763",
+    "9962",
+    "9984"
+  ]
+}

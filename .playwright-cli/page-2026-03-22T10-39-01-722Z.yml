@@ -1,0 +1,203 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - button "一覧に戻る" [ref=e8] [cursor=pointer]:
+          - img [ref=e10]
+          - generic [ref=e13]: 一覧に戻る
+        - generic [ref=e15]:
+          - generic [ref=e16]: "1514"
+          - generic [ref=e17]: 住石HD
+          - button "シグナル 1" [ref=e19] [cursor=pointer]:
+            - img [ref=e21]
+        - generic [ref=e25]:
+          - button "チャート" [ref=e26] [cursor=pointer]
+          - button "類似" [ref=e27] [cursor=pointer]
+          - button "財務" [ref=e28] [cursor=pointer]
+          - button "建玉" [ref=e29] [cursor=pointer]
+          - button "練習" [ref=e30] [cursor=pointer]
+      - generic [ref=e31]:
+        - button "表示設定メニューを開く" [ref=e33] [cursor=pointer]:
+          - img [ref=e35]
+          - generic [ref=e39]: 表示
+        - button "スクショ" [ref=e40] [cursor=pointer]:
+          - img [ref=e42]
+          - generic [ref=e45]: スクショ
+        - button "カーソルOFF" [ref=e46] [cursor=pointer]:
+          - img [ref=e48]
+          - generic [ref=e51]: カーソルOFF
+        - generic [ref=e53]:
+          - button "時間ゾーン描画" [ref=e54] [cursor=pointer]:
+            - img [ref=e56]
+          - button "四角描画" [ref=e60] [cursor=pointer]:
+            - img [ref=e62]
+          - button "価格帯描画" [ref=e66] [cursor=pointer]:
+            - generic [ref=e68]: ▭
+          - button "水平線描画" [ref=e69] [cursor=pointer]:
+            - img [ref=e71]
+          - button "描画をリセット" [ref=e72] [cursor=pointer]:
+            - img [ref=e74]
+      - generic:
+        - generic [ref=e77]:
+          - button "お気に入り追加" [ref=e78] [cursor=pointer]:
+            - img [ref=e79]
+          - button "前の銘柄" [ref=e81] [cursor=pointer]:
+            - img [ref=e83]
+            - generic [ref=e86]: 前の銘柄
+          - button "次の銘柄" [ref=e87] [cursor=pointer]:
+            - img [ref=e89]
+            - generic [ref=e92]: 次の銘柄
+        - generic [ref=e93]:
+          - button "3M" [ref=e94] [cursor=pointer]
+          - button "6M" [ref=e95] [cursor=pointer]
+          - button "1Y" [ref=e96] [cursor=pointer]
+          - button "2Y" [ref=e97] [cursor=pointer]
+    - generic [ref=e99]:
+      - generic [ref=e100]:
+        - generic [ref=e101]: Daily
+        - generic [ref=e103]:
+          - table [ref=e106]:
+            - row [ref=e107]:
+              - cell
+              - cell [ref=e108]
+              - cell [ref=e112]
+            - row [ref=e116]:
+              - cell
+              - cell [ref=e117]
+              - cell [ref=e121]
+          - generic:
+            - generic:
+              - generic:
+                - generic: "1"
+                - generic: "0"
+          - generic:
+            - generic:
+              - generic: 26/03/19
+              - generic: 前日比-71 (-7.03%)
+            - generic:
+              - generic: O
+              - generic: 1,063
+              - generic: H
+              - generic: 1,068
+              - generic: L
+              - generic: "939"
+              - generic: C
+              - generic: "939"
+              - generic: 出来高
+              - generic: 2,458
+            - generic:
+              - generic:
+                - generic: 7MA
+                - generic: 1,011
+              - generic:
+                - generic: 20MA
+                - generic: "960"
+              - generic:
+                - generic: 60MA
+                - generic: "769"
+              - generic:
+                - generic: 100MA
+                - generic: "686"
+              - generic:
+                - generic: 200MA
+                - generic: "656"
+            - generic:
+              - generic: 本数
+              - generic:
+                - generic: 7MA
+                - generic: 上0 / 下2
+              - generic:
+                - generic: 20MA
+                - generic: 上0 / 下1
+              - generic:
+                - generic: 60MA
+                - generic: 上49 / 下0
+              - generic:
+                - generic: 100MA
+                - generic: 上47 / 下0
+              - generic:
+                - generic: 200MA
+                - generic: 上35 / 下0
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 建玉
+                  - generic:
+                    - generic: RAKUTEN
+                    - generic:
+                      - generic: "1"
+                      - generic: "0"
+                - generic:
+                  - generic: 評価損益
+                  - generic: "-5,700"
+                - generic:
+                  - generic: 実現損益
+                  - generic: "0"
+                - generic:
+                  - generic: 合計
+                  - generic: "-5,700"
+      - generic [ref=e124]:
+        - generic [ref=e125]:
+          - generic [ref=e126]: Weekly
+          - table [ref=e131]:
+            - row [ref=e132]:
+              - cell
+              - cell [ref=e133]
+              - cell [ref=e137]
+            - row [ref=e141]:
+              - cell
+              - cell [ref=e142]
+              - cell [ref=e146]
+        - generic [ref=e150]:
+          - generic [ref=e151]: Monthly
+          - table [ref=e156]:
+            - row [ref=e157]:
+              - cell
+              - cell [ref=e158]
+              - cell [ref=e162]
+            - row [ref=e166]:
+              - cell
+              - cell [ref=e167]
+              - cell [ref=e171]
+    - generic [ref=e174]:
+      - button "Load more daily/monthly" [ref=e176] [cursor=pointer]
+      - generic [ref=e177]: Daily 2000 bars | Weekly 428 bars | Monthly 210 bars
+    - generic:
+      - button "AI解説を閉じる" [expanded] [ref=e182] [cursor=pointer]:
+        - img [ref=e179]
+        - generic [ref=e181]: 閉じる
+      - generic [ref=e183]:
+        - generic [ref=e184]:
+          - generic [ref=e185]:
+            - generic [ref=e186]: AI解説
+            - generic [ref=e187]: "対象: 1514 住石HD"
+            - generic [ref=e188]: sakura / preview/Kimi-K2.5
+          - button "閉じる" [ref=e190] [cursor=pointer]:
+            - img [ref=e191]
+            - generic [ref=e194]: 閉じる
+        - generic [ref=e195]:
+          - generic [ref=e196]:
+            - button "なぜ上位？" [disabled] [ref=e197]
+            - button "注意点" [disabled] [ref=e198]
+            - button "要約" [disabled] [ref=e199]
+          - generic [ref=e200]:
+            - textbox "質問を入力" [ref=e201]: 1514 住石HD の見どころを短く説明して
+            - button "送信中..." [disabled] [ref=e213]:
+              - img [ref=e203]
+              - generic [ref=e206]: 送信中...
+          - generic [ref=e207]:
+            - generic [ref=e208]: "質問: 1514 住石HD の見どころを短く説明して"
+            - generic [ref=e209]: "--"
+            - generic [ref=e210]: "--"
+            - generic [ref=e211]: "--"
+            - generic [ref=e212]: explain
+          - generic [ref=e214]: AI解説を取得中...

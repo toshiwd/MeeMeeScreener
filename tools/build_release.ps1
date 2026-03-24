@@ -153,6 +153,7 @@ print(json.dumps(missing))
         "--hidden-import", "clr",
         "--hidden-import", "clr_loader",
         "--hidden-import", "System",
+        "--hidden-import", "win32timezone",
         "--hidden-import", "webview.platforms.winforms",
         "--collect-submodules", "multipart",
         "--collect-all", "uvicorn",

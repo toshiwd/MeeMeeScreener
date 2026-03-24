@@ -1,6 +1,7 @@
 import { Suspense, lazy, useLayoutEffect } from "react";
 import { Route, Routes } from "react-router-dom";
 import { BackendReadyProvider } from "./backendReady";
+import { AiExplainProvider } from "./features/aiExplain/AiExplainProvider";
 import { applyTheme, getStoredTheme } from "./utils/theme";
 
 const GridView = lazy(() => import("./routes/GridView"));
@@ -20,18 +21,20 @@ export default function App() {
 
   return (
     <BackendReadyProvider>
-      <Suspense fallback={null}>
-        <Routes>
-          <Route path="/" element={<GridView />} />
-          <Route path="/ranking" element={<RankingView />} />
-          <Route path="/favorites" element={<FavoritesView />} />
-          <Route path="/candidates" element={<CandidatesView />} />
-          <Route path="/positions" element={<PositionsView />} />
-          <Route path="/market" element={<MarketView />} />
-          <Route path="/detail/:code" element={<DetailView />} />
-          <Route path="/practice/:code" element={<PracticeView />} />
-        </Routes>
-      </Suspense>
+      <AiExplainProvider>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route path="/" element={<GridView />} />
+            <Route path="/ranking" element={<RankingView />} />
+            <Route path="/favorites" element={<FavoritesView />} />
+            <Route path="/candidates" element={<CandidatesView />} />
+            <Route path="/positions" element={<PositionsView />} />
+            <Route path="/market" element={<MarketView />} />
+            <Route path="/detail/:code" element={<DetailView />} />
+            <Route path="/practice/:code" element={<PracticeView />} />
+          </Routes>
+        </Suspense>
+      </AiExplainProvider>
     </BackendReadyProvider>
   );
 }

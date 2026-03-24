@@ -128,6 +128,54 @@ V1 vs V2 boundary:
 - publish registry state remains governed by publish promotion rules, not analysis execution
 - UI is outside this boundary
 
+## MeeMee Consumption Boundary
+
+MeeMee may consume the following TRADEX diagnostics as evidence only:
+
+- `waterfall_summary`
+- `readiness_summary`
+- reason-code aggregates
+- `selection_summary` when it includes `kind="proxy"` and `source="timeline_metrics"`
+- `diagnostics_schema_version`
+
+MeeMee must not treat the selection proxy as an operational winner-selection backtest or a direct source of truth for trading decisions.
+
+## Champion / Challenger Evaluation Boundary
+
+TRADEX may run a champion / challenger evaluation over confirmed data and write a compare artifact plus a short markdown report.
+
+Definitions:
+
+- champion: the current ranking logic that MeeMee already uses
+- challenger: one candidate selection logic variant evaluated only inside TRADEX
+- promote_ready: a TRADEX-side evaluation flag that means "candidate is eligible for manual review", not "auto promote now"
+
+Rules:
+
+- the evaluation must use the same universe, same period, same execution assumption, and same top-K for champion and challenger
+- the evaluation may summarize regime windows, but it must not replace the proxy selection summary with a backtest claim
+- MeeMee must not connect challenger output to its runtime ranking or promotion path in this slice
+- manual promotion only: even when `promote_ready=true`, the challenger stays isolated until a separate operator action promotes it
+- the single-machine research runner must be reproducible by `session_id` and `random_seed`; the same session inputs must yield the same evaluation set and candidate order
+- scope-sensitive research must also record `session_scope_id`; the same `session_id` / `session_scope_id` / `random_seed` tuple must reproduce the same evaluation scope
+- the compare artifact is the source of truth; the markdown report is a derived human-readable summary
+- window length has two fixed tiers: standard evaluation uses 60 trading days, while the research fallback may use 20 trading days when the current confirmed data does not provide three 60-day regime windows
+- the research runner requires legacy analysis to be enabled; if `MEEMEE_DISABLE_LEGACY_ANALYSIS=1`, it must fail explicitly instead of silently running with empty timelines
+- each research session must record `eval_window_mode=standard|fallback` plus the reason it selected that mode
+- each research session must also record `ret20_source_mode=precomputed|derived_from_daily_bars` and the reason it selected that mode; `precomputed` reads `shortRet20` from the analysis timeline, while `derived_from_daily_bars` recomputes `ret_20` from code-specific daily bars for research only
+- `ret20_source_mode` must be session-fixed; mixed source modes in one session are invalid and must not be used for pruning or comparison claims
+- `ret20_source_missing` must be reported with code/date-level coverage details, including the checked source table, join status, expected future trade date, and the last available trade date for the code
+- each research session must also record the first zero stage in the coverage waterfall so sample collapse can be localized instead of inferred
+- the stability rollup should aggregate multiple seeds and keep fallback usage visible rather than hiding it behind a successful status
+- a research session with `sample_count=0` is invalid even if the runner finished; it must not be treated as a successful comparison
+- sample-count-invalid sessions must not be used for family pruning, scope pruning, or session rollups that claim valid comparative evidence
+
+Method metadata rules:
+
+- every challenger plan should carry `method_id`, `method_title`, `method_thesis`, and `method_family`
+- compare artifacts and markdown reports should surface the human-readable method title so research sessions can be reviewed by name
+- the research runner may orchestrate multiple challenger families inside TRADEX, but it remains an internal research tool and does not mutate MeeMee ranking output
+
 ## Next Cut Line
 
 The next carve-out should move analysis code toward these three contracts without changing publish / runtime operator behavior:

@@ -1,0 +1,100 @@
+{
+  "analysis": {},
+  "baseline_version": "v1",
+  "completed_at": "2026-03-23T07:52:40.204254+00:00",
+  "confirmed_only": true,
+  "data_cutoff_at": "2000-01-05",
+  "diagnostics_schema_version": "tradex_diagnostics_v1",
+  "effective_config": {
+    "effective_parameters": {
+      "label": "既存点数の再尺度化",
+      "method_family": "existing-score rescaled",
+      "method_id": "existing_score_rescaled_v1",
+      "method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+      "method_title": "既存点数の再尺度化",
+      "minimum_confidence": 0.56,
+      "minimum_ready_rate": 0.45,
+      "notes": "existing-score rescaled:existing_score_rescaled_v1",
+      "plan_id": "existing_score_rescaled_v1",
+      "plan_version": "v1",
+      "playbook_down_score_bonus": 0.0,
+      "playbook_up_score_bonus": 0.02,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "signal_bias": "balanced",
+      "top_k": 5
+    },
+    "method_metadata": {
+      "method_family": "existing-score rescaled",
+      "method_id": "existing_score_rescaled_v1",
+      "method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+      "method_title": "既存点数の再尺度化"
+    },
+    "plan_hash": "4e65ee02c77fb8093e4c72fb6707981efc16be05110cbcf7ca79eaa9d9af042a",
+    "plan_id": "existing_score_rescaled_v1",
+    "plan_version": "v1",
+    "readiness_config_hash": "c1b557ee73d70c35406f0f3b5b11ee4fcb6ab40e45f5ec8f35c3260943073a95"
+  },
+  "engine_diagnostics": {},
+  "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener-dev\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n\nFile is already open in \nC:\\Users\\enish\\AppData\\Local\\Programs\\Python\\Python312\\python.exe (PID 30892)",
+  "family_id": "tradex-research-scope-8ccd9e595e2b-seed-29-existing-score-rescaled",
+  "input_dataset_version": "session:scope-8ccd9e595e2b-seed-29:seed:29",
+  "method_family": "existing-score rescaled",
+  "method_id": "existing_score_rescaled_v1",
+  "method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+  "method_title": "既存点数の再尺度化",
+  "metrics": {},
+  "notes": "既存点数の再尺度化",
+  "period": {
+    "segments": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "start_date": "1999-10-29"
+      }
+    ]
+  },
+  "plan_id": "existing_score_rescaled_v1",
+  "plan_version": "v1",
+  "price_source": "daily_bars",
+  "random_seed": 29,
+  "readiness_summary": {},
+  "run_id": "tradex-research-scope-8ccd9e595e2b-seed-29-existing-score-rescaled-existing_score_rescaled_v1",
+  "run_kind": "candidate",
+  "schema_version": "tradex_experiment_run_v1",
+  "started_at": "2026-03-23T07:52:33.466126+00:00",
+  "status": "failed",
+  "summary": {},
+  "timezone": "Asia/Tokyo",
+  "universe": [
+    "2980",
+    "3086",
+    "3292",
+    "3655",
+    "3778",
+    "4021",
+    "4293",
+    "4431",
+    "4527",
+    "4776",
+    "4825",
+    "5032",
+    "5333",
+    "5741",
+    "6027",
+    "6113",
+    "7033",
+    "7419",
+    "9005",
+    "9706"
+  ]
+}

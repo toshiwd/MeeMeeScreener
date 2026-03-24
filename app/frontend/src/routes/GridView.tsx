@@ -35,6 +35,7 @@ import {
   IconBuildingArch // Added IconBuildingArch for Sector Sort
 } from "@tabler/icons-react";
 import TechnicalFilterDrawer from "../components/TechnicalFilterDrawer";
+import AiExplainSettingsSection from "../features/aiExplain/AiExplainSettingsSection";
 import { computeSignalMetrics } from "../utils/signals";
 import {
   buildConsultationPack,
@@ -3492,6 +3493,7 @@ export default function GridView() {
                               <div className="popover-hint">エラー: {eventsLastError}</div>
                             )}
                           </div>
+                          <AiExplainSettingsSection />
                         </>
                       )}
                       <div

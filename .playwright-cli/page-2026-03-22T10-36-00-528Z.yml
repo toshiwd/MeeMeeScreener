@@ -1,0 +1,52 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e7]:
+          - generic [ref=e8]:
+            - generic [ref=e9]: MeeMee
+            - generic [ref=e10]: Screener
+          - navigation [ref=e11]:
+            - link "一覧" [ref=e12] [cursor=pointer]:
+              - /url: /
+            - link "ランキング" [ref=e13] [cursor=pointer]:
+              - /url: /ranking
+            - link "市場" [ref=e14] [cursor=pointer]:
+              - /url: /market
+            - link "建玉" [ref=e15] [cursor=pointer]:
+              - /url: /positions
+            - link "お気に入り" [ref=e16] [cursor=pointer]:
+              - /url: /favorites
+            - link "候補" [ref=e17] [cursor=pointer]:
+              - /url: /candidates
+        - generic [ref=e18]:
+          - generic [ref=e19]:
+            - button "月足" [ref=e20] [cursor=pointer]
+            - button "週足" [ref=e21] [cursor=pointer]
+            - button "日足" [ref=e22] [cursor=pointer]
+          - generic "グリッド表示本数" [ref=e23]:
+            - generic [ref=e24]: 3x3
+            - generic [ref=e25]: 60本
+          - searchbox "コード / 銘柄名で検索" [ref=e27]
+          - generic [ref=e28]:
+            - generic [ref=e29]: "状態: 待機中"
+            - generic [ref=e30]: "イベント最終更新: 2026/03/22"
+            - generic [ref=e31]: "権利データ範囲: ～2026/03/27"
+    - generic:
+      - button "相談バーを展開する"
+      - generic:
+        - generic:
+          - generic: 候補 0件
+        - generic:
+          - button "相談作成" [disabled]
+          - button "コピー" [disabled]
+          - button "閉じる"

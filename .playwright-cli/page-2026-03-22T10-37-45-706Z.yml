@@ -1,0 +1,187 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e396]:
+    - generic [ref=e398]:
+      - generic [ref=e399]:
+        - button "一覧に戻る" [ref=e401] [cursor=pointer]:
+          - img [ref=e403]
+          - generic [ref=e406]: 一覧に戻る
+        - generic [ref=e408]:
+          - generic [ref=e409]: "1001"
+          - generic [ref=e410]: 日経225
+          - button "シグナル 2" [ref=e412] [cursor=pointer]:
+            - img [ref=e414]
+        - generic [ref=e418]:
+          - button "チャート" [ref=e419] [cursor=pointer]
+          - button "類似" [ref=e420] [cursor=pointer]
+          - button "財務" [ref=e421] [cursor=pointer]
+          - button "建玉" [ref=e422] [cursor=pointer]
+          - button "練習" [ref=e423] [cursor=pointer]
+      - generic [ref=e424]:
+        - button "表示設定メニューを開く" [ref=e426] [cursor=pointer]:
+          - img [ref=e428]
+          - generic [ref=e432]: 表示
+        - button "スクショ" [ref=e433] [cursor=pointer]:
+          - img [ref=e435]
+          - generic [ref=e438]: スクショ
+        - button "カーソルOFF" [ref=e439] [cursor=pointer]:
+          - img [ref=e441]
+          - generic [ref=e444]: カーソルOFF
+        - generic [ref=e446]:
+          - button "時間ゾーン描画" [ref=e447] [cursor=pointer]:
+            - img [ref=e449]
+          - button "四角描画" [ref=e453] [cursor=pointer]:
+            - img [ref=e455]
+          - button "価格帯描画" [ref=e459] [cursor=pointer]:
+            - generic [ref=e461]: ▭
+          - button "水平線描画" [ref=e462] [cursor=pointer]:
+            - img [ref=e464]
+          - button "描画をリセット" [ref=e465] [cursor=pointer]:
+            - img [ref=e467]
+      - generic:
+        - generic [ref=e470]:
+          - button "お気に入り追加" [ref=e471] [cursor=pointer]:
+            - img [ref=e472]
+          - button "前の銘柄" [disabled] [ref=e474]:
+            - img [ref=e476]
+            - generic [ref=e479]: 前の銘柄
+          - button "次の銘柄" [ref=e480] [cursor=pointer]:
+            - img [ref=e482]
+            - generic [ref=e485]: 次の銘柄
+        - generic [ref=e486]:
+          - button "3M" [ref=e487] [cursor=pointer]
+          - button "6M" [ref=e488] [cursor=pointer]
+          - button "1Y" [ref=e489] [cursor=pointer]
+          - button "2Y" [ref=e490] [cursor=pointer]
+    - generic [ref=e492]:
+      - generic [ref=e493]:
+        - generic [ref=e494]: Daily
+        - generic [ref=e496]:
+          - table [ref=e499]:
+            - row [ref=e500]:
+              - cell
+              - cell [ref=e501]
+              - cell [ref=e505]
+            - row [ref=e509]:
+              - cell
+              - cell [ref=e510]
+              - cell [ref=e514]
+          - generic:
+            - generic:
+              - generic: 26/03/19
+              - generic: 前日比-1,870 (-3.39%)
+            - generic:
+              - generic: O
+              - generic: 54,290
+              - generic: H
+              - generic: 54,330
+              - generic: L
+              - generic: 53,190
+              - generic: C
+              - generic: 53,370
+              - generic: 出来高
+              - generic: 312,932
+            - generic:
+              - generic:
+                - generic: 7MA
+                - generic: 54,194
+              - generic:
+                - generic: 20MA
+                - generic: 55,682
+              - generic:
+                - generic: 60MA
+                - generic: 54,044
+              - generic:
+                - generic: 100MA
+                - generic: 52,488
+              - generic:
+                - generic: 200MA
+                - generic: 47,188
+            - generic:
+              - generic: 本数
+              - generic:
+                - generic: 7MA
+                - generic: 上0 / 下1
+              - generic:
+                - generic: 20MA
+                - generic: 上0 / 下13
+              - generic:
+                - generic: 60MA
+                - generic: 上0 / 下1
+              - generic:
+                - generic: 100MA
+                - generic: 上201 / 下0
+              - generic:
+                - generic: 200MA
+                - generic: 上186 / 下0
+      - generic [ref=e517]:
+        - generic [ref=e518]:
+          - generic [ref=e519]: Weekly
+          - table [ref=e524]:
+            - row [ref=e525]:
+              - cell
+              - cell [ref=e526]
+              - cell [ref=e530]
+            - row [ref=e534]:
+              - cell
+              - cell [ref=e535]
+              - cell [ref=e539]
+        - generic [ref=e543]:
+          - generic [ref=e544]: Monthly
+          - table [ref=e549]:
+            - row [ref=e550]:
+              - cell
+              - cell [ref=e551]
+              - cell [ref=e555]
+            - row [ref=e559]:
+              - cell
+              - cell [ref=e560]
+              - cell [ref=e564]
+    - generic [ref=e567]:
+      - button "Load more daily/monthly" [ref=e569] [cursor=pointer]
+      - generic [ref=e570]: Daily 2000 bars | Weekly 427 bars | Monthly 240 bars
+    - generic:
+      - button "AI解説を閉じる" [expanded] [ref=e575] [cursor=pointer]:
+        - img [ref=e572]
+        - generic [ref=e574]: 閉じる
+      - generic [ref=e576]:
+        - generic [ref=e577]:
+          - generic [ref=e578]:
+            - generic [ref=e579]: AI解説
+            - generic [ref=e580]: "対象: 1001 日経225"
+            - generic [ref=e581]: sakura / preview/Kimi-K2.5
+          - button "閉じる" [ref=e583] [cursor=pointer]:
+            - img [ref=e584]
+            - generic [ref=e587]: 閉じる
+        - generic [ref=e588]:
+          - generic [ref=e589]:
+            - button "なぜ上位？" [ref=e590] [cursor=pointer]
+            - button "注意点" [ref=e591] [cursor=pointer]
+            - button "要約" [ref=e592] [cursor=pointer]
+          - generic [ref=e593]:
+            - textbox "質問を入力" [ref=e594]: 1001 日経225 の見どころを短く説明して
+            - button "送信" [ref=e608] [cursor=pointer]:
+              - img [ref=e596]
+              - generic [ref=e599]: 送信
+          - generic [ref=e600]:
+            - generic [ref=e601]: "質問: 1001 日経225 の見どころを短く説明して"
+            - generic [ref=e602]: 12421ms
+            - generic [ref=e603]: sakura
+            - generic [ref=e604]: preview/Kimi-K2.5
+            - generic [ref=e605]: explain
+          - generic [ref=e609]: "ユーザーは「1001 日経225 の見どころを短く説明して」と質問しています。 与えられた情報： 1. 2つのチャート画像（日足と週足または月足の可能性） 2. snapshot JSONデータ snapshotの主要な情報： - code: \"1001\" (日経225) - name: \"日経225\" - chg1D: -1.05% (前日比マイナス) - chg1W: 7.77% (週間プラス) - chg1M: -7.48% (月間マイナス) - chg1Q: 8.16% (四半期プラス) - chg1Y: 52.88% (年間プラス) - entryPriorityLabel: \"B: 押し目待ち\" - entryPriorityScore: 35.6 - shortPriorityLabel: \"C: observe\" - stage: \"C\" - swingQualified: false - swingScore: 0.560 - buyPatternName: \"様子見\" チャートの観察： - 1枚目：日足チャート。2025年3月から2026年3月まで。上昇トレンドの後、高値圏で揉み合い。直近は高値からの調整局面。青いボックスが2つあり、調整局面を示している模様。 - 2枚目：週足または月足のチャート。長期の移動平均線が表示されており、上昇トレンドが継続しているが、直近は大きな陰線と陽線が交互に出ている状況。 指示に従って： - ランキングを決める役割ではなく、MeeMeeが今見せている画面を短く説明 - snapshotと画像だけを根拠にする - confirmedを主根拠にし、provisionalは補助扱い - 回答は短く、結論先行で、必要なら注意点を1つ添える程度 - 比較では差分を先に述べる（今回は比較なし） - 不要な前置き、長い雑談、投資判断の断定は避ける - 3段落以内で、結論を先に述べる - snapshotの項目名をそのまま列挙せず、内部見出しも出さない 構成案： 1. 結論：押し目待ちの様子見局面 2. 具体的な状況：直近は高値圏からの調整、スイングシグナルは非該当、エントリースコアは35.6点と慎重 3. 注意点：週間では反発しているが月間ではまだ調整中 または： 1. 結論：「押し目待ち」推奨の様子見局面 2. 根拠：スイングスコア0.56で非該当、直近1ヶ月"
+          - generic [ref=e610]:
+            - button "もう少し詳しく" [ref=e611] [cursor=pointer]:
+              - img [ref=e612]
+              - generic [ref=e614]: もう少し詳しく
+            - button "初期質問に戻す" [ref=e615] [cursor=pointer]:
+              - img [ref=e616]
+              - generic [ref=e618]: 初期質問に戻す

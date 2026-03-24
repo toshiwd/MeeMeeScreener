@@ -10,6 +10,8 @@ import ChartListCard from "../components/ChartListCard";
 import TradexListSummary from "../components/TradexListSummary";
 import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
+import AiExplainDock from "../features/aiExplain/AiExplainDock";
+import { buildAiExplainImages } from "../features/aiExplain/aiExplainImages";
 import { MaSetting, useStore } from "../store";
 import { formatEventBadgeDate } from "../utils/events";
 import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
@@ -178,6 +180,54 @@ const TIMEFRAME_LABELS: Record<RankTimeframe, string> = {
   M: "月足"
 };
 const rankingFetchMemoryCache = new Map<string, RankingFetchCacheEntry>();
+
+const resolveRankSummaryScore = (item: RankItem) => {
+  const candidates = [
+    item.score,
+    item.winNowScore,
+    item.entryScore,
+    item.hybridScore,
+    item.mlEv20Net,
+    item.accumulationScore,
+    item.breakoutReadiness
+  ];
+  for (const candidate of candidates) {
+    if (Number.isFinite(candidate ?? NaN)) {
+      return candidate as number;
+    }
+  }
+  return null;
+};
+
+const buildRankExplainSnapshotItem = (item: RankItem, rank: number) => ({
+  rank,
+  code: item.code,
+  name: item.name ?? item.code,
+  asOf: item.asOf ?? null,
+  changePct: item.changePct ?? null,
+  changeAbs: item.changeAbs ?? null,
+  close: item.close ?? null,
+  prevClose: item.prevClose ?? null,
+  liquidity20d: item.liquidity20d ?? null,
+  score: resolveRankSummaryScore(item),
+  stage: item.setupType ?? item.riskMode ?? null,
+  reason: item.reason ?? null,
+  riskMode: item.riskMode ?? null,
+  target20Qualified: item.target20Qualified ?? null,
+  monthlyBreakoutUpProb: item.monthlyBreakoutUpProb ?? null,
+  monthlyBreakoutDownProb: item.monthlyBreakoutDownProb ?? null,
+  monthlyRangeProb: item.monthlyRangeProb ?? null,
+  mlPUp: item.mlPUp ?? null,
+  mlPDown: item.mlPDown ?? null,
+  mlEv20Net: item.mlEv20Net ?? null,
+  mlPUpShort: item.mlPUpShort ?? null,
+  mlPDownShort: item.mlPDownShort ?? null,
+  mlScoreUp1M: item.mlScoreUp1M ?? null,
+  mlScoreDown1M: item.mlScoreDown1M ?? null,
+  setupType: item.setupType ?? null,
+  invalidationRecommendedAction: item.invalidationRecommendedAction ?? null,
+  recommendedHoldDays: item.recommendedHoldDays ?? null
+});
 
 const RANK_MA_SETTINGS: MaSetting[] = [
   { key: "ma1", label: "MA1", period: 7, visible: true, color: "#ef4444", lineWidth: 1 },
@@ -914,6 +964,59 @@ export default function RankingView() {
       })),
     [itemByCode, selectedCodes]
   );
+  const aiExplainImages = useMemo(
+    () =>
+      buildAiExplainImages(
+        sortedItems
+          .slice(0, 3)
+          .map((item) => ({
+            code: item.code,
+            payload: barsCache[listTimeframe][item.code] ?? null,
+            boxes: boxesCache[listTimeframe][item.code] ?? [],
+            maSettings: resolvedMaSettings,
+            rangeBars: listRangeBars,
+            timeframeLabel: listTimeframe,
+            maxBars: listRangeBars
+          })),
+        3
+      ),
+    [barsCache, boxesCache, listRangeBars, listTimeframe, resolvedMaSettings, sortedItems]
+  );
+  const aiExplainSnapshot = useMemo(() => {
+    const topItems = sortedItems.slice(0, 10).map((item, index) => buildRankExplainSnapshotItem(item, index + 1));
+    return {
+      mode: "explain",
+      screenType: "ranking",
+      asOfDate: topItems[0]?.asOf ?? null,
+      userQuestion: "",
+      selectedSymbols: selectedCodes,
+      compareSymbols: [],
+      visibleTimeframe: {
+        listTimeframe,
+        listRangeBars
+      },
+      marketContext: {
+        rankWhich,
+        rankMode,
+        riskMode,
+        dir,
+        fallback: useFallback
+      },
+      visibleItems: topItems,
+      selectedCount: selectedCodes.length,
+      visibleCount: sortedItems.length
+    };
+  }, [
+    dir,
+    listRangeBars,
+    listTimeframe,
+    rankMode,
+    rankWhich,
+    riskMode,
+    selectedCodes,
+    sortedItems,
+    useFallback
+  ]);
 
   useEffect(() => {
     const cached = readRankingFetchCache(rankingCacheKey);
@@ -1570,6 +1673,13 @@ export default function RankingView() {
           </div>
         )}
       </div>
+      <AiExplainDock
+        screenType="ranking"
+        targetLabel="ランキング上位"
+        snapshot={aiExplainSnapshot}
+        images={aiExplainImages}
+        bottomOffsetPx={consultVisible ? (consultExpanded ? 324 : 124) : 18}
+      />
       <Toast
         message={toastMessage}
         onClose={() => {

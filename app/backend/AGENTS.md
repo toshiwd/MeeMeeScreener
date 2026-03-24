@@ -1,28 +1,57 @@
 # app/backend AGENTS.md
 
-このファイルは `app/backend` 配下の作業にだけ適用する。共通ルールは必ずルートの `AGENTS.md` を優先する。
-MeeMee 固有の判断軸は `docs/MEEMEE_PRINCIPLES.md` を優先する。
+## 責務
+- API 契約、ユースケース、データ境界の維持を担う。
+- api/routes は HTTP 入出力変換と検証に閉じる。
+- services はユースケースの orchestration を担う。
+- domain は業務ルールを担う。
+- core は共通設定・共通契約・共通基盤を担う。
+- infra は DB、外部 I/O、永続化を担う。
+- まず原因を routes / services / domain / core のどこに置くべきか切り分ける。
 
-## 方針
+## 依存関係
+- api/routes -> services は可。
+- services -> domain は可。
+- services -> infra は可。
+- core は共通基盤として使えるが、業務ルールを置かない。
+- domain -> infra/api は不可。
+- api/routes -> domain/infra の直参照は不可。
+- 横断 import と循環依存は禁止。
+- 「backend 内だから自由に参照してよい」と読める余地を残さない。
 
-- 1 fix = 1 symptom を守り、API、DB、バッチ、解析ロジックの無関係な変更を混ぜない。
-- 依頼が曖昧でも、既存 API 契約、DB スキーマ、ジョブ入出力の証拠を先に確認し、勝手に仕様を変えない。
-- I/O を伴う処理と純粋ロジックは分けて考える。局所修正で済むなら責務の大移動をしない。
-- 実データ、`stocks.duckdb`、`favorites.sqlite`、`practice.sqlite`、`update_state.json` は、依頼と証拠が揃っている時だけ触る。
-- ランキングは候補抽出専用として扱い、売買トリガーと混同しない。
-- 原則は終値確定ベースで扱い、場中補助ロジックは主役にしない。
-- 建玉・AI出力・API返却の表記は `売-買` に正規化して一貫させる。
-- 生データ、正規化データ、画面表示用の派生データやキャッシュを分けて管理する。
+## 禁止
+- UI 都合の条件分岐を backend に増やす。
+- DB アクセスと業務ルールを混在させる。
+- 例外握りつぶしで一時回避する。
+- 返却スキーマ変更の破壊範囲を曖昧にする。
+- services を何でも入れる置き場にする。
+- domain に I/O、HTTP、DB、ファイル、UI 文脈を持ち込む。
+
+## 変更前
+- 症状、原因仮説、変更対象、非対象、影響範囲、回帰リスク、検証手順を整理する。
+- routes / services / domain / core / infra のどこに原因があるかを先に決める。
+- public interface 変更や 3 ファイル以上の変更は plan 先行。
+
+## 計画が必要な時
+- API 契約を変える時。
+- routes、services、domain、infra をまたぐ時。
+- shared type 変更が入る時。
+- 返却スキーマやエラー形式を変える時。
+- DB スキーマや migration が絡む時。
+
+## 停止条件
+- 原因が未確定のまま層をまたいで試行錯誤するしかない時。
+- 例外握りつぶし以外の選択ができない時。
+- 循環依存や横断 import を増やすしかない時。
+- 検証で失敗しても根因切り分けが進まない時。
 
 ## 検証
+- import の向き、契約、主要な副作用を確認する。
+- 必要な unit / integration / import check を実行する。
+- 未検証は未検証と明記する。
+- テストが落ちたまま次へ進まない。
 
-- `lint`: 専用コマンドが未整備なら、その旨を明記して省略する。
-- `test`: まず `python -m pytest` を実行する。
-- `build` 相当: `python -c "import app.backend.main"` を実行し、import 崩れを確認する。
-- API や起動導線を触った時は、必要最小限で `GET /api/health` など影響 endpoint の疎通も確認する。
-
-## 調査の優先順
-
-- ルータ変更: `app/backend/api`
-- ドメインロジック変更: `app/backend/domain`
-- 永続化/外部I/O変更: `app/backend/infra`, `app/backend/jobs`, `app/backend/services`
+## Done
+- 契約と依存方向が壊れていない。
+- 破壊範囲を説明できる。
+- 検証結果と残件を明記した。

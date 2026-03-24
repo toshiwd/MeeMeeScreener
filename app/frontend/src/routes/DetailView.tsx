@@ -31,6 +31,11 @@ import DetailTimeframeSwitcher from "../components/DetailTimeframeSwitcher";
 import DetailDrawToolbar from "../components/DetailDrawToolbar";
 import ScreenPanel from "../components/ScreenPanel";
 import SimilarSearchPanel from "../components/SimilarSearchPanel";
+import AiExplainDock from "../features/aiExplain/AiExplainDock";
+import {
+  buildAiExplainBarsPayload,
+  buildAiExplainImages,
+} from "../features/aiExplain/aiExplainImages";
 import { Box, MaSetting, useStore } from "../store";
 import { computeSignalMetrics } from "../utils/signals";
 import type { TradeEvent, CurrentPosition, DailyPosition } from "../utils/positions";
@@ -44,9 +49,7 @@ import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
 import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/useExactDecisionRange";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
-import { DetailAnalysisPanel } from "./detail/DetailAnalysisPanel";
 import { DetailFinancialPanel } from "./detail/DetailFinancialPanel";
-import { TradexAnalysisMount } from "./detail/TradexAnalysisMount";
 import { DetailTdnetCard } from "./detail/DetailTdnetCard";
 import DetailDebugBanner from "./detail/components/DetailDebugBanner";
 import DetailIndicatorOverlay from "./detail/components/DetailIndicatorOverlay";
@@ -169,6 +172,51 @@ const toDetailChartMaLines = (lines: ReturnType<typeof buildDetailMaLines>) =>
     ...line,
     data: chartData ?? data
   }));
+
+const summarizeDetailTickerForAiExplain = (
+  ticker: Record<string, unknown> | null | undefined,
+  fallback: { code: string; name: string }
+) => {
+  const source = ticker ?? {};
+  return {
+    code: fallback.code,
+    name: fallback.name,
+    score: [
+      source.entryPriorityScore,
+      source.buyStateScore,
+      source.swingScore,
+      source.mlEv20Net,
+      source.winNowScore,
+      source.hybridScore,
+    ].find((value) => Number.isFinite(Number(value)))
+      ?? null,
+    stage: source.stage ?? source.buyState ?? source.statusLabel ?? null,
+    buyState: source.buyState ?? null,
+    buyStateScore: source.buyStateScore ?? null,
+    buyEligible: source.buyEligible ?? null,
+    buyPatternName: source.buyPatternName ?? null,
+    buyStateReason: source.buyStateReason ?? null,
+    entryPriorityScore: source.entryPriorityScore ?? null,
+    entryPriorityLabel: source.entryPriorityLabel ?? null,
+    swingScore: source.swingScore ?? null,
+    swingQualified: source.swingQualified ?? null,
+    swingReasons: source.swingReasons ?? null,
+    chg1D: source.chg1D ?? null,
+    chg1W: source.chg1W ?? null,
+    chg1M: source.chg1M ?? null,
+    chg1Q: source.chg1Q ?? null,
+    chg1Y: source.chg1Y ?? null,
+    boxState: source.boxState ?? null,
+    eventEarningsDate: source.eventEarningsDate ?? null,
+    eventRightsDate: source.eventRightsDate ?? null,
+    reason: source.reason ?? null,
+    reasons: source.reasons ?? null,
+    phaseN: source.phaseN ?? null,
+    phaseReasons: source.phaseReasons ?? null,
+    shortPriorityLabel: source.shortPriorityLabel ?? null,
+    shortPriorityReasons: source.shortPriorityReasons ?? null
+  };
+};
 
 type BatchBarsFramePayload = {
   bars?: number[][];
@@ -403,7 +451,7 @@ export default function DetailView() {
   const [signalsOpen, setSignalsOpen] = useState(false);
   const [showGapBands, setShowGapBands] = useState(true);
   const [showVolumeEnabled, setShowVolumeEnabled] = useState(true);
-  const [showDecisionMarkers, setShowDecisionMarkers] = useState(true);
+  const showDecisionMarkers = false;
   const [showTdnetMarkers, setShowTdnetMarkers] = useState(true);
   const [routeReadyPhase, setRouteReadyPhase] = useState<RouteReadyPhase>("chart");
   const [showTradeMarkers, setShowTradeMarkers] = useState(true);
@@ -533,7 +581,7 @@ export default function DetailView() {
     if (!trimmed || trimmed === code) return null;
     return trimmed;
   }, [location.search, code]);
-  const analysisFetchEnabled = headerMode === "analysis" && !compareCode;
+  const analysisFetchEnabled = false;
   const analysisNetworkReady = analysisFetchEnabled && routeReadyPhase === "analysis";
   const compareAsOf = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -3432,7 +3480,10 @@ export default function DetailView() {
   const compareMonthlyInitialRange = useMemo(() => {
     const months = rangeMonths ?? (compareAsOfTime ? COMPARE_FOCUS_MONTHS : null);
     if (!months) return null;
-    return buildRangeEndingAt(compareMonthlyCandles, months, compareAsOfTime);
+    if (compareAsOfTime != null) {
+      return buildRangeFromEndTime(months, compareAsOfTime);
+    }
+    return buildRange(compareMonthlyCandles, months);
   }, [rangeMonths, compareMonthlyCandles, compareAsOfTime]);
   const compareMonthlyBaseRange = useMemo(() => {
     if (!rangeMonths) return null;
@@ -3522,6 +3573,113 @@ export default function DetailView() {
     }
     return `表示期間: ${dailyRangeLabel}`;
   }, [compareMonthlyVisibleRange, compareMonthlyInitialRange, compareAsOfTime, dailyRangeLabel]);
+  const aiExplainImageSources = useMemo(
+    () =>
+      [
+        {
+          code: code ?? "main",
+          payload: buildAiExplainBarsPayload(dailyCandles),
+          boxes,
+          maSettings: maSettings.daily,
+          rangeBars: rangeMonths ? Math.max(30, rangeMonths * 20) : null,
+          timeframeLabel: "daily",
+          maxBars: rangeMonths ? Math.max(30, rangeMonths * 20) : null,
+          showBoxes,
+        },
+        {
+          code: code ?? "main",
+          payload: buildAiExplainBarsPayload(monthlyCandles),
+          boxes,
+          maSettings: maSettings.monthly,
+          rangeBars: rangeMonths ? Math.max(12, rangeMonths) : null,
+          timeframeLabel: "monthly",
+          maxBars: rangeMonths ? Math.max(12, rangeMonths) : null,
+          showBoxes,
+        },
+        compareCode
+          ? {
+              code: compareCode,
+              payload: buildAiExplainBarsPayload(compareDailyCandles),
+              boxes: compareBoxes,
+              maSettings: compareMaSettings.daily,
+              rangeBars: compareDailyVisibleRange ? Math.max(30, rangeMonths ? rangeMonths * 20 : 60) : null,
+              timeframeLabel: "compare-daily",
+              maxBars: compareDailyVisibleRange ? Math.max(30, rangeMonths ? rangeMonths * 20 : 60) : null,
+              showBoxes,
+            }
+          : null,
+      ].filter(Boolean) as Parameters<typeof buildAiExplainImages>[0],
+    [
+      boxes,
+      code,
+      compareBoxes,
+      compareCode,
+      compareDailyCandles,
+      compareDailyVisibleRange,
+      compareMaSettings.daily,
+      dailyCandles,
+      maSettings.daily,
+      maSettings.monthly,
+      monthlyCandles,
+      rangeMonths,
+      showBoxes,
+    ]
+  );
+  const aiExplainImages = useMemo(
+    () => buildAiExplainImages(aiExplainImageSources, 3),
+    [aiExplainImageSources]
+  );
+  const aiExplainSnapshot = useMemo(() => {
+    const rangeToSnapshot = (range: { from: number; to: number } | null | undefined) =>
+      range ? { from: range.from, to: range.to } : null;
+    const mainSummary = summarizeDetailTickerForAiExplain(activeTicker, {
+      code: code ?? "",
+      name: tickerName || code || "",
+    });
+    const compareSummary = compareCode
+      ? summarizeDetailTickerForAiExplain(tickerByCode.get(compareCode) ?? null, {
+          code: compareCode,
+          name: compareTickerName || compareCode,
+        })
+      : null;
+    return {
+      mode: compareCode ? "compare" : "explain",
+      screenType: compareCode ? "compare" : "detail",
+      asOfDate: compareCode ? compareAsOf ?? null : detailAsOfTime ?? null,
+      userQuestion: "",
+      selectedSymbols: code ? [code] : [],
+      compareSymbols: compareCode ? [compareCode] : [],
+      visibleTimeframe: {
+        daily: rangeToSnapshot(dailyVisibleRange),
+        weekly: rangeToSnapshot(resolvedWeeklyVisibleRange),
+        monthly: rangeToSnapshot(resolvedMonthlyVisibleRange),
+        compareDaily: rangeToSnapshot(compareDailyVisibleRange),
+        compareMonthly: rangeToSnapshot(compareMonthlyVisibleRange),
+      },
+      main: mainSummary,
+      compare: compareSummary,
+      compareDifference: compareSummary
+        ? {
+            code: compareCode,
+            targetLabel: `${code ?? ""} vs ${compareCode}`,
+          }
+        : null,
+    };
+  }, [
+    activeTicker,
+    code,
+    compareAsOf,
+    compareCode,
+    compareDailyVisibleRange,
+    compareMonthlyVisibleRange,
+    compareTickerName,
+    dailyVisibleRange,
+    detailAsOfTime,
+    resolvedMonthlyVisibleRange,
+    resolvedWeeklyVisibleRange,
+    tickerByCode,
+    tickerName,
+  ]);
   const compareDailyNeedsMore = useMemo(() => {
     if (!compareDailyVisibleRange || !compareDailyCandles.length) return false;
     const earliest = compareDailyCandles[0]?.time;
@@ -4208,6 +4366,8 @@ export default function DetailView() {
   const headerModeControls = (
     <DetailModeTabs
       activeMode={headerMode}
+      similarActive={showSimilar}
+      showAnalysis={false}
       onChart={() => setHeaderMode("chart")}
       onAnalysis={() => {
         setHeaderMode("analysis");
@@ -4218,6 +4378,7 @@ export default function DetailView() {
           }
         }
       }}
+      onSimilar={() => setShowSimilar(true)}
       onFinancial={() => setHeaderMode("financial")}
       onPractice={() => {
         if (code) navigate(`/practice/${code}`);
@@ -4265,14 +4426,6 @@ export default function DetailView() {
             >
               <span className="popover-item-label">出来高</span>
               {showVolumeEnabled && <span className="popover-check">ON</span>}
-            </button>
-            <button
-              type="button"
-              className={`popover-item ${showDecisionMarkers ? "active" : ""}`}
-              onClick={() => setShowDecisionMarkers((prev) => !prev)}
-            >
-              <span className="popover-item-label">判定マーカー</span>
-              {showDecisionMarkers && <span className="popover-check">ON</span>}
             </button>
             <button
               type="button"
@@ -5102,65 +5255,6 @@ export default function DetailView() {
                 onCopyForConsult={handleCopyForConsult}
               />
             )}
-            {rightRailKind === "analysis" && (
-              <>
-                <DetailAnalysisPanel
-                  analysisAsOfTime={analysisAsOfTime}
-                  analysisBackfillActive={analysisBackfillActive}
-                  analysisRecalcSubmitting={analysisRecalcSubmitting}
-                  analysisRecalcDisabled={analysisRecalcDisabled}
-                  analysisRecalcDisabledReason={analysisRecalcDisabledReason}
-                  submitAnalysisRecalc={submitAnalysisRecalc}
-                  analysisDtLabel={analysisDtLabel}
-                  cursorMode={cursorMode}
-                  analysisCursorDateLabel={analysisCursorDateLabel}
-                  canShowPhase={canShowPhase}
-                  phaseReasons={phaseReasons}
-                  canShowAnalysis={canShowAnalysis}
-                  analysisDecision={analysisDecision}
-                  analysisSummaryLoading={analysisSummaryLoading}
-                  analysisGuidance={analysisGuidance}
-                  analysisEntryPolicy={analysisEntryPolicy}
-                  patternSummary={patternSummary}
-                  analysisPreparationVisible={analysisPreparationVisible}
-                  analysisBackfillProgressLabel={analysisBackfillProgressLabel}
-                  analysisBackfillMessage={analysisBackfillMessage}
-                  sellAnalysisDtLabel={sellAnalysisDtLabel}
-                  sellPredDtLabel={sellPredDtLabel}
-                  researchPriorRunId={researchPriorRunId}
-                  analysisResearchPrior={analysisResearchPrior}
-                  researchPriorUpMeta={researchPriorUpMeta}
-                  researchPriorDownMeta={researchPriorDownMeta}
-                  edinetStatusMeta={edinetStatusMeta}
-                  edinetQualityMeta={edinetQualityMeta}
-                  edinetMetricsMeta={edinetMetricsMeta}
-                  edinetBonusMeta={edinetBonusMeta}
-                  hasSwingData={hasSwingData}
-                  swingPlan={swingPlan}
-                  swingSideLabel={swingSideLabel}
-                  swingReasonsLabel={swingReasonsLabel}
-                  swingDiagnostics={swingDiagnostics}
-                  swingSetupExpectancy={swingSetupExpectancy}
-                  analysisMissingDataVisible={analysisMissingDataVisible}
-                  formatPercentLabel={formatPercentLabel}
-                  formatNumber={formatNumber}
-                  formatSignedPercentLabel={formatSignedPercentLabel}
-                  onSubmitAnalysisRecalc={() => {
-                    void submitAnalysisRecalc();
-                  }}
-                />
-                <TradexAnalysisMount
-                  backendReady={backendReady}
-                  readyToFetch={analysisNetworkReady}
-                  analysisFetchEnabled={analysisFetchEnabled}
-                  code={code}
-                  asof={analysisAsOfTime}
-                  formatPercentLabel={formatPercentLabel}
-                  formatSignedPercentLabel={formatSignedPercentLabel}
-                  formatNumber={formatNumber}
-                />
-              </>
-            )}
             {rightRailKind === "financial" && (
               <DetailFinancialPanel
                 financialPanelRef={financialPanelRef}
@@ -5259,6 +5353,14 @@ export default function DetailView() {
         isOpen={showSimilar}
         onClose={() => setShowSimilar(false)}
         queryTicker={code ?? null}
+      />
+      <AiExplainDock
+        screenType={compareCode ? "compare" : "detail"}
+        targetLabel={compareCode ? `${code ?? ""} vs ${compareCode}` : `${code ?? ""} ${tickerName}`.trim()}
+        compareLabel={compareCode ? `${compareCode}${compareTickerName ? ` ${compareTickerName}` : ""}` : null}
+        snapshot={aiExplainSnapshot}
+        images={aiExplainImages}
+        bottomOffsetPx={debugOpen ? 324 : hasIssues ? 96 : 18}
       />
     </div>
   );
