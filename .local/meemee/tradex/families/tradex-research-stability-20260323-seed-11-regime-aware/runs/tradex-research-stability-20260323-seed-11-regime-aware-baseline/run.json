@@ -1,0 +1,1072 @@
+{
+  "analysis": {
+    "by_code": {},
+    "diagnostics_schema_version": "tradex_diagnostics_v1",
+    "effective_config": {
+      "effective_parameters": {
+        "label": "現行ランキング",
+        "method_family": "champion",
+        "method_id": "champion_current_ranking",
+        "method_thesis": "現行のTRADEX標準順位をそのまま再現する。",
+        "method_title": "現行ランキング",
+        "minimum_confidence": 0.6,
+        "minimum_ready_rate": 0.5,
+        "notes": "session champion baseline",
+        "plan_id": "champion_current_ranking",
+        "plan_version": "v1",
+        "playbook_down_score_bonus": 0.0,
+        "playbook_up_score_bonus": 0.0,
+        "signal_bias": "balanced",
+        "top_k": 5
+      },
+      "method_metadata": {
+        "method_family": "champion",
+        "method_id": "champion_current_ranking",
+        "method_thesis": "現行のTRADEX標準順位をそのまま再現する。",
+        "method_title": "現行ランキング"
+      },
+      "plan_hash": "33685bde5f4799450c2b3d260150410a26c0072a0a4146475703529dc0b65306",
+      "plan_id": "champion_current_ranking",
+      "plan_version": "v1",
+      "readiness_config_hash": "c1b557ee73d70c35406f0f3b5b11ee4fcb6ab40e45f5ec8f35c3260943073a95"
+    },
+    "engine_diagnostics": {
+      "feature_flags": {},
+      "plan_effective": {
+        "label": "現行ランキング",
+        "method_family": "champion",
+        "method_id": "champion_current_ranking",
+        "method_thesis": "現行のTRADEX標準順位をそのまま再現する。",
+        "method_title": "現行ランキング",
+        "minimum_confidence": 0.6,
+        "minimum_ready_rate": 0.5,
+        "notes": "session champion baseline",
+        "plan_id": "champion_current_ranking",
+        "plan_version": "v1",
+        "playbook_down_score_bonus": 0.0,
+        "playbook_up_score_bonus": 0.0,
+        "signal_bias": "balanced",
+        "top_k": 5
+      },
+      "probe": {
+        "code": null,
+        "date": null,
+        "engine_feature_flags": null,
+        "engine_input_hash": null,
+        "engine_plan_hash": null,
+        "engine_readiness_params": null,
+        "engine_scoring_params": null,
+        "feature_hash": null,
+        "publish_not_ready_reason_label": null,
+        "publish_not_ready_reasons": null,
+        "publish_ready": null,
+        "raw_readiness_score": null,
+        "readiness_pre_score": null
+      },
+      "probes": [],
+      "readiness_config_hash": "c1b557ee73d70c35406f0f3b5b11ee4fcb6ab40e45f5ec8f35c3260943073a95"
+    },
+    "probes": [],
+    "readiness_summary": {
+      "gate_reason_counts": {},
+      "plan_thresholds": {
+        "minimum_confidence": 0.6,
+        "minimum_ready_rate": 0.5,
+        "signal_bias": "balanced",
+        "top_k": 5
+      },
+      "post_gate_count": 0,
+      "post_gate_rate": 0.0,
+      "pre_gate_count": 0,
+      "pre_gate_rate": 0.0,
+      "raw_readiness_score": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "ready_post_gate_rate": 0.0,
+      "ready_pre_gate_rate": 0.0,
+      "sample_count": 0,
+      "signal_post_filter_count": 0,
+      "signal_pre_filter_count": 0
+    },
+    "segments": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "start_date": "1999-10-29"
+      }
+    ],
+    "selection_challenger_summary": {
+      "code_rankings": [],
+      "dd_proxy": 0.0,
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "groups": {
+        "bottom5": {},
+        "top10": {},
+        "top5": {}
+      },
+      "kind": "proxy",
+      "monthly_top5_capture": {
+        "capture_count_mean": 0.0,
+        "capture_count_median": 0.0,
+        "capture_count_trimmed_mean": 0.0,
+        "capture_rate_mean": 0.0,
+        "capture_rate_median": 0.0,
+        "capture_rate_trimmed_mean": 0.0,
+        "capture_ret20_mean": 0.0,
+        "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+        "kind": "proxy",
+        "mean": 0.0,
+        "median": 0.0,
+        "model_ret20_mean": 0.0,
+        "model_union_count_mean": 0.0,
+        "month_count": 0,
+        "months": [],
+        "positive_month_rate": 0.0,
+        "source": "timeline_metrics",
+        "target_ret20_mean": 0.0,
+        "target_union_count_mean": 0.0,
+        "trimmed_mean": 0.0,
+        "turnover_mean": 0.0,
+        "turnover_median": 0.0,
+        "turnover_trimmed_mean": 0.0,
+        "zero_pass_months": 0
+      },
+      "outcome_metric": "short_ret_20",
+      "rank_metric": "analysis_ev_net",
+      "regime_summary": [
+        {
+          "end_date": "2012-04-02",
+          "label": "up:up:1326758400:1333324800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2012-01-17"
+        },
+        {
+          "end_date": "2008-12-19",
+          "label": "down:down:1225324800:1229644800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2008-10-30"
+        },
+        {
+          "end_date": "2000-01-05",
+          "label": "flat:flat:941155200:947030400",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "1999-10-29"
+        }
+      ],
+      "selection_formula": "analysis_ev_net + ret_20 + readiness + liquidity + regime - penalties",
+      "selection_variant": "challenger",
+      "source": "timeline_metrics",
+      "turnover_proxy": 0.0,
+      "zero_pass_months": 0
+    },
+    "selection_summary": {
+      "code_rankings": [],
+      "dd_proxy": 0.0,
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "groups": {
+        "bottom5": {},
+        "top10": {},
+        "top5": {}
+      },
+      "kind": "proxy",
+      "monthly_top5_capture": {
+        "capture_count_mean": 0.0,
+        "capture_count_median": 0.0,
+        "capture_count_trimmed_mean": 0.0,
+        "capture_rate_mean": 0.0,
+        "capture_rate_median": 0.0,
+        "capture_rate_trimmed_mean": 0.0,
+        "capture_ret20_mean": 0.0,
+        "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+        "kind": "proxy",
+        "mean": 0.0,
+        "median": 0.0,
+        "model_ret20_mean": 0.0,
+        "model_union_count_mean": 0.0,
+        "month_count": 0,
+        "months": [],
+        "positive_month_rate": 0.0,
+        "source": "timeline_metrics",
+        "target_ret20_mean": 0.0,
+        "target_union_count_mean": 0.0,
+        "trimmed_mean": 0.0,
+        "turnover_mean": 0.0,
+        "turnover_median": 0.0,
+        "turnover_trimmed_mean": 0.0,
+        "zero_pass_months": 0
+      },
+      "outcome_metric": "short_ret_20",
+      "rank_metric": "analysis_ev_net",
+      "regime_summary": [
+        {
+          "end_date": "2012-04-02",
+          "label": "up:up:1326758400:1333324800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2012-01-17"
+        },
+        {
+          "end_date": "2008-12-19",
+          "label": "down:down:1225324800:1229644800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2008-10-30"
+        },
+        {
+          "end_date": "2000-01-05",
+          "label": "flat:flat:941155200:947030400",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "1999-10-29"
+        }
+      ],
+      "selection_formula": "analysis_ev_net -> short_ret_20 -> code",
+      "selection_variant": "champion",
+      "source": "timeline_metrics",
+      "turnover_proxy": 0.0,
+      "zero_pass_months": 0
+    },
+    "signature": "4d9f2ceb16fcc8266273acae2b2800554956a0f7d22c5987246559804e238ccf",
+    "waterfall_summary": {
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "failure_reason_counts": {},
+      "failure_stage_counts": {},
+      "sample_count": 0,
+      "shadow_gate": {
+        "pass_count": 0,
+        "pass_rate": 0.0,
+        "reason_counts": {},
+        "reason_order": [
+          "data_missing",
+          "as_of_invalid",
+          "environment_unresolved",
+          "liquidity_fail",
+          "gate_rule_fail"
+        ]
+      },
+      "stage_counts": {
+        "gate_pass": 0,
+        "published": 0,
+        "ranked": 0,
+        "ready_inputs_complete": 0,
+        "retrieved": 0
+      },
+      "stage_order": [
+        "retrieved",
+        "ranked",
+        "ready_inputs_complete",
+        "gate_pass",
+        "published"
+      ],
+      "stage_rates": {
+        "gate_pass": 0.0,
+        "published": 0.0,
+        "ranked": 0.0,
+        "ready_inputs_complete": 0.0,
+        "retrieved": 0.0
+      }
+    }
+  },
+  "baseline_version": "v1",
+  "completed_at": "2026-03-23T04:08:34.248107+00:00",
+  "confirmed_only": true,
+  "data_cutoff_at": "2000-01-05",
+  "diagnostics_schema_version": "tradex_diagnostics_v1",
+  "effective_config": {
+    "effective_parameters": {
+      "label": "現行ランキング",
+      "method_family": "champion",
+      "method_id": "champion_current_ranking",
+      "method_thesis": "現行のTRADEX標準順位をそのまま再現する。",
+      "method_title": "現行ランキング",
+      "minimum_confidence": 0.6,
+      "minimum_ready_rate": 0.5,
+      "notes": "session champion baseline",
+      "plan_id": "champion_current_ranking",
+      "plan_version": "v1",
+      "playbook_down_score_bonus": 0.0,
+      "playbook_up_score_bonus": 0.0,
+      "signal_bias": "balanced",
+      "top_k": 5
+    },
+    "method_metadata": {
+      "method_family": "champion",
+      "method_id": "champion_current_ranking",
+      "method_thesis": "現行のTRADEX標準順位をそのまま再現する。",
+      "method_title": "現行ランキング"
+    },
+    "plan_hash": "33685bde5f4799450c2b3d260150410a26c0072a0a4146475703529dc0b65306",
+    "plan_id": "champion_current_ranking",
+    "plan_version": "v1",
+    "readiness_config_hash": "c1b557ee73d70c35406f0f3b5b11ee4fcb6ab40e45f5ec8f35c3260943073a95"
+  },
+  "engine_diagnostics": {
+    "feature_flags": {},
+    "plan_effective": {
+      "label": "現行ランキング",
+      "method_family": "champion",
+      "method_id": "champion_current_ranking",
+      "method_thesis": "現行のTRADEX標準順位をそのまま再現する。",
+      "method_title": "現行ランキング",
+      "minimum_confidence": 0.6,
+      "minimum_ready_rate": 0.5,
+      "notes": "session champion baseline",
+      "plan_id": "champion_current_ranking",
+      "plan_version": "v1",
+      "playbook_down_score_bonus": 0.0,
+      "playbook_up_score_bonus": 0.0,
+      "signal_bias": "balanced",
+      "top_k": 5
+    },
+    "probe": {
+      "code": null,
+      "date": null,
+      "engine_feature_flags": null,
+      "engine_input_hash": null,
+      "engine_plan_hash": null,
+      "engine_readiness_params": null,
+      "engine_scoring_params": null,
+      "feature_hash": null,
+      "publish_not_ready_reason_label": null,
+      "publish_not_ready_reasons": null,
+      "publish_ready": null,
+      "raw_readiness_score": null,
+      "readiness_pre_score": null
+    },
+    "probes": [],
+    "readiness_config_hash": "c1b557ee73d70c35406f0f3b5b11ee4fcb6ab40e45f5ec8f35c3260943073a95"
+  },
+  "error": null,
+  "family_id": "tradex-research-stability-20260323-seed-11-regime-aware",
+  "input_dataset_version": "session:stability-20260323-seed-11:champion",
+  "method_family": "champion",
+  "method_id": "champion_current_ranking",
+  "method_thesis": "現行のTRADEX標準順位をそのまま再現する。",
+  "method_title": "現行ランキング",
+  "metrics": {
+    "by_code": {},
+    "by_period": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "1999-10-29"
+      }
+    ],
+    "overall": {
+      "by_period_stability": 1.0,
+      "losing_examples": [],
+      "mean_confidence": 0.0,
+      "overall_score": 0.0,
+      "primary": {
+        "mean_confidence": 0.0,
+        "ready_rate": 0.0,
+        "signal_rate": 0.0
+      },
+      "ready_rate": 0.0,
+      "sample_count": 0,
+      "signal_count": 0,
+      "signal_dates": [],
+      "signal_rate": 0.0,
+      "target_symbol_count": 0,
+      "top_reasons": [],
+      "top_symbol_share": 0.0,
+      "winning_examples": []
+    },
+    "samples": []
+  },
+  "notes": "seeded_from:tradex-research-stability-20260323-seed-11-champion/tradex-research-stability-20260323-seed-11-champion-baseline",
+  "period": {
+    "segments": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "start_date": "1999-10-29"
+      }
+    ]
+  },
+  "plan_id": "champion_current_ranking",
+  "plan_version": "v1",
+  "price_source": "daily_bars",
+  "random_seed": 11,
+  "readiness_summary": {
+    "gate_reason_counts": {},
+    "plan_thresholds": {
+      "minimum_confidence": 0.6,
+      "minimum_ready_rate": 0.5,
+      "signal_bias": "balanced",
+      "top_k": 5
+    },
+    "post_gate_count": 0,
+    "post_gate_rate": 0.0,
+    "pre_gate_count": 0,
+    "pre_gate_rate": 0.0,
+    "raw_readiness_score": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0
+    },
+    "ready_post_gate_rate": 0.0,
+    "ready_pre_gate_rate": 0.0,
+    "sample_count": 0,
+    "signal_post_filter_count": 0,
+    "signal_pre_filter_count": 0
+  },
+  "run_id": "tradex-research-stability-20260323-seed-11-regime-aware-baseline",
+  "run_kind": "baseline",
+  "schema_version": "tradex_experiment_run_v1",
+  "selection_challenger_summary": {
+    "code_rankings": [],
+    "dd_proxy": 0.0,
+    "diagnostics_schema_version": "tradex_diagnostics_v1",
+    "groups": {
+      "bottom5": {},
+      "top10": {},
+      "top5": {}
+    },
+    "kind": "proxy",
+    "monthly_top5_capture": {
+      "capture_count_mean": 0.0,
+      "capture_count_median": 0.0,
+      "capture_count_trimmed_mean": 0.0,
+      "capture_rate_mean": 0.0,
+      "capture_rate_median": 0.0,
+      "capture_rate_trimmed_mean": 0.0,
+      "capture_ret20_mean": 0.0,
+      "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+      "kind": "proxy",
+      "mean": 0.0,
+      "median": 0.0,
+      "model_ret20_mean": 0.0,
+      "model_union_count_mean": 0.0,
+      "month_count": 0,
+      "months": [],
+      "positive_month_rate": 0.0,
+      "source": "timeline_metrics",
+      "target_ret20_mean": 0.0,
+      "target_union_count_mean": 0.0,
+      "trimmed_mean": 0.0,
+      "turnover_mean": 0.0,
+      "turnover_median": 0.0,
+      "turnover_trimmed_mean": 0.0,
+      "zero_pass_months": 0
+    },
+    "outcome_metric": "short_ret_20",
+    "rank_metric": "analysis_ev_net",
+    "regime_summary": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "1999-10-29"
+      }
+    ],
+    "selection_formula": "analysis_ev_net + ret_20 + readiness + liquidity + regime - penalties",
+    "selection_variant": "challenger",
+    "source": "timeline_metrics",
+    "turnover_proxy": 0.0,
+    "zero_pass_months": 0
+  },
+  "selection_summary": {
+    "code_rankings": [],
+    "dd_proxy": 0.0,
+    "diagnostics_schema_version": "tradex_diagnostics_v1",
+    "groups": {
+      "bottom5": {},
+      "top10": {},
+      "top5": {}
+    },
+    "kind": "proxy",
+    "monthly_top5_capture": {
+      "capture_count_mean": 0.0,
+      "capture_count_median": 0.0,
+      "capture_count_trimmed_mean": 0.0,
+      "capture_rate_mean": 0.0,
+      "capture_rate_median": 0.0,
+      "capture_rate_trimmed_mean": 0.0,
+      "capture_ret20_mean": 0.0,
+      "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+      "kind": "proxy",
+      "mean": 0.0,
+      "median": 0.0,
+      "model_ret20_mean": 0.0,
+      "model_union_count_mean": 0.0,
+      "month_count": 0,
+      "months": [],
+      "positive_month_rate": 0.0,
+      "source": "timeline_metrics",
+      "target_ret20_mean": 0.0,
+      "target_union_count_mean": 0.0,
+      "trimmed_mean": 0.0,
+      "turnover_mean": 0.0,
+      "turnover_median": 0.0,
+      "turnover_trimmed_mean": 0.0,
+      "zero_pass_months": 0
+    },
+    "outcome_metric": "short_ret_20",
+    "rank_metric": "analysis_ev_net",
+    "regime_summary": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "1999-10-29"
+      }
+    ],
+    "selection_formula": "analysis_ev_net -> short_ret_20 -> code",
+    "selection_variant": "champion",
+    "source": "timeline_metrics",
+    "turnover_proxy": 0.0,
+    "zero_pass_months": 0
+  },
+  "started_at": "2026-03-23T04:08:32.763620+00:00",
+  "status": "succeeded",
+  "summary": {
+    "by_period_stability": 1.0,
+    "diagnostics_schema_version": "tradex_diagnostics_v1",
+    "overall_score": 0.0,
+    "run_signature": "4d9f2ceb16fcc8266273acae2b2800554956a0f7d22c5987246559804e238ccf",
+    "sample_count": 0,
+    "selection_challenger_summary": {
+      "code_rankings": [],
+      "dd_proxy": 0.0,
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "groups": {
+        "bottom5": {},
+        "top10": {},
+        "top5": {}
+      },
+      "kind": "proxy",
+      "monthly_top5_capture": {
+        "capture_count_mean": 0.0,
+        "capture_count_median": 0.0,
+        "capture_count_trimmed_mean": 0.0,
+        "capture_rate_mean": 0.0,
+        "capture_rate_median": 0.0,
+        "capture_rate_trimmed_mean": 0.0,
+        "capture_ret20_mean": 0.0,
+        "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+        "kind": "proxy",
+        "mean": 0.0,
+        "median": 0.0,
+        "model_ret20_mean": 0.0,
+        "model_union_count_mean": 0.0,
+        "month_count": 0,
+        "months": [],
+        "positive_month_rate": 0.0,
+        "source": "timeline_metrics",
+        "target_ret20_mean": 0.0,
+        "target_union_count_mean": 0.0,
+        "trimmed_mean": 0.0,
+        "turnover_mean": 0.0,
+        "turnover_median": 0.0,
+        "turnover_trimmed_mean": 0.0,
+        "zero_pass_months": 0
+      },
+      "outcome_metric": "short_ret_20",
+      "rank_metric": "analysis_ev_net",
+      "regime_summary": [
+        {
+          "end_date": "2012-04-02",
+          "label": "up:up:1326758400:1333324800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2012-01-17"
+        },
+        {
+          "end_date": "2008-12-19",
+          "label": "down:down:1225324800:1229644800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2008-10-30"
+        },
+        {
+          "end_date": "2000-01-05",
+          "label": "flat:flat:941155200:947030400",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "1999-10-29"
+        }
+      ],
+      "selection_formula": "analysis_ev_net + ret_20 + readiness + liquidity + regime - penalties",
+      "selection_variant": "challenger",
+      "source": "timeline_metrics",
+      "turnover_proxy": 0.0,
+      "zero_pass_months": 0
+    },
+    "selection_summary": {
+      "code_rankings": [],
+      "dd_proxy": 0.0,
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "groups": {
+        "bottom5": {},
+        "top10": {},
+        "top5": {}
+      },
+      "kind": "proxy",
+      "monthly_top5_capture": {
+        "capture_count_mean": 0.0,
+        "capture_count_median": 0.0,
+        "capture_count_trimmed_mean": 0.0,
+        "capture_rate_mean": 0.0,
+        "capture_rate_median": 0.0,
+        "capture_rate_trimmed_mean": 0.0,
+        "capture_ret20_mean": 0.0,
+        "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+        "kind": "proxy",
+        "mean": 0.0,
+        "median": 0.0,
+        "model_ret20_mean": 0.0,
+        "model_union_count_mean": 0.0,
+        "month_count": 0,
+        "months": [],
+        "positive_month_rate": 0.0,
+        "source": "timeline_metrics",
+        "target_ret20_mean": 0.0,
+        "target_union_count_mean": 0.0,
+        "trimmed_mean": 0.0,
+        "turnover_mean": 0.0,
+        "turnover_median": 0.0,
+        "turnover_trimmed_mean": 0.0,
+        "zero_pass_months": 0
+      },
+      "outcome_metric": "short_ret_20",
+      "rank_metric": "analysis_ev_net",
+      "regime_summary": [
+        {
+          "end_date": "2012-04-02",
+          "label": "up:up:1326758400:1333324800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2012-01-17"
+        },
+        {
+          "end_date": "2008-12-19",
+          "label": "down:down:1225324800:1229644800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2008-10-30"
+        },
+        {
+          "end_date": "2000-01-05",
+          "label": "flat:flat:941155200:947030400",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "1999-10-29"
+        }
+      ],
+      "selection_formula": "analysis_ev_net -> short_ret_20 -> code",
+      "selection_variant": "champion",
+      "source": "timeline_metrics",
+      "turnover_proxy": 0.0,
+      "zero_pass_months": 0
+    },
+    "signal_count": 0,
+    "signal_dates": [],
+    "target_symbol_count": 0,
+    "top_reasons": [],
+    "top_symbol_share": 0.0,
+    "waterfall_summary": {
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "failure_reason_counts": {},
+      "failure_stage_counts": {},
+      "sample_count": 0,
+      "shadow_gate": {
+        "pass_count": 0,
+        "pass_rate": 0.0,
+        "reason_counts": {},
+        "reason_order": [
+          "data_missing",
+          "as_of_invalid",
+          "environment_unresolved",
+          "liquidity_fail",
+          "gate_rule_fail"
+        ]
+      },
+      "stage_counts": {
+        "gate_pass": 0,
+        "published": 0,
+        "ranked": 0,
+        "ready_inputs_complete": 0,
+        "retrieved": 0
+      },
+      "stage_order": [
+        "retrieved",
+        "ranked",
+        "ready_inputs_complete",
+        "gate_pass",
+        "published"
+      ],
+      "stage_rates": {
+        "gate_pass": 0.0,
+        "published": 0.0,
+        "ranked": 0.0,
+        "ready_inputs_complete": 0.0,
+        "retrieved": 0.0
+      }
+    }
+  },
+  "timezone": "Asia/Tokyo",
+  "universe": [
+    "1942",
+    "2801",
+    "3288",
+    "3407",
+    "3431",
+    "3565",
+    "3660",
+    "4180",
+    "4182",
+    "5110",
+    "6326",
+    "6472",
+    "6902",
+    "7003",
+    "7033",
+    "7181",
+    "8830",
+    "9005",
+    "9147",
+    "9467"
+  ],
+  "waterfall_summary": {
+    "diagnostics_schema_version": "tradex_diagnostics_v1",
+    "failure_reason_counts": {},
+    "failure_stage_counts": {},
+    "sample_count": 0,
+    "shadow_gate": {
+      "pass_count": 0,
+      "pass_rate": 0.0,
+      "reason_counts": {},
+      "reason_order": [
+        "data_missing",
+        "as_of_invalid",
+        "environment_unresolved",
+        "liquidity_fail",
+        "gate_rule_fail"
+      ]
+    },
+    "stage_counts": {
+      "gate_pass": 0,
+      "published": 0,
+      "ranked": 0,
+      "ready_inputs_complete": 0,
+      "retrieved": 0
+    },
+    "stage_order": [
+      "retrieved",
+      "ranked",
+      "ready_inputs_complete",
+      "gate_pass",
+      "published"
+    ],
+    "stage_rates": {
+      "gate_pass": 0.0,
+      "published": 0.0,
+      "ranked": 0.0,
+      "ready_inputs_complete": 0.0,
+      "retrieved": 0.0
+    }
+  }
+}

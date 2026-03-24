@@ -1,0 +1,110 @@
+{
+  "baseline_plan": {
+    "label": "現行ランキング",
+    "method_family": "champion",
+    "method_id": "champion_current_ranking",
+    "method_thesis": "現行のTRADEX標準順位をそのまま再現する。",
+    "method_title": "現行ランキング",
+    "minimum_confidence": 0.6,
+    "minimum_ready_rate": 0.5,
+    "notes": "session champion baseline",
+    "plan_id": "champion_current_ranking",
+    "plan_version": "v1",
+    "playbook_down_score_bonus": 0.0,
+    "playbook_up_score_bonus": 0.0,
+    "signal_bias": "balanced",
+    "top_k": 5
+  },
+  "baseline_run_id": "tradex-research-stability-20260323c-seed-23-readiness-aware-baseline",
+  "candidate_limit": 3,
+  "candidate_plans": [
+    {
+      "label": "準備完了優先型",
+      "method_family": "readiness-aware",
+      "method_id": "readiness_aware_v1",
+      "method_thesis": "ready率を少し強めに見て、通過後の安定性を上げる。",
+      "method_title": "準備完了優先型",
+      "minimum_confidence": 0.58,
+      "minimum_ready_rate": 0.65,
+      "notes": "readiness-aware:readiness_aware_v1",
+      "plan_id": "readiness_aware_v1",
+      "plan_version": "v1",
+      "playbook_down_score_bonus": 0.0,
+      "playbook_up_score_bonus": 0.01,
+      "signal_bias": "balanced",
+      "top_k": 5
+    }
+  ],
+  "candidate_run_ids": [
+    "tradex-research-stability-20260323c-seed-23-readiness-aware-readiness_aware_v1"
+  ],
+  "code_revision": "8cb6e9db798ebdeb49e6078503d0f236e6f0f5d3",
+  "confirmed_only": true,
+  "created_at": "2026-03-23T04:18:08.169112+00:00",
+  "data_cutoff_at": "2000-01-05",
+  "family_id": "tradex-research-stability-20260323c-seed-23-readiness-aware",
+  "family_name": "準備完了優先型 / readiness-aware",
+  "frozen": true,
+  "frozen_at": "2026-03-23T04:18:08.266406+00:00",
+  "input_dataset_version": "session:stability-20260323c-seed-23:seed:23",
+  "notes": "ready率が高い銘柄を優先して、gate 通過後の取りこぼしを減らす。",
+  "period": {
+    "segments": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "start_date": "1999-10-29"
+      }
+    ]
+  },
+  "price_source": "daily_bars",
+  "probes": [],
+  "random_seed": 23,
+  "run_ids": [
+    "tradex-research-stability-20260323c-seed-23-readiness-aware-baseline",
+    "tradex-research-stability-20260323c-seed-23-readiness-aware-readiness_aware_v1"
+  ],
+  "schema_version": "tradex_experiment_family_v1",
+  "status_summary": {
+    "baseline_runs": 1,
+    "candidate_runs": 1,
+    "status_counts": {
+      "compared": 1,
+      "succeeded": 1
+    },
+    "total_runs": 2
+  },
+  "timezone": "Asia/Tokyo",
+  "universe": [
+    "1605",
+    "1812",
+    "2281",
+    "2282",
+    "2695",
+    "4072",
+    "4499",
+    "4578",
+    "5726",
+    "6644",
+    "6723",
+    "6965",
+    "7150",
+    "7995",
+    "8354",
+    "8411",
+    "8593",
+    "8804",
+    "9506",
+    "9843"
+  ]
+}

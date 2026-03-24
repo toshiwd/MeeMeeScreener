@@ -1,0 +1,1956 @@
+{
+  "analysis": {
+    "by_code": {},
+    "diagnostics_schema_version": "tradex_diagnostics_v1",
+    "effective_config": {
+      "effective_parameters": {
+        "label": "既存点数の再尺度化",
+        "method_family": "existing-score rescaled",
+        "method_id": "existing_score_rescaled_v1",
+        "method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+        "method_title": "既存点数の再尺度化",
+        "minimum_confidence": 0.56,
+        "minimum_ready_rate": 0.45,
+        "notes": "existing-score rescaled:existing_score_rescaled_v1",
+        "plan_id": "existing_score_rescaled_v1",
+        "plan_version": "v1",
+        "playbook_down_score_bonus": 0.0,
+        "playbook_up_score_bonus": 0.02,
+        "ret20_source_mode": "derived_from_daily_bars",
+        "signal_bias": "balanced",
+        "top_k": 5
+      },
+      "method_metadata": {
+        "method_family": "existing-score rescaled",
+        "method_id": "existing_score_rescaled_v1",
+        "method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+        "method_title": "既存点数の再尺度化"
+      },
+      "plan_hash": "4e65ee02c77fb8093e4c72fb6707981efc16be05110cbcf7ca79eaa9d9af042a",
+      "plan_id": "existing_score_rescaled_v1",
+      "plan_version": "v1",
+      "readiness_config_hash": "c1b557ee73d70c35406f0f3b5b11ee4fcb6ab40e45f5ec8f35c3260943073a95"
+    },
+    "engine_diagnostics": {
+      "feature_flags": {},
+      "plan_effective": {
+        "label": "既存点数の再尺度化",
+        "method_family": "existing-score rescaled",
+        "method_id": "existing_score_rescaled_v1",
+        "method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+        "method_title": "既存点数の再尺度化",
+        "minimum_confidence": 0.56,
+        "minimum_ready_rate": 0.45,
+        "notes": "existing-score rescaled:existing_score_rescaled_v1",
+        "plan_id": "existing_score_rescaled_v1",
+        "plan_version": "v1",
+        "playbook_down_score_bonus": 0.0,
+        "playbook_up_score_bonus": 0.02,
+        "ret20_source_mode": "derived_from_daily_bars",
+        "signal_bias": "balanced",
+        "top_k": 5
+      },
+      "probe": {
+        "code": null,
+        "date": null,
+        "engine_feature_flags": null,
+        "engine_input_hash": null,
+        "engine_plan_hash": null,
+        "engine_readiness_params": null,
+        "engine_scoring_params": null,
+        "feature_hash": null,
+        "publish_not_ready_reason_label": null,
+        "publish_not_ready_reasons": null,
+        "publish_ready": null,
+        "raw_readiness_score": null,
+        "readiness_pre_score": null
+      },
+      "probes": [],
+      "readiness_config_hash": "c1b557ee73d70c35406f0f3b5b11ee4fcb6ab40e45f5ec8f35c3260943073a95"
+    },
+    "future_ret20_coverage": {
+      "candidate_day_count": 0,
+      "failure_reason_counts": {
+        "unknown_future_ret20_failure": 20
+      },
+      "guarded_out_count": 0,
+      "passed_count": 0
+    },
+    "probes": [],
+    "readiness_summary": {
+      "gate_reason_counts": {},
+      "plan_thresholds": {
+        "minimum_confidence": 0.56,
+        "minimum_ready_rate": 0.45,
+        "signal_bias": "balanced",
+        "top_k": 5
+      },
+      "post_gate_count": 0,
+      "post_gate_rate": 0.0,
+      "pre_gate_count": 0,
+      "pre_gate_rate": 0.0,
+      "raw_readiness_score": {
+        "mean": 0.0,
+        "p50": 0.0,
+        "p90": 0.0
+      },
+      "ready_post_gate_rate": 0.0,
+      "ready_pre_gate_rate": 0.0,
+      "sample_count": 0,
+      "signal_post_filter_count": 0,
+      "signal_pre_filter_count": 0
+    },
+    "segments": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "start_date": "1999-10-29"
+      }
+    ],
+    "selection_challenger_summary": {
+      "code_rankings": [],
+      "dd_proxy": 0.0,
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "groups": {
+        "bottom5": {},
+        "top10": {},
+        "top5": {}
+      },
+      "kind": "proxy",
+      "monthly_top5_capture": {
+        "capture_count_mean": 0.0,
+        "capture_count_median": 0.0,
+        "capture_count_trimmed_mean": 0.0,
+        "capture_rate_mean": 0.0,
+        "capture_rate_median": 0.0,
+        "capture_rate_trimmed_mean": 0.0,
+        "capture_ret20_mean": 0.0,
+        "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+        "kind": "proxy",
+        "mean": 0.0,
+        "median": 0.0,
+        "model_ret20_mean": 0.0,
+        "model_union_count_mean": 0.0,
+        "month_count": 0,
+        "months": [],
+        "positive_month_rate": 0.0,
+        "source": "timeline_metrics",
+        "target_ret20_mean": 0.0,
+        "target_union_count_mean": 0.0,
+        "trimmed_mean": 0.0,
+        "turnover_mean": 0.0,
+        "turnover_median": 0.0,
+        "turnover_trimmed_mean": 0.0,
+        "zero_pass_months": 0
+      },
+      "outcome_metric": "short_ret_20",
+      "rank_metric": "analysis_ev_net",
+      "regime_summary": [
+        {
+          "end_date": "2012-04-02",
+          "label": "up:up:1326758400:1333324800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2012-01-17"
+        },
+        {
+          "end_date": "2008-12-19",
+          "label": "down:down:1225324800:1229644800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2008-10-30"
+        },
+        {
+          "end_date": "2000-01-05",
+          "label": "flat:flat:941155200:947030400",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "1999-10-29"
+        }
+      ],
+      "selection_formula": "analysis_ev_net + ret_20 + readiness + liquidity + regime - penalties",
+      "selection_variant": "challenger",
+      "source": "timeline_metrics",
+      "turnover_proxy": 0.0,
+      "zero_pass_months": 0
+    },
+    "selection_summary": {
+      "code_rankings": [],
+      "dd_proxy": 0.0,
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "groups": {
+        "bottom5": {},
+        "top10": {},
+        "top5": {}
+      },
+      "kind": "proxy",
+      "monthly_top5_capture": {
+        "capture_count_mean": 0.0,
+        "capture_count_median": 0.0,
+        "capture_count_trimmed_mean": 0.0,
+        "capture_rate_mean": 0.0,
+        "capture_rate_median": 0.0,
+        "capture_rate_trimmed_mean": 0.0,
+        "capture_ret20_mean": 0.0,
+        "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+        "kind": "proxy",
+        "mean": 0.0,
+        "median": 0.0,
+        "model_ret20_mean": 0.0,
+        "model_union_count_mean": 0.0,
+        "month_count": 0,
+        "months": [],
+        "positive_month_rate": 0.0,
+        "source": "timeline_metrics",
+        "target_ret20_mean": 0.0,
+        "target_union_count_mean": 0.0,
+        "trimmed_mean": 0.0,
+        "turnover_mean": 0.0,
+        "turnover_median": 0.0,
+        "turnover_trimmed_mean": 0.0,
+        "zero_pass_months": 0
+      },
+      "outcome_metric": "short_ret_20",
+      "rank_metric": "analysis_ev_net",
+      "regime_summary": [
+        {
+          "end_date": "2012-04-02",
+          "label": "up:up:1326758400:1333324800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2012-01-17"
+        },
+        {
+          "end_date": "2008-12-19",
+          "label": "down:down:1225324800:1229644800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2008-10-30"
+        },
+        {
+          "end_date": "2000-01-05",
+          "label": "flat:flat:941155200:947030400",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "1999-10-29"
+        }
+      ],
+      "selection_formula": "analysis_ev_net -> short_ret_20 -> code",
+      "selection_variant": "champion",
+      "source": "timeline_metrics",
+      "turnover_proxy": 0.0,
+      "zero_pass_months": 0
+    },
+    "signature": "7255f0b52e3ddc3481ef1d49b443cd35ac24ce794edfdc80f6ec33452a01f37d",
+    "waterfall_summary": {
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "failure_reason_counts": {},
+      "failure_stage_counts": {},
+      "sample_count": 0,
+      "shadow_gate": {
+        "pass_count": 0,
+        "pass_rate": 0.0,
+        "reason_counts": {},
+        "reason_order": [
+          "data_missing",
+          "as_of_invalid",
+          "environment_unresolved",
+          "liquidity_fail",
+          "gate_rule_fail"
+        ]
+      },
+      "stage_counts": {
+        "gate_pass": 0,
+        "published": 0,
+        "ranked": 0,
+        "ready_inputs_complete": 0,
+        "retrieved": 0
+      },
+      "stage_order": [
+        "retrieved",
+        "ranked",
+        "ready_inputs_complete",
+        "gate_pass",
+        "published"
+      ],
+      "stage_rates": {
+        "gate_pass": 0.0,
+        "published": 0.0,
+        "ranked": 0.0,
+        "ready_inputs_complete": 0.0,
+        "retrieved": 0.0
+      }
+    }
+  },
+  "baseline_version": "v1",
+  "completed_at": "2026-03-23T06:19:27.627802+00:00",
+  "confirmed_only": true,
+  "data_cutoff_at": "2000-01-05",
+  "diagnostics_schema_version": "tradex_diagnostics_v1",
+  "effective_config": {
+    "effective_parameters": {
+      "label": "既存点数の再尺度化",
+      "method_family": "existing-score rescaled",
+      "method_id": "existing_score_rescaled_v1",
+      "method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+      "method_title": "既存点数の再尺度化",
+      "minimum_confidence": 0.56,
+      "minimum_ready_rate": 0.45,
+      "notes": "existing-score rescaled:existing_score_rescaled_v1",
+      "plan_id": "existing_score_rescaled_v1",
+      "plan_version": "v1",
+      "playbook_down_score_bonus": 0.0,
+      "playbook_up_score_bonus": 0.02,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "signal_bias": "balanced",
+      "top_k": 5
+    },
+    "method_metadata": {
+      "method_family": "existing-score rescaled",
+      "method_id": "existing_score_rescaled_v1",
+      "method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+      "method_title": "既存点数の再尺度化"
+    },
+    "plan_hash": "4e65ee02c77fb8093e4c72fb6707981efc16be05110cbcf7ca79eaa9d9af042a",
+    "plan_id": "existing_score_rescaled_v1",
+    "plan_version": "v1",
+    "readiness_config_hash": "c1b557ee73d70c35406f0f3b5b11ee4fcb6ab40e45f5ec8f35c3260943073a95"
+  },
+  "engine_diagnostics": {
+    "feature_flags": {},
+    "plan_effective": {
+      "label": "既存点数の再尺度化",
+      "method_family": "existing-score rescaled",
+      "method_id": "existing_score_rescaled_v1",
+      "method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+      "method_title": "既存点数の再尺度化",
+      "minimum_confidence": 0.56,
+      "minimum_ready_rate": 0.45,
+      "notes": "existing-score rescaled:existing_score_rescaled_v1",
+      "plan_id": "existing_score_rescaled_v1",
+      "plan_version": "v1",
+      "playbook_down_score_bonus": 0.0,
+      "playbook_up_score_bonus": 0.02,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "signal_bias": "balanced",
+      "top_k": 5
+    },
+    "probe": {
+      "code": null,
+      "date": null,
+      "engine_feature_flags": null,
+      "engine_input_hash": null,
+      "engine_plan_hash": null,
+      "engine_readiness_params": null,
+      "engine_scoring_params": null,
+      "feature_hash": null,
+      "publish_not_ready_reason_label": null,
+      "publish_not_ready_reasons": null,
+      "publish_ready": null,
+      "raw_readiness_score": null,
+      "readiness_pre_score": null
+    },
+    "probes": [],
+    "readiness_config_hash": "c1b557ee73d70c35406f0f3b5b11ee4fcb6ab40e45f5ec8f35c3260943073a95"
+  },
+  "error": null,
+  "family_id": "tradex-research-scope-e1feaec6e0a3-seed-7-existing-score-rescaled",
+  "future_ret20_code_coverage": {
+    "codes_all_failed_future_ret20": 0,
+    "codes_with_any_candidate": 0,
+    "codes_with_future_ret20_pass": 0,
+    "top_failed_codes": [
+      {
+        "code": "2127",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "2327",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "3063",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "3407",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "4062",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "4063",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "5301",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "5401",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "6191",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "6376",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "6920",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "7189",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "7638",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "8031",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "8056",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "8418",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "8725",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "8802",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "9201",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      },
+      {
+        "code": "9517",
+        "failure_count": 1,
+        "failure_reason": "unknown_future_ret20_failure"
+      }
+    ]
+  },
+  "future_ret20_source_coverage": {
+    "candidate_guarded_by_last_valid_ret20_date_count": 0,
+    "last_valid_ret20_candidate_date_by_code": {},
+    "missing_by_code": {
+      "2127": 1,
+      "2327": 1,
+      "3063": 1,
+      "3407": 1,
+      "4062": 1,
+      "4063": 1,
+      "5301": 1,
+      "5401": 1,
+      "6191": 1,
+      "6376": 1,
+      "6920": 1,
+      "7189": 1,
+      "7638": 1,
+      "8031": 1,
+      "8056": 1,
+      "8418": 1,
+      "8725": 1,
+      "8802": 1,
+      "9201": 1,
+      "9517": 1
+    },
+    "missing_by_month": {},
+    "missing_by_source_table": {
+      "daily_bars.derived_from_daily_bars": 20
+    },
+    "missing_examples": [
+      {
+        "candidate_date": null,
+        "code": "2127",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "2327",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "3063",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "3407",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "4062",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "4063",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "5301",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "5401",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "6191",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "6376",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "6920",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "7189",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "7638",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "8031",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "8056",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "8418",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "8725",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "8802",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "9201",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      },
+      {
+        "candidate_date": null,
+        "code": "9517",
+        "dt_key": null,
+        "expected_future_trade_date": null,
+        "future_trading_day_count": 0,
+        "join_key_status": "no_analysis_points",
+        "last_available_trade_date_for_code": null,
+        "last_valid_ret20_candidate_date": null,
+        "missing_reason_detail": "unknown_future_ret20_failure",
+        "source_mode": "derived_from_daily_bars",
+        "source_table_checked": "daily_bars.derived_from_daily_bars",
+        "trade_date_count": 0
+      }
+    ],
+    "missing_join_miss_count": 0,
+    "missing_near_data_end_count": 0,
+    "missing_trade_sequence_shortage_count": 0,
+    "mixed_source_mode": false,
+    "ret20_source_mode": "derived_from_daily_bars",
+    "source_table_counts": {
+      "daily_bars.derived_from_daily_bars": 20
+    }
+  },
+  "input_dataset_version": "session:scope-e1feaec6e0a3-seed-7:seed:7",
+  "method_family": "existing-score rescaled",
+  "method_id": "existing_score_rescaled_v1",
+  "method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+  "method_title": "既存点数の再尺度化",
+  "metrics": {
+    "by_code": {},
+    "by_period": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "1999-10-29"
+      }
+    ],
+    "overall": {
+      "by_period_stability": 1.0,
+      "future_ret20_code_coverage": {
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "2127",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "2327",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "3063",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "3407",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "4062",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "4063",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "5301",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "5401",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "6191",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "6376",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "6920",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "7189",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "7638",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "8031",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "8056",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "8418",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "8725",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "8802",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "9201",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          },
+          {
+            "code": "9517",
+            "failure_count": 1,
+            "failure_reason": "unknown_future_ret20_failure"
+          }
+        ]
+      },
+      "future_ret20_coverage": {
+        "candidate_day_count": 0,
+        "failure_reason_counts": {
+          "unknown_future_ret20_failure": 20
+        },
+        "guarded_out_count": 0,
+        "passed_count": 0
+      },
+      "future_ret20_source_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "last_valid_ret20_candidate_date_by_code": {},
+        "missing_by_code": {
+          "2127": 1,
+          "2327": 1,
+          "3063": 1,
+          "3407": 1,
+          "4062": 1,
+          "4063": 1,
+          "5301": 1,
+          "5401": 1,
+          "6191": 1,
+          "6376": 1,
+          "6920": 1,
+          "7189": 1,
+          "7638": 1,
+          "8031": 1,
+          "8056": 1,
+          "8418": 1,
+          "8725": 1,
+          "8802": 1,
+          "9201": 1,
+          "9517": 1
+        },
+        "missing_by_month": {},
+        "missing_by_source_table": {
+          "daily_bars.derived_from_daily_bars": 20
+        },
+        "missing_examples": [
+          {
+            "candidate_date": null,
+            "code": "2127",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "2327",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "3063",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "3407",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "4062",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "4063",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "5301",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "5401",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "6191",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "6376",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "6920",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "7189",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "7638",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "8031",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "8056",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "8418",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "8725",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "8802",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "9201",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          },
+          {
+            "candidate_date": null,
+            "code": "9517",
+            "dt_key": null,
+            "expected_future_trade_date": null,
+            "future_trading_day_count": 0,
+            "join_key_status": "no_analysis_points",
+            "last_available_trade_date_for_code": null,
+            "last_valid_ret20_candidate_date": null,
+            "missing_reason_detail": "unknown_future_ret20_failure",
+            "source_mode": "derived_from_daily_bars",
+            "source_table_checked": "daily_bars.derived_from_daily_bars",
+            "trade_date_count": 0
+          }
+        ],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars",
+        "source_table_counts": {
+          "daily_bars.derived_from_daily_bars": 20
+        }
+      },
+      "losing_examples": [],
+      "mean_confidence": 0.0,
+      "overall_score": 0.0,
+      "primary": {
+        "mean_confidence": 0.0,
+        "ready_rate": 0.0,
+        "signal_rate": 0.0
+      },
+      "ready_rate": 0.0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "sample_count": 0,
+      "signal_count": 0,
+      "signal_dates": [],
+      "signal_rate": 0.0,
+      "target_symbol_count": 0,
+      "top_reasons": [],
+      "top_symbol_share": 0.0,
+      "winning_examples": []
+    },
+    "samples": []
+  },
+  "notes": "既存点数の再尺度化",
+  "period": {
+    "segments": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "start_date": "1999-10-29"
+      }
+    ]
+  },
+  "plan_id": "existing_score_rescaled_v1",
+  "plan_version": "v1",
+  "price_source": "daily_bars",
+  "random_seed": 7,
+  "readiness_summary": {
+    "gate_reason_counts": {},
+    "plan_thresholds": {
+      "minimum_confidence": 0.56,
+      "minimum_ready_rate": 0.45,
+      "signal_bias": "balanced",
+      "top_k": 5
+    },
+    "post_gate_count": 0,
+    "post_gate_rate": 0.0,
+    "pre_gate_count": 0,
+    "pre_gate_rate": 0.0,
+    "raw_readiness_score": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "p90": 0.0
+    },
+    "ready_post_gate_rate": 0.0,
+    "ready_pre_gate_rate": 0.0,
+    "sample_count": 0,
+    "signal_post_filter_count": 0,
+    "signal_pre_filter_count": 0
+  },
+  "ret20_source_mode": "derived_from_daily_bars",
+  "run_id": "tradex-research-scope-e1feaec6e0a3-seed-7-existing-score-rescaled-existing_score_rescaled_v1",
+  "run_kind": "candidate",
+  "schema_version": "tradex_experiment_run_v1",
+  "selection_challenger_summary": {
+    "code_rankings": [],
+    "dd_proxy": 0.0,
+    "diagnostics_schema_version": "tradex_diagnostics_v1",
+    "groups": {
+      "bottom5": {},
+      "top10": {},
+      "top5": {}
+    },
+    "kind": "proxy",
+    "monthly_top5_capture": {
+      "capture_count_mean": 0.0,
+      "capture_count_median": 0.0,
+      "capture_count_trimmed_mean": 0.0,
+      "capture_rate_mean": 0.0,
+      "capture_rate_median": 0.0,
+      "capture_rate_trimmed_mean": 0.0,
+      "capture_ret20_mean": 0.0,
+      "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+      "kind": "proxy",
+      "mean": 0.0,
+      "median": 0.0,
+      "model_ret20_mean": 0.0,
+      "model_union_count_mean": 0.0,
+      "month_count": 0,
+      "months": [],
+      "positive_month_rate": 0.0,
+      "source": "timeline_metrics",
+      "target_ret20_mean": 0.0,
+      "target_union_count_mean": 0.0,
+      "trimmed_mean": 0.0,
+      "turnover_mean": 0.0,
+      "turnover_median": 0.0,
+      "turnover_trimmed_mean": 0.0,
+      "zero_pass_months": 0
+    },
+    "outcome_metric": "short_ret_20",
+    "rank_metric": "analysis_ev_net",
+    "regime_summary": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "1999-10-29"
+      }
+    ],
+    "selection_formula": "analysis_ev_net + ret_20 + readiness + liquidity + regime - penalties",
+    "selection_variant": "challenger",
+    "source": "timeline_metrics",
+    "turnover_proxy": 0.0,
+    "zero_pass_months": 0
+  },
+  "selection_summary": {
+    "code_rankings": [],
+    "dd_proxy": 0.0,
+    "diagnostics_schema_version": "tradex_diagnostics_v1",
+    "groups": {
+      "bottom5": {},
+      "top10": {},
+      "top5": {}
+    },
+    "kind": "proxy",
+    "monthly_top5_capture": {
+      "capture_count_mean": 0.0,
+      "capture_count_median": 0.0,
+      "capture_count_trimmed_mean": 0.0,
+      "capture_rate_mean": 0.0,
+      "capture_rate_median": 0.0,
+      "capture_rate_trimmed_mean": 0.0,
+      "capture_ret20_mean": 0.0,
+      "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+      "kind": "proxy",
+      "mean": 0.0,
+      "median": 0.0,
+      "model_ret20_mean": 0.0,
+      "model_union_count_mean": 0.0,
+      "month_count": 0,
+      "months": [],
+      "positive_month_rate": 0.0,
+      "source": "timeline_metrics",
+      "target_ret20_mean": 0.0,
+      "target_union_count_mean": 0.0,
+      "trimmed_mean": 0.0,
+      "turnover_mean": 0.0,
+      "turnover_median": 0.0,
+      "turnover_trimmed_mean": 0.0,
+      "zero_pass_months": 0
+    },
+    "outcome_metric": "short_ret_20",
+    "rank_metric": "analysis_ev_net",
+    "regime_summary": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "metrics": {
+          "losing_examples": [],
+          "mean_confidence": 0.0,
+          "ready_rate": 0.0,
+          "sample_count": 0,
+          "signal_count": 0,
+          "signal_dates": [],
+          "signal_rate": 0.0,
+          "top_reasons": [],
+          "top_symbol_share": 0.0,
+          "winning_examples": []
+        },
+        "overall_score": 0.0,
+        "start_date": "1999-10-29"
+      }
+    ],
+    "selection_formula": "analysis_ev_net -> short_ret_20 -> code",
+    "selection_variant": "champion",
+    "source": "timeline_metrics",
+    "turnover_proxy": 0.0,
+    "zero_pass_months": 0
+  },
+  "started_at": "2026-03-23T06:19:24.971886+00:00",
+  "status": "compared",
+  "summary": {
+    "by_period_stability": 1.0,
+    "diagnostics_schema_version": "tradex_diagnostics_v1",
+    "future_ret20_coverage": {
+      "candidate_day_count": 0,
+      "failure_reason_counts": {
+        "unknown_future_ret20_failure": 20
+      },
+      "guarded_out_count": 0,
+      "passed_count": 0
+    },
+    "overall_score": 0.0,
+    "run_signature": "7255f0b52e3ddc3481ef1d49b443cd35ac24ce794edfdc80f6ec33452a01f37d",
+    "sample_count": 0,
+    "selection_challenger_summary": {
+      "code_rankings": [],
+      "dd_proxy": 0.0,
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "groups": {
+        "bottom5": {},
+        "top10": {},
+        "top5": {}
+      },
+      "kind": "proxy",
+      "monthly_top5_capture": {
+        "capture_count_mean": 0.0,
+        "capture_count_median": 0.0,
+        "capture_count_trimmed_mean": 0.0,
+        "capture_rate_mean": 0.0,
+        "capture_rate_median": 0.0,
+        "capture_rate_trimmed_mean": 0.0,
+        "capture_ret20_mean": 0.0,
+        "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+        "kind": "proxy",
+        "mean": 0.0,
+        "median": 0.0,
+        "model_ret20_mean": 0.0,
+        "model_union_count_mean": 0.0,
+        "month_count": 0,
+        "months": [],
+        "positive_month_rate": 0.0,
+        "source": "timeline_metrics",
+        "target_ret20_mean": 0.0,
+        "target_union_count_mean": 0.0,
+        "trimmed_mean": 0.0,
+        "turnover_mean": 0.0,
+        "turnover_median": 0.0,
+        "turnover_trimmed_mean": 0.0,
+        "zero_pass_months": 0
+      },
+      "outcome_metric": "short_ret_20",
+      "rank_metric": "analysis_ev_net",
+      "regime_summary": [
+        {
+          "end_date": "2012-04-02",
+          "label": "up:up:1326758400:1333324800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2012-01-17"
+        },
+        {
+          "end_date": "2008-12-19",
+          "label": "down:down:1225324800:1229644800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2008-10-30"
+        },
+        {
+          "end_date": "2000-01-05",
+          "label": "flat:flat:941155200:947030400",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "1999-10-29"
+        }
+      ],
+      "selection_formula": "analysis_ev_net + ret_20 + readiness + liquidity + regime - penalties",
+      "selection_variant": "challenger",
+      "source": "timeline_metrics",
+      "turnover_proxy": 0.0,
+      "zero_pass_months": 0
+    },
+    "selection_summary": {
+      "code_rankings": [],
+      "dd_proxy": 0.0,
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "groups": {
+        "bottom5": {},
+        "top10": {},
+        "top5": {}
+      },
+      "kind": "proxy",
+      "monthly_top5_capture": {
+        "capture_count_mean": 0.0,
+        "capture_count_median": 0.0,
+        "capture_count_trimmed_mean": 0.0,
+        "capture_rate_mean": 0.0,
+        "capture_rate_median": 0.0,
+        "capture_rate_trimmed_mean": 0.0,
+        "capture_ret20_mean": 0.0,
+        "definition": "intersection of monthly unions: realized ret_20 top5 vs model ranking top5",
+        "kind": "proxy",
+        "mean": 0.0,
+        "median": 0.0,
+        "model_ret20_mean": 0.0,
+        "model_union_count_mean": 0.0,
+        "month_count": 0,
+        "months": [],
+        "positive_month_rate": 0.0,
+        "source": "timeline_metrics",
+        "target_ret20_mean": 0.0,
+        "target_union_count_mean": 0.0,
+        "trimmed_mean": 0.0,
+        "turnover_mean": 0.0,
+        "turnover_median": 0.0,
+        "turnover_trimmed_mean": 0.0,
+        "zero_pass_months": 0
+      },
+      "outcome_metric": "short_ret_20",
+      "rank_metric": "analysis_ev_net",
+      "regime_summary": [
+        {
+          "end_date": "2012-04-02",
+          "label": "up:up:1326758400:1333324800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2012-01-17"
+        },
+        {
+          "end_date": "2008-12-19",
+          "label": "down:down:1225324800:1229644800",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "2008-10-30"
+        },
+        {
+          "end_date": "2000-01-05",
+          "label": "flat:flat:941155200:947030400",
+          "metrics": {
+            "losing_examples": [],
+            "mean_confidence": 0.0,
+            "ready_rate": 0.0,
+            "sample_count": 0,
+            "signal_count": 0,
+            "signal_dates": [],
+            "signal_rate": 0.0,
+            "top_reasons": [],
+            "top_symbol_share": 0.0,
+            "winning_examples": []
+          },
+          "overall_score": 0.0,
+          "start_date": "1999-10-29"
+        }
+      ],
+      "selection_formula": "analysis_ev_net -> short_ret_20 -> code",
+      "selection_variant": "champion",
+      "source": "timeline_metrics",
+      "turnover_proxy": 0.0,
+      "zero_pass_months": 0
+    },
+    "signal_count": 0,
+    "signal_dates": [],
+    "target_symbol_count": 0,
+    "top_reasons": [],
+    "top_symbol_share": 0.0,
+    "waterfall_summary": {
+      "diagnostics_schema_version": "tradex_diagnostics_v1",
+      "failure_reason_counts": {},
+      "failure_stage_counts": {},
+      "sample_count": 0,
+      "shadow_gate": {
+        "pass_count": 0,
+        "pass_rate": 0.0,
+        "reason_counts": {},
+        "reason_order": [
+          "data_missing",
+          "as_of_invalid",
+          "environment_unresolved",
+          "liquidity_fail",
+          "gate_rule_fail"
+        ]
+      },
+      "stage_counts": {
+        "gate_pass": 0,
+        "published": 0,
+        "ranked": 0,
+        "ready_inputs_complete": 0,
+        "retrieved": 0
+      },
+      "stage_order": [
+        "retrieved",
+        "ranked",
+        "ready_inputs_complete",
+        "gate_pass",
+        "published"
+      ],
+      "stage_rates": {
+        "gate_pass": 0.0,
+        "published": 0.0,
+        "ranked": 0.0,
+        "ready_inputs_complete": 0.0,
+        "retrieved": 0.0
+      }
+    }
+  },
+  "timezone": "Asia/Tokyo",
+  "universe": [
+    "2127",
+    "2327",
+    "3063",
+    "3407",
+    "4062",
+    "4063",
+    "5301",
+    "5401",
+    "6191",
+    "6376",
+    "6920",
+    "7189",
+    "7638",
+    "8031",
+    "8056",
+    "8418",
+    "8725",
+    "8802",
+    "9201",
+    "9517"
+  ],
+  "waterfall_summary": {
+    "diagnostics_schema_version": "tradex_diagnostics_v1",
+    "failure_reason_counts": {},
+    "failure_stage_counts": {},
+    "sample_count": 0,
+    "shadow_gate": {
+      "pass_count": 0,
+      "pass_rate": 0.0,
+      "reason_counts": {},
+      "reason_order": [
+        "data_missing",
+        "as_of_invalid",
+        "environment_unresolved",
+        "liquidity_fail",
+        "gate_rule_fail"
+      ]
+    },
+    "stage_counts": {
+      "gate_pass": 0,
+      "published": 0,
+      "ranked": 0,
+      "ready_inputs_complete": 0,
+      "retrieved": 0
+    },
+    "stage_order": [
+      "retrieved",
+      "ranked",
+      "ready_inputs_complete",
+      "gate_pass",
+      "published"
+    ],
+    "stage_rates": {
+      "gate_pass": 0.0,
+      "published": 0.0,
+      "ranked": 0.0,
+      "ready_inputs_complete": 0.0,
+      "retrieved": 0.0
+    }
+  }
+}

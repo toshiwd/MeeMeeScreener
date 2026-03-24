@@ -46,7 +46,12 @@ TRADEX_LIQUIDITY20D_MIN = 50_000_000.0
 TRADEX_CHALLENGER_SELECTION_VARIANT = "challenger"
 TRADEX_CHALLENGER_SELECTION_FORMULA = "analysis_ev_net + ret_20 + readiness + liquidity + regime - penalties"
 TRADEX_EVAL_REGIME_LABEL_VERSION = "v1"
-TRADEX_EVAL_WINDOW_MIN_TRADING_DAYS = 60
+TRADEX_STANDARD_EVAL_WINDOW_MIN_TRADING_DAYS = 60
+TRADEX_RESEARCH_FALLBACK_EVAL_WINDOW_MIN_TRADING_DAYS = 20
+# 研究 runner は現データで成立する fallback を使うが、標準条件は 60 日のまま残す。
+TRADEX_EVAL_WINDOW_MIN_TRADING_DAYS = TRADEX_RESEARCH_FALLBACK_EVAL_WINDOW_MIN_TRADING_DAYS
+TRADEX_RET20_SOURCE_MODE_PRECOMPUTED = "precomputed"
+TRADEX_RET20_SOURCE_MODE_DERIVED = "derived_from_daily_bars"
 TRADEX_EVAL_REGIME_BUCKET_ORDER = ("up", "down", "flat")
 TRADEX_EVAL_REGIME_UP_TAGS = {"risk_on", "risk_on_trend", "risk_on_range", "capitulation_rebound"}
 TRADEX_EVAL_REGIME_DOWN_TAGS = {"risk_off", "risk_off_trend", "high_vol_chaos"}
@@ -67,6 +72,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 def _text(value: Any, fallback: str = "") -> str:
     text = str(value or "").strip()
     return text or fallback
+
+
+def _ret20_source_mode(value: Any) -> str:
+    mode = _text(value, fallback=TRADEX_RET20_SOURCE_MODE_PRECOMPUTED)
+    if mode not in {TRADEX_RET20_SOURCE_MODE_PRECOMPUTED, TRADEX_RET20_SOURCE_MODE_DERIVED}:
+        raise ValueError(f"invalid ret20_source_mode: {mode}")
+    return mode
 
 
 def _float(value: Any) -> float | None:
@@ -454,6 +466,7 @@ def _selection_code_summary(
             "median": _percentile(liquidity_values, 0.5),
             "trimmed_mean": _trimmed_mean(liquidity_values),
         },
+        "sample_count": len(samples),
         "missing_feature_rate": (missing_feature_count / float(len(samples))) if samples else 0.0,
         "environment_unresolved_rate": (environment_unresolved_count / float(len(samples))) if samples else 0.0,
         "liquidity_fail_rate": (liquidity_fail_count / float(len(samples))) if samples else 0.0,
@@ -688,6 +701,7 @@ def _selection_summary(
         "source": "timeline_metrics",
         "diagnostics_schema_version": TRADEX_DIAGNOSTICS_SCHEMA_VERSION,
         "selection_variant": variant,
+        "sample_count": len(samples),
         "selection_formula": "analysis_ev_net -> short_ret_20 -> code"
         if variant != TRADEX_CHALLENGER_SELECTION_VARIANT
         else TRADEX_CHALLENGER_SELECTION_FORMULA,
@@ -753,6 +767,10 @@ def _selection_summary_metric(summary: dict[str, Any], group: str, metric: str, 
     return _float(metric_payload.get(stat)) or 0.0
 
 
+def _selection_sample_count(summary: dict[str, Any]) -> int:
+    return max(0, _int(summary.get("sample_count")) or 0)
+
+
 def _selection_month_map(summary: dict[str, Any]) -> dict[str, dict[str, Any]]:
     monthly = summary.get("monthly_top5_capture") if isinstance(summary.get("monthly_top5_capture"), dict) else {}
     months = monthly.get("months") if isinstance(monthly.get("months"), list) else []
@@ -807,10 +825,66 @@ def _evaluation_regime_bucket(regime_id: str) -> str:
 
 
 def _format_ymd_int(value: int | str | None) -> str:
+    iso = _iso_date(value)
+    if iso:
+        return iso
     raw = _text(value)
     if len(raw) == 8 and raw.isdigit():
         return f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}"
     return raw
+
+
+def _normalize_join_code(value: Any) -> tuple[str, str]:
+    raw = _text(value)
+    if not raw:
+        return "", "code_type_mismatch"
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return raw, "code_type_mismatch"
+    normalized = digits[:4].zfill(4)
+    if len(digits) > 4:
+        return normalized, "code_type_mismatch"
+    if normalized != raw:
+        return normalized, "code_zero_padded"
+    return normalized, "code_identity"
+
+
+def _normalize_join_date(value: Any) -> tuple[str, str]:
+    raw = _text(value)
+    normalized = _format_ymd_int(value)
+    if not normalized:
+        return raw, "date_type_mismatch"
+    if normalized == raw:
+        return normalized, "date_identity"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        numeric = int(value)
+        if numeric >= 1_000_000_000 or (numeric >= 10_000_000_000 and numeric != int(float(value))):
+            return normalized, "timezone_or_timestamp_mismatch"
+        return normalized, "date_type_mismatch"
+    if isinstance(value, str):
+        upper = raw.upper()
+        if "T" in raw or "Z" in upper or "+" in raw[10:]:
+            return normalized, "timezone_or_timestamp_mismatch"
+    return normalized, "date_type_mismatch"
+
+
+def _normalize_join_key(*, code: Any, date_value: Any) -> dict[str, Any]:
+    normalized_code, code_mode = _normalize_join_code(code)
+    normalized_date, date_mode = _normalize_join_date(date_value)
+    key_parts = [item for item in (normalized_code, normalized_date) if item]
+    return {
+        "code_raw": _text(code),
+        "date_raw": _text(date_value),
+        "code": normalized_code,
+        "date": normalized_date,
+        "join_key": "|".join(key_parts),
+        "key_normalization_applied": [mode for mode in (code_mode, date_mode) if mode not in {"code_identity", "date_identity"}],
+        "key_normalization_mode": "code4/date_iso",
+    }
+
+
+def _normalize_point_join_key(point: dict[str, Any], *, code: str) -> dict[str, Any]:
+    return _normalize_join_key(code=code, date_value=point.get("dt"))
 
 
 def _load_evaluation_regime_rows(*, label_version: str = TRADEX_EVAL_REGIME_LABEL_VERSION) -> tuple[list[dict[str, Any]], list[str]]:
@@ -946,6 +1020,8 @@ def _evaluation_window_summary(
         "start_date": _text(window.get("start_date")),
         "end_date": _text(window.get("end_date")),
         "trading_day_count": int(window.get("trading_day_count") or 0),
+        "champion_sample_count": _selection_sample_count(champion_summary),
+        "challenger_sample_count": _selection_sample_count(challenger_summary),
         "champion_top5_ret20_mean": _selection_summary_metric(champion_summary, "top5", "ret_20", "mean"),
         "challenger_top5_ret20_mean": _selection_summary_metric(challenger_summary, "top5", "ret_20", "mean"),
         "champion_top5_ret20_median": _selection_summary_metric(champion_summary, "top5", "ret_20", "median"),
@@ -1146,6 +1222,25 @@ def _format_champion_challenger_evaluation_markdown(
             f"| {metric} | {_fmt_report_value(champion_value)} | {_fmt_report_value(challenger_value)} | {_fmt_report_value(delta)} |"
         )
     lines.append("")
+    lines.append("## Future Ret20 Coverage")
+    lines.append("")
+    lines.append("| metric | champion | challenger |")
+    lines.append("| --- | ---: | ---: |")
+    future_coverage_metrics = [
+        ("candidate_day_count", "champion_future_ret20_candidate_day_count", "challenger_future_ret20_candidate_day_count"),
+        ("passed_count", "champion_future_ret20_passed_count", "challenger_future_ret20_passed_count"),
+        ("guarded_out_count", "champion_future_ret20_guarded_out_count", "challenger_future_ret20_guarded_out_count"),
+    ]
+    for metric, champion_key, challenger_key in future_coverage_metrics:
+        lines.append(
+            f"| {metric} | {_fmt_report_value(evaluation.get(champion_key))} | {_fmt_report_value(evaluation.get(challenger_key))} |"
+        )
+    champion_failure_counts = evaluation.get("champion_future_ret20_failure_reason_counts") if isinstance(evaluation.get("champion_future_ret20_failure_reason_counts"), dict) else {}
+    challenger_failure_counts = evaluation.get("challenger_future_ret20_failure_reason_counts") if isinstance(evaluation.get("challenger_future_ret20_failure_reason_counts"), dict) else {}
+    if champion_failure_counts or challenger_failure_counts:
+        lines.append(f"- champion_failure_reason_counts: `{json.dumps(_json_ready(champion_failure_counts), ensure_ascii=False, sort_keys=True)}`")
+        lines.append(f"- challenger_failure_reason_counts: `{json.dumps(_json_ready(challenger_failure_counts), ensure_ascii=False, sort_keys=True)}`")
+    lines.append("")
     lines.append("## Windows")
     lines.append("")
     lines.append("| window | regime | days | champion top5 mean | challenger top5 mean | promote |")
@@ -1257,6 +1352,18 @@ def _build_champion_challenger_evaluation(
     challenger_summary = _selection_summary(candidate_samples, segments=windows, variant=TRADEX_CHALLENGER_SELECTION_VARIANT)
     champion_summary["regime_summary"] = list(window_summaries)
     challenger_summary["regime_summary"] = list(window_summaries)
+    baseline_summary = baseline.get("summary") if isinstance(baseline.get("summary"), dict) else {}
+    candidate_summary = candidate.get("summary") if isinstance(candidate.get("summary"), dict) else {}
+    champion_future_ret20 = baseline.get("future_ret20_coverage") if isinstance(baseline.get("future_ret20_coverage"), dict) else baseline_summary.get("future_ret20_coverage") if isinstance(baseline_summary.get("future_ret20_coverage"), dict) else {}
+    challenger_future_ret20 = candidate.get("future_ret20_coverage") if isinstance(candidate.get("future_ret20_coverage"), dict) else candidate_summary.get("future_ret20_coverage") if isinstance(candidate_summary.get("future_ret20_coverage"), dict) else {}
+    champion_ret20_code_coverage = baseline.get("future_ret20_code_coverage") if isinstance(baseline.get("future_ret20_code_coverage"), dict) else {}
+    challenger_ret20_code_coverage = candidate.get("future_ret20_code_coverage") if isinstance(candidate.get("future_ret20_code_coverage"), dict) else {}
+    champion_ret20_source_coverage = baseline.get("future_ret20_source_coverage") if isinstance(baseline.get("future_ret20_source_coverage"), dict) else baseline_summary.get("future_ret20_source_coverage") if isinstance(baseline_summary.get("future_ret20_source_coverage"), dict) else {}
+    challenger_ret20_source_coverage = candidate.get("future_ret20_source_coverage") if isinstance(candidate.get("future_ret20_source_coverage"), dict) else candidate_summary.get("future_ret20_source_coverage") if isinstance(candidate_summary.get("future_ret20_source_coverage"), dict) else {}
+    champion_ret20_join_gap_coverage = baseline.get("future_ret20_join_gap_coverage") if isinstance(baseline.get("future_ret20_join_gap_coverage"), dict) else baseline_summary.get("future_ret20_join_gap_coverage") if isinstance(baseline_summary.get("future_ret20_join_gap_coverage"), dict) else {}
+    challenger_ret20_join_gap_coverage = candidate.get("future_ret20_join_gap_coverage") if isinstance(candidate.get("future_ret20_join_gap_coverage"), dict) else candidate_summary.get("future_ret20_join_gap_coverage") if isinstance(candidate_summary.get("future_ret20_join_gap_coverage"), dict) else {}
+    champion_ret20_source_mode = _text(baseline.get("ret20_source_mode"), fallback=_text((baseline_summary.get("future_ret20_source_coverage") or {}).get("ret20_source_mode"), fallback="unknown"))
+    challenger_ret20_source_mode = _text(candidate.get("ret20_source_mode"), fallback=_text((candidate_summary.get("future_ret20_source_coverage") or {}).get("ret20_source_mode"), fallback="unknown"))
     overview = _evaluation_overview_summary(champion_summary, challenger_summary, window_summaries)
     evaluation_window_id = _stable_hash(
         {
@@ -1284,6 +1391,17 @@ def _build_champion_challenger_evaluation(
             "selection_variant": TRADEX_CHALLENGER_SELECTION_VARIANT,
             "champion_selection_summary": champion_summary,
             "challenger_selection_summary": challenger_summary,
+            "champion_future_ret20_coverage": champion_future_ret20,
+            "challenger_future_ret20_coverage": challenger_future_ret20,
+            "champion_future_ret20_code_coverage": champion_ret20_code_coverage,
+            "challenger_future_ret20_code_coverage": challenger_ret20_code_coverage,
+            "champion_future_ret20_source_coverage": champion_ret20_source_coverage,
+            "challenger_future_ret20_source_coverage": challenger_ret20_source_coverage,
+            "champion_future_ret20_join_gap_coverage": champion_ret20_join_gap_coverage,
+            "challenger_future_ret20_join_gap_coverage": challenger_ret20_join_gap_coverage,
+            "champion_ret20_source_mode": champion_ret20_source_mode,
+            "challenger_ret20_source_mode": challenger_ret20_source_mode,
+            "ret20_source_mode_mixed": champion_ret20_source_mode != challenger_ret20_source_mode,
             "windows": window_summaries,
             "status_reasons": status_reasons,
         }
@@ -1344,6 +1462,10 @@ def _selection_comparison_summary(champion: dict[str, Any], challenger: dict[str
     challenger_turnover = _float(challenger.get("turnover_proxy")) or 0.0
     champion_dd = _float(champion.get("dd_proxy")) or 0.0
     challenger_dd = _float(challenger.get("dd_proxy")) or 0.0
+    champion_sample_count = _selection_sample_count(champion)
+    challenger_sample_count = _selection_sample_count(challenger)
+    evaluation_row_count = max(champion_sample_count, challenger_sample_count)
+    insufficient_samples = evaluation_row_count <= 0
     thresholds = _promotion_thresholds()
     promote_checks = [
         challenger_top5_ret20_mean >= champion_top5_ret20_mean + thresholds["top5_mean_min_delta"],
@@ -1403,7 +1525,12 @@ def _selection_comparison_summary(champion: dict[str, Any], challenger: dict[str
         "champion_top5_liquidity20d_mean": champion_top5_liquidity_mean,
         "challenger_top5_liquidity20d_mean": challenger_top5_liquidity_mean,
         "monthly_improvement_rate": monthly_improvement_rate,
-        "promote_ready": bool(promote_checks and all(promote_checks)),
+        "champion_sample_count": champion_sample_count,
+        "challenger_sample_count": challenger_sample_count,
+        "evaluation_row_count": evaluation_row_count,
+        "sample_count": evaluation_row_count,
+        "insufficient_samples": insufficient_samples,
+        "promote_ready": bool(promote_checks and all(promote_checks) and not insufficient_samples),
         "promote_reasons": promote_reasons,
     }
 
@@ -1482,6 +1609,7 @@ def _plan_effective_parameters(plan: dict[str, Any]) -> dict[str, Any]:
         "top_k": max(1, _int(plan.get("top_k")) or 3),
         "playbook_up_score_bonus": _float(plan.get("playbook_up_score_bonus")) or 0.0,
         "playbook_down_score_bonus": _float(plan.get("playbook_down_score_bonus")) or 0.0,
+        "ret20_source_mode": _ret20_source_mode(plan.get("ret20_source_mode")),
         "notes": _text(plan.get("notes")),
         "method_id": method_metadata["method_id"],
         "method_title": method_metadata["method_title"],
@@ -1569,7 +1697,7 @@ def _iso_date(value: Any) -> str | None:
                 pass
         if numeric >= 1000000000000:
             numeric = int(numeric / 1000)
-        if numeric >= 1000000000:
+        if numeric >= 100000000:
             return datetime.fromtimestamp(numeric, tz=timezone.utc).date().isoformat()
     text = str(value).strip()
     if not text:
@@ -1580,7 +1708,7 @@ def _iso_date(value: Any) -> str | None:
                 return datetime.strptime(text, "%Y%m%d").date().isoformat()
             except ValueError:
                 return None
-        if len(text) == 10:
+        if len(text) >= 9:
             try:
                 return datetime.fromtimestamp(int(text), tz=timezone.utc).date().isoformat()
             except Exception:
@@ -1663,6 +1791,7 @@ def _normalize_plan(plan: dict[str, Any], *, default_plan_id: str) -> dict[str, 
         "minimum_ready_rate": _float(plan.get("minimum_ready_rate")),
         "signal_bias": signal_bias,
         "top_k": max(1, _int(plan.get("top_k")) or 3),
+        "ret20_source_mode": _ret20_source_mode(plan.get("ret20_source_mode")),
         "playbook_up_score_bonus": _float(plan.get("playbook_up_score_bonus")) or 0.0,
         "playbook_down_score_bonus": _float(plan.get("playbook_down_score_bonus")) or 0.0,
         "notes": _text(plan.get("notes")),
@@ -1804,6 +1933,322 @@ def _analysis_liquidity20d(repo: StockRepository, code: str, dt_key: int) -> flo
         return None
     _, liquidity20d = swing_expectancy_service.compute_atr_pct_and_liquidity20d(daily_rows)
     return liquidity20d
+
+
+def _analysis_trade_sequence(repo: StockRepository, code: str, *, limit: int = 10000) -> dict[str, Any]:
+    try:
+        daily_rows = repo.get_daily_bars(code, limit=limit)
+    except Exception:
+        daily_rows = []
+    dates: list[str] = []
+    closes: list[float] = []
+    for row in daily_rows:
+        if not isinstance(row, (tuple, list)) or len(row) < 5:
+            continue
+        dt_iso = _format_ymd_int(row[0])
+        close = _float(row[4])
+        if not dt_iso or close is None or close <= 0.0:
+            continue
+        dates.append(dt_iso)
+        closes.append(close)
+    return {
+        "dates": dates,
+        "closes": closes,
+        "date_index": {dt: idx for idx, dt in enumerate(dates)},
+        "last_date": dates[-1] if dates else None,
+    }
+
+
+def _last_valid_ret20_candidate_date(trade_sequence: dict[str, Any], horizon: int = 20) -> str | None:
+    dates = trade_sequence.get("dates") if isinstance(trade_sequence.get("dates"), list) else []
+    if len(dates) <= horizon:
+        return None
+    index = len(dates) - horizon - 1
+    if index < 0 or index >= len(dates):
+        return None
+    return _text(dates[index])
+
+
+def _future_ret20_guard_reason(
+    *,
+    code: str,
+    dt_key: int,
+    point: dict[str, Any],
+    trade_sequence: dict[str, Any],
+    source_mode: str = TRADEX_RET20_SOURCE_MODE_PRECOMPUTED,
+) -> tuple[str | None, dict[str, Any]]:
+    dates = trade_sequence.get("dates") if isinstance(trade_sequence.get("dates"), list) else []
+    closes = trade_sequence.get("closes") if isinstance(trade_sequence.get("closes"), list) else []
+    date_index = trade_sequence.get("date_index") if isinstance(trade_sequence.get("date_index"), dict) else {}
+    dt_iso = _format_ymd_int(dt_key)
+    source_mode = _ret20_source_mode(source_mode)
+    source_short_ret20 = point.get("shortRet20")
+    source_present = source_short_ret20 is not None if source_mode == TRADEX_RET20_SOURCE_MODE_PRECOMPUTED else bool(dates and closes)
+    source_table_checked = "analysis_timeline.shortRet20" if source_mode == TRADEX_RET20_SOURCE_MODE_PRECOMPUTED else "daily_bars.derived_from_daily_bars"
+    diagnostics = {
+        "code": code,
+        "date": dt_iso,
+        "source_mode": source_mode,
+        "source_table_checked": source_table_checked,
+        "source_present": source_present,
+        "future_trading_day_count": 0,
+        "trade_date_count": len(dates),
+        "last_trade_date": _text(trade_sequence.get("last_date")),
+        "last_available_trade_date_for_code": _text(trade_sequence.get("last_date")),
+        "last_valid_ret20_candidate_date": _last_valid_ret20_candidate_date(trade_sequence, 20),
+        "expected_future_trade_date": None,
+        "join_key_status": "unknown",
+        "missing_reason_detail": None,
+    }
+    if not dates or not closes:
+        diagnostics["join_key_status"] = "missing_sequence"
+        diagnostics["missing_reason_detail"] = "no_trading_sequence"
+        if source_mode == TRADEX_RET20_SOURCE_MODE_PRECOMPUTED and not source_present:
+            return "ret20_source_missing", diagnostics
+        return "missing_future_trade_dates", diagnostics
+    if not dt_iso:
+        diagnostics["join_key_status"] = "missing_date"
+        diagnostics["missing_reason_detail"] = "could_not_normalize_candidate_date"
+        return "join_miss_on_code_date", diagnostics
+    idx = date_index.get(dt_iso)
+    if source_mode == TRADEX_RET20_SOURCE_MODE_PRECOMPUTED and not source_present:
+        diagnostics["join_key_status"] = "missing_code_date_join" if idx is None else "matched"
+        diagnostics["missing_reason_detail"] = "shortRet20_missing_in_analysis_timeline"
+        if idx is not None:
+            future_available = len(dates) - int(idx) - 1
+            diagnostics["future_trading_day_count"] = future_available
+            future_idx = int(idx) + 20
+            if 0 <= future_idx < len(dates):
+                diagnostics["expected_future_trade_date"] = dates[future_idx]
+        return "ret20_source_missing", diagnostics
+    if idx is None:
+        diagnostics["join_key_status"] = "missing_code_date_join"
+        diagnostics["missing_reason_detail"] = "candidate_date_not_found_in_trading_sequence"
+        try:
+            dt_date = date.fromisoformat(dt_iso)
+        except Exception:
+            dt_date = None
+        if dt_date is not None and dt_date.weekday() >= 5:
+            diagnostics["join_key_status"] = "calendar_vs_trading_day_mismatch"
+            diagnostics["missing_reason_detail"] = "candidate_date_is_non_trading_calendar_day"
+            return "regime_date_not_in_code_trading_calendar", diagnostics
+        if source_mode == TRADEX_RET20_SOURCE_MODE_PRECOMPUTED and not source_present:
+            return "ret20_source_missing", diagnostics
+        return "regime_date_not_in_code_trading_calendar", diagnostics
+    last_valid_candidate_date = diagnostics.get("last_valid_ret20_candidate_date")
+    if isinstance(last_valid_candidate_date, str) and last_valid_candidate_date and dt_iso > last_valid_candidate_date:
+        future_available = len(dates) - int(idx) - 1
+        diagnostics["future_trading_day_count"] = future_available
+        diagnostics["expected_future_trade_date"] = last_valid_candidate_date
+        diagnostics["join_key_status"] = "beyond_last_valid_candidate_date"
+        diagnostics["missing_reason_detail"] = "candidate_date_exceeds_last_valid_ret20_candidate_date"
+        return "candidate_after_last_valid_ret20_date", diagnostics
+    future_available = len(dates) - int(idx) - 1
+    diagnostics["future_trading_day_count"] = future_available
+    future_idx = int(idx) + 20
+    if 0 <= future_idx < len(dates):
+        diagnostics["expected_future_trade_date"] = dates[future_idx]
+    diagnostics["join_key_status"] = "matched"
+    if future_available < 20:
+        diagnostics["missing_reason_detail"] = "not_enough_future_trading_days"
+        return "code_tail_too_close", diagnostics
+    if future_idx >= len(closes):
+        diagnostics["missing_reason_detail"] = "future_close_out_of_range"
+        return "trading_sequence_shortage", diagnostics
+    future_close = _float(closes[future_idx])
+    entry_close = _float(closes[int(idx)])
+    if future_close is None or entry_close is None or future_close <= 0.0 or entry_close <= 0.0:
+        diagnostics["missing_reason_detail"] = "future_close_or_entry_close_missing"
+        return "unknown_future_ret20_failure", diagnostics
+    diagnostics["future_ret20"] = (future_close / entry_close) - 1.0
+    return None, diagnostics
+
+
+def _future_ret20_join_gap_detail(
+    *,
+    code: str,
+    candidate_date: str | None,
+    trade_sequence: dict[str, Any],
+    scope_session_id: str,
+    scope_filter_applied_stage: str,
+    scope_points: list[dict[str, Any]],
+    code_points: list[dict[str, Any]],
+    selected_segment_ranges: list[tuple[str, str]],
+) -> dict[str, Any]:
+    dates = trade_sequence.get("dates") if isinstance(trade_sequence.get("dates"), list) else []
+    date_index = trade_sequence.get("date_index") if isinstance(trade_sequence.get("date_index"), dict) else {}
+    candidate_key_before_scope = _normalize_join_key(code=code, date_value=candidate_date)
+    candidate_date_text = candidate_key_before_scope["date"]
+    code_calendar_has_candidate_date = bool(candidate_date_text and candidate_date_text in date_index)
+    future_trade_date = None
+    code_calendar_has_future_trade_date = False
+    if candidate_date_text and candidate_date_text in date_index:
+        candidate_idx = _int(date_index.get(candidate_date_text))
+        if candidate_idx is not None and candidate_idx + 20 < len(dates):
+            future_trade_date = _text(dates[candidate_idx + 20])
+            code_calendar_has_future_trade_date = True
+    scope_point_keys = {
+        _normalize_point_join_key(point, code=code)["join_key"]
+        for point in scope_points
+        if isinstance(point, dict)
+    }
+    code_point_keys = {
+        _normalize_point_join_key(point, code=code)["join_key"]
+        for point in code_points
+        if isinstance(point, dict)
+    }
+    selected_segment_match = bool(
+        candidate_date_text
+        and any(segment_start <= candidate_date_text <= segment_end for segment_start, segment_end in selected_segment_ranges)
+    )
+    if not candidate_key_before_scope["code"] or not candidate_key_before_scope["date"]:
+        reason_detail = "candidate_removed_before_join"
+    elif candidate_key_before_scope["key_normalization_applied"]:
+        applied = set(candidate_key_before_scope["key_normalization_applied"])
+        if "code_type_mismatch" in applied:
+            reason_detail = "code_type_mismatch"
+        elif "timezone_or_timestamp_mismatch" in applied:
+            reason_detail = "timezone_or_timestamp_mismatch"
+        elif "date_type_mismatch" in applied:
+            reason_detail = "date_type_mismatch"
+        else:
+            reason_detail = "unknown_candidate_scope_key_mismatch"
+    elif not code_calendar_has_candidate_date:
+        reason_detail = "candidate_removed_before_join"
+    elif candidate_key_before_scope["join_key"] in scope_point_keys and candidate_key_before_scope["join_key"] not in code_point_keys:
+        reason_detail = "candidate_removed_after_scope_boundary" if not selected_segment_match else "scope_anchor_mismatch"
+    elif candidate_key_before_scope["join_key"] in code_point_keys:
+        reason_detail = "unknown_candidate_scope_key_mismatch"
+    elif candidate_key_before_scope["join_key"] not in scope_point_keys:
+        reason_detail = "candidate_removed_after_scope_boundary" if selected_segment_match else "scope_anchor_mismatch"
+    elif not code_calendar_has_future_trade_date:
+        reason_detail = "candidate_removed_after_scope_boundary"
+    else:
+        reason_detail = "unknown_candidate_scope_key_mismatch"
+    return {
+        "code": code,
+        "candidate_date": candidate_date_text,
+        "candidate_key_before_scope": candidate_key_before_scope["join_key"],
+        "candidate_key_after_scope": candidate_key_before_scope["join_key"] if candidate_key_before_scope["join_key"] in code_point_keys else "",
+        "scope_key_expected": candidate_key_before_scope["join_key"],
+        "key_normalization_applied": list(candidate_key_before_scope["key_normalization_applied"]),
+        "key_normalization_mode": _text(candidate_key_before_scope.get("key_normalization_mode"), fallback="code4/date_iso"),
+        "expected_future_trade_date": future_trade_date,
+        "last_available_trade_date_for_code": _text(trade_sequence.get("last_date")),
+        "scope_session_id": _text(scope_session_id, fallback="unknown"),
+        "scope_filter_applied_stage": _text(scope_filter_applied_stage, fallback="analysis_points_segment_filter"),
+        "candidate_side_exists": bool(scope_points or code_points or candidate_date_text),
+        "future_side_exists": bool(dates),
+        "regime_side_exists": bool(candidate_date_text and any(segment_start <= candidate_date_text <= segment_end for segment_start, segment_end in selected_segment_ranges)),
+        "code_calendar_has_candidate_date": code_calendar_has_candidate_date,
+        "code_calendar_has_future_trade_date": code_calendar_has_future_trade_date,
+        "join_gap_reason_detail": reason_detail,
+        "mismatch_reason_detail": reason_detail,
+        "candidate_rows_before_scope_filter": len(scope_points),
+        "candidate_rows_after_scope_filter": len(code_points),
+        "future_rows_before_scope_filter": len(dates),
+        "future_rows_after_scope_filter": len(dates) if dates else 0,
+        "joinable_code_date_pairs_before_scope": len([point for point in scope_points if _normalize_point_join_key(point, code=code)["date"] in date_index]),
+        "joinable_code_date_pairs_after_scope": len([point for point in code_points if _normalize_point_join_key(point, code=code)["date"] in date_index]),
+    }
+
+
+def _candidate_scope_gap_detail(
+    *,
+    code: str,
+    candidate_date: str | None,
+    trade_sequence: dict[str, Any],
+    scope_session_id: str,
+    scope_filter_applied_stage: str,
+    scope_points: list[dict[str, Any]],
+    code_points: list[dict[str, Any]],
+    selected_segment_ranges: list[tuple[str, str]],
+) -> dict[str, Any]:
+    dates = trade_sequence.get("dates") if isinstance(trade_sequence.get("dates"), list) else []
+    date_index = trade_sequence.get("date_index") if isinstance(trade_sequence.get("date_index"), dict) else {}
+    candidate_key_before_scope = _normalize_join_key(code=code, date_value=candidate_date)
+    candidate_date_text = candidate_key_before_scope["date"]
+    code_calendar_has_candidate_date = bool(candidate_date_text and candidate_date_text in date_index)
+    scope_point_keys = {
+        _normalize_point_join_key(point, code=code)["join_key"]
+        for point in scope_points
+        if isinstance(point, dict)
+    }
+    code_point_keys = {
+        _normalize_point_join_key(point, code=code)["join_key"]
+        for point in code_points
+        if isinstance(point, dict)
+    }
+    selected_segment_match = bool(
+        candidate_date_text
+        and any(segment_start <= candidate_date_text <= segment_end for segment_start, segment_end in selected_segment_ranges)
+    )
+    selected_segment_starts = [segment_start for segment_start, _segment_end in selected_segment_ranges if segment_start]
+    selected_segment_ends = [segment_end for _segment_start, segment_end in selected_segment_ranges if segment_end]
+    scope_anchor_start = min(selected_segment_starts) if selected_segment_starts else ""
+    scope_anchor_end = max(selected_segment_ends) if selected_segment_ends else ""
+    if not candidate_key_before_scope["code"] or not candidate_key_before_scope["date"]:
+        reason_detail = "candidate_removed_before_join"
+    elif candidate_key_before_scope["key_normalization_applied"]:
+        applied = set(candidate_key_before_scope["key_normalization_applied"])
+        if "code_type_mismatch" in applied:
+            reason_detail = "code_type_mismatch"
+        elif "timezone_or_timestamp_mismatch" in applied:
+            reason_detail = "timezone_or_timestamp_mismatch"
+        elif "date_type_mismatch" in applied:
+            reason_detail = "date_type_mismatch"
+        else:
+            reason_detail = "unknown_candidate_scope_key_mismatch"
+    elif not code_calendar_has_candidate_date:
+        reason_detail = "candidate_removed_before_join"
+    elif not scope_point_keys:
+        reason_detail = "candidate_removed_before_join" if selected_segment_match else "scope_anchor_mismatch"
+    elif candidate_key_before_scope["join_key"] not in scope_point_keys:
+        if scope_anchor_start and candidate_date_text < scope_anchor_start:
+            reason_detail = "candidate_removed_after_scope_boundary"
+        elif scope_anchor_end and candidate_date_text > scope_anchor_end:
+            reason_detail = "candidate_removed_after_scope_boundary"
+        elif selected_segment_match:
+            reason_detail = "scope_anchor_mismatch"
+        else:
+            reason_detail = "candidate_removed_after_scope_boundary"
+    elif candidate_key_before_scope["join_key"] not in code_point_keys:
+        if scope_anchor_start and candidate_date_text < scope_anchor_start:
+            reason_detail = "candidate_removed_after_scope_boundary"
+        elif scope_anchor_end and candidate_date_text > scope_anchor_end:
+            reason_detail = "candidate_removed_after_scope_boundary"
+        elif selected_segment_match:
+            reason_detail = "scope_anchor_mismatch"
+        else:
+            reason_detail = "candidate_removed_after_scope_boundary"
+    else:
+        reason_detail = "unknown_candidate_scope_key_mismatch"
+    return {
+        "code": code,
+        "candidate_date": candidate_date_text,
+        "candidate_key_before_scope": candidate_key_before_scope["join_key"],
+        "candidate_key_after_scope": candidate_key_before_scope["join_key"] if candidate_key_before_scope["join_key"] in code_point_keys else "",
+        "scope_key_expected": candidate_key_before_scope["join_key"],
+        "key_normalization_applied": list(candidate_key_before_scope["key_normalization_applied"]),
+        "key_normalization_mode": _text(candidate_key_before_scope.get("key_normalization_mode"), fallback="code4/date_iso"),
+        "expected_future_trade_date": None,
+        "scope_session_id": _text(scope_session_id, fallback="unknown"),
+        "scope_filter_applied_stage": _text(scope_filter_applied_stage, fallback="analysis_points_segment_filter_after_scope_points_build"),
+        "candidate_side_exists": bool(candidate_date_text),
+        "scope_side_exists": bool(scope_points),
+        "future_side_exists": bool(dates),
+        "code_calendar_has_candidate_date": code_calendar_has_candidate_date,
+        "candidate_date_in_scope_points": candidate_key_before_scope["join_key"] in scope_point_keys if candidate_date_text else False,
+        "candidate_date_in_code_points": candidate_key_before_scope["join_key"] in code_point_keys if candidate_date_text else False,
+        "candidate_in_scope_before_build_count": len(scope_points),
+        "candidate_in_scope_after_build_count": len(code_points),
+        "scope_anchor_start": scope_anchor_start,
+        "scope_anchor_end": scope_anchor_end,
+        "selected_segment_ranges": list(selected_segment_ranges),
+        "candidate_scope_gap_reason_detail": reason_detail,
+        "mismatch_reason_detail": reason_detail,
+        "candidate_scope_gap_reason": reason_detail,
+    }
 
 
 def _family_probes(family: dict[str, Any]) -> list[dict[str, str]]:
@@ -1991,6 +2436,8 @@ def _sample_trace(
     input_diagnostics = dict(input_contract.diagnostics or {})
     output_diagnostics = dict(output.get("diagnostics") or {}) if isinstance(output.get("diagnostics"), dict) else {}
     publish_not_ready_reasons = _publish_not_ready_reasons(input_contract, output, plan)
+    sell_analysis = dict(engine_input.get("sell_analysis") or {})
+    short_ret_20_source_present = sell_analysis.get("shortRet20") is not None
     liquidity20d = _float(input_diagnostics.get("liquidity20d"))
     if liquidity20d is None:
         liquidity20d = _float(output_diagnostics.get("liquidity20d"))
@@ -2009,6 +2456,7 @@ def _sample_trace(
         "short_ret_20": _float((engine_input.get("sell_analysis") or {}).get("shortRet20")) or 0.0,
         "short_ret_10": _float((engine_input.get("sell_analysis") or {}).get("shortRet10")) or 0.0,
         "short_ret_5": _float((engine_input.get("sell_analysis") or {}).get("shortRet5")) or 0.0,
+        "future_ret20_source_present": short_ret_20_source_present,
         "reasons": _safe_list(output.get("reasons")),
         "candidate_reasons": _safe_list(
             reason
@@ -2507,7 +2955,55 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
     by_code: dict[str, dict[str, Any]] = {}
     all_samples: list[dict[str, Any]] = []
     liquidity_cache: dict[tuple[str, int], tuple[float | None, str]] = {}
+    trade_sequence_cache: dict[str, dict[str, Any]] = {}
+    analysis_points_cache: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    future_ret20_failure_reason_counts: dict[str, int] = {}
+    future_ret20_guarded_out_count = 0
+    future_ret20_passed_count = 0
+    future_ret20_candidate_day_count = 0
+    ret20_source_mode = _ret20_source_mode(plan_effective.get("ret20_source_mode"))
+    future_ret20_source_missing_details: list[dict[str, Any]] = []
+    future_ret20_failure_details: list[dict[str, Any]] = []
+    future_ret20_missing_by_source_table: dict[str, int] = {}
+    future_ret20_missing_by_code: dict[str, int] = {}
+    future_ret20_missing_by_month: dict[str, int] = {}
+    future_ret20_missing_near_data_end_count = 0
+    future_ret20_missing_join_miss_count = 0
+    future_ret20_missing_trade_sequence_shortage_count = 0
+    future_ret20_candidate_guarded_by_last_valid_ret20_date_count = 0
+    future_ret20_last_valid_candidate_date_by_code: dict[str, str] = {}
+    future_ret20_codes_with_any_candidate: set[str] = set()
+    future_ret20_codes_with_future_ret20_pass: set[str] = set()
+    future_ret20_code_failure_counts: dict[str, int] = {}
+    future_ret20_code_failure_reasons: dict[str, str] = {}
+    future_ret20_join_gap_reason_counts: dict[str, int] = {}
+    future_ret20_failure_reason_counts_by_source_mode: dict[str, dict[str, int]] = {}
+    future_ret20_join_gap_after_scope_filter_count = 0
+    future_ret20_join_gap_details: list[dict[str, Any]] = []
+    future_ret20_candidate_rows_before_scope_filter = 0
+    future_ret20_candidate_rows_after_scope_filter = 0
+    future_ret20_future_rows_before_scope_filter = 0
+    future_ret20_future_rows_after_scope_filter = 0
+    future_ret20_joinable_code_date_pairs_before_scope = 0
+    future_ret20_joinable_code_date_pairs_after_scope = 0
+    future_ret20_candidate_rows_before_future_guard = 0
+    future_ret20_candidate_rows_after_future_guard = 0
+    future_ret20_joinable_rows = 0
+    future_ret20_compare_rows_emitted = 0
+    future_ret20_sample_rows_retained = 0
+    candidate_scope_key_mismatch_reason_counts: dict[str, int] = {}
+    candidate_scope_gap_reason_counts: dict[str, int] = {}
+    candidate_scope_gap_details: list[dict[str, Any]] = []
+    candidate_in_scope_before_build_count = 0
+    candidate_in_scope_after_build_count = 0
+    scope_filter_applied_stage = "analysis_points_segment_filter_after_scope_points_build"
     probe_lookup = {( _text(item.get("code")), _text(item.get("date")) ): item for item in family_probes}
+
+    segment_end_dates = [_text(segment.get("end_date")) for segment in segments if _text(segment.get("end_date"))]
+    max_segment_end_date = max(segment_end_dates) if segment_end_dates else ""
+    segment_start_dates = [_text(segment.get("start_date")) for segment in segments if _text(segment.get("start_date"))]
+    min_segment_start_date = min(segment_start_dates) if segment_start_dates else ""
+    scope_points_cache: dict[str, list[dict[str, Any]]] = {}
 
     def _cached_liquidity20d(code: str, dt_key: int) -> tuple[float | None, str]:
         key = (code, dt_key)
@@ -2519,48 +3015,265 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
         liquidity_cache[key] = result
         return result
 
+    def _record_future_ret20_issue(*, code: str, dt_key: int, reason: str, diagnostics: dict[str, Any]) -> None:
+        nonlocal future_ret20_missing_near_data_end_count, future_ret20_missing_join_miss_count, future_ret20_missing_trade_sequence_shortage_count
+        source_table = _text(diagnostics.get("source_table_checked"), fallback="unknown")
+        month = _text(diagnostics.get("date"))[:7]
+        source_mode = _text(diagnostics.get("source_mode"), fallback=ret20_source_mode)
+        future_ret20_missing_by_source_table[source_table] = future_ret20_missing_by_source_table.get(source_table, 0) + 1
+        future_ret20_missing_by_code[code] = future_ret20_missing_by_code.get(code, 0) + 1
+        if month:
+            future_ret20_missing_by_month[month] = future_ret20_missing_by_month.get(month, 0) + 1
+        if reason in {"candidate_too_close_to_data_end", "insufficient_future_bars"}:
+            future_ret20_missing_near_data_end_count += 1
+        if reason in {"join_miss_on_code_date", "calendar_vs_trading_day_mismatch"}:
+            future_ret20_missing_join_miss_count += 1
+        if reason in {"missing_future_trade_dates", "insufficient_future_bars"}:
+            future_ret20_missing_trade_sequence_shortage_count += 1
+        source_mode_counts = future_ret20_failure_reason_counts_by_source_mode.setdefault(source_mode, {})
+        source_mode_counts[reason] = source_mode_counts.get(reason, 0) + 1
+        if len(future_ret20_failure_details) < 100:
+            future_ret20_failure_details.append(
+                {
+                    "code": code,
+                    "candidate_date": diagnostics.get("date"),
+                    "ret20_source_mode": source_mode,
+                    "future_ret20_failure_reason": reason,
+                    "future_ret20_failure_reason_detail": diagnostics.get("missing_reason_detail") or reason,
+                    "source_table_checked": source_table,
+                    "join_key_status": diagnostics.get("join_key_status"),
+                    "source_present": diagnostics.get("source_present"),
+                    "future_trading_day_count": diagnostics.get("future_trading_day_count"),
+                    "trade_date_count": diagnostics.get("trade_date_count"),
+                    "expected_future_trade_date": diagnostics.get("expected_future_trade_date"),
+                    "last_available_trade_date_for_code": diagnostics.get("last_available_trade_date_for_code"),
+                    "last_valid_ret20_candidate_date": diagnostics.get("last_valid_ret20_candidate_date"),
+                    "scope_session_id": _text(family.get("session_scope_id"), fallback=_text(family.get("input_dataset_version"), fallback="unknown")),
+                    "scope_filter_applied_stage": scope_filter_applied_stage,
+                    "session_failure_reason": "",
+                    "dt_key": int(dt_key),
+                }
+            )
+        if len(future_ret20_source_missing_details) < 100:
+            future_ret20_source_missing_details.append(
+                {
+                    "code": code,
+                    "candidate_date": diagnostics.get("date"),
+                    "expected_future_trade_date": diagnostics.get("expected_future_trade_date"),
+                    "last_available_trade_date_for_code": diagnostics.get("last_available_trade_date_for_code"),
+                    "source_table_checked": source_table,
+                    "join_key_status": diagnostics.get("join_key_status"),
+                    "missing_reason_detail": diagnostics.get("missing_reason_detail") or reason,
+                    "source_mode": diagnostics.get("source_mode"),
+                    "future_trading_day_count": diagnostics.get("future_trading_day_count"),
+                    "trade_date_count": diagnostics.get("trade_date_count"),
+                    "dt_key": int(dt_key),
+                }
+            )
+
     for code in family.get("universe") or []:
         normalized_code = _text(code)
         if not normalized_code:
             continue
         code_samples: list[dict[str, Any]] = []
+        code_points: list[dict[str, Any]] = []
+        scope_points = scope_points_cache.get(normalized_code)
+        if scope_points is None:
+            scope_points = _analysis_points(repo, normalized_code, min_segment_start_date, max_segment_end_date) if min_segment_start_date and max_segment_end_date else []
+            scope_points_cache[normalized_code] = scope_points
+        candidate_in_scope_before_build_count += len(scope_points)
+        future_ret20_candidate_rows_before_scope_filter += len(scope_points)
+        selected_segment_ranges = [
+            (_text(segment["start_date"]), _text(segment["end_date"]))
+            for segment in segments
+            if _text(segment.get("start_date")) and _text(segment.get("end_date"))
+        ]
         for segment in segments:
-            points = _analysis_points(repo, normalized_code, segment["start_date"], segment["end_date"])
-            for point in points:
-                dt_key = _int(point.get("dt"))
-                if dt_key is None:
-                    continue
-                liquidity20d, liquidity20d_source = _cached_liquidity20d(normalized_code, dt_key)
-                point_with_liquidity = dict(point)
-                point_with_liquidity["liquidity20d"] = liquidity20d
-                if liquidity20d_source:
-                    point_with_liquidity["liquidity20d_source"] = liquidity20d_source
-                sample_input = _analysis_input(
-                    normalized_code,
-                    dt_key,
-                    point_with_liquidity,
-                    plan_effective=plan_effective,
-                    feature_flags=feature_flags,
-                    readiness_config_hash=readiness_config_hash,
+            cache_key = (normalized_code, segment["start_date"], segment["end_date"])
+            points = analysis_points_cache.get(cache_key)
+            if points is None:
+                points = _analysis_points(repo, normalized_code, segment["start_date"], segment["end_date"])
+                analysis_points_cache[cache_key] = points
+            code_points.extend(points)
+        candidate_in_scope_after_build_count += len(code_points)
+        future_ret20_candidate_rows_after_scope_filter += len(code_points)
+        trade_sequence = trade_sequence_cache.get(normalized_code)
+        if trade_sequence is None:
+            trade_sequence = _analysis_trade_sequence(repo, normalized_code)
+            trade_sequence_cache[normalized_code] = trade_sequence
+        future_ret20_future_rows_before_scope_filter += len(trade_sequence.get("dates") or [])
+        future_ret20_future_rows_after_scope_filter += len(
+            [
+                trade_date
+                for trade_date in (trade_sequence.get("dates") or [])
+                if any(segment_start <= trade_date <= segment_end for segment_start, segment_end in selected_segment_ranges)
+            ]
+        )
+        future_ret20_joinable_code_date_pairs_before_scope += len([
+            point
+            for point in scope_points
+            if _normalize_point_join_key(point, code=normalized_code)["date"] in (trade_sequence.get("date_index") or {})
+        ])
+        future_ret20_joinable_code_date_pairs_after_scope += len([
+            point
+            for point in code_points
+            if _normalize_point_join_key(point, code=normalized_code)["date"] in (trade_sequence.get("date_index") or {})
+        ])
+        if not code_points:
+            local_candidate_scope_gap_reason_counts: dict[str, int] = {}
+            code_point_date_keys = {
+                _normalize_point_join_key(item, code=normalized_code)["date"]
+                for item in code_points
+                if isinstance(item, dict)
+            }
+            removed_points = [
+                point
+                for point in scope_points
+                if _normalize_point_join_key(point, code=normalized_code)["date"] not in code_point_date_keys
+            ]
+            if not removed_points:
+                removed_points = [{"dt": None}]
+            future_ret20_join_gap_after_scope_filter_count += len(removed_points)
+            for point in removed_points[:100]:
+                detail = _candidate_scope_gap_detail(
+                    code=normalized_code,
+                    candidate_date=_text(point.get("dt")) if isinstance(point, dict) else None,
+                    trade_sequence=trade_sequence,
+                    scope_session_id=_text(family.get("session_scope_id"), fallback=_text(family.get("input_dataset_version"), fallback="unknown")),
+                    scope_filter_applied_stage=scope_filter_applied_stage,
+                    scope_points=scope_points,
+                    code_points=code_points,
+                    selected_segment_ranges=selected_segment_ranges,
                 )
-                sample_output = run_tradex_analysis(sample_input).to_dict()
-                sample_trace = _sample_trace(
-                    normalized_code,
-                    dt_key,
-                    sample_input,
-                    sample_output,
-                    plan,
-                    plan_effective=plan_effective,
-                    feature_flags=feature_flags,
-                    readiness_config_hash=readiness_config_hash,
+                detail_reason = _text(detail.get("mismatch_reason_detail"), fallback=_text(detail.get("candidate_scope_gap_reason"), fallback="unknown_candidate_scope_gap"))
+                local_candidate_scope_gap_reason_counts[detail_reason] = local_candidate_scope_gap_reason_counts.get(detail_reason, 0) + 1
+                candidate_scope_key_mismatch_reason_counts[detail_reason] = candidate_scope_key_mismatch_reason_counts.get(detail_reason, 0) + 1
+                candidate_scope_gap_reason_counts[detail_reason] = candidate_scope_gap_reason_counts.get(detail_reason, 0) + 1
+                if len(candidate_scope_gap_details) < 100:
+                    candidate_scope_gap_details.append(detail)
+            if ret20_source_mode == TRADEX_RET20_SOURCE_MODE_PRECOMPUTED:
+                failure_reason = "ret20_source_missing"
+            else:
+                if len(trade_sequence.get("dates") or []) < 21:
+                    failure_reason = "trading_sequence_shortage"
+                elif local_candidate_scope_gap_reason_counts:
+                    failure_reason = sorted(local_candidate_scope_gap_reason_counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+                else:
+                    failure_reason = "unknown_candidate_scope_gap"
+            future_ret20_failure_reason_counts[failure_reason] = future_ret20_failure_reason_counts.get(failure_reason, 0) + 1
+            future_ret20_code_failure_counts[normalized_code] = future_ret20_code_failure_counts.get(normalized_code, 0) + 1
+            future_ret20_code_failure_reasons[normalized_code] = failure_reason
+            if len(future_ret20_source_missing_details) < 100:
+                future_ret20_source_missing_details.append(
+                    {
+                        "code": normalized_code,
+                        "candidate_date": None,
+                        "expected_future_trade_date": None,
+                        "last_available_trade_date_for_code": None,
+                        "last_valid_ret20_candidate_date": None,
+                        "source_table_checked": "analysis_timeline.shortRet20" if ret20_source_mode == TRADEX_RET20_SOURCE_MODE_PRECOMPUTED else "daily_bars.derived_from_daily_bars",
+                        "join_key_status": "no_analysis_points" if ret20_source_mode == TRADEX_RET20_SOURCE_MODE_PRECOMPUTED else "candidate_scope_gap",
+                        "missing_reason_detail": failure_reason,
+                        "source_mode": ret20_source_mode,
+                        "future_trading_day_count": 0,
+                        "trade_date_count": 0,
+                        "dt_key": None,
+                    }
                 )
-                sample_trace["liquidity20d_source"] = liquidity20d_source
-                probe = probe_lookup.get((normalized_code, _text(sample_trace.get("date"))))
-                if probe:
-                    sample_trace["probe_id"] = _text(probe.get("probe_id"))
-                    sample_trace["probe_label"] = _text(probe.get("label"))
-                code_samples.append(sample_trace)
-                all_samples.append(sample_trace)
+            if ret20_source_mode == TRADEX_RET20_SOURCE_MODE_PRECOMPUTED:
+                future_ret20_missing_by_source_table["analysis_timeline.shortRet20"] = future_ret20_missing_by_source_table.get("analysis_timeline.shortRet20", 0) + 1
+            else:
+                future_ret20_missing_by_source_table["daily_bars.derived_from_daily_bars"] = future_ret20_missing_by_source_table.get("daily_bars.derived_from_daily_bars", 0) + 1
+            future_ret20_missing_by_code[normalized_code] = future_ret20_missing_by_code.get(normalized_code, 0) + 1
+            continue
+        trade_sequence = trade_sequence_cache.get(normalized_code)
+        if trade_sequence is None:
+            trade_sequence = _analysis_trade_sequence(repo, normalized_code)
+            trade_sequence_cache[normalized_code] = trade_sequence
+        future_ret20_future_rows_after_scope_filter += len(trade_sequence.get("dates") or [])
+        future_ret20_joinable_code_date_pairs_before_scope += len([
+            point
+            for point in scope_points
+            if _normalize_point_join_key(point, code=normalized_code)["date"] in (trade_sequence.get("date_index") or {})
+        ])
+        future_ret20_joinable_code_date_pairs_after_scope += len([
+            point
+            for point in code_points
+            if _normalize_point_join_key(point, code=normalized_code)["date"] in (trade_sequence.get("date_index") or {})
+        ])
+        last_valid_ret20_candidate_date = _last_valid_ret20_candidate_date(trade_sequence, 20)
+        if last_valid_ret20_candidate_date:
+            future_ret20_last_valid_candidate_date_by_code[normalized_code] = last_valid_ret20_candidate_date
+        for point in code_points:
+            dt_key = _int(point.get("dt"))
+            if dt_key is None:
+                continue
+            future_ret20_candidate_rows_before_future_guard += 1
+            future_ret20_codes_with_any_candidate.add(normalized_code)
+            future_ret20_candidate_day_count += 1
+            guard_reason, guard_diagnostics = _future_ret20_guard_reason(
+                code=normalized_code,
+                dt_key=dt_key,
+                point=point,
+                trade_sequence=trade_sequence,
+                source_mode=ret20_source_mode,
+            )
+            if guard_reason:
+                future_ret20_guarded_out_count += 1
+                future_ret20_failure_reason_counts[guard_reason] = future_ret20_failure_reason_counts.get(guard_reason, 0) + 1
+                future_ret20_code_failure_counts[normalized_code] = future_ret20_code_failure_counts.get(normalized_code, 0) + 1
+                future_ret20_code_failure_reasons.setdefault(normalized_code, guard_reason)
+                if guard_reason == "candidate_after_last_valid_ret20_date":
+                    future_ret20_candidate_guarded_by_last_valid_ret20_date_count += 1
+                _record_future_ret20_issue(code=normalized_code, dt_key=dt_key, reason=guard_reason, diagnostics=guard_diagnostics)
+                continue
+            future_ret20_candidate_rows_after_future_guard += 1
+            future_ret20_joinable_rows += 1
+            future_ret20_passed_count += 1
+            future_ret20_codes_with_future_ret20_pass.add(normalized_code)
+            liquidity20d, liquidity20d_source = _cached_liquidity20d(normalized_code, dt_key)
+            point_with_liquidity = dict(point)
+            if ret20_source_mode == TRADEX_RET20_SOURCE_MODE_DERIVED:
+                point_with_liquidity["shortRet20"] = guard_diagnostics.get("future_ret20")
+            point_with_liquidity["ret20_source_mode"] = ret20_source_mode
+            point_with_liquidity["ret20_source_table"] = guard_diagnostics.get("source_table_checked")
+            point_with_liquidity["liquidity20d"] = liquidity20d
+            point_with_liquidity["future_ret20_guard_reason"] = guard_reason
+            point_with_liquidity["future_ret20_guard_diagnostics"] = guard_diagnostics
+            if liquidity20d_source:
+                point_with_liquidity["liquidity20d_source"] = liquidity20d_source
+            sample_input = _analysis_input(
+                normalized_code,
+                dt_key,
+                point_with_liquidity,
+                plan_effective=plan_effective,
+                feature_flags=feature_flags,
+                readiness_config_hash=readiness_config_hash,
+            )
+            sample_output = run_tradex_analysis(sample_input).to_dict()
+            sample_trace = _sample_trace(
+                normalized_code,
+                dt_key,
+                sample_input,
+                sample_output,
+                plan,
+                plan_effective=plan_effective,
+                feature_flags=feature_flags,
+                readiness_config_hash=readiness_config_hash,
+            )
+            sample_trace["liquidity20d_source"] = liquidity20d_source
+            sample_trace["ret20_source_mode"] = ret20_source_mode
+            sample_trace["ret20_source_table"] = guard_diagnostics.get("source_table_checked")
+            sample_trace["future_ret20_guard_reason"] = guard_reason
+            sample_trace["future_ret20_guard_diagnostics"] = guard_diagnostics
+            probe = probe_lookup.get((normalized_code, _text(sample_trace.get("date"))))
+            if probe:
+                sample_trace["probe_id"] = _text(probe.get("probe_id"))
+                sample_trace["probe_label"] = _text(probe.get("label"))
+            future_ret20_compare_rows_emitted += 1
+            future_ret20_sample_rows_retained += 1
+            code_samples.append(sample_trace)
+            all_samples.append(sample_trace)
         if code_samples:
             by_code[normalized_code] = {
                 "code": normalized_code,
@@ -2597,6 +3310,64 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
         period_stability = max(0.0, 1.0 - min(1.0, max(period_scores) - min(period_scores)))
     else:
         period_stability = 0.0
+    future_ret20_source_coverage = {
+        "ret20_source_mode": ret20_source_mode,
+        "source_table_counts": dict(sorted(future_ret20_missing_by_source_table.items(), key=lambda item: (-item[1], item[0]))),
+        "missing_by_source_table": dict(sorted(future_ret20_missing_by_source_table.items(), key=lambda item: (-item[1], item[0]))),
+        "missing_by_code": dict(sorted(future_ret20_missing_by_code.items(), key=lambda item: (-item[1], item[0]))),
+        "missing_by_month": dict(sorted(future_ret20_missing_by_month.items(), key=lambda item: (-item[1], item[0]))),
+        "missing_near_data_end_count": future_ret20_missing_near_data_end_count,
+        "missing_join_miss_count": future_ret20_missing_join_miss_count,
+        "missing_trade_sequence_shortage_count": future_ret20_missing_trade_sequence_shortage_count,
+        "candidate_guarded_by_last_valid_ret20_date_count": future_ret20_candidate_guarded_by_last_valid_ret20_date_count,
+        "last_valid_ret20_candidate_date_by_code": dict(sorted(future_ret20_last_valid_candidate_date_by_code.items(), key=lambda item: item[0])),
+        "missing_examples": list(future_ret20_source_missing_details[:25]),
+        "join_gap_examples": list(future_ret20_join_gap_details[:25]),
+        "join_gap_after_scope_filter_count": future_ret20_join_gap_after_scope_filter_count,
+        "join_gap_reason_counts": dict(sorted(future_ret20_join_gap_reason_counts.items(), key=lambda item: (-item[1], item[0]))),
+        "candidate_rows_before_scope_filter": future_ret20_candidate_rows_before_scope_filter,
+        "candidate_rows_after_scope_filter": future_ret20_candidate_rows_after_scope_filter,
+        "future_rows_before_scope_filter": future_ret20_future_rows_before_scope_filter,
+        "future_rows_after_scope_filter": future_ret20_future_rows_after_scope_filter,
+        "joinable_code_date_pairs_before_scope": future_ret20_joinable_code_date_pairs_before_scope,
+        "joinable_code_date_pairs_after_scope": future_ret20_joinable_code_date_pairs_after_scope,
+        "mixed_source_mode": False,
+    }
+    future_ret20_code_coverage = {
+        "codes_with_any_candidate": len(future_ret20_codes_with_any_candidate),
+        "codes_with_future_ret20_pass": len(future_ret20_codes_with_future_ret20_pass),
+        "codes_all_failed_future_ret20": len([code for code in future_ret20_codes_with_any_candidate if code not in future_ret20_codes_with_future_ret20_pass]),
+        "top_failed_codes": [
+            {"code": code, "failure_count": count, "failure_reason": future_ret20_code_failure_reasons.get(code, "unknown_future_ret20_failure")}
+            for code, count in sorted(future_ret20_code_failure_counts.items(), key=lambda item: (-item[1], item[0]))[:25]
+        ],
+    }
+    candidate_scope_key_mismatch_reason_counts_sorted = dict(
+        sorted(candidate_scope_key_mismatch_reason_counts.items(), key=lambda item: (-item[1], item[0]))
+    )
+    future_ret20_failure_reason_counts_by_source_mode_sorted = {
+        mode: dict(sorted(reason_counts.items(), key=lambda item: (-item[1], item[0])))
+        for mode, reason_counts in sorted(future_ret20_failure_reason_counts_by_source_mode.items())
+    }
+    if not future_ret20_failure_reason_counts_by_source_mode_sorted and future_ret20_failure_reason_counts:
+        future_ret20_failure_reason_counts_by_source_mode_sorted = {
+            ret20_source_mode: dict(sorted(future_ret20_failure_reason_counts.items(), key=lambda item: (-item[1], item[0])))
+        }
+    candidate_scope_gap_coverage = {
+        "scope_filter_applied_stage": scope_filter_applied_stage,
+        "candidate_in_scope_before_build_count": candidate_in_scope_before_build_count,
+        "candidate_in_scope_after_build_count": candidate_in_scope_after_build_count,
+        "candidate_scope_key_mismatch_reason_counts": candidate_scope_key_mismatch_reason_counts_sorted,
+        "candidate_scope_gap_reason_counts": candidate_scope_key_mismatch_reason_counts_sorted,
+        "candidate_scope_gap_examples": list(candidate_scope_gap_details[:25]),
+        "candidate_scope_gap_count": sum(candidate_scope_key_mismatch_reason_counts.values()),
+        "candidate_removed_by_scope_boundary_count": sum(
+            count
+            for reason, count in candidate_scope_key_mismatch_reason_counts.items()
+            if reason == "candidate_removed_after_scope_boundary"
+        ),
+        "key_normalization_mode": "code4/date_iso",
+    }
     metrics = {
         "overall": {
             **overall,
@@ -2608,6 +3379,35 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
                 "ready_rate": overall["ready_rate"],
                 "mean_confidence": overall["mean_confidence"],
             },
+            "future_ret20_coverage": {
+                "candidate_day_count": future_ret20_candidate_day_count,
+                "candidate_rows_before_future_guard": future_ret20_candidate_rows_before_future_guard,
+            "candidate_rows_after_future_guard": future_ret20_candidate_rows_after_future_guard,
+            "ret20_joinable_rows": future_ret20_joinable_rows,
+            "compare_rows_emitted": future_ret20_compare_rows_emitted,
+            "sample_rows_retained": future_ret20_sample_rows_retained,
+            "passed_count": future_ret20_passed_count,
+            "guarded_out_count": future_ret20_guarded_out_count,
+            "failure_reason_counts": dict(sorted(future_ret20_failure_reason_counts.items())),
+            "failure_reason_counts_by_source_mode": future_ret20_failure_reason_counts_by_source_mode_sorted,
+            "failure_details": list(future_ret20_failure_details[:100]),
+        },
+            "future_ret20_source_coverage": future_ret20_source_coverage,
+            "future_ret20_code_coverage": future_ret20_code_coverage,
+            "future_ret20_join_gap_coverage": {
+                "after_scope_filter_count": future_ret20_join_gap_after_scope_filter_count,
+                "reason_counts": dict(sorted(future_ret20_join_gap_reason_counts.items(), key=lambda item: (-item[1], item[0]))),
+                "examples": list(future_ret20_join_gap_details[:25]),
+                "candidate_rows_before_scope_filter": future_ret20_candidate_rows_before_scope_filter,
+                "candidate_rows_after_scope_filter": future_ret20_candidate_rows_after_scope_filter,
+                "future_rows_before_scope_filter": future_ret20_future_rows_before_scope_filter,
+                "future_rows_after_scope_filter": future_ret20_future_rows_after_scope_filter,
+                "joinable_code_date_pairs_before_scope": future_ret20_joinable_code_date_pairs_before_scope,
+                "joinable_code_date_pairs_after_scope": future_ret20_joinable_code_date_pairs_after_scope,
+            },
+            "ret20_source_mode": ret20_source_mode,
+            "scope_filter_applied_stage": scope_filter_applied_stage,
+            "candidate_scope_gap_coverage": candidate_scope_gap_coverage,
         },
         "by_period": by_period,
         "by_code": by_code,
@@ -2630,6 +3430,15 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
     run["waterfall_summary"] = waterfall_summary
     run["selection_summary"] = selection_summary
     run["selection_challenger_summary"] = challenger_selection_summary
+    run["ret20_source_mode"] = ret20_source_mode
+    run["future_ret20_source_coverage"] = future_ret20_source_coverage
+    run["future_ret20_code_coverage"] = future_ret20_code_coverage
+    run["future_ret20_join_gap_coverage"] = metrics["overall"]["future_ret20_join_gap_coverage"]
+    run["future_ret20_coverage"] = metrics["overall"]["future_ret20_coverage"]
+    run["future_ret20_failure_reason_counts_by_source_mode"] = metrics["overall"]["future_ret20_coverage"].get("failure_reason_counts_by_source_mode", {})
+    run["future_ret20_failure_details"] = metrics["overall"]["future_ret20_coverage"].get("failure_details", [])
+    run["candidate_scope_gap_coverage"] = candidate_scope_gap_coverage
+    run["scope_filter_applied_stage"] = scope_filter_applied_stage
     run["diagnostics_schema_version"] = TRADEX_DIAGNOSTICS_SCHEMA_VERSION
     run["engine_diagnostics"] = {
         "plan_effective": plan_effective,
@@ -2663,6 +3472,8 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
         "top_symbol_share": overall["top_symbol_share"],
         "overall_score": overall_score,
         "by_period_stability": period_stability,
+        "future_ret20_coverage": metrics["overall"]["future_ret20_coverage"],
+        "candidate_scope_gap_coverage": candidate_scope_gap_coverage,
         "selection_summary": selection_summary,
         "selection_challenger_summary": challenger_selection_summary,
         "waterfall_summary": waterfall_summary,
@@ -2674,6 +3485,8 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
         "signature": run["summary"]["run_signature"],
         "readiness_summary": readiness_summary,
         "waterfall_summary": waterfall_summary,
+        "future_ret20_coverage": metrics["overall"]["future_ret20_coverage"],
+        "candidate_scope_gap_coverage": candidate_scope_gap_coverage,
         "selection_summary": selection_summary,
         "selection_challenger_summary": challenger_selection_summary,
         "effective_config": run.get("effective_config") or {},
@@ -2943,6 +3756,8 @@ def _compare_payload(
         "baseline_method": baseline_method,
         "candidate_method": candidate_method,
         "status": candidate.get("status"),
+        "baseline_ret20_source_mode": _text(baseline.get("ret20_source_mode"), fallback="unknown"),
+        "candidate_ret20_source_mode": _text(candidate.get("ret20_source_mode"), fallback="unknown"),
         "metric_directions": metric_directions,
         "baseline_absolute": baseline_metrics_absolute,
         "candidate_absolute": candidate_metrics_absolute,

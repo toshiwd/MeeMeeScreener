@@ -1,0 +1,110 @@
+{
+  "analysis": {},
+  "baseline_version": "v1",
+  "completed_at": "2026-03-23T09:00:51.444623+00:00",
+  "confirmed_only": true,
+  "data_cutoff_at": "2000-01-05",
+  "diagnostics_schema_version": "tradex_diagnostics_v1",
+  "effective_config": {
+    "effective_parameters": {
+      "label": "逆風回避の順張り保守",
+      "method_family": "regime-aware",
+      "method_id": "regime_aware_v2",
+      "method_thesis": "順張り寄りを少し強めて、弱い局面の候補を落としやすくする。",
+      "method_title": "逆風回避の順張り保守",
+      "minimum_confidence": 0.6,
+      "minimum_ready_rate": 0.48,
+      "notes": "regime-aware:regime_aware_v2",
+      "plan_id": "regime_aware_v2",
+      "plan_version": "v1",
+      "playbook_down_score_bonus": -0.015,
+      "playbook_up_score_bonus": 0.01,
+      "ret20_source_mode": "precomputed",
+      "signal_bias": "buy",
+      "top_k": 5
+    },
+    "method_metadata": {
+      "method_family": "regime-aware",
+      "method_id": "regime_aware_v2",
+      "method_thesis": "順張り寄りを少し強めて、弱い局面の候補を落としやすくする。",
+      "method_title": "逆風回避の順張り保守"
+    },
+    "plan_hash": "dc865892e72d5257dbb5351fd58fa2b1bab6ac84900fbe347c6627534ed4f557",
+    "plan_id": "regime_aware_v2",
+    "plan_version": "v1",
+    "readiness_config_hash": "c1b557ee73d70c35406f0f3b5b11ee4fcb6ab40e45f5ec8f35c3260943073a95"
+  },
+  "engine_diagnostics": {},
+  "error": "IO Error: Cannot open file \"c:\\users\\enish\\appdata\\local\\meemeescreener-dev\\data\\stocks.duckdb\": プロセスはファイルにアクセスできません。別のプロセスが使用中です。\r\n",
+  "family_id": "tradex-research-scope-8b63b2f09008-seed-19-regime-aware",
+  "input_dataset_version": "session:scope-8b63b2f09008-seed-19:seed:19",
+  "method_family": "regime-aware",
+  "method_id": "regime_aware_v2",
+  "method_thesis": "順張り寄りを少し強めて、弱い局面の候補を落としやすくする。",
+  "method_title": "逆風回避の順張り保守",
+  "metrics": {},
+  "notes": "逆風回避の順張り保守",
+  "period": {
+    "segments": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "start_date": "1999-10-29"
+      }
+    ]
+  },
+  "plan_id": "regime_aware_v2",
+  "plan_version": "v1",
+  "price_source": "daily_bars",
+  "random_seed": 19,
+  "readiness_summary": {},
+  "run_id": "tradex-research-scope-8b63b2f09008-seed-19-regime-aware-regime_aware_v2",
+  "run_kind": "candidate",
+  "schema_version": "tradex_experiment_run_v1",
+  "started_at": "2026-03-23T09:00:41.483755+00:00",
+  "status": "failed",
+  "summary": {},
+  "timezone": "Asia/Tokyo",
+  "universe": [
+    "1001",
+    "1808",
+    "2160",
+    "2170",
+    "2433",
+    "3994",
+    "4042",
+    "4088",
+    "4168",
+    "4502",
+    "4661",
+    "4751",
+    "4784",
+    "5019",
+    "5333",
+    "5713",
+    "5930",
+    "6723",
+    "6753",
+    "7383",
+    "8035",
+    "8801",
+    "9024",
+    "9101",
+    "9324",
+    "9503",
+    "9531",
+    "9735",
+    "9861",
+    "9962"
+  ]
+}

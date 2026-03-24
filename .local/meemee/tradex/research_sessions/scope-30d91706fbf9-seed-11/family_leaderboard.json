@@ -1,0 +1,858 @@
+{
+  "candidate_rows": [
+    {
+      "baseline_method_title": "現行ランキング",
+      "baseline_run_id": "",
+      "candidate_run_id": "tradex-research-scope-30d91706fbf9-seed-11-existing-score-rescaled-existing_score_rescaled_v1",
+      "comparison": {
+        "challenger_dd": 0.0,
+        "challenger_liquidity_fail_rate": 0.0,
+        "challenger_monthly_top5_capture_mean": 0.0,
+        "challenger_top10_ret20_mean": 0.0,
+        "challenger_top10_ret20_median": 0.0,
+        "challenger_top5_ret20_mean": 0.0,
+        "challenger_top5_ret20_median": 0.0,
+        "challenger_turnover": 0.0,
+        "challenger_worst_regime_ret20_mean": 0.0,
+        "challenger_zero_pass_months": 0,
+        "champion_dd": 0.0,
+        "champion_liquidity_fail_rate": 0.0,
+        "champion_monthly_top5_capture_mean": 0.0,
+        "champion_top10_ret20_mean": 0.0,
+        "champion_top10_ret20_median": 0.0,
+        "champion_top5_ret20_mean": 0.0,
+        "champion_top5_ret20_median": 0.0,
+        "champion_turnover": 0.0,
+        "champion_worst_regime_ret20_mean": 0.0,
+        "champion_zero_pass_months": 0,
+        "dd_degrade_bp": 0.0,
+        "liquidity_fail_degrade_ratio": 0.0,
+        "monthly_capture_degrade": 0.0,
+        "turnover_degrade_ratio": 0.0,
+        "window_win_rate": 1.0,
+        "worst_regime_underperform_bp": 0.0,
+        "zero_pass_degrade": 0.0
+      },
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top5",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "top5_median_underperform_bp": 0.0,
+          "top5_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top10",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 20.0,
+          "top10_median_underperform_bp": 0.0,
+          "top10_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "monthly_capture",
+          "delta": 0.0,
+          "monthly_capture_degrade": 0.0,
+          "monthly_window_win_rate": 1.0,
+          "status": "pass",
+          "threshold": 0.6
+        },
+        {
+          "candidate_value": 0,
+          "champion_value": 0,
+          "code": "zero_pass",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0,
+          "zero_pass_degrade": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "worst_regime",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "worst_regime_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "dd",
+          "dd_degrade_bp": 0.0,
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "turnover",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0.1,
+          "turnover_degrade_ratio": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "liquidity_fail",
+          "delta": 0.0,
+          "liquidity_fail_degrade_ratio": 0.0,
+          "status": "pass",
+          "threshold": 0.0
+        }
+      ],
+      "evaluation_window_count": 3,
+      "evaluation_window_ids": [
+        "up:1326758400:1333324800",
+        "down:1225324800:1229644800",
+        "flat:941155200:947030400"
+      ],
+      "family_id": "tradex-research-scope-30d91706fbf9-seed-11-existing-score-rescaled",
+      "family_thesis": "既存スコアの差を広げて、上位候補の密度を高める。",
+      "family_title": "既存点数の再尺度化",
+      "method_family": "existing-score rescaled",
+      "method_id": "existing_score_rescaled_v1",
+      "method_signature_hash": "fb07801ff9448ec4dda9b6be2b8853e997de178c45fa55677fe7a8f90e27de76",
+      "method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+      "method_title": "既存点数の再尺度化",
+      "promote_ready": true,
+      "promote_reasons": [],
+      "regime_tag": "multi_regime",
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "unknown"
+    },
+    {
+      "baseline_method_title": "現行ランキング",
+      "baseline_run_id": "",
+      "candidate_run_id": "tradex-research-scope-30d91706fbf9-seed-11-liquidity-aware-liquidity_aware_v1",
+      "comparison": {
+        "challenger_dd": 0.0,
+        "challenger_liquidity_fail_rate": 0.0,
+        "challenger_monthly_top5_capture_mean": 0.0,
+        "challenger_top10_ret20_mean": 0.0,
+        "challenger_top10_ret20_median": 0.0,
+        "challenger_top5_ret20_mean": 0.0,
+        "challenger_top5_ret20_median": 0.0,
+        "challenger_turnover": 0.0,
+        "challenger_worst_regime_ret20_mean": 0.0,
+        "challenger_zero_pass_months": 0,
+        "champion_dd": 0.0,
+        "champion_liquidity_fail_rate": 0.0,
+        "champion_monthly_top5_capture_mean": 0.0,
+        "champion_top10_ret20_mean": 0.0,
+        "champion_top10_ret20_median": 0.0,
+        "champion_top5_ret20_mean": 0.0,
+        "champion_top5_ret20_median": 0.0,
+        "champion_turnover": 0.0,
+        "champion_worst_regime_ret20_mean": 0.0,
+        "champion_zero_pass_months": 0,
+        "dd_degrade_bp": 0.0,
+        "liquidity_fail_degrade_ratio": 0.0,
+        "monthly_capture_degrade": 0.0,
+        "turnover_degrade_ratio": 0.0,
+        "window_win_rate": 1.0,
+        "worst_regime_underperform_bp": 0.0,
+        "zero_pass_degrade": 0.0
+      },
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top5",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "top5_median_underperform_bp": 0.0,
+          "top5_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top10",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 20.0,
+          "top10_median_underperform_bp": 0.0,
+          "top10_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "monthly_capture",
+          "delta": 0.0,
+          "monthly_capture_degrade": 0.0,
+          "monthly_window_win_rate": 1.0,
+          "status": "pass",
+          "threshold": 0.6
+        },
+        {
+          "candidate_value": 0,
+          "champion_value": 0,
+          "code": "zero_pass",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0,
+          "zero_pass_degrade": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "worst_regime",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "worst_regime_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "dd",
+          "dd_degrade_bp": 0.0,
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "turnover",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0.1,
+          "turnover_degrade_ratio": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "liquidity_fail",
+          "delta": 0.0,
+          "liquidity_fail_degrade_ratio": 0.0,
+          "status": "pass",
+          "threshold": 0.0
+        }
+      ],
+      "evaluation_window_count": 3,
+      "evaluation_window_ids": [
+        "up:1326758400:1333324800",
+        "down:1225324800:1229644800",
+        "flat:941155200:947030400"
+      ],
+      "family_id": "tradex-research-scope-30d91706fbf9-seed-11-liquidity-aware",
+      "family_thesis": "買えない候補を上位に残しにくくして、実行可能性を上げる。",
+      "family_title": "流動性ふるい残し",
+      "method_family": "liquidity-aware",
+      "method_id": "liquidity_aware_v1",
+      "method_signature_hash": "4dcbbe6cefe71b608ab79b7f8fc1976ed079a6f6e7edd012e1f2a324f343dd5c",
+      "method_thesis": "流動性の弱い候補を上位から外しやすくする。",
+      "method_title": "流動性ふるい残し",
+      "promote_ready": true,
+      "promote_reasons": [],
+      "regime_tag": "multi_regime",
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "unknown"
+    },
+    {
+      "baseline_method_title": "現行ランキング",
+      "baseline_run_id": "",
+      "candidate_run_id": "tradex-research-scope-30d91706fbf9-seed-11-penalty-first-penalty_first_v1",
+      "comparison": {
+        "challenger_dd": 0.0,
+        "challenger_liquidity_fail_rate": 0.0,
+        "challenger_monthly_top5_capture_mean": 0.0,
+        "challenger_top10_ret20_mean": 0.0,
+        "challenger_top10_ret20_median": 0.0,
+        "challenger_top5_ret20_mean": 0.0,
+        "challenger_top5_ret20_median": 0.0,
+        "challenger_turnover": 0.0,
+        "challenger_worst_regime_ret20_mean": 0.0,
+        "challenger_zero_pass_months": 0,
+        "champion_dd": 0.0,
+        "champion_liquidity_fail_rate": 0.0,
+        "champion_monthly_top5_capture_mean": 0.0,
+        "champion_top10_ret20_mean": 0.0,
+        "champion_top10_ret20_median": 0.0,
+        "champion_top5_ret20_mean": 0.0,
+        "champion_top5_ret20_median": 0.0,
+        "champion_turnover": 0.0,
+        "champion_worst_regime_ret20_mean": 0.0,
+        "champion_zero_pass_months": 0,
+        "dd_degrade_bp": 0.0,
+        "liquidity_fail_degrade_ratio": 0.0,
+        "monthly_capture_degrade": 0.0,
+        "turnover_degrade_ratio": 0.0,
+        "window_win_rate": 1.0,
+        "worst_regime_underperform_bp": 0.0,
+        "zero_pass_degrade": 0.0
+      },
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top5",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "top5_median_underperform_bp": 0.0,
+          "top5_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top10",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 20.0,
+          "top10_median_underperform_bp": 0.0,
+          "top10_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "monthly_capture",
+          "delta": 0.0,
+          "monthly_capture_degrade": 0.0,
+          "monthly_window_win_rate": 1.0,
+          "status": "pass",
+          "threshold": 0.6
+        },
+        {
+          "candidate_value": 0,
+          "champion_value": 0,
+          "code": "zero_pass",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0,
+          "zero_pass_degrade": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "worst_regime",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "worst_regime_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "dd",
+          "dd_degrade_bp": 0.0,
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "turnover",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0.1,
+          "turnover_degrade_ratio": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "liquidity_fail",
+          "delta": 0.0,
+          "liquidity_fail_degrade_ratio": 0.0,
+          "status": "pass",
+          "threshold": 0.0
+        }
+      ],
+      "evaluation_window_count": 3,
+      "evaluation_window_ids": [
+        "up:1326758400:1333324800",
+        "down:1225324800:1229644800",
+        "flat:941155200:947030400"
+      ],
+      "family_id": "tradex-research-scope-30d91706fbf9-seed-11-penalty-first",
+      "family_thesis": "欠損・未解決・弱い readiness を先に落として、無駄な上位残りを減らす。",
+      "family_title": "減点優先型",
+      "method_family": "penalty-first",
+      "method_id": "penalty_first_v1",
+      "method_signature_hash": "22c05f0a664b5a8e1bdbf179becad28b6448ac12d3b758e869dcb1c97097c4af",
+      "method_thesis": "欠損と未解決を先に強く罰して、上位候補を締める。",
+      "method_title": "減点優先型",
+      "promote_ready": true,
+      "promote_reasons": [],
+      "regime_tag": "multi_regime",
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "unknown"
+    },
+    {
+      "baseline_method_title": "現行ランキング",
+      "baseline_run_id": "",
+      "candidate_run_id": "tradex-research-scope-30d91706fbf9-seed-11-readiness-aware-readiness_aware_v1",
+      "comparison": {
+        "challenger_dd": 0.0,
+        "challenger_liquidity_fail_rate": 0.0,
+        "challenger_monthly_top5_capture_mean": 0.0,
+        "challenger_top10_ret20_mean": 0.0,
+        "challenger_top10_ret20_median": 0.0,
+        "challenger_top5_ret20_mean": 0.0,
+        "challenger_top5_ret20_median": 0.0,
+        "challenger_turnover": 0.0,
+        "challenger_worst_regime_ret20_mean": 0.0,
+        "challenger_zero_pass_months": 0,
+        "champion_dd": 0.0,
+        "champion_liquidity_fail_rate": 0.0,
+        "champion_monthly_top5_capture_mean": 0.0,
+        "champion_top10_ret20_mean": 0.0,
+        "champion_top10_ret20_median": 0.0,
+        "champion_top5_ret20_mean": 0.0,
+        "champion_top5_ret20_median": 0.0,
+        "champion_turnover": 0.0,
+        "champion_worst_regime_ret20_mean": 0.0,
+        "champion_zero_pass_months": 0,
+        "dd_degrade_bp": 0.0,
+        "liquidity_fail_degrade_ratio": 0.0,
+        "monthly_capture_degrade": 0.0,
+        "turnover_degrade_ratio": 0.0,
+        "window_win_rate": 1.0,
+        "worst_regime_underperform_bp": 0.0,
+        "zero_pass_degrade": 0.0
+      },
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top5",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "top5_median_underperform_bp": 0.0,
+          "top5_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top10",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 20.0,
+          "top10_median_underperform_bp": 0.0,
+          "top10_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "monthly_capture",
+          "delta": 0.0,
+          "monthly_capture_degrade": 0.0,
+          "monthly_window_win_rate": 1.0,
+          "status": "pass",
+          "threshold": 0.6
+        },
+        {
+          "candidate_value": 0,
+          "champion_value": 0,
+          "code": "zero_pass",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0,
+          "zero_pass_degrade": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "worst_regime",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "worst_regime_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "dd",
+          "dd_degrade_bp": 0.0,
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "turnover",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0.1,
+          "turnover_degrade_ratio": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "liquidity_fail",
+          "delta": 0.0,
+          "liquidity_fail_degrade_ratio": 0.0,
+          "status": "pass",
+          "threshold": 0.0
+        }
+      ],
+      "evaluation_window_count": 3,
+      "evaluation_window_ids": [
+        "up:1326758400:1333324800",
+        "down:1225324800:1229644800",
+        "flat:941155200:947030400"
+      ],
+      "family_id": "tradex-research-scope-30d91706fbf9-seed-11-readiness-aware",
+      "family_thesis": "ready率が高い銘柄を優先して、gate 通過後の取りこぼしを減らす。",
+      "family_title": "準備完了優先型",
+      "method_family": "readiness-aware",
+      "method_id": "readiness_aware_v1",
+      "method_signature_hash": "79d34714a986dd03fbe20a0766835fe90a139c4f9ef43dc99caa8652530124e0",
+      "method_thesis": "ready率を少し強めに見て、通過後の安定性を上げる。",
+      "method_title": "準備完了優先型",
+      "promote_ready": true,
+      "promote_reasons": [],
+      "regime_tag": "multi_regime",
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "unknown"
+    },
+    {
+      "baseline_method_title": "現行ランキング",
+      "baseline_run_id": "",
+      "candidate_run_id": "tradex-research-scope-30d91706fbf9-seed-11-regime-aware-regime_aware_v1",
+      "comparison": {
+        "challenger_dd": 0.0,
+        "challenger_liquidity_fail_rate": 0.0,
+        "challenger_monthly_top5_capture_mean": 0.0,
+        "challenger_top10_ret20_mean": 0.0,
+        "challenger_top10_ret20_median": 0.0,
+        "challenger_top5_ret20_mean": 0.0,
+        "challenger_top5_ret20_median": 0.0,
+        "challenger_turnover": 0.0,
+        "challenger_worst_regime_ret20_mean": 0.0,
+        "challenger_zero_pass_months": 0,
+        "champion_dd": 0.0,
+        "champion_liquidity_fail_rate": 0.0,
+        "champion_monthly_top5_capture_mean": 0.0,
+        "champion_top10_ret20_mean": 0.0,
+        "champion_top10_ret20_median": 0.0,
+        "champion_top5_ret20_mean": 0.0,
+        "champion_top5_ret20_median": 0.0,
+        "champion_turnover": 0.0,
+        "champion_worst_regime_ret20_mean": 0.0,
+        "champion_zero_pass_months": 0,
+        "dd_degrade_bp": 0.0,
+        "liquidity_fail_degrade_ratio": 0.0,
+        "monthly_capture_degrade": 0.0,
+        "turnover_degrade_ratio": 0.0,
+        "window_win_rate": 1.0,
+        "worst_regime_underperform_bp": 0.0,
+        "zero_pass_degrade": 0.0
+      },
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top5",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "top5_median_underperform_bp": 0.0,
+          "top5_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top10",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 20.0,
+          "top10_median_underperform_bp": 0.0,
+          "top10_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "monthly_capture",
+          "delta": 0.0,
+          "monthly_capture_degrade": 0.0,
+          "monthly_window_win_rate": 1.0,
+          "status": "pass",
+          "threshold": 0.6
+        },
+        {
+          "candidate_value": 0,
+          "champion_value": 0,
+          "code": "zero_pass",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0,
+          "zero_pass_degrade": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "worst_regime",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "worst_regime_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "dd",
+          "dd_degrade_bp": 0.0,
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "turnover",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0.1,
+          "turnover_degrade_ratio": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "liquidity_fail",
+          "delta": 0.0,
+          "liquidity_fail_degrade_ratio": 0.0,
+          "status": "pass",
+          "threshold": 0.0
+        }
+      ],
+      "evaluation_window_count": 3,
+      "evaluation_window_ids": [
+        "up:1326758400:1333324800",
+        "down:1225324800:1229644800",
+        "flat:941155200:947030400"
+      ],
+      "family_id": "tradex-research-scope-30d91706fbf9-seed-11-regime-aware",
+      "family_thesis": "相場局面に合わせて、順張りと逆風回避の強さを切り替える。",
+      "family_title": "逆風回避の順張り",
+      "method_family": "regime-aware",
+      "method_id": "regime_aware_v1",
+      "method_signature_hash": "e61051beed2c2d06f241a4092b04a99d5388f0a37d1850d714872e3e374454a6",
+      "method_thesis": "相場局面を意識して、逆風局面の損失を減らす。",
+      "method_title": "逆風回避の順張り",
+      "promote_ready": true,
+      "promote_reasons": [],
+      "regime_tag": "multi_regime",
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "unknown"
+    }
+  ],
+  "coverage_waterfall": {
+    "candidate_rows_built_count": 5,
+    "compare_row_count": 5,
+    "confirmed_universe_count": 20,
+    "eligible_candidate_count": 5,
+    "evaluation_row_count": 0,
+    "failure_stage": "future_ret20_computable",
+    "first_zero_stage": "future_ret20_computable",
+    "future_ret20_candidate_day_count": 0,
+    "future_ret20_failure_reason_counts": {
+      "ret20_source_missing": 100
+    },
+    "future_ret20_guarded_out_count": 0,
+    "future_ret20_passed_count": 0,
+    "future_ret20_source_coverage": {
+      "missing_by_code": {},
+      "missing_by_month": {},
+      "missing_by_source_table": {},
+      "missing_examples": [],
+      "missing_join_miss_count": 0,
+      "missing_near_data_end_count": 0,
+      "missing_trade_sequence_shortage_count": 0,
+      "mixed_source_mode": false,
+      "ret20_source_mode": "derived_from_daily_bars"
+    },
+    "future_ret20_source_mode_counts": {
+      "derived_from_daily_bars": 0,
+      "precomputed": 0,
+      "unknown": 1
+    },
+    "insufficient_samples": true,
+    "probe_candidate_count": 5,
+    "probe_selection_count": 5,
+    "regime_window_count": 3,
+    "ret20_computable_count": 0,
+    "sample_count": 0,
+    "sample_count_max": 0,
+    "sample_count_min": 0,
+    "sample_rows_retained_count": 0,
+    "stage_counts": {
+      "candidate_rows_built": 5,
+      "compare_rows_emitted": 5,
+      "confirmed_universe": 20,
+      "eligibility_passed": 5,
+      "future_ret20_computable": 0,
+      "probe_selection": 5,
+      "sample_rows_retained": 0
+    },
+    "stage_order": [
+      "confirmed_universe",
+      "probe_selection",
+      "candidate_rows_built",
+      "eligibility_passed",
+      "future_ret20_computable",
+      "compare_rows_emitted",
+      "sample_rows_retained"
+    ],
+    "window_count_max": 3,
+    "window_count_min": 3
+  },
+  "family_summary": [
+    {
+      "best_candidate_decision": "keep",
+      "best_candidate_method_id": "existing_score_rescaled_v1",
+      "best_candidate_method_thesis": "現行スコアを少し強めに再尺度化して、上位の密度を上げる。",
+      "best_candidate_method_title": "既存点数の再尺度化",
+      "candidate_count": 1,
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "code": "candidate_keep_present",
+          "keep_count": 1
+        }
+      ],
+      "drop_count": 0,
+      "family_id": "tradex-research-scope-30d91706fbf9-seed-11-existing-score-rescaled",
+      "family_thesis": "既存スコアの差を広げて、上位候補の密度を高める。",
+      "family_title": "既存点数の再尺度化",
+      "hold_budget_remaining": 0,
+      "hold_count": 0,
+      "keep_count": 1,
+      "method_family": "existing-score rescaled"
+    },
+    {
+      "best_candidate_decision": "keep",
+      "best_candidate_method_id": "liquidity_aware_v1",
+      "best_candidate_method_thesis": "流動性の弱い候補を上位から外しやすくする。",
+      "best_candidate_method_title": "流動性ふるい残し",
+      "candidate_count": 1,
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "code": "candidate_keep_present",
+          "keep_count": 1
+        }
+      ],
+      "drop_count": 0,
+      "family_id": "tradex-research-scope-30d91706fbf9-seed-11-liquidity-aware",
+      "family_thesis": "買えない候補を上位に残しにくくして、実行可能性を上げる。",
+      "family_title": "流動性ふるい残し",
+      "hold_budget_remaining": 0,
+      "hold_count": 0,
+      "keep_count": 1,
+      "method_family": "liquidity-aware"
+    },
+    {
+      "best_candidate_decision": "keep",
+      "best_candidate_method_id": "penalty_first_v1",
+      "best_candidate_method_thesis": "欠損と未解決を先に強く罰して、上位候補を締める。",
+      "best_candidate_method_title": "減点優先型",
+      "candidate_count": 1,
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "code": "candidate_keep_present",
+          "keep_count": 1
+        }
+      ],
+      "drop_count": 0,
+      "family_id": "tradex-research-scope-30d91706fbf9-seed-11-penalty-first",
+      "family_thesis": "欠損・未解決・弱い readiness を先に落として、無駄な上位残りを減らす。",
+      "family_title": "減点優先型",
+      "hold_budget_remaining": 0,
+      "hold_count": 0,
+      "keep_count": 1,
+      "method_family": "penalty-first"
+    },
+    {
+      "best_candidate_decision": "keep",
+      "best_candidate_method_id": "readiness_aware_v1",
+      "best_candidate_method_thesis": "ready率を少し強めに見て、通過後の安定性を上げる。",
+      "best_candidate_method_title": "準備完了優先型",
+      "candidate_count": 1,
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "code": "candidate_keep_present",
+          "keep_count": 1
+        }
+      ],
+      "drop_count": 0,
+      "family_id": "tradex-research-scope-30d91706fbf9-seed-11-readiness-aware",
+      "family_thesis": "ready率が高い銘柄を優先して、gate 通過後の取りこぼしを減らす。",
+      "family_title": "準備完了優先型",
+      "hold_budget_remaining": 0,
+      "hold_count": 0,
+      "keep_count": 1,
+      "method_family": "readiness-aware"
+    },
+    {
+      "best_candidate_decision": "keep",
+      "best_candidate_method_id": "regime_aware_v1",
+      "best_candidate_method_thesis": "相場局面を意識して、逆風局面の損失を減らす。",
+      "best_candidate_method_title": "逆風回避の順張り",
+      "candidate_count": 1,
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "code": "candidate_keep_present",
+          "keep_count": 1
+        }
+      ],
+      "drop_count": 0,
+      "family_id": "tradex-research-scope-30d91706fbf9-seed-11-regime-aware",
+      "family_thesis": "相場局面に合わせて、順張りと逆風回避の強さを切り替える。",
+      "family_title": "逆風回避の順張り",
+      "hold_budget_remaining": 0,
+      "hold_count": 0,
+      "keep_count": 1,
+      "method_family": "regime-aware"
+    }
+  ],
+  "overview": {
+    "candidate_count": 5,
+    "drop_candidate_count": 0,
+    "drop_family_count": 0,
+    "family_count": 5,
+    "hold_candidate_count": 0,
+    "hold_family_count": 0,
+    "insufficient_samples": true,
+    "keep_candidate_count": 5,
+    "keep_family_count": 5
+  },
+  "schema_version": "tradex_family_leaderboard_v1",
+  "session_meta": {
+    "compare_schema_version": "tradex_research_session_compare_v1",
+    "eval_window_mode": "fallback",
+    "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+    "generated_at": "2026-03-23T06:05:09.864692+00:00",
+    "insufficient_samples": true,
+    "manifest_hash": "2df6cc79d8ee3633c8641cc4618d982eb32e99cdc704281a64c870bb31b95e10",
+    "random_seed": 11,
+    "ret20_source_mode": "derived_from_daily_bars",
+    "ret20_source_mode_reason": "explicit_session_mode",
+    "sample_count": 0,
+    "session_id": "scope-30d91706fbf9-seed-11"
+  },
+  "source_compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-30d91706fbf9-seed-11\\compare.json",
+  "source_report_path": "C:\\work\\meemee-screener\\docs\\reports\\tradex_research_session_scope-30d91706fbf9-seed-11.md"
+}

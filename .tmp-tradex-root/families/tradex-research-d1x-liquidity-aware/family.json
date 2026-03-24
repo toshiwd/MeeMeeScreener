@@ -1,0 +1,110 @@
+{
+  "baseline_plan": {
+    "label": "現行ランキング",
+    "method_family": "champion",
+    "method_id": "champion_current_ranking",
+    "method_thesis": "現行のTRADEX標準順位をそのまま再現する。",
+    "method_title": "現行ランキング",
+    "minimum_confidence": 0.6,
+    "minimum_ready_rate": 0.5,
+    "notes": "session champion baseline",
+    "plan_id": "champion_current_ranking",
+    "plan_version": "v1",
+    "playbook_down_score_bonus": 0.0,
+    "playbook_up_score_bonus": 0.0,
+    "signal_bias": "balanced",
+    "top_k": 5
+  },
+  "baseline_run_id": "tradex-research-d1x-liquidity-aware-baseline",
+  "candidate_limit": 3,
+  "candidate_plans": [
+    {
+      "label": "流動性ふるい残し",
+      "method_family": "liquidity-aware",
+      "method_id": "liquidity_aware_v1",
+      "method_thesis": "流動性の弱い候補を上位から外しやすくする。",
+      "method_title": "流動性ふるい残し",
+      "minimum_confidence": 0.6,
+      "minimum_ready_rate": 0.5,
+      "notes": "liquidity-aware:liquidity_aware_v1",
+      "plan_id": "liquidity_aware_v1",
+      "plan_version": "v1",
+      "playbook_down_score_bonus": 0.0,
+      "playbook_up_score_bonus": 0.015,
+      "signal_bias": "balanced",
+      "top_k": 5
+    }
+  ],
+  "candidate_run_ids": [
+    "tradex-research-d1x-liquidity-aware-liquidity_aware_v1"
+  ],
+  "code_revision": "8cb6e9db798ebdeb49e6078503d0f236e6f0f5d3",
+  "confirmed_only": true,
+  "created_at": "2026-03-23T05:59:48.130376+00:00",
+  "data_cutoff_at": "2025-06-29",
+  "family_id": "tradex-research-d1x-liquidity-aware",
+  "family_name": "流動性ふるい残し / liquidity-aware",
+  "frozen": true,
+  "frozen_at": "2026-03-23T05:59:48.231940+00:00",
+  "input_dataset_version": "session:d1x:seed:19",
+  "notes": "買えない候補を上位に残しにくくして、実行可能性を上げる。",
+  "period": {
+    "segments": [
+      {
+        "end_date": "2025-03-01",
+        "label": "up:up:20250101:20250301",
+        "start_date": "2025-01-01"
+      },
+      {
+        "end_date": "2025-04-30",
+        "label": "down:down:20250302:20250430",
+        "start_date": "2025-03-02"
+      },
+      {
+        "end_date": "2025-06-29",
+        "label": "flat:flat:20250501:20250629",
+        "start_date": "2025-05-01"
+      }
+    ]
+  },
+  "price_source": "daily_bars",
+  "probes": [],
+  "random_seed": 19,
+  "run_ids": [
+    "tradex-research-d1x-liquidity-aware-baseline",
+    "tradex-research-d1x-liquidity-aware-liquidity_aware_v1"
+  ],
+  "schema_version": "tradex_experiment_family_v1",
+  "status_summary": {
+    "baseline_runs": 1,
+    "candidate_runs": 1,
+    "status_counts": {
+      "compared": 1,
+      "succeeded": 1
+    },
+    "total_runs": 2
+  },
+  "timezone": "Asia/Tokyo",
+  "universe": [
+    "1001",
+    "1002",
+    "1008",
+    "1010",
+    "1011",
+    "1012",
+    "1015",
+    "1022",
+    "1025",
+    "1028",
+    "1029",
+    "1034",
+    "1036",
+    "1038",
+    "1039",
+    "1042",
+    "1046",
+    "1047",
+    "1054",
+    "1057"
+  ]
+}

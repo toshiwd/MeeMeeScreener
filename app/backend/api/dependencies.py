@@ -2,6 +2,7 @@ from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.infra.duckdb.screener_repo import ScreenerRepository
 from app.backend.infra.sqlite.favorites_repo import FavoritesRepository
 from app.backend.infra.files.config_repo import ConfigRepository
+from app.core.config import config as app_config
 import logging
 import os
 from pathlib import Path
@@ -27,7 +28,7 @@ def _resolve_data_dir(data_dir: str | None = None) -> str:
         app_env = os.getenv("APP_ENV", "").lower()
         if app_env in ("prod", "production"):
             raise RuntimeError("MEEMEE_DATA_DIR is required in prod (fallback disabled)")
-        data_dir = os.path.join(os.getcwd(), "data")
+        data_dir = str(app_config.DATA_DIR)
     try:
         return str(Path(data_dir).expanduser().resolve(strict=False))
     except Exception:

@@ -1,0 +1,143 @@
+{
+  "best_result": {},
+  "champion": {},
+  "created_at": "2026-03-23T04:39:39.256284+00:00",
+  "eval_window_mode": "fallback",
+  "eval_window_mode_fallback_issues": [],
+  "eval_window_mode_fallback_window_count": 3,
+  "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+  "eval_window_mode_standard_issues": [
+    "missing_up_window",
+    "missing_down_window",
+    "missing_flat_window"
+  ],
+  "eval_window_mode_standard_window_count": 0,
+  "family_results": [],
+  "manifest": {
+    "max_candidates_per_family": 1,
+    "method_families": [
+      {
+        "candidate_order": [
+          "existing_score_rescaled_v1"
+        ],
+        "family_thesis": "既存スコアの差を広げて、上位候補の密度を高める。",
+        "family_title": "既存点数の再尺度化",
+        "method_family": "existing-score rescaled"
+      },
+      {
+        "candidate_order": [
+          "penalty_first_v1"
+        ],
+        "family_thesis": "欠損・未解決・弱い readiness を先に落として、無駄な上位残りを減らす。",
+        "family_title": "減点優先型",
+        "method_family": "penalty-first"
+      },
+      {
+        "candidate_order": [
+          "readiness_aware_v1"
+        ],
+        "family_thesis": "ready率が高い銘柄を優先して、gate 通過後の取りこぼしを減らす。",
+        "family_title": "準備完了優先型",
+        "method_family": "readiness-aware"
+      },
+      {
+        "candidate_order": [
+          "liquidity_aware_v1"
+        ],
+        "family_thesis": "買えない候補を上位に残しにくくして、実行可能性を上げる。",
+        "family_title": "流動性ふるい残し",
+        "method_family": "liquidity-aware"
+      },
+      {
+        "candidate_order": [
+          "regime_aware_v1"
+        ],
+        "family_thesis": "相場局面に合わせて、順張りと逆風回避の強さを切り替える。",
+        "family_title": "逆風回避の順張り",
+        "method_family": "regime-aware"
+      }
+    ],
+    "period_segments": [
+      {
+        "end_date": "2012-04-02",
+        "label": "up:up:1326758400:1333324800",
+        "start_date": "2012-01-17"
+      },
+      {
+        "end_date": "2008-12-19",
+        "label": "down:down:1225324800:1229644800",
+        "start_date": "2008-10-30"
+      },
+      {
+        "end_date": "2000-01-05",
+        "label": "flat:flat:941155200:947030400",
+        "start_date": "1999-10-29"
+      }
+    ],
+    "random_seed": 19,
+    "runtime_meta": {
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "fallback_issues": [],
+      "fallback_window_count": 3,
+      "legacy_analysis_env": "0",
+      "session_scope_id": "rr_confirmed_20260323_fix5",
+      "standard_issues": [
+        "missing_up_window",
+        "missing_down_window",
+        "missing_flat_window"
+      ],
+      "standard_window_count": 0
+    },
+    "schema_version": "tradex_research_session_v1",
+    "seed_int": 1664083751505107996,
+    "session_id": "scope-stability-20260323-scope-rr_confirmed_20260323_fix5-seed-19",
+    "session_scope_id": "rr_confirmed_20260323_fix5",
+    "universe": [
+      "1306",
+      "1721",
+      "1833",
+      "1963",
+      "2002",
+      "2282",
+      "3063",
+      "3182",
+      "3296",
+      "4180",
+      "4684",
+      "5597",
+      "7172",
+      "7867",
+      "8001",
+      "8515",
+      "8585",
+      "9009",
+      "9552",
+      "9983"
+    ]
+  },
+  "manifest_hash": "10061e99abb0601a39b269c69836a95ac06332bd977a28b9377c198e783897ba",
+  "phase": "phase1",
+  "phase4": {},
+  "random_seed": 19,
+  "runtime_meta": {
+    "eval_window_mode": "fallback",
+    "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+    "fallback_issues": [],
+    "fallback_window_count": 3,
+    "legacy_analysis_env": "0",
+    "session_scope_id": "rr_confirmed_20260323_fix5",
+    "standard_issues": [
+      "missing_up_window",
+      "missing_down_window",
+      "missing_flat_window"
+    ],
+    "standard_window_count": 0
+  },
+  "schema_version": "tradex_research_session_v1",
+  "seed_int": 1664083751505107996,
+  "session_id": "scope-stability-20260323-scope-rr_confirmed_20260323_fix5-seed-19",
+  "session_scope_id": "rr_confirmed_20260323_fix5",
+  "status": "running",
+  "updated_at": "2026-03-23T04:39:39.256284+00:00"
+}

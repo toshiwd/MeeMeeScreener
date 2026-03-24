@@ -1,0 +1,3240 @@
+{
+  "overview": {
+    "best_result_present_count": 3,
+    "candidate_in_scope_after_build_count": 0,
+    "candidate_in_scope_before_build_count": 0,
+    "candidate_scope_gap_reason_counts": {},
+    "first_zero_stage_counts": {
+      "future_ret20_computable": 12,
+      "passed": 3
+    },
+    "insufficient_samples": true,
+    "insufficient_samples_count": 12,
+    "sample_count_max": 89,
+    "sample_count_mean": 17.8,
+    "sample_count_min": 0,
+    "scope_count": 3,
+    "scope_filter_applied_stage": "unknown",
+    "session_count": 15,
+    "session_failure_reason_counts": {},
+    "unstable_scope_count": 3,
+    "unusable_scope_count": 0,
+    "usable_scope_count": 0
+  },
+  "report_path": "C:\\work\\meemee-screener\\docs\\reports\\tradex_research_scope_stability_rollup.md",
+  "rollup_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope_stability_rollup.json",
+  "schema_version": "tradex_research_scope_stability_rollup_v1",
+  "scope_summary": [
+    {
+      "avg_dd_delta": 0.0,
+      "avg_future_ret20_candidate_day_count": 89.0,
+      "avg_future_ret20_guarded_out_count": 0.0,
+      "avg_future_ret20_passed_count": 89.0,
+      "avg_liquidity_fail_delta": 0.0,
+      "avg_monthly_capture_delta": 0.0,
+      "avg_top10_ret20_mean_delta": 0.0,
+      "avg_top5_ret20_mean_delta": 0.0,
+      "avg_turnover_delta": 0.0,
+      "avg_worst_regime_delta": 0.0,
+      "avg_zero_pass_delta": 0.0,
+      "best_result_present_count": 1,
+      "candidate_in_scope_after_build_count": 0,
+      "candidate_in_scope_before_build_count": 0,
+      "candidate_scope_gap_reason_counts": {},
+      "decision": "unstable",
+      "decision_reasons": [
+        {
+          "code": "mixed_sample_presence",
+          "sample_count_max": 89,
+          "sample_count_min": 0,
+          "sample_count_positive": 1,
+          "sample_count_total": 5
+        }
+      ],
+      "drop_count": 0,
+      "eval_window_mode_counts": {
+        "fallback": 5,
+        "standard": 0,
+        "unknown": 0
+      },
+      "first_zero_stage_counts": {
+        "future_ret20_computable": 4,
+        "passed": 1
+      },
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 10,
+        "codes_with_future_ret20_pass": 10,
+        "top_failed_codes": [
+          {
+            "code": "2127",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2327",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3063",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3407",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4062",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4063",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5301",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5401",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6191",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6376",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6920",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7189",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7638",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8031",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8056",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8418",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8725",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8802",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9201",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9517",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "1803",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "1928",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2331",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2809",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3063",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 495
+      },
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 990,
+        "reason_counts": {}
+      },
+      "hold_count": 0,
+      "insufficient_samples_count": 4,
+      "keep_count": 25,
+      "latest_eval_window_mode": "fallback",
+      "latest_eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "latest_first_zero_stage": "future_ret20_computable",
+      "latest_generated_at": "2026-03-23T08:13:47.595777+00:00",
+      "latest_session_id": "scope-854e2bfa93db-seed-29",
+      "random_seeds": [
+        7,
+        11,
+        19,
+        23,
+        29
+      ],
+      "ret20_source_mode_counts": {
+        "derived_from_daily_bars": 5,
+        "precomputed": 0,
+        "unknown": 0
+      },
+      "sample_count_max": 89,
+      "sample_count_mean": 17.8,
+      "sample_count_min": 0,
+      "scope_filter_applied_stage": "unknown",
+      "seed_count": 5,
+      "session_count": 5,
+      "session_failure_reason_counts": {},
+      "session_ids": [
+        "scope-282a720364e1-seed-7",
+        "scope-f9aa541ee6f4-seed-11",
+        "scope-c42eb02fb382-seed-19",
+        "scope-09c6440d392f-seed-23",
+        "scope-854e2bfa93db-seed-29"
+      ],
+      "session_scope_id": "rr_confirmed_20260323_fix5"
+    },
+    {
+      "avg_dd_delta": 0.0,
+      "avg_future_ret20_candidate_day_count": 89.0,
+      "avg_future_ret20_guarded_out_count": 0.0,
+      "avg_future_ret20_passed_count": 89.0,
+      "avg_liquidity_fail_delta": 0.0,
+      "avg_monthly_capture_delta": 0.0,
+      "avg_top10_ret20_mean_delta": 0.0,
+      "avg_top5_ret20_mean_delta": 0.0,
+      "avg_turnover_delta": 0.0,
+      "avg_worst_regime_delta": 0.0,
+      "avg_zero_pass_delta": 0.0,
+      "best_result_present_count": 1,
+      "candidate_in_scope_after_build_count": 0,
+      "candidate_in_scope_before_build_count": 0,
+      "candidate_scope_gap_reason_counts": {},
+      "decision": "unstable",
+      "decision_reasons": [
+        {
+          "code": "mixed_sample_presence",
+          "sample_count_max": 89,
+          "sample_count_min": 0,
+          "sample_count_positive": 1,
+          "sample_count_total": 5
+        }
+      ],
+      "drop_count": 0,
+      "eval_window_mode_counts": {
+        "fallback": 5,
+        "standard": 0,
+        "unknown": 0
+      },
+      "first_zero_stage_counts": {
+        "future_ret20_computable": 4,
+        "passed": 1
+      },
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 10,
+        "codes_with_future_ret20_pass": 10,
+        "top_failed_codes": [
+          {
+            "code": "2670",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3038",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3064",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3173",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3481",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4689",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4928",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6306",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6324",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6619",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7181",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7261",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7685",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8309",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8383",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8984",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9201",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9502",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9519",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2212",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2784",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4088",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4565",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4661",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4704",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 495
+      },
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 990,
+        "reason_counts": {}
+      },
+      "hold_count": 0,
+      "insufficient_samples_count": 4,
+      "keep_count": 25,
+      "latest_eval_window_mode": "fallback",
+      "latest_eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "latest_first_zero_stage": "future_ret20_computable",
+      "latest_generated_at": "2026-03-23T08:16:05.041366+00:00",
+      "latest_session_id": "scope-a01eaa8b7a1b-seed-29",
+      "random_seeds": [
+        7,
+        11,
+        19,
+        23,
+        29
+      ],
+      "ret20_source_mode_counts": {
+        "derived_from_daily_bars": 5,
+        "precomputed": 0,
+        "unknown": 0
+      },
+      "sample_count_max": 89,
+      "sample_count_mean": 17.8,
+      "sample_count_min": 0,
+      "scope_filter_applied_stage": "unknown",
+      "seed_count": 5,
+      "session_count": 5,
+      "session_failure_reason_counts": {},
+      "session_ids": [
+        "scope-6bc115e8ed30-seed-7",
+        "scope-02b61f2459e7-seed-11",
+        "scope-d7722db1015a-seed-19",
+        "scope-4884d583cfe7-seed-23",
+        "scope-a01eaa8b7a1b-seed-29"
+      ],
+      "session_scope_id": "rr_confirmed_20260323_fix5_near_period"
+    },
+    {
+      "avg_dd_delta": 0.0,
+      "avg_future_ret20_candidate_day_count": 89.0,
+      "avg_future_ret20_guarded_out_count": 0.0,
+      "avg_future_ret20_passed_count": 89.0,
+      "avg_liquidity_fail_delta": 0.0,
+      "avg_monthly_capture_delta": 0.0,
+      "avg_top10_ret20_mean_delta": 0.0,
+      "avg_top5_ret20_mean_delta": 0.0,
+      "avg_turnover_delta": 0.0,
+      "avg_worst_regime_delta": 0.0,
+      "avg_zero_pass_delta": 0.0,
+      "best_result_present_count": 1,
+      "candidate_in_scope_after_build_count": 0,
+      "candidate_in_scope_before_build_count": 0,
+      "candidate_scope_gap_reason_counts": {},
+      "decision": "unstable",
+      "decision_reasons": [
+        {
+          "code": "mixed_sample_presence",
+          "sample_count_max": 89,
+          "sample_count_min": 0,
+          "sample_count_positive": 1,
+          "sample_count_total": 5
+        }
+      ],
+      "drop_count": 0,
+      "eval_window_mode_counts": {
+        "fallback": 5,
+        "standard": 0,
+        "unknown": 0
+      },
+      "first_zero_stage_counts": {
+        "future_ret20_computable": 4,
+        "passed": 1
+      },
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 10,
+        "codes_with_future_ret20_pass": 10,
+        "top_failed_codes": [
+          {
+            "code": "1357",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "1803",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2120",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2296",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3092",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3655",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3778",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4151",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4974",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5201",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6376",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6412",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6503",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7082",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7180",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7552",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7593",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7735",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8725",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9509",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2503",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2587",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2695",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2871",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3401",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 495
+      },
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 990,
+        "reason_counts": {}
+      },
+      "hold_count": 0,
+      "insufficient_samples_count": 4,
+      "keep_count": 25,
+      "latest_eval_window_mode": "fallback",
+      "latest_eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "latest_first_zero_stage": "future_ret20_computable",
+      "latest_generated_at": "2026-03-23T08:18:14.815089+00:00",
+      "latest_session_id": "scope-dabe1be8d14b-seed-29",
+      "random_seeds": [
+        7,
+        11,
+        19,
+        23,
+        29
+      ],
+      "ret20_source_mode_counts": {
+        "derived_from_daily_bars": 5,
+        "precomputed": 0,
+        "unknown": 0
+      },
+      "sample_count_max": 89,
+      "sample_count_mean": 17.8,
+      "sample_count_min": 0,
+      "scope_filter_applied_stage": "unknown",
+      "seed_count": 5,
+      "session_count": 5,
+      "session_failure_reason_counts": {},
+      "session_ids": [
+        "scope-481facb6434e-seed-7",
+        "scope-631eed3275c5-seed-11",
+        "scope-107609dfab75-seed-19",
+        "scope-4f6a8faae681-seed-23",
+        "scope-dabe1be8d14b-seed-29"
+      ],
+      "session_scope_id": "rr_confirmed_20260323_fix5_regime_shift"
+    }
+  ],
+  "session_meta": {
+    "eval_window_mode_counts": {
+      "fallback": 15,
+      "standard": 0,
+      "unknown": 0
+    },
+    "generated_at": "2026-03-23T08:18:38.772771+00:00",
+    "random_seeds": [
+      7,
+      11,
+      19,
+      23,
+      29,
+      7,
+      11,
+      19,
+      23,
+      29,
+      7,
+      11,
+      19,
+      23,
+      29
+    ],
+    "ret20_source_mode_counts": {
+      "derived_from_daily_bars": 15,
+      "precomputed": 0,
+      "unknown": 0
+    },
+    "scope_count": 3,
+    "scope_ids": [
+      "rr_confirmed_20260323_fix5",
+      "rr_confirmed_20260323_fix5_near_period",
+      "rr_confirmed_20260323_fix5_regime_shift"
+    ],
+    "session_count": 15
+  },
+  "session_rows": [
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-282a720364e1-seed-7\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-282a720364e1-seed-7\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "2127",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2327",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3063",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3407",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4062",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4063",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5301",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5401",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6191",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6376",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6920",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7189",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7638",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8031",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8056",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8418",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8725",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8802",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9201",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9517",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 17440,
+        "future_rows_before_scope_filter": 1146250,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:11:52.165490+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 7,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-282a720364e1-seed-7",
+      "session_scope_id": "rr_confirmed_20260323_fix5",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-f9aa541ee6f4-seed-11\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-f9aa541ee6f4-seed-11\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "1803",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "1928",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2331",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2809",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3063",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3105",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3778",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4568",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5101",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6501",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6890",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7071",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7189",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7202",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7272",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7906",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9107",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9278",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9532",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9627",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 20060,
+        "future_rows_before_scope_filter": 1219590,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:12:20.247840+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 11,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-f9aa541ee6f4-seed-11",
+      "session_scope_id": "rr_confirmed_20260323_fix5",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": true,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-c42eb02fb382-seed-19\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-c42eb02fb382-seed-19\\family_leaderboard.json",
+      "first_zero_stage": "passed",
+      "future_ret20_candidate_day_count": 445,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 10,
+        "codes_with_future_ret20_pass": 10,
+        "top_failed_codes": [
+          {
+            "code": "1721",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "1833",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "1963",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2002",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2282",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3063",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3182",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3296",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4180",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4684",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5597",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7172",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7867",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8001",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8515",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8585",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9009",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9552",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9983",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 95
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 190,
+        "candidate_rows_after_scope_filter": 890,
+        "candidate_rows_before_scope_filter": 10000,
+        "examples": [],
+        "future_rows_after_scope_filter": 77740,
+        "future_rows_before_scope_filter": 1091660,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 445,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:03:57.120547+00:00",
+      "hold_count": 0,
+      "insufficient_samples": false,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 19,
+      "ret20_computable_count": 5,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 89,
+      "sample_rows_retained_count": 5,
+      "session_id": "scope-c42eb02fb382-seed-19",
+      "session_scope_id": "rr_confirmed_20260323_fix5",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-09c6440d392f-seed-23\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-09c6440d392f-seed-23\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "1605",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "1812",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2281",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2282",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2695",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4072",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4499",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4578",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5726",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6644",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6723",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6965",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7150",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7995",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8354",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8411",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8593",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8804",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9506",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9843",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 19280,
+        "future_rows_before_scope_filter": 1167230,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:13:18.704771+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 23,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-09c6440d392f-seed-23",
+      "session_scope_id": "rr_confirmed_20260323_fix5",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-854e2bfa93db-seed-29\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-854e2bfa93db-seed-29\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "1885",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3099",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3405",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4061",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4366",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4578",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4751",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4800",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5210",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6268",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6996",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7033",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7514",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7593",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7630",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8086",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8584",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8725",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9020",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9101",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 19690,
+        "future_rows_before_scope_filter": 1223320,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:13:47.595777+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 29,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-854e2bfa93db-seed-29",
+      "session_scope_id": "rr_confirmed_20260323_fix5",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": true,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-6bc115e8ed30-seed-7\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-6bc115e8ed30-seed-7\\family_leaderboard.json",
+      "first_zero_stage": "passed",
+      "future_ret20_candidate_day_count": 445,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 10,
+        "codes_with_future_ret20_pass": 10,
+        "top_failed_codes": [
+          {
+            "code": "2670",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3038",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3064",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3173",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3481",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4689",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4928",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6306",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6324",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6619",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7181",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7261",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7685",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8309",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8383",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8984",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9201",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9502",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9519",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 95
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 190,
+        "candidate_rows_after_scope_filter": 890,
+        "candidate_rows_before_scope_filter": 10000,
+        "examples": [],
+        "future_rows_after_scope_filter": 73960,
+        "future_rows_before_scope_filter": 950140,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 445,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:07:03.579121+00:00",
+      "hold_count": 0,
+      "insufficient_samples": false,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 7,
+      "ret20_computable_count": 5,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 89,
+      "sample_rows_retained_count": 5,
+      "session_id": "scope-6bc115e8ed30-seed-7",
+      "session_scope_id": "rr_confirmed_20260323_fix5_near_period",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-02b61f2459e7-seed-11\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-02b61f2459e7-seed-11\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "2212",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2784",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4088",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4565",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4661",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4704",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4800",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4980",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6758",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6857",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7082",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7459",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7593",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7701",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7868",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8214",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8306",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8585",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8848",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9021",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 19970,
+        "future_rows_before_scope_filter": 1245800,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:14:41.471070+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 11,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-02b61f2459e7-seed-11",
+      "session_scope_id": "rr_confirmed_20260323_fix5_near_period",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-d7722db1015a-seed-19\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-d7722db1015a-seed-19\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "1540",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2127",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2587",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3063",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3623",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3660",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3989",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4114",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4324",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4499",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4889",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6326",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6723",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6952",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7167",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7186",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7730",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7992",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8040",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9513",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 13240,
+        "future_rows_before_scope_filter": 932740,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:15:09.493860+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 19,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-d7722db1015a-seed-19",
+      "session_scope_id": "rr_confirmed_20260323_fix5_near_period",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-4884d583cfe7-seed-23\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-4884d583cfe7-seed-23\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "2806",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2914",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3116",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3296",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3479",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3482",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4369",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4503",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5246",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5727",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6305",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6544",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7383",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8153",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8418",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8601",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8783",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9211",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9506",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9735",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 14200,
+        "future_rows_before_scope_filter": 985420,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:15:37.587045+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 23,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-4884d583cfe7-seed-23",
+      "session_scope_id": "rr_confirmed_20260323_fix5_near_period",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-a01eaa8b7a1b-seed-29\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-a01eaa8b7a1b-seed-29\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "2587",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3382",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4431",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4449",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4684",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4691",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5016",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6178",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6472",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6473",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6849",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6958",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7912",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7992",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8002",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8214",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9006",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9235",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9432",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9603",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 16410,
+        "future_rows_before_scope_filter": 1061570,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:16:05.041366+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 29,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-a01eaa8b7a1b-seed-29",
+      "session_scope_id": "rr_confirmed_20260323_fix5_near_period",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-481facb6434e-seed-7\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-481facb6434e-seed-7\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "1357",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "1803",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2120",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2296",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3092",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3655",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3778",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4151",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4974",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5201",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6376",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6412",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6503",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7082",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7180",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7552",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7593",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7735",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8725",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9509",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 16960,
+        "future_rows_before_scope_filter": 1079410,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:16:31.316396+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 7,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-481facb6434e-seed-7",
+      "session_scope_id": "rr_confirmed_20260323_fix5_regime_shift",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-631eed3275c5-seed-11\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-631eed3275c5-seed-11\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "2503",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2587",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2695",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2871",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3401",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4063",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4301",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4565",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6178",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6814",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6857",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7180",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7337",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7419",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7747",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8359",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8984",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9467",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9616",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9984",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 16420,
+        "future_rows_before_scope_filter": 1083040,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:16:57.736676+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 11,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-631eed3275c5-seed-11",
+      "session_scope_id": "rr_confirmed_20260323_fix5_regime_shift",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": true,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-107609dfab75-seed-19\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-107609dfab75-seed-19\\family_leaderboard.json",
+      "first_zero_stage": "passed",
+      "future_ret20_candidate_day_count": 445,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 10,
+        "codes_with_future_ret20_pass": 10,
+        "top_failed_codes": [
+          {
+            "code": "2160",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2170",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2433",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3994",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4042",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4088",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4168",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4502",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4661",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4751",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4784",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5333",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5713",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6723",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8035",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8801",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9101",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9503",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9962",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 95
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 190,
+        "candidate_rows_after_scope_filter": 890,
+        "candidate_rows_before_scope_filter": 10000,
+        "examples": [],
+        "future_rows_after_scope_filter": 98760,
+        "future_rows_before_scope_filter": 1280010,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 445,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:13:28.714170+00:00",
+      "hold_count": 0,
+      "insufficient_samples": false,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 19,
+      "ret20_computable_count": 5,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 89,
+      "sample_rows_retained_count": 5,
+      "session_id": "scope-107609dfab75-seed-19",
+      "session_scope_id": "rr_confirmed_20260323_fix5_regime_shift",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-4f6a8faae681-seed-23\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-4f6a8faae681-seed-23\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "2157",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "2784",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3048",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3293",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3563",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4004",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4088",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4661",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4928",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6376",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6674",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6849",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6997",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7383",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7545",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7611",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "8550",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9048",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9101",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9507",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 18540,
+        "future_rows_before_scope_filter": 1158050,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:17:48.386186+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 23,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-4f6a8faae681-seed-23",
+      "session_scope_id": "rr_confirmed_20260323_fix5_regime_shift",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    },
+    {
+      "best_result_present": false,
+      "candidate_rows_built_count": 5,
+      "compare_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-dabe1be8d14b-seed-29\\compare.json",
+      "compare_row_count": 5,
+      "confirmed_universe_count": 20,
+      "dd_delta": 0.0,
+      "drop_count": 0,
+      "eligible_candidate_count": 5,
+      "eval_window_mode": "fallback",
+      "eval_window_mode_reason": "fallback_required_standard_windows_unavailable",
+      "family_leaderboard_path": "C:\\work\\meemee-screener\\.local\\meemee\\tradex\\research_sessions\\scope-dabe1be8d14b-seed-29\\family_leaderboard.json",
+      "first_zero_stage": "future_ret20_computable",
+      "future_ret20_candidate_day_count": 0,
+      "future_ret20_code_coverage": {
+        "candidate_guarded_by_last_valid_ret20_date_count": 0,
+        "codes_all_failed_future_ret20": 0,
+        "codes_with_any_candidate": 0,
+        "codes_with_future_ret20_pass": 0,
+        "top_failed_codes": [
+          {
+            "code": "2980",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3086",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3292",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3655",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "3778",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4021",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4293",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4431",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4527",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4776",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "4825",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5032",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5333",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "5741",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6027",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "6113",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7033",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "7419",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9005",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          },
+          {
+            "code": "9706",
+            "failure_count": 1,
+            "failure_reason": "candidate_scope_key_mismatch"
+          }
+        ]
+      },
+      "future_ret20_failure_reason_counts": {
+        "candidate_scope_key_mismatch": 100
+      },
+      "future_ret20_guarded_out_count": 0,
+      "future_ret20_join_gap_coverage": {
+        "after_scope_filter_count": 200,
+        "candidate_rows_after_scope_filter": 0,
+        "candidate_rows_before_scope_filter": 0,
+        "examples": [],
+        "future_rows_after_scope_filter": 13860,
+        "future_rows_before_scope_filter": 966430,
+        "joinable_code_date_pairs_after_scope": 0,
+        "joinable_code_date_pairs_before_scope": 0,
+        "reason_counts": {}
+      },
+      "future_ret20_passed_count": 0,
+      "future_ret20_source_coverage": {
+        "missing_by_code": {},
+        "missing_by_month": {},
+        "missing_by_source_table": {},
+        "missing_examples": [],
+        "missing_join_miss_count": 0,
+        "missing_near_data_end_count": 0,
+        "missing_trade_sequence_shortage_count": 0,
+        "mixed_source_mode": false,
+        "ret20_source_mode": "derived_from_daily_bars"
+      },
+      "generated_at": "2026-03-23T08:18:14.815089+00:00",
+      "hold_count": 0,
+      "insufficient_samples": true,
+      "keep_count": 5,
+      "liquidity_fail_delta": 0.0,
+      "monthly_capture_delta": 0.0,
+      "probe_selection_count": 5,
+      "random_seed": 29,
+      "ret20_computable_count": 0,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "sample_count": 0,
+      "sample_rows_retained_count": 0,
+      "session_id": "scope-dabe1be8d14b-seed-29",
+      "session_scope_id": "rr_confirmed_20260323_fix5_regime_shift",
+      "top10_ret20_mean_delta": 0.0,
+      "top5_ret20_mean_delta": 0.0,
+      "turnover_delta": 0.0,
+      "worst_regime_delta": 0.0,
+      "zero_pass_delta": 0.0
+    }
+  ],
+  "status": "invalid"
+}

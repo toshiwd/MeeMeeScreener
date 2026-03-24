@@ -1,69 +1,63 @@
-# AGENTS.md
+# MeeMee AGENTS.md
 
 ## 目的
-- Codex の恒久ルールをここに集約し、反復ワークフローは repo 直下の `skills/` に分離する。
-- クレジット消費と暴走を抑えつつ、最小変更で確実に前進する。
+- この repo の目的は、MeeMee を長期運用の売買・分析プロダクトとして安全に改善すること。
+- この repo は AI 主担当で進める。人間は方針決定、採否判断、最終確認を担う。
+- AGENTS.md は AI が誤読しにくい恒久ルール集であり、手順書ではない。
 
-## 最重要
-- 変更点・対応報告は日本語で行い、必要なら英訳を添える。
-- 必ず `Plan -> Evidence -> Execute -> Verify` の順で進める。
-- `1 fix = 1 symptom`。無関係な整形、リネーム、大量置換を混ぜない。
-- 依頼が曖昧でも、まず repo を検索して現状の証拠を集め、勝手に仕様を変えない。
+## 責務
+- 根本原因の修正を優先する。
+- 小さな差分より、壊れにくさ、可逆性、検証可能性を優先する。
+- 変更前に必ず整理する: 症状、原因仮説、変更対象ファイル、あえて変更しないファイル、影響範囲、回帰リスク、検証手順。
+- 未検証事項は未検証と明記し、完了扱いにしない。
+- 揮発情報は docs 等へ分離する。AGENTS には恒久ルールだけを書く。
 
-## コンテキスト節約
-- 同時に開くタブやファイルは最大 5 つまでに抑える。
-- 巨大ファイルは開かず、必要箇所だけ `rg` で抜く。
-- 不要になった調査対象はすぐ閉じる。
+## 禁止
+- 無言 fallback。
+- 広すぎる例外処理。
+- エラー握りつぶし。
+- 壊れた挙動の温存。
+- 読んでいないファイルを推測で扱う。
+- 原因未確定のまま blind patch を連打する。
+- 3 ファイル以上の変更、public interface 変更、frontend/backend 横断、shared type 変更を plan なしで進める。
 
-## 実行ポリシー
-- コード変更を伴う各タスクでは、完了前に影響範囲の最小単位で lint/test/build を実行する。
-- ルート全体の lint/test/build は、変更範囲が複数領域にまたがる時だけ行う。
-- 実行できない、または不要な場合は理由を明記する。
-- 同一条件、同一引数、コード未変更の失敗コマンドは 2 回以上繰り返さない。
-- 同じ失敗が 2 回続いたら停止し、根因候補を 1 つに絞って「証拠 + 次の 1 手」を提示する。
+## 変更前
+- まず repo を検索し、現状の構造と責務境界を確認する。
+- 変更対象と非対象を分ける。
+- 影響が複数層にまたがる時は短い plan を先に作る。
+- 同じ失敗が 2 回続いたら止める。観測事実、未確定点、次の最小調査を書く。
+- architecture や責務境界が変わるなら AGENTS 更新要否を確認する。
+
+## 依存関係
+- 階層をまたぐ依存は、上位の契約に従う。
+- 横断 import と循環依存を増やさない。
+- 具体ルールは下位 AGENTS を優先するが、下位は上位の契約を上書きしない。
+
+## 計画が必要な時
+- 複雑作業。
+- 曖昧作業。
+- 3 ファイル以上の変更。
+- public interface 変更。
+- frontend/backend 横断。
+- shared type 変更。
+- 責務境界変更。
+- 原因が未確定のまま試行錯誤を続ける時。
 
 ## 停止条件
 - 3 回連続で進捗がない。
 - 環境依存で再現不能。
-- 影響範囲が想定以上に広い。
-- 局所修正より分離設計見直しが先だと判明した。
+- 想定より影響範囲が広い。
+- 2 回同じ失敗が出た。
+- plan なしで局所パッチを増やすしかなくなった。
 
-## 読む順番
-- MeeMee 固有のプロダクト原則は `docs/MEEMEE_PRINCIPLES.md` を正本として最優先で参照する。
-- 詳細仕様や Runbook は必要時だけ `docs/CODEX.md` を開く。
-- 領域別ルールは各ディレクトリの `AGENTS.md` を優先する。
-  - `app/backend/AGENTS.md`
-  - `app/frontend/AGENTS.md`
-- 反復ワークフローは repo 直下の `skills/` を使う。
+## 検証
+- 実行して確認できるものは確認する。
+- テストが落ちたまま次に進まない。
+- 未検証は未検証のまま残す。
+- 検証できた範囲だけを完了とする。
 
-## 代表コマンド
-以下は repo 実在ファイルに基づく代表例だけを常設する。詳細手順は `README.md` と各領域の `AGENTS.md` を参照する。
-
-- 起動
-  - `.\run.ps1`
-  - `.\run_debug.ps1`
-  - `python -m app.desktop.launcher`
-- Frontend 検証
-  - `cd app\frontend && npm run lint`
-  - `cd app\frontend && npm run test`
-  - `cd app\frontend && npm run build`
-- Backend 検証
-  - `python -m pytest`
-  - `python -c "import app.backend.main"`
-- Release 確認
-  - `tools\build_release.cmd`
-
-根拠:
-- `README.md`
-- `app/frontend/package.json`
-- `app/backend/AGENTS.md`
-
-## Skills 運用
-- `skills/` は MeeMee 固有の再利用ワークフローを置く repo ローカル資産として扱う。
-- 恒久ルールを `AGENTS.md` に増やしすぎず、反復手順は `SKILL.md` に寄せる。
-- 各 `SKILL.md` は front matter に最低限 `name` と `description` を持たせる。
-
-## ExecPlans
-- 複雑な機能追加または大規模リファクタでは、設計から実装まで ExecPlan を必須とする。
-- ExecPlan は `.agent/PLANS.md` の要件に従って作成、更新する。
-- Rule (EN): When writing complex features or significant refactors, use an ExecPlan (as described in `.agent/PLANS.md`) from design to implementation.
+## Done
+- 症状の原因に対する修正が入っている。
+- 影響範囲と回帰リスクが説明できる。
+- 必要な検証を実施し、結果を明記した。
+- 重大な未検証が残る場合は Done にしない。
