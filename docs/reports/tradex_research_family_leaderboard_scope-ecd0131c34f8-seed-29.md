@@ -2,7 +2,7 @@
 
 - session_id: `scope-ecd0131c34f8-seed-29`
 - random_seed: `29`
-- generated_at: `2026-03-24T01:20:18.733917+00:00`
+- generated_at: `2026-03-24T01:41:25.979980+00:00`
 - eval_window_mode: `fallback`
 - eval_window_mode_reason: `fallback_required_standard_windows_unavailable`
 - ret20_source_mode: `precomputed`
