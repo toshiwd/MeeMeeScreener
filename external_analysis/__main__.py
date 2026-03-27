@@ -7,6 +7,7 @@ from external_analysis.exporter.export_schema import ensure_export_db
 from external_analysis.labels.anchor_windows import build_anchor_windows
 from external_analysis.labels.rolling_labels import build_rolling_labels
 from external_analysis.labels.store import ensure_label_db
+from external_analysis.image_rerank.cli import run_image_rerank_phase0_3
 from external_analysis.models.candidate_baseline import run_candidate_baseline
 from external_analysis.ops.ops_schema import ensure_ops_db
 from external_analysis.results.publish import publish_result
@@ -203,6 +204,23 @@ def main() -> int:
     daily_research_parser.add_argument("--text-report-path", default=None)
     daily_research_parser.add_argument("--no-source-snapshot", action="store_true")
     daily_research_parser.add_argument("--snapshot-root", default=None)
+
+    image_rerank_parser = sub.add_parser("image-rerank-run", help="Run the TRADEX image rerank Phase0-Phase3 pipeline.")
+    image_rerank_parser.add_argument("--export-db-path", default=None)
+    image_rerank_parser.add_argument("--as-of-date", required=True)
+    image_rerank_parser.add_argument("--run-id", default=None)
+    image_rerank_parser.add_argument("--verify-profile", default="smoke")
+    image_rerank_parser.add_argument("--top-k", type=int, default=10)
+    image_rerank_parser.add_argument("--block-size-days", type=int, default=30)
+    image_rerank_parser.add_argument("--embargo-days", type=int, default=20)
+    image_rerank_parser.add_argument("--feature-lookback-days", type=int, default=80)
+    image_rerank_parser.add_argument("--label-horizon-days", type=int, default=20)
+    image_rerank_parser.add_argument("--positive-quantile", type=float, default=0.85)
+    image_rerank_parser.add_argument("--negative-quantile", type=float, default=0.15)
+    image_rerank_parser.add_argument("--neutral-weight", type=float, default=0.25)
+    image_rerank_parser.add_argument("--base-weight", type=float, default=0.70)
+    image_rerank_parser.add_argument("--image-weight", type=float, default=0.30)
+    image_rerank_parser.add_argument("--renderer-backend", default="auto")
 
     daily_research_history_parser = sub.add_parser("daily-research-history", help="Read persisted daily research artifacts from ops DB.")
     daily_research_history_parser.add_argument("--ops-db-path", default=None)
@@ -557,6 +575,27 @@ def main() -> int:
                 encoding="utf-8",
             )
         print(payload)
+        return 0
+    if args.cmd == "image-rerank-run":
+        print(
+            run_image_rerank_phase0_3(
+                export_db_path=args.export_db_path,
+                as_of_snapshot_date=args.as_of_date,
+                run_id=args.run_id,
+                verify_profile=args.verify_profile,
+                top_k=int(args.top_k),
+                block_size_days=int(args.block_size_days),
+                embargo_days=int(args.embargo_days),
+                feature_lookback_days=int(args.feature_lookback_days),
+                label_horizon_days=int(args.label_horizon_days),
+                positive_quantile=float(args.positive_quantile),
+                negative_quantile=float(args.negative_quantile),
+                neutral_weight=float(args.neutral_weight),
+                base_weight=float(args.base_weight),
+                image_weight=float(args.image_weight),
+                renderer_backend=str(args.renderer_backend),
+            )
+        )
         return 0
     if args.cmd == "promotion-decision-run":
         print(
