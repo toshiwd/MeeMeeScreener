@@ -51,6 +51,7 @@ import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/us
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
 import { DetailFinancialPanel } from "./detail/DetailFinancialPanel";
 import { DetailTdnetCard } from "./detail/DetailTdnetCard";
+import { buildSingleBatchBarsRequestPayload } from "./detail/batchBarsRequest";
 import DetailDebugBanner from "./detail/components/DetailDebugBanner";
 import DetailIndicatorOverlay from "./detail/components/DetailIndicatorOverlay";
 import DetailPositionLedgerSheet from "./detail/components/DetailPositionLedgerSheet";
@@ -130,6 +131,8 @@ import {
   normalizeEdinetFinancialPanel,
   normalizeTaisyakuSnapshot,
   normalizeTdnetDisclosureItem,
+  resolveAutoEdinetOfficialBackfillRequest,
+  resolveAutoEdinetOfficialBackfillSubmitOutcome,
   shouldAutoRefreshTaisyaku,
   shouldAutoRefreshTdnet,
   buildRange,
@@ -503,6 +506,8 @@ export default function DetailView() {
   const [showPositionLedger, setShowPositionLedger] = useState(false);
   const [financialPanel, setFinancialPanel] = useState<EdinetFinancialPanel | null>(null);
   const [financialLoading, setFinancialLoading] = useState(false);
+  const [financialFetchedOnce, setFinancialFetchedOnce] = useState(false);
+  const [financialRefreshToken, setFinancialRefreshToken] = useState(0);
   const [taisyakuSnapshot, setTaisyakuSnapshot] = useState<TaisyakuSnapshot | null>(null);
   const [taisyakuLoading, setTaisyakuLoading] = useState(false);
   const [taisyakuFetchedOnce, setTaisyakuFetchedOnce] = useState(false);
@@ -541,6 +546,10 @@ export default function DetailView() {
   const taisyakuAutoImportRequestedRef = useRef(new Set<string>());
   const tdnetAutoImportRequestedRef = useRef(new Set<string>());
   const analysisAutoBackfillRequestKeyRef = useRef<string | null>(null);
+  const edinetAutoBackfillRequestedRef = useRef(new Set<string>());
+  const edinetAutoBackfillRefreshedRef = useRef(new Set<string>());
+  const edinetAutoBackfillJobIdsRef = useRef(new Map<string, string>());
+  const edinetAutoBackfillRefreshOnlyRef = useRef(new Map<string, number>());
   const prevShowAnalysisPanelRef = useRef(false);
 
   const syncRangesRef = useRef(syncRanges);
@@ -752,6 +761,12 @@ export default function DetailView() {
     setAnalysisFetchRefreshToken(0);
     analysisBackfillActiveRef.current = false;
     analysisAutoBackfillRequestKeyRef.current = null;
+    edinetAutoBackfillRequestedRef.current.clear();
+    edinetAutoBackfillRefreshedRef.current.clear();
+    edinetAutoBackfillJobIdsRef.current.clear();
+    edinetAutoBackfillRefreshOnlyRef.current.clear();
+    setFinancialFetchedOnce(false);
+    setFinancialRefreshToken(0);
   }, [code]);
 
   const {
@@ -902,6 +917,7 @@ export default function DetailView() {
     if (!backendReady || !code || headerMode !== "financial") return;
     let cancelled = false;
     setFinancialLoading(true);
+    setFinancialFetchedOnce(false);
     void api
       .get("/ticker/edinet/financials", { params: { code } })
       .then((response) => {
@@ -917,11 +933,12 @@ export default function DetailView() {
       })
       .finally(() => {
         if (!cancelled) setFinancialLoading(false);
+        if (!cancelled) setFinancialFetchedOnce(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [backendReady, code, headerMode]);
+  }, [backendReady, code, headerMode, financialRefreshToken]);
 
   useEffect(() => {
     if (headerMode !== "financial" || compareCode) return;
@@ -1030,6 +1047,133 @@ export default function DetailView() {
       cancelled = true;
     };
   }, [backendReady, code, tdnetDisclosures, tdnetFetchedOnce, tdnetLoading]);
+
+  useEffect(() => {
+    if (!backendReady || !code || headerMode !== "financial") return;
+    if (!financialFetchedOnce || financialLoading) return;
+    if (!edinetOfficialBackfillRequest) return;
+    if (financialPanel?.bootstrapState?.active === true) return;
+    const requestKey = edinetOfficialBackfillRequest.requestKey;
+    if (edinetAutoBackfillRequestedRef.current.has(requestKey)) return;
+    edinetAutoBackfillRequestedRef.current.add(requestKey);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await api.post("/jobs/edinet/official-backfill", null, {
+          params: { code },
+          timeout: 10000,
+        });
+        if (cancelled) return;
+        const outcome = resolveAutoEdinetOfficialBackfillSubmitOutcome({ responseData: response.data });
+        if (outcome.action === "poll") {
+          edinetAutoBackfillJobIdsRef.current.set(requestKey, outcome.jobId);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        const outcome = resolveAutoEdinetOfficialBackfillSubmitOutcome({ error });
+        if (outcome.action === "refresh") {
+          edinetAutoBackfillRefreshOnlyRef.current.set(requestKey, outcome.delayMs);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    backendReady,
+    code,
+    edinetOfficialBackfillRequest,
+    financialFetchedOnce,
+    financialLoading,
+    financialPanel?.bootstrapState?.active,
+    headerMode,
+  ]);
+
+  useEffect(() => {
+    if (!backendReady || !code || headerMode !== "financial") return;
+    if (!financialFetchedOnce || financialLoading) return;
+    if (!edinetOfficialBackfillRequest) return;
+    const requestKey = edinetOfficialBackfillRequest.requestKey;
+    if (edinetAutoBackfillRefreshedRef.current.has(requestKey)) return;
+    const refreshOnlyDelayMs = edinetAutoBackfillRefreshOnlyRef.current.get(requestKey) ?? null;
+    const shouldWatch =
+      financialPanel?.bootstrapState?.active === true ||
+      edinetAutoBackfillJobIdsRef.current.has(requestKey);
+    if (!shouldWatch && refreshOnlyDelayMs == null) return;
+
+    let cancelled = false;
+    let timerId: number | null = null;
+    const startedAt = Date.now();
+    const settleAndRefresh = (delayMs = 3000) => {
+      if (cancelled || edinetAutoBackfillRefreshedRef.current.has(requestKey)) return;
+      edinetAutoBackfillRefreshedRef.current.add(requestKey);
+      edinetAutoBackfillRefreshOnlyRef.current.delete(requestKey);
+      timerId = window.setTimeout(() => {
+        if (!cancelled) {
+          setFinancialRefreshToken((prev) => prev + 1);
+        }
+      }, delayMs);
+    };
+
+    if (refreshOnlyDelayMs != null) {
+      settleAndRefresh(refreshOnlyDelayMs);
+      return () => {
+        cancelled = true;
+        if (timerId != null) {
+          window.clearTimeout(timerId);
+        }
+      };
+    }
+
+    const pollCurrentJob = async () => {
+      const jobId = edinetAutoBackfillJobIdsRef.current.get(requestKey);
+      if (!jobId) {
+        if (Date.now() - startedAt >= 15_000) {
+          settleAndRefresh();
+          return;
+        }
+        timerId = window.setTimeout(() => {
+          void pollCurrentJob();
+        }, 500);
+        return;
+      }
+      try {
+        const res = await api.get(`/jobs/${jobId}`, { timeout: 4000 });
+        if (cancelled) return;
+        const payload = (res.data ?? null) as JobStatusPayload | null;
+        const currentStatus = payload?.status ?? null;
+        if (!ANALYSIS_BACKFILL_ACTIVE_STATUSES.has(currentStatus ?? "")) {
+          settleAndRefresh();
+          return;
+        }
+      } catch {
+        if (cancelled) return;
+      }
+      if (Date.now() - startedAt >= 15_000) {
+        settleAndRefresh();
+        return;
+      }
+      timerId = window.setTimeout(() => {
+        void pollCurrentJob();
+      }, 1500);
+    };
+
+    void pollCurrentJob();
+    return () => {
+      cancelled = true;
+      if (timerId != null) {
+        window.clearTimeout(timerId);
+      }
+    };
+  }, [
+    backendReady,
+    code,
+    edinetOfficialBackfillRequest,
+    financialFetchedOnce,
+    financialLoading,
+    financialPanel?.bootstrapState?.active,
+    headerMode,
+  ]);
 
   useEffect(() => {
     setSelectedTdnetDisclosures([]);
@@ -1648,6 +1792,10 @@ export default function DetailView() {
       }),
     [analysisEdinetSummary, latestFinancialPoint, latestPrice]
   );
+  const edinetOfficialBackfillRequest = useMemo(
+    () => resolveAutoEdinetOfficialBackfillRequest({ code, financialPanel }),
+    [code, financialPanel]
+  );
   const taisyakuDisplay = useMemo(() => buildTaisyakuDisplay(taisyakuSnapshot), [taisyakuSnapshot]);
   const taisyakuStatusLabel = useMemo(() => {
     if (!taisyakuSnapshot?.fetchedAt) {
@@ -1958,17 +2106,12 @@ export default function DetailView() {
     let active = true;
     setCompareDailyLoading(true);
     setCompareDailyErrors([]);
-    const payload: {
-      codes: string[];
-      timeframes: string[];
-      limit: number;
-      includeProvisional: boolean;
-    } = {
-      codes: [compareCode],
-      timeframes: ["daily"],
+    const payload = buildSingleBatchBarsRequestPayload({
+      code: compareCode,
+      timeframe: "daily",
       limit: compareDailyLimit,
-      includeProvisional: true
-    };
+      asof: compareAsOf,
+    });
     api
       .post("/batch_bars_v3", payload, { signal: controller.signal })
       .then((res) => {
@@ -1995,7 +2138,7 @@ export default function DetailView() {
       active = false;
       controller.abort();
     };
-  }, [backendReady, compareCode, compareDailyLimit]);
+  }, [backendReady, compareAsOf, compareCode, compareDailyLimit]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -2004,19 +2147,13 @@ export default function DetailView() {
     let active = true;
     setCompareLoading(true);
     setCompareMonthlyErrors([]);
-    const payload: {
-      codes: string[];
-      timeframes: string[];
-      limit: number;
-      includeProvisional: boolean;
-      includeBoxes?: boolean;
-    } = {
-      codes: [compareCode],
-      timeframes: ["monthly"],
+    const payload = buildSingleBatchBarsRequestPayload({
+      code: compareCode,
+      timeframe: "monthly",
       limit: monthlyLimit,
-      includeProvisional: true
-    };
-    payload.includeBoxes = false;
+      includeBoxes: false,
+      asof: compareAsOf,
+    });
     api
       .post("/batch_bars_v3", payload, { signal: controller.signal })
       .then((res) => {
@@ -2046,7 +2183,7 @@ export default function DetailView() {
       active = false;
       controller.abort();
     };
-  }, [backendReady, compareCode, monthlyLimit]);
+  }, [backendReady, compareAsOf, compareCode, monthlyLimit]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -2055,7 +2192,7 @@ export default function DetailView() {
     if (compareBoxes.length > 0) return;
     let active = true;
     const timerId = window.setTimeout(() => {
-      void fetchMonthlyBoxesFrame({ code: compareCode, limit: monthlyLimit })
+      void fetchMonthlyBoxesFrame({ code: compareCode, limit: monthlyLimit, asof: compareAsOf })
         .then((result) => {
           if (!active) return;
           setCompareBoxes(result.boxes);
@@ -2068,7 +2205,7 @@ export default function DetailView() {
       active = false;
       window.clearTimeout(timerId);
     };
-  }, [backendReady, compareBoxes.length, compareCode, compareMonthlyData.length, monthlyLimit]);
+  }, [backendReady, compareAsOf, compareBoxes.length, compareCode, compareMonthlyData.length, monthlyLimit]);
 
   useEffect(() => {
     if (!compareCode) return;
@@ -5250,6 +5387,7 @@ export default function DetailView() {
                 selectedBarData={selectedBarData}
                 {...(memoPanelData || {})}
                 title="日足情報"
+                cursorMode={true}
                 onPrevDay={moveToPrevDay}
                 onNextDay={moveToNextDay}
                 onCopyForConsult={handleCopyForConsult}
