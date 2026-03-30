@@ -27,6 +27,7 @@ from app.backend.services.tradex_experiment_store import (
     run_adopt_file,
     run_detail_file,
     run_file,
+    tradex_reports_root,
     tradex_families_root,
     write_json,
 )
@@ -1283,8 +1284,7 @@ def _write_champion_challenger_evaluation_report(
     baseline_run_id: str,
     candidate_run_id: str,
 ) -> tuple[Path, Path]:
-    report_dir = REPO_ROOT / "docs" / "reports"
-    report_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = tradex_reports_root()
     report_path = report_dir / f"tradex_champion_challenger_eval_{family_id}_{candidate_run_id}.md"
     latest_report_path = report_dir / "tradex_champion_challenger_eval.md"
     markdown = _format_champion_challenger_evaluation_markdown(

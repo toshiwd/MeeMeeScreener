@@ -157,6 +157,15 @@ const formatExitPlan = (policy: AnalysisEntryPolicySide | null) => {
   return summary;
 };
 
+const resolveEffectiveBuySetupType = (
+  rawSetupType: string | null | undefined,
+  researchPriorSide: AnalysisResearchPrior["up"] | null | undefined
+) => {
+  const normalized = rawSetupType ?? null;
+  if (normalized && normalized !== "watch" && normalized !== "watchlist") return normalized;
+  return researchPriorSide?.patternTag === "rebound_onset" ? "rebound" : normalized;
+};
+
 export function DetailAnalysisPanel(props: Props) {
   const {
     analysisAsOfTime,
@@ -203,6 +212,8 @@ export function DetailAnalysisPanel(props: Props) {
   } = props;
   const buyPolicy = analysisEntryPolicy?.up ?? null;
   const sellPolicy = analysisEntryPolicy?.down ?? null;
+  const researchPriorUp = analysisResearchPrior?.up ?? null;
+  const effectiveBuySetupType = resolveEffectiveBuySetupType(buyPolicy?.setupType, researchPriorUp);
   const hasAnalysisSummary = canShowAnalysis;
 
   return (
@@ -233,7 +244,7 @@ export function DetailAnalysisPanel(props: Props) {
                     状態 {analysisGuidance.buySetupState} / {formatCandidateState("buy", analysisGuidance.buySetupState)}
                   </div>
                   <div className="detail-analysis-entry-plan-item">
-                    狙い {formatSetupIntent("buy", buyPolicy?.setupType)}
+                    狙い {formatSetupIntent("buy", effectiveBuySetupType)}
                   </div>
                   <div className="detail-analysis-entry-plan-item">
                     出口 {formatHoldWindow(buyPolicy)} / {formatExitPlan(buyPolicy)}
@@ -330,6 +341,15 @@ export function DetailAnalysisPanel(props: Props) {
                   {researchPriorRunId && <div className="detail-analysis-meta">研究連携 Run {researchPriorRunId}</div>}
                   {analysisResearchPrior && <div className="detail-analysis-meta">{researchPriorUpMeta}</div>}
                   {analysisResearchPrior && <div className="detail-analysis-meta">{researchPriorDownMeta}</div>}
+                  {researchPriorUp?.patternTag === "rebound_onset" && (
+                    <div className="detail-analysis-meta">研究タグ 反発初動候補</div>
+                  )}
+                  {Number.isFinite(researchPriorUp?.fitScore ?? NaN) && (
+                    <div className="detail-analysis-meta">適合度 {formatPercentLabel(researchPriorUp?.fitScore, 0)}</div>
+                  )}
+                  {Array.isArray(researchPriorUp?.adoptionReasons) && researchPriorUp.adoptionReasons.length > 0 && (
+                    <div className="detail-analysis-meta">採用理由 {researchPriorUp.adoptionReasons.join(" / ")}</div>
+                  )}
                   {edinetStatusMeta && <div className="detail-analysis-meta">{edinetStatusMeta}</div>}
                   {edinetQualityMeta && <div className="detail-analysis-meta">EDI品質 {edinetQualityMeta}</div>}
                   {edinetMetricsMeta && <div className="detail-analysis-meta">{edinetMetricsMeta}</div>}

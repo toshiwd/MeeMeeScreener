@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
+from external_analysis.contracts.paths import resolve_ops_db_path
 from external_analysis.ops.ops_schema import connect_ops_db, ensure_ops_schema
 
 
@@ -145,6 +147,107 @@ def _apply_ops_retention(conn) -> None:
     )
 
 
+def _observer_snapshot_path(ops_db_path: str | None = None) -> Path:
+    resolved = resolve_ops_db_path(ops_db_path)
+    return resolved.with_name(f"{resolved.stem}.observer.json")
+
+
+def _serialize_observer_value(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    return value
+
+
+def _write_ops_observer_snapshot(conn, *, ops_db_path: str | None = None) -> None:
+    review_rows: list[dict[str, Any]] = []
+    if conn.execute(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE lower(table_name) = 'external_review_artifacts'
+        LIMIT 1
+        """
+    ).fetchone():
+        raw_rows = conn.execute(
+            """
+            SELECT
+                review_id,
+                review_kind,
+                CAST(latest_end_as_of_date AS VARCHAR),
+                nightly_scope_id,
+                recent_failure_rate,
+                recent_quarantine_count,
+                summary_json,
+                CAST(created_at AS VARCHAR)
+            FROM external_review_artifacts
+            WHERE review_kind = 'daily_research'
+            ORDER BY created_at DESC, review_id DESC
+            LIMIT 50
+            """
+        ).fetchall()
+        review_rows = [
+            {
+                "review_id": row[0],
+                "review_kind": row[1],
+                "as_of_date": row[2],
+                "publish_id": row[3],
+                "recent_failure_rate": row[4],
+                "recent_quarantine_count": row[5],
+                "summary_json": row[6],
+                "created_at": row[7],
+            }
+            for row in raw_rows
+        ]
+    job_rows: list[dict[str, Any]] = []
+    if conn.execute(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE lower(table_name) = 'external_job_runs'
+        LIMIT 1
+        """
+    ).fetchone():
+        raw_rows = conn.execute(
+            """
+            SELECT
+                job_id,
+                job_type,
+                status,
+                CAST(as_of_date AS VARCHAR),
+                publish_id,
+                created_at,
+                started_at,
+                finished_at
+            FROM external_job_runs
+            ORDER BY created_at DESC, job_id DESC
+            LIMIT 200
+            """
+        ).fetchall()
+        job_rows = [
+            {
+                "job_id": row[0],
+                "job_type": row[1],
+                "status": row[2],
+                "as_of_date": row[3],
+                "publish_id": row[4],
+                "created_at": _serialize_observer_value(row[5]),
+                "started_at": _serialize_observer_value(row[6]),
+                "finished_at": _serialize_observer_value(row[7]),
+            }
+            for row in raw_rows
+        ]
+    payload = {
+        "generated_at": _utcnow().isoformat(sep=" "),
+        "daily_research_reviews": review_rows,
+        "external_job_runs": job_rows,
+    }
+    snapshot_path = _observer_snapshot_path(ops_db_path)
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = snapshot_path.with_suffix(f"{snapshot_path.suffix}.tmp")
+    temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    temp_path.replace(snapshot_path)
+
+
 def upsert_job_run(
     *,
     job_id: str,
@@ -188,6 +291,7 @@ def upsert_job_run(
             ],
         )
         _apply_ops_retention(conn)
+        _write_ops_observer_snapshot(conn, ops_db_path=ops_db_path)
         conn.execute("CHECKPOINT")
     finally:
         conn.close()
@@ -556,6 +660,7 @@ def persist_review_artifact(
             [review_row[column] for column in columns],
         )
         _apply_ops_retention(conn)
+        _write_ops_observer_snapshot(conn, ops_db_path=ops_db_path)
         conn.execute("CHECKPOINT")
     finally:
         conn.close()

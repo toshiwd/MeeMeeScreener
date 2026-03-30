@@ -21,6 +21,9 @@ const VOLUME_BAND_HEIGHT = 16;
 const BOX_FILL = getBoxFill();
 const BOX_STROKE = getBoxStroke();
 const SCROLL_IDLE_MS = 120;
+const THUMBNAIL_PAD = 6;
+const THUMBNAIL_AXIS_RIGHT_PAD = 46;
+const THUMBNAIL_AXIS_BOTTOM_PAD = 18;
 
 type CanvasSize = {
   width: number;
@@ -113,6 +116,35 @@ function resolveCanvasSize(container: HTMLDivElement | null): CanvasSize | null 
   };
 }
 
+export function resolveThumbnailPlotWidth(width: number, showAxes: boolean) {
+  const rightPad = showAxes ? THUMBNAIL_AXIS_RIGHT_PAD : THUMBNAIL_PAD;
+  return Math.max(1, width - rightPad);
+}
+
+export function resolveThumbnailHoverIndex(
+  x: number,
+  width: number,
+  barCount: number,
+  showAxes: boolean
+) {
+  if (!Number.isFinite(x) || !Number.isFinite(width) || width <= 0 || barCount <= 0) return null;
+  const plotWidth = resolveThumbnailPlotWidth(width, showAxes);
+  const clampedX = Math.min(Math.max(0, x), Math.max(0, plotWidth - Number.EPSILON));
+  return Math.min(barCount - 1, Math.floor((clampedX / plotWidth) * barCount));
+}
+
+export function resolveThumbnailCrosshairLeft(
+  index: number | null,
+  width: number,
+  barCount: number,
+  showAxes: boolean
+) {
+  if (index == null || !Number.isFinite(width) || width <= 0 || barCount <= 0) return null;
+  const clampedIndex = Math.max(0, Math.min(barCount - 1, index));
+  const plotWidth = resolveThumbnailPlotWidth(width, showAxes);
+  return `${((((clampedIndex + 0.5) / barCount) * plotWidth) / width) * 100}%`;
+}
+
 function canvasSizeKey(size: CanvasSize) {
   return buildThumbnailSizeKey(size.width, size.height, size.ratio);
 }
@@ -169,10 +201,10 @@ export function drawChart(
     return;
   }
 
-  const pad = 6;
-  const rightPad = showAxes ? 46 : pad;
-  const bottomPad = showAxes ? 18 : pad;
-  const plotWidth = Math.max(1, width - rightPad);
+  const pad = THUMBNAIL_PAD;
+  const rightPad = showAxes ? THUMBNAIL_AXIS_RIGHT_PAD : pad;
+  const bottomPad = showAxes ? THUMBNAIL_AXIS_BOTTOM_PAD : pad;
+  const plotWidth = resolveThumbnailPlotWidth(width, showAxes);
   const plotHeight = Math.max(1, height - bottomPad - VOLUME_BAND_HEIGHT);
   const hi = Math.max(...bars.map((b) => b[2]));
   const lo = Math.min(...bars.map((b) => b[3]));
@@ -661,8 +693,8 @@ export default function ThumbnailCanvas({
     const rect = containerRef.current.getBoundingClientRect();
     const x = event.clientX - rect.left;
     if (rect.width <= 0) return;
-    const ratio = Math.min(0.999, Math.max(0, x / rect.width));
-    const nextIndex = Math.min(displayBars.length - 1, Math.floor(ratio * displayBars.length));
+    const nextIndex = resolveThumbnailHoverIndex(x, rect.width, displayBars.length, showAxes);
+    if (nextIndex == null) return;
     scheduleHoverIndex(nextIndex);
   };
 
@@ -688,10 +720,12 @@ export default function ThumbnailCanvas({
         ? "up"
         : "down"
       : "flat";
-  const crosshairLeft =
-    safeHoverIndex !== null && displayBars.length
-      ? `${((safeHoverIndex + 0.5) / displayBars.length) * 100}%`
-      : null;
+  const crosshairLeft = resolveThumbnailCrosshairLeft(
+    safeHoverIndex,
+    containerRef.current?.clientWidth ?? 0,
+    displayBars.length,
+    showAxes
+  );
 
   return (
     <div

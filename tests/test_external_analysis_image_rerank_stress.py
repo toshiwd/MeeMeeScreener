@@ -9,6 +9,11 @@ from tests.test_external_analysis_image_rerank_integration import _build_real_sl
 
 pytestmark = pytest.mark.integration
 
+STRESS_BLOCK_SIZE_DAYS = 30
+STRESS_FEATURE_LOOKBACK_DAYS = 80
+STRESS_LABEL_HORIZON_DAYS = 10
+STRESS_EMBARGO_DAYS = 0
+
 
 def test_image_rerank_real_slice_stress_verify(monkeypatch, tmp_path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
@@ -41,8 +46,10 @@ def test_image_rerank_real_slice_stress_verify(monkeypatch, tmp_path) -> None:
     ]:
         _run_external_analysis(*argv[1:], cwd=repo_root)
 
-    snapshot_date = None
-    for candidate in dates[-12:]:
+    snapshot_date = 20260127 if 20260127 in dates else None
+    candidate_dates = [snapshot_date] if snapshot_date is not None else []
+    candidate_dates.extend(candidate for candidate in dates[-30:] if candidate != snapshot_date)
+    for candidate in candidate_dates:
         try:
             stdout = _run_external_analysis(
                 "image-rerank-run",
@@ -56,6 +63,14 @@ def test_image_rerank_real_slice_stress_verify(monkeypatch, tmp_path) -> None:
                 "stress",
                 "--top-k",
                 "10",
+                "--block-size-days",
+                str(STRESS_BLOCK_SIZE_DAYS),
+                "--embargo-days",
+                str(STRESS_EMBARGO_DAYS),
+                "--feature-lookback-days",
+                str(STRESS_FEATURE_LOOKBACK_DAYS),
+                "--label-horizon-days",
+                str(STRESS_LABEL_HORIZON_DAYS),
                 cwd=repo_root,
             )
         except AssertionError:
@@ -64,7 +79,7 @@ def test_image_rerank_real_slice_stress_verify(monkeypatch, tmp_path) -> None:
         assert stdout
         break
     if snapshot_date is None:
-        pytest.skip("default 80/20 stress verify leaves no kept train rows on this 20-symbol slice")
+        pytest.skip("production-like stress verify left no kept train rows on this 20-symbol slice")
 
     run_path = tradex_root / "image_rerank" / "runs" / "image-rerank-real-slice-stress" / "run.json"
     compare_path = tradex_root / "image_rerank" / "runs" / "image-rerank-real-slice-stress" / "outputs" / "phase3_compare.json"
@@ -73,7 +88,14 @@ def test_image_rerank_real_slice_stress_verify(monkeypatch, tmp_path) -> None:
 
     assert run_json["verify_profile"] == "stress"
     assert run_json["schema_version"] == "tradex_image_rerank_run_v1"
+    assert run_json["block_size_days"] == STRESS_BLOCK_SIZE_DAYS
+    assert run_json["feature_lookback_days"] == STRESS_FEATURE_LOOKBACK_DAYS
+    assert run_json["label_horizon_days"] == STRESS_LABEL_HORIZON_DAYS
+    assert run_json["embargo_days"] == STRESS_EMBARGO_DAYS
+    assert run_json["counts"]["train_sample_count"] > 0
     assert compare_json["verify_profile"] == "stress"
     assert compare_json["metrics"]["top_k_uplift"] is not None
     assert compare_json["readout"]["false_veto_count"] >= 0
+    assert compare_json["readout_contract"]["primary_fields"]
+    assert "parameters" in compare_json["fusion_sweep"]
     assert set(compare_json["fusion_sweep"]["modes"]) == {"rank_improver", "veto_helper"}

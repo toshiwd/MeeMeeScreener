@@ -174,6 +174,7 @@ def test_historical_replay_uses_snapshot_source(monkeypatch, tmp_path) -> None:
         lambda **kwargs: {"run_id": "export", "source": captured.setdefault("export_source", str(kwargs.get("source_db_path")))},
     )
     monkeypatch.setattr(historical_replay_module, "build_rolling_labels", lambda **_kwargs: {"run_id": "labels"})
+    monkeypatch.setattr(historical_replay_module, "build_case_library", lambda **_kwargs: {"run_id": "case_library", "cache_state": "fresh"})
     monkeypatch.setattr(historical_replay_module, "run_candidate_baseline", lambda **_kwargs: {"metrics_saved": True})
     monkeypatch.setattr(historical_replay_module, "run_similarity_baseline", lambda **_kwargs: {"metrics_saved": True})
     monkeypatch.setattr(historical_replay_module, "_load_replay_days", lambda **_kwargs: [{"status": "success", "publish_id": "pub_demo", "as_of_date": 20260105}])

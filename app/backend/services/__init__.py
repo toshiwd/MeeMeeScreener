@@ -34,6 +34,7 @@ _MODULE_TARGETS = {
     "edinet_rank_features": "app.backend.services.ml.edinet_rank_features",
     "analysis_backfill_service": "app.backend.services.analysis.analysis_backfill_service",
     "analysis_decision": "app.backend.services.analysis.analysis_decision",
+    "ranking_backtest_service": "app.backend.services.analysis.ranking_backtest_service",
     "sell_analysis_accumulator": "app.backend.services.analysis.sell_analysis_accumulator",
     "strategy_backtest_service": "app.backend.services.analysis.strategy_backtest_service",
     "swing_expectancy_service": "app.backend.services.analysis.swing_expectancy_service",

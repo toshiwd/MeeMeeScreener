@@ -1,0 +1,25 @@
+# TOREDEX Narrative 2025-04-07
+
+- season_id: diagnosis_holdings_1_20260329054356226085
+- mode: BACKTEST
+- policy_version: toredex.v8
+
+## Buy Top 3
+1. 1357 ev=0.15844838921762 upProb=1.0 revRisk=0.3685691386146967 frame=BULLISH Wup=1.0 Mup=1.0 Wdn=0.3685691386146967 Mdn=0.2574814814814815 gate=True:ENTRY_OK
+2. 4784 ev=0.18054583624912526 upProb=0.9084218289085546 revRisk=0.0 frame=BULLISH Wup=0.9084218289085546 Mup=1.0 Wdn=0.0 Mdn=0.0 gate=True:ENTRY_OK
+3. 7992 ev=-0.015384615384615385 upProb=1.0 revRisk=0.4166666666666667 frame=BULLISH Wup=1.0 Mup=0.47809471976778933 Wdn=0.4166666666666667 Mdn=0.29388419345199984 gate=True:ENTRY_OK
+
+## Sell Top 3
+1. 1711 ev=-0.14953271028037382 upProb=1.0 revRisk=1.0 frame=BEARISH Wup=0.16721611721611723 Mup=0.0 Wdn=1.0 Mdn=1.0 gate=True:ENTRY_OK
+2. 2160 ev=-0.14417001723147616 upProb=1.0 revRisk=1.0 frame=BEARISH Wup=0.03163681374690552 Mup=0.07941752325012238 Wdn=1.0 Mdn=1.0 gate=True:ENTRY_OK
+3. 3110 ev=-0.16847826086956522 upProb=1.0 revRisk=1.0 frame=BEARISH Wup=0.11113609861735803 Mup=0.0030028036004131867 Wdn=1.0 Mdn=1.0 gate=True:ENTRY_OK
+
+## Actions
+- no actions
+
+## Metrics
+- equity: 10000000.0
+- cum_return_pct: 0.0
+- max_drawdown_pct: 0.0
+- holdings_count: 0
+- game_over: False

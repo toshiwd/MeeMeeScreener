@@ -2,12 +2,43 @@ from __future__ import annotations
 
 import argparse
 
+from external_analysis.event_image_dataset.cli import (
+    run_event_image_dataset_adoption_cli,
+    run_event_image_dataset_adoption_compare_cli,
+    run_event_image_dataset_adoption_policy_cli,
+    run_event_image_dataset_analysis_batch_cli,
+    run_event_image_dataset_boundary_cli,
+    run_event_image_dataset_build,
+    run_event_image_dataset_combo_cli,
+    run_event_image_dataset_gating_cli,
+    run_event_image_dataset_pattern_breadth_cli,
+    run_event_image_dataset_pattern_library_cli,
+    run_event_image_dataset_pattern_cli,
+    run_event_image_dataset_playbook_cli,
+    run_event_image_dataset_playbook_relax_cli,
+    run_event_image_dataset_playbook_threshold_cli,
+    run_event_image_dataset_regime_cli,
+    run_event_image_dataset_rebound_monitor_cli,
+    run_event_image_dataset_rebound_multi_research_cli,
+    run_event_image_dataset_rebound_v3_cli,
+    run_event_image_dataset_repro_cli,
+    run_event_image_dataset_robustness_batch_cli,
+    run_event_image_dataset_sequence_combo_cli,
+    run_event_image_dataset_train,
+    run_event_image_dataset_universe_build,
+    run_event_image_dataset_veto_ablation_cli,
+    run_event_image_dataset_veto_compare_cli,
+    run_event_image_dataset_selection_contract_cli,
+    run_event_image_dataset_veto_thin_liquidity_cli,
+)
 from external_analysis.exporter.diff_export import run_diff_export
 from external_analysis.exporter.export_schema import ensure_export_db
+from external_analysis.exporter.snapshot_status import build_export_snapshot
 from external_analysis.labels.anchor_windows import build_anchor_windows
 from external_analysis.labels.rolling_labels import build_rolling_labels
 from external_analysis.labels.store import ensure_label_db
 from external_analysis.image_rerank.cli import run_image_rerank_phase0_3
+from external_analysis.image_rerank.research_runner import run_image_rerank_disposition, run_image_rerank_research
 from external_analysis.models.candidate_baseline import run_candidate_baseline
 from external_analysis.ops.ops_schema import ensure_ops_db
 from external_analysis.results.publish import publish_result
@@ -28,8 +59,10 @@ from external_analysis.runtime.daily_research import (
     format_daily_research_tag_report_text_report,
     format_daily_research_watchlist_text_report,
     load_daily_research_history,
+    run_daily_research_loop,
     run_daily_research_cycle,
 )
+from external_analysis.runtime.daily_research_prepare import run_daily_research_prepare
 from external_analysis.runtime.nightly_pipeline import run_nightly_candidate_pipeline
 from external_analysis.runtime.promotion_decision import run_promotion_decision_command
 from external_analysis.runtime.challenger_eval import run_challenger_eval
@@ -69,6 +102,13 @@ def main() -> int:
     export_sync_parser = sub.add_parser("export-sync", help="Run Slice B diff export into the internal export DB.")
     export_sync_parser.add_argument("--source-db-path", default=None)
     export_sync_parser.add_argument("--export-db-path", default=None)
+
+    export_snapshot_build_parser = sub.add_parser(
+        "export-snapshot-build",
+        help="Build a complete reusable export snapshot and write the snapshot status sidecar.",
+    )
+    export_snapshot_build_parser.add_argument("--source-db-path", default=None)
+    export_snapshot_build_parser.add_argument("--export-db-path", default=None)
 
     label_build_parser = sub.add_parser("label-build", help="Build rolling labels into the internal label DB.")
     label_build_parser.add_argument("--export-db-path", default=None)
@@ -202,8 +242,36 @@ def main() -> int:
     daily_research_parser.add_argument("--freshness-state", default="fresh")
     daily_research_parser.add_argument("--report-path", default=None)
     daily_research_parser.add_argument("--text-report-path", default=None)
+    daily_research_parser.add_argument("--progress-path", default=None)
     daily_research_parser.add_argument("--no-source-snapshot", action="store_true")
     daily_research_parser.add_argument("--snapshot-root", default=None)
+
+    daily_research_prepare_parser = sub.add_parser(
+        "daily-research-prepare",
+        help="Build and validate the reusable prepared environment for daily research.",
+    )
+    daily_research_prepare_parser.add_argument("--source-db-path", default=None)
+    daily_research_prepare_parser.add_argument("--export-db-path", default=None)
+    daily_research_prepare_parser.add_argument("--label-db-path", default=None)
+    daily_research_prepare_parser.add_argument("--manifest-path", default=None)
+    daily_research_prepare_parser.add_argument("--progress-path", default=None)
+
+    daily_research_loop_parser = sub.add_parser(
+        "daily-research-loop",
+        help="Run daily research across the latest trading days until promotion-ready long candidates appear.",
+    )
+    daily_research_loop_parser.add_argument("--source-db-path", default=None)
+    daily_research_loop_parser.add_argument("--export-db-path", default=None)
+    daily_research_loop_parser.add_argument("--label-db-path", default=None)
+    daily_research_loop_parser.add_argument("--result-db-path", default=None)
+    daily_research_loop_parser.add_argument("--similarity-db-path", default=None)
+    daily_research_loop_parser.add_argument("--ops-db-path", default=None)
+    daily_research_loop_parser.add_argument("--freshness-state", default="fresh")
+    daily_research_loop_parser.add_argument("--report-path", default=None)
+    daily_research_loop_parser.add_argument("--text-report-path", default=None)
+    daily_research_loop_parser.add_argument("--progress-path", default=None)
+    daily_research_loop_parser.add_argument("--snapshot-root", default=None)
+    daily_research_loop_parser.add_argument("--max-trading-days", type=int, default=5)
 
     image_rerank_parser = sub.add_parser("image-rerank-run", help="Run the TRADEX image rerank Phase0-Phase3 pipeline.")
     image_rerank_parser.add_argument("--export-db-path", default=None)
@@ -221,6 +289,236 @@ def main() -> int:
     image_rerank_parser.add_argument("--base-weight", type=float, default=0.70)
     image_rerank_parser.add_argument("--image-weight", type=float, default=0.30)
     image_rerank_parser.add_argument("--renderer-backend", default="auto")
+
+    image_rerank_research_parser = sub.add_parser(
+        "image-rerank-research-run",
+        help="Run the full-universe image rerank orchestration and derived JSON artifacts.",
+    )
+    image_rerank_research_parser.add_argument("--source-db-path", default=None)
+    image_rerank_research_parser.add_argument("--export-db-path", default=None)
+    image_rerank_research_parser.add_argument("--session-id", default=None)
+    image_rerank_research_parser.add_argument("--as-of-date", default=None)
+    image_rerank_research_parser.add_argument("--top-k", type=int, default=10)
+    image_rerank_research_parser.add_argument("--renderer-backend", default="auto")
+
+    image_rerank_disposition_parser = sub.add_parser(
+        "image-rerank-disposition-run",
+        help="Build the derived keep/drop/hold disposition artifact for an existing image rerank research session.",
+    )
+    image_rerank_disposition_parser.add_argument("--session-id", required=True)
+
+    event_image_dataset_build_parser = sub.add_parser(
+        "event-image-dataset-build",
+        help="Build the monthly top20/bottom20 event image dataset.",
+    )
+    event_image_dataset_build_parser.add_argument("--export-db-path", required=True)
+    event_image_dataset_build_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_build_parser.add_argument("--source-db-path", default=None)
+    event_image_dataset_build_parser.add_argument("--start-month", default=None)
+    event_image_dataset_build_parser.add_argument("--end-month", default=None)
+    event_image_dataset_build_parser.add_argument("--renderer-backend", default="agg")
+    event_image_dataset_build_parser.add_argument("--restricted-universe-path", default=None)
+
+    event_image_dataset_train_parser = sub.add_parser(
+        "event-image-dataset-train",
+        help="Train image-only and numeric-only baselines on a built event image dataset.",
+    )
+    event_image_dataset_train_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_train_parser.add_argument("--seed", type=int, default=42)
+    event_image_dataset_train_parser.add_argument("--feature-size", type=int, default=48)
+
+    event_image_dataset_repro_parser = sub.add_parser(
+        "event-image-dataset-repro-run",
+        help="Run multi-seed reproducibility training on a built event image dataset.",
+    )
+    event_image_dataset_repro_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_repro_parser.add_argument("--seeds", nargs="*", type=int, default=None)
+    event_image_dataset_repro_parser.add_argument("--feature-size", type=int, default=48)
+
+    event_image_dataset_regime_parser = sub.add_parser(
+        "event-image-dataset-regime-run",
+        help="Build regime-gate artifacts for a trained event image dataset.",
+    )
+    event_image_dataset_regime_parser.add_argument("--dataset-id", required=True)
+
+    event_image_dataset_pattern_parser = sub.add_parser(
+        "event-image-dataset-pattern-run",
+        help="Build pattern decomposition artifacts for a trained event image dataset and regime.",
+    )
+    event_image_dataset_pattern_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_pattern_parser.add_argument("--regime-tag", default="rebound_onset")
+
+    event_image_dataset_pattern_library_parser = sub.add_parser(
+        "event-image-dataset-pattern-library-run",
+        help="Build the first pattern library candidate artifact from pattern decompositions.",
+    )
+    event_image_dataset_pattern_library_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_pattern_library_parser.add_argument("--regime-tags", nargs="+", required=True)
+
+    event_image_dataset_boundary_parser = sub.add_parser(
+        "event-image-dataset-boundary-run",
+        help="Build a boundary compare artifact between two regimes for a trained event image dataset.",
+    )
+    event_image_dataset_boundary_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_boundary_parser.add_argument("--primary-regime", required=True)
+    event_image_dataset_boundary_parser.add_argument("--comparison-regime", required=True)
+    event_image_dataset_boundary_parser.add_argument("--max-workers", type=int, default=2)
+
+    event_image_dataset_gating_parser = sub.add_parser(
+        "event-image-dataset-gating-run",
+        help="Build a gating-rule artifact between two regimes for a trained event image dataset.",
+    )
+    event_image_dataset_gating_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_gating_parser.add_argument("--primary-regime", required=True)
+    event_image_dataset_gating_parser.add_argument("--comparison-regime", required=True)
+
+    event_image_dataset_combo_parser = sub.add_parser(
+        "event-image-dataset-combo-run",
+        help="Build combo-rule artifacts between two regimes for a trained event image dataset.",
+    )
+    event_image_dataset_combo_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_combo_parser.add_argument("--primary-regime", required=True)
+    event_image_dataset_combo_parser.add_argument("--comparison-regime", required=True)
+
+    event_image_dataset_adoption_parser = sub.add_parser(
+        "event-image-dataset-adoption-run",
+        help="Build the rebound_onset auxiliary adoption artifact and publish the research prior bridge snapshot.",
+    )
+    event_image_dataset_adoption_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_adoption_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_adoption_compare_parser = sub.add_parser(
+        "event-image-dataset-adoption-compare-run",
+        help="Compare rebound_onset adoption bonus thresholds under the same core gate contract.",
+    )
+    event_image_dataset_adoption_compare_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_adoption_compare_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_pattern_breadth_parser = sub.add_parser(
+        "event-image-dataset-pattern-breadth-run",
+        help="Compare rebound_onset breadth candidates under the same core gate contract.",
+    )
+    event_image_dataset_pattern_breadth_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_pattern_breadth_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_sequence_combo_parser = sub.add_parser(
+        "event-image-dataset-sequence-combo-run",
+        help="Build rebound_onset sequence-aware combo artifacts under the same core gate contract.",
+    )
+    event_image_dataset_sequence_combo_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_sequence_combo_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_adoption_policy_parser = sub.add_parser(
+        "event-image-dataset-adoption-policy-run",
+        help="Compare rebound_onset adoption policies under the same core gate contract.",
+    )
+    event_image_dataset_adoption_policy_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_adoption_policy_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_playbook_parser = sub.add_parser(
+        "event-image-dataset-playbook-run",
+        help="Build rebound_onset playbook score + veto artifacts under the same core gate contract.",
+    )
+    event_image_dataset_playbook_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_playbook_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_playbook_relax_parser = sub.add_parser(
+        "event-image-dataset-playbook-relax-run",
+        help="Compare rebound_onset environment/setup relax variants while keeping veto fixed.",
+    )
+    event_image_dataset_playbook_relax_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_playbook_relax_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_playbook_threshold_parser = sub.add_parser(
+        "event-image-dataset-playbook-threshold-run",
+        help="Compare rebound_onset balanced playbook score cutoffs while keeping features and veto fixed.",
+    )
+    event_image_dataset_playbook_threshold_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_playbook_threshold_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_veto_compare_parser = sub.add_parser(
+        "event-image-dataset-veto-run",
+        help="Compare rebound_onset core gate with and without veto filters.",
+    )
+    event_image_dataset_veto_compare_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_veto_compare_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_veto_ablation_parser = sub.add_parser(
+        "event-image-dataset-veto-ablation-run",
+        help="Compare rebound_onset core gate across one-rule-at-a-time veto ablations.",
+    )
+    event_image_dataset_veto_ablation_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_veto_ablation_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_veto_thin_liquidity_parser = sub.add_parser(
+        "event-image-dataset-veto-thin-liquidity-run",
+        help="Compare rebound_onset thin_liquidity veto weakening variants while other veto rules stay fixed.",
+    )
+    event_image_dataset_veto_thin_liquidity_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_veto_thin_liquidity_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_selection_contract_parser = sub.add_parser(
+        "event-image-dataset-selection-contract-run",
+        help="Diagnose where rebound_onset edge leaks across core gate, veto, ranking, and entryQualified stages.",
+    )
+    event_image_dataset_selection_contract_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_selection_contract_parser.add_argument("--pattern", default="rebound_onset")
+
+    event_image_dataset_rebound_monitor_parser = sub.add_parser(
+        "event-image-dataset-rebound-monitor-run",
+        help="Build a live ranking delta monitor artifact for rebound_onset policies.",
+    )
+    event_image_dataset_rebound_monitor_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_rebound_monitor_parser.add_argument("--days", type=int, default=60)
+
+    event_image_dataset_robustness_batch_parser = sub.add_parser(
+        "event-image-dataset-robustness-batch-run",
+        help="Run rebound_onset robustness compares across multiple datasets in parallel.",
+    )
+    event_image_dataset_robustness_batch_parser.add_argument("--dataset-ids", nargs="+", required=True)
+    event_image_dataset_robustness_batch_parser.add_argument("--pattern", default="rebound_onset")
+    event_image_dataset_robustness_batch_parser.add_argument("--reference-dataset-id", default=None)
+    event_image_dataset_robustness_batch_parser.add_argument("--max-workers", type=int, default=None)
+
+    event_image_dataset_multi_research_parser = sub.add_parser(
+        "event-image-dataset-rebound-multi-research-run",
+        help="Run the rebound_onset multi-research round and update the pattern library checkpoint.",
+    )
+    event_image_dataset_multi_research_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_multi_research_parser.add_argument("--robustness-dataset-ids", nargs="+", required=True)
+    event_image_dataset_multi_research_parser.add_argument("--max-workers", type=int, default=2)
+
+    event_image_dataset_rebound_v3_parser = sub.add_parser(
+        "event-image-dataset-rebound-v3-run",
+        help="Run the rebound_onset v3 deep-research round and update the pattern library checkpoint.",
+    )
+    event_image_dataset_rebound_v3_parser.add_argument("--dataset-id", required=True)
+    event_image_dataset_rebound_v3_parser.add_argument("--max-workers", type=int, default=4)
+    event_image_dataset_rebound_v3_parser.add_argument("--monitor-days", type=int, default=60)
+    event_image_dataset_rebound_v3_parser.add_argument("--diagnosis-start-date", default=None)
+    event_image_dataset_rebound_v3_parser.add_argument("--diagnosis-end-date", default=None)
+
+    event_image_dataset_batch_parser = sub.add_parser(
+        "event-image-dataset-analysis-batch-run",
+        help="Run event-image-dataset analysis jobs for multiple datasets in parallel.",
+    )
+    event_image_dataset_batch_parser.add_argument("--dataset-ids", nargs="+", required=True)
+    event_image_dataset_batch_parser.add_argument("--max-workers", type=int, default=None)
+    event_image_dataset_batch_parser.add_argument("--refresh-train", action="store_true")
+    event_image_dataset_batch_parser.add_argument("--refresh-repro", action="store_true")
+    event_image_dataset_batch_parser.add_argument("--feature-size", type=int, default=48)
+    event_image_dataset_batch_parser.add_argument("--seeds", nargs="*", type=int, default=None)
+
+    event_image_dataset_universe_parser = sub.add_parser(
+        "event-image-dataset-universe-build",
+        help="Build a fixed restricted-universe membership artifact from MeeMee registered codes.",
+    )
+    event_image_dataset_universe_parser.add_argument("--source-db-path", default=None)
+    event_image_dataset_universe_parser.add_argument("--output-path", default=None)
+    event_image_dataset_universe_parser.add_argument("--start-month", required=True)
+    event_image_dataset_universe_parser.add_argument("--end-month", required=True)
+    event_image_dataset_universe_parser.add_argument("--sample-size", type=int, default=100)
+    event_image_dataset_universe_parser.add_argument("--sample-seed", type=int, default=7)
 
     daily_research_history_parser = sub.add_parser("daily-research-history", help="Read persisted daily research artifacts from ops DB.")
     daily_research_history_parser.add_argument("--ops-db-path", default=None)
@@ -313,6 +611,9 @@ def main() -> int:
         return 0
     if args.cmd == "export-sync":
         print(run_diff_export(source_db_path=args.source_db_path, export_db_path=args.export_db_path))
+        return 0
+    if args.cmd == "export-snapshot-build":
+        print(build_export_snapshot(source_db_path=args.source_db_path, export_db_path=args.export_db_path))
         return 0
     if args.cmd == "label-build":
         print(build_rolling_labels(export_db_path=args.export_db_path, label_db_path=args.label_db_path))
@@ -487,8 +788,35 @@ def main() -> int:
             freshness_state=args.freshness_state,
             report_path=args.report_path,
             text_report_path=args.text_report_path,
+            progress_path=args.progress_path,
             snapshot_source=not bool(args.no_source_snapshot),
             snapshot_root=args.snapshot_root,
+        )
+        print(payload)
+        return 0
+    if args.cmd == "daily-research-prepare":
+        payload = run_daily_research_prepare(
+            source_db_path=args.source_db_path,
+            export_db_path=args.export_db_path,
+            label_db_path=args.label_db_path,
+            manifest_path=args.manifest_path,
+            progress_path=args.progress_path,
+        )
+        print(payload)
+        return 0
+    if args.cmd == "daily-research-loop":
+        payload = run_daily_research_loop(
+            source_db_path=args.source_db_path,
+            export_db_path=args.export_db_path,
+            label_db_path=args.label_db_path,
+            result_db_path=args.result_db_path,
+            similarity_db_path=args.similarity_db_path,
+            ops_db_path=args.ops_db_path,
+            freshness_state=args.freshness_state,
+            report_path=args.report_path,
+            text_report_path=args.text_report_path,
+            progress_path=args.progress_path,
+            max_trading_days=args.max_trading_days,
         )
         print(payload)
         return 0
@@ -594,6 +922,261 @@ def main() -> int:
                 base_weight=float(args.base_weight),
                 image_weight=float(args.image_weight),
                 renderer_backend=str(args.renderer_backend),
+            )
+        )
+        return 0
+    if args.cmd == "image-rerank-research-run":
+        print(
+            run_image_rerank_research(
+                source_db_path=args.source_db_path,
+                export_db_path=args.export_db_path,
+                session_id=args.session_id,
+                as_of_date=args.as_of_date,
+                top_k=int(args.top_k),
+                renderer_backend=str(args.renderer_backend),
+            )
+        )
+        return 0
+    if args.cmd == "image-rerank-disposition-run":
+        print(run_image_rerank_disposition(session_id=args.session_id))
+        return 0
+    if args.cmd == "event-image-dataset-build":
+        print(
+            run_event_image_dataset_build(
+                export_db_path=args.export_db_path,
+                dataset_id=args.dataset_id,
+                source_db_path=args.source_db_path,
+                start_month=args.start_month,
+                end_month=args.end_month,
+                renderer_backend=str(args.renderer_backend),
+                restricted_universe_path=args.restricted_universe_path,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-train":
+        print(
+            run_event_image_dataset_train(
+                dataset_id=args.dataset_id,
+                seed=int(args.seed),
+                feature_size=int(args.feature_size),
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-repro-run":
+        print(
+            run_event_image_dataset_repro_cli(
+                dataset_id=args.dataset_id,
+                seeds=args.seeds,
+                feature_size=int(args.feature_size),
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-regime-run":
+        print(
+            run_event_image_dataset_regime_cli(
+                dataset_id=args.dataset_id,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-pattern-run":
+        print(
+            run_event_image_dataset_pattern_cli(
+                dataset_id=args.dataset_id,
+                regime_tag=args.regime_tag,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-pattern-library-run":
+        print(
+            run_event_image_dataset_pattern_library_cli(
+                dataset_id=args.dataset_id,
+                regime_tags=args.regime_tags,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-boundary-run":
+        print(
+            run_event_image_dataset_boundary_cli(
+                dataset_id=args.dataset_id,
+                primary_regime=args.primary_regime,
+                comparison_regime=args.comparison_regime,
+                max_workers=int(args.max_workers),
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-gating-run":
+        print(
+            run_event_image_dataset_gating_cli(
+                dataset_id=args.dataset_id,
+                primary_regime=args.primary_regime,
+                comparison_regime=args.comparison_regime,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-combo-run":
+        print(
+            run_event_image_dataset_combo_cli(
+                dataset_id=args.dataset_id,
+                primary_regime=args.primary_regime,
+                comparison_regime=args.comparison_regime,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-adoption-run":
+        print(
+            run_event_image_dataset_adoption_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-adoption-compare-run":
+        print(
+            run_event_image_dataset_adoption_compare_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-pattern-breadth-run":
+        print(
+            run_event_image_dataset_pattern_breadth_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-sequence-combo-run":
+        print(
+            run_event_image_dataset_sequence_combo_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-adoption-policy-run":
+        print(
+            run_event_image_dataset_adoption_policy_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-playbook-run":
+        print(
+            run_event_image_dataset_playbook_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-playbook-relax-run":
+        print(
+            run_event_image_dataset_playbook_relax_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-playbook-threshold-run":
+        print(
+            run_event_image_dataset_playbook_threshold_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-veto-run":
+        print(
+            run_event_image_dataset_veto_compare_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-veto-ablation-run":
+        print(
+            run_event_image_dataset_veto_ablation_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-veto-thin-liquidity-run":
+        print(
+            run_event_image_dataset_veto_thin_liquidity_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-selection-contract-run":
+        print(
+            run_event_image_dataset_selection_contract_cli(
+                dataset_id=args.dataset_id,
+                pattern=args.pattern,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-rebound-monitor-run":
+        print(
+            run_event_image_dataset_rebound_monitor_cli(
+                dataset_id=args.dataset_id,
+                days=int(args.days),
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-robustness-batch-run":
+        print(
+            run_event_image_dataset_robustness_batch_cli(
+                dataset_ids=args.dataset_ids,
+                pattern=args.pattern,
+                reference_dataset_id=args.reference_dataset_id,
+                max_workers=args.max_workers,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-rebound-multi-research-run":
+        print(
+            run_event_image_dataset_rebound_multi_research_cli(
+                dataset_id=args.dataset_id,
+                robustness_dataset_ids=args.robustness_dataset_ids,
+                max_workers=int(args.max_workers),
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-rebound-v3-run":
+        print(
+            run_event_image_dataset_rebound_v3_cli(
+                dataset_id=args.dataset_id,
+                max_workers=int(args.max_workers),
+                monitor_days=int(args.monitor_days),
+                diagnosis_start_date=args.diagnosis_start_date,
+                diagnosis_end_date=args.diagnosis_end_date,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-analysis-batch-run":
+        print(
+            run_event_image_dataset_analysis_batch_cli(
+                dataset_ids=args.dataset_ids,
+                max_workers=args.max_workers,
+                refresh_train=bool(args.refresh_train),
+                refresh_repro=bool(args.refresh_repro),
+                feature_size=int(args.feature_size),
+                seeds=args.seeds,
+            )
+        )
+        return 0
+    if args.cmd == "event-image-dataset-universe-build":
+        print(
+            run_event_image_dataset_universe_build(
+                source_db_path=args.source_db_path,
+                output_path=args.output_path,
+                start_month=args.start_month,
+                end_month=args.end_month,
+                sample_size=int(args.sample_size),
+                sample_seed=int(args.sample_seed),
             )
         )
         return 0

@@ -1,0 +1,87 @@
+{
+  "asOf": "2024-07-04",
+  "metrics": {
+    "asOf": "2024-07-04",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 6723116.988602,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": -801433.227048,
+        "net_cum_return_pct": -8.014332
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": -816433.227048,
+        "net_cum_return_pct": -8.164332
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": -831433.227048,
+        "net_cum_return_pct": -8.314332
+      }
+    ],
+    "cum_pnl": -786433.227048,
+    "cum_return_pct": -7.864332,
+    "daily_pnl": 91805.298829,
+    "equity": 9213566.772952,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": -786433.227048,
+    "gross_cum_return_pct": -7.864332,
+    "gross_daily_pnl": 91805.298829,
+    "gross_units": 2,
+    "holdings_count": 1,
+    "long_units": 2,
+    "max_drawdown_pct": -12.922866,
+    "net_cum_pnl": -786433.227048,
+    "net_cum_return_pct": -7.864332,
+    "net_daily_pnl": 91805.298829,
+    "net_exposure_pct": 20.0,
+    "net_units": 2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "champion",
+      "observed": {
+        "maxDrawdownPct": -12.922866,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 207.370973,
+        "worstMonthPct": -10.910152687959462
+      },
+      "pass": false,
+      "reason": "MAX_DD(-12.9229<= -8.0000);WORST_MONTH(-10.9102<= -8.0000)",
+      "thresholds": {
+        "maxDrawdownPct": -8.0,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 300.0,
+        "worstMonthPct": -8.0
+      }
+    },
+    "risk_gate_pass": false,
+    "risk_gate_reason": "MAX_DD(-12.9229<= -8.0000);WORST_MONTH(-10.9102<= -8.0000)",
+    "season_id": "diagnosis_base_current_20260329084133342581",
+    "short_units": 0,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 30000000.0,
+    "turnover_notional_daily": 0.0,
+    "turnover_pct_daily": 0.0
+  },
+  "positions": [
+    {
+      "avgPrice": 1623.0,
+      "holdingDays": 12,
+      "openedAt": "2024-06-19",
+      "pnlPct": 24.52248921749846,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "7011",
+      "units": 2
+    }
+  ],
+  "seasonId": "diagnosis_base_current_20260329084133342581"
+}

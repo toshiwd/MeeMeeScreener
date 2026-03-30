@@ -10,10 +10,13 @@ _PKG_PATH = Path(__file__).resolve().parent
 _MODULE_TARGETS = {
     "analysis_decision": "app.backend.services.analysis.analysis_decision",
     "sell_analysis_accumulator": "app.backend.services.analysis.sell_analysis_accumulator",
+    "ranking_backtest_service": "app.backend.services.analysis.ranking_backtest_service",
     "swing_expectancy_service": "app.backend.services.analysis.swing_expectancy_service",
     "swing_plan_service": "app.backend.services.analysis.swing_plan_service",
     "strategy_backtest_service": "app.backend.services.analysis.strategy_backtest_service",
     "analysis_backfill_service": "app.backend.services.analysis.analysis_backfill_service",
+    "toredex_policy_diagnosis_service": "app.backend.services.analysis.toredex_policy_diagnosis_service",
+    "rebound_full_validation_service": "app.backend.services.analysis.rebound_full_validation_service",
 }
 
 __all__ = sorted(_MODULE_TARGETS.keys())

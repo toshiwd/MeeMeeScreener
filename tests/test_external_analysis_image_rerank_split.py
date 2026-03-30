@@ -18,6 +18,10 @@ def test_image_rerank_split_manifest_records_index_boundaries_and_reason_counts(
         label_horizon_days=3,
     )
     assert "trading_day_index_map" not in manifest
+    assert manifest["schema_version"] == "tradex_image_rerank_split_v1"
+    assert manifest["purge_rule"]["contract_status"] == "fixed"
+    assert manifest["purge_rule"]["stress_feasibility_condition"] == "block_size_days > label_horizon_days + embargo_days"
+    assert manifest["reason_code_definitions"]["feature_overlap"]
     assert manifest["blocks"][0]["block_start_index"] == 0
     assert manifest["blocks"][0]["block_end_index"] == 9
     assert manifest["blocks"][1]["block_start_index"] == 10

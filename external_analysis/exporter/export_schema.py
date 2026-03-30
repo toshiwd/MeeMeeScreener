@@ -14,6 +14,7 @@ EXPORT_TABLES: tuple[str, ...] = (
     "ranking_snapshot_export",
     "trade_event_export",
     "position_snapshot_export",
+    "meta_export_table_progress",
     "meta_export_runs",
 )
 
@@ -159,6 +160,23 @@ def ensure_export_schema(conn: duckdb.DuckDBPyConnection) -> None:
             source_row_counts JSON NOT NULL,
             changed_table_names JSON NOT NULL,
             diff_reason JSON NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS meta_export_table_progress (
+            run_id TEXT NOT NULL,
+            source_signature TEXT NOT NULL,
+            step_name TEXT NOT NULL,
+            step_kind TEXT NOT NULL,
+            status TEXT NOT NULL,
+            started_at TIMESTAMP,
+            finished_at TIMESTAMP,
+            row_count BIGINT,
+            max_trade_date BIGINT,
+            details_json JSON,
+            PRIMARY KEY (run_id, step_name, step_kind)
         )
         """
     )

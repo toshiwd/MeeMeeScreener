@@ -40,6 +40,7 @@ def run_nightly_candidate_pipeline(
     load_control: dict[str, Any] | None = None,
     snapshot_source: bool = True,
     snapshot_root: str | None = None,
+    require_prepared_environment: bool = False,
 ) -> dict[str, Any]:
     run_id = _run_id(str(as_of_date))
     started_at = _utcnow()
@@ -50,7 +51,7 @@ def run_nightly_candidate_pipeline(
             snapshot_root=snapshot_root or (str(Path(str(export_db_path)).expanduser().resolve().parent / "source_snapshots") if export_db_path else None),
             label=f"nightly_candidate_{as_of_date}",
         )
-        if snapshot_source
+        if snapshot_source and not require_prepared_environment
         else None
     )
     effective_source_db_path = str((snapshot_payload or {}).get("snapshot_db_path") or source_db_path or "")
@@ -66,13 +67,18 @@ def run_nightly_candidate_pipeline(
             "freshness_state": freshness_state,
             "load_control": load_control or {},
             "source_snapshot": snapshot_payload,
+            "require_prepared_environment": bool(require_prepared_environment),
         },
         ops_db_path=ops_db_path,
     )
     logger.info("nightly_candidate_pipeline start run_id=%s as_of_date=%s", run_id, as_of_date)
     runtime_budget = resolve_research_runtime_budget(load_control)
-    export_payload = run_diff_export(source_db_path=effective_source_db_path, export_db_path=export_db_path)
-    label_payload = build_rolling_labels(export_db_path=export_db_path, label_db_path=label_db_path)
+    if require_prepared_environment:
+        export_payload = {"ok": True, "status": "reused", "reason": "prepared_environment_required"}
+        label_payload = {"ok": True, "skipped": True, "cache_state": "fresh", "reason": "prepared_environment_required"}
+    else:
+        export_payload = run_diff_export(source_db_path=effective_source_db_path, export_db_path=export_db_path)
+        label_payload = build_rolling_labels(export_db_path=export_db_path, label_db_path=label_db_path)
     baseline_payload = run_candidate_baseline(
         export_db_path=export_db_path,
         label_db_path=label_db_path,
@@ -132,6 +138,7 @@ def run_nightly_candidate_pipeline(
             "runtime_budget": runtime_budget,
             "quarantine_reason": quarantine_reason,
             "source_snapshot": snapshot_payload,
+            "require_prepared_environment": bool(require_prepared_environment),
         },
         ops_db_path=ops_db_path,
     )

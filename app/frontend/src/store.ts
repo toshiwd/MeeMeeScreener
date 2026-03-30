@@ -64,7 +64,23 @@ import {
 
 const SHOULD_LOG_BACKGROUND_ERRORS = import.meta.env.DEV;
 const LIST_CACHE_TTL_MS = 30_000;
+const FAVORITES_RETRY_DELAY_MS = 5_000;
 let listLoadPromise: Promise<void> | null = null;
+let favoritesRetryTimer: number | null = null;
+
+const clearFavoritesRetryTimer = () => {
+  if (favoritesRetryTimer == null || typeof window === "undefined") return;
+  window.clearTimeout(favoritesRetryTimer);
+  favoritesRetryTimer = null;
+};
+
+const scheduleFavoritesRetry = (retry: () => Promise<void>) => {
+  if (favoritesRetryTimer != null || typeof window === "undefined") return;
+  favoritesRetryTimer = window.setTimeout(() => {
+    favoritesRetryTimer = null;
+    void retry();
+  }, FAVORITES_RETRY_DELAY_MS);
+};
 
 const logBackgroundError = (scope: string, error: unknown) => {
   if (!SHOULD_LOG_BACKGROUND_ERRORS) return;
@@ -142,6 +158,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const codes = items
         .map((item) => (typeof item.code === "string" ? item.code : ""))
         .filter((code) => code);
+      clearFavoritesRetryTimer();
       set({ favorites: codes, favoritesLoaded: true });
     } catch (error) {
       const err = error as {
@@ -153,22 +170,26 @@ export const useStore = create<StoreState>((set, get) => ({
         data: err?.response?.data ?? null,
         message: err?.message ?? null
       });
-      set({ favorites: [], favoritesLoaded: true });
+      scheduleFavoritesRetry(() => get().loadFavorites());
     } finally {
       set({ favoritesLoading: false });
     }
   },
-  replaceFavorites: (codes) =>
-    set({ favorites: [...new Set(codes.filter((code) => code))], favoritesLoaded: true }),
+  replaceFavorites: (codes) => {
+    clearFavoritesRetryTimer();
+    set({ favorites: [...new Set(codes.filter((code) => code))], favoritesLoaded: true });
+  },
   setFavoriteLocal: (code, isFavorite) =>
     set((state) => {
       const normalized = code?.trim();
       if (!normalized) return state;
       const exists = state.favorites.includes(normalized);
       if (isFavorite && !exists) {
+        clearFavoritesRetryTimer();
         return { favorites: [...state.favorites, normalized], favoritesLoaded: true };
       }
       if (!isFavorite && exists) {
+        clearFavoritesRetryTimer();
         return {
           favorites: state.favorites.filter((item) => item !== normalized),
           favoritesLoaded: true

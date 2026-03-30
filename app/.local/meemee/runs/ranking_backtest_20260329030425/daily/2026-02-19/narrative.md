@@ -1,0 +1,26 @@
+# TOREDEX Narrative 2026-02-19
+
+- season_id: ranking_backtest_20260329030425
+- mode: BACKTEST
+- policy_version: toredex.v8
+
+## Buy Top 3
+1. 6208 ev=0.14734088927637315 upProb=1.0 revRisk=0.305690161527166 frame=BULLISH Wup=1.0 Mup=1.0 Wdn=0.305690161527166 Mdn=0.22530291312193867 gate=True:ENTRY_OK
+2. 8338 ev=0.05822416302765648 upProb=1.0 revRisk=0.0 frame=BULLISH Wup=1.0 Mup=1.0 Wdn=0.0 Mdn=0.0 gate=True:ENTRY_OK
+3. 5802 ev=0.05597099478812599 upProb=1.0 revRisk=0.008591217211906853 frame=BULLISH Wup=1.0 Mup=1.0 Wdn=0.008591217211906853 Mdn=0.0 gate=True:ENTRY_OK
+
+## Sell Top 3
+1. 2585 ev=-0.029304029304029304 upProb=1.0 revRisk=1.0 frame=BEARISH Wup=0.142763341715563 Mup=0.032528764913174524 Wdn=1.0 Mdn=1.0 gate=True:ENTRY_OK
+2. 3994 ev=-0.01726704376302471 upProb=0.9375560946027895 revRisk=0.9375560946027895 frame=BEARISH Wup=0.0 Mup=0.06530612244897961 Wdn=0.9375560946027895 Mdn=1.0 gate=True:ENTRY_OK
+3. 3903 ev=-0.01764705882352941 upProb=0.75125 revRisk=0.75125 frame=BEARISH Wup=0.0 Mup=0.0 Wdn=0.75125 Mdn=0.908385269121813 gate=True:ENTRY_OK
+
+## Actions
+1. 7794 LONG delta=-2 reason=R_CUT_LOSS_HARD
+2. 6208 LONG delta=2 reason=E_NEW_TOP1_GATE_OK
+
+## Metrics
+- equity: 10292072.579849
+- cum_return_pct: 2.920726
+- max_drawdown_pct: -5.437738
+- holdings_count: 1
+- game_over: False

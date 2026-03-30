@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import ThumbnailCanvas from "./ThumbnailCanvas";
+import ThumbnailCanvas, { resolveThumbnailCrosshairLeft } from "./ThumbnailCanvas";
 import {
   buildThumbnailSizeKey,
   buildThumbnailSnapshotCacheKey,
@@ -319,5 +319,39 @@ describe("ThumbnailCanvas", () => {
 
     expect(ctx.fillRect.mock.calls.length).toBeGreaterThan(initialFillCount);
     expect(container?.querySelector("img.thumb-canvas-image")?.getAttribute("src")).not.toBe(firstSnapshotSrc);
+  });
+
+  it("aligns the hover crosshair to the candle center inside the plot area", async () => {
+    renderCanvas();
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    const thumb = container?.querySelector(".thumb-canvas") as HTMLDivElement | null;
+    expect(thumb).not.toBeNull();
+    vi.spyOn(thumb!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 240,
+      height: 120,
+      top: 0,
+      right: 240,
+      bottom: 120,
+      left: 0,
+      toJSON: () => ({})
+    } as DOMRect);
+
+    act(() => {
+      thumb?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 145, clientY: 40 }));
+    });
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    const crosshair = container?.querySelector(".thumb-crosshair") as HTMLDivElement | null;
+    expect(crosshair).not.toBeNull();
+    expect(crosshair?.style.left).toBe(resolveThumbnailCrosshairLeft(1, 240, 2, true));
   });
 });

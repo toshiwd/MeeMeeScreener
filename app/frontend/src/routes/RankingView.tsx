@@ -23,6 +23,7 @@ import {
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
+import { ResearchPatternBadges } from "./list/ResearchPatternBadges";
 
 type RankItem = {
   code: string;
@@ -85,6 +86,9 @@ type RankItem = {
   researchPriorRank?: number | null;
   researchPriorUniverse?: number | null;
   researchPriorBonus?: number | null;
+  researchPatternTag?: string | null;
+  reboundOnsetFitScore?: number | null;
+  reboundOnsetAdoptionReasons?: string[] | null;
   edinetStatus?: string | null;
   edinetMapped?: boolean | null;
   edinetFreshnessDays?: number | null;
@@ -1508,6 +1512,11 @@ export default function RankingView() {
                             )}
                           </span>
                         )}
+                        <ResearchPatternBadges
+                          researchPatternTag={item.researchPatternTag}
+                          researchPriorBonus={item.researchPriorBonus}
+                          formatPct={formatPct}
+                        />
                         <button
                           type="button"
                           className={item.is_favorite ? "favorite-toggle active" : "favorite-toggle"}

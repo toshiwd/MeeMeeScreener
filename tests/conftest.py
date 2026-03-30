@@ -1,6 +1,15 @@
 import os
 import tempfile
+import sys
 from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+APP_BACKEND = ROOT / "app" / "backend"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(APP_BACKEND) not in sys.path:
+    sys.path.insert(0, str(APP_BACKEND))
 
 
 # Ensure tests never touch the user's real AppData database/files.
@@ -16,4 +25,3 @@ try:
     config.ensure_dirs()
 except Exception:
     pass
-
