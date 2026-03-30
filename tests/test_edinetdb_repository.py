@@ -9,6 +9,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.backend.edinetdb.repository import EdinetdbRepository
+import app.backend.edinetdb.repository as repository_module
 
 
 def test_task_enqueue_idempotent_and_force(tmp_path):
@@ -116,3 +117,72 @@ def test_enqueue_tasks_bulk(tmp_path):
     finally:
         conn.close()
     assert count == 2
+
+
+def test_upsert_and_list_official_documents(tmp_path):
+    db_path = tmp_path / "stocks.duckdb"
+    repo = EdinetdbRepository(db_path)
+    inserted = repo.upsert_official_documents(
+        [
+            {
+                "doc_id": "S100TEST1",
+                "sec_code": "1301",
+                "edinet_code": "E1301",
+                "filer_name": "Target",
+                "form_code": "030000",
+                "doc_type_code": "120",
+                "period_start": "2025-04-01",
+                "period_end": "2026-03-31",
+                "submit_datetime": "2026-03-30 15:00",
+                "doc_description": "有価証券報告書",
+                "csv_flag": 1,
+                "pdf_flag": 1,
+                "xbrl_flag": 1,
+                "legal_status": "1",
+                "payload": {"docID": "S100TEST1"},
+            }
+        ]
+    )
+    assert inserted == 1
+    rows = repo.list_official_documents(sec_code="1301")
+    assert len(rows) == 1
+    assert rows[0]["doc_id"] == "S100TEST1"
+    assert rows[0]["csv_flag"] == 1
+
+
+def test_connect_write_uses_shared_connection_policy(tmp_path, monkeypatch):
+    db_path = tmp_path / "stocks.duckdb"
+    repo = EdinetdbRepository(db_path)
+    calls: list[tuple[str, object]] = []
+
+    class _DummyConn:
+        pass
+
+    class _DummyContext:
+        def __enter__(self):
+            calls.append(("enter", repo._db_path))
+            return _DummyConn()
+
+        def __exit__(self, exc_type, exc, tb):
+            calls.append(("exit", repo._db_path))
+            return False
+
+    def _fake_get_conn_for_path(path, *, timeout_sec=0.0, read_only=False):
+        calls.append(("connect", (str(path), float(timeout_sec), bool(read_only))))
+        return _DummyContext()
+
+    def _fake_ensure_schema(conn):
+        calls.append(("schema", conn.__class__.__name__))
+
+    monkeypatch.setattr(repository_module, "get_conn_for_path", _fake_get_conn_for_path)
+    monkeypatch.setattr(repository_module, "ensure_edinetdb_schema", _fake_ensure_schema)
+
+    with repo._connect_write() as conn:
+        assert isinstance(conn, _DummyConn)
+
+    assert calls == [
+        ("connect", (repo._db_path, 2.5, False)),
+        ("enter", repo._db_path),
+        ("schema", "_DummyConn"),
+        ("exit", repo._db_path),
+    ]

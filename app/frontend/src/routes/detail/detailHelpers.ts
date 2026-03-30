@@ -18,6 +18,11 @@ import type {
   AnalysisResearchPriorSide,
   AnalysisResearchPrior,
   AnalysisEdinetSummary,
+  EdinetBootstrapState,
+  EdinetAnalysisSummaryItem,
+  EdinetAnalysisSummary,
+  EdinetTextHighlight,
+  EdinetOfficialFiling,
   EdinetFinancialSummary,
   EdinetFinancialPoint,
   EdinetFinancialPanel,
@@ -468,6 +473,86 @@ export const shouldAutoRefreshTdnet = (items: TdnetDisclosureItem[], nowMs = Dat
   return nowMs - latestFetchedMs >= 18 * 60 * 60 * 1000;
 };
 
+export const resolveAutoEdinetOfficialBackfillRequest = ({
+  code,
+  financialPanel,
+  nowMs = Date.now(),
+}: {
+  code: string | null | undefined;
+  financialPanel: EdinetFinancialPanel | null;
+  nowMs?: number;
+}) => {
+  if (!code || !financialPanel) return null;
+  if (financialPanel.mapped !== true) return null;
+  if ((financialPanel.officialFilings ?? []).length > 0) return null;
+  if (financialPanel.status === "error" || financialPanel.status === "unmapped" || financialPanel.status === "loading") {
+    return null;
+  }
+  const lastCheckedMs = financialPanel.lastCheckedAt ? Date.parse(financialPanel.lastCheckedAt) : Number.NaN;
+  if (Number.isFinite(lastCheckedMs) && nowMs - lastCheckedMs < 18 * 60 * 60 * 1000) {
+    return null;
+  }
+  return {
+    requestKey: `edinet-official-backfill:${code}`,
+  };
+};
+
+export type AutoEdinetOfficialBackfillSubmitOutcome =
+  | {
+      action: "poll";
+      jobId: string;
+    }
+  | {
+      action: "refresh";
+      delayMs: number;
+      reason: "in_flight";
+    }
+  | {
+      action: "wait";
+      reason: "network_error" | "server_error" | "invalid_response";
+    };
+
+export const resolveAutoEdinetOfficialBackfillSubmitOutcome = ({
+  responseData,
+  error,
+}: {
+  responseData?: unknown;
+  error?: unknown;
+}): AutoEdinetOfficialBackfillSubmitOutcome => {
+  const status = (error as { response?: { status?: number } } | null | undefined)?.response?.status ?? null;
+  if (status === 409) {
+    return {
+      action: "refresh",
+      delayMs: 2500,
+      reason: "in_flight",
+    };
+  }
+  if (typeof status === "number" && status >= 500) {
+    return {
+      action: "wait",
+      reason: "server_error",
+    };
+  }
+  if (error != null) {
+    return {
+      action: "wait",
+      reason: "network_error",
+    };
+  }
+  const payload = responseData && typeof responseData === "object" ? (responseData as Record<string, unknown>) : null;
+  const rawJobId = payload?.job_id ?? payload?.jobId;
+  if (typeof rawJobId === "string" && rawJobId.trim()) {
+    return {
+      action: "poll",
+      jobId: rawJobId.trim(),
+    };
+  }
+  return {
+    action: "wait",
+    reason: "invalid_response",
+  };
+};
+
 export type TaisyakuDisplayItem = {
   label: string;
   value: string;
@@ -599,8 +684,11 @@ export const formatEdinetStatus = (value: string | null | undefined) => {
   if (!value) return "未判定";
   if (value === "ok") return "OK";
   if (value === "missing_tables") return "テーブル不足";
+  if (value === "empty_tables") return "未投入";
+  if (value === "loading") return "取得中";
   if (value === "unmapped") return "未マップ";
   if (value === "no_payload") return "データなし";
+  if (value === "error") return "取得失敗";
   return value;
 };
 
@@ -706,7 +794,14 @@ export const normalizeResearchPriorSide = (value: unknown): AnalysisResearchPrio
     rank: toFiniteNumber(payload.rank),
     universe: toFiniteNumber(payload.universe),
     bonus: toFiniteNumber(payload.bonus),
-    asOf: typeof payload.asOf === "string" ? payload.asOf : null
+    asOf: typeof payload.asOf === "string" ? payload.asOf : null,
+    patternTag: typeof payload.patternTag === "string" ? payload.patternTag : null,
+    fitScore: toFiniteNumber(payload.fitScore),
+    adoptionReasons: Array.isArray(payload.adoptionReasons)
+      ? payload.adoptionReasons
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter((entry): entry is string => entry.length > 0)
+      : null
   };
 };
 
@@ -758,6 +853,69 @@ export const normalizeEdinetSummary = (value: unknown): AnalysisEdinetSummary | 
     parsed.operatingCfMargin != null ||
     parsed.revenueGrowthYoy != null;
   return hasAny ? parsed : null;
+};
+
+export const normalizeEdinetBootstrapState = (value: unknown): EdinetBootstrapState | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const active = toBoolean(payload.active);
+  const mode = payload.mode === "daily_watch" || payload.mode === "backfill_700" ? payload.mode : null;
+  const jobId = typeof payload.jobId === "string" ? payload.jobId : null;
+  const message = typeof payload.message === "string" ? payload.message : null;
+  if (!active && !mode && !jobId && !message) return null;
+  return { active, mode, jobId, message };
+};
+
+export const normalizeEdinetAnalysisSummary = (value: unknown): EdinetAnalysisSummary | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const items = Array.isArray(payload.items)
+    ? payload.items
+        .map((entry) => {
+          if (!entry || typeof entry !== "object") return null;
+          const source = entry as Record<string, unknown>;
+          const label = typeof source.label === "string" ? source.label.trim() : "";
+          const itemValue = typeof source.value === "string" ? source.value.trim() : "";
+          if (!label || !itemValue) return null;
+          return { label, value: itemValue };
+        })
+        .filter((entry): entry is EdinetAnalysisSummaryItem => entry !== null)
+    : [];
+  const asOf = typeof payload.asOf === "string" ? payload.asOf : null;
+  if (!asOf && items.length === 0) return null;
+  return { asOf, items };
+};
+
+export const normalizeEdinetTextHighlight = (value: unknown): EdinetTextHighlight | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const blockName = typeof payload.blockName === "string" ? payload.blockName.trim() : "";
+  const excerpt = typeof payload.excerpt === "string" ? payload.excerpt.trim() : "";
+  if (!blockName || !excerpt) return null;
+  return {
+    blockName,
+    fiscalYear: typeof payload.fiscalYear === "string" ? payload.fiscalYear : null,
+    excerpt,
+  };
+};
+
+export const normalizeEdinetOfficialFiling = (value: unknown): EdinetOfficialFiling | null => {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const docId = typeof payload.docId === "string" ? payload.docId.trim() : "";
+  if (!docId) return null;
+  return {
+    docId,
+    submitDateTime: typeof payload.submitDateTime === "string" ? payload.submitDateTime : null,
+    docDescription: typeof payload.docDescription === "string" ? payload.docDescription : null,
+    formCode: typeof payload.formCode === "string" ? payload.formCode : null,
+    periodLabel: typeof payload.periodLabel === "string" ? payload.periodLabel : null,
+    filerName: typeof payload.filerName === "string" ? payload.filerName : null,
+    hasCsv: toBoolean(payload.hasCsv),
+    hasPdf: toBoolean(payload.hasPdf),
+    hasXbrl: toBoolean(payload.hasXbrl),
+    searchUrl: typeof payload.searchUrl === "string" ? payload.searchUrl : null,
+  };
 };
 
 export const normalizeSwingSetupExpectancy = (value: unknown): AnalysisSwingSetupExpectancy | null => {
@@ -1483,12 +1641,24 @@ export const normalizeEdinetFinancialPanel = (value: unknown): EdinetFinancialPa
   if (!value || typeof value !== "object") return null;
   const source = value as Record<string, unknown>;
   const rawSeries = Array.isArray(source.series) ? source.series : [];
+  const rawHighlights = Array.isArray(source.textHighlights) ? source.textHighlights : [];
+  const rawOfficialFilings = Array.isArray(source.officialFilings) ? source.officialFilings : [];
   return {
     status: typeof source.status === "string" ? source.status : null,
-    mapped: source.mapped == null ? null : Boolean(source.mapped),
+    statusDetail: typeof source.statusDetail === "string" ? source.statusDetail : null,
+    mapped: source.mapped == null ? null : toBoolean(source.mapped),
     fetchedAt: typeof source.fetchedAt === "string" ? source.fetchedAt : null,
+    lastCheckedAt: typeof source.lastCheckedAt === "string" ? source.lastCheckedAt : null,
+    bootstrapState: normalizeEdinetBootstrapState(source.bootstrapState),
     summary: normalizeEdinetFinancialSummary(source.summary),
     series: rawSeries.map(normalizeEdinetFinancialPoint).filter((item): item is EdinetFinancialPoint => item !== null),
+    analysisSummary: normalizeEdinetAnalysisSummary(source.analysisSummary),
+    textHighlights: rawHighlights
+      .map(normalizeEdinetTextHighlight)
+      .filter((item): item is EdinetTextHighlight => item !== null),
+    officialFilings: rawOfficialFilings
+      .map(normalizeEdinetOfficialFiling)
+      .filter((item): item is EdinetOfficialFiling => item !== null),
   };
 };
 

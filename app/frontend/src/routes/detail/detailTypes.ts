@@ -212,6 +212,9 @@ export type AnalysisResearchPriorSide = {
   universe: number | null;
   bonus: number | null;
   asOf: string | null;
+  patternTag?: string | null;
+  fitScore?: number | null;
+  adoptionReasons?: string[] | null;
 };
 
 export type AnalysisResearchPrior = {
@@ -235,6 +238,42 @@ export type AnalysisEdinetSummary = {
   debtRatio: number | null;
   operatingCfMargin: number | null;
   revenueGrowthYoy: number | null;
+};
+
+export type EdinetBootstrapState = {
+  active: boolean;
+  mode: "daily_watch" | "backfill_700" | null;
+  jobId: string | null;
+  message: string | null;
+};
+
+export type EdinetAnalysisSummaryItem = {
+  label: string;
+  value: string;
+};
+
+export type EdinetAnalysisSummary = {
+  asOf: string | null;
+  items: EdinetAnalysisSummaryItem[];
+};
+
+export type EdinetTextHighlight = {
+  blockName: string;
+  fiscalYear: string | null;
+  excerpt: string;
+};
+
+export type EdinetOfficialFiling = {
+  docId: string;
+  submitDateTime: string | null;
+  docDescription: string | null;
+  formCode: string | null;
+  periodLabel: string | null;
+  filerName: string | null;
+  hasCsv: boolean;
+  hasPdf: boolean;
+  hasXbrl: boolean;
+  searchUrl: string | null;
 };
 
 export type EdinetFinancialSummary = {
@@ -267,10 +306,16 @@ export type EdinetFinancialPoint = {
 
 export type EdinetFinancialPanel = {
   status: string | null;
+  statusDetail: string | null;
   mapped: boolean | null;
   fetchedAt: string | null;
+  lastCheckedAt: string | null;
+  bootstrapState: EdinetBootstrapState | null;
   summary: EdinetFinancialSummary | null;
   series: EdinetFinancialPoint[];
+  analysisSummary: EdinetAnalysisSummary | null;
+  textHighlights: EdinetTextHighlight[];
+  officialFilings: EdinetOfficialFiling[];
 };
 
 export type TdnetDisclosureItem = {

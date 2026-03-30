@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -62,10 +63,15 @@ class EdinetdbRepository:
     def _connect_read(self):
         return get_conn_for_path(self._db_path, timeout_sec=2.5, read_only=True)
 
-    def _connect_write(self) -> duckdb.DuckDBPyConnection:
-        conn = duckdb.connect(self._db_path)
-        ensure_edinetdb_schema(conn)
-        return conn
+    @contextmanager
+    def _connect_write(self):
+        with get_conn_for_path(self._db_path, timeout_sec=2.5, read_only=False) as conn:
+            ensure_edinetdb_schema(conn)
+            yield conn
+
+    def ensure_schema(self) -> None:
+        with self._connect_write():
+            return None
 
     def task_key_of(self, edinet_code: str, endpoint: str, params: dict[str, Any] | None = None) -> str:
         params = params or {}
@@ -341,8 +347,8 @@ class EdinetdbRepository:
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(sec_code) DO UPDATE SET
                     edinet_code = excluded.edinet_code,
-                    name = excluded.name,
-                    industry = excluded.industry,
+                    name = COALESCE(excluded.name, edinetdb_company_map.name),
+                    industry = COALESCE(excluded.industry, edinetdb_company_map.industry),
                     updated_at = excluded.updated_at
                 """,
                 payload,
@@ -352,6 +358,45 @@ class EdinetdbRepository:
         with self._connect_read() as conn:
             row = conn.execute("SELECT COUNT(*) FROM edinetdb_company_map").fetchone()
         return int((row[0] if row else 0) or 0)
+
+    def get_seed_table_state(self) -> dict[str, Any]:
+        required_tables = (
+            "edinetdb_company_map",
+            "edinetdb_financials",
+            "edinetdb_ratios",
+        )
+        with self._connect_read() as conn:
+            existing_rows = conn.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_name IN (?, ?, ?)
+                """,
+                list(required_tables),
+            ).fetchall()
+            existing = {str(row[0]) for row in existing_rows}
+            missing = [name for name in required_tables if name not in existing]
+            counts: dict[str, int] = {}
+            if not missing:
+                count_row = conn.execute(
+                    """
+                    SELECT
+                        (SELECT COUNT(*) FROM edinetdb_company_map),
+                        (SELECT COUNT(*) FROM edinetdb_financials),
+                        (SELECT COUNT(*) FROM edinetdb_ratios)
+                    """
+                ).fetchone()
+                counts = {
+                    "edinetdb_company_map": int((count_row[0] if count_row else 0) or 0),
+                    "edinetdb_financials": int((count_row[1] if count_row else 0) or 0),
+                    "edinetdb_ratios": int((count_row[2] if count_row else 0) or 0),
+                }
+        return {
+            "required_tables": list(required_tables),
+            "missing_tables": missing,
+            "table_counts": counts,
+            "all_empty": bool(counts) and all(int(value) == 0 for value in counts.values()),
+        }
 
     def lookup_edinet_codes(self, sec_codes: list[str]) -> dict[str, str]:
         codes = sorted({str(code).strip() for code in sec_codes if str(code).strip()})
@@ -405,6 +450,53 @@ class EdinetdbRepository:
             "last_checked_at": row[4],
         }
 
+    def get_latest_analysis(self, edinet_code: str) -> dict[str, Any] | None:
+        with self._connect_read() as conn:
+            row = conn.execute(
+                """
+                SELECT asof_date, payload_json, fetched_at
+                FROM edinetdb_analysis
+                WHERE edinet_code = ?
+                ORDER BY fetched_at DESC NULLS LAST, asof_date DESC NULLS LAST
+                LIMIT 1
+                """,
+                [edinet_code],
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            payload = json.loads(row[1]) if row[1] is not None else None
+        except json.JSONDecodeError:
+            payload = None
+        return {
+            "asof_date": row[0],
+            "payload": payload,
+            "fetched_at": row[2],
+        }
+
+    def list_text_blocks(self, edinet_code: str, *, limit: int = 64) -> list[dict[str, Any]]:
+        safe_limit = max(1, int(limit))
+        with self._connect_read() as conn:
+            rows = conn.execute(
+                """
+                SELECT fiscal_year, block_name, text, fetched_at
+                FROM edinetdb_text_blocks
+                WHERE edinet_code = ?
+                ORDER BY fetched_at DESC NULLS LAST, fiscal_year DESC NULLS LAST, block_name ASC
+                LIMIT ?
+                """,
+                [edinet_code, safe_limit],
+            ).fetchall()
+        return [
+            {
+                "fiscal_year": row[0],
+                "block_name": row[1],
+                "text": row[2],
+                "fetched_at": row[3],
+            }
+            for row in rows
+        ]
+
     def get_company_latest_bulk(self, edinet_codes: list[str]) -> dict[str, dict[str, Any]]:
         codes = sorted({str(code).strip() for code in edinet_codes if str(code).strip()})
         if not codes:
@@ -454,6 +546,26 @@ class EdinetdbRepository:
                     last_checked_at = excluded.last_checked_at
                 """,
                 [edinet_code, latest_fiscal_year, latest_hash, fetched_at, last_checked_at],
+            )
+
+    def touch_company_last_checked(
+        self,
+        edinet_code: str,
+        *,
+        last_checked_at: datetime | None = None,
+    ) -> None:
+        checked_at = last_checked_at or utcnow_naive()
+        with self._connect_write() as conn:
+            conn.execute(
+                """
+                INSERT INTO edinetdb_company_latest(
+                    edinet_code, latest_fiscal_year, latest_hash, fetched_at, last_checked_at
+                )
+                VALUES (?, NULL, NULL, NULL, ?)
+                ON CONFLICT(edinet_code) DO UPDATE SET
+                    last_checked_at = excluded.last_checked_at
+                """,
+                [edinet_code, checked_at],
             )
 
     def upsert_financials(self, edinet_code: str, payload: Any, *, fetched_at: datetime | None = None) -> int:
@@ -617,6 +729,151 @@ class EdinetdbRepository:
                 rows,
             )
         return len(rows)
+
+    def upsert_official_documents(self, rows: list[dict[str, Any]], *, fetched_at: datetime | None = None) -> int:
+        fetched_at = fetched_at or utcnow_naive()
+        payload: list[tuple[Any, ...]] = []
+        for row in rows:
+            doc_id = _to_text(row.get("doc_id"), fallback="")
+            if not doc_id:
+                continue
+            payload.append(
+                (
+                    doc_id,
+                    _to_text(row.get("sec_code"), fallback=""),
+                    _to_text(row.get("edinet_code"), fallback=""),
+                    row.get("filer_name"),
+                    row.get("form_code"),
+                    row.get("doc_type_code"),
+                    row.get("period_start"),
+                    row.get("period_end"),
+                    row.get("submit_datetime"),
+                    row.get("doc_description"),
+                    int(row.get("csv_flag") or 0),
+                    int(row.get("pdf_flag") or 0),
+                    int(row.get("xbrl_flag") or 0),
+                    row.get("legal_status"),
+                    _json_dumps(row.get("payload") or {}),
+                    row.get("fetched_at") or fetched_at,
+                )
+            )
+        if not payload:
+            return 0
+        with self._connect_write() as conn:
+            conn.executemany(
+                """
+                INSERT INTO edinetdb_official_documents(
+                    doc_id,
+                    sec_code,
+                    edinet_code,
+                    filer_name,
+                    form_code,
+                    doc_type_code,
+                    period_start,
+                    period_end,
+                    submit_datetime,
+                    doc_description,
+                    csv_flag,
+                    pdf_flag,
+                    xbrl_flag,
+                    legal_status,
+                    payload_json,
+                    fetched_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(doc_id) DO UPDATE SET
+                    sec_code = excluded.sec_code,
+                    edinet_code = excluded.edinet_code,
+                    filer_name = excluded.filer_name,
+                    form_code = excluded.form_code,
+                    doc_type_code = excluded.doc_type_code,
+                    period_start = excluded.period_start,
+                    period_end = excluded.period_end,
+                    submit_datetime = excluded.submit_datetime,
+                    doc_description = excluded.doc_description,
+                    csv_flag = excluded.csv_flag,
+                    pdf_flag = excluded.pdf_flag,
+                    xbrl_flag = excluded.xbrl_flag,
+                    legal_status = excluded.legal_status,
+                    payload_json = excluded.payload_json,
+                    fetched_at = excluded.fetched_at
+                """,
+                payload,
+            )
+        return len(payload)
+
+    def list_official_documents(
+        self,
+        *,
+        sec_code: str | None = None,
+        edinet_code: str | None = None,
+        limit: int = 8,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        sec_code_norm = _to_text(sec_code, fallback="")
+        edinet_code_norm = _to_text(edinet_code, fallback="")
+        if sec_code_norm:
+            clauses.append("sec_code = ?")
+            params.append(sec_code_norm)
+        if edinet_code_norm:
+            clauses.append("edinet_code = ?")
+            params.append(edinet_code_norm)
+        if not clauses:
+            return []
+        params.append(max(1, int(limit)))
+        sql = f"""
+            SELECT
+                doc_id,
+                sec_code,
+                edinet_code,
+                filer_name,
+                form_code,
+                doc_type_code,
+                period_start,
+                period_end,
+                submit_datetime,
+                doc_description,
+                csv_flag,
+                pdf_flag,
+                xbrl_flag,
+                legal_status,
+                payload_json,
+                fetched_at
+            FROM edinetdb_official_documents
+            WHERE {' OR '.join(clauses)}
+            ORDER BY submit_datetime DESC NULLS LAST, fetched_at DESC NULLS LAST, doc_id DESC
+            LIMIT ?
+        """
+        with self._connect_read() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                payload = json.loads(row[14]) if row[14] is not None else None
+            except json.JSONDecodeError:
+                payload = None
+            results.append(
+                {
+                    "doc_id": row[0],
+                    "sec_code": row[1],
+                    "edinet_code": row[2],
+                    "filer_name": row[3],
+                    "form_code": row[4],
+                    "doc_type_code": row[5],
+                    "period_start": row[6],
+                    "period_end": row[7],
+                    "submit_datetime": row[8],
+                    "doc_description": row[9],
+                    "csv_flag": int(row[10] or 0),
+                    "pdf_flag": int(row[11] or 0),
+                    "xbrl_flag": int(row[12] or 0),
+                    "legal_status": row[13],
+                    "payload": payload,
+                    "fetched_at": row[15],
+                }
+            )
+        return results
 
     def set_meta(self, key: str, value: Any) -> None:
         now = utcnow_naive()

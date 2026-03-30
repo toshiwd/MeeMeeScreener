@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+
 import { DetailFinancialPanel } from "./DetailFinancialPanel";
 
 const fmtNumber = (value: number | null | undefined, digits = 0) =>
@@ -10,59 +11,68 @@ const fmtFinancialAmount = (value: number | null | undefined) =>
   value == null ? "--" : `${value.toLocaleString("ja-JP")}円`;
 
 describe("DetailFinancialPanel", () => {
-  it("shows primary KPI cards without a details toggle", () => {
+  it("renders EDINET status, analysis summary, text highlights, and official filings", () => {
     const markup = renderToStaticMarkup(
       <DetailFinancialPanel
         financialPanelRef={{ current: null } as never}
-        financialPanel={{ summary: { latestFiscalYear: 2025 }, mapped: true } as never}
+        financialPanel={{
+          status: "empty_tables",
+          statusDetail: "empty_tables",
+          mapped: true,
+          fetchedAt: "2026-03-19T09:00:00.000Z",
+          lastCheckedAt: "2026-03-20T09:00:00.000Z",
+          bootstrapState: {
+            active: true,
+            mode: "backfill_700",
+            jobId: "job-1",
+            message: "Running EDINET backfill...",
+          },
+          summary: {
+            latestFiscalYear: 2025,
+            equityRatio: null,
+            eps: null,
+            bps: null,
+            dividendPerShare: null,
+            netInterestBearingDebt: null,
+          },
+          series: [],
+          analysisSummary: {
+            asOf: "2025-12-31",
+            items: [
+              { label: "概要", value: "利益率が改善しています。" },
+              { label: "強み", value: "価格改定が寄与しています。" },
+            ],
+          },
+          textHighlights: [{ blockName: "business", fiscalYear: "2025", excerpt: "事業の概要サマリー" }],
+          officialFilings: [
+            {
+              docId: "S100TEST1",
+              submitDateTime: "2026-03-28 15:00",
+              docDescription: "有価証券報告書",
+              formCode: "030000",
+              periodLabel: "2025-04-01 - 2026-03-31",
+              filerName: "Target",
+              hasCsv: true,
+              hasPdf: true,
+              hasXbrl: true,
+              searchUrl: "https://disclosure2.edinet-fsa.go.jp/WEEK0010.aspx?code=1301",
+            },
+          ],
+        }}
         financialFetchedLabel="2026-03-19"
         financialLoading={false}
-        financialSeries={[
-          {
-            label: "2024",
-            revenue: 100,
-            operatingIncome: 10,
-            netIncome: 8,
-            grossMargin: 0.4,
-            operatingMargin: 0.1,
-            netMargin: 0.08,
-            roe: 0.12,
-            roa: 0.06,
-          },
-        ]}
-        financialCards={[{ label: "売上高", value: "100", tone: "neutral" }]}
-        financialKeyStats={[{ label: "EPS", value: "8.0", tone: "up" }]}
-        tdnetHighlights={[
-          {
-            disclosureId: "tdnet-1",
-            title: "適時開示タイトル",
-            publishedLabel: "2026-03-19",
-            eventLabel: "決算",
-            sentimentLabel: "positive",
-            summaryText: "summary",
-            tone: "up",
-            importanceLabel: "high",
-            tdnetUrl: "#",
-            pdfUrl: null,
-            xbrlUrl: null,
-          },
-        ]}
+        financialSeries={[]}
+        financialCards={[]}
+        financialKeyStats={[]}
+        tdnetHighlights={[]}
         tdnetLoading={false}
-        tdnetStatusLabel="TDNET ready"
-        taisyakuCards={[{ label: "貸借倍率", value: "1.2", tone: "neutral" }]}
-        taisyakuHistory={[
-          {
-            dateLabel: "2026-03-18",
-            loanRatioLabel: "1.2",
-            financeLabel: "10",
-            stockLabel: "20",
-            feeLabel: "0.1",
-          },
-        ]}
+        tdnetStatusLabel={null}
+        taisyakuCards={[]}
+        taisyakuHistory={[]}
         taisyakuRestrictions={[]}
         taisyakuLoading={false}
-        taisyakuStatusLabel="貸借 ready"
-        taisyakuWatchLabel="watch"
+        taisyakuStatusLabel={null}
+        taisyakuWatchLabel={null}
         formatNumber={fmtNumber}
         formatPercentLabel={fmtPercent}
         formatFinancialAmountLabel={fmtFinancialAmount}
@@ -70,12 +80,57 @@ describe("DetailFinancialPanel", () => {
     );
 
     expect(markup).toContain("EDINET / TDNET / 貸借");
-    expect(markup).toContain("主要KPI");
-    expect(markup).toContain("補助指標");
-    expect(markup).toContain("TDNET動向");
-    expect(markup).toContain("貸借情報");
-    expect(markup).toContain("売上・利益");
-    expect(markup).toContain("利益率 / ROE");
-    expect(markup).not.toContain("詳細");
+    expect(markup).toContain("EDINETデータはまだ未投入です。");
+    expect(markup).toContain("EDINET分析要点");
+    expect(markup).toContain("有報要約");
+    expect(markup).toContain("公式提出書類");
+    expect(markup).toContain("有価証券報告書");
+    expect(markup).toContain("S100TEST1");
+  });
+
+  it("shows a loading message when EDINET data is being fetched", () => {
+    const markup = renderToStaticMarkup(
+      <DetailFinancialPanel
+        financialPanelRef={{ current: null } as never}
+        financialPanel={{
+          status: "loading",
+          statusDetail: "bootstrap_active",
+          mapped: true,
+          fetchedAt: null,
+          lastCheckedAt: null,
+          bootstrapState: {
+            active: true,
+            mode: "daily_watch",
+            jobId: "job-2",
+            message: "Waiting in queue...",
+          },
+          summary: null,
+          series: [],
+          analysisSummary: null,
+          textHighlights: [],
+          officialFilings: [],
+        }}
+        financialFetchedLabel={null}
+        financialLoading={false}
+        financialSeries={[]}
+        financialCards={[]}
+        financialKeyStats={[]}
+        tdnetHighlights={[]}
+        tdnetLoading={false}
+        tdnetStatusLabel={null}
+        taisyakuCards={[]}
+        taisyakuHistory={[]}
+        taisyakuRestrictions={[]}
+        taisyakuLoading={false}
+        taisyakuStatusLabel={null}
+        taisyakuWatchLabel={null}
+        formatNumber={fmtNumber}
+        formatPercentLabel={fmtPercent}
+        formatFinancialAmountLabel={fmtFinancialAmount}
+      />
+    );
+
+    expect(markup).toContain("EDINETデータを取得中です。");
+    expect(markup).toContain("日次取得");
   });
 });

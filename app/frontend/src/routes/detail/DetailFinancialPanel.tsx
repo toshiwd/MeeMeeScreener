@@ -65,6 +65,23 @@ type TaisyakuRestriction = {
   readonly noticeDate: number | null;
 };
 
+const formatEdinetPanelStatus = (status: string | null | undefined, statusDetail: string | null | undefined) => {
+  if (status === "ok") return null;
+  if (status === "loading") return "EDINETデータを取得中です。";
+  if (status === "empty_tables") return "EDINETデータはまだ未投入です。";
+  if (status === "error") return "EDINETデータの取得に失敗しました。";
+  if (status === "unmapped") return "EDINETのマッピングがありません。";
+  if (status === "no_payload") return "EDINETの取得対象データがありません。";
+  if (statusDetail) return `EDINET状態: ${statusDetail}`;
+  return null;
+};
+
+const formatBootstrapStateLabel = (state: EdinetFinancialPanel["bootstrapState"] | undefined) => {
+  if (!state?.active) return null;
+  const modeLabel = state.mode === "backfill_700" ? "初回バックフィル" : "日次取得";
+  return state.message ? `${modeLabel}: ${state.message}` : `${modeLabel}を実行中です。`;
+};
+
 export type Props = {
   financialPanelRef: Ref<HTMLDivElement>;
   financialPanel: EdinetFinancialPanel | null;
@@ -112,12 +129,30 @@ export function DetailFinancialPanel(props: Props) {
 
   const hasFinancialSeries = financialSeries.length > 0;
   const hasPrimaryKpi = financialCards.length > 0 || financialKeyStats.length > 0;
+  const analysisItems = financialPanel?.analysisSummary?.items ?? [];
+  const textHighlights = financialPanel?.textHighlights ?? [];
+  const officialFilings = financialPanel?.officialFilings ?? [];
+  const hasEdinetAnalysisSection = Boolean(financialPanel?.analysisSummary || financialPanel?.status);
+  const hasEdinetTextSection = textHighlights.length > 0;
+  const hasOfficialFilingsSection = officialFilings.length > 0;
   const hasTdnetSection = tdnetLoading || tdnetHighlights.length > 0;
   const hasTaisyakuSection =
     taisyakuLoading ||
     taisyakuCards.length > 0 ||
     taisyakuHistory.length > 0 ||
     taisyakuRestrictions.length > 0;
+  const panelStatusLabel = formatEdinetPanelStatus(financialPanel?.status, financialPanel?.statusDetail);
+  const bootstrapStateLabel = formatBootstrapStateLabel(financialPanel?.bootstrapState);
+  const hasContent =
+    hasPrimaryKpi ||
+    hasFinancialSeries ||
+    hasEdinetAnalysisSection ||
+    hasEdinetTextSection ||
+    hasOfficialFilingsSection ||
+    hasTdnetSection ||
+    hasTaisyakuSection ||
+    panelStatusLabel != null ||
+    bootstrapStateLabel != null;
 
   return (
     <ScreenPanel
@@ -132,20 +167,31 @@ export function DetailFinancialPanel(props: Props) {
       className="detail-analysis-panel detail-financial-panel"
     >
       <div className="detail-analysis-body detail-financial-body">
-        {(financialPanel?.summary?.latestFiscalYear != null || financialFetchedLabel) && (
+        {(financialPanel?.summary?.latestFiscalYear != null ||
+          financialFetchedLabel ||
+          financialPanel?.lastCheckedAt ||
+          panelStatusLabel ||
+          bootstrapStateLabel) && (
           <div className="detail-financial-meta-row">
             {financialPanel?.summary?.latestFiscalYear != null && (
               <div className="detail-financial-meta-pill">最新年度 {financialPanel.summary.latestFiscalYear}</div>
             )}
             {financialFetchedLabel && <div className="detail-financial-meta-pill">取得 {financialFetchedLabel}</div>}
+            {financialPanel?.lastCheckedAt && (
+              <div className="detail-financial-meta-pill">
+                最終確認 {new Date(financialPanel.lastCheckedAt).toLocaleString("ja-JP")}
+              </div>
+            )}
           </div>
         )}
+        {panelStatusLabel && <div className="detail-analysis-meta">{panelStatusLabel}</div>}
+        {bootstrapStateLabel && <div className="detail-analysis-meta">{bootstrapStateLabel}</div>}
 
         {financialLoading ? (
-          <div className="detail-analysis-empty">財務データを取得中です。</div>
-        ) : !hasPrimaryKpi && !hasFinancialSeries ? (
+          <div className="detail-analysis-empty">EDINETデータを取得中です。</div>
+        ) : !hasContent ? (
           <div className="detail-analysis-empty">
-            {financialPanel?.mapped === false ? "EDINETのマッピングがありません。" : "財務データがありません。"}
+            {financialPanel?.mapped === false ? "EDINETのマッピングがありません。" : "EDINETデータがありません。"}
           </div>
         ) : (
           <div className="detail-financial-scroll">
@@ -158,9 +204,7 @@ export function DetailFinancialPanel(props: Props) {
                       {financialCards.map((card) => (
                         <div key={card.label} className="detail-financial-card">
                           <div className="detail-financial-card-label">{card.label}</div>
-                          <div className={`detail-financial-card-value detail-analysis-value--${card.tone}`}>
-                            {card.value}
-                          </div>
+                          <div className={`detail-financial-card-value detail-analysis-value--${card.tone}`}>{card.value}</div>
                         </div>
                       ))}
                     </div>
@@ -174,9 +218,7 @@ export function DetailFinancialPanel(props: Props) {
                       {financialKeyStats.map((item) => (
                         <div key={item.label} className="detail-financial-stat">
                           <div className="detail-financial-stat-label">{item.label}</div>
-                          <div className={`detail-financial-stat-value detail-analysis-value--${item.tone}`}>
-                            {item.value}
-                          </div>
+                          <div className={`detail-financial-stat-value detail-analysis-value--${item.tone}`}>{item.value}</div>
                         </div>
                       ))}
                     </div>
@@ -185,9 +227,84 @@ export function DetailFinancialPanel(props: Props) {
               </section>
             )}
 
+            {hasEdinetAnalysisSection && (
+              <section className="detail-analysis-section detail-financial-section">
+                <div className="detail-analysis-section-title">EDINET分析要点</div>
+                {financialPanel?.analysisSummary?.asOf && (
+                  <div className="detail-analysis-meta">asOf {financialPanel.analysisSummary.asOf}</div>
+                )}
+                {analysisItems.length > 0 ? (
+                  <div className="detail-financial-edinet-list">
+                    {analysisItems.map((item) => (
+                      <div key={item.label} className="detail-financial-edinet-item">
+                        <div className="detail-financial-edinet-label">{item.label}</div>
+                        <div className="detail-financial-edinet-value">{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="detail-analysis-empty">{panelStatusLabel ?? "EDINET分析要点はありません。"}</div>
+                )}
+              </section>
+            )}
+
+            {hasEdinetTextSection && (
+              <section className="detail-analysis-section detail-financial-section">
+                <div className="detail-analysis-section-title">有報要約</div>
+                <div className="detail-financial-edinet-text-list">
+                  {textHighlights.map((item) => (
+                    <div
+                      key={`${item.blockName}:${item.fiscalYear ?? ""}:${item.excerpt.slice(0, 24)}`}
+                      className="detail-financial-edinet-text-item"
+                    >
+                      <div className="detail-financial-edinet-text-head">
+                        <span className="detail-financial-edinet-text-title">{item.blockName}</span>
+                        {item.fiscalYear && <span className="detail-financial-edinet-text-year">{item.fiscalYear}</span>}
+                      </div>
+                      <div className="detail-financial-edinet-text-excerpt">{item.excerpt}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {hasOfficialFilingsSection && (
+              <section className="detail-analysis-section detail-financial-section">
+                <div className="detail-analysis-section-title">公式提出書類</div>
+                <div className="detail-financial-edinet-text-list">
+                  {officialFilings.map((item) => (
+                    <div key={item.docId} className="detail-financial-edinet-text-item">
+                      <div className="detail-financial-edinet-text-head">
+                        <span className="detail-financial-edinet-text-title">{item.docDescription ?? item.docId}</span>
+                        {item.submitDateTime && (
+                          <span className="detail-financial-edinet-text-year">{item.submitDateTime}</span>
+                        )}
+                      </div>
+                      <div className="detail-financial-edinet-text-excerpt">
+                        {[item.filerName, item.periodLabel, item.formCode].filter(Boolean).join(" / ")}
+                      </div>
+                      <div className="detail-financial-tdnet-pills">
+                        {item.hasCsv && <span className="detail-financial-tdnet-pill">CSV</span>}
+                        {item.hasPdf && <span className="detail-financial-tdnet-pill">PDF</span>}
+                        {item.hasXbrl && <span className="detail-financial-tdnet-pill">XBRL</span>}
+                        <span className="detail-financial-tdnet-pill">{item.docId}</span>
+                      </div>
+                      {item.searchUrl && (
+                        <div className="detail-financial-tdnet-links">
+                          <a href={item.searchUrl} target="_blank" rel="noreferrer">
+                            EDINET
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {hasTdnetSection && (
               <section className="detail-analysis-section detail-financial-section">
-                <div className="detail-analysis-section-title">TDNET動向</div>
+                <div className="detail-analysis-section-title">TDNET開示</div>
                 {tdnetStatusLabel && <div className="detail-analysis-meta">{tdnetStatusLabel}</div>}
                 {tdnetLoading ? (
                   <div className="detail-analysis-empty">TDNETデータを取得中です。</div>
@@ -196,9 +313,7 @@ export function DetailFinancialPanel(props: Props) {
                     {tdnetHighlights.map((item) => (
                       <div key={item.disclosureId} className="detail-financial-tdnet-item">
                         <div className="detail-financial-tdnet-head">
-                          <div className={`detail-financial-tdnet-title detail-analysis-value--${item.tone}`}>
-                            {item.title}
-                          </div>
+                          <div className={`detail-financial-tdnet-title detail-analysis-value--${item.tone}`}>{item.title}</div>
                           <div className="detail-financial-tdnet-pills">
                             <span className="detail-financial-tdnet-pill">{item.eventLabel}</span>
                             {item.sentimentLabel && <span className="detail-financial-tdnet-pill">{item.sentimentLabel}</span>}
@@ -228,7 +343,7 @@ export function DetailFinancialPanel(props: Props) {
                     ))}
                   </div>
                 ) : (
-                  <div className="detail-analysis-empty">TDNET動向はありません。</div>
+                  <div className="detail-analysis-empty">TDNET開示はありません。</div>
                 )}
               </section>
             )}
@@ -246,9 +361,7 @@ export function DetailFinancialPanel(props: Props) {
                       {taisyakuCards.map((card) => (
                         <div key={card.label} className="detail-financial-card">
                           <div className="detail-financial-card-label">{card.label}</div>
-                          <div className={`detail-financial-card-value detail-analysis-value--${card.tone}`}>
-                            {card.value}
-                          </div>
+                          <div className={`detail-financial-card-value detail-analysis-value--${card.tone}`}>{card.value}</div>
                         </div>
                       ))}
                     </div>
@@ -259,7 +372,7 @@ export function DetailFinancialPanel(props: Props) {
                             key={`${item.measureType ?? "measure"}:${item.noticeDate ?? index}`}
                             className="detail-financial-taisyaku-alert"
                           >
-                            <span className="detail-financial-tdnet-pill">{item.measureType ?? "規制"}</span>
+                            <span className="detail-financial-tdnet-pill">{item.measureType ?? "種別"}</span>
                             <span>{item.measureDetail ?? "--"}</span>
                             {item.noticeDate != null && <span className="detail-analysis-meta">{item.noticeDate}</span>}
                           </div>
@@ -271,9 +384,9 @@ export function DetailFinancialPanel(props: Props) {
                         <div className="detail-financial-taisyaku-row detail-financial-taisyaku-row--head">
                           <span>日付</span>
                           <span>貸借倍率</span>
-                          <span>融資/逆日歩</span>
-                          <span>株数</span>
-                          <span>貸株料</span>
+                          <span>融資残</span>
+                          <span>貸株残</span>
+                          <span>品貸料</span>
                         </div>
                         {taisyakuHistory.map((item) => (
                           <div key={item.dateLabel} className="detail-financial-taisyaku-row">
@@ -296,7 +409,7 @@ export function DetailFinancialPanel(props: Props) {
             {hasFinancialSeries && (
               <>
                 <section className="detail-analysis-section detail-financial-section">
-                  <div className="detail-analysis-section-title">売上・利益</div>
+                  <div className="detail-analysis-section-title">損益推移</div>
                   <div className="detail-financial-chart">
                     <ResponsiveContainer width="100%" height={240}>
                       <BarChart data={financialSeries}>

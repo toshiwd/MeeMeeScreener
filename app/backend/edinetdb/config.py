@@ -6,6 +6,7 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from app.backend.infra.edinet_secret_store import get_default_edinet_secret_store
 from app.core.config import config as core_config
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -67,6 +68,13 @@ def mask_api_key(api_key: str | None) -> str:
 class EdinetdbConfig:
     api_keys: tuple[str, ...]
     base_url: str
+    public_company_map_enabled: bool
+    public_company_map_url: str
+    official_api_enabled: bool
+    official_api_credential_name: str
+    official_api_key: str | None
+    official_api_base_url: str
+    official_recent_days: int
     daily_budget: int
     daily_watch_analysis_enabled: bool
     daily_watch_analysis_reserve: int
@@ -101,6 +109,23 @@ def _load_api_keys() -> tuple[str, ...]:
     return tuple(uniq)
 
 
+def _official_api_credential_name() -> str:
+    return (os.getenv("EDINET_OFFICIAL_API_CREDENTIAL_NAME") or "official").strip() or "official"
+
+
+def _load_official_api_key() -> str | None:
+    try:
+        secret = get_default_edinet_secret_store().read_secret(_official_api_credential_name())
+    except Exception:
+        secret = None
+    if secret:
+        resolved = str(secret).strip()
+        if resolved:
+            return resolved
+    env_value = (os.getenv("EDINET_OFFICIAL_API_KEY") or "").strip()
+    return env_value or None
+
+
 def load_config(now: datetime | None = None) -> EdinetdbConfig:
     now_jst = _now_jst(now)
     daily_budget = _to_int(
@@ -111,6 +136,18 @@ def load_config(now: datetime | None = None) -> EdinetdbConfig:
     return EdinetdbConfig(
         api_keys=_load_api_keys(),
         base_url="https://edinetdb.jp/v1",
+        public_company_map_enabled=_to_bool("EDINET_PUBLIC_COMPANY_MAP_ENABLED", True),
+        public_company_map_url=(
+            os.getenv("EDINET_PUBLIC_COMPANY_MAP_URL")
+            or "https://disclosure2dl.edinet-fsa.go.jp/searchdocument/codelist/Edinetcode.zip"
+        ).strip(),
+        official_api_enabled=_to_bool("EDINET_OFFICIAL_API_ENABLED", True),
+        official_api_credential_name=_official_api_credential_name(),
+        official_api_key=_load_official_api_key(),
+        official_api_base_url=(
+            os.getenv("EDINET_OFFICIAL_API_BASE_URL") or "https://api.edinet-fsa.go.jp/api/v2"
+        ).strip(),
+        official_recent_days=_to_int("EDINET_OFFICIAL_RECENT_DAYS", 3, minimum=1),
         daily_budget=daily_budget,
         daily_watch_analysis_enabled=_to_bool("EDINETDB_DAILY_WATCH_ANALYSIS_ENABLED", True),
         daily_watch_analysis_reserve=_to_int("EDINETDB_DAILY_WATCH_ANALYSIS_RESERVE", 12, minimum=0),

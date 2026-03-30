@@ -17,6 +17,11 @@ from app.backend.core.external_analysis_publish_job import (
 )
 from app.backend.core.taisyaku_import_job import TAISYAKU_IMPORT_JOB_TYPE
 from app.backend.core.tdnet_import_job import TDNET_IMPORT_JOB_TYPE
+from app.backend.core.edinet_official_backfill_job import (
+    DEFAULT_LOOKBACK_DAYS as EDINET_OFFICIAL_BACKFILL_DEFAULT_DAYS,
+    EDINET_OFFICIAL_BACKFILL_JOB_TYPE,
+    MAX_LOOKBACK_DAYS as EDINET_OFFICIAL_BACKFILL_MAX_DAYS,
+)
 from app.backend.core.config import config
 from app.backend.core.legacy_analysis_control import (
     is_legacy_analysis_disabled,
@@ -28,6 +33,7 @@ from app.backend.services import ml_service, strategy_backtest_service
 from app.backend.services.analysis_bridge.reader import get_analysis_bridge_snapshot
 from app.backend.services.data.yahoo_daily_ingest import get_daily_ingest_coverage
 from app.backend.services.data.yahoo_provisional import normalize_date_key
+from app.backend.edinetdb.targets import normalize_sec_code
 from app.db.session import try_get_conn
 
 router = APIRouter()
@@ -512,6 +518,41 @@ def submit_taisyaku_import():
         return _submit_job(TAISYAKU_IMPORT_JOB_TYPE, {})
     except Exception as exc:
         logger.exception("Error submitting taisyaku import job: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@router.post("/api/jobs/edinet/official-backfill")
+def submit_edinet_official_backfill(
+    code: str,
+    days: int = Query(default=EDINET_OFFICIAL_BACKFILL_DEFAULT_DAYS, ge=1, le=EDINET_OFFICIAL_BACKFILL_MAX_DAYS),
+):
+    try:
+        normalized_code = normalize_sec_code(code)
+        if not normalized_code:
+            return JSONResponse(status_code=400, content={"error": "code must be a valid 4-digit ticker"})
+        cleanup_stale_jobs()
+        active_count, error_detail = _count_active_jobs(EDINET_OFFICIAL_BACKFILL_JOB_TYPE)
+        if error_detail == "db_lock_during_active_job_check":
+            return _db_retryable_response(
+                message="Database is temporarily unavailable",
+                error_detail=error_detail,
+            )
+        if active_count > 0:
+            body: dict[str, object] = {"error": "Job already running"}
+            if error_detail:
+                body["error_detail"] = error_detail
+            return JSONResponse(status_code=409, content=body)
+        job_id = job_manager.submit(
+            EDINET_OFFICIAL_BACKFILL_JOB_TYPE,
+            {"code": normalized_code, "days": int(days)},
+            unique=True,
+            message=f"Official EDINET backfill queued ({normalized_code})",
+        )
+        if not job_id:
+            return JSONResponse(status_code=409, content={"error": "Job already running"})
+        return {"ok": True, "job_id": job_id}
+    except Exception as exc:
+        logger.exception("Error submitting EDINET official backfill job: %s", exc)
         return JSONResponse(status_code=500, content={"error": str(exc)})
 
 

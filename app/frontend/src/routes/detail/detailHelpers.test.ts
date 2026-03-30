@@ -5,6 +5,8 @@ import {
   MAX_MONTHLY_BATCH_BARS_LIMIT,
   incrementBarLimit,
   resolveAnalysisBaseAsOfTime,
+  resolveAutoEdinetOfficialBackfillRequest,
+  resolveAutoEdinetOfficialBackfillSubmitOutcome,
   resolveAutoAnalysisBackfillRequest,
   resolveLatestAnalysisAvailableAsOfTime,
   resolveLatestResolvedMetaDate,
@@ -107,6 +109,189 @@ describe("resolveAutoAnalysisBackfillRequest", () => {
         analysisMissingDataVisible: false,
       })
     ).toBeNull();
+  });
+});
+
+describe("resolveAutoEdinetOfficialBackfillRequest", () => {
+  it("targets mapped EDINET panels that still have no official filings", () => {
+    const nowMs = Date.parse("2026-03-30T12:00:00.000Z");
+    expect(
+      resolveAutoEdinetOfficialBackfillRequest({
+        code: "2413",
+        nowMs,
+        financialPanel: {
+          status: "ok",
+          statusDetail: null,
+          mapped: true,
+          fetchedAt: "2026-03-29T09:00:00.000Z",
+          lastCheckedAt: "2026-03-29T09:00:00.000Z",
+          bootstrapState: null,
+          summary: null,
+          series: [],
+          analysisSummary: null,
+          textHighlights: [],
+          officialFilings: [],
+        },
+      })
+    ).toEqual({
+      requestKey: "edinet-official-backfill:2413",
+    });
+  });
+
+  it("does not request a backfill when EDINET is unmapped, failed, loading, recently checked, or already populated", () => {
+    const nowMs = Date.parse("2026-03-30T12:00:00.000Z");
+    expect(
+      resolveAutoEdinetOfficialBackfillRequest({
+        code: "2413",
+        nowMs,
+        financialPanel: {
+          status: "ok",
+          statusDetail: null,
+          mapped: false,
+          fetchedAt: null,
+          lastCheckedAt: null,
+          bootstrapState: null,
+          summary: null,
+          series: [],
+          analysisSummary: null,
+          textHighlights: [],
+          officialFilings: [],
+        },
+      })
+    ).toBeNull();
+
+    expect(
+      resolveAutoEdinetOfficialBackfillRequest({
+        code: "2413",
+        nowMs,
+        financialPanel: {
+          status: "error",
+          statusDetail: null,
+          mapped: true,
+          fetchedAt: null,
+          lastCheckedAt: null,
+          bootstrapState: null,
+          summary: null,
+          series: [],
+          analysisSummary: null,
+          textHighlights: [],
+          officialFilings: [],
+        },
+      })
+    ).toBeNull();
+
+    expect(
+      resolveAutoEdinetOfficialBackfillRequest({
+        code: "2413",
+        nowMs,
+        financialPanel: {
+          status: "loading",
+          statusDetail: null,
+          mapped: true,
+          fetchedAt: null,
+          lastCheckedAt: null,
+          bootstrapState: null,
+          summary: null,
+          series: [],
+          analysisSummary: null,
+          textHighlights: [],
+          officialFilings: [],
+        },
+      })
+    ).toBeNull();
+
+    expect(
+      resolveAutoEdinetOfficialBackfillRequest({
+        code: "2413",
+        nowMs,
+        financialPanel: {
+          status: "no_payload",
+          statusDetail: null,
+          mapped: true,
+          fetchedAt: null,
+          lastCheckedAt: "2026-03-30T02:30:00.000Z",
+          bootstrapState: null,
+          summary: null,
+          series: [],
+          analysisSummary: null,
+          textHighlights: [],
+          officialFilings: [],
+        },
+      })
+    ).toBeNull();
+
+    expect(
+      resolveAutoEdinetOfficialBackfillRequest({
+        code: "2413",
+        nowMs,
+        financialPanel: {
+          status: "ok",
+          statusDetail: null,
+          mapped: true,
+          fetchedAt: null,
+          lastCheckedAt: null,
+          bootstrapState: null,
+          summary: null,
+          series: [],
+          analysisSummary: null,
+          textHighlights: [],
+          officialFilings: [{ docId: "S100TEST1" } as never],
+        },
+      })
+    ).toBeNull();
+  });
+});
+
+describe("resolveAutoEdinetOfficialBackfillSubmitOutcome", () => {
+  it("polls only when the backfill job is accepted with a job id", () => {
+    expect(
+      resolveAutoEdinetOfficialBackfillSubmitOutcome({
+        responseData: { ok: true, job_id: "job-123" },
+      })
+    ).toEqual({
+      action: "poll",
+      jobId: "job-123",
+    });
+  });
+
+  it("uses a short refresh when another official backfill job is already running", () => {
+    expect(
+      resolveAutoEdinetOfficialBackfillSubmitOutcome({
+        error: {
+          response: {
+            status: 409,
+          },
+        },
+      })
+    ).toEqual({
+      action: "refresh",
+      delayMs: 2500,
+      reason: "in_flight",
+    });
+  });
+
+  it("waits on server or network errors instead of forcing a refresh", () => {
+    expect(
+      resolveAutoEdinetOfficialBackfillSubmitOutcome({
+        error: {
+          response: {
+            status: 503,
+          },
+        },
+      })
+    ).toEqual({
+      action: "wait",
+      reason: "server_error",
+    });
+
+    expect(
+      resolveAutoEdinetOfficialBackfillSubmitOutcome({
+        error: new Error("network"),
+      })
+    ).toEqual({
+      action: "wait",
+      reason: "network_error",
+    });
   });
 });
 

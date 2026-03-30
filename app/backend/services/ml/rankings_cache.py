@@ -769,6 +769,62 @@ def _estimate_daily_downside_risk(
     return float(max(0.0, min(1.0, 0.60 * rev + 0.40 * tail)))
 
 
+def _normalize_research_prior_side_payload(value: Any) -> dict[str, Any]:
+    side_payload = value if isinstance(value, dict) else {}
+    codes = side_payload.get("codes") if isinstance(side_payload.get("codes"), list) else []
+    rank_map_raw = side_payload.get("rank_map") if isinstance(side_payload.get("rank_map"), dict) else {}
+    fit_score_map_raw = side_payload.get("fit_score_map") if isinstance(side_payload.get("fit_score_map"), dict) else {}
+    pattern_tag_map_raw = side_payload.get("pattern_tag_map") if isinstance(side_payload.get("pattern_tag_map"), dict) else {}
+    adoption_reason_map_raw = side_payload.get("adoption_reason_map") if isinstance(side_payload.get("adoption_reason_map"), dict) else {}
+    rank_map: dict[str, int] = {}
+    for code, rank in rank_map_raw.items():
+        code_key = str(code).strip()
+        if not code_key:
+            continue
+        try:
+            rank_map[code_key] = int(rank)
+        except (TypeError, ValueError):
+            continue
+    fit_score_map: dict[str, float] = {}
+    for code, score in fit_score_map_raw.items():
+        code_key = str(code).strip()
+        if not code_key:
+            continue
+        try:
+            numeric = float(score)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(numeric):
+            fit_score_map[code_key] = float(numeric)
+    pattern_tag_map: dict[str, str] = {}
+    for code, tag in pattern_tag_map_raw.items():
+        code_key = str(code).strip()
+        tag_value = str(tag or "").strip()
+        if code_key and tag_value:
+            pattern_tag_map[code_key] = tag_value
+    adoption_reason_map: dict[str, list[str]] = {}
+    for code, reasons in adoption_reason_map_raw.items():
+        code_key = str(code).strip()
+        if not code_key:
+            continue
+        if isinstance(reasons, list):
+            normalized = [str(reason).strip() for reason in reasons if str(reason).strip()]
+            adoption_reason_map[code_key] = normalized
+        elif str(reasons or "").strip():
+            adoption_reason_map[code_key] = [str(reasons).strip()]
+    return {
+        "asof": str(side_payload.get("asof") or "").strip() or None,
+        "codes": [str(code).strip() for code in codes if str(code).strip()],
+        "rank_map": rank_map,
+        "fit_score_map": fit_score_map,
+        "pattern_tag_map": pattern_tag_map,
+        "adoption_reason_map": adoption_reason_map,
+        "bonus_cap": _first_finite(side_payload.get("bonus_cap")),
+        "source_pattern": str(side_payload.get("source_pattern") or "").strip() or None,
+        "source_disposition": str(side_payload.get("source_disposition") or "").strip() or None,
+    }
+
+
 def _load_research_prior_snapshot() -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     with _RESEARCH_PRIOR_CACHE_LOCK:
@@ -783,9 +839,33 @@ def _load_research_prior_snapshot() -> dict[str, Any]:
 
     latest_dir = Path(core_config.RESEARCH_BRIDGE_DIR) / "latest"
     out: dict[str, Any] = {
+        "schema_version": None,
+        "strategy_id": None,
+        "source_dataset_id": None,
+        "source_artifacts": {},
         "run_id": None,
-        "up": {"asof": None, "codes": [], "rank_map": {}},
-        "down": {"asof": None, "codes": [], "rank_map": {}},
+        "up": {
+            "asof": None,
+            "codes": [],
+            "rank_map": {},
+            "fit_score_map": {},
+            "pattern_tag_map": {},
+            "adoption_reason_map": {},
+            "bonus_cap": None,
+            "source_pattern": None,
+            "source_disposition": None,
+        },
+        "down": {
+            "asof": None,
+            "codes": [],
+            "rank_map": {},
+            "fit_score_map": {},
+            "pattern_tag_map": {},
+            "adoption_reason_map": {},
+            "bonus_cap": None,
+            "source_pattern": None,
+            "source_disposition": None,
+        },
     }
 
     prior_path = latest_dir / "research_prior_snapshot.json"
@@ -809,17 +889,14 @@ def _load_research_prior_snapshot() -> dict[str, Any]:
         with prior_path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
         if isinstance(payload, dict):
+            out["schema_version"] = str(payload.get("schema_version") or "").strip() or None
+            out["strategy_id"] = str(payload.get("strategy_id") or "").strip() or None
+            out["source_dataset_id"] = str(payload.get("source_dataset_id") or "").strip() or None
+            out["source_artifacts"] = payload.get("source_artifacts") if isinstance(payload.get("source_artifacts"), dict) else {}
             run_id = str(payload.get("run_id") or "").strip()
             out["run_id"] = run_id or out["run_id"]
             for key, side in (("up", "up"), ("down", "down")):
-                side_payload = payload.get(key) if isinstance(payload.get(key), dict) else {}
-                codes = side_payload.get("codes") if isinstance(side_payload.get("codes"), list) else []
-                rank_map = side_payload.get("rank_map") if isinstance(side_payload.get("rank_map"), dict) else {}
-                out[side] = {
-                    "asof": str(side_payload.get("asof") or "").strip() or None,
-                    "codes": [str(code).strip() for code in codes if str(code).strip()],
-                    "rank_map": {str(code).strip(): int(rank) for code, rank in rank_map.items()},
-                }
+                out[side] = _normalize_research_prior_side_payload(payload.get(key))
     except Exception:
         pass
 
@@ -843,16 +920,26 @@ def _calc_research_prior_bonus(
         else {}
     )
     rank_map = side_payload.get("rank_map") if isinstance(side_payload.get("rank_map"), dict) else {}
+    fit_score_map = side_payload.get("fit_score_map") if isinstance(side_payload.get("fit_score_map"), dict) else {}
+    pattern_tag_map = side_payload.get("pattern_tag_map") if isinstance(side_payload.get("pattern_tag_map"), dict) else {}
+    adoption_reason_map = side_payload.get("adoption_reason_map") if isinstance(side_payload.get("adoption_reason_map"), dict) else {}
     codes = side_payload.get("codes") if isinstance(side_payload.get("codes"), list) else []
     rank_raw = rank_map.get(code)
     rank = int(rank_raw) if isinstance(rank_raw, int) else None
+    fit_score = _first_finite(fit_score_map.get(code))
+    strategy_id = str(prior_snapshot.get("strategy_id") or "") if isinstance(prior_snapshot, dict) else ""
     n = int(len(codes))
     aligned = rank is not None
     bonus = 0.0
     if aligned:
-        base = float(_RESEARCH_PRIOR_BONUS_UP if direction == "up" else _RESEARCH_PRIOR_BONUS_DOWN)
-        strength = 1.0 if n <= 1 else float(max(0.0, min(1.0, 1.0 - ((rank - 1) / max(1, n - 1)))))
-        bonus = float(base * (0.60 + 0.40 * strength))
+        if strategy_id == "tradex_rebound_onset_aux_v1" and direction == "up":
+            bonus_cap = _first_finite(side_payload.get("bonus_cap")) or 0.03
+            if fit_score is not None:
+                bonus = float(min(float(bonus_cap), float(fit_score) * float(bonus_cap)))
+        else:
+            base = float(_RESEARCH_PRIOR_BONUS_UP if direction == "up" else _RESEARCH_PRIOR_BONUS_DOWN)
+            strength = 1.0 if n <= 1 else float(max(0.0, min(1.0, 1.0 - ((rank - 1) / max(1, n - 1)))))
+            bonus = float(base * (0.60 + 0.40 * strength))
 
     item["researchPriorRunId"] = (
         str(prior_snapshot.get("run_id") or "") if isinstance(prior_snapshot, dict) else ""
@@ -862,6 +949,10 @@ def _calc_research_prior_bonus(
     item["researchPriorRank"] = int(rank) if rank is not None else None
     item["researchPriorUniverse"] = int(n)
     item["researchPriorBonus"] = float(bonus)
+    item["researchPatternTag"] = str(pattern_tag_map.get(code) or "").strip() or None
+    item["reboundOnsetFitScore"] = float(fit_score) if fit_score is not None else None
+    reasons = adoption_reason_map.get(code)
+    item["reboundOnsetAdoptionReasons"] = [str(reason).strip() for reason in reasons if str(reason).strip()] if isinstance(reasons, list) else None
     return float(bonus)
 
 
@@ -2539,7 +2630,8 @@ def _attach_quality_flags(
     enriched: list[dict] = []
     for base in items:
         item = dict(base)
-        flags: list[str] = []
+        existing_flags = item.get("qualityFlags") if isinstance(item.get("qualityFlags"), list) else []
+        flags: list[str] = [str(flag).strip() for flag in existing_flags if str(flag).strip()]
         if mode != "rule":
             prob_side = _first_finite(
                 item.get("mlPUp") if direction == "up" else item.get("mlPDown"),
@@ -2559,6 +2651,8 @@ def _attach_quality_flags(
             flags.append("low_freshness")
         if bool(item.get("entryQualified")) is False:
             flags.append("entry_not_qualified")
+        if str(item.get("researchPatternTag") or "").strip() == "rebound_onset":
+            flags.append("research_rebound_onset")
         if not flags:
             flags.append("ok")
         item["qualityFlags"] = sorted(set(flags))

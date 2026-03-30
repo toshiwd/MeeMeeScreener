@@ -209,6 +209,18 @@ from app.backend.core.analysis_prewarm_job import (
     start_analysis_prewarm_scheduler,
     stop_analysis_prewarm_scheduler,
 )
+from app.backend.core.edinet_auto_start_job import (
+    EDINETDB_BACKFILL_700_JOB_TYPE,
+    EDINETDB_DAILY_WATCH_JOB_TYPE,
+    handle_edinetdb_backfill_700,
+    handle_edinetdb_daily_watch,
+    start_edinet_auto_start_scheduler,
+    stop_edinet_auto_start_scheduler,
+)
+from app.backend.core.edinet_official_backfill_job import (
+    EDINET_OFFICIAL_BACKFILL_JOB_TYPE,
+    handle_edinet_official_backfill,
+)
 from app.backend.core.screener_snapshot_job import (
     SCREENER_SNAPSHOT_JOB_TYPE,
     handle_screener_snapshot_refresh,
@@ -288,6 +300,9 @@ job_manager.register_handler(TDNET_IMPORT_JOB_TYPE, handle_tdnet_import)
 job_manager.register_handler("toredex_live", handle_toredex_live)
 job_manager.register_handler("toredex_self_improve", handle_toredex_self_improve)
 job_manager.register_handler(SCREENER_SNAPSHOT_JOB_TYPE, handle_screener_snapshot_refresh)
+job_manager.register_handler(EDINETDB_DAILY_WATCH_JOB_TYPE, handle_edinetdb_daily_watch)
+job_manager.register_handler(EDINETDB_BACKFILL_700_JOB_TYPE, handle_edinetdb_backfill_700)
+job_manager.register_handler(EDINET_OFFICIAL_BACKFILL_JOB_TYPE, handle_edinet_official_backfill)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -420,6 +435,7 @@ async def lifespan(app: FastAPI):
         ).start()
         start_screener_snapshot_scheduler()
         start_yf_daily_ingest_scheduler()
+        start_edinet_auto_start_scheduler()
         if not is_legacy_analysis_disabled():
             start_ranking_analysis_quality_scheduler()
         else:
@@ -439,6 +455,7 @@ async def lifespan(app: FastAPI):
     finally:
         # Shutdown
         stop_publish_candidate_maintenance_scheduler(timeout_sec=1.0)
+        stop_edinet_auto_start_scheduler(timeout_sec=1.0)
         if not is_legacy_analysis_disabled():
             stop_analysis_prewarm_scheduler(timeout_sec=1.0)
             stop_ranking_analysis_quality_scheduler(timeout_sec=1.0)

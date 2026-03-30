@@ -14,6 +14,7 @@ EDINET_TABLES = (
     "edinetdb_ratios",
     "edinetdb_text_blocks",
     "edinetdb_analysis",
+    "edinetdb_official_documents",
     "edinetdb_task_queue",
     "edinetdb_api_call_log",
     "edinetdb_unmapped_codes",

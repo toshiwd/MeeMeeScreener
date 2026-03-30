@@ -14,6 +14,8 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from app.backend.api.dependencies import get_stock_repo
+from app.backend.core.edinet_auto_start_job import get_active_edinet_bootstrap_state
+from app.backend.edinetdb.repository import EdinetdbRepository
 from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.domain.screening import ranking
 from app.backend.tdnetdb.repository import TdnetdbRepository
@@ -456,6 +458,13 @@ def _build_research_prior_summary(code: str) -> Dict[str, Any] | None:
             "universe": _to_int_or_none(probe.get("researchPriorUniverse")),
             "bonus": _to_float_or_none(probe.get("researchPriorBonus")),
             "asOf": str(probe.get("researchPriorAsOf") or "").strip() or None,
+            "patternTag": str(probe.get("researchPatternTag") or "").strip() or None,
+            "fitScore": _to_float_or_none(probe.get("reboundOnsetFitScore")),
+            "adoptionReasons": (
+                [str(reason).strip() for reason in probe.get("reboundOnsetAdoptionReasons") if str(reason).strip()]
+                if isinstance(probe.get("reboundOnsetAdoptionReasons"), list)
+                else None
+            ),
         }
     return summary
 
@@ -602,6 +611,62 @@ def _build_cached_analysis_decision(
     )
 
 
+def _edinet_repo() -> EdinetdbRepository:
+    return EdinetdbRepository(app_config.DB_PATH)
+
+
+def _edinet_isoformat(value: Any) -> str | None:
+    return value.isoformat() if isinstance(value, datetime) else None
+
+
+def _resolve_edinet_runtime_status(
+    *,
+    base_status: str | None,
+    bootstrap_state: dict[str, Any] | None,
+    missing_tables: bool = False,
+    empty_tables: bool = False,
+) -> tuple[str, str | None]:
+    bootstrap_active = bool((bootstrap_state or {}).get("active"))
+    status = str(base_status or "").strip() or None
+    if missing_tables:
+        return "error", "missing_tables"
+    if empty_tables:
+        return ("loading", "bootstrap_active") if bootstrap_active else ("empty_tables", "empty_tables")
+    if bootstrap_active and status == "no_payload":
+        return "loading", "bootstrap_active"
+    if status == "ok":
+        return "ok", None
+    if status == "unmapped":
+        return "unmapped", "not_mapped"
+    if status == "no_payload":
+        return "no_payload", "no_usable_payload"
+    if status == "empty_tables":
+        return ("loading", "bootstrap_active") if bootstrap_active else ("empty_tables", "empty_tables")
+    if status == "missing_tables":
+        return "error", "missing_tables"
+    if status == "loading":
+        return "loading", "bootstrap_active"
+    return "error", "load_failed"
+
+
+def _apply_runtime_status_to_edinet_summary(
+    summary: Dict[str, Any],
+    *,
+    bootstrap_state: dict[str, Any] | None,
+) -> Dict[str, Any]:
+    resolved = dict(summary)
+    status, _ = _resolve_edinet_runtime_status(
+        base_status=str(resolved.get("status") or "").strip() or None,
+        bootstrap_state=bootstrap_state,
+    )
+    resolved["status"] = status
+    if status in {"error", "empty_tables", "loading"} and resolved.get("mapped") is False:
+        return resolved
+    if str(summary.get("status") or "").strip() == "missing_tables":
+        resolved["mapped"] = None
+    return resolved
+
+
 def _build_edinet_summary(code: str, asof_dt: int | None) -> Dict[str, Any] | None:
     code_key = str(code or "").strip()
     if not code_key:
@@ -609,22 +674,72 @@ def _build_edinet_summary(code: str, asof_dt: int | None) -> Dict[str, Any] | No
     asof_ymd = _asof_dt_to_ymd(asof_dt)
     cache_key = (code_key, asof_ymd)
     now_ts = time.time()
+    bootstrap_state = get_active_edinet_bootstrap_state()
     with _EDINET_SUMMARY_CACHE_LOCK:
         cached = _EDINET_SUMMARY_CACHE.get(cache_key)
         if cached and now_ts - cached[0] <= _EDINET_SUMMARY_CACHE_TTL_SEC:
             payload = cached[1]
-            return dict(payload) if isinstance(payload, dict) else None
+            return (
+                _apply_runtime_status_to_edinet_summary(dict(payload), bootstrap_state=bootstrap_state)
+                if isinstance(payload, dict)
+                else None
+            )
 
     try:
         with get_conn() as conn:
             feature_map = load_edinet_rank_features(conn, [code_key], asof_ymd)
     except Exception:
-        return None
+        return {
+            "status": "loading" if bool((bootstrap_state or {}).get("active")) else "error",
+            "mapped": None,
+            "freshnessDays": None,
+            "metricCount": None,
+            "qualityScore": None,
+            "dataScore": None,
+            "scoreBonus": None,
+            "featureFlagApplied": None,
+            "ebitdaMetric": None,
+            "roe": None,
+            "equityRatio": None,
+            "debtRatio": None,
+            "operatingCfMargin": None,
+            "revenueGrowthYoy": None,
+        }
     if not isinstance(feature_map, dict):
-        return None
+        return {
+            "status": "error",
+            "mapped": None,
+            "freshnessDays": None,
+            "metricCount": None,
+            "qualityScore": None,
+            "dataScore": None,
+            "scoreBonus": None,
+            "featureFlagApplied": None,
+            "ebitdaMetric": None,
+            "roe": None,
+            "equityRatio": None,
+            "debtRatio": None,
+            "operatingCfMargin": None,
+            "revenueGrowthYoy": None,
+        }
     feature = feature_map.get(code_key)
     if not isinstance(feature, dict):
-        return None
+        return {
+            "status": "error",
+            "mapped": None,
+            "freshnessDays": None,
+            "metricCount": None,
+            "qualityScore": None,
+            "dataScore": None,
+            "scoreBonus": None,
+            "featureFlagApplied": None,
+            "ebitdaMetric": None,
+            "roe": None,
+            "equityRatio": None,
+            "debtRatio": None,
+            "operatingCfMargin": None,
+            "revenueGrowthYoy": None,
+        }
 
     metric_count = _to_int_or_none(feature.get("edinetMetricCount"))
     data_score = _to_float_or_none(feature.get("edinetDataScore"))
@@ -657,7 +772,7 @@ def _build_edinet_summary(code: str, asof_dt: int | None) -> Dict[str, Any] | No
         if len(_EDINET_SUMMARY_CACHE) > 2048:
             oldest_key = min(_EDINET_SUMMARY_CACHE, key=lambda key: _EDINET_SUMMARY_CACHE[key][0])
             _EDINET_SUMMARY_CACHE.pop(oldest_key, None)
-    return summary
+    return _apply_runtime_status_to_edinet_summary(summary, bootstrap_state=bootstrap_state)
 
 
 _EDINET_ALIAS_SPLIT_RE = re.compile(r"[\s_\-./()%\[\]{}:%・,+]")
@@ -923,7 +1038,255 @@ def _edinet_parse_fiscal_year(value: Any) -> int | None:
     return year if 1900 <= year <= 2100 else None
 
 
-def _build_edinet_financials_payload(code: str) -> Dict[str, Any] | None:
+def _edinet_normalize_excerpt(value: Any, *, limit: int) -> str | None:
+    if value is None:
+        return None
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    if not text:
+        return None
+    return text if len(text) <= limit else f"{text[: max(0, limit - 1)].rstrip()}…"
+
+
+def _edinet_collect_text_pairs(payload: Any) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    stack: list[tuple[str, Any]] = [("", payload)]
+    while stack:
+        path, node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in reversed(list(node.items())):
+                next_path = f"{path}.{key}" if path else str(key)
+                stack.append((next_path, value))
+            continue
+        if isinstance(node, list):
+            for idx, value in reversed(list(enumerate(node))):
+                next_path = f"{path}[{idx}]"
+                stack.append((next_path, value))
+            continue
+        normalized = _edinet_normalize_excerpt(node, limit=400)
+        if not normalized or len(normalized) < 12:
+            continue
+        pairs.append((path, normalized))
+    return pairs
+
+
+def _edinet_text_path_score(path: str, aliases: Sequence[str]) -> int | None:
+    normalized = _edinet_normalize_key(path)
+    if not normalized:
+        return None
+    segments = _edinet_normalize_segments(path)
+    terminal = segments[-1] if segments else normalized
+    best: int | None = None
+    for alias in aliases:
+        alias_key = _edinet_normalize_key(alias)
+        if not alias_key:
+            continue
+        score: int | None = None
+        if terminal == alias_key:
+            score = 120
+        elif normalized.endswith(alias_key):
+            score = 84
+        elif alias_key in terminal:
+            score = 36
+        elif alias_key in normalized:
+            score = 14
+        if score is None:
+            continue
+        if best is None or score > best:
+            best = score
+    return best
+
+
+def _edinet_display_label_from_path(path: str, *, fallback: str) -> str:
+    text = str(path or "").strip()
+    if not text:
+        return fallback
+    segment = re.split(r"[.\[\]]+", text)[-1].strip(" _-")
+    if not segment:
+        return fallback
+    if len(segment) <= 32:
+        return segment
+    return fallback
+
+
+def _build_edinet_analysis_summary(repo: EdinetdbRepository, edinet_code: str) -> dict[str, Any] | None:
+    latest = repo.get_latest_analysis(edinet_code)
+    if not isinstance(latest, dict):
+        return None
+    pairs = _edinet_collect_text_pairs(latest.get("payload"))
+    if not pairs:
+        return None
+
+    groups: list[tuple[str, tuple[str, ...]]] = [
+        ("要約", ("summary", "overview", "executive_summary", "investment_summary")),
+        ("強み", ("strengths", "strength", "pros", "bull_case")),
+        ("リスク", ("risks", "risk", "cons", "bear_case")),
+        ("見通し", ("outlook", "guidance", "prospects", "forecast")),
+        ("バリュエーション", ("valuation", "fair_value", "multiple", "price_target")),
+    ]
+    used_paths: set[str] = set()
+    used_values: set[str] = set()
+    items: list[dict[str, str]] = []
+    for label, aliases in groups:
+        scored: list[tuple[int, int, str, str]] = []
+        for index, (path, value) in enumerate(pairs):
+            if path in used_paths or value in used_values:
+                continue
+            score = _edinet_text_path_score(path, aliases)
+            if score is None:
+                continue
+            scored.append((score, -index, path, value))
+        if not scored:
+            continue
+        scored.sort(reverse=True)
+        _, _, path, value = scored[0]
+        used_paths.add(path)
+        used_values.add(value)
+        items.append({"label": label, "value": _edinet_normalize_excerpt(value, limit=220) or value})
+
+    if not items:
+        for path, value in pairs:
+            if value in used_values:
+                continue
+            items.append(
+                {
+                    "label": _edinet_display_label_from_path(path, fallback=f"項目{len(items) + 1}"),
+                    "value": _edinet_normalize_excerpt(value, limit=220) or value,
+                }
+            )
+            used_values.add(value)
+            if len(items) >= 4:
+                break
+
+    if not items:
+        return None
+    return {
+        "asOf": str(latest.get("asof_date") or "").strip() or _edinet_isoformat(latest.get("fetched_at")),
+        "items": items,
+    }
+
+
+def _build_edinet_text_highlights(repo: EdinetdbRepository, edinet_code: str) -> list[dict[str, Any]]:
+    rows = repo.list_text_blocks(edinet_code, limit=64)
+    if not rows:
+        return []
+
+    groups: list[tuple[str, tuple[str, ...]]] = [
+        ("business", ("business", "overview", "description", "profile", "operations")),
+        ("strategy", ("strategy", "management", "plan", "growth", "vision")),
+        ("mda", ("mda", "md&a", "managementdiscussion", "analysis", "operatingresults")),
+        ("risk", ("risk", "riskfactor", "businessrisk")),
+    ]
+    used_indices: set[int] = set()
+    highlights: list[dict[str, Any]] = []
+    for _, aliases in groups:
+        scored: list[tuple[int, int, dict[str, Any], int]] = []
+        for index, row in enumerate(rows):
+            if index in used_indices:
+                continue
+            block_name = str(row.get("block_name") or "").strip()
+            if not block_name:
+                continue
+            score = _edinet_text_path_score(block_name, aliases)
+            if score is None:
+                continue
+            fetched_at = row.get("fetched_at")
+            sort_key = int(fetched_at.timestamp()) if isinstance(fetched_at, datetime) else 0
+            scored.append((score, sort_key, row, index))
+        if not scored:
+            continue
+        scored.sort(reverse=True)
+        _, _, row, index = scored[0]
+        excerpt = _edinet_normalize_excerpt(row.get("text"), limit=220)
+        if not excerpt:
+            continue
+        used_indices.add(index)
+        highlights.append(
+            {
+                "blockName": str(row.get("block_name") or "").strip() or "block",
+                "fiscalYear": str(row.get("fiscal_year") or "").strip() or None,
+                "excerpt": excerpt,
+            }
+        )
+
+    if not highlights:
+        for row in rows:
+            excerpt = _edinet_normalize_excerpt(row.get("text"), limit=220)
+            if not excerpt:
+                continue
+            highlights.append(
+                {
+                    "blockName": str(row.get("block_name") or "").strip() or "block",
+                    "fiscalYear": str(row.get("fiscal_year") or "").strip() or None,
+                    "excerpt": excerpt,
+                }
+            )
+            if len(highlights) >= 4:
+                break
+    return highlights[:4]
+
+
+def _build_edinet_error_payload(
+    *,
+    status: str,
+    status_detail: str | None,
+    bootstrap_state: dict[str, Any] | None,
+    mapped: bool | None = None,
+    official_filings: list[dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
+    return {
+        "status": status,
+        "statusDetail": status_detail,
+        "mapped": mapped,
+        "fetchedAt": None,
+        "lastCheckedAt": None,
+        "bootstrapState": bootstrap_state,
+        "summary": None,
+        "series": [],
+        "analysisSummary": None,
+        "textHighlights": [],
+        "officialFilings": list(official_filings or []),
+    }
+
+
+def _build_official_edinet_filings(
+    repo: EdinetdbRepository,
+    *,
+    sec_code: str,
+    edinet_code: str | None,
+    limit: int = 6,
+) -> list[dict[str, Any]]:
+    rows = repo.list_official_documents(sec_code=sec_code, edinet_code=edinet_code, limit=limit)
+    filings: list[dict[str, Any]] = []
+    seen_doc_ids: set[str] = set()
+    for row in rows:
+        doc_id = str(row.get("doc_id") or "").strip()
+        if not doc_id or doc_id in seen_doc_ids:
+            continue
+        seen_doc_ids.add(doc_id)
+        period_start = str(row.get("period_start") or "").strip() or None
+        period_end = str(row.get("period_end") or "").strip() or None
+        if period_start and period_end:
+            period_label = f"{period_start} - {period_end}"
+        else:
+            period_label = period_end or period_start
+        filings.append(
+            {
+                "docId": doc_id,
+                "submitDateTime": str(row.get("submit_datetime") or "").strip() or None,
+                "docDescription": str(row.get("doc_description") or "").strip() or None,
+                "formCode": str(row.get("form_code") or "").strip() or None,
+                "periodLabel": period_label,
+                "filerName": str(row.get("filer_name") or "").strip() or None,
+                "hasCsv": bool(row.get("csv_flag")),
+                "hasPdf": bool(row.get("pdf_flag")),
+                "hasXbrl": bool(row.get("xbrl_flag")),
+                "searchUrl": f"https://disclosure2.edinet-fsa.go.jp/WEEK0010.aspx?code={sec_code}",
+            }
+        )
+    return filings
+
+
+def _build_edinet_financials_base_payload(code: str) -> Dict[str, Any] | None:
     code_key = str(code or "").strip()
     if not code_key:
         return None
@@ -1099,6 +1462,84 @@ def _build_edinet_financials_payload(code: str) -> Dict[str, Any] | None:
             oldest_key = min(_EDINET_FINANCIALS_CACHE, key=lambda key: _EDINET_FINANCIALS_CACHE[key][0])
             _EDINET_FINANCIALS_CACHE.pop(oldest_key, None)
     return result
+
+
+def _build_edinet_financials_payload(code: str) -> Dict[str, Any] | None:
+    code_key = str(code or "").strip()
+    if not code_key:
+        return None
+    bootstrap_state = get_active_edinet_bootstrap_state()
+    repo = _edinet_repo()
+    try:
+        edinet_code = str(repo.lookup_edinet_codes([code_key]).get(code_key) or "").strip()
+    except Exception:
+        edinet_code = ""
+    try:
+        official_filings = _build_official_edinet_filings(
+            repo,
+            sec_code=code_key,
+            edinet_code=edinet_code or None,
+        )
+    except Exception:
+        official_filings = []
+    try:
+        table_state = repo.get_seed_table_state()
+    except Exception:
+        return _build_edinet_error_payload(
+            status="loading" if bool((bootstrap_state or {}).get("active")) else "error",
+            status_detail="seed_table_state_failed",
+            bootstrap_state=bootstrap_state,
+            mapped=bool(edinet_code) if edinet_code else None,
+            official_filings=official_filings,
+        )
+
+    missing_tables = bool(table_state.get("missing_tables"))
+    all_empty = bool(table_state.get("all_empty"))
+    if missing_tables or all_empty:
+        status, status_detail = _resolve_edinet_runtime_status(
+            base_status="empty_tables" if all_empty else "missing_tables",
+            bootstrap_state=bootstrap_state,
+            missing_tables=missing_tables,
+            empty_tables=all_empty,
+        )
+        return _build_edinet_error_payload(
+            status=status,
+            status_detail=status_detail,
+            bootstrap_state=bootstrap_state,
+            mapped=bool(edinet_code) if edinet_code else None,
+            official_filings=official_filings,
+        )
+
+    base = _build_edinet_financials_base_payload(code_key)
+    if not isinstance(base, dict):
+        return _build_edinet_error_payload(
+            status="loading" if bool((bootstrap_state or {}).get("active")) else "error",
+            status_detail="financial_payload_build_failed",
+            bootstrap_state=bootstrap_state,
+            mapped=bool(edinet_code) if edinet_code else None,
+            official_filings=official_filings,
+        )
+
+    status, status_detail = _resolve_edinet_runtime_status(
+        base_status=str(base.get("status") or "").strip() or None,
+        bootstrap_state=bootstrap_state,
+    )
+    company_latest = repo.get_company_latest(edinet_code) if edinet_code else None
+    return {
+        "status": status,
+        "statusDetail": status_detail,
+        "mapped": base.get("mapped"),
+        "fetchedAt": base.get("fetchedAt"),
+        "lastCheckedAt": _edinet_isoformat((company_latest or {}).get("last_checked_at"))
+        or _edinet_isoformat((company_latest or {}).get("fetched_at"))
+        or (base.get("fetchedAt") if isinstance(base.get("fetchedAt"), str) else None),
+        "bootstrapState": bootstrap_state,
+        "summary": base.get("summary"),
+        "series": base.get("series") if isinstance(base.get("series"), list) else [],
+        "analysisSummary": _build_edinet_analysis_summary(repo, edinet_code) if edinet_code else None,
+        "textHighlights": _build_edinet_text_highlights(repo, edinet_code) if edinet_code else [],
+        "officialFilings": official_filings,
+    }
 
 
 def _normalize_risk_mode(value: str | None) -> str:

@@ -78,6 +78,28 @@ def ensure_edinetdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS edinetdb_official_documents (
+            doc_id TEXT PRIMARY KEY,
+            sec_code TEXT,
+            edinet_code TEXT,
+            filer_name TEXT,
+            form_code TEXT,
+            doc_type_code TEXT,
+            period_start TEXT,
+            period_end TEXT,
+            submit_datetime TEXT,
+            doc_description TEXT,
+            csv_flag INTEGER,
+            pdf_flag INTEGER,
+            xbrl_flag INTEGER,
+            legal_status TEXT,
+            payload_json TEXT,
+            fetched_at TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS edinetdb_task_queue (
             task_key TEXT PRIMARY KEY,
             job_name TEXT,

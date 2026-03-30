@@ -304,7 +304,7 @@ def load_edinet_rank_features(
     ).fetchone()
     if table_counts and all(int(value or 0) == 0 for value in table_counts):
         for code in unique_codes:
-            out[code]["edinetStatus"] = "missing_tables"
+            out[code]["edinetStatus"] = "empty_tables"
         return out
 
     placeholders = ",".join(["?"] * len(unique_codes))

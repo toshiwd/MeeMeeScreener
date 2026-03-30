@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 from app.backend.edinetdb.client import ApiError, EdinetdbClient, RateLimitStop, RetryableApiError
 from app.backend.edinetdb.config import EdinetdbConfig, load_config
 from app.backend.edinetdb.keyring import KeyRingClient
+from app.backend.edinetdb.official_api import sync_recent_official_documents
+from app.backend.edinetdb.public_company_map import download_public_company_map
 from app.backend.edinetdb.raw_store import write_raw_gzip
 from app.backend.edinetdb.repository import EdinetdbRepository, TaskRow
 from app.backend.edinetdb.targets import (
@@ -916,6 +918,24 @@ def _build_summary(
     return summary
 
 
+def _sync_public_company_map(*, repo: EdinetdbRepository, cfg: EdinetdbConfig) -> dict[str, Any]:
+    if not cfg.public_company_map_enabled:
+        return {"enabled": False, "skipped": True, "reason": "public_company_map_disabled"}
+    result = download_public_company_map(source_url=cfg.public_company_map_url, timeout_sec=cfg.timeout_sec)
+    repo.save_company_map(result.rows)
+    summary = {
+        "enabled": True,
+        "skipped": False,
+        "source_url": result.source_url,
+        "downloaded_label": result.downloaded_label,
+        "row_count_label": result.row_count_label,
+        "total_rows": result.total_rows,
+        "mapped_rows": result.mapped_rows,
+    }
+    repo.set_meta("public_company_map_last_sync", summary | {"synced_at": cfg.now_jst.isoformat()})
+    return summary
+
+
 def _stable_bucket(sec_code: str, buckets: int) -> int:
     digest = hashlib.sha1(sec_code.encode("utf-8")).hexdigest()
     return int(digest, 16) % max(1, buckets)
@@ -935,9 +955,41 @@ def _dedup_preserve_order(items: list[str]) -> list[str]:
 def run_backfill_700(cfg: EdinetdbConfig | None = None) -> dict[str, Any]:
     cfg = cfg or load_config()
     repo = EdinetdbRepository(cfg.db_path)
+    repo.ensure_schema()
     budget = DailyBudget(cfg.daily_budget)
+    try:
+        official_documents = sync_recent_official_documents(repo=repo, cfg=cfg, job_name="backfill_700")
+    except Exception as exc:
+        official_documents = {
+            "enabled": cfg.official_api_enabled,
+            "skipped": True,
+            "reason": "official_documents_sync_failed",
+            "error": str(exc),
+        }
+    public_company_map: dict[str, Any]
+    try:
+        public_company_map = _sync_public_company_map(repo=repo, cfg=cfg)
+    except Exception as exc:
+        public_company_map = {
+            "enabled": cfg.public_company_map_enabled,
+            "skipped": True,
+            "reason": "public_company_map_failed",
+            "error": str(exc),
+        }
     if not cfg.api_keys:
-        return {"job": "backfill_700", "skipped": True, "reason": "EDINETDB_API_KEY(S) is not set"}
+        return _build_summary(
+            job_name="backfill_700",
+            cfg=cfg,
+            budget=budget,
+            repo=repo,
+            extra={
+                "skipped": True,
+                "reason": "EDINETDB_API_KEY(S) is not set",
+                "stop_reason": "api_keys_missing",
+                "public_company_map": public_company_map,
+                "official_documents": official_documents,
+            },
+        )
 
     client = _build_client(cfg=cfg, on_attempt=budget.consume_or_raise, max_retries=3)
     repo.migrate_legacy_backfill_phase("backfill_700")
@@ -1032,6 +1084,8 @@ def run_backfill_700(cfg: EdinetdbConfig | None = None) -> dict[str, Any]:
             "code_txt_count": len(code_txt_codes),
             "mapped_count": len(edinet_codes),
             "company_map_rows": map_rows,
+            "public_company_map": public_company_map,
+            "official_documents": official_documents,
             "queued_tasks": {
                 "core": queued_core,
                 "text": queued_text,
@@ -1045,9 +1099,41 @@ def run_backfill_700(cfg: EdinetdbConfig | None = None) -> dict[str, Any]:
 def run_daily_watch(cfg: EdinetdbConfig | None = None) -> dict[str, Any]:
     cfg = cfg or load_config()
     repo = EdinetdbRepository(cfg.db_path)
+    repo.ensure_schema()
     budget = DailyBudget(cfg.daily_budget)
+    try:
+        official_documents = sync_recent_official_documents(repo=repo, cfg=cfg, job_name="daily_watch")
+    except Exception as exc:
+        official_documents = {
+            "enabled": cfg.official_api_enabled,
+            "skipped": True,
+            "reason": "official_documents_sync_failed",
+            "error": str(exc),
+        }
+    public_company_map: dict[str, Any]
+    try:
+        public_company_map = _sync_public_company_map(repo=repo, cfg=cfg)
+    except Exception as exc:
+        public_company_map = {
+            "enabled": cfg.public_company_map_enabled,
+            "skipped": True,
+            "reason": "public_company_map_failed",
+            "error": str(exc),
+        }
     if not cfg.api_keys:
-        return {"job": "daily_watch", "skipped": True, "reason": "EDINETDB_API_KEY(S) is not set"}
+        return _build_summary(
+            job_name="daily_watch",
+            cfg=cfg,
+            budget=budget,
+            repo=repo,
+            extra={
+                "skipped": True,
+                "reason": "EDINETDB_API_KEY(S) is not set",
+                "stop_reason": "api_keys_missing",
+                "public_company_map": public_company_map,
+                "official_documents": official_documents,
+            },
+        )
 
     holdings = load_holdings_codes(cfg.db_path)
     favorites = load_favorites_codes(FAVORITES_DB_PATH)
@@ -1223,6 +1309,8 @@ def run_daily_watch(cfg: EdinetdbConfig | None = None) -> dict[str, Any]:
                 "analysis_queued": analysis_queued,
                 "map_refreshed": map_refreshed,
             },
+            "public_company_map": public_company_map,
+            "official_documents": official_documents,
             "processed": {
                 "new_phase": new_phase["counters"],
                 "check_phase": check_phase["counters"],
