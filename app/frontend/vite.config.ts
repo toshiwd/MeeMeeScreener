@@ -73,6 +73,19 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("react-router-dom")) return "vendor-router";
+          if (id.includes("react-dom") || id.includes("/react/")) return "vendor-react";
+          if (id.includes("recharts")) return "vendor-recharts";
+          if (id.includes("@tabler/icons-react")) return "vendor-tabler";
+          if (id.includes("html2canvas")) return "vendor-html2canvas";
+          if (id.includes("lightweight-charts")) return "vendor-charts";
+          if (id.includes("zustand")) return "vendor-zustand";
+          if (id.includes("axios")) return "vendor-axios";
+        }
+      },
       input: {
         main: resolve(root, "index.html"),
         tradex: resolve(root, "tradex/index.html")
