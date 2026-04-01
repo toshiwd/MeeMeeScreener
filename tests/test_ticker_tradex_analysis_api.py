@@ -50,7 +50,11 @@ def test_tradex_detail_analysis_endpoint_rejects_when_feature_flag_disabled(monk
         response = client.get("/api/ticker/tradex/analysis", params={"code": "7203"})
         assert response.status_code == 200
         payload = response.json()
-        assert payload == {"available": False, "reason": "feature flag disabled", "analysis": None}
+        assert payload["available"] is False
+        assert payload["reason"] == "feature flag disabled"
+        assert payload["analysis"] is None
+        assert payload["source"] == "tradex_analysis"
+        assert payload["display_label"] == "TRADEX解析"
 
 
 def test_tradex_detail_analysis_endpoint_returns_snapshot(monkeypatch) -> None:
@@ -85,4 +89,8 @@ def test_tradex_detail_analysis_endpoint_returns_snapshot(monkeypatch) -> None:
         payload = response.json()
         assert payload["available"] is True
         assert payload["analysis"]["symbol"] == "7203"
+        assert payload["source"] == "tradex_analysis"
+        assert payload["display_label"] == "TRADEX解析"
+        assert payload["analysis"]["source"] == "tradex_analysis"
+        assert payload["analysis"]["display_label"] == "TRADEX解析"
 

@@ -1096,6 +1096,13 @@ def build_publish_candidate_bundle(
         if manifest is None:
             return {"ok": False, "reason": "publish_manifest_not_found", "logic_key": logic_key, "publish_id": publish_id}
         publish_id_value = _normalize_text(publish_id) or _normalize_text(manifest.get("publish_id"))
+        if not _normalize_text(manifest.get("artifact_uri")) or not _normalize_text(manifest.get("checksum")):
+            return {
+                "ok": False,
+                "reason": "publish_manifest_logic_artifact_missing",
+                "logic_key": manifest.get("logic_key"),
+                "publish_id": publish_id_value,
+            }
         normalized_readiness = _normalize_readiness_payload(readiness)
         if normalized_readiness is None:
             normalized_readiness = _normalize_readiness_payload(

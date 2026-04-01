@@ -5,6 +5,7 @@ import {
   gridPresetOptions,
   mergeHealthStatus,
   normalizeHealthStatus,
+  resolveGridPrimaryChangeValue,
   resolveGridRangeBars,
   resolveGridVolumeSurgeRatio
 } from "./gridHelpers";
@@ -103,6 +104,26 @@ describe("resolveGridVolumeSurgeRatio", () => {
 
   it("returns null when there is no usable volume", () => {
     expect(resolveGridVolumeSurgeRatio([[1, 1, 1, 1, 10, 0]])).toBeNull();
+  });
+});
+
+describe("resolveGridPrimaryChangeValue", () => {
+  const ticker = {
+    chg1D: 0.01,
+    chg1W: 0.05,
+    chg1M: 0.12
+  };
+
+  it("uses the daily change on daily view", () => {
+    expect(resolveGridPrimaryChangeValue(ticker, "daily")).toBe(0.01);
+  });
+
+  it("uses the weekly change on weekly view", () => {
+    expect(resolveGridPrimaryChangeValue(ticker, "weekly")).toBe(0.05);
+  });
+
+  it("uses the monthly change on monthly view", () => {
+    expect(resolveGridPrimaryChangeValue(ticker, "monthly")).toBe(0.12);
   });
 });
 

@@ -59,7 +59,20 @@ const baseProps = {
   sellAnalysisDtLabel: "26/03/18",
   sellPredDtLabel: "26/03/20",
   researchPriorRunId: "run-1",
-  analysisResearchPrior: {} as never,
+  analysisResearchPrior: {
+    runId: "run-1",
+    up: {
+      aligned: true,
+      rank: 1,
+      universe: 5,
+      bonus: 0.018,
+      asOf: "2026-03-28",
+      patternTag: "rebound_onset",
+      fitScore: 0.8,
+      adoptionReasons: ["120MA上", "陽線引け"],
+    },
+    down: null,
+  } as never,
   researchPriorUpMeta: "up-meta",
   researchPriorDownMeta: "down-meta",
   edinetStatusMeta: "EDINET ok",
@@ -73,6 +86,7 @@ const baseProps = {
   swingDiagnostics: null,
   swingSetupExpectancy: null,
   analysisMissingDataVisible: true,
+  decisionHistory: [],
   formatPercentLabel: fmtPercent,
   formatNumber: fmtNumber,
   formatSignedPercentLabel: fmtSignedPercent,
@@ -89,7 +103,8 @@ describe("DetailAnalysisPanel", () => {
       />
     );
 
-    expect(markup).toContain("判定確認");
+    expect(markup).toContain("従来判定");
+    expect(markup).toContain("日々の売買判定 / read only");
     expect(markup).toContain("基準日 26/03/19");
     expect(markup).toContain("分析データ未計算");
     expect(markup).toContain("基準日を中心に130本を再計算");
@@ -104,6 +119,10 @@ describe("DetailAnalysisPanel", () => {
         {...baseProps}
         canShowAnalysis={true}
         analysisSummaryLoading={false}
+        decisionHistory={[
+          { dtKey: 20260331, tone: "up" },
+          { dtKey: 20260330, tone: "down" },
+        ]}
         analysisGuidance={{
           ...baseProps.analysisGuidance,
           watchpoint: "watch",
@@ -125,7 +144,29 @@ describe("DetailAnalysisPanel", () => {
     expect(markup).toContain("下落確率");
     expect(markup).toContain("中立確率");
     expect(markup).toContain("<details");
+    expect(markup).toContain("判定履歴");
+    expect(markup).toContain("2026-03-31 / 買い");
+    expect(markup).toContain("2026-03-30 / 売り");
     expect(markup).toContain("追加情報");
     expect(markup).toContain("基準日を中心に130本を再計算");
+  });
+
+  it("shows rebound research metadata and promotes rebound only for watch-like buy setup", () => {
+    const markup = renderToStaticMarkup(
+      <DetailAnalysisPanel
+        {...baseProps}
+        canShowAnalysis={true}
+        analysisSummaryLoading={false}
+        analysisEntryPolicy={{
+          up: { setupType: "watch", recommendedHoldDays: 5, recommendedHoldReason: "x" },
+          down: { setupType: "breakdown", recommendedHoldDays: 3, recommendedHoldReason: "y" },
+        } as never}
+      />
+    );
+
+    expect(markup).toContain("研究タグ 反発初動候補");
+    expect(markup).toContain("適合度 80%");
+    expect(markup).toContain("採用理由 120MA上 / 陽線引け");
+    expect(markup).toContain("反発初動狙い");
   });
 });

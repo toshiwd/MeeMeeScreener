@@ -29,7 +29,7 @@ from .ranking_analysis_quality import get_latest_prob_up_gates
 RankTimeframe = Literal["D", "W", "M"]
 RankWhich = Literal["latest", "prev"]
 RankDir = Literal["up", "down"]
-RankMode = Literal["rule", "ml", "hybrid", "turn"]
+RankMode = Literal["rule", "ml", "hybrid", "turn", "trade"]
 RankRiskMode = Literal["defensive", "balanced", "aggressive"]
 RankBaseCacheKey = tuple[RankTimeframe, RankWhich, RankDir]
 RankResultCacheKey = tuple[RankTimeframe, RankWhich, RankDir, RankMode, RankRiskMode, int, str | None, str, bool]
@@ -242,11 +242,58 @@ _EDINET_ITEM_DEFAULTS: dict[str, Any] = {
 
 def _resolve_effective_rank_mode(mode: RankMode) -> RankMode:
     requested_mode = str(mode).strip().lower()
-    if requested_mode not in {"rule", "ml", "hybrid", "turn"}:
+    if requested_mode not in {"rule", "ml", "hybrid", "turn", "trade"}:
         return "rule"
-    if is_legacy_analysis_disabled() and requested_mode != "rule":
+    if is_legacy_analysis_disabled() and requested_mode not in {"rule", "trade"}:
         return "rule"
     return requested_mode  # type: ignore[return-value]
+
+
+_TRADE_UP_SETUP_TYPES = {"breakout20", "breakout", "accumulation", "rebound", "continuation"}
+_TRADE_DOWN_SETUP_TYPES = {"breakout20", "breakout", "breakdown", "pressure", "continuation"}
+_STRICT_TRADE_UP_BOX_STATES = {"box_lower", "box_mid", "box_upper", "breakout_up"}
+_STRICT_TRADE_DOWN_BOX_STATES = {"below_box", "box_lower", "box_mid", "box_upper", "breakout_up"}
+
+
+def _is_tradable_rank_item(item: dict[str, Any], *, direction: RankDir) -> bool:
+    if not bool(item.get("entryQualified")):
+        return False
+    if bool(item.get("entryQualifiedByFallback")):
+        return False
+    if str(item.get("entryQualifiedFallbackStage") or "").strip():
+        return False
+    setup_type = str(item.get("setupType") or "").strip().lower()
+    if not setup_type or setup_type in {"watch", "reject"}:
+        return False
+    allowed_setup_types = _TRADE_UP_SETUP_TYPES if direction == "up" else _TRADE_DOWN_SETUP_TYPES
+    return setup_type in allowed_setup_types
+
+
+def _filter_tradable_rank_items(items: list[dict[str, Any]], *, direction: RankDir) -> list[dict[str, Any]]:
+    tradable: list[dict[str, Any]] = []
+    for item in items:
+        if _is_tradable_rank_item(item, direction=direction):
+            tradable.append(item)
+    return tradable
+
+
+def _is_strict_trade_rank_item(item: dict[str, Any], *, direction: RankDir) -> bool:
+    if not _is_tradable_rank_item(item, direction=direction):
+        return False
+    monthly_box_state = str(item.get("monthlyBoxState") or "").strip()
+    if not monthly_box_state:
+        return False
+    if direction == "up":
+        return monthly_box_state in _STRICT_TRADE_UP_BOX_STATES
+    return monthly_box_state in _STRICT_TRADE_DOWN_BOX_STATES
+
+
+def _filter_strict_trade_rank_items(items: list[dict[str, Any]], *, direction: RankDir) -> list[dict[str, Any]]:
+    strict_items: list[dict[str, Any]] = []
+    for item in items:
+        if _is_strict_trade_rank_item(item, direction=direction):
+            strict_items.append(item)
+    return strict_items
 
 
 def _parse_date_value(value: int | str | None) -> datetime | None:
@@ -774,8 +821,15 @@ def _normalize_research_prior_side_payload(value: Any) -> dict[str, Any]:
     codes = side_payload.get("codes") if isinstance(side_payload.get("codes"), list) else []
     rank_map_raw = side_payload.get("rank_map") if isinstance(side_payload.get("rank_map"), dict) else {}
     fit_score_map_raw = side_payload.get("fit_score_map") if isinstance(side_payload.get("fit_score_map"), dict) else {}
+    signal_strength_map_raw = side_payload.get("signal_strength_map") if isinstance(side_payload.get("signal_strength_map"), dict) else {}
     pattern_tag_map_raw = side_payload.get("pattern_tag_map") if isinstance(side_payload.get("pattern_tag_map"), dict) else {}
+    decision_reason_map_raw = side_payload.get("decision_reason_map") if isinstance(side_payload.get("decision_reason_map"), dict) else {}
     adoption_reason_map_raw = side_payload.get("adoption_reason_map") if isinstance(side_payload.get("adoption_reason_map"), dict) else {}
+    risk_watch_map_raw = side_payload.get("risk_watch_map") if isinstance(side_payload.get("risk_watch_map"), dict) else {}
+    promotion_stage_map_raw = side_payload.get("promotion_stage_map") if isinstance(side_payload.get("promotion_stage_map"), dict) else {}
+    provisional_map_raw = side_payload.get("provisional_map") if isinstance(side_payload.get("provisional_map"), dict) else {}
+    hypothesis_family_map_raw = side_payload.get("hypothesis_family_map") if isinstance(side_payload.get("hypothesis_family_map"), dict) else {}
+    bonus_map_raw = side_payload.get("bonus_map") if isinstance(side_payload.get("bonus_map"), dict) else {}
     rank_map: dict[str, int] = {}
     for code, rank in rank_map_raw.items():
         code_key = str(code).strip()
@@ -796,12 +850,34 @@ def _normalize_research_prior_side_payload(value: Any) -> dict[str, Any]:
             continue
         if math.isfinite(numeric):
             fit_score_map[code_key] = float(numeric)
+    signal_strength_map: dict[str, float] = {}
+    for code, score in signal_strength_map_raw.items():
+        code_key = str(code).strip()
+        if not code_key:
+            continue
+        try:
+            numeric = float(score)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(numeric):
+            signal_strength_map[code_key] = float(numeric)
     pattern_tag_map: dict[str, str] = {}
     for code, tag in pattern_tag_map_raw.items():
         code_key = str(code).strip()
         tag_value = str(tag or "").strip()
         if code_key and tag_value:
             pattern_tag_map[code_key] = tag_value
+    decision_reason_map: dict[str, list[str]] = {}
+    for code, reasons in decision_reason_map_raw.items():
+        code_key = str(code).strip()
+        if not code_key:
+            continue
+        if isinstance(reasons, list):
+            normalized = [str(reason).strip() for reason in reasons if str(reason).strip()]
+            if normalized:
+                decision_reason_map[code_key] = normalized
+        elif str(reasons or "").strip():
+            decision_reason_map[code_key] = [str(reasons).strip()]
     adoption_reason_map: dict[str, list[str]] = {}
     for code, reasons in adoption_reason_map_raw.items():
         code_key = str(code).strip()
@@ -812,13 +888,59 @@ def _normalize_research_prior_side_payload(value: Any) -> dict[str, Any]:
             adoption_reason_map[code_key] = normalized
         elif str(reasons or "").strip():
             adoption_reason_map[code_key] = [str(reasons).strip()]
+    risk_watch_map: dict[str, list[str]] = {}
+    for code, reasons in risk_watch_map_raw.items():
+        code_key = str(code).strip()
+        if not code_key:
+            continue
+        if isinstance(reasons, list):
+            normalized = [str(reason).strip() for reason in reasons if str(reason).strip()]
+            if normalized:
+                risk_watch_map[code_key] = normalized
+        elif str(reasons or "").strip():
+            risk_watch_map[code_key] = [str(reasons).strip()]
+    promotion_stage_map: dict[str, str] = {}
+    for code, stage in promotion_stage_map_raw.items():
+        code_key = str(code).strip()
+        stage_value = str(stage or "").strip()
+        if code_key and stage_value:
+            promotion_stage_map[code_key] = stage_value
+    provisional_map: dict[str, bool] = {}
+    for code, provisional in provisional_map_raw.items():
+        code_key = str(code).strip()
+        if code_key:
+            provisional_map[code_key] = bool(provisional)
+    hypothesis_family_map: dict[str, str] = {}
+    for code, family in hypothesis_family_map_raw.items():
+        code_key = str(code).strip()
+        family_value = str(family or "").strip()
+        if code_key and family_value:
+            hypothesis_family_map[code_key] = family_value
+    bonus_map: dict[str, float] = {}
+    for code, bonus in bonus_map_raw.items():
+        code_key = str(code).strip()
+        if not code_key:
+            continue
+        try:
+            numeric = float(bonus)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(numeric):
+            bonus_map[code_key] = float(numeric)
     return {
         "asof": str(side_payload.get("asof") or "").strip() or None,
         "codes": [str(code).strip() for code in codes if str(code).strip()],
         "rank_map": rank_map,
         "fit_score_map": fit_score_map,
+        "signal_strength_map": signal_strength_map,
         "pattern_tag_map": pattern_tag_map,
+        "decision_reason_map": decision_reason_map,
         "adoption_reason_map": adoption_reason_map,
+        "risk_watch_map": risk_watch_map,
+        "promotion_stage_map": promotion_stage_map,
+        "provisional_map": provisional_map,
+        "hypothesis_family_map": hypothesis_family_map,
+        "bonus_map": bonus_map,
         "bonus_cap": _first_finite(side_payload.get("bonus_cap")),
         "source_pattern": str(side_payload.get("source_pattern") or "").strip() or None,
         "source_disposition": str(side_payload.get("source_disposition") or "").strip() or None,
@@ -849,8 +971,15 @@ def _load_research_prior_snapshot() -> dict[str, Any]:
             "codes": [],
             "rank_map": {},
             "fit_score_map": {},
+            "signal_strength_map": {},
             "pattern_tag_map": {},
+            "decision_reason_map": {},
             "adoption_reason_map": {},
+            "risk_watch_map": {},
+            "promotion_stage_map": {},
+            "provisional_map": {},
+            "hypothesis_family_map": {},
+            "bonus_map": {},
             "bonus_cap": None,
             "source_pattern": None,
             "source_disposition": None,
@@ -860,8 +989,15 @@ def _load_research_prior_snapshot() -> dict[str, Any]:
             "codes": [],
             "rank_map": {},
             "fit_score_map": {},
+            "signal_strength_map": {},
             "pattern_tag_map": {},
+            "decision_reason_map": {},
             "adoption_reason_map": {},
+            "risk_watch_map": {},
+            "promotion_stage_map": {},
+            "provisional_map": {},
+            "hypothesis_family_map": {},
+            "bonus_map": {},
             "bonus_cap": None,
             "source_pattern": None,
             "source_disposition": None,
@@ -921,18 +1057,36 @@ def _calc_research_prior_bonus(
     )
     rank_map = side_payload.get("rank_map") if isinstance(side_payload.get("rank_map"), dict) else {}
     fit_score_map = side_payload.get("fit_score_map") if isinstance(side_payload.get("fit_score_map"), dict) else {}
+    signal_strength_map = side_payload.get("signal_strength_map") if isinstance(side_payload.get("signal_strength_map"), dict) else {}
     pattern_tag_map = side_payload.get("pattern_tag_map") if isinstance(side_payload.get("pattern_tag_map"), dict) else {}
+    decision_reason_map = side_payload.get("decision_reason_map") if isinstance(side_payload.get("decision_reason_map"), dict) else {}
     adoption_reason_map = side_payload.get("adoption_reason_map") if isinstance(side_payload.get("adoption_reason_map"), dict) else {}
+    risk_watch_map = side_payload.get("risk_watch_map") if isinstance(side_payload.get("risk_watch_map"), dict) else {}
+    promotion_stage_map = side_payload.get("promotion_stage_map") if isinstance(side_payload.get("promotion_stage_map"), dict) else {}
+    provisional_map = side_payload.get("provisional_map") if isinstance(side_payload.get("provisional_map"), dict) else {}
+    hypothesis_family_map = side_payload.get("hypothesis_family_map") if isinstance(side_payload.get("hypothesis_family_map"), dict) else {}
+    bonus_map = side_payload.get("bonus_map") if isinstance(side_payload.get("bonus_map"), dict) else {}
     codes = side_payload.get("codes") if isinstance(side_payload.get("codes"), list) else []
     rank_raw = rank_map.get(code)
     rank = int(rank_raw) if isinstance(rank_raw, int) else None
     fit_score = _first_finite(fit_score_map.get(code))
+    signal_strength = _first_finite(signal_strength_map.get(code))
+    direct_bonus = _first_finite(bonus_map.get(code))
+    stage = str(promotion_stage_map.get(code) or "").strip() or None
+    provisional = bool(provisional_map.get(code))
+    hypothesis_family = str(hypothesis_family_map.get(code) or "").strip() or None
     strategy_id = str(prior_snapshot.get("strategy_id") or "") if isinstance(prior_snapshot, dict) else ""
     n = int(len(codes))
-    aligned = rank is not None
+    aligned = (rank is not None) or (direct_bonus is not None)
     bonus = 0.0
     if aligned:
-        if strategy_id == "tradex_rebound_onset_aux_v1" and direction == "up":
+        if direct_bonus is not None:
+            bonus_cap = _first_finite(side_payload.get("bonus_cap")) or 0.03
+            signed = float(max(-float(bonus_cap), min(float(bonus_cap), float(direct_bonus))))
+            if provisional:
+                signed *= 0.5
+            bonus = float(signed)
+        elif strategy_id == "tradex_rebound_onset_aux_v1" and direction == "up":
             bonus_cap = _first_finite(side_payload.get("bonus_cap")) or 0.03
             if fit_score is not None:
                 bonus = float(min(float(bonus_cap), float(fit_score) * float(bonus_cap)))
@@ -950,6 +1104,14 @@ def _calc_research_prior_bonus(
     item["researchPriorUniverse"] = int(n)
     item["researchPriorBonus"] = float(bonus)
     item["researchPatternTag"] = str(pattern_tag_map.get(code) or "").strip() or None
+    item["researchSignalStrength"] = float(signal_strength) if signal_strength is not None else None
+    item["researchPromotionStage"] = stage
+    decision_reasons = decision_reason_map.get(code)
+    item["researchDecisionReasons"] = [str(reason).strip() for reason in decision_reasons if str(reason).strip()] if isinstance(decision_reasons, list) else None
+    risk_watch = risk_watch_map.get(code)
+    item["researchRiskWatch"] = [str(reason).strip() for reason in risk_watch if str(reason).strip()] if isinstance(risk_watch, list) else None
+    item["researchProvisional"] = bool(provisional) if aligned else False
+    item["researchHypothesisFamily"] = hypothesis_family
     item["reboundOnsetFitScore"] = float(fit_score) if fit_score is not None else None
     reasons = adoption_reason_map.get(code)
     item["reboundOnsetAdoptionReasons"] = [str(reason).strip() for reason in reasons if str(reason).strip()] if isinstance(reasons, list) else None
@@ -3757,6 +3919,7 @@ def _apply_monthly_ml_mode(
     direction: RankDir,
     limit: int,
     risk_mode: RankRiskMode = "balanced",
+    rank_mode: RankMode = "hybrid",
 ) -> tuple[list[dict], int | None, str | None]:
     gate_recommendation = {
         "up": {"abs_gate": float(_MONTHLY_ABS_GATE_DEFAULT), "side_gate": float(_MONTHLY_SIDE_GATE_DEFAULT)},
@@ -4136,14 +4299,26 @@ def _apply_monthly_ml_mode(
         if item["entryQualified"]:
             qualified.append(item)
 
-    qualified.sort(
-        key=lambda item: (
-            item.get("entryScore") is None,
-            -(item.get("entryScore") or 0.0),
-            -(item.get("probSide") or 0.0),
-            item.get("code", ""),
+    if rank_mode == "trade":
+        _apply_trade_priority_scores(qualified, direction=direction)
+        qualified.sort(
+            key=lambda item: (
+                item.get("tradePriorityScore") is None,
+                -(item.get("tradePriorityScore") or 0.0),
+                -(item.get("tradePriorityProfitScore") or 0.0),
+                -(item.get("tradePriorityHitScore") or 0.0),
+                item.get("code", ""),
+            )
         )
-    )
+    else:
+        qualified.sort(
+            key=lambda item: (
+                item.get("entryScore") is None,
+                -(item.get("entryScore") or 0.0),
+                -(item.get("probSide") or 0.0),
+                item.get("code", ""),
+            )
+        )
     if len(qualified) >= limit:
         return qualified[:limit], pred_dt, model_version
 
@@ -4190,6 +4365,8 @@ def _apply_monthly_ml_mode(
                 shape_patterns={},
                 risk_mode=risk_mode,
             )
+        if rank_mode == "trade":
+            _apply_trade_priority_scores([candidate], direction=direction)
         selected.append(candidate)
         if len(selected) >= limit:
             break
@@ -4202,6 +4379,7 @@ def _call_apply_monthly_ml_mode(
     direction: RankDir,
     limit: int,
     risk_mode: RankRiskMode,
+    rank_mode: RankMode = "hybrid",
 ) -> tuple[list[dict], int | None, str | None]:
     try:
         return _apply_monthly_ml_mode(
@@ -4209,15 +4387,35 @@ def _call_apply_monthly_ml_mode(
             direction=direction,
             limit=limit,
             risk_mode=risk_mode,
+            rank_mode=rank_mode,
         )
     except TypeError as exc:
-        if "unexpected keyword argument 'risk_mode'" not in str(exc):
+        message = str(exc)
+        if "unexpected keyword argument 'rank_mode'" in message:
+            try:
+                return _apply_monthly_ml_mode(
+                    items,
+                    direction=direction,
+                    limit=limit,
+                    risk_mode=risk_mode,
+                )
+            except TypeError as exc2:
+                if "unexpected keyword argument 'risk_mode'" not in str(exc2):
+                    raise
+                return _apply_monthly_ml_mode(
+                    items,
+                    direction=direction,
+                    limit=limit,
+                )
+        if "unexpected keyword argument 'risk_mode'" in message:
+            return _apply_monthly_ml_mode(
+                items,
+                direction=direction,
+                limit=limit,
+            )
+        if "unexpected keyword argument" not in message:
             raise
-        return _apply_monthly_ml_mode(
-            items,
-            direction=direction,
-            limit=limit,
-        )
+        raise
 
 
 def _load_daily_snapshot_map(
@@ -4422,6 +4620,104 @@ def _percent_rank_desc(values: dict[str, float | None]) -> dict[str, float]:
         for j in range(start, idx):
             result[pairs[j][0]] = pr
     return result
+
+
+def _trade_direction_adjusted_profit_raw(item: dict, *, direction: RankDir) -> float | None:
+    candidates = (
+        (0.45, _first_finite(item.get("mlEv5Net"), item.get("mlEvShortNet"), item.get("mlEv10Net"), item.get("mlEv20Net"))),
+        (0.35, _first_finite(item.get("mlEv10Net"), item.get("mlEvShortNet"), item.get("mlEv20Net"))),
+        (0.20, _first_finite(item.get("mlEv20Net"), item.get("mlEvShortNet"))),
+    )
+    total = 0.0
+    weight_sum = 0.0
+    for weight, raw in candidates:
+        if raw is None:
+            continue
+        adjusted = float(raw) if direction == "up" else -float(raw)
+        total += float(weight) * adjusted
+        weight_sum += float(weight)
+    if weight_sum <= 0.0:
+        return None
+    return float(total / weight_sum)
+
+
+def _apply_trade_priority_scores(items: list[dict], *, direction: RankDir) -> None:
+    hit_values: dict[str, float | None] = {}
+    profit_values: dict[str, float | None] = {}
+    quality_values: dict[str, float | None] = {}
+    safety_values: dict[str, float | None] = {}
+    for item in items:
+        code = str(item.get("code") or "")
+        if not code:
+            continue
+        hit_values[code] = _first_finite(
+            item.get("probSideCalib"),
+            item.get("probSide"),
+            item.get("prob20d"),
+            item.get("prob10d"),
+            item.get("prob5d"),
+            item.get("swingScore"),
+            item.get("swingLongScore") if direction == "up" else item.get("swingShortScore"),
+            item.get("weeklyBreakoutUpProb") if direction == "up" else item.get("weeklyBreakoutDownProb"),
+            item.get("monthlyBreakoutUpProb") if direction == "up" else item.get("monthlyBreakoutDownProb"),
+        )
+        profit_value = _trade_direction_adjusted_profit_raw(item, direction=direction)
+        if profit_value is None:
+            profit_value = _first_finite(
+                item.get("entryScore"),
+                item.get("hybridScore"),
+                item.get("reboundOnsetFitScore"),
+                item.get("playbookScoreBonus"),
+                item.get("swingScore"),
+                item.get("swingLongScore") if direction == "up" else item.get("swingShortScore"),
+                item.get("weeklyBreakoutUpProb") if direction == "up" else item.get("weeklyBreakoutDownProb"),
+                item.get("monthlyBreakoutUpProb") if direction == "up" else item.get("monthlyBreakoutDownProb"),
+            )
+        profit_values[code] = profit_value
+        quality_values[code] = _first_finite(
+            item.get("entryScore"),
+            item.get("hybridScore"),
+            item.get("reboundOnsetFitScore"),
+            item.get("swingScore"),
+        )
+        downside_risk = _first_finite(item.get("downsideRisk"))
+        safety_values[code] = (1.0 - downside_risk) if downside_risk is not None else None
+
+    hit_rank = _percent_rank_desc(hit_values)
+    profit_rank = _percent_rank_desc(profit_values)
+    quality_rank = _percent_rank_desc(quality_values)
+    safety_rank = _percent_rank_desc(safety_values)
+
+    for item in items:
+        code = str(item.get("code") or "")
+        if not code:
+            continue
+        hit_score = hit_rank.get(code, 0.5)
+        profit_score = profit_rank.get(code, 0.5)
+        quality_score = quality_rank.get(code, 0.5)
+        safety_score = safety_rank.get(code, 0.5)
+        trade_priority_score = (
+            0.45 * hit_score
+            + 0.35 * profit_score
+            + 0.10 * quality_score
+            + 0.10 * safety_score
+        )
+        item["tradePriorityScore"] = float(max(0.0, min(1.0, trade_priority_score)))
+        item["tradePriorityHitScore"] = float(hit_score)
+        item["tradePriorityProfitScore"] = float(profit_score)
+        item["tradePriorityQualityScore"] = float(quality_score)
+        item["tradePrioritySafetyScore"] = float(safety_score)
+
+
+def _trade_priority_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        item.get("tradePriorityScore") is None,
+        -(item.get("tradePriorityScore") or 0.0),
+        -(item.get("tradePriorityProfitScore") or 0.0),
+        -(item.get("tradePriorityHitScore") or 0.0),
+        -(item.get("tradePriorityQualityScore") or 0.0),
+        item.get("code", ""),
+    )
 
 
 def _apply_ml_mode(
@@ -5255,7 +5551,11 @@ def _apply_ml_mode(
         else:
             fallback.append(item)
 
-    qualified.sort(key=_base_entry_sort_key)
+    if mode == "trade":
+        _apply_trade_priority_scores(enriched, direction=direction)
+        qualified.sort(key=_trade_priority_sort_key)
+    else:
+        qualified.sort(key=_base_entry_sort_key)
     if len(qualified) >= limit:
         return qualified[:limit], pred_dt, model_version
     strict_fallback = [
@@ -5275,7 +5575,10 @@ def _apply_ml_mode(
             )
         )
     ]
-    strict_fallback.sort(key=_base_entry_sort_key)
+    if mode == "trade":
+        strict_fallback.sort(key=_trade_priority_sort_key)
+    else:
+        strict_fallback.sort(key=_base_entry_sort_key)
 
     promoted_fallback: list[dict] = []
     if direction == "up" and mode == "hybrid" and not qualified:
@@ -5286,7 +5589,10 @@ def _apply_ml_mode(
             and math.isfinite(float(item.get("entryScore")))
             and float(item.get("entryScore")) >= _DAILY_FALLBACK_HYBRID_SCORE_GATE_UP
         ]
-        stage1_candidates.sort(key=_base_entry_sort_key)
+        if mode == "trade":
+            stage1_candidates.sort(key=_trade_priority_sort_key)
+        else:
+            stage1_candidates.sort(key=_base_entry_sort_key)
         if stage1_candidates:
             promoted_fallback = stage1_candidates
             for item in promoted_fallback:
@@ -5307,7 +5613,10 @@ def _apply_ml_mode(
                 and math.isfinite(float(item.get("entryScore")))
                 and float(item.get("entryScore")) >= _DAILY_FALLBACK_TURN_SCORE_GATE_UP
             ]
-            stage2_candidates.sort(key=_base_entry_sort_key)
+            if mode == "trade":
+                stage2_candidates.sort(key=_trade_priority_sort_key)
+            else:
+                stage2_candidates.sort(key=_base_entry_sort_key)
             promoted_fallback = stage2_candidates
             for item in promoted_fallback:
                 item["entryQualifiedByFallback"] = True
@@ -5326,11 +5635,14 @@ def _apply_ml_mode(
             and (not bool(item.get("patternDTrapStackDownFar")))
             and (not bool(item.get("patternDTrapOverheatMomentum")))
             and (not bool(item.get("patternDTrapTopFakeout")))
-            and isinstance(item.get("entryScore"), (int, float))
-            and math.isfinite(float(item.get("entryScore")))
-            and float(item.get("entryScore")) >= _DAILY_FALLBACK_HYBRID_SCORE_GATE_DOWN
+                and isinstance(item.get("entryScore"), (int, float))
+                and math.isfinite(float(item.get("entryScore")))
+                and float(item.get("entryScore")) >= _DAILY_FALLBACK_HYBRID_SCORE_GATE_DOWN
         ]
-        stage_short_candidates.sort(key=_base_entry_sort_key)
+        if mode == "trade":
+            stage_short_candidates.sort(key=_trade_priority_sort_key)
+        else:
+            stage_short_candidates.sort(key=_base_entry_sort_key)
         if stage_short_candidates:
             promoted_fallback = stage_short_candidates
             for item in promoted_fallback:
@@ -5357,7 +5669,10 @@ def _apply_ml_mode(
                 and math.isfinite(float(item.get("entryScore")))
                 and float(item.get("entryScore")) >= _DAILY_FALLBACK_TURN_SCORE_GATE_DOWN
             ]
-            recovery_candidates.sort(key=_base_entry_sort_key)
+            if mode == "trade":
+                recovery_candidates.sort(key=_trade_priority_sort_key)
+            else:
+                recovery_candidates.sort(key=_base_entry_sort_key)
             promoted_fallback = recovery_candidates
             for item in promoted_fallback:
                 item["entryQualifiedByFallback"] = True
@@ -5371,12 +5686,20 @@ def _apply_ml_mode(
             if len(selected) < min_return:
                 selected = _merge_unique([selected, fallback])[:min_return]
         return selected[:limit], pred_dt, model_version
-    fallback.sort(
-        key=lambda item: (
-            not bool(item.get("trendUp")) if direction == "up" else not bool(item.get("trendDown")),
-            *_base_entry_sort_key(item),
+    if mode == "trade":
+        fallback.sort(
+            key=lambda item: (
+                not bool(item.get("trendUp")) if direction == "up" else not bool(item.get("trendDown")),
+                *_trade_priority_sort_key(item),
+            )
         )
-    )
+    else:
+        fallback.sort(
+            key=lambda item: (
+                not bool(item.get("trendUp")) if direction == "up" else not bool(item.get("trendDown")),
+                *_base_entry_sort_key(item),
+            )
+        )
     selected = _merge_unique([qualified, promoted_fallback, strict_fallback])
     if direction == "up" and len(selected) < limit:
         selected = _merge_unique([selected, fallback])
@@ -5534,12 +5857,13 @@ def _build_rankings_response(
             direction=direction,
             risk_mode=risk_mode,
         )
-    elif tf == "M" and effective_mode == "hybrid":
+    elif tf == "M" and effective_mode in {"hybrid", "trade"}:
         out_items, pred_dt, model_version = _call_apply_monthly_ml_mode(
             source_items,
             direction=direction,
             limit=limit,
             risk_mode=risk_mode,
+            rank_mode=effective_mode,
         )
     else:
         out_items, pred_dt, model_version = _call_apply_ml_mode(
@@ -5560,7 +5884,7 @@ def _build_rankings_response(
         pred_dt=pred_dt,
         model_version=model_version,
     )
-    if tf == "M" and effective_mode == "hybrid":
+    if tf == "M" and effective_mode in {"hybrid", "trade"}:
         flag_applied = _is_edinet_bonus_enabled()
         out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
         _persist_monthly_edinet_audit(
@@ -5580,6 +5904,21 @@ def _build_rankings_response(
         out_items,
         direction=direction,
     )
+    if effective_mode == "trade":
+        scored_items = _copy_rank_items(out_items)
+        _apply_trade_priority_scores(scored_items, direction=direction)
+        out_items = _filter_strict_trade_rank_items(scored_items, direction=direction)
+        out_items.sort(
+            key=lambda item: (
+                item.get("tradePriorityScore") is None,
+                -(item.get("tradePriorityScore") or 0.0),
+                -(item.get("tradePriorityProfitScore") or 0.0),
+                -(item.get("tradePriorityHitScore") or 0.0),
+                -(item.get("entryScore") or 0.0),
+                -(item.get("probSide") or 0.0),
+                item.get("code", ""),
+            )
+        )
     out_items = [_sanitize_rank_item_for_json(item) for item in out_items]
 
     try:
@@ -5780,7 +6119,7 @@ def get_rankings_asof(
             direction=direction,
             risk_mode=risk_mode,
         )
-    elif tf == "M" and effective_mode == "hybrid":
+    elif tf == "M" and effective_mode in {"hybrid", "trade"}:
         out_items, pred_dt, model_version = _call_apply_monthly_ml_mode(
             source_items,
             direction=direction,
@@ -5806,9 +6145,11 @@ def get_rankings_asof(
         pred_dt=pred_dt,
         model_version=model_version,
     )
-    if tf == "M" and effective_mode == "hybrid":
+    if tf == "M" and effective_mode in {"hybrid", "trade"}:
         flag_applied = _is_edinet_bonus_enabled()
         out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
+    if effective_mode == "trade":
+        out_items = _filter_tradable_rank_items(out_items, direction=direction)
     out_items = _attach_quality_flags(
         out_items,
         mode=effective_mode,
@@ -5819,6 +6160,19 @@ def get_rankings_asof(
         out_items,
         direction=direction,
     )
+    if effective_mode == "trade":
+        _apply_trade_priority_scores(out_items, direction=direction)
+        out_items.sort(
+            key=lambda item: (
+                item.get("tradePriorityScore") is None,
+                -(item.get("tradePriorityScore") or 0.0),
+                -(item.get("tradePriorityProfitScore") or 0.0),
+                -(item.get("tradePriorityHitScore") or 0.0),
+                -(item.get("entryScore") or 0.0),
+                -(item.get("probSide") or 0.0),
+                item.get("code", ""),
+            )
+        )
 
     if pred_dt is not None:
         pred_key = pred_dt
@@ -5841,13 +6195,28 @@ def get_rankings_asof(
                 direction=direction,
                 now_ymd=as_of_int,
             )
-            if tf == "M" and effective_mode == "hybrid":
+            if tf == "M" and effective_mode in {"hybrid", "trade"}:
                 flag_applied = _is_edinet_bonus_enabled()
                 out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
             out_items = _attach_swing_fields(
                 out_items,
                 direction=direction,
             )
+    if effective_mode == "trade":
+        scored_items = _copy_rank_items(out_items)
+        _apply_trade_priority_scores(scored_items, direction=direction)
+        out_items = _filter_strict_trade_rank_items(scored_items, direction=direction)
+        out_items.sort(
+            key=lambda item: (
+                item.get("tradePriorityScore") is None,
+                -(item.get("tradePriorityScore") or 0.0),
+                -(item.get("tradePriorityProfitScore") or 0.0),
+                -(item.get("tradePriorityHitScore") or 0.0),
+                -(item.get("entryScore") or 0.0),
+                -(item.get("probSide") or 0.0),
+                item.get("code", ""),
+            )
+        )
 
     filtered: list[dict] = []
     for item in out_items:

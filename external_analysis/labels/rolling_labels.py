@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from external_analysis.contracts.paths import resolve_export_db_path
 from external_analysis.exporter.export_schema import connect_export_db
 from external_analysis.labels.store import connect_label_db, ensure_label_schema
 from external_analysis.runtime.incremental_cache import LABEL_RELEVANT_EXPORT_TABLES, probe_label_cache, upsert_manifest
@@ -21,43 +22,29 @@ def _run_id(kind: str) -> str:
     return _utcnow().strftime(f"{kind}_%Y%m%dT%H%M%S%fZ")
 
 
-def _load_export_frames(export_db_path: str | None = None) -> tuple[list[int], dict[str, list[dict[str, Any]]]]:
+def _load_trading_dates(export_db_path: str | None = None) -> list[int]:
     export_conn = connect_export_db(export_db_path)
     try:
-        bar_rows = export_conn.execute(
+        rows = export_conn.execute(
             """
-            SELECT b.code, b.trade_date, b.o, b.h, b.l, b.c, b.v, i.ma20
-            FROM bars_daily_export b
-            LEFT JOIN indicator_daily_export i
-              ON i.code = b.code AND i.trade_date = b.trade_date
-            ORDER BY b.code, b.trade_date
+            SELECT DISTINCT trade_date
+            FROM bars_daily_export
+            WHERE trade_date IS NOT NULL
+            ORDER BY trade_date
             """
         ).fetchall()
     finally:
         export_conn.close()
-    trading_dates = sorted({int(row[1]) for row in bar_rows})
-    by_code: dict[str, list[dict[str, Any]]] = {}
-    for row in bar_rows:
-        by_code.setdefault(str(row[0]), []).append(
-            {
-                "code": str(row[0]),
-                "trade_date": int(row[1]),
-                "o": row[2],
-                "h": row[3],
-                "l": row[4],
-                "c": row[5],
-                "v": row[6],
-                "ma20": row[7],
-            }
-        )
-    return trading_dates, by_code
+    return [int(row[0]) for row in rows if row and row[0] is not None]
 
 
-def _quantile_flag(rank_position: int, total_count: int, pct: float) -> bool:
-    if total_count <= 0:
-        return False
-    cutoff = max(1, int(total_count * pct))
-    return rank_position <= cutoff
+def _load_export_codes(conn, *, export_alias: str) -> list[str]:
+    rows = conn.execute(f"SELECT DISTINCT code FROM {export_alias}.bars_daily_export ORDER BY code").fetchall()
+    return [str(row[0]) for row in rows if row and row[0] is not None]
+
+
+def _quantile_sql(count_column: str, pct: float) -> str:
+    return f"GREATEST(1, CAST(FLOOR({count_column} * {pct}) AS INTEGER))"
 
 
 def _affected_as_of_dates(
@@ -78,6 +65,238 @@ def _affected_as_of_dates(
         end_idx = min(len(trading_dates) - 1, trading_index[date_to])
         affected.update(int(value) for value in trading_dates[start_idx : end_idx + 1])
     return affected
+
+
+def _affected_filter_sql(affected_dates: set[int]) -> tuple[str, list[int]]:
+    if not affected_dates:
+        return "", []
+    placeholders = ", ".join(["?"] * len(affected_dates))
+    clause = f" AND cur.trade_date IN ({placeholders})"
+    return clause, sorted(int(value) for value in affected_dates)
+
+
+def _chunk_values(values: list[str], chunk_size: int) -> list[list[str]]:
+    if chunk_size <= 0:
+        raise ValueError("chunk_size_must_be_positive")
+    return [values[index : index + chunk_size] for index in range(0, len(values), chunk_size)]
+
+
+def _insert_horizon_labels(
+    conn,
+    *,
+    export_alias: str,
+    horizon: int,
+    run_id: str,
+    probe_action: str,
+    affected_dates: set[int],
+) -> int:
+    table_name = f"label_daily_h{horizon}"
+    if probe_action == "partial" and affected_dates:
+        placeholders = ", ".join(["?"] * len(affected_dates))
+        conn.execute(f"DELETE FROM {table_name} WHERE as_of_date IN ({placeholders})", sorted(affected_dates))
+    else:
+        conn.execute(f"DELETE FROM {table_name}")
+
+    affected_filter_sql, affected_params = _affected_filter_sql(affected_dates if probe_action == "partial" else set())
+    codes = _load_export_codes(conn, export_alias=export_alias)
+    raw_table_name = f"temp_label_raw_h{horizon}"
+    conn.execute(f"DROP TABLE IF EXISTS {raw_table_name}")
+    conn.execute(
+        f"""
+        CREATE TEMP TABLE {raw_table_name} (
+            code TEXT,
+            as_of_date INTEGER,
+            horizon_days INTEGER,
+            ret_h DOUBLE,
+            mfe_h DOUBLE,
+            mae_h DOUBLE,
+            days_to_mfe_h INTEGER,
+            days_to_stop_h INTEGER,
+            future_window_start_date INTEGER,
+            future_window_end_date INTEGER,
+            purge_end_date INTEGER,
+            embargo_until_date INTEGER
+        )
+        """
+    )
+    for code_chunk in _chunk_values(codes, 256):
+        code_placeholders = ", ".join(["?"] * len(code_chunk))
+        bars_code_filter_sql = f"WHERE code IN ({code_placeholders})"
+        sql = f"""
+        INSERT INTO {raw_table_name} (
+            code, as_of_date, horizon_days, ret_h, mfe_h, mae_h, days_to_mfe_h, days_to_stop_h,
+            future_window_start_date, future_window_end_date, purge_end_date, embargo_until_date
+        )
+        WITH bars AS (
+            SELECT
+                code,
+                trade_date,
+                h,
+                l,
+                c,
+                ROW_NUMBER() OVER (PARTITION BY code ORDER BY trade_date) AS rn
+            FROM {export_alias}.bars_daily_export
+            {bars_code_filter_sql}
+        ),
+        market_dates AS (
+            SELECT
+                trade_date,
+                ROW_NUMBER() OVER (ORDER BY trade_date) AS market_rn
+            FROM (
+                SELECT DISTINCT trade_date
+                FROM {export_alias}.bars_daily_export
+                WHERE trade_date IS NOT NULL
+            )
+        ),
+        market_cap AS (
+            SELECT MAX(market_rn) AS max_market_rn
+            FROM market_dates
+        ),
+        eligible AS (
+            SELECT
+                cur.code,
+                cur.trade_date AS as_of_date,
+            cur.c AS current_close,
+                next_bar.trade_date AS future_window_start_date,
+                end_bar.trade_date AS future_window_end_date,
+                end_bar.trade_date AS purge_end_date,
+                end_bar.c AS future_close
+            FROM bars cur
+        JOIN bars next_bar
+              ON next_bar.code = cur.code AND next_bar.rn = cur.rn + 1
+            JOIN bars end_bar
+              ON end_bar.code = cur.code AND end_bar.rn = cur.rn + {horizon}
+            WHERE cur.c IS NOT NULL AND cur.c <> 0 AND end_bar.c IS NOT NULL
+            {affected_filter_sql}
+        ),
+        future_window AS (
+            SELECT
+                cur.code,
+                cur.trade_date AS as_of_date,
+            window_bar.rn - cur.rn AS rel_day,
+            window_bar.h,
+            window_bar.l
+            FROM bars cur
+            JOIN bars window_bar
+              ON window_bar.code = cur.code
+             AND window_bar.rn BETWEEN cur.rn + 1 AND cur.rn + {horizon}
+            WHERE cur.c IS NOT NULL AND cur.c <> 0
+            {affected_filter_sql}
+        ),
+        window_stats AS (
+            SELECT
+                code,
+                as_of_date,
+                MAX(h) AS max_high,
+                MIN(l) AS min_low
+            FROM future_window
+            GROUP BY code, as_of_date
+        ),
+        window_days AS (
+            SELECT
+                future_window.code,
+                future_window.as_of_date,
+            MIN(CASE WHEN future_window.h = window_stats.max_high THEN future_window.rel_day END) AS days_to_mfe_h,
+            MIN(CASE WHEN future_window.l = window_stats.min_low THEN future_window.rel_day END) AS days_to_stop_h
+            FROM future_window
+            JOIN window_stats
+              ON window_stats.code = future_window.code
+             AND window_stats.as_of_date = future_window.as_of_date
+            GROUP BY future_window.code, future_window.as_of_date
+        ),
+        scored AS (
+            SELECT
+                eligible.code,
+                eligible.as_of_date,
+            {horizon} AS horizon_days,
+            (CAST(eligible.future_close AS DOUBLE) / CAST(eligible.current_close AS DOUBLE)) - 1.0 AS ret_h,
+            (CAST(window_stats.max_high AS DOUBLE) / CAST(eligible.current_close AS DOUBLE)) - 1.0 AS mfe_h,
+            (CAST(window_stats.min_low AS DOUBLE) / CAST(eligible.current_close AS DOUBLE)) - 1.0 AS mae_h,
+            window_days.days_to_mfe_h,
+            window_days.days_to_stop_h,
+            COUNT(*) OVER (PARTITION BY eligible.as_of_date) AS cross_section_count,
+            ROW_NUMBER() OVER (
+                PARTITION BY eligible.as_of_date
+                ORDER BY ((CAST(eligible.future_close AS DOUBLE) / CAST(eligible.current_close AS DOUBLE)) - 1.0) DESC, eligible.code ASC
+            ) AS rank_ret_h,
+            eligible.future_window_start_date,
+            eligible.future_window_end_date,
+            eligible.purge_end_date,
+            embargo.trade_date AS embargo_until_date
+        FROM eligible
+        JOIN window_stats
+          ON window_stats.code = eligible.code
+         AND window_stats.as_of_date = eligible.as_of_date
+        JOIN window_days
+          ON window_days.code = eligible.code
+         AND window_days.as_of_date = eligible.as_of_date
+        JOIN market_dates market_end
+          ON market_end.trade_date = eligible.future_window_end_date
+            CROSS JOIN market_cap
+            JOIN market_dates embargo
+              ON embargo.market_rn = LEAST(market_cap.max_market_rn, market_end.market_rn + {EMBARGO_BY_HORIZON[horizon]})
+            WHERE window_stats.max_high IS NOT NULL AND window_stats.min_low IS NOT NULL
+        )
+        SELECT
+            code,
+            as_of_date,
+            horizon_days,
+            ret_h,
+            mfe_h,
+            mae_h,
+            days_to_mfe_h,
+            days_to_stop_h,
+            future_window_start_date,
+            future_window_end_date,
+            purge_end_date,
+            embargo_until_date
+        FROM scored
+        """
+        params = [*code_chunk, *affected_params, *affected_params]
+        conn.execute(sql, params)
+    conn.execute(
+        f"""
+        INSERT INTO {table_name} (
+            code, as_of_date, horizon_days, ret_h, mfe_h, mae_h, days_to_mfe_h, days_to_stop_h,
+            cross_section_count, rank_ret_h, top_1pct_h, top_3pct_h, top_5pct_h,
+            future_window_start_date, future_window_end_date, purge_end_date, embargo_until_date,
+            leakage_group_id, policy_version, generation_run_id
+        )
+        SELECT
+            code,
+            as_of_date,
+            horizon_days,
+            ret_h,
+            mfe_h,
+            mae_h,
+            days_to_mfe_h,
+            days_to_stop_h,
+            cross_section_count,
+            rank_ret_h,
+            rank_ret_h <= {_quantile_sql('cross_section_count', 0.01)} AS top_1pct_h,
+            rank_ret_h <= {_quantile_sql('cross_section_count', 0.03)} AS top_3pct_h,
+            rank_ret_h <= {_quantile_sql('cross_section_count', 0.05)} AS top_5pct_h,
+            future_window_start_date,
+            future_window_end_date,
+            purge_end_date,
+            embargo_until_date,
+            code || ':' || CAST(as_of_date AS VARCHAR) || ':' || CAST(future_window_end_date AS VARCHAR) AS leakage_group_id,
+            ?,
+            ?
+        FROM (
+            SELECT
+                *,
+                COUNT(*) OVER (PARTITION BY as_of_date) AS cross_section_count,
+                ROW_NUMBER() OVER (PARTITION BY as_of_date ORDER BY ret_h DESC, code ASC) AS rank_ret_h
+            FROM {raw_table_name}
+        )
+        """,
+        [POLICY_VERSION, run_id],
+    )
+    conn.execute(f"DROP TABLE IF EXISTS {raw_table_name}")
+    return int(
+        conn.execute(f"SELECT COUNT(*) FROM {table_name} WHERE generation_run_id = ?", [run_id]).fetchone()[0] or 0
+    )
 
 
 def build_rolling_labels(
@@ -108,103 +327,27 @@ def build_rolling_labels(
             "dirty_ranges": [],
             "source_signature": probe.get("source_signature"),
         }
-    trading_dates, by_code = _load_export_frames(export_db_path)
-    index_by_date = {value: idx for idx, value in enumerate(trading_dates)}
+
+    trading_dates = _load_trading_dates(export_db_path)
     affected_dates = _affected_as_of_dates(trading_dates=trading_dates, dirty_ranges=probe["dirty_ranges"])
-    label_rows_by_horizon: dict[int, list[dict[str, Any]]] = {horizon: [] for horizon in selected_horizons}
-    for code, bars in by_code.items():
-        for idx, bar in enumerate(bars):
-            as_of_date = int(bar["trade_date"])
-            if affected_dates and as_of_date not in affected_dates:
-                continue
-            current_close = bar["c"]
-            if current_close in (None, 0):
-                continue
-            for horizon in selected_horizons:
-                future_idx = idx + horizon
-                if future_idx >= len(bars):
-                    continue
-                future_slice = bars[idx + 1 : future_idx + 1]
-                future_close = bars[future_idx]["c"]
-                if future_close is None:
-                    continue
-                highs = [float(item["h"]) for item in future_slice if item["h"] is not None]
-                lows = [float(item["l"]) for item in future_slice if item["l"] is not None]
-                if not highs or not lows:
-                    continue
-                max_high = max(highs)
-                min_low = min(lows)
-                days_to_mfe = next(
-                    offset
-                    for offset, item in enumerate(future_slice, start=1)
-                    if item["h"] is not None and float(item["h"]) == max_high
-                )
-                days_to_stop = next(
-                    offset
-                    for offset, item in enumerate(future_slice, start=1)
-                    if item["l"] is not None and float(item["l"]) == min_low
-                )
-                future_end_date = int(bars[future_idx]["trade_date"])
-                future_end_index = index_by_date[future_end_date]
-                embargo_index = min(len(trading_dates) - 1, future_end_index + EMBARGO_BY_HORIZON[horizon])
-                label_rows_by_horizon[horizon].append(
-                    {
-                        "code": code,
-                        "as_of_date": as_of_date,
-                        "horizon_days": horizon,
-                        "ret_h": (float(future_close) / float(current_close)) - 1.0,
-                        "mfe_h": (max_high / float(current_close)) - 1.0,
-                        "mae_h": (min_low / float(current_close)) - 1.0,
-                        "days_to_mfe_h": days_to_mfe,
-                        "days_to_stop_h": days_to_stop,
-                        "cross_section_count": 0,
-                        "rank_ret_h": None,
-                        "top_1pct_h": False,
-                        "top_3pct_h": False,
-                        "top_5pct_h": False,
-                        "future_window_start_date": int(future_slice[0]["trade_date"]),
-                        "future_window_end_date": future_end_date,
-                        "purge_end_date": future_end_date,
-                        "embargo_until_date": int(trading_dates[embargo_index]),
-                        "leakage_group_id": f"{code}:{as_of_date}:{future_end_date}",
-                        "policy_version": POLICY_VERSION,
-                        "generation_run_id": run_id,
-                    }
-                )
-    for horizon, rows in label_rows_by_horizon.items():
-        by_date: dict[int, list[dict[str, Any]]] = {}
-        for row in rows:
-            by_date.setdefault(int(row["as_of_date"]), []).append(row)
-        for as_of_date, date_rows in by_date.items():
-            ranked = sorted(date_rows, key=lambda item: float(item["ret_h"]), reverse=True)
-            total_count = len(ranked)
-            for position, row in enumerate(ranked, start=1):
-                row["cross_section_count"] = total_count
-                row["rank_ret_h"] = position
-                row["top_1pct_h"] = _quantile_flag(position, total_count, 0.01)
-                row["top_3pct_h"] = _quantile_flag(position, total_count, 0.03)
-                row["top_5pct_h"] = _quantile_flag(position, total_count, 0.05)
     label_conn = connect_label_db(label_db_path)
+    export_alias = "rolling_export"
     try:
         ensure_label_schema(label_conn)
-        for horizon, rows in label_rows_by_horizon.items():
-            if probe["action"] == "partial" and affected_dates:
-                label_conn.execute(
-                    f"DELETE FROM label_daily_h{horizon} WHERE as_of_date IN ({', '.join(['?'] * len(affected_dates))})",
-                    sorted(affected_dates),
-                )
-            else:
-                label_conn.execute(f"DELETE FROM label_daily_h{horizon}")
-            if rows:
-                columns = list(rows[0].keys())
-                label_conn.executemany(
-                    f"INSERT INTO label_daily_h{horizon} ({', '.join(columns)}) VALUES ({', '.join(['?'] * len(columns))})",
-                    [[row[column] for column in columns] for row in rows],
-                )
-        label_conn.execute("DELETE FROM label_aux_monthly")
+        export_path_sql = str(resolve_export_db_path(export_db_path)).replace("'", "''")
+        label_conn.execute(f"ATTACH '{export_path_sql}' AS {export_alias} (READ_ONLY)")
         summary = {
-            f"label_daily_h{horizon}": len(label_rows_by_horizon[horizon]) for horizon in selected_horizons
+            f"label_daily_h{horizon}": _insert_horizon_labels(
+                label_conn,
+                export_alias=export_alias,
+                horizon=horizon,
+                run_id=run_id,
+                probe_action=str(probe["action"]),
+                affected_dates=affected_dates,
+            )
+            for horizon in selected_horizons
         }
+        label_conn.execute("DELETE FROM label_aux_monthly")
         label_conn.execute(
             """
             INSERT OR REPLACE INTO label_generation_runs (
@@ -253,4 +396,8 @@ def build_rolling_labels(
             "source_signature": probe.get("source_signature"),
         }
     finally:
+        try:
+            label_conn.execute(f"DETACH {export_alias}")
+        except Exception:
+            pass
         label_conn.close()

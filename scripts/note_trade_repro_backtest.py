@@ -4,16 +4,30 @@ import argparse
 import json
 import math
 from pathlib import Path
+import sys
 from typing import Any
 
 import duckdb
 import numpy as np
 import pandas as pd
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.month_end_shape_study import classify_5541_premise_bucket
+
 
 ROUND_TRIP_COST = 0.002
 PATH_HORIZONS = [3, 5, 10, 20]
 PATTERN_LENGTHS = [2, 3, 4]
+FOCUS_CODE = "5541"
+PERIOD_BUCKETS: list[tuple[str, str, str]] = [
+    ("2016-01-01", "2019-12-31", "2016-2019"),
+    ("2020-01-01", "2022-12-31", "2020-2022"),
+    ("2023-01-01", "2026-12-31", "2023-2026"),
+]
+EXIT_CASES = ("climactic_partial", "trend_break", "time_stop")
 
 
 def _summary_from_returns(values: pd.Series) -> dict[str, Any]:
@@ -159,6 +173,8 @@ def _build_monthly_premise_map(daily: pd.DataFrame) -> pd.DataFrame:
         g = group.sort_values("month").reset_index(drop=True)
         closes = g["c"].to_numpy(dtype=np.float64)
         opens = g["o"].to_numpy(dtype=np.float64)
+        ma6 = g["c"].rolling(6, min_periods=4).mean()
+        ma12 = g["c"].rolling(12, min_periods=8).mean()
         for idx in range(len(g)):
             hist_rows = list(g.loc[:idx, ["month", "o", "h", "l", "c"]].itertuples(index=False, name=None))
             box = _detect_body_box(hist_rows)
@@ -168,6 +184,12 @@ def _build_monthly_premise_map(daily: pd.DataFrame) -> pd.DataFrame:
             prev3 = closes[max(0, idx - 3) : idx]
             premise_label = "other"
             box_zone = "na"
+            premise_bucket = "other"
+            monthly_long_trend = bool(
+                pd.notna(ma6.iloc[idx]) and pd.notna(ma12.iloc[idx]) and (close_now > float(ma6.iloc[idx]) > float(ma12.iloc[idx]))
+            )
+            box_months = int(box["months"]) if box else None
+            box_range_pct = float(box["range_pct"]) if box else None
             if box and box["upper"] > box["lower"]:
                 pos = (close_now - box["lower"]) / (box["upper"] - box["lower"])
                 if pos <= 0.25:
@@ -182,6 +204,8 @@ def _build_monthly_premise_map(daily: pd.DataFrame) -> pd.DataFrame:
                     premise_label = "top_box_reversal"
                 elif 0.25 <= pos < 0.75 and box["months"] >= 4:
                     premise_label = "sideways"
+                if box["months"] >= 4 and pos >= 0.75:
+                    premise_bucket = "5541_long_base_breakout" if monthly_long_trend else "base_breakout_watch"
             if prev6.size >= 3:
                 if (
                     close_now > float(np.max(prev6)) * 1.01
@@ -194,10 +218,32 @@ def _build_monthly_premise_map(daily: pd.DataFrame) -> pd.DataFrame:
                 expected_range = (float(np.max(prev3)) / max(float(np.min(prev3)), 1e-9)) - 1.0
                 if abs(monthly_ret) < 0.02 and expected_range < 0.12 and idx >= 4:
                     premise_label = "unexpected_stagnation"
-            rows.append({"code": str(code), "month": g.loc[idx, "month"], "premise_label": premise_label, "box_zone": box_zone})
+            rows.append(
+                {
+                    "code": str(code),
+                    "month": g.loc[idx, "month"],
+                    "premise_label": premise_label,
+                    "premise_bucket": premise_bucket,
+                    "box_zone": box_zone,
+                    "monthly_box_months": box_months,
+                    "monthly_box_range_pct": box_range_pct,
+                    "monthly_long_trend": monthly_long_trend,
+                }
+            )
     premise = pd.DataFrame(rows)
     premise["apply_month"] = premise["month"] + 1
-    return premise[["code", "apply_month", "premise_label", "box_zone"]]
+    return premise[
+        [
+            "code",
+            "apply_month",
+            "premise_label",
+            "premise_bucket",
+            "box_zone",
+            "monthly_box_months",
+            "monthly_box_range_pct",
+            "monthly_long_trend",
+        ]
+    ]
 
 
 def _build_weekly_context_map(daily: pd.DataFrame) -> pd.DataFrame:
@@ -211,6 +257,9 @@ def _build_weekly_context_map(daily: pd.DataFrame) -> pd.DataFrame:
         g = group.sort_values("week_end").reset_index(drop=True)
         g["wk_ma20"] = g["c"].rolling(20, min_periods=10).mean()
         g["wk_ma20_slope3"] = g["wk_ma20"] - g["wk_ma20"].shift(3)
+        g["wk_range_pct"] = (g["h"] - g["l"]) / g["o"].replace(0.0, np.nan)
+        g["wk_range_pct_avg8"] = g["wk_range_pct"].rolling(8, min_periods=4).mean().shift(1)
+        g["wk_vol_avg8"] = g["v"].rolling(8, min_periods=4).mean().shift(1)
         g["week_slope"] = np.where(
             g["wk_ma20_slope3"] > 0.0,
             "up",
@@ -219,7 +268,27 @@ def _build_weekly_context_map(daily: pd.DataFrame) -> pd.DataFrame:
         g["week_lower_high"] = (g["h"] < g["h"].shift(1)) & (g["h"].shift(1) < g["h"].shift(2))
         prev8_low = g["l"].shift(1).rolling(8, min_periods=3).min()
         g["week_near_prev_low"] = prev8_low.notna() & (g["l"] <= prev8_low * 1.03)
-        rows.append(g[["code", "week_end", "week_slope", "week_lower_high", "week_near_prev_low"]])
+        g["week_support_hold"] = prev8_low.notna() & (g["c"] >= prev8_low * 1.03)
+        g["week_climactic"] = (
+            g["wk_range_pct_avg8"].notna()
+            & g["wk_vol_avg8"].notna()
+            & (g["wk_range_pct"] >= g["wk_range_pct_avg8"] * 1.8)
+            & (g["v"] >= g["wk_vol_avg8"] * 1.4)
+            & (g["c"] > g["o"])
+        )
+        rows.append(
+            g[
+                [
+                    "code",
+                    "week_end",
+                    "week_slope",
+                    "week_lower_high",
+                    "week_near_prev_low",
+                    "week_support_hold",
+                    "week_climactic",
+                ]
+            ]
+        )
     return pd.concat(rows, ignore_index=True) if rows else weekly.iloc[0:0]
 
 
@@ -259,6 +328,30 @@ def _add_daily_coordinates(daily: pd.DataFrame) -> pd.DataFrame:
         "na",
         np.where(daily["v"] >= daily["vol20"] * 1.5, "surge", np.where(daily["v"] <= daily["vol20"] * 0.7, "dry", "mid")),
     )
+    daily["dist_ma20"] = np.where(
+        daily["ma20"].notna() & (daily["ma20"] > 0.0),
+        (daily["c"] / daily["ma20"]) - 1.0,
+        np.nan,
+    )
+    daily["touch_ma20"] = daily["ma20"].notna() & (daily["l"] <= daily["ma20"] * 1.02) & (daily["h"] >= daily["ma20"] * 0.98)
+    prev20_high = daily.groupby("code", sort=False)["h"].transform(lambda s: s.shift(1).rolling(20, min_periods=10).max())
+    daily["breakout_day"] = prev20_high.notna() & (daily["c"] > prev20_high * 1.01)
+    daily["recent_breakout_15d"] = (
+        daily.groupby("code", sort=False)["breakout_day"]
+        .transform(lambda s: s.shift(1).rolling(15, min_periods=1).max())
+        .fillna(0.0)
+        .astype(bool)
+    )
+    daily["climactic_day"] = (
+        (daily["atr_bucket"] == "high")
+        & (daily["vol_bucket"] == "surge")
+        & (daily["c"] >= daily["o"])
+        & (
+            (daily["prev_h"].notna() & (daily["h"] > daily["prev_h"] * 1.01))
+            | (daily["dist_ma20"] >= 0.12)
+        )
+    )
+    daily["support_break_day"] = daily["ma20"].notna() & (daily["c"] < daily["ma20"] * 0.99)
     return daily
 
 
@@ -354,6 +447,276 @@ def _add_forward_path_metrics(daily: pd.DataFrame, study_mask: pd.Series | None 
     return daily
 
 
+def _assign_period_bucket(dt_series: pd.Series) -> pd.Series:
+    dt = pd.to_datetime(dt_series)
+    bucket = pd.Series("other", index=dt_series.index, dtype="object")
+    for start, end, label in PERIOD_BUCKETS:
+        mask = (dt >= pd.Timestamp(start)) & (dt <= pd.Timestamp(end))
+        bucket.loc[mask] = label
+    return bucket
+
+
+def _classify_entry_case(daily: pd.DataFrame) -> pd.Series:
+    premise_ok = daily["premise_bucket"].eq("5541_long_base_breakout")
+    weekly_ok = daily["week_slope"].eq("up") & daily["week_support_hold"] & (~daily["week_climactic"])
+    pilot_mask = (
+        premise_ok
+        & weekly_ok
+        & daily["box_zone"].isin(["upper", "breakout"])
+        & (~daily["recent_breakout_15d"])
+        & (~daily["climactic_day"])
+        & daily["dist_ma20"].fillna(0.0).between(-0.03, 0.08)
+    )
+    support_mask = (
+        premise_ok
+        & weekly_ok
+        & daily["recent_breakout_15d"]
+        & (daily["touch_ma20"] | daily["cnt7_down"].between(1, 4))
+        & (~daily["climactic_day"])
+    )
+    chase_mask = (
+        premise_ok
+        & daily["week_slope"].eq("up")
+        & daily["climactic_day"]
+        & ((daily["dist_ma20"] >= 0.12) | daily["box_zone"].eq("breakout"))
+    )
+    return pd.Series(
+        np.select(
+            [pilot_mask, support_mask, chase_mask],
+            ["anticipatory_pilot", "first_support_add", "vertical_chase"],
+            default="other",
+        ),
+        index=daily.index,
+        dtype="object",
+    )
+
+
+def _classify_path_quality(daily: pd.DataFrame) -> pd.Series:
+    clean_mask = daily["hit_up5_before_dn5_20d"] & (daily["mae_20d"] > -0.05) & (daily["ret_long_10d"] > 0.0)
+    volatile_mask = daily["ret_long_10d"] > 0.0
+    failed_mask = daily["hit_dn5_before_up5_20d"] | (daily["mae_20d"] <= -0.08)
+    return pd.Series(
+        np.select(
+            [clean_mask, volatile_mask, failed_mask],
+            ["clean_trend", "volatile_win", "failed_fast"],
+            default="stalled",
+        ),
+        index=daily.index,
+        dtype="object",
+    )
+
+
+def _simulate_exit_cases(daily: pd.DataFrame, study_mask: pd.Series) -> pd.DataFrame:
+    daily = daily.copy()
+    for exit_case in EXIT_CASES:
+        daily[f"ret_{exit_case}"] = np.nan
+        daily[f"days_{exit_case}"] = np.nan
+
+    grouped = daily.groupby("code", sort=False)
+    for _, group in grouped:
+        opens = group["o"].to_numpy(dtype=np.float64, copy=False)
+        closes = group["c"].to_numpy(dtype=np.float64, copy=False)
+        highs = group["h"].to_numpy(dtype=np.float64, copy=False)
+        lows = group["l"].to_numpy(dtype=np.float64, copy=False)
+        ma20 = group["ma20"].to_numpy(dtype=np.float64, copy=False)
+        atr20 = group["atr20"].to_numpy(dtype=np.float64, copy=False)
+        vol = group["v"].to_numpy(dtype=np.float64, copy=False)
+        vol20 = group["vol20"].to_numpy(dtype=np.float64, copy=False)
+        prev_h = group["prev_h"].to_numpy(dtype=np.float64, copy=False)
+        tr = group["tr"].to_numpy(dtype=np.float64, copy=False)
+        local_mask = study_mask.loc[group.index].to_numpy(dtype=bool, copy=False)
+
+        for local_idx, row_index in enumerate(group.index):
+            if not local_mask[local_idx]:
+                continue
+            entry_idx = local_idx + 1
+            if entry_idx >= len(group) or not np.isfinite(opens[entry_idx]) or opens[entry_idx] <= 0.0:
+                continue
+            horizon_end = min(len(group), local_idx + 21)
+            if entry_idx >= horizon_end:
+                continue
+            entry_price = opens[entry_idx]
+            fallback_idx = horizon_end - 1
+            fallback_price = closes[fallback_idx]
+            if not np.isfinite(fallback_price) or fallback_price <= 0.0:
+                continue
+
+            clim_idx = None
+            trend_idx = None
+            up_hit_10d = False
+            eval_end = min(len(group), local_idx + 11)
+
+            for future_idx in range(entry_idx, horizon_end):
+                if (
+                    clim_idx is None
+                    and np.isfinite(tr[future_idx])
+                    and np.isfinite(atr20[future_idx])
+                    and np.isfinite(vol[future_idx])
+                    and np.isfinite(vol20[future_idx])
+                    and np.isfinite(prev_h[future_idx])
+                    and atr20[future_idx] > 0.0
+                    and vol20[future_idx] > 0.0
+                    and tr[future_idx] >= atr20[future_idx] * 1.8
+                    and vol[future_idx] >= vol20[future_idx] * 1.4
+                    and closes[future_idx] >= opens[future_idx]
+                    and highs[future_idx] > prev_h[future_idx] * 1.01
+                ):
+                    clim_idx = future_idx
+                if (
+                    trend_idx is None
+                    and np.isfinite(ma20[future_idx])
+                    and closes[future_idx] < ma20[future_idx] * 0.99
+                ):
+                    trend_idx = future_idx
+                if future_idx < eval_end and highs[future_idx] >= entry_price * 1.05:
+                    up_hit_10d = True
+
+            trend_exit_idx = fallback_idx
+            if trend_idx is not None and trend_idx + 1 < len(group):
+                trend_exit_idx = min(trend_idx + 1, fallback_idx)
+            time_exit_idx = fallback_idx
+            ten_day_idx = min(len(group) - 1, local_idx + 10)
+            if (not up_hit_10d) and ten_day_idx >= entry_idx and np.isfinite(closes[ten_day_idx]) and closes[ten_day_idx] <= entry_price * 1.02:
+                time_exit_idx = ten_day_idx
+
+            clim_ret = (fallback_price / entry_price) - 1.0
+            clim_days = float(fallback_idx - entry_idx + 1)
+            if clim_idx is not None and clim_idx + 1 < len(group):
+                partial_idx = min(clim_idx + 1, fallback_idx)
+                partial_price = opens[partial_idx] if np.isfinite(opens[partial_idx]) and opens[partial_idx] > 0.0 else closes[partial_idx]
+                if np.isfinite(partial_price) and partial_price > 0.0:
+                    clim_ret = 0.5 * ((partial_price / entry_price) - 1.0) + 0.5 * ((fallback_price / entry_price) - 1.0)
+                    clim_days = float(partial_idx - entry_idx + 1)
+
+            trend_price = closes[trend_exit_idx]
+            time_price = closes[time_exit_idx]
+            if np.isfinite(trend_price) and trend_price > 0.0:
+                daily.at[row_index, "ret_trend_break"] = (trend_price / entry_price) - 1.0 - ROUND_TRIP_COST
+                daily.at[row_index, "days_trend_break"] = float(trend_exit_idx - entry_idx + 1)
+            if np.isfinite(time_price) and time_price > 0.0:
+                daily.at[row_index, "ret_time_stop"] = (time_price / entry_price) - 1.0 - ROUND_TRIP_COST
+                daily.at[row_index, "days_time_stop"] = float(time_exit_idx - entry_idx + 1)
+            daily.at[row_index, "ret_climactic_partial"] = clim_ret - ROUND_TRIP_COST
+            daily.at[row_index, "days_climactic_partial"] = clim_days
+    return daily
+
+
+def _group_case_summary(frame: pd.DataFrame, group_cols: list[str], ret_col: str, min_samples: int) -> list[dict[str, Any]]:
+    work = frame.loc[frame[ret_col].notna()].copy()
+    rows: list[dict[str, Any]] = []
+    if work.empty:
+        return rows
+    for keys, group in work.groupby(group_cols, dropna=False):
+        summary = _summary_from_returns(group[ret_col])
+        if int(summary["n"]) < int(min_samples):
+            continue
+        row: dict[str, Any] = {}
+        if len(group_cols) == 1:
+            row[group_cols[0]] = keys[0] if isinstance(keys, tuple) else keys
+        else:
+            for idx, col in enumerate(group_cols):
+                row[col] = keys[idx]
+        row.update(summary)
+        row["mfe20d"] = float(group["mfe_20d"].mean())
+        row["mae20d"] = float(group["mae_20d"].mean())
+        row["up5_before_dn5_20d"] = float(group["hit_up5_before_dn5_20d"].mean())
+        row["dn5_before_up5_20d"] = float(group["hit_dn5_before_up5_20d"].mean())
+        if "period_bucket" in group.columns:
+            row["periods"] = sorted(group["period_bucket"].dropna().unique().tolist())
+        rows.append(row)
+    rows.sort(key=lambda item: (item.get("mean") or -999.0, item.get("win_rate") or -999.0, item.get("n") or 0), reverse=True)
+    return rows
+
+
+def _build_exit_case_summary(frame: pd.DataFrame, min_samples: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for exit_case in EXIT_CASES:
+        ret_col = f"ret_{exit_case}"
+        days_col = f"days_{exit_case}"
+        work = frame.loc[frame[ret_col].notna()].copy()
+        summary = _summary_from_returns(work[ret_col])
+        if int(summary["n"]) < int(min_samples):
+            continue
+        rows.append(
+            {
+                "exit_case": exit_case,
+                **summary,
+                "avg_days": float(work[days_col].mean()) if work[days_col].notna().any() else None,
+                "median_days": float(work[days_col].median()) if work[days_col].notna().any() else None,
+                "mfe20d": float(work["mfe_20d"].mean()) if not work.empty else None,
+                "mae20d": float(work["mae_20d"].mean()) if not work.empty else None,
+            }
+        )
+    rows.sort(key=lambda item: (item.get("mean") or -999.0, -(item.get("avg_days") or 999.0)), reverse=True)
+    return rows
+
+
+def _build_replay_rows(frame: pd.DataFrame, code: str) -> list[dict[str, Any]]:
+    replay = frame.loc[frame["code"].eq(str(code))].copy()
+    if replay.empty:
+        return []
+    keep_cols = [
+        "dt",
+        "entry_case",
+        "premise_bucket",
+        "path_quality",
+        "ret_long_10d",
+        "ret_long_20d",
+        "mfe_20d",
+        "mae_20d",
+        "ret_climactic_partial",
+        "ret_trend_break",
+        "ret_time_stop",
+    ]
+    replay = replay.sort_values("dt")
+    rows: list[dict[str, Any]] = []
+    for _, row in replay[keep_cols].tail(20).iterrows():
+        rows.append(
+            {
+                "date": pd.Timestamp(row["dt"]).date().isoformat(),
+                "entry_case": str(row["entry_case"]),
+                "premise_bucket": str(row["premise_bucket"]),
+                "path_quality": str(row["path_quality"]),
+                "ret10d": float(row["ret_long_10d"]),
+                "ret20d": float(row["ret_long_20d"]),
+                "mfe20d": float(row["mfe_20d"]),
+                "mae20d": float(row["mae_20d"]),
+                "ret_climactic_partial": float(row["ret_climactic_partial"]) if pd.notna(row["ret_climactic_partial"]) else None,
+                "ret_trend_break": float(row["ret_trend_break"]) if pd.notna(row["ret_trend_break"]) else None,
+                "ret_time_stop": float(row["ret_time_stop"]) if pd.notna(row["ret_time_stop"]) else None,
+            }
+        )
+    return rows
+
+
+def _build_exclusion_rules(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    candidates = [
+        ("late_vertical_chase", frame["entry_case"].eq("vertical_chase")),
+        ("weekly_climactic", frame["week_climactic"]),
+        ("support_not_intact", ~frame["week_support_hold"]),
+        ("failed_fast", frame["path_quality"].eq("failed_fast")),
+    ]
+    baseline = _summary_from_returns(frame["ret_long_10d"])
+    baseline_mean = baseline.get("mean")
+    for label, mask in candidates:
+        subset = frame.loc[mask & frame["ret_long_10d"].notna()]
+        if subset.empty:
+            continue
+        summary = _summary_from_returns(subset["ret_long_10d"])
+        rows.append(
+            {
+                "rule": label,
+                "n": int(summary["n"]),
+                "mean_ret10d": summary["mean"],
+                "win_rate": summary["win_rate"],
+                "delta_vs_baseline": (summary["mean"] - baseline_mean) if baseline_mean is not None and summary["mean"] is not None else None,
+            }
+        )
+    rows.sort(key=lambda item: item.get("delta_vs_baseline") if item.get("delta_vs_baseline") is not None else 999.0)
+    return rows
+
+
 def _aggregate_pattern_study(frame: pd.DataFrame, pattern_len: int, min_samples: int) -> list[dict[str, Any]]:
     pattern_col = f"pattern_{pattern_len}"
     work = frame.loc[frame[pattern_col].notna() & frame["ret_long_10d"].notna()].copy()
@@ -389,8 +752,15 @@ def _aggregate_pattern_study(frame: pd.DataFrame, pattern_len: int, min_samples:
 
 
 def _build_markdown_report(result: dict[str, Any]) -> str:
+    def _fmt(value: Any, digits: int = 4) -> str:
+        if value is None or (isinstance(value, float) and (math.isnan(value) or math.isinf(value))):
+            return "na"
+        if isinstance(value, (int, np.integer)):
+            return str(int(value))
+        return f"{float(value):.{digits}f}"
+
     lines = [
-        "# Regime x Pattern x Path Study",
+        "# 5541型の再現性検証と早仕込み建玉研究",
         "",
         "## Setup",
         "",
@@ -398,9 +768,90 @@ def _build_markdown_report(result: dict[str, Any]) -> str:
         f"- Codes: `{result['meta']['codes']}`",
         f"- Date range: `{result['meta']['date_min']}` to `{result['meta']['date_max']}`",
         f"- Round-trip cost: `{result['meta']['round_trip_cost']:.3f}`",
-        f"- Min samples per regime-pattern: `{result['meta']['min_samples']}`",
+        f"- Min samples per summary: `{result['meta']['min_samples']}`",
+        f"- Focus code replay: `{result['meta']['focus_code']}`",
         "",
     ]
+    lines.extend(
+        [
+            "## 5541の局面分解",
+            "",
+            "| date | entry_case | premise_bucket | path_quality | ret10d | ret20d | exit_climactic | exit_trend_break | exit_time_stop |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in result.get("replay", {}).get(result["meta"]["focus_code"], [])[:20]:
+        lines.append(
+            "| "
+            + f"{row['date']} | {row['entry_case']} | {row['premise_bucket']} | {row['path_quality']} | "
+            + f"{_fmt(row['ret10d'])} | {_fmt(row['ret20d'])} | {_fmt(row['ret_climactic_partial'])} | "
+            + f"{_fmt(row['ret_trend_break'])} | {_fmt(row['ret_time_stop'])} |"
+        )
+    lines.append("")
+
+    lines.extend(
+        [
+            "## 同型サンプルの統計",
+            "",
+            "| premise_bucket | n | mean_ret10d | win_rate | mfe20d | mae20d | up5_before_dn5 |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in result.get("cross_section", {}).get("premise_bucket", [])[:10]:
+        lines.append(
+            "| "
+            + f"{row['premise_bucket']} | {int(row['n'])} | {_fmt(row['mean'])} | {_fmt(row['win_rate'], 3)} | "
+            + f"{_fmt(row['mfe20d'])} | {_fmt(row['mae20d'])} | {_fmt(row['up5_before_dn5_20d'], 3)} |"
+        )
+    lines.append("")
+
+    lines.extend(
+        [
+            "## 建玉3案の比較",
+            "",
+            "| entry_case | n | mean_ret10d | win_rate | mfe20d | mae20d |",
+            "| --- | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in result.get("cross_section", {}).get("entry_case", [])[:10]:
+        lines.append(
+            "| "
+            + f"{row['entry_case']} | {int(row['n'])} | {_fmt(row['mean'])} | {_fmt(row['win_rate'], 3)} | "
+            + f"{_fmt(row['mfe20d'])} | {_fmt(row['mae20d'])} |"
+        )
+    lines.append("")
+
+    lines.extend(
+        [
+            "## 利確・撤退3案の比較",
+            "",
+            "| exit_case | n | mean_ret | win_rate | avg_days | median_days |",
+            "| --- | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in result.get("exit_case_stats", [])[:10]:
+        lines.append(
+            "| "
+            + f"{row['exit_case']} | {int(row['n'])} | {_fmt(row['mean'])} | {_fmt(row['win_rate'], 3)} | "
+            + f"{_fmt(row['avg_days'], 1)} | {_fmt(row['median_days'], 1)} |"
+        )
+    lines.append("")
+
+    lines.extend(
+        [
+            "## 失敗しやすい局面の除外条件",
+            "",
+            "| rule | n | mean_ret10d | delta_vs_baseline | win_rate |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
+    )
+    for row in result.get("exclusion_rules", [])[:10]:
+        lines.append(
+            "| "
+            + f"{row['rule']} | {int(row['n'])} | {_fmt(row['mean_ret10d'])} | {_fmt(row['delta_vs_baseline'])} | {_fmt(row['win_rate'], 3)} |"
+        )
+    lines.append("")
+
     for pattern_len in PATTERN_LENGTHS:
         rows = result["pattern_study"].get(f"pattern_{pattern_len}", [])
         lines.extend([f"## Top Pattern {pattern_len}", "", "| regime_key | pattern | n | ret10d | delta_vs_regime | win10d | mfe20d | mae20d | up5_before_dn5 |", "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"])
@@ -408,17 +859,18 @@ def _build_markdown_report(result: dict[str, Any]) -> str:
             lines.append(
                 "| "
                 + f"{row['regime_key']} | {row[f'pattern_{pattern_len}']} | {int(row['n'])} | "
-                + f"{row['mean_ret_10d']:.4f} | {row['delta_mean_10d_vs_regime']:.4f} | {row['win_rate_10d']:.3f} | "
-                + f"{row['mfe_20d']:.4f} | {row['mae_20d']:.4f} | {row['up5_before_dn5_20d']:.3f} |"
+                + f"{_fmt(row['mean_ret_10d'])} | {_fmt(row['delta_mean_10d_vs_regime'])} | {_fmt(row['win_rate_10d'], 3)} | "
+                + f"{_fmt(row['mfe_20d'])} | {_fmt(row['mae_20d'])} | {_fmt(row['up5_before_dn5_20d'], 3)} |"
             )
         lines.append("")
     lines.extend(
         [
             "## Notes",
             "",
-            "- `delta_vs_regime` is the key metric. Positive means the pattern beat the same regime baseline.",
-            "- `mfe20d` and `mae20d` show path quality. A pattern can have positive ret10d but poor path if `mae20d` is too deep.",
-            "- `up5_before_dn5_20d` is a simple path score for bottoming-style entries.",
+            "- `premise_bucket` は 4ヶ月以上のボックス、上限到達/上抜け、上位トレンド維持を優先した 5541型の前提分類。",
+            "- `entry_case` は 先回り型、初回押し目追加、垂直追撃 を分離して比較する。",
+            "- `path_quality` は `up5_before_dn5_20d` と `mae20d` を使い、勝ち方の質を粗く分類したもの。",
+            "- `exit_case` は 同一エントリーに対する利確・撤退案の比較で、本番売買ロジックではない。",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -431,19 +883,66 @@ def run_backtest(db_paths: list[Path], min_samples: int) -> dict[str, Any]:
     daily = daily.merge(premise_map, how="left", left_on=["code", "month"], right_on=["code", "apply_month"])
     daily = daily.merge(weekly_map, how="left", on=["code", "week_end"])
     daily["premise_label"] = daily["premise_label"].fillna("other")
+    daily["premise_bucket"] = daily["premise_bucket"].fillna("other")
     daily["box_zone"] = daily["box_zone"].fillna("na")
     daily["week_slope"] = daily["week_slope"].fillna("na")
     daily["week_lower_high"] = daily["week_lower_high"].fillna(False).astype(bool)
     daily["week_near_prev_low"] = daily["week_near_prev_low"].fillna(False).astype(bool)
+    daily["week_support_hold"] = daily["week_support_hold"].fillna(False).astype(bool)
+    daily["week_climactic"] = daily["week_climactic"].fillna(False).astype(bool)
+    daily["period_bucket"] = _assign_period_bucket(daily["dt"])
     daily = _add_daily_coordinates(daily)
-    daily = _add_pattern_columns(daily)
-    study_mask = (
-        daily["premise_label"].isin(["up_init", "top_box_reversal", "sideways", "unexpected_stagnation"])
-        & ((daily["day_pos_ma20"] == "below20") | (daily["cnt20_down"] >= 1))
+    monthly_premise_bucket = daily["premise_bucket"].copy()
+    derived_premise_bucket = classify_5541_premise_bucket(
+        pd.DataFrame(
+            {
+                "box_months": daily["monthly_box_months"].fillna(0),
+                "box_state": np.where(
+                    daily["box_zone"].eq("breakout"),
+                    "breakout_up",
+                    np.where(
+                        daily["box_zone"].eq("upper"),
+                        "box_upper",
+                        np.where(
+                            daily["box_zone"].eq("mid"),
+                            "box_mid",
+                            np.where(daily["box_zone"].eq("lower"), "box_lower", "no_box"),
+                        ),
+                    ),
+                ),
+                "trend_bucket": np.where(
+                    daily["week_slope"].eq("up") & daily["day_pos_ma60"].eq("above60"),
+                    "up",
+                    np.where(daily["day_pos_ma60"].eq("above60"), "mixed", "down"),
+                ),
+                "cnt60_up": np.where(
+                    daily["day_pos_ma60"].eq("above60"),
+                    30 + daily["cnt7_down"].fillna(0),
+                    daily["cnt7_down"].fillna(0),
+                ),
+                "dist_bucket": np.where(
+                    daily["dist_ma20"].isna(),
+                    "na",
+                    np.where(
+                        daily["dist_ma20"] < 0.0,
+                        "below",
+                        np.where(daily["dist_ma20"] < 0.05, "near", np.where(daily["dist_ma20"] < 0.12, "extended", "overheat")),
+                    ),
+                ),
+                "box_wild": False,
+            },
+            index=daily.index,
+        )
     )
+    daily["premise_bucket"] = np.where(derived_premise_bucket.eq("other"), monthly_premise_bucket, derived_premise_bucket)
+    daily = _add_pattern_columns(daily)
+    daily["entry_case"] = _classify_entry_case(daily)
+    study_mask = daily["entry_case"].ne("other")
     daily = _add_forward_path_metrics(daily, study_mask=study_mask)
+    daily["path_quality"] = _classify_path_quality(daily)
+    daily = _simulate_exit_cases(daily, study_mask=study_mask)
     week_structure = np.where(daily["week_near_prev_low"], "support", np.where(daily["week_lower_high"], "lowerhigh", "neutral"))
-    daily["regime_key"] = pd.Series(daily["premise_label"], index=daily.index)
+    daily["regime_key"] = pd.Series(daily["premise_bucket"], index=daily.index)
     daily["regime_key"] = daily["regime_key"].str.cat(pd.Series("wk_" + daily["week_slope"].astype(str), index=daily.index), sep="|")
     daily["regime_key"] = daily["regime_key"].str.cat(pd.Series(week_structure, index=daily.index), sep="|")
     daily["regime_key"] = daily["regime_key"].str.cat(daily["day_pos_ma20"].astype(str), sep="|")
@@ -454,10 +953,40 @@ def run_backtest(db_paths: list[Path], min_samples: int) -> dict[str, Any]:
     daily["regime_key"] = daily["regime_key"].str.cat(pd.Series("vol_" + daily["vol_bucket"].astype(str), index=daily.index), sep="|")
     daily["regime_key"] = daily["regime_key"].str.cat(pd.Series("box_" + daily["box_zone"].astype(str), index=daily.index), sep="|")
     daily = daily.loc[study_mask].copy()
+
     pattern_study = {
         f"pattern_{pattern_len}": _aggregate_pattern_study(daily, pattern_len=pattern_len, min_samples=min_samples)
         for pattern_len in PATTERN_LENGTHS
     }
+    cross_section = {
+        "premise_bucket": _group_case_summary(daily, ["premise_bucket"], "ret_long_10d", min_samples=max(20, min_samples // 2)),
+        "entry_case": _group_case_summary(daily, ["entry_case"], "ret_long_10d", min_samples=max(20, min_samples // 2)),
+        "entry_case_by_period": _group_case_summary(
+            daily,
+            ["period_bucket", "entry_case"],
+            "ret_long_10d",
+            min_samples=max(10, min_samples // 3),
+        ),
+        "path_quality": _group_case_summary(daily, ["path_quality"], "ret_long_10d", min_samples=max(20, min_samples // 2)),
+    }
+    exit_case_stats = _build_exit_case_summary(daily, min_samples=max(20, min_samples // 2))
+    strategy_matrix_rows: list[dict[str, Any]] = []
+    for exit_case in EXIT_CASES:
+        ret_col = f"ret_{exit_case}"
+        strategy_matrix_rows.extend(
+            {
+                **row,
+                "exit_case": exit_case,
+            }
+            for row in _group_case_summary(
+                daily,
+                ["premise_bucket", "entry_case", "path_quality"],
+                ret_col,
+                min_samples=max(10, min_samples // 3),
+            )
+        )
+    replay = {FOCUS_CODE: _build_replay_rows(daily, FOCUS_CODE)}
+    exclusion_rules = _build_exclusion_rules(daily)
     return {
         "meta": {
             "db_paths": [str(path) for path in db_paths],
@@ -467,8 +996,14 @@ def run_backtest(db_paths: list[Path], min_samples: int) -> dict[str, Any]:
             "round_trip_cost": ROUND_TRIP_COST,
             "min_samples": int(min_samples),
             "study_rows": int(len(daily)),
+            "focus_code": FOCUS_CODE,
         },
         "pattern_study": pattern_study,
+        "cross_section": cross_section,
+        "exit_case_stats": exit_case_stats,
+        "strategy_matrix": strategy_matrix_rows,
+        "replay": replay,
+        "exclusion_rules": exclusion_rules,
     }
 
 

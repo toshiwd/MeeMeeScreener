@@ -90,6 +90,8 @@ def test_get_rankings_rule_mode_backward_compatible() -> None:
 
 def test_get_rankings_monthly_hybrid_branch_backward_compatible(monkeypatch) -> None:
     now = datetime.now(timezone.utc)
+    rankings_cache._RESULT_CACHE = {}  # type: ignore[attr-defined]
+    rankings_cache._RESULT_CACHE_GENERATION = 0  # type: ignore[attr-defined]
     rankings_cache._CACHE = {  # type: ignore[attr-defined]
         ("M", "latest", "up"): [{"code": "M0", "changePct": 0.2, "asOf": "2024-02-29"}],
         ("W", "latest", "up"): [{"code": "W0", "changePct": 0.1, "asOf": "2024-02-29"}],
@@ -109,6 +111,7 @@ def test_get_rankings_monthly_hybrid_branch_backward_compatible(monkeypatch) -> 
 
     monkeypatch.setattr(rankings_cache, "_apply_monthly_ml_mode", _fake_monthly)
     monkeypatch.setattr(rankings_cache, "_apply_ml_mode", _fake_default)
+    monkeypatch.setattr(rankings_cache, "is_legacy_analysis_disabled", lambda: False)
 
     monthly = rankings_cache.get_rankings("M", "latest", "up", 20, mode="hybrid")
     weekly = rankings_cache.get_rankings("W", "latest", "up", 20, mode="hybrid")

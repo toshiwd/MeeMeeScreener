@@ -543,7 +543,6 @@ def run_candidate_baseline(
     )
     candidate_bundle_result = build_publish_candidate_bundle(
         db_path=result_db_path,
-        ops_db_path=ops_db_path,
         publish_id=actual_publish_id,
         readiness=shadow_result,
     )

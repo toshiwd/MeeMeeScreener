@@ -13,6 +13,9 @@ BASE_SCORE_SCHEMA_VERSION = "tradex_image_rerank_base_score_v1"
 PHASE2_METRICS_SCHEMA_VERSION = "tradex_image_rerank_phase2_metrics_v1"
 PHASE3_COMPARE_SCHEMA_VERSION = "tradex_image_rerank_phase3_compare_v1"
 MODEL_SCHEMA_VERSION = "tradex_image_rerank_model_v1"
+SPLIT_CONTRACT_STATUS = "fixed"
+SPLIT_FEASIBILITY_CONDITION = "block_size_days > label_horizon_days + embargo_days"
+SPLIT_PROTECTED_BLOCK_RULE = "boundary checks are anchored to the protected block"
 
 
 def utc_now_iso() -> str:
@@ -66,11 +69,14 @@ def build_run_manifest(
         "purge_rule": {
             "name": "time-block split + purge + embargo",
             "basis": "trading_day_index",
-            "protected_block_rule": "boundary checks are anchored to the protected block",
+            "contract_status": SPLIT_CONTRACT_STATUS,
+            "protected_block_rule": SPLIT_PROTECTED_BLOCK_RULE,
             "feature_window_overlap_check": True,
             "feature_lookback_days": int(config.feature_lookback_days),
             "label_horizon_days": int(config.label_horizon_days),
             "embargo_days": int(config.embargo_days),
+            "stress_feasibility_condition": SPLIT_FEASIBILITY_CONDITION,
+            "stress_verify_note": "default-style stress verify is only feasible when the kept training zone survives purge and embargo",
             "mechanism": "purge rows whose feature window, label horizon, or embargo band intersects the protected block",
         },
         "feature_lookback_days": int(config.feature_lookback_days),

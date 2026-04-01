@@ -22,6 +22,18 @@ def image_rerank_runs_root() -> Path:
     return root
 
 
+def image_rerank_sessions_root() -> Path:
+    root = resolve_image_rerank_root() / "research_sessions"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def image_rerank_session_dir(session_id: str) -> Path:
+    path = image_rerank_sessions_root() / str(session_id).strip()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def image_rerank_run_dir(run_id: str) -> Path:
     path = image_rerank_runs_root() / str(run_id).strip()
     path.mkdir(parents=True, exist_ok=True)

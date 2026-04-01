@@ -122,6 +122,16 @@ def _first_finite(*values: Any) -> float | None:
     return None
 
 
+def _resolve_ranking_display_score(item: dict[str, Any]) -> tuple[float | None, str]:
+    entry_score = _first_finite(item.get("entryScore"))
+    if entry_score is not None:
+        return float(entry_score), "ranking_entry"
+    hybrid_score = _first_finite(item.get("hybridScore"))
+    if hybrid_score is not None:
+        return float(hybrid_score), "ranking_hybrid"
+    return None, "none"
+
+
 def _as_of_to_ymd(value: Any) -> int | None:
     if value is None:
         return None
@@ -614,7 +624,7 @@ def _build_grid_rankings_fallback(limit: int) -> list[dict[str, Any]]:
             "latest",
             direction,
             safe_limit,
-            mode="rule",
+            mode="trade",
             risk_mode="balanced",
         )
         items = payload.get("items", []) if isinstance(payload, dict) else []
@@ -629,6 +639,7 @@ def _build_grid_rankings_fallback(limit: int) -> list[dict[str, Any]]:
                 src.get("hybridScore"),
                 src.get("changePct"),
             )
+            display_score, display_score_source = _resolve_ranking_display_score(src)
             reason_parts = ["RANKING_CACHE_FALLBACK", stage_label, f"rank={rank}"]
             as_of = str(src.get("asOf") or "").strip()
             if as_of:
@@ -639,6 +650,8 @@ def _build_grid_rankings_fallback(limit: int) -> list[dict[str, Any]]:
                     "name": name,
                     "stage": stage_label,
                     "score": float(score) if score is not None else None,
+                    "displayScore": float(display_score) if display_score is not None else None,
+                    "displayScoreSource": display_score_source,
                     "reason": " / ".join(reason_parts),
                     "scoreStatus": "STALE_FALLBACK",
                     "missingReasons": ["GRID_DB_LOCKED_FALLBACK"],
@@ -703,6 +716,8 @@ def _compute_live_screener_rows(
         score = meta[3] if meta else None
         reason = meta[4] if meta else None
         score_status = meta[5] if meta else None
+        display_score = None
+        display_score_source = "none"
 
         if not stage or stage == "UNKNOWN":
             stage = computed.get("statusLabel", "UNKNOWN")
@@ -712,6 +727,8 @@ def _compute_live_screener_rows(
             "name": name,
             "stage": stage,
             "score": score,
+            "displayScore": display_score,
+            "displayScoreSource": display_score_source,
             "reason": reason,
             "scoreStatus": score_status,
             "eventEarningsDate": earnings_map.get(code),
@@ -771,10 +788,13 @@ def get_ranking(limit: int = 50):
                 row.get("hybridScore"),
                 row.get("changePct"),
             )
+            display_score, display_score_source = _resolve_ranking_display_score(row)
             row.setdefault("total_score", float(score) if score is not None else 0.0)
             row.setdefault("as_of", row.get("asOf"))
             row.setdefault("reasons", [])
             row.setdefault("badges", [])
+            row.setdefault("displayScore", float(display_score) if display_score is not None else None)
+            row.setdefault("displayScoreSource", display_score_source)
             rows.append(row)
         rows.sort(key=lambda item: float(item.get("total_score") or 0.0), reverse=True)
         return rows
@@ -785,7 +805,7 @@ def get_ranking(limit: int = 50):
             "latest",
             "up",
             safe_limit,
-            mode="rule",
+            mode="trade",
             risk_mode="balanced",
         )
         down_payload = rankings_cache.get_rankings(
@@ -793,7 +813,7 @@ def get_ranking(limit: int = 50):
             "latest",
             "down",
             safe_limit,
-            mode="rule",
+            mode="trade",
             risk_mode="balanced",
         )
     except Exception as exc:

@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from external_analysis.image_rerank.artifacts import sha256_file, verify_roundtrip, write_json
-from external_analysis.image_rerank.contracts import ImageRerankJobConfig, build_run_manifest
+from external_analysis.image_rerank.contracts import ImageRerankJobConfig, PHASE2_METRICS_SCHEMA_VERSION, PHASE3_COMPARE_SCHEMA_VERSION, build_run_manifest
 from external_analysis.image_rerank.dataset import (
     build_base_score_artifact,
     build_historical_samples,
@@ -317,7 +317,7 @@ def run_image_rerank_phase0_3(
     oos_scores = [score for row, score in zip(val_rows + test_rows, val_scores + test_scores, strict=False) if row["label_bucket"] in {"positive", "negative"}]
     oos_labels = [_label_target(row["label_bucket"]) for row in oos_rows]
     phase2_metrics = {
-        "schema_version": "tradex_image_rerank_phase2_metrics_v1",
+        "schema_version": PHASE2_METRICS_SCHEMA_VERSION,
         "run_id": config.run_id,
         "created_at": _utc_now_iso(),
         "train_sample_count": len(train_rows),
@@ -382,7 +382,7 @@ def run_image_rerank_phase0_3(
             "top_codes": [row["code"] for row in rank_rows(sweep_rows, score_key="fused_score")[: config.top_k]],
         }
     compare_payload = {
-        "schema_version": "tradex_image_rerank_phase3_compare_v1",
+        "schema_version": PHASE3_COMPARE_SCHEMA_VERSION,
         "run_id": config.run_id,
         "created_at": _utc_now_iso(),
         "verify_profile": str(config.verify_profile),
@@ -392,9 +392,36 @@ def run_image_rerank_phase0_3(
         "image_weight": float(config.image_weight),
         "candidate_universe_hash": candidate_universe_hash,
         "metrics": compare_metrics,
+        "readout_contract": {
+            "primary_fields": [
+                "dropped_top_codes",
+                "added_top_codes",
+                "rank_uplift_contributors",
+                "bad_pick_removal_contributors",
+                "false_veto_count",
+                "winner_drop_count",
+            ],
+            "compat_aliases": {
+                "dropped_codes": "dropped_top_codes",
+                "added_codes": "added_top_codes",
+                "uplift_contributors": "rank_uplift_contributors",
+            },
+            "compatibility_mode": "temporary_aliases",
+        },
         "readout": compare_readout,
         "fusion_sweep": {
             "primary_mode": "rank_improver",
+            "parameters": {
+                "rank_improver": {
+                    "base_weight": float(config.base_weight),
+                    "image_weight": float(config.image_weight),
+                },
+                "veto_helper": {
+                    "base_weight": 0.85,
+                    "veto_weight": 0.15,
+                    "veto_floor": 0.35,
+                },
+            },
             "modes": sweep_metrics,
         },
         "base_top_rows": rank_rows(base_rows, score_key="base_score")[: config.top_k],

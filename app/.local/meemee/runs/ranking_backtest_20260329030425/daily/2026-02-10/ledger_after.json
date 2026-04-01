@@ -1,0 +1,87 @@
+{
+  "asOf": "2026-02-10",
+  "metrics": {
+    "asOf": "2026-02-10",
+    "borrow_cost_cum": 0.0,
+    "borrow_cost_daily": 0.0,
+    "cash": 8000000.0,
+    "cost_sensitivity": [
+      {
+        "fees_bps": 5.0,
+        "net_cum_pnl": 1715012.084592,
+        "net_cum_return_pct": 17.150121
+      },
+      {
+        "fees_bps": 10.0,
+        "net_cum_pnl": 1714012.084592,
+        "net_cum_return_pct": 17.140121
+      },
+      {
+        "fees_bps": 15.0,
+        "net_cum_pnl": 1713012.084592,
+        "net_cum_return_pct": 17.130121
+      }
+    ],
+    "cum_pnl": 1716012.084592,
+    "cum_return_pct": 17.160121,
+    "daily_pnl": -42296.072508,
+    "equity": 11716012.084592,
+    "fees_cost_cum": 0.0,
+    "fees_cost_daily": 0.0,
+    "game_over": false,
+    "goal20_reached": false,
+    "goal30_reached": false,
+    "gross_cum_pnl": 1716012.084592,
+    "gross_cum_return_pct": 17.160121,
+    "gross_daily_pnl": -42296.072508,
+    "gross_units": 2,
+    "holdings_count": 1,
+    "long_units": 2,
+    "max_drawdown_pct": -5.032713,
+    "net_cum_pnl": 1716012.084592,
+    "net_cum_return_pct": 17.160121,
+    "net_daily_pnl": -42296.072508,
+    "net_exposure_pct": 20.0,
+    "net_units": 2,
+    "risk_gate_details": {
+      "enabled": true,
+      "mode": "champion",
+      "observed": {
+        "maxDrawdownPct": -5.032713,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 20.0,
+        "worstMonthPct": 2.919320594480612
+      },
+      "pass": true,
+      "reason": "",
+      "thresholds": {
+        "maxDrawdownPct": -8.0,
+        "maxNetExposureUnits": 2.0,
+        "maxTurnoverPctPerMonth": 300.0,
+        "worstMonthPct": -8.0
+      }
+    },
+    "risk_gate_pass": true,
+    "risk_gate_reason": "",
+    "season_id": "ranking_backtest_20260329030425",
+    "short_units": 0,
+    "slippage_cost_cum": 0.0,
+    "slippage_cost_daily": 0.0,
+    "turnover_notional_cum": 2000000.0,
+    "turnover_notional_daily": 0.0,
+    "turnover_pct_daily": 0.0
+  },
+  "positions": [
+    {
+      "avgPrice": 3310.0,
+      "holdingDays": 26,
+      "openedAt": "2026-01-05",
+      "pnlPct": 85.80060422960725,
+      "side": "LONG",
+      "stage": "PROBE",
+      "ticker": "6330",
+      "units": 2
+    }
+  ],
+  "seasonId": "ranking_backtest_20260329030425"
+}

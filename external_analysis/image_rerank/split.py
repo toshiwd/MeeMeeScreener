@@ -3,13 +3,18 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from external_analysis.image_rerank.contracts import (
+    SPLIT_CONTRACT_STATUS,
+    SPLIT_FEASIBILITY_CONDITION,
+    SPLIT_PROTECTED_BLOCK_RULE,
+    SPLIT_SCHEMA_VERSION,
+)
 from external_analysis.image_rerank.dataset import normalize_as_of_date
 
 FEATURE_OVERLAP = "feature_overlap"
 LABEL_OVERLAP = "label_overlap"
 FEATURE_AND_LABEL_OVERLAP = "feature_and_label_overlap"
 EMBARGO_ONLY = "embargo_only"
-SPLIT_SCHEMA_VERSION = "tradex_image_rerank_split_v1"
 
 REASON_ORDER: tuple[str, ...] = (
     FEATURE_OVERLAP,
@@ -119,11 +124,20 @@ def build_time_block_split_manifest(
         "purge_rule": {
             "name": "time-block split + purge + embargo",
             "basis": "trading_day_index",
-            "protected_block_rule": "boundary checks are anchored to the protected block",
+            "contract_status": SPLIT_CONTRACT_STATUS,
+            "protected_block_rule": SPLIT_PROTECTED_BLOCK_RULE,
             "feature_window_overlap_check": True,
             "label_horizon_overlap_check": True,
             "embargo_check": True,
+            "stress_feasibility_condition": SPLIT_FEASIBILITY_CONDITION,
+            "stress_verify_note": "default-style stress verify is only feasible when the kept training zone survives purge and embargo",
             "mechanism": "purge rows whose feature window, label horizon, or embargo band intersects the protected block",
+        },
+        "reason_code_definitions": {
+            FEATURE_OVERLAP: "sample feature window overlaps the protected block",
+            LABEL_OVERLAP: "sample label window overlaps the protected block",
+            FEATURE_AND_LABEL_OVERLAP: "sample feature and label windows both overlap the protected block",
+            EMBARGO_ONLY: "sample does not overlap the protected block but falls inside the embargo band",
         },
         "blocks": blocks,
         "boundary_checks": boundary_checks,

@@ -10,7 +10,7 @@ from typing import Any, Iterator
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_TRADEX_ROOT = REPO_ROOT / ".local" / "meemee" / "tradex"
+DEFAULT_TRADEX_ROOT = Path("G:/Tradex")
 DEFAULT_CONFIG_ROOT = REPO_ROOT / "config" / "tradex"
 
 
@@ -26,6 +26,12 @@ def resolve_tradex_config_root() -> Path:
     if raw:
         return Path(raw).expanduser().resolve()
     return DEFAULT_CONFIG_ROOT.resolve()
+
+
+def tradex_reports_root() -> Path:
+    root = resolve_tradex_root() / "reports"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 
 def tradex_families_root() -> Path:

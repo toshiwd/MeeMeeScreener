@@ -164,6 +164,7 @@ def test_image_rerank_real_slice_integration_verify(monkeypatch, tmp_path) -> No
     assert run_json["schema_version"] == "tradex_image_rerank_run_v1"
     assert run_json["split_artifact_uri"].endswith("split.json")
     assert run_json["verify_profile"] == "smoke"
+    assert run_json["purge_rule"]["stress_feasibility_condition"] == "block_size_days > label_horizon_days + embargo_days"
     assert split_json["blocks"][0]["block_start_index"] == 0
     assert split_json["boundary_checks"][0]["protected_block_index"] == 1
     assert split_json["boundary_checks"][0]["reason_codes"]
@@ -177,9 +178,15 @@ def test_image_rerank_real_slice_integration_verify(monkeypatch, tmp_path) -> No
     assert compare_json["metrics"]["bad_pick_removal"] is not None
     assert compare_json["metrics"]["changed_top10_count"] is not None
     assert compare_json["verify_profile"] == "smoke"
-    assert compare_json["readout"]["dropped_codes"]
+    assert "dropped_top_codes" in compare_json["readout"]
+    assert "added_top_codes" in compare_json["readout"]
+    assert "rank_uplift_contributors" in compare_json["readout"]
+    assert isinstance(compare_json["readout"]["dropped_top_codes"], list)
+    assert isinstance(compare_json["readout"]["added_top_codes"], list)
     assert compare_json["readout"]["false_veto_count"] >= 0
     assert "fusion_sweep" in compare_json
+    assert compare_json["readout_contract"]["compatibility_mode"] == "temporary_aliases"
+    assert "parameters" in compare_json["fusion_sweep"]
     assert set(compare_json["fusion_sweep"]["modes"]) == {"rank_improver", "veto_helper"}
     assert compare_json["metrics"]["base_top_codes"]
     assert compare_json["metrics"]["fused_top_codes"]

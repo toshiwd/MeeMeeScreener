@@ -40,12 +40,13 @@ export function TradexAnalysisPanel({ state, formatPercentLabel, formatSignedPer
   const comparisons = analysis?.candidateComparisons.slice(0, 3) ?? [];
   const toneInfo = analysis ? resolveTone(analysis) : null;
   const versionLabel = analysis ? resolveVersion(analysis) : "--";
+  const title = analysis?.displayLabel ?? "TRADEX";
 
   return (
     <div className="daily-memo-panel detail-analysis-panel">
       <div className="memo-panel-header">
-        <h3>判定確認</h3>
-        <div className="detail-analysis-header-note">published logic / read only</div>
+        <h3>{title}</h3>
+        <div className="detail-analysis-header-note">比較用 / published logic / read only</div>
       </div>
       <div className="detail-analysis-body">
         {state.loading && <div className="detail-analysis-empty">暫定取得中です。</div>}
@@ -82,6 +83,9 @@ export function TradexAnalysisPanel({ state, formatPercentLabel, formatSignedPer
               </div>
               <div className="detail-analysis-meta">
                 symbol {analysis.symbol} / publish {analysis.publishReadiness.ready ? "ready" : analysis.publishReadiness.status}
+              </div>
+              <div className="detail-analysis-meta">
+                source {analysis.source ?? "--"}
               </div>
               <div className="detail-analysis-meta">
                 {analysis.publishReadiness.reasons.length

@@ -46,15 +46,15 @@ def build_compare_readout(*, base_rows: list[dict[str, Any]], fused_rows: list[d
     base_codes = [str(row.get("code") or "") for row in base_top]
     fused_codes = [str(row.get("code") or "") for row in fused_top]
     shared_codes = [code for code in base_codes if code in fused_by_code]
-    dropped_codes = [code for code in base_codes if code not in fused_by_code]
-    added_codes = [code for code in fused_codes if code not in base_by_code]
+    dropped_top_codes = [code for code in base_codes if code not in fused_by_code]
+    added_top_codes = [code for code in fused_codes if code not in base_by_code]
 
-    uplift_contributors: list[dict[str, Any]] = []
+    rank_uplift_contributors: list[dict[str, Any]] = []
     for code in shared_codes:
         base_rank = int(base_by_code[code]["base_rank"] or 0)
         fused_rank = int(fused_by_code[code]["fused_rank"] or 0)
         if base_rank > fused_rank:
-            uplift_contributors.append(
+            rank_uplift_contributors.append(
                 {
                     "code": code,
                     "base_rank": base_rank,
@@ -72,12 +72,12 @@ def build_compare_readout(*, base_rows: list[dict[str, Any]], fused_rows: list[d
             "future_return": float(base_by_code[code].get("future_return") or 0.0),
             "label_bucket": str(base_by_code[code].get("label_bucket") or "neutral"),
         }
-        for code in dropped_codes
+        for code in dropped_top_codes
         if str(base_by_code[code].get("label_bucket") or "") == "negative"
     ]
     false_veto_codes = [
         code
-        for code in dropped_codes
+        for code in dropped_top_codes
         if str(base_by_code[code].get("label_bucket") or "") in {"positive", "neutral"}
     ]
     winner_drop_codes: list[str] = []
@@ -95,15 +95,24 @@ def build_compare_readout(*, base_rows: list[dict[str, Any]], fused_rows: list[d
             winner_drop_codes.append(winner_code)
 
     return {
+        "scope": {
+            "top_k": int(k),
+            "comparison": "top_k comparison only",
+        },
         "shared_codes": shared_codes,
-        "dropped_codes": dropped_codes,
-        "added_codes": added_codes,
-        "uplift_contributors": uplift_contributors,
+        "dropped_top_codes": dropped_top_codes,
+        "added_top_codes": added_top_codes,
+        "rank_uplift_contributors": rank_uplift_contributors,
+        "dropped_codes": dropped_top_codes,
+        "added_codes": added_top_codes,
+        "uplift_contributors": rank_uplift_contributors,
         "bad_pick_removal_contributors": bad_pick_removal_contributors,
         "false_veto_codes": false_veto_codes,
         "false_veto_count": len(false_veto_codes),
+        "false_veto_definition": "dropped top-k codes with label_bucket in {positive, neutral}",
         "winner_drop_codes": winner_drop_codes,
         "winner_drop_count": len(winner_drop_codes),
+        "winner_drop_definition": "base top-k code with the highest future_return dropped from fused top-k",
     }
 
 

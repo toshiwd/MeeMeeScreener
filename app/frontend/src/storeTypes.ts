@@ -7,6 +7,8 @@ export type Ticker = {
   sector33Name?: string | null;
   stage: string;
   score: number | null;
+  displayScore?: number | null;
+  displayScoreSource?: "ranking_entry" | "ranking_hybrid" | "none" | null;
   reason: string;
   scoreStatus?: string | null;
   missingReasons?: string[] | null;

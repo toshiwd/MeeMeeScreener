@@ -100,6 +100,7 @@ import {
   mergeHealthStatus,
   normalizeHealthStatus,
   resolveGridRangeBars,
+  resolveGridPrimaryChangeValue,
   resolveGridVolumeSurgeRatio,
   buildAvailableSectorOptions,
   resolveGridSignalSortScore,
@@ -1097,7 +1098,7 @@ export default function GridView() {
       } else if (activeKey === "ma60Slope") {
         sortValue = resolveSlope(bars, anchor, 60);
       } else if (activeKey === "chg1D") {
-        sortValue = ticker.chg1D ?? null;
+        sortValue = resolveGridPrimaryChangeValue(ticker, gridTimeframe);
       } else if (activeKey === "chg1W") {
         sortValue = ticker.chg1W ?? null;
       } else if (activeKey === "chg1M") {

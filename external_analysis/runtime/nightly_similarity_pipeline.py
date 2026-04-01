@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from external_analysis.ops.store import insert_quarantine_record, upsert_job_run
+from external_analysis.results.result_schema import connect_result_db
 from external_analysis.runtime.load_control import resolve_research_runtime_budget
 from external_analysis.similarity.baseline import run_similarity_baseline
 
@@ -19,6 +20,25 @@ def _utcnow() -> datetime:
 
 def _run_id(as_of_date: str) -> str:
     return _utcnow().strftime(f"nightly_similarity_{as_of_date}_%Y%m%dT%H%M%S%fZ")
+
+
+def _load_publish_candidate_codes(*, result_db_path: str | None, publish_id: str | None) -> list[str] | None:
+    if not publish_id:
+        return None
+    conn = connect_result_db(result_db_path, read_only=True)
+    try:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT code
+            FROM candidate_daily
+            WHERE publish_id = ?
+            ORDER BY code
+            """,
+            [str(publish_id)],
+        ).fetchall()
+    finally:
+        conn.close()
+    return [str(row[0]) for row in rows if row and row[0] is not None]
 
 
 def run_nightly_similarity_pipeline(
@@ -51,6 +71,7 @@ def run_nightly_similarity_pipeline(
     logger.info("nightly_similarity_pipeline start run_id=%s as_of_date=%s", run_id, as_of_date)
     runtime_budget = resolve_research_runtime_budget(load_control)
     quarantine_reason = None
+    query_codes = _load_publish_candidate_codes(result_db_path=result_db_path, publish_id=publish_id)
     try:
         similarity_payload = run_similarity_baseline(
             export_db_path=export_db_path,
@@ -61,6 +82,7 @@ def run_nightly_similarity_pipeline(
             publish_id=publish_id,
             freshness_state=freshness_state,
             top_k=int(runtime_budget["similarity_top_k"]),
+            query_codes=query_codes,
         )
     except Exception as exc:
         finished_at = _utcnow()

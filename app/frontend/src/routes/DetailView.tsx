@@ -49,8 +49,10 @@ import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
 import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/useExactDecisionRange";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
+import { DetailAnalysisPanel } from "./detail/DetailAnalysisPanel";
 import { DetailFinancialPanel } from "./detail/DetailFinancialPanel";
 import { DetailTdnetCard } from "./detail/DetailTdnetCard";
+import TradexAnalysisMount from "./detail/TradexAnalysisMount";
 import { buildSingleBatchBarsRequestPayload } from "./detail/batchBarsRequest";
 import DetailDebugBanner from "./detail/components/DetailDebugBanner";
 import DetailIndicatorOverlay from "./detail/components/DetailIndicatorOverlay";
@@ -181,18 +183,21 @@ const summarizeDetailTickerForAiExplain = (
   fallback: { code: string; name: string }
 ) => {
   const source = ticker ?? {};
+  const rankingScore = Number.isFinite(Number(source.displayScore))
+    ? Number(source.displayScore)
+    : Number.isFinite(Number(source.score))
+      ? Number(source.score)
+      : null;
+  const rankingScoreSource =
+    (typeof source.displayScoreSource === "string" && source.displayScoreSource) ||
+    (typeof source.display_score_source === "string" && source.display_score_source) ||
+    (rankingScore != null ? "none" : null);
   return {
     code: fallback.code,
     name: fallback.name,
-    score: [
-      source.entryPriorityScore,
-      source.buyStateScore,
-      source.swingScore,
-      source.mlEv20Net,
-      source.winNowScore,
-      source.hybridScore,
-    ].find((value) => Number.isFinite(Number(value)))
-      ?? null,
+    score: rankingScore,
+    rankingScore,
+    rankingScoreSource,
     stage: source.stage ?? source.buyState ?? source.statusLabel ?? null,
     buyState: source.buyState ?? null,
     buyStateScore: source.buyStateScore ?? null,
@@ -590,7 +595,8 @@ export default function DetailView() {
     if (!trimmed || trimmed === code) return null;
     return trimmed;
   }, [location.search, code]);
-  const analysisFetchEnabled = false;
+  const analysisAvailable = !compareCode;
+  const analysisFetchEnabled = analysisAvailable && headerMode === "analysis";
   const analysisNetworkReady = analysisFetchEnabled && routeReadyPhase === "analysis";
   const compareAsOf = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -1047,6 +1053,12 @@ export default function DetailView() {
       cancelled = true;
     };
   }, [backendReady, code, tdnetDisclosures, tdnetFetchedOnce, tdnetLoading]);
+
+  // 依存配列で参照する派生値は先に宣言して、TDZ を避ける。
+  const edinetOfficialBackfillRequest = useMemo(
+    () => resolveAutoEdinetOfficialBackfillRequest({ code, financialPanel }),
+    [code, financialPanel]
+  );
 
   useEffect(() => {
     if (!backendReady || !code || headerMode !== "financial") return;
@@ -1792,10 +1804,6 @@ export default function DetailView() {
       }),
     [analysisEdinetSummary, latestFinancialPoint, latestPrice]
   );
-  const edinetOfficialBackfillRequest = useMemo(
-    () => resolveAutoEdinetOfficialBackfillRequest({ code, financialPanel }),
-    [code, financialPanel]
-  );
   const taisyakuDisplay = useMemo(() => buildTaisyakuDisplay(taisyakuSnapshot), [taisyakuSnapshot]);
   const taisyakuStatusLabel = useMemo(() => {
     if (!taisyakuSnapshot?.fetchedAt) {
@@ -1829,6 +1837,18 @@ export default function DetailView() {
   );
   const hasSwingData = Boolean(swingPlan || swingDiagnostics);
   const showAnalysisPanel = analysisFetchEnabled;
+  const rankingDisplayScore = toFiniteNumber(activeTicker?.displayScore ?? activeTicker?.score ?? null);
+  const rankingDisplayScoreSource =
+    activeTicker?.displayScoreSource ??
+    (rankingDisplayScore != null ? "none" : null);
+  const rankingDisplayScoreSourceLabel =
+    rankingDisplayScoreSource === "ranking_entry"
+      ? "rankings_cache entryScore"
+      : rankingDisplayScoreSource === "ranking_hybrid"
+        ? "rankings_cache hybridScore"
+        : rankingDisplayScoreSource === "none"
+          ? "score source 未設定"
+          : "--";
   const rightRailKind = showAnalysisPanel
     ? "analysis"
     : showFinancialPanel
@@ -4504,7 +4524,7 @@ export default function DetailView() {
     <DetailModeTabs
       activeMode={headerMode}
       similarActive={showSimilar}
-      showAnalysis={false}
+      showAnalysis={analysisAvailable}
       onChart={() => setHeaderMode("chart")}
       onAnalysis={() => {
         setHeaderMode("analysis");
@@ -5380,6 +5400,86 @@ export default function DetailView() {
         </div>
         {rightRailKind && (
           <aside className="detail-right-rail">
+            {rightRailKind === "analysis" && (
+              <>
+                <ScreenPanel title="ランキング指標" className="detail-analysis-panel">
+                  <div className="detail-analysis-body">
+                    <div className="detail-analysis-meta">
+                      score {rankingDisplayScore != null ? formatNumber(rankingDisplayScore, 2) : "--"}
+                    </div>
+                    <div className="detail-analysis-meta">
+                      source {rankingDisplayScoreSourceLabel}
+                    </div>
+                    {activeTicker?.entryPriorityScore != null && (
+                      <div className="detail-analysis-meta">
+                        entryPriorityScore {formatNumber(activeTicker.entryPriorityScore, 2)}
+                      </div>
+                    )}
+                    {activeTicker?.hybridScore != null && (
+                      <div className="detail-analysis-meta">
+                        hybridScore {formatNumber(activeTicker.hybridScore, 2)}
+                      </div>
+                    )}
+                  </div>
+                </ScreenPanel>
+                <TradexAnalysisMount
+                  backendReady={backendReady}
+                  readyToFetch={analysisNetworkReady}
+                  analysisFetchEnabled={analysisFetchEnabled}
+                  code={code ?? null}
+                  asof={analysisAsOfTime}
+                  formatPercentLabel={formatPercentLabel}
+                  formatSignedPercentLabel={formatSignedPercentLabel}
+                  formatNumber={formatNumber}
+                />
+                <DetailAnalysisPanel
+                  analysisAsOfTime={analysisAsOfTime}
+                  analysisBackfillActive={analysisBackfillActive}
+                  analysisRecalcSubmitting={analysisRecalcSubmitting}
+                  analysisRecalcDisabled={analysisRecalcDisabled}
+                  analysisRecalcDisabledReason={analysisRecalcDisabledReason}
+                  submitAnalysisRecalc={submitAnalysisRecalc}
+                  analysisDtLabel={analysisDtLabel}
+                  cursorMode={cursorMode}
+                  analysisCursorDateLabel={analysisCursorDateLabel}
+                  canShowPhase={canShowPhase}
+                  phaseReasons={phaseReasons}
+                  canShowAnalysis={canShowAnalysis}
+                  analysisDecision={analysisDecision}
+                  analysisSummaryLoading={analysisSummaryLoading}
+                  analysisGuidance={analysisGuidance}
+                  analysisEntryPolicy={analysisEntryPolicy}
+                  patternSummary={patternSummary}
+                  analysisPreparationVisible={analysisPreparationVisible}
+                  analysisBackfillProgressLabel={analysisBackfillProgressLabel}
+                  analysisBackfillMessage={analysisBackfillMessage}
+                  sellAnalysisDtLabel={sellAnalysisDtLabel}
+                  sellPredDtLabel={sellPredDtLabel}
+                  researchPriorRunId={researchPriorRunId}
+                  analysisResearchPrior={analysisResearchPrior}
+                  researchPriorUpMeta={researchPriorUpMeta}
+                  researchPriorDownMeta={researchPriorDownMeta}
+                  edinetStatusMeta={edinetStatusMeta}
+                  edinetQualityMeta={edinetQualityMeta}
+                  edinetMetricsMeta={edinetMetricsMeta}
+                  edinetBonusMeta={edinetBonusMeta}
+                  hasSwingData={hasSwingData}
+                  swingPlan={swingPlan}
+                  swingSideLabel={swingSideLabel}
+                  swingReasonsLabel={swingReasonsLabel}
+                  swingDiagnostics={swingDiagnostics}
+                  swingSetupExpectancy={swingSetupExpectancy}
+                  analysisMissingDataVisible={analysisMissingDataVisible}
+                  decisionHistory={exactDecisionRange}
+                  formatPercentLabel={formatPercentLabel}
+                  formatNumber={formatNumber}
+                  formatSignedPercentLabel={formatSignedPercentLabel}
+                  onSubmitAnalysisRecalc={() => {
+                    void submitAnalysisRecalc();
+                  }}
+                />
+              </>
+            )}
             {rightRailKind === "cursor" && (
               <DailyMemoPanel
                 code={code || ""}

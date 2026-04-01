@@ -129,14 +129,19 @@ def test_image_rerank_phase0_3_writes_json_artifacts(monkeypatch, tmp_path) -> N
     assert run_json["as_of_snapshot_date"] == int(snapshot_date)
     assert run_json["verify_profile"] == "smoke"
     assert split_json["purge_rule"]["name"] == "time-block split + purge + embargo"
+    assert split_json["purge_rule"]["stress_feasibility_condition"] == "block_size_days > label_horizon_days + embargo_days"
     assert compare_json["metrics"]["top_k_uplift"] is not None
     assert compare_json["metrics"]["bad_pick_removal"] is not None
     assert compare_json["metrics"]["changed_top10_count"] >= 0
     assert compare_json["verify_profile"] == "smoke"
-    assert "dropped_codes" in compare_json["readout"]
+    assert compare_json["readout_contract"]["primary_fields"]
+    assert "dropped_top_codes" in compare_json["readout"]
+    assert "added_top_codes" in compare_json["readout"]
+    assert "rank_uplift_contributors" in compare_json["readout"]
     assert "false_veto_count" in compare_json["readout"]
     assert "winner_drop_count" in compare_json["readout"]
     assert "fusion_sweep" in compare_json
+    assert "parameters" in compare_json["fusion_sweep"]
     assert set(compare_json["fusion_sweep"]["modes"]) == {"rank_improver", "veto_helper"}
     assert compare_json["base_top_rows"]
     assert compare_json["fused_top_rows"]

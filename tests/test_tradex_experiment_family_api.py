@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -70,6 +71,11 @@ def _fake_regime_rows() -> list[dict[str, object]]:
             )
             current += timedelta(days=1)
     return rows
+
+
+def _short_tradex_root(tmp_path: Path) -> Path:
+    digest = hashlib.sha1(str(tmp_path).encode("utf-8")).hexdigest()[:8]
+    return Path("C:/tmp-tradex-tests") / digest
 
 
 @pytest.fixture(autouse=True)
@@ -162,7 +168,7 @@ def _build_app() -> FastAPI:
 
 
 def test_tradex_family_run_compare_detail_and_adopt_flow(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(tmp_path / "tradex-root"))
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
     dependencies._stock_repo = _FakeRepo()
@@ -722,7 +728,7 @@ def test_tradex_research_runner_family_specs_are_named_and_ordered() -> None:
 
 
 def test_tradex_research_runner_session_resume_and_artifacts(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(tmp_path / "tradex-root"))
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
     monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
@@ -847,7 +853,7 @@ def test_tradex_research_runner_session_resume_and_artifacts(monkeypatch, tmp_pa
 
 
 def test_tradex_research_runner_rejects_duplicate_method_family_thesis(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(tmp_path / "tradex-root"))
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
     monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
@@ -889,7 +895,7 @@ def test_tradex_research_runner_rejects_duplicate_method_family_thesis(monkeypat
 
 
 def test_tradex_research_runner_session_leaderboard_rollup(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(tmp_path / "tradex-root"))
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
     monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
@@ -1735,7 +1741,7 @@ def test_tradex_session_coverage_propagates_candidate_scope_gap_counts() -> None
 
 
 def test_tradex_research_runner_derived_ret20_source_mode_recovers_samples(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(tmp_path / "tradex-root"))
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
     monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
@@ -1819,7 +1825,7 @@ def test_tradex_session_coverage_rejects_mixed_ret20_source_mode() -> None:
 
 
 def test_tradex_research_runner_rejects_empty_confirmed_universe(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(tmp_path / "tradex-root"))
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
 
     class _EmptyRepo:
@@ -1849,7 +1855,7 @@ def test_tradex_research_runner_rejects_empty_confirmed_universe(monkeypatch, tm
 
 
 def test_tradex_session_leaderboard_rollup_marks_artifact_inconsistency_invalid(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(tmp_path / "tradex-root"))
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(research_runner.tradex, "REPO_ROOT", tmp_path)
 
     session_dir = research_runner._session_dir("rollup-inconsistent")
@@ -1886,7 +1892,7 @@ def test_tradex_session_leaderboard_rollup_marks_artifact_inconsistency_invalid(
 
 
 def test_tradex_research_runner_rejects_legacy_analysis_disabled(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(tmp_path / "tradex-root"))
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
     monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
@@ -1904,7 +1910,7 @@ def test_tradex_research_runner_rejects_legacy_analysis_disabled(monkeypatch, tm
 
 
 def test_tradex_research_runner_rejects_scope_sweep_when_legacy_analysis_disabled(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(tmp_path / "tradex-root"))
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
     monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
@@ -1923,7 +1929,7 @@ def test_tradex_research_runner_rejects_scope_sweep_when_legacy_analysis_disable
 
 
 def test_tradex_research_runner_stability_sweep_generates_rollup(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(tmp_path / "tradex-root"))
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
     monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
@@ -2076,7 +2082,7 @@ def test_tradex_research_runner_stability_sweep_generates_rollup(monkeypatch, tm
 
 
 def test_tradex_research_runner_scope_stability_sweep_generates_rollup(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(tmp_path / "tradex-root"))
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
     monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)

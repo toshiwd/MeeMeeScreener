@@ -94,6 +94,8 @@ const normalizeAnalysis = (value: unknown): TradexAnalysisOutput | null => {
   return {
     symbol: toText(source.symbol, "unknown"),
     asof: toText(source.asof, "unknown"),
+    source: toText(source.source) || null,
+    displayLabel: toText(source.display_label ?? source.displayLabel) || null,
     sideRatios: normalizeSideRatios(source.side_ratios ?? source.sideRatios),
     confidence: toFiniteNumber(source.confidence),
     reasons: normalizeReasons(source.reasons),
@@ -118,6 +120,16 @@ export function normalizeTradexDetailAnalysisReadResult(value: unknown): TradexA
   const available = Boolean(source.available);
   const reason = toText(source.reason) || null;
   const analysis = normalizeAnalysis(source.analysis ?? source.item);
+  const normalizedAnalysis =
+    analysis == null
+      ? null
+      : {
+          ...analysis,
+          source: analysis.source ?? (toText(source.source) || null),
+          displayLabel:
+            analysis.displayLabel ??
+            (toText(source.display_label ?? source.displayLabel) || null),
+        };
   if (!available || !analysis) {
     return {
       available: false,
@@ -128,6 +140,6 @@ export function normalizeTradexDetailAnalysisReadResult(value: unknown): TradexA
   return {
     available: true,
     reason: null,
-    analysis,
+    analysis: normalizedAnalysis,
   };
 }

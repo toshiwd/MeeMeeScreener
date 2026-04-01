@@ -33,6 +33,11 @@ type AnalysisGuidance = {
   sellSetupState: string;
 };
 
+type DecisionHistoryItem = {
+  dtKey: number;
+  tone: "up" | "down" | "neutral";
+};
+
 type FormatNumber = (value: number | null | undefined, digits?: number) => string;
 type FormatPercentLabel = (value: number | null | undefined, digits?: number) => string;
 type FormatSignedPercentLabel = (value: number | null | undefined, digits?: number) => string;
@@ -75,6 +80,7 @@ export type Props = {
   swingDiagnostics: AnalysisSwingDiagnostics | null;
   swingSetupExpectancy: AnalysisSwingSetupExpectancy | null;
   analysisMissingDataVisible: boolean;
+  decisionHistory: DecisionHistoryItem[];
   formatPercentLabel: FormatPercentLabel;
   formatNumber: FormatNumber;
   formatSignedPercentLabel: FormatSignedPercentLabel;
@@ -157,6 +163,27 @@ const formatExitPlan = (policy: AnalysisEntryPolicySide | null) => {
   return summary;
 };
 
+const resolveEffectiveBuySetupType = (
+  rawSetupType: string | null | undefined,
+  researchPriorSide: AnalysisResearchPrior["up"] | null | undefined
+) => {
+  const normalized = rawSetupType ?? null;
+  if (normalized && normalized !== "watch" && normalized !== "watchlist") return normalized;
+  return researchPriorSide?.patternTag === "rebound_onset" ? "rebound" : normalized;
+};
+
+const formatDecisionToneLabel = (tone: DecisionHistoryItem["tone"]) => {
+  if (tone === "up") return "買い";
+  if (tone === "down") return "売り";
+  return "中立";
+};
+
+const formatDecisionDateLabel = (dtKey: number) => {
+  const value = String(Math.trunc(dtKey)).padStart(8, "0");
+  if (!/^\d{8}$/.test(value)) return String(dtKey);
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+};
+
 export function DetailAnalysisPanel(props: Props) {
   const {
     analysisAsOfTime,
@@ -196,6 +223,7 @@ export function DetailAnalysisPanel(props: Props) {
     swingDiagnostics,
     swingSetupExpectancy,
     analysisMissingDataVisible,
+    decisionHistory,
     formatPercentLabel,
     formatNumber,
     formatSignedPercentLabel,
@@ -203,11 +231,14 @@ export function DetailAnalysisPanel(props: Props) {
   } = props;
   const buyPolicy = analysisEntryPolicy?.up ?? null;
   const sellPolicy = analysisEntryPolicy?.down ?? null;
+  const researchPriorUp = analysisResearchPrior?.up ?? null;
+  const effectiveBuySetupType = resolveEffectiveBuySetupType(buyPolicy?.setupType, researchPriorUp);
   const hasAnalysisSummary = canShowAnalysis;
 
   return (
-    <ScreenPanel title="判定確認" className="detail-analysis-panel">
+    <ScreenPanel title="従来判定" className="detail-analysis-panel">
       <div className="detail-analysis-body">
+        <div className="detail-analysis-meta">日々の売買判定 / read only</div>
         {analysisDtLabel && <div className="detail-analysis-meta">基準日 {analysisDtLabel}</div>}
         {canShowAnalysis ? (
           <>
@@ -233,7 +264,7 @@ export function DetailAnalysisPanel(props: Props) {
                     状態 {analysisGuidance.buySetupState} / {formatCandidateState("buy", analysisGuidance.buySetupState)}
                   </div>
                   <div className="detail-analysis-entry-plan-item">
-                    狙い {formatSetupIntent("buy", buyPolicy?.setupType)}
+                    狙い {formatSetupIntent("buy", effectiveBuySetupType)}
                   </div>
                   <div className="detail-analysis-entry-plan-item">
                     出口 {formatHoldWindow(buyPolicy)} / {formatExitPlan(buyPolicy)}
@@ -330,10 +361,38 @@ export function DetailAnalysisPanel(props: Props) {
                   {researchPriorRunId && <div className="detail-analysis-meta">研究連携 Run {researchPriorRunId}</div>}
                   {analysisResearchPrior && <div className="detail-analysis-meta">{researchPriorUpMeta}</div>}
                   {analysisResearchPrior && <div className="detail-analysis-meta">{researchPriorDownMeta}</div>}
+                  {researchPriorUp?.patternTag === "rebound_onset" && (
+                    <div className="detail-analysis-meta">研究タグ 反発初動候補</div>
+                  )}
+                  {Number.isFinite(researchPriorUp?.fitScore ?? NaN) && (
+                    <div className="detail-analysis-meta">適合度 {formatPercentLabel(researchPriorUp?.fitScore, 0)}</div>
+                  )}
+                  {Array.isArray(researchPriorUp?.adoptionReasons) && researchPriorUp.adoptionReasons.length > 0 && (
+                    <div className="detail-analysis-meta">採用理由 {researchPriorUp.adoptionReasons.join(" / ")}</div>
+                  )}
                   {edinetStatusMeta && <div className="detail-analysis-meta">{edinetStatusMeta}</div>}
                   {edinetQualityMeta && <div className="detail-analysis-meta">EDI品質 {edinetQualityMeta}</div>}
                   {edinetMetricsMeta && <div className="detail-analysis-meta">{edinetMetricsMeta}</div>}
                   {edinetBonusMeta && <div className="detail-analysis-meta">{edinetBonusMeta}</div>}
+                </div>
+                <div className="detail-analysis-section">
+                  <div className="detail-analysis-section-title">判定履歴</div>
+                  {decisionHistory.length > 0 ? (
+                    <>
+                      <div className="detail-analysis-meta">表示中レンジ内の直近12件</div>
+                      {decisionHistory
+                        .slice()
+                        .reverse()
+                        .slice(0, 12)
+                        .map((item) => (
+                          <div key={`${item.dtKey}-${item.tone}`} className="detail-analysis-meta">
+                            {formatDecisionDateLabel(item.dtKey)} / {formatDecisionToneLabel(item.tone)}
+                          </div>
+                        ))}
+                    </>
+                  ) : (
+                    <div className="detail-analysis-meta">判定履歴なし</div>
+                  )}
                 </div>
                 <div className="detail-analysis-section">
                   <div className="detail-analysis-section-title">仕込み指標</div>

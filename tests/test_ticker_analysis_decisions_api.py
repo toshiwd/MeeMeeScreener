@@ -81,3 +81,15 @@ def test_ticker_analysis_decisions_uses_cached_timeline(monkeypatch, tmp_path) -
     payload = response.json()
     assert [item["dt"] for item in payload["items"]] == [20260312, 20260313]
     assert [item["decision"]["tone"] for item in payload["items"]] == ["up", "down"]
+    assert [item["decision"]["source"] for item in payload["items"]] == [
+        "legacy_detail_view",
+        "legacy_detail_view",
+    ]
+    assert [item["decision"]["logic_family"] for item in payload["items"]] == [
+        "daily_decision",
+        "daily_decision",
+    ]
+    assert [item["decision"]["display_label"] for item in payload["items"]] == [
+        "従来の日々の売買判定",
+        "従来の日々の売買判定",
+    ]

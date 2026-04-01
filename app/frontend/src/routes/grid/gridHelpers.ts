@@ -61,6 +61,15 @@ export const resolveGridVolumeSurgeRatio = (bars: number[][] | undefined, window
   return latest / avg;
 };
 
+export const resolveGridPrimaryChangeValue = (
+  ticker: { chg1D?: number | null; chg1W?: number | null; chg1M?: number | null },
+  timeframe: Timeframe
+) => {
+  if (timeframe === "daily") return ticker.chg1D ?? null;
+  if (timeframe === "weekly") return ticker.chg1W ?? null;
+  return ticker.chg1M ?? null;
+};
+
 export const APP_VERSION_LABEL = `MeeMee v${__APP_VERSION__}`;
 export const GRID_REFACTOR_FLAG_RAW = String(import.meta.env.VITE_GRID_REFACTOR ?? "1")
   .trim()

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiGet = vi.fn();
 const apiPost = vi.fn();
@@ -14,6 +14,7 @@ vi.mock("./api", () => ({
 
 describe("store.loadList", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.resetModules();
     apiGet.mockReset();
     apiPost.mockReset();
@@ -21,6 +22,8 @@ describe("store.loadList", () => {
     const storage = new Map<string, string>();
     const windowStub = {
       MEEMEE_API_BASE: "/api",
+      setTimeout,
+      clearTimeout,
       localStorage: {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => {
@@ -35,6 +38,52 @@ describe("store.loadList", () => {
       }
     };
     vi.stubGlobal("window", windowStub);
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+  });
+
+  it("keeps favorites unloaded and retries after a temporary favorites failure", async () => {
+    let watchlistFailures = 0;
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/grid/screener") {
+        return Promise.resolve({
+          data: {
+            items: [{ code: "1001", name: "Nikkei", stage: "WATCH", score: 10, reason: "" }],
+          },
+        });
+      }
+      if (url === "/watchlist") {
+        return Promise.resolve({ data: { codes: [] } });
+      }
+      if (url === "/favorites") {
+        watchlistFailures += 1;
+        if (watchlistFailures === 1) {
+          return Promise.reject(new Error("temporary favorites error"));
+        }
+        return Promise.resolve({ data: [{ code: "1001" }] });
+      }
+      return Promise.reject(new Error(`unexpected url ${url}`));
+    });
+
+    const { useStore } = await import("./store");
+    useStore.setState({
+      favorites: ["1301"],
+      favoritesLoaded: false,
+      favoritesLoading: false,
+    });
+
+    await useStore.getState().loadFavorites();
+
+    expect(useStore.getState().favorites).toEqual(["1301"]);
+    expect(useStore.getState().favoritesLoaded).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(useStore.getState().favorites).toEqual(["1001"]);
+    expect(useStore.getState().favoritesLoaded).toBe(true);
   });
 
   it("loads screener snapshot without legacy /list fallback", async () => {

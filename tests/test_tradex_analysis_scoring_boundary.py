@@ -206,6 +206,9 @@ def test_build_analysis_decision_wrapper_matches_extracted_pipeline() -> None:
     prepared = prepare_tradex_score_context(**kwargs)
     core = compute_analysis_decision_core(prepared)
     expected = finalize_tradex_score_output(core)
+    expected["source"] = "legacy_detail_view"
+    expected["logic_family"] = "daily_decision"
+    expected["display_label"] = "従来の日々の売買判定"
 
     assert wrapped == expected
 

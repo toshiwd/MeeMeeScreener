@@ -23,6 +23,7 @@ from app.backend.services.tradex_experiment_store import (
     load_family,
     load_run,
     resolve_tradex_root,
+    tradex_reports_root,
     run_file,
     write_json,
 )
@@ -168,8 +169,7 @@ def _session_events_file(session_id: str) -> Path:
 
 
 def _session_report_file(session_id: str) -> Path:
-    report_dir = tradex.REPO_ROOT / "docs" / "reports"
-    report_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = tradex_reports_root()
     return report_dir / f"{SESSION_REPORT_NAME_PREFIX}_{_slug(session_id)}.md"
 
 
@@ -178,8 +178,7 @@ def _session_family_leaderboard_file(session_id: str) -> Path:
 
 
 def _session_family_leaderboard_report_file(session_id: str) -> Path:
-    report_dir = tradex.REPO_ROOT / "docs" / "reports"
-    report_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = tradex_reports_root()
     return report_dir / f"{SESSION_FAMILY_LEADERBOARD_REPORT_PREFIX}_{_slug(session_id)}.md"
 
 
@@ -188,8 +187,7 @@ def _session_leaderboard_rollup_file() -> Path:
 
 
 def _session_leaderboard_rollup_report_file() -> Path:
-    report_dir = tradex.REPO_ROOT / "docs" / "reports"
-    report_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = tradex_reports_root()
     return report_dir / f"{SESSION_LEADERBOARD_ROLLUP_REPORT_PREFIX}.md"
 
 
@@ -198,8 +196,7 @@ def _stability_rollup_file() -> Path:
 
 
 def _stability_rollup_report_file() -> Path:
-    report_dir = tradex.REPO_ROOT / "docs" / "reports"
-    report_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = tradex_reports_root()
     return report_dir / f"{STABILITY_ROLLUP_REPORT_PREFIX}.md"
 
 
@@ -208,8 +205,7 @@ def _scope_stability_rollup_file() -> Path:
 
 
 def _scope_stability_rollup_report_file() -> Path:
-    report_dir = tradex.REPO_ROOT / "docs" / "reports"
-    report_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = tradex_reports_root()
     return report_dir / f"{SCOPE_STABILITY_ROLLUP_REPORT_PREFIX}.md"
 
 

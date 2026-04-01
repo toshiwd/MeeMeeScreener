@@ -118,6 +118,67 @@ def test_similarity_nightly_metrics_is_idempotent_for_same_publish_id(monkeypatc
     assert int(metric_count[0]) == 1
 
 
+def test_similarity_nightly_limits_query_scope_to_published_candidates(monkeypatch, tmp_path) -> None:
+    source_db = tmp_path / "source.duckdb"
+    export_db = tmp_path / "export.duckdb"
+    label_db = tmp_path / "label.duckdb"
+    result_db = tmp_path / "result.duckdb"
+    ops_db = tmp_path / "ops.duckdb"
+    similarity_db = tmp_path / "similarity.duckdb"
+    publish_id = "pub_2026-03-13_20260313T220000Z_01"
+    as_of_date = _prepare_similarity_inputs(
+        monkeypatch,
+        source_db=str(source_db),
+        export_db=str(export_db),
+        label_db=str(label_db),
+        result_db=str(result_db),
+        ops_db=str(ops_db),
+        similarity_db=str(similarity_db),
+    )
+
+    result_conn = duckdb.connect(str(result_db), read_only=True)
+    try:
+        expected_codes = [
+            str(row[0])
+            for row in result_conn.execute(
+                "SELECT DISTINCT code FROM candidate_daily WHERE publish_id = ? ORDER BY code",
+                [publish_id],
+            ).fetchall()
+        ]
+    finally:
+        result_conn.close()
+
+    captured: dict[str, object] = {}
+
+    def _fake_run_similarity_baseline(**kwargs):
+        captured["query_codes"] = kwargs.get("query_codes")
+        return {
+            "ok": True,
+            "publish_id": publish_id,
+            "similar_case_count": 0,
+            "similar_path_count": 0,
+            "metrics_saved": True,
+            "metrics_attempts": 1,
+            "metrics_error_class": None,
+            "top_k": int(kwargs.get("top_k") or 0),
+        }
+
+    monkeypatch.setattr("external_analysis.runtime.nightly_similarity_pipeline.run_similarity_baseline", _fake_run_similarity_baseline)
+
+    payload = run_nightly_similarity_pipeline(
+        export_db_path=str(export_db),
+        label_db_path=str(label_db),
+        result_db_path=str(result_db),
+        similarity_db_path=str(similarity_db),
+        ops_db_path=str(ops_db),
+        as_of_date=str(as_of_date),
+        publish_id=publish_id,
+    )
+
+    assert payload["ok"] is True
+    assert captured["query_codes"] == expected_codes
+
+
 def test_phase3_similarity_nightly_smoke_keeps_candidate_api_and_limits_payload(monkeypatch, tmp_path) -> None:
     source_db = tmp_path / "source.duckdb"
     export_db = tmp_path / "export.duckdb"
