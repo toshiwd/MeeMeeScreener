@@ -132,7 +132,7 @@ def load_ranking_codes_from_rankings_cache(limit: int) -> list[str]:
             "latest",
             "up",
             int(limit),
-            mode="hybrid",
+            mode="trade",
             risk_mode="balanced",
         )
     except Exception:

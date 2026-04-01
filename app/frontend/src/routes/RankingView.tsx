@@ -80,6 +80,7 @@ type RankItem = {
   monthlyRangeProb?: number | null;
   hybridScore?: number | null;
   entryScore?: number | null;
+  tradePriorityScore?: number | null;
   researchPriorRunId?: string | null;
   researchPriorAsOf?: string | null;
   researchPriorAligned?: boolean | null;
@@ -152,7 +153,7 @@ type RankItem = {
 
 type RankTimeframe = "D" | "W" | "M";
 type RankWhich = "latest" | "prev";
-type RankMode = "hybrid" | "turn";
+type RankMode = "trade" | "hybrid" | "turn";
 type RankRiskMode = "defensive" | "balanced" | "aggressive";
 type MtfStrictness = "auto" | "loose" | "normal" | "tight";
 type MtfStrictnessResolved = "loose" | "normal" | "tight";
@@ -187,6 +188,7 @@ const rankingFetchMemoryCache = new Map<string, RankingFetchCacheEntry>();
 
 const resolveRankSummaryScore = (item: RankItem) => {
   const candidates = [
+    item.tradePriorityScore,
     item.score,
     item.winNowScore,
     item.entryScore,
@@ -395,7 +397,7 @@ const resolveProbSide = (item: RankItem, dir: "up" | "down") => {
   );
 };
 
-const resolveScoreSide = (item: RankItem) => firstFinite(item.entryScore, item.hybridScore);
+const resolveScoreSide = (item: RankItem) => firstFinite(item.tradePriorityScore, item.entryScore, item.hybridScore);
 
 const matchesMtfStrictRule = (item: RankItem, minQualified: number, winGate: number) => {
   const mtfQualified = firstFinite(item.mtfQualifiedCount) ?? 0;
@@ -582,7 +584,7 @@ export default function RankingView() {
   const setRows = useStore((state) => state.setRows);
   const favoriteCodes = useStore((state) => state.favorites);
   const rankWhich: RankWhich = "latest";
-  const rankMode: RankMode = "hybrid";
+  const rankMode: RankMode = "trade";
   const riskMode: RankRiskMode = "balanced";
   const storedViewState = useMemo(() => readStoredRankViewState(), []);
   const initialDir: "up" | "down" = storedViewState?.dir === "down" ? "down" : "up";

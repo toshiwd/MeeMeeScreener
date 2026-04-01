@@ -24,7 +24,14 @@ from app.backend.services.data.bar_aggregation import merge_monthly_rows_with_da
 from app.backend.services.ml.edinet_rank_features import load_edinet_rank_features
 from app.backend.services.data.taisyaku_import import load_taisyaku_snapshot
 from app.backend.services.jpx_calendar import get_jpx_session_info, should_pan_be_finalized_for_date
-from app.backend.services.analysis.analysis_decision import build_analysis_decision
+from app.backend.services.analysis.analysis_decision import (
+    DETAIL_ANALYSIS_DISPLAY_LABEL,
+    DETAIL_ANALYSIS_LOGIC_FAMILY,
+    DETAIL_ANALYSIS_SOURCE,
+    TRADEX_ANALYSIS_DISPLAY_LABEL,
+    TRADEX_ANALYSIS_SOURCE,
+    build_analysis_decision,
+)
 from app.backend.services import swing_expectancy_service, swing_plan_service
 from app.backend.services.tradex_analysis_service import (
     build_tradex_detail_analysis_snapshot,
@@ -459,6 +466,20 @@ def _build_research_prior_summary(code: str) -> Dict[str, Any] | None:
             "bonus": _to_float_or_none(probe.get("researchPriorBonus")),
             "asOf": str(probe.get("researchPriorAsOf") or "").strip() or None,
             "patternTag": str(probe.get("researchPatternTag") or "").strip() or None,
+            "signalStrength": _to_float_or_none(probe.get("researchSignalStrength")),
+            "promotionStage": str(probe.get("researchPromotionStage") or "").strip() or None,
+            "decisionReasons": (
+                [str(reason).strip() for reason in probe.get("researchDecisionReasons") if str(reason).strip()]
+                if isinstance(probe.get("researchDecisionReasons"), list)
+                else None
+            ),
+            "riskWatch": (
+                [str(reason).strip() for reason in probe.get("researchRiskWatch") if str(reason).strip()]
+                if isinstance(probe.get("researchRiskWatch"), list)
+                else None
+            ),
+            "provisional": bool(probe.get("researchProvisional")) if probe.get("researchPriorAligned") else False,
+            "hypothesisFamily": str(probe.get("researchHypothesisFamily") or "").strip() or None,
             "fitScore": _to_float_or_none(probe.get("reboundOnsetFitScore")),
             "adoptionReasons": (
                 [str(reason).strip() for reason in probe.get("reboundOnsetAdoptionReasons") if str(reason).strip()]
@@ -2176,29 +2197,36 @@ def get_analysis_pred(
         if isinstance(entry_policy, dict)
         else None,
     )
+    item = {
+        "dt": row[0],
+        "pUp": p_up,
+        "pDown": p_down,
+        "pTurnUp": p_turn_up,
+        "pTurnDown": p_turn_down,
+        "pTurnDownHorizon": 10,
+        "retPred20": ret_pred20,
+        "ev20": ev20,
+        "ev20Net": ev20_net,
+        "horizonAnalysis": horizon_analysis,
+        "additiveSignals": additive_signals,
+        "entryPolicy": entry_policy,
+        "riskMode": resolved_risk_mode,
+        "buyStagePrecision": buy_stage_precision,
+        "researchPrior": research_prior,
+        "edinetSummary": edinet_summary,
+        "modelVersion": str(model_version) if model_version is not None else None,
+        "source": decision.get("source") if isinstance(decision, dict) else DETAIL_ANALYSIS_SOURCE,
+        "logic_family": decision.get("logic_family") if isinstance(decision, dict) else DETAIL_ANALYSIS_LOGIC_FAMILY,
+        "display_label": decision.get("display_label") if isinstance(decision, dict) else DETAIL_ANALYSIS_DISPLAY_LABEL,
+        "decision": decision,
+        "swingPlan": swing_eval.get("plan") if isinstance(swing_eval, dict) else None,
+        "swingDiagnostics": swing_eval.get("diagnostics") if isinstance(swing_eval, dict) else None,
+    }
     return {
-        "item": {
-            "dt": row[0],
-            "pUp": p_up,
-            "pDown": p_down,
-            "pTurnUp": p_turn_up,
-            "pTurnDown": p_turn_down,
-            "pTurnDownHorizon": 10,
-            "retPred20": ret_pred20,
-            "ev20": ev20,
-            "ev20Net": ev20_net,
-            "horizonAnalysis": horizon_analysis,
-            "additiveSignals": additive_signals,
-            "entryPolicy": entry_policy,
-            "riskMode": resolved_risk_mode,
-            "buyStagePrecision": buy_stage_precision,
-            "researchPrior": research_prior,
-            "edinetSummary": edinet_summary,
-            "modelVersion": str(model_version) if model_version is not None else None,
-            "decision": decision,
-            "swingPlan": swing_eval.get("plan") if isinstance(swing_eval, dict) else None,
-            "swingDiagnostics": swing_eval.get("diagnostics") if isinstance(swing_eval, dict) else None,
-        }
+        "item": item,
+        "source": item["source"],
+        "logic_family": item["logic_family"],
+        "display_label": item["display_label"],
     }
 
 
@@ -2211,12 +2239,23 @@ def get_tradex_detail_analysis_snapshot(
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
     asof_dt = _parse_dt(asof)
-    return build_tradex_detail_analysis_snapshot(
+    snapshot = build_tradex_detail_analysis_snapshot(
         code=code,
         asof_dt=asof_dt,
         repo=repo,
         enabled=is_tradex_detail_analysis_enabled(),
     )
+    if not isinstance(snapshot, dict):
+        return snapshot
+    analysis = snapshot.get("analysis")
+    if isinstance(analysis, dict):
+        analysis = dict(analysis)
+        analysis.setdefault("source", TRADEX_ANALYSIS_SOURCE)
+        analysis.setdefault("display_label", TRADEX_ANALYSIS_DISPLAY_LABEL)
+        snapshot["analysis"] = analysis
+    snapshot.setdefault("source", TRADEX_ANALYSIS_SOURCE)
+    snapshot.setdefault("display_label", TRADEX_ANALYSIS_DISPLAY_LABEL)
+    return snapshot
 
 
 @router.post("/tradex/summary", response_model=None)

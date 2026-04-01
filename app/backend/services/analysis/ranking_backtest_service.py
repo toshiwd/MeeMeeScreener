@@ -21,6 +21,7 @@ TOREDEX_POLICY_BACKTEST_SCHEMA_VERSION = "toredex_policy_backtest_v1"
 DEFAULT_TRADE_HORIZONS = (5, 20, 60)
 DEFAULT_TOP_BUCKETS = (5, 10, 20)
 DEFAULT_LIMIT = 200
+TRADEX_EXPERIMENT_SELECTION_VARIANT = "tradex_experiment"
 
 
 @dataclass(frozen=True)
@@ -205,13 +206,39 @@ def _safe_float(value: Any) -> float | None:
     return out if math.isfinite(out) else None
 
 
+def _resolve_display_score(item: dict[str, Any]) -> tuple[float | None, str]:
+    entry_score = _safe_float(item.get("entryScore"))
+    if entry_score is not None:
+        return entry_score, "ranking_entry"
+    hybrid_score = _safe_float(item.get("hybridScore"))
+    if hybrid_score is not None:
+        return hybrid_score, "ranking_hybrid"
+    return None, "none"
+
+
+def _sort_experiment_selection_row(item: dict[str, Any]) -> tuple[int, float, float, float, str]:
+    display_score = _safe_float(item.get("displayScore"))
+    entry_score = _safe_float(item.get("entryScore"))
+    hybrid_score = _safe_float(item.get("hybridScore"))
+    code = str(item.get("code") or "")
+    return (
+        1 if display_score is None else 0,
+        -(display_score or 0.0),
+        -(entry_score or 0.0),
+        -(hybrid_score or 0.0),
+        code,
+    )
+
+
 def _build_daily_selection_rows(
     *,
     trade_dates: list[int],
     contract: RankingBacktestContract,
+    selection_variant: str = "baseline",
 ) -> tuple[list[dict[str, Any]], list[str]]:
     rows: list[dict[str, Any]] = []
     code_universe: set[str] = set()
+    normalized_variant = str(selection_variant or "baseline").strip() or "baseline"
     for as_of_ymd in trade_dates:
         payload = rankings_cache.get_rankings_asof(
             contract.tf,
@@ -225,13 +252,22 @@ def _build_daily_selection_rows(
         items = payload.get("items") if isinstance(payload, dict) else []
         if not isinstance(items, list) or not items:
             continue
-        for rank, item in enumerate(items, start=1):
+        ordered_items = list(items)
+        if normalized_variant == TRADEX_EXPERIMENT_SELECTION_VARIANT:
+            ordered_items = sorted(
+                [item for item in ordered_items if isinstance(item, dict)],
+                key=_sort_experiment_selection_row,
+            )
+        else:
+            ordered_items = [item for item in ordered_items if isinstance(item, dict)]
+        for rank, item in enumerate(ordered_items, start=1):
             if not isinstance(item, dict):
                 continue
             code = str(item.get("code") or "").strip()
             if not code:
                 continue
             code_universe.add(code)
+            display_score, display_score_source = _resolve_display_score(item)
             rows.append(
                 {
                     "as_of": int(as_of_ymd),
@@ -241,8 +277,11 @@ def _build_daily_selection_rows(
                     "entryQualified": bool(item.get("entryQualified") is True),
                     "entryScore": _safe_float(item.get("entryScore")),
                     "hybridScore": _safe_float(item.get("hybridScore")),
+                    "displayScore": display_score,
+                    "displayScoreSource": display_score_source,
                     "setupType": str(item.get("setupType") or "").strip() or None,
                     "predDt": payload.get("pred_dt"),
+                    "selectionVariant": normalized_variant,
                 }
             )
     return rows, sorted(code_universe)
@@ -407,6 +446,7 @@ def _render_raw_markdown(payload: dict[str, Any]) -> str:
         "# Raw Ranking Backtest",
         "",
         f"- generated_at: {payload.get('generated_at')}",
+        f"- selection_variant: {payload.get('selection_variant')}",
         f"- period: {payload.get('period', {}).get('start_date')} .. {payload.get('period', {}).get('end_date')}",
         f"- daily_count: {payload.get('daily_count')}",
         "",
@@ -435,6 +475,7 @@ def run_raw_ranking_backtest(
     end_date: date | None = None,
     output_dir: Path | None = None,
     contract: RankingBacktestContract | None = None,
+    selection_variant: str = "baseline",
 ) -> dict[str, Any]:
     ranking_contract = contract or RankingBacktestContract()
     resolved_start, resolved_end = (
@@ -443,7 +484,12 @@ def run_raw_ranking_backtest(
     if resolved_start is None or resolved_end is None:
         raise RuntimeError("ranking backtest period could not be resolved")
     trade_dates = _list_trade_dates(start_date=resolved_start, end_date=resolved_end)
-    daily_rows, codes = _build_daily_selection_rows(trade_dates=trade_dates, contract=ranking_contract)
+    normalized_variant = str(selection_variant or "baseline").strip() or "baseline"
+    daily_rows, codes = _build_daily_selection_rows(
+        trade_dates=trade_dates,
+        contract=ranking_contract,
+        selection_variant=normalized_variant,
+    )
     panel = pd.DataFrame(daily_rows)
     if panel.empty:
         raise RuntimeError("no ranking rows returned for requested period")
@@ -467,6 +513,7 @@ def run_raw_ranking_backtest(
     payload = {
         "schema_version": RAW_RANKING_BACKTEST_SCHEMA_VERSION,
         "generated_at": _utc_now_iso(),
+        "selection_variant": normalized_variant,
         "ranking_contract": {
             "tf": ranking_contract.tf,
             "which": ranking_contract.which,
@@ -487,9 +534,10 @@ def run_raw_ranking_backtest(
     }
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
-        write_json(output_dir / "raw_ranking_backtest.json", payload)
-        (output_dir / "raw_ranking_backtest.md").write_text(_render_raw_markdown(payload), encoding="utf-8")
-        _write_panel_parquet(output_dir / "daily_selection_panel.parquet", panel)
+        suffix = "" if normalized_variant == "baseline" else f"_{normalized_variant}"
+        write_json(output_dir / f"raw_ranking_backtest{suffix}.json", payload)
+        (output_dir / f"raw_ranking_backtest{suffix}.md").write_text(_render_raw_markdown(payload), encoding="utf-8")
+        _write_panel_parquet(output_dir / f"daily_selection_panel{suffix}.parquet", panel)
     return payload
 
 
@@ -588,6 +636,73 @@ def _raw_summary(raw_payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _compare_raw_summaries(baseline_payload: dict[str, Any], experiment_payload: dict[str, Any]) -> dict[str, Any]:
+    baseline_summary = _raw_summary(baseline_payload)
+    experiment_summary = _raw_summary(experiment_payload)
+
+    baseline_top10 = baseline_summary.get("top10") if isinstance(baseline_summary.get("top10"), dict) else {}
+    baseline_entry = (
+        baseline_summary.get("top10_entryQualified")
+        if isinstance(baseline_summary.get("top10_entryQualified"), dict)
+        else {}
+    )
+    experiment_top10 = experiment_summary.get("top10") if isinstance(experiment_summary.get("top10"), dict) else {}
+    experiment_entry = (
+        experiment_summary.get("top10_entryQualified")
+        if isinstance(experiment_summary.get("top10_entryQualified"), dict)
+        else {}
+    )
+
+    metric_names = (
+        "mean_forward_return_5",
+        "mean_forward_return_20",
+        "mean_forward_return_60",
+        "hit_rate_20",
+        "lift_vs_all_ranked",
+        "lift_vs_bottom_bucket",
+        "daily_overlap_rate",
+        "daily_turnover_rate",
+    )
+    comparison = {
+        "metric_scope": "top10_entryQualified",
+        "selection_variant_baseline": baseline_payload.get("selection_variant"),
+        "selection_variant_experiment": experiment_payload.get("selection_variant"),
+        "top10": {
+            metric_name: {
+                "baseline": baseline_top10.get(metric_name),
+                "experiment": experiment_top10.get(metric_name),
+                "delta": (
+                    None
+                    if _safe_float(baseline_top10.get(metric_name)) is None or _safe_float(experiment_top10.get(metric_name)) is None
+                    else float(_safe_float(experiment_top10.get(metric_name)) - _safe_float(baseline_top10.get(metric_name)))
+                ),
+            }
+            for metric_name in metric_names
+        },
+        "top10_entryQualified": {
+            metric_name: {
+                "baseline": baseline_entry.get(metric_name),
+                "experiment": experiment_entry.get(metric_name),
+                "delta": (
+                    None
+                    if _safe_float(baseline_entry.get(metric_name)) is None or _safe_float(experiment_entry.get(metric_name)) is None
+                    else float(_safe_float(experiment_entry.get(metric_name)) - _safe_float(baseline_entry.get(metric_name)))
+                ),
+            }
+            for metric_name in metric_names
+        },
+    }
+    comparison["threshold_check"] = {
+        "mean_forward_return_20_non_decreasing": _safe_float(experiment_entry.get("mean_forward_return_20")) is not None
+        and _safe_float(baseline_entry.get("mean_forward_return_20")) is not None
+        and _safe_float(experiment_entry.get("mean_forward_return_20")) >= _safe_float(baseline_entry.get("mean_forward_return_20")),
+        "lift_vs_all_ranked_non_decreasing": _safe_float(experiment_entry.get("lift_vs_all_ranked")) is not None
+        and _safe_float(baseline_entry.get("lift_vs_all_ranked")) is not None
+        and _safe_float(experiment_entry.get("lift_vs_all_ranked")) >= _safe_float(baseline_entry.get("lift_vs_all_ranked")),
+    }
+    return comparison
+
+
 def _classify_summary(*, raw_payload: dict[str, Any], toredex_payload: dict[str, Any]) -> str:
     cohort_metrics = raw_payload.get("cohort_metrics") if isinstance(raw_payload.get("cohort_metrics"), dict) else {}
     top10 = cohort_metrics.get("top10") if isinstance(cohort_metrics.get("top10"), dict) else {}
@@ -613,6 +728,10 @@ def _classify_summary(*, raw_payload: dict[str, Any], toredex_payload: dict[str,
 def _render_summary_markdown(payload: dict[str, Any]) -> str:
     raw_top10 = ((payload.get("raw_ranking") or {}).get("top10")) or {}
     raw_top10_entry = ((payload.get("raw_ranking") or {}).get("top10_entryQualified")) or {}
+    tradex_experiment = payload.get("tradex_experiment") or {}
+    experiment_top10 = (tradex_experiment.get("top10") or {}) if isinstance(tradex_experiment, dict) else {}
+    experiment_top10_entry = (tradex_experiment.get("top10_entryQualified") or {}) if isinstance(tradex_experiment, dict) else {}
+    comparison = payload.get("comparison") or {}
     toredex = payload.get("toredex_policy") or {}
     return "\n".join(
         [
@@ -627,6 +746,16 @@ def _render_summary_markdown(payload: dict[str, Any]) -> str:
             f"- top10 lift20: {raw_top10.get('lift_vs_all_ranked')}",
             f"- top10_entryQualified mean20: {raw_top10_entry.get('mean_forward_return_20')}",
             f"- top10_entryQualified lift20: {raw_top10_entry.get('lift_vs_all_ranked')}",
+            "",
+            "## Tradex Experiment",
+            f"- top10 mean20: {experiment_top10.get('mean_forward_return_20')}",
+            f"- top10 lift20: {experiment_top10.get('lift_vs_all_ranked')}",
+            f"- top10_entryQualified mean20: {experiment_top10_entry.get('mean_forward_return_20')}",
+            f"- top10_entryQualified lift20: {experiment_top10_entry.get('lift_vs_all_ranked')}",
+            "",
+            "## Comparison",
+            f"- threshold_check: {comparison.get('threshold_check')}",
+            f"- metric_scope: {comparison.get('metric_scope')}",
             "",
             "## ToreDex",
             f"- risk_gate_pass: {((toredex.get('risk_gate') or {}).get('pass'))}",
@@ -680,6 +809,13 @@ def run_ranking_backtest(
         start_date=resolved_start,
         end_date=resolved_end,
         output_dir=root,
+        selection_variant="baseline",
+    )
+    tradex_experiment_payload = run_raw_ranking_backtest(
+        start_date=resolved_start,
+        end_date=resolved_end,
+        output_dir=root,
+        selection_variant=TRADEX_EXPERIMENT_SELECTION_VARIANT,
     )
     toredex_payload = run_toredex_policy_backtest(
         start_date=resolved_start,
@@ -696,6 +832,8 @@ def run_ranking_backtest(
         },
         "ranking_contract": raw_payload.get("ranking_contract"),
         "raw_ranking": _raw_summary(raw_payload),
+        "tradex_experiment": _raw_summary(tradex_experiment_payload),
+        "comparison": _compare_raw_summaries(raw_payload, tradex_experiment_payload),
         "toredex_policy": {
             "final_equity": ((toredex_payload.get("final_metrics") or {}).get("equity")),
             "total_return_pct": _extract_toredex_total_return_pct(toredex_payload),
@@ -714,6 +852,7 @@ def run_ranking_backtest(
         "run_id": run_id,
         "output_dir": str(root),
         "raw": raw_payload,
+        "tradex_experiment": tradex_experiment_payload,
         "toredex": toredex_payload,
         "summary": summary_payload,
     }

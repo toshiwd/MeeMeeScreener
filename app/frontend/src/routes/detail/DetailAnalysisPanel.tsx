@@ -33,6 +33,11 @@ type AnalysisGuidance = {
   sellSetupState: string;
 };
 
+type DecisionHistoryItem = {
+  dtKey: number;
+  tone: "up" | "down" | "neutral";
+};
+
 type FormatNumber = (value: number | null | undefined, digits?: number) => string;
 type FormatPercentLabel = (value: number | null | undefined, digits?: number) => string;
 type FormatSignedPercentLabel = (value: number | null | undefined, digits?: number) => string;
@@ -75,6 +80,7 @@ export type Props = {
   swingDiagnostics: AnalysisSwingDiagnostics | null;
   swingSetupExpectancy: AnalysisSwingSetupExpectancy | null;
   analysisMissingDataVisible: boolean;
+  decisionHistory: DecisionHistoryItem[];
   formatPercentLabel: FormatPercentLabel;
   formatNumber: FormatNumber;
   formatSignedPercentLabel: FormatSignedPercentLabel;
@@ -166,6 +172,18 @@ const resolveEffectiveBuySetupType = (
   return researchPriorSide?.patternTag === "rebound_onset" ? "rebound" : normalized;
 };
 
+const formatDecisionToneLabel = (tone: DecisionHistoryItem["tone"]) => {
+  if (tone === "up") return "買い";
+  if (tone === "down") return "売り";
+  return "中立";
+};
+
+const formatDecisionDateLabel = (dtKey: number) => {
+  const value = String(Math.trunc(dtKey)).padStart(8, "0");
+  if (!/^\d{8}$/.test(value)) return String(dtKey);
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+};
+
 export function DetailAnalysisPanel(props: Props) {
   const {
     analysisAsOfTime,
@@ -205,6 +223,7 @@ export function DetailAnalysisPanel(props: Props) {
     swingDiagnostics,
     swingSetupExpectancy,
     analysisMissingDataVisible,
+    decisionHistory,
     formatPercentLabel,
     formatNumber,
     formatSignedPercentLabel,
@@ -217,8 +236,9 @@ export function DetailAnalysisPanel(props: Props) {
   const hasAnalysisSummary = canShowAnalysis;
 
   return (
-    <ScreenPanel title="判定確認" className="detail-analysis-panel">
+    <ScreenPanel title="従来判定" className="detail-analysis-panel">
       <div className="detail-analysis-body">
+        <div className="detail-analysis-meta">日々の売買判定 / read only</div>
         {analysisDtLabel && <div className="detail-analysis-meta">基準日 {analysisDtLabel}</div>}
         {canShowAnalysis ? (
           <>
@@ -354,6 +374,25 @@ export function DetailAnalysisPanel(props: Props) {
                   {edinetQualityMeta && <div className="detail-analysis-meta">EDI品質 {edinetQualityMeta}</div>}
                   {edinetMetricsMeta && <div className="detail-analysis-meta">{edinetMetricsMeta}</div>}
                   {edinetBonusMeta && <div className="detail-analysis-meta">{edinetBonusMeta}</div>}
+                </div>
+                <div className="detail-analysis-section">
+                  <div className="detail-analysis-section-title">判定履歴</div>
+                  {decisionHistory.length > 0 ? (
+                    <>
+                      <div className="detail-analysis-meta">表示中レンジ内の直近12件</div>
+                      {decisionHistory
+                        .slice()
+                        .reverse()
+                        .slice(0, 12)
+                        .map((item) => (
+                          <div key={`${item.dtKey}-${item.tone}`} className="detail-analysis-meta">
+                            {formatDecisionDateLabel(item.dtKey)} / {formatDecisionToneLabel(item.tone)}
+                          </div>
+                        ))}
+                    </>
+                  ) : (
+                    <div className="detail-analysis-meta">判定履歴なし</div>
+                  )}
                 </div>
                 <div className="detail-analysis-section">
                   <div className="detail-analysis-section-title">仕込み指標</div>

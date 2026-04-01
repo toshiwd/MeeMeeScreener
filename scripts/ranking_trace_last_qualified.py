@@ -107,7 +107,7 @@ def main() -> None:
     parser.add_argument("--tf", default="D", help="D/W/M")
     parser.add_argument("--which", default="latest", choices=["latest", "prev"])
     parser.add_argument("--dir", default="up", choices=["up", "down"])
-    parser.add_argument("--mode", default="hybrid", choices=["rule", "ml", "hybrid", "turn"])
+    parser.add_argument("--mode", default="trade", choices=["rule", "ml", "hybrid", "turn", "trade"])
     parser.add_argument("--limit", type=int, default=50)
     parser.add_argument("--start-ymd", type=int, default=20250101)
     parser.add_argument("--end-ymd", type=int, default=20260226)

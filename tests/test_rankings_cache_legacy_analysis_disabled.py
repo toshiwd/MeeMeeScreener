@@ -42,6 +42,34 @@ def test_build_rankings_response_falls_back_to_rule_when_legacy_analysis_disable
     assert payload["items"] == [{"code": "1301", "asOf": "2026-03-13", "entryQualified": False}]
 
 
+def test_build_rankings_response_keeps_trade_mode_when_legacy_analysis_disabled(monkeypatch):
+    monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "1")
+
+    source_items = [{"code": "2301", "asOf": "2026-03-13"}]
+
+    monkeypatch.setattr(rankings_cache, "_load_live_cache_items", lambda cache_key: (source_items, None))
+    monkeypatch.setattr(
+        rankings_cache,
+        "_call_apply_ml_mode",
+        lambda *args, **kwargs: ([{"code": "2301", "asOf": "2026-03-13", "entryQualified": True, "setupType": "breakout", "monthlyBoxState": "box_upper"}], None, None),
+    )
+    monkeypatch.setattr(rankings_cache, "_fallback_down_ml_items_when_empty", lambda **kwargs: (kwargs["out_items"], kwargs["pred_dt"], kwargs["model_version"]))
+    monkeypatch.setattr(rankings_cache, "_attach_quality_flags", lambda items, mode, direction, now_ymd=None: items)
+    monkeypatch.setattr(rankings_cache, "_attach_swing_fields", lambda items, direction: items)
+
+    payload = rankings_cache._build_rankings_response(  # type: ignore[attr-defined]
+        "D",
+        "latest",
+        "up",
+        10,
+        mode="trade",
+        risk_mode="balanced",
+        cache_generation=1,
+    )
+
+    assert payload["mode"] == "trade"
+
+
 def test_fetch_recent_asof_dates_returns_empty_when_legacy_analysis_disabled(monkeypatch):
     monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "1")
     assert rankings_cache._fetch_recent_asof_dates(as_of_int=20260313, lookback_days=20) == []  # type: ignore[attr-defined]

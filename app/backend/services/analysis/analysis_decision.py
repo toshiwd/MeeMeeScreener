@@ -12,6 +12,13 @@ from external_analysis.runtime.score_axes import (
 from external_analysis.runtime.score_aggregate import aggregate_tradex_score_decision
 from external_analysis.runtime.score_finalize import finalize_tradex_score_output
 
+DETAIL_ANALYSIS_SOURCE = "legacy_detail_view"
+DETAIL_ANALYSIS_LOGIC_FAMILY = "daily_decision"
+DETAIL_ANALYSIS_DISPLAY_LABEL = "従来の日々の売買判定"
+
+TRADEX_ANALYSIS_SOURCE = "tradex_analysis"
+TRADEX_ANALYSIS_DISPLAY_LABEL = "TRADEX解析"
+
 
 def compute_analysis_decision_core(score_context: dict[str, Any]) -> dict[str, Any]:
     trend_axis = score_trend_direction(score_context)
@@ -50,4 +57,8 @@ def build_analysis_decision(
         sell_analysis=sell_analysis,
     )
     core = compute_analysis_decision_core(score_context)
-    return finalize_tradex_score_output(core)
+    output = finalize_tradex_score_output(core)
+    output["source"] = DETAIL_ANALYSIS_SOURCE
+    output["logic_family"] = DETAIL_ANALYSIS_LOGIC_FAMILY
+    output["display_label"] = DETAIL_ANALYSIS_DISPLAY_LABEL
+    return output

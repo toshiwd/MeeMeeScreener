@@ -103,8 +103,14 @@ def test_ticker_analysis_includes_swing_payload(monkeypatch) -> None:
 
     out = ticker.get_analysis_pred(code="1301", risk_mode="balanced", repo=_StubRepo())
     item = out.get("item") or {}
+    assert out["source"] == "legacy_detail_view"
+    assert out["logic_family"] == "daily_decision"
+    assert out["display_label"] == "従来の日々の売買判定"
     assert item.get("swingPlan") is not None
     assert item.get("swingDiagnostics") is not None
     assert item["swingPlan"]["side"] == "long"
     assert float(item["swingPlan"]["score"]) >= 0.62
     assert "edge" in item["swingDiagnostics"]
+    assert item["source"] == "legacy_detail_view"
+    assert item["logic_family"] == "daily_decision"
+    assert item["display_label"] == "従来の日々の売買判定"

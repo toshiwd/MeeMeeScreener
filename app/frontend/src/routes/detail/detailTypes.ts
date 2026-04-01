@@ -560,6 +560,8 @@ export type TradexAnalysisOverrideState = {
 export type TradexAnalysisOutput = {
   symbol: string;
   asof: string;
+  source: string | null;
+  displayLabel: string | null;
   sideRatios: TradexAnalysisSideRatios;
   confidence: number | null;
   reasons: string[];

@@ -507,8 +507,6 @@ class StockRepository:
         return result
 
     def get_phase_pred(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
-        if self._legacy_analysis_reads_disabled():
-            return None
         query = """
             SELECT dt, early_score, late_score, body_score, n, reasons_top3
             FROM phase_pred_daily
@@ -638,8 +636,6 @@ class StockRepository:
         return None
 
     def get_ml_analysis_pred(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
-        if self._legacy_analysis_reads_disabled():
-            return None
         with self._get_read_conn() as conn:
             if not self._table_exists(conn, "ml_pred_20d"):
                 return None
@@ -702,8 +698,6 @@ class StockRepository:
         *,
         limit: int = 400,
     ) -> List[Dict[str, Any]]:
-        if self._legacy_analysis_reads_disabled():
-            return []
         resolved_limit = max(1, min(2000, int(limit)))
 
         def _to_float_or_none(value: Any) -> float | None:
@@ -875,8 +869,6 @@ class StockRepository:
         lookback_bars: int = 360,
         horizon: int = 20,
     ) -> Dict[str, Any] | None:
-        if self._legacy_analysis_reads_disabled():
-            return None
         horizon = max(1, int(horizon))
         lookback_bars = max(60, int(lookback_bars))
         limit_bars = max(lookback_bars + horizon + 120, 240)
@@ -1148,8 +1140,6 @@ class StockRepository:
         }
 
     def get_sell_analysis_snapshot(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
-        if self._legacy_analysis_reads_disabled():
-            return None
         with self._get_read_conn() as conn:
             if not self._table_exists(conn, "sell_analysis_daily"):
                 return None
@@ -1227,8 +1217,6 @@ class StockRepository:
         return row
 
     def get_latest_ml_pred_map(self, codes: List[str]) -> Dict[str, Dict[str, Any]]:
-        if self._legacy_analysis_reads_disabled():
-            return {}
         unique_codes = sorted({str(code).strip() for code in codes if str(code).strip()})
         if not unique_codes:
             return {}

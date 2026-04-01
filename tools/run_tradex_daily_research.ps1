@@ -106,6 +106,18 @@ function Get-ProgressSummary {
     return "{0}|{1}|{2}" -f $status, $phase, ($(if ($null -eq $eta) { "unknown" } else { [string]$eta }))
 }
 
+function Get-ProgressPayload {
+    param([string]$Path)
+    if (-not $Path -or -not (Test-Path $Path)) {
+        return $null
+    }
+    try {
+        return Get-Content -Path $Path -Raw | ConvertFrom-Json
+    } catch {
+        return $null
+    }
+}
+
 try {
     $modeName = if ($PrepareOnly) { "prepare" } elseif ($Loop) { "loop" } else { "run" }
     Write-Log ("Tradex daily research {0} started." -f $modeName)
@@ -148,8 +160,17 @@ try {
         }
     }
     $process.WaitForExit()
-    if ($process.ExitCode -ne 0) {
-        throw "daily research command failed with exit code $($process.ExitCode)"
+    $finalProgress = Get-ProgressPayload -Path $ProgressPath
+    $exitCode = $process.ExitCode
+    if ($null -eq $exitCode -or [string]::IsNullOrWhiteSpace("$exitCode")) {
+        if ($null -ne $finalProgress -and [string]$finalProgress.status -eq "complete") {
+            $exitCode = 0
+        } else {
+            throw "daily research command exited without a readable exit code"
+        }
+    }
+    if ([int]$exitCode -ne 0) {
+        throw "daily research command failed with exit code $exitCode"
     }
     if (Test-Path $stdoutPath) {
         foreach ($line in (Get-Content -Path $stdoutPath)) {

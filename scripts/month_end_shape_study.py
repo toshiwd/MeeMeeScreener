@@ -219,6 +219,43 @@ def _box_state(entry_close: float, box: dict[str, Any] | None) -> tuple[str, flo
     return "breakout_up", pos
 
 
+def classify_5541_premise_bucket(frame: pd.DataFrame) -> pd.Series:
+    box_months = frame["box_months"].fillna(0)
+    box_state = frame["box_state"].fillna("no_box")
+    trend_bucket = frame["trend_bucket"].fillna("na")
+    cnt60_up = frame["cnt60_up"].fillna(0)
+    dist_bucket = frame["dist_bucket"].fillna("na")
+    box_wild = frame["box_wild"].eq(True)
+
+    base_mask = (
+        (box_months >= 4)
+        & box_state.isin(["box_upper", "breakout_up"])
+        & trend_bucket.isin(["up", "stack_up"])
+        & (cnt60_up >= 30)
+        & (~box_wild)
+    )
+    overheat_mask = base_mask & (box_state == "breakout_up") & (
+        dist_bucket.eq("overheat") | (cnt60_up >= 100)
+    )
+    breakout_mask = base_mask & (box_state == "breakout_up") & (~overheat_mask)
+    retest_mask = base_mask & (box_state == "box_upper") & dist_bucket.isin(["below", "near", "extended"])
+    watch_mask = (
+        (box_months >= 4)
+        & box_state.isin(["box_upper", "breakout_up"])
+        & (~trend_bucket.isin(["up", "stack_up"]) | (cnt60_up < 30) | box_wild)
+    )
+
+    return pd.Series(
+        np.select(
+            [overheat_mask, breakout_mask, retest_mask, watch_mask],
+            ["late_vertical_chase", "5541_long_base_breakout", "5541_first_retest", "base_breakout_watch"],
+            default="other",
+        ),
+        index=frame.index,
+        dtype="object",
+    )
+
+
 def _summary_from_returns(rets: np.ndarray) -> dict[str, Any]:
     if rets.size == 0:
         return {
@@ -443,6 +480,7 @@ def _build_events(con: duckdb.DuckDBPyConnection) -> BuildResult:
 
 
 def _rule_table(df: pd.DataFrame, round_trip_cost: float) -> list[dict[str, Any]]:
+    premise_bucket = classify_5541_premise_bucket(df)
     rows: list[tuple[str, pd.Series]] = []
     rows.append(("all", pd.Series(True, index=df.index)))
     rows.append(("trend_stack_up", df["trend_bucket"] == "stack_up"))
@@ -500,6 +538,9 @@ def _rule_table(df: pd.DataFrame, round_trip_cost: float) -> list[dict[str, Any]
             & (df["cnt60_up"] < 100),
         )
     )
+    rows.append(("5541_long_base_breakout", premise_bucket == "5541_long_base_breakout"))
+    rows.append(("5541_first_retest", premise_bucket == "5541_first_retest"))
+    rows.append(("late_vertical_chase", premise_bucket == "late_vertical_chase"))
 
     out: list[dict[str, Any]] = []
     for name, mask in rows:
@@ -536,6 +577,7 @@ def run_analysis(round_trip_cost: float, min_samples: int) -> dict[str, Any]:
 
     events["ret_long_net"] = events["ret_1m"] - float(round_trip_cost)
     events["ret_short_net"] = -events["ret_1m"] - float(round_trip_cost)
+    events["premise_bucket"] = classify_5541_premise_bucket(events)
     overall_long = _summary_from_returns(events["ret_long_net"].to_numpy(dtype=np.float64))
     overall_short = _summary_from_returns(events["ret_short_net"].to_numpy(dtype=np.float64))
 
@@ -545,6 +587,7 @@ def run_analysis(round_trip_cost: float, min_samples: int) -> dict[str, Any]:
     by_cnt100_long = _group_summary(events, ["cnt100_bucket"], "ret_long_net", min_samples=max(1, min_samples // 4))
     by_dist_long = _group_summary(events, ["dist_bucket"], "ret_long_net", min_samples=max(1, min_samples // 4))
     by_trend_long = _group_summary(events, ["trend_bucket"], "ret_long_net", min_samples=max(1, min_samples // 4))
+    by_premise_long = _group_summary(events, ["premise_bucket"], "ret_long_net", min_samples=max(1, min_samples // 4))
 
     combo_cols = ["box_state", "trend_bucket", "dist_bucket", "cnt60_bucket", "cnt100_bucket", "entry_offset"]
     long_combo = _group_summary(events, combo_cols, "ret_long_net", min_samples=min_samples)
@@ -575,6 +618,7 @@ def run_analysis(round_trip_cost: float, min_samples: int) -> dict[str, Any]:
             "by_cnt100_long": by_cnt100_long.to_dict(orient="records"),
             "by_dist_long": by_dist_long.to_dict(orient="records"),
             "by_trend_long": by_trend_long.to_dict(orient="records"),
+            "by_premise_bucket_long": by_premise_long.to_dict(orient="records"),
         },
         "patterns": {
             "top_long": top_long,

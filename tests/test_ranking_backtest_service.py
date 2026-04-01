@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from app.backend.services.analysis import ranking_backtest_service
 
@@ -65,14 +66,14 @@ def test_run_raw_ranking_backtest_writes_artifacts(monkeypatch, tmp_path: Path) 
                 {
                     "code": "1111",
                     "entryQualified": True,
-                    "entryScore": 0.81,
+                    "entryScore": 0.55,
                     "hybridScore": 0.72,
                     "setupType": "watch",
                 },
                 {
                     "code": "2222",
                     "entryQualified": False,
-                    "entryScore": 0.55,
+                    "entryScore": 0.81,
                     "hybridScore": 0.54,
                     "setupType": "watch",
                 },
@@ -108,17 +109,39 @@ def test_run_raw_ranking_backtest_writes_artifacts(monkeypatch, tmp_path: Path) 
     )
 
     assert payload["schema_version"] == ranking_backtest_service.RAW_RANKING_BACKTEST_SCHEMA_VERSION
+    assert payload["selection_variant"] == "baseline"
     assert (tmp_path / "raw_ranking_backtest.json").exists()
     assert (tmp_path / "raw_ranking_backtest.md").exists()
     assert (tmp_path / "daily_selection_panel.parquet").exists()
     assert payload["cohort_metrics"]["top5"]["sample_count"] > 0
 
+    baseline_panel = pd.read_parquet(tmp_path / "daily_selection_panel.parquet")
+    baseline_codes = baseline_panel.loc[baseline_panel["as_of"] == 20240102, "code"].tolist()
+    assert baseline_codes == ["1111", "2222"]
+    assert "displayScore" in baseline_panel.columns
+    assert "displayScoreSource" in baseline_panel.columns
+
+    experiment_payload = ranking_backtest_service.run_raw_ranking_backtest(
+        start_date=date(2024, 1, 2),
+        end_date=date(2024, 1, 3),
+        output_dir=tmp_path,
+        selection_variant=ranking_backtest_service.TRADEX_EXPERIMENT_SELECTION_VARIANT,
+    )
+    assert experiment_payload["selection_variant"] == ranking_backtest_service.TRADEX_EXPERIMENT_SELECTION_VARIANT
+    assert (tmp_path / "raw_ranking_backtest_tradex_experiment.json").exists()
+    assert (tmp_path / "raw_ranking_backtest_tradex_experiment.md").exists()
+    assert (tmp_path / "daily_selection_panel_tradex_experiment.parquet").exists()
+
+    experiment_panel = pd.read_parquet(tmp_path / "daily_selection_panel_tradex_experiment.parquet")
+    experiment_codes = experiment_panel.loc[experiment_panel["as_of"] == 20240102, "code"].tolist()
+    assert experiment_codes == ["2222", "1111"]
+    assert set(experiment_panel["displayScoreSource"].tolist()) <= {"ranking_entry", "ranking_hybrid", "none"}
+
 
 def test_run_ranking_backtest_writes_summary(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(
-        ranking_backtest_service,
-        "run_raw_ranking_backtest",
-        lambda **_kwargs: {
+    def _make_raw_payload(*, selection_variant: str, top10_mean: float, top10_lift: float, entry_mean: float, entry_lift: float) -> dict:
+        return {
+            "selection_variant": selection_variant,
             "ranking_contract": {
                 "tf": "D",
                 "which": "latest",
@@ -129,15 +152,38 @@ def test_run_ranking_backtest_writes_summary(monkeypatch, tmp_path: Path) -> Non
             },
             "cohort_metrics": {
                 "top10": {
-                    "mean_forward_return_20": 0.03,
-                    "lift_vs_all_ranked": 0.01,
+                    "mean_forward_return_5": 0.01,
+                    "mean_forward_return_20": top10_mean,
+                    "mean_forward_return_60": 0.07,
+                    "hit_rate_20": 0.6,
+                    "lift_vs_all_ranked": top10_lift,
+                    "lift_vs_bottom_bucket": 0.03,
+                    "daily_overlap_rate": 0.4,
+                    "daily_turnover_rate": 0.6,
                 },
                 "top10_entryQualified": {
-                    "mean_forward_return_20": 0.04,
-                    "lift_vs_all_ranked": 0.02,
+                    "mean_forward_return_5": 0.02,
+                    "mean_forward_return_20": entry_mean,
+                    "mean_forward_return_60": 0.08,
+                    "hit_rate_20": 0.7,
+                    "lift_vs_all_ranked": entry_lift,
+                    "lift_vs_bottom_bucket": 0.04,
+                    "daily_overlap_rate": 0.5,
+                    "daily_turnover_rate": 0.5,
                 },
             },
-        },
+        }
+
+    monkeypatch.setattr(
+        ranking_backtest_service,
+        "run_raw_ranking_backtest",
+        lambda **kwargs: _make_raw_payload(
+            selection_variant=str(kwargs.get("selection_variant") or "baseline"),
+            top10_mean=0.03 if str(kwargs.get("selection_variant") or "baseline") == "baseline" else 0.04,
+            top10_lift=0.01 if str(kwargs.get("selection_variant") or "baseline") == "baseline" else 0.015,
+            entry_mean=0.04 if str(kwargs.get("selection_variant") or "baseline") == "baseline" else 0.05,
+            entry_lift=0.02 if str(kwargs.get("selection_variant") or "baseline") == "baseline" else 0.025,
+        ),
     )
     monkeypatch.setattr(
         ranking_backtest_service,
@@ -157,6 +203,11 @@ def test_run_ranking_backtest_writes_summary(monkeypatch, tmp_path: Path) -> Non
     )
 
     assert result["summary"]["disposition"] == "usable"
+    assert result["summary"]["tradex_experiment"]["top10_entryQualified"]["mean_forward_return_20"] == 0.05
+    assert result["summary"]["comparison"]["selection_variant_baseline"] == "baseline"
+    assert result["summary"]["comparison"]["selection_variant_experiment"] == ranking_backtest_service.TRADEX_EXPERIMENT_SELECTION_VARIANT
+    assert result["summary"]["comparison"]["top10_entryQualified"]["mean_forward_return_20"]["delta"] == pytest.approx(0.01)
+    assert result["summary"]["comparison"]["threshold_check"]["mean_forward_return_20_non_decreasing"] is True
     assert (tmp_path / "ranking_backtest_summary.json").exists()
     assert (tmp_path / "ranking_backtest_summary.md").exists()
 

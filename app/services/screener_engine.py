@@ -2041,6 +2041,10 @@ def _build_name_map_from_txt() -> dict[str, str]:
     return name_map
 
 
+def _resolve_display_score(score: Any, score_status: Any) -> tuple[float | None, str]:
+    return None, "none"
+
+
 def _build_screener_rows() -> list[dict]:
     today = jst_now().date()
     window_end = today + timedelta(days=30)
@@ -2148,29 +2152,9 @@ def _build_screener_rows() -> list[dict]:
             ):
                 score = None
                 score_status = "INSUFFICIENT_DATA"
-        if score is None:
-            fallback_score = None
-            buy_score = metrics.get("buyStateScore")
-            if isinstance(buy_score, (int, float)) and buy_score > 0:
-                fallback_score = float(buy_score)
-            else:
-                scores = metrics.get("scores") or {}
-                if isinstance(scores, dict):
-                    values = [
-                        scores.get("upScore"),
-                        scores.get("downScore")
-                    ]
-                    values = [float(v) for v in values if isinstance(v, (int, float)) and v > 0]
-                    if values:
-                        fallback_score = max(values)
-            if fallback_score is not None:
-                score = fallback_score
-                if not reason:
-                    reason = "DERIVED"
-                if not score_status:
-                    score_status = "OK"
         if not score_status:
             score_status = "OK" if score is not None else "INSUFFICIENT_DATA"
+        display_score, display_score_source = _resolve_display_score(score, score_status)
         if not missing_reasons:
             missing_reasons = metrics.get("reasons") or []
         event_earnings_date = _format_event_date(earnings_map.get(code))
@@ -2181,6 +2165,10 @@ def _build_screener_rows() -> list[dict]:
                 "name": name,
                 "stage": stage,
                 "score": score,
+                "displayScore": display_score,
+                "displayScoreSource": display_score_source,
+                "display_score": display_score,
+                "display_score_source": display_score_source,
                 "reason": reason,
                 "scoreStatus": score_status,
                 "score_status": score_status,

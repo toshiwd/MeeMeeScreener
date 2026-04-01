@@ -12,7 +12,7 @@ def get_rankings(
     tf: str = Query("D"),
     which: str = Query("latest"),
     dir: str = Query("up"),
-    mode: str = Query("hybrid"),
+    mode: str = Query("trade"),
     risk_mode: str = Query("balanced"),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -25,8 +25,8 @@ def get_rankings(
         raise HTTPException(status_code=400, detail="which must be latest/prev")
     if dir not in ("up", "down"):
         raise HTTPException(status_code=400, detail="dir must be up/down")
-    if mode not in ("rule", "ml", "hybrid", "turn"):
-        raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid/turn")
+    if mode not in ("rule", "ml", "hybrid", "turn", "trade"):
+        raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid/turn/trade")
     if risk_mode not in ("defensive", "balanced", "aggressive"):
         raise HTTPException(status_code=400, detail="risk_mode must be defensive/balanced/aggressive")
     return rankings_cache.get_rankings(tf, which, dir, limit, mode=mode, risk_mode=risk_mode)
@@ -36,7 +36,7 @@ def get_rankings(
 def get_rankings_multi(
     which: str = Query("latest"),
     dir: str = Query("up"),
-    mode: str = Query("hybrid"),
+    mode: str = Query("trade"),
     risk_mode: str = Query("balanced"),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -46,8 +46,8 @@ def get_rankings_multi(
         raise HTTPException(status_code=400, detail="which must be latest/prev")
     if dir not in ("up", "down"):
         raise HTTPException(status_code=400, detail="dir must be up/down")
-    if mode not in ("rule", "ml", "hybrid", "turn"):
-        raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid/turn")
+    if mode not in ("rule", "ml", "hybrid", "turn", "trade"):
+        raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid/turn/trade")
     if risk_mode not in ("defensive", "balanced", "aggressive"):
         raise HTTPException(status_code=400, detail="risk_mode must be defensive/balanced/aggressive")
 
@@ -86,7 +86,7 @@ def get_rankings_last_qualified_trace(
     tf: str = Query("D"),
     which: str = Query("latest"),
     dir: str = Query("up"),
-    mode: str = Query("hybrid"),
+    mode: str = Query("trade"),
     risk_mode: str = Query("balanced"),
     limit: int = Query(50, ge=1, le=200),
     lookback_days: int = Query(260, ge=20, le=1200),
@@ -102,8 +102,8 @@ def get_rankings_last_qualified_trace(
         raise HTTPException(status_code=400, detail="which must be latest/prev")
     if dir not in ("up", "down"):
         raise HTTPException(status_code=400, detail="dir must be up/down")
-    if mode not in ("rule", "ml", "hybrid", "turn"):
-        raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid/turn")
+    if mode not in ("rule", "ml", "hybrid", "turn", "trade"):
+        raise HTTPException(status_code=400, detail="mode must be rule/ml/hybrid/turn/trade")
     if risk_mode not in ("defensive", "balanced", "aggressive"):
         raise HTTPException(status_code=400, detail="risk_mode must be defensive/balanced/aggressive")
     return rankings_cache.get_last_qualified_trace(

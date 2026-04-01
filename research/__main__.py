@@ -8,6 +8,7 @@ import sys
 from research.agent import run_agent_cycle, run_agent_init, run_agent_loop
 from research.bridge import export_bridge_run, export_bridge_study
 from research.config import load_config
+from research.decision_signal_prior import run_decision_signal_prior
 from research.evaluate import run_evaluate
 from research.features import build_features_for_asof
 from research.ingest import run_ingest
@@ -110,6 +111,11 @@ def _build_parser() -> argparse.ArgumentParser:
     export_bridge_study_cmd = sub.add_parser("export_bridge_study", help="Export one study into research bridge JSON")
     export_bridge_study_cmd.add_argument("--study-id", required=True)
 
+    decision_signal_prior = sub.add_parser("decision_signal_prior", help="Build and export MeeMee decision-signal prior")
+    decision_signal_prior.add_argument("--asof", default=None)
+    decision_signal_prior.add_argument("--provisional", action="store_true")
+    decision_signal_prior.add_argument("--output-json", default=None)
+
     study_loop = sub.add_parser("study_loop", help="Build datasets and search all study combinations")
     study_loop.add_argument("--snapshot-id", default=None)
     study_loop.add_argument("--timeframes", default="daily,weekly,monthly")
@@ -189,6 +195,21 @@ def main(argv: list[str] | None = None) -> int:
                 paths=paths,
                 source_db=str(args.source_db) if args.source_db else None,
                 force=bool(args.force),
+            )
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "decision_signal_prior":
+            from scripts.note_trade_repro_backtest import _resolve_default_db_paths
+
+            output_json = _resolve_cli_path(repo_root, str(args.output_json)) if args.output_json else None
+            result = run_decision_signal_prior(
+                paths=paths,
+                asof=str(args.asof).strip() if args.asof else None,
+                provisional=bool(args.provisional),
+                db_paths=_resolve_default_db_paths(),
+                output_json=output_json,
+                export_bridge=True,
             )
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0

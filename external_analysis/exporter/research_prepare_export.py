@@ -62,8 +62,9 @@ def _date_sql(column_name: str) -> str:
         f"CASE "
         f"WHEN {column_name} BETWEEN 19000101 AND 20991231 THEN CAST({column_name} AS INTEGER) "
         f"WHEN {column_name} >= 1000000000000 THEN CAST(strftime(to_timestamp({column_name} / 1000), '%Y%m%d') AS INTEGER) "
-        f"WHEN {column_name} >= 1000000000 THEN CAST(strftime(to_timestamp({column_name}), '%Y%m%d') AS INTEGER) "
-        f"ELSE NULL END"
+        f"WHEN {column_name} >= 100000000 THEN CAST(strftime(to_timestamp({column_name}), '%Y%m%d') AS INTEGER) "
+        f"WHEN {column_name} BETWEEN 100000 AND 999999 THEN CAST(CAST({column_name} AS VARCHAR) || '01' AS INTEGER) "
+        f"ELSE CAST({column_name} AS INTEGER) END"
     )
 
 

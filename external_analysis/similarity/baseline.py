@@ -52,6 +52,12 @@ def _clamp_top_k(value: int) -> int:
     return max(1, min(int(value), TOP_K))
 
 
+def _chunk_values(values: list[str], chunk_size: int) -> list[list[str]]:
+    if chunk_size <= 0:
+        raise ValueError("chunk_size_must_be_positive")
+    return [values[index : index + chunk_size] for index in range(0, len(values), chunk_size)]
+
+
 def _vector_distance(left: list[float], right: list[float]) -> float:
     if len(left) != len(right):
         raise ValueError("vector length mismatch")
@@ -156,17 +162,20 @@ def _load_daily_case_candidates(
     *,
     codes: list[str] | None = None,
 ) -> list[dict[str, Any]]:
+    selected_codes = None if codes is None else [str(code) for code in codes]
+    if selected_codes is not None and not selected_codes:
+        return []
     export_conn = connect_export_db(export_db_path)
     label_conn = connect_label_db(label_db_path)
     try:
         code_filter_sql = ""
         label_code_filter_sql = ""
         params: list[Any] = []
-        if codes:
-            placeholders = ", ".join(["?"] * len(codes))
+        if selected_codes is not None:
+            placeholders = ", ".join(["?"] * len(selected_codes))
             code_filter_sql = f" WHERE bars.code IN ({placeholders})"
             label_code_filter_sql = f" WHERE code IN ({placeholders})"
-            params = [str(code) for code in codes]
+            params = list(selected_codes)
         rows = export_conn.execute(
             f"""
             WITH bars AS (
@@ -230,17 +239,35 @@ def _load_daily_case_candidates(
             params,
         ).fetchall()
         anchor_bar_rows = label_conn.execute(
-            """
-            SELECT
-                anchor_id,
-                rel_day,
-                trade_date,
-                c,
-                v,
-                ma20
-            FROM anchor_window_bars
-            ORDER BY anchor_id, rel_day
-            """
+            (
+                """
+                SELECT
+                    bars.anchor_id,
+                    bars.rel_day,
+                    bars.trade_date,
+                    bars.c,
+                    bars.v,
+                    bars.ma20
+                FROM anchor_window_bars bars
+                JOIN anchor_window_master master
+                  ON master.anchor_id = bars.anchor_id
+                WHERE master.code IN ({placeholders})
+                ORDER BY bars.anchor_id, bars.rel_day
+                """.format(placeholders=", ".join(["?"] * len(selected_codes)))
+                if selected_codes is not None
+                else """
+                SELECT
+                    anchor_id,
+                    rel_day,
+                    trade_date,
+                    c,
+                    v,
+                    ma20
+                FROM anchor_window_bars
+                ORDER BY anchor_id, rel_day
+                """
+            ),
+            params if selected_codes is not None else [],
         ).fetchall()
     finally:
         export_conn.close()
@@ -398,6 +425,21 @@ def _load_daily_case_candidates(
     return daily_cases
 
 
+def _load_export_codes(
+    export_db_path: str | None,
+    *,
+    codes: list[str] | None = None,
+) -> list[str]:
+    if codes is not None:
+        return sorted({str(code) for code in codes})
+    export_conn = connect_export_db(export_db_path)
+    try:
+        rows = export_conn.execute("SELECT DISTINCT code FROM bars_daily_export WHERE code IS NOT NULL ORDER BY code").fetchall()
+    finally:
+        export_conn.close()
+    return [str(row[0]) for row in rows if row and row[0] is not None]
+
+
 def build_case_library(
     *,
     export_db_path: str | None = None,
@@ -435,7 +477,7 @@ def build_case_library(
             "dirty_ranges": [],
             "source_signature": probe.get("source_signature"),
         }
-    cases = _load_daily_case_candidates(export_db_path, label_db_path, codes=effective_codes)
+    code_chunks = _chunk_values(_load_export_codes(export_db_path, codes=effective_codes), 128)
     conn = connect_similarity_db(similarity_db_path)
     try:
         ensure_similarity_schema(conn)
@@ -458,66 +500,99 @@ def build_case_library(
                 conn.execute("DELETE FROM case_library")
                 conn.execute("DELETE FROM case_window_bars")
                 conn.execute("DELETE FROM case_embedding_store")
-            for case in cases:
-                case_row = {
-                    key: case[key]
-                    for key in (
-                        "case_id",
-                        "query_source",
-                        "case_type",
-                        "anchor_type",
-                        "code",
-                        "anchor_date",
-                        "asof_start_date",
-                        "asof_end_date",
-                        "outcome_class",
-                        "success_flag",
-                        "failure_reason",
-                        "trade_side",
-                        "setup_family",
-                        "break_direction",
-                        "future_path_signature",
-                        "embedding_version",
-                        "source_snapshot_id",
-                    )
-                }
-                case_row["generation_run_id"] = run_id
-                columns = list(case_row.keys())
-                conn.execute(
-                    f"INSERT INTO case_library ({', '.join(columns)}) VALUES ({', '.join(['?'] * len(columns))})",
-                    [case_row[column] for column in columns],
+            inserted_case_count = 0
+            inserted_success_count = 0
+            inserted_failure_count = 0
+            for code_chunk in code_chunks:
+                cases = _load_daily_case_candidates(export_db_path, label_db_path, codes=code_chunk)
+                inserted_case_count += len(cases)
+                inserted_success_count += len([case for case in cases if case["success_flag"]])
+                inserted_failure_count += len([case for case in cases if not case["success_flag"]])
+                if not cases:
+                    continue
+                case_columns = [
+                    "case_id",
+                    "query_source",
+                    "case_type",
+                    "anchor_type",
+                    "code",
+                    "anchor_date",
+                    "asof_start_date",
+                    "asof_end_date",
+                    "outcome_class",
+                    "success_flag",
+                    "failure_reason",
+                    "trade_side",
+                    "setup_family",
+                    "break_direction",
+                    "future_path_signature",
+                    "embedding_version",
+                    "source_snapshot_id",
+                    "generation_run_id",
+                ]
+                conn.executemany(
+                    f"INSERT INTO case_library ({', '.join(case_columns)}) VALUES ({', '.join(['?'] * len(case_columns))})",
+                    [
+                        [
+                            case["case_id"],
+                            case["query_source"],
+                            case["case_type"],
+                            case["anchor_type"],
+                            case["code"],
+                            case["anchor_date"],
+                            case["asof_start_date"],
+                            case["asof_end_date"],
+                            case["outcome_class"],
+                            case["success_flag"],
+                            case["failure_reason"],
+                            case["trade_side"],
+                            case["setup_family"],
+                            case["break_direction"],
+                            case["future_path_signature"],
+                            case["embedding_version"],
+                            case["source_snapshot_id"],
+                            run_id,
+                        ]
+                        for case in cases
+                    ],
                 )
-                conn.execute(
+                generated_at = _utcnow()
+                conn.executemany(
                     """
                     INSERT INTO case_embedding_store (case_id, embedding_version, embedding_role, vector_json, generated_at)
                     VALUES (?, ?, ?, ?, ?)
                     """,
-                    [case["case_id"], EMBEDDING_VERSION, "champion", json.dumps(case["vector"], ensure_ascii=False), _utcnow()],
+                    [
+                        [case["case_id"], EMBEDDING_VERSION, "champion", json.dumps(case["vector"], ensure_ascii=False), generated_at]
+                        for case in cases
+                    ],
                 )
-                if case["path_rows"]:
+                path_rows = [
+                    [
+                        case["case_id"],
+                        int(path_row["rel_day"]),
+                        int(path_row["trade_date"]),
+                        float(path_row["close_norm"]),
+                        float(path_row["volume_norm"]),
+                        float(path_row["ma20_gap"]),
+                        run_id,
+                    ]
+                    for case in cases
+                    for path_row in case["path_rows"]
+                ]
+                if path_rows:
                     conn.executemany(
                         """
                         INSERT INTO case_window_bars (
                             case_id, rel_day, trade_date, close_norm, volume_norm, ma20_gap, generation_run_id
                         ) VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
-                        [
-                            [
-                                case["case_id"],
-                                int(path_row["rel_day"]),
-                                int(path_row["trade_date"]),
-                                float(path_row["close_norm"]),
-                                float(path_row["volume_norm"]),
-                                float(path_row["ma20_gap"]),
-                                run_id,
-                            ]
-                            for path_row in case["path_rows"]
-                        ],
+                        path_rows,
                     )
             summary = {
-                "case_count": len(cases),
-                "success_count": len([case for case in cases if case["success_flag"]]),
-                "failure_count": len([case for case in cases if not case["success_flag"]]),
+                "case_count": inserted_case_count,
+                "success_count": inserted_success_count,
+                "failure_count": inserted_failure_count,
                 "target_as_of_date": target_as_of,
             }
             conn.execute(
@@ -550,7 +625,7 @@ def build_case_library(
     return {
         "ok": True,
         "run_id": run_id,
-        "case_count": len(cases),
+        "case_count": inserted_case_count,
         "embedding_version": EMBEDDING_VERSION,
         "skipped": False,
         "cache_state": "partial_stale" if probe["action"] == "partial" else "fresh",
@@ -640,13 +715,17 @@ def _load_embedding_vectors(
 
 
 def _load_query_vectors(export_db_path: str | None, as_of_date: int, *, codes: list[str] | None = None) -> list[dict[str, Any]]:
+    selected_codes = None if codes is None else [str(code) for code in codes]
+    if selected_codes is not None and not selected_codes:
+        return []
     export_conn = connect_export_db(export_db_path)
     try:
-        code_filter_sql = ""
-        params: list[Any] = [as_of_date]
-        if codes:
-            code_filter_sql = f" AND code IN ({', '.join(['?'] * len(codes))})"
-            params.extend([str(code) for code in codes])
+        base_where_sql = ""
+        params: list[Any] = []
+        if selected_codes is not None:
+            base_where_sql = f"WHERE b.code IN ({', '.join(['?'] * len(selected_codes))})"
+            params.extend(selected_codes)
+        params.append(as_of_date)
         rows = export_conn.execute(
             f"""
             WITH enriched AS (
@@ -665,10 +744,11 @@ def _load_query_vectors(export_db_path: str | None, as_of_date: int, *, codes: l
                 FROM bars_daily_export b
                 LEFT JOIN indicator_daily_export i
                   ON i.code = b.code AND i.trade_date = b.trade_date
+                {base_where_sql}
             )
             SELECT code, as_of_date, c, v, ma20, avg_volume_prev, close_lookback
             FROM enriched
-            WHERE as_of_date = ?{code_filter_sql}
+            WHERE as_of_date = ?
             ORDER BY code
             """,
             params,
@@ -1799,6 +1879,7 @@ def run_similarity_baseline(
     top_k: int = TOP_K,
     publish_public: bool = True,
     codes: list[str] | None = None,
+    query_codes: list[str] | None = None,
 ) -> dict[str, Any]:
     if as_of_date is None:
         raise ValueError("as_of_date is required")
@@ -1830,7 +1911,7 @@ def run_similarity_baseline(
         codes=codes,
     )
     case_vectors, library, case_paths = _load_case_vectors(similarity_db_path)
-    query_rows = _load_query_vectors(export_db_path, as_of_date_int, codes=codes)
+    query_rows = _load_query_vectors(export_db_path, as_of_date_int, codes=query_codes if query_codes is not None else codes)
     similar_rows: list[dict[str, Any]] = []
     path_rows: list[dict[str, Any]] = []
     for query in query_rows:

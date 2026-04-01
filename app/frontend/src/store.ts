@@ -281,18 +281,37 @@ export const useStore = create<StoreState>((set, get) => ({
             ? statusLabel
             : stageRaw;
         const nameRaw = typeof item.name === "string" ? item.name.trim() : "";
+        const displayScore =
+          Number.isFinite(item.displayScore)
+            ? item.displayScore
+            : Number.isFinite(item.display_score)
+              ? item.display_score
+              : Number.isFinite(item.score)
+                ? item.score
+                : null;
+        const rawDisplayScoreSource = item.displayScoreSource ?? item.display_score_source ?? null;
+        const displayScoreSource =
+          rawDisplayScoreSource === "ranking_entry" ||
+          rawDisplayScoreSource === "ranking_hybrid" ||
+          rawDisplayScoreSource === "none"
+            ? rawDisplayScoreSource
+            : displayScore != null
+              ? "none"
+              : null;
         return {
           code: item.code,
           name: nameRaw || item.code,
           sector33Code: item.sector33Code ?? item.sector33_code ?? null,
           sector33Name: item.sector33Name ?? item.sector33_name ?? null,
           stage,
-          score: Number.isFinite(item.score) ? item.score : null,
+          score: displayScore,
+          displayScore,
+          displayScoreSource,
           reason: item.reason ?? "",
           scoreStatus:
             item.scoreStatus ??
             item.score_status ??
-            (Number.isFinite(item.score) ? "OK" : "INSUFFICIENT_DATA"),
+            (displayScore != null ? "OK" : "INSUFFICIENT_DATA"),
           missingReasons: parseReasons(item.missingReasons ?? item.missing_reasons ?? item.missing_reasons_json),
           scoreBreakdown:
             (item.scoreBreakdown as Record<string, number> | null) ??

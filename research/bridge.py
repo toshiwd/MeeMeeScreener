@@ -149,3 +149,29 @@ def export_bridge_study(paths: ResearchPaths, study_id: str) -> dict[str, Any]:
         "latest_dir": str(paths.bridge_latest_dir),
         "bridge_manifest": latest_manifest,
     }
+
+
+def export_bridge_decision_signal_prior(paths: ResearchPaths, *, payload: dict[str, Any]) -> dict[str, Any]:
+    run_id = str(payload.get("run_id") or "").strip() or "decision_signal_prior"
+    payloads = {
+        PRIOR_SNAPSHOT_FILE: payload,
+    }
+    history_dir = _write_bridge_history(
+        paths,
+        source_type="decision_signal",
+        source_id=run_id,
+        payloads=payloads,
+    )
+    latest_manifest = _write_bridge_latest(
+        paths,
+        source_type="decision_signal",
+        source_id=run_id,
+        payloads=payloads,
+    )
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "history_dir": str(history_dir),
+        "latest_dir": str(paths.bridge_latest_dir),
+        "bridge_manifest": latest_manifest,
+    }

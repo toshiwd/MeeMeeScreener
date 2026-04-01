@@ -85,6 +85,23 @@
 
 ## 仮説ルール集
 
+### 5541型との対応
+
+- `premise_bucket=5541_long_base_breakout`
+  - 4ヶ月以上のボックス、上限到達または上抜け、上位トレンド維持を満たす局面
+- `entry_case=anticipatory_pilot`
+  - ボックス上限接触/上抜け直後の早仕込み
+- `entry_case=first_support_add`
+  - 初動後の20日線付近の初回押しで足す
+- `entry_case=vertical_chase`
+  - 急拡大局面の追撃。主戦略とは分離して観察する
+- `path_quality`
+  - `clean_trend / volatile_win / failed_fast / stalled` の4分類で、同じ勝ちでも伸び方の質を分ける
+- `exit_case`
+  - `climactic_partial / trend_break / time_stop` を同一エントリーに対する比較軸として持つ
+- `時間切れ撤退`
+  - 5541型でも独立した撤退条件として扱い、月足シナリオの持続確認に失敗したら別集計する
+
 ### 初期エントリー条件
 
 - 月足が `上昇初動候補` で、日足が `コマ` や `20日線回復待ち` の場合は、小さめの両建てで開始する

@@ -57,3 +57,110 @@ def test_grid_screener_returns_snapshot_payload(monkeypatch, tmp_path) -> None:
 
     assert response.status_code == 200
     assert response.json() == expected_payload
+
+
+def test_grid_ranking_fallback_exposes_display_score_sources(monkeypatch) -> None:
+    from app.backend.api.routers import grid as grid_router
+
+    def _fake_get_rankings(tf, which, direction, limit, **_kwargs):
+        if direction == "up":
+            return {
+                "items": [
+                    {
+                        "code": "1111",
+                        "name": "Alpha",
+                        "entryScore": 0.55,
+                        "hybridScore": 0.72,
+                        "changePct": 0.05,
+                        "asOf": "2026-03-13",
+                    },
+                    {
+                        "code": "2222",
+                        "name": "Beta",
+                        "hybridScore": 0.54,
+                        "changePct": 0.04,
+                        "asOf": "2026-03-13",
+                    },
+                    {
+                        "code": "3333",
+                        "name": "Gamma",
+                        "changePct": 0.03,
+                        "asOf": "2026-03-13",
+                    },
+                ]
+            }
+        return {
+            "items": [
+                {
+                    "code": "4444",
+                    "name": "Delta",
+                    "entryScore": 0.61,
+                    "hybridScore": 0.51,
+                    "changePct": -0.04,
+                    "asOf": "2026-03-13",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(grid_router.rankings_cache, "get_rankings", _fake_get_rankings)
+
+    rows = grid_router._build_grid_rankings_fallback(10)  # type: ignore[attr-defined]
+    by_code = {row["code"]: row for row in rows}
+
+    assert by_code["1111"]["displayScore"] == 0.55
+    assert by_code["1111"]["displayScoreSource"] == "ranking_entry"
+    assert by_code["2222"]["displayScore"] == 0.54
+    assert by_code["2222"]["displayScoreSource"] == "ranking_hybrid"
+    assert by_code["3333"]["displayScore"] is None
+    assert by_code["3333"]["displayScoreSource"] == "none"
+    assert by_code["4444"]["displayScore"] == 0.61
+    assert by_code["4444"]["displayScoreSource"] == "ranking_entry"
+
+
+def test_grid_ranking_response_includes_display_score_contract(monkeypatch) -> None:
+    from app.backend.api.routers import grid as grid_router
+
+    def _fake_get_rankings(tf, which, direction, limit, **_kwargs):
+        if direction == "up":
+            return {
+                "items": [
+                    {
+                        "code": "1111",
+                        "name": "Alpha",
+                        "entryScore": 0.55,
+                        "hybridScore": 0.72,
+                        "changePct": 0.05,
+                        "asOf": "2026-03-13",
+                    },
+                    {
+                        "code": "2222",
+                        "name": "Beta",
+                        "hybridScore": 0.54,
+                        "changePct": 0.04,
+                        "asOf": "2026-03-13",
+                    },
+                ]
+            }
+        return {
+            "items": [
+                {
+                    "code": "4444",
+                    "name": "Delta",
+                    "entryScore": 0.61,
+                    "hybridScore": 0.51,
+                    "changePct": -0.04,
+                    "asOf": "2026-03-13",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(grid_router.rankings_cache, "get_rankings", _fake_get_rankings)
+
+    payload = grid_router.get_ranking(limit=3)
+
+    assert payload["up"][0]["displayScore"] == 0.55
+    assert payload["up"][0]["displayScoreSource"] == "ranking_entry"
+    assert payload["up"][1]["displayScore"] == 0.54
+    assert payload["up"][1]["displayScoreSource"] == "ranking_hybrid"
+    assert payload["down"][0]["displayScore"] == 0.61
+    assert payload["down"][0]["displayScoreSource"] == "ranking_entry"

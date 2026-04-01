@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import duckdb
+import json
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import config as core_config
@@ -156,6 +158,122 @@ def test_analysis_bridge_candidates_and_regime_read_published_rows(monkeypatch, 
     assert regime_payload["freshness_state"] == "fresh"
     assert len(regime_payload["rows"]) == 1
     assert regime_payload["rows"][0]["regime_tag"] == "risk_on"
+
+
+def test_analysis_bridge_candidates_and_state_eval_are_enriched_by_research_prior(monkeypatch, tmp_path) -> None:
+    from app.backend.services import rankings_cache
+
+    bridge_latest = tmp_path / "bridge" / "latest"
+    bridge_latest.mkdir(parents=True, exist_ok=True)
+    (bridge_latest / "research_prior_snapshot.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "meemee_decision_signal_prior_v1",
+                "strategy_id": "meemee_decision_signal_prior_v1",
+                "run_id": "decision_signal_prior_20260312_close",
+                "up": {
+                    "asof": "2026-03-12",
+                    "codes": ["1301"],
+                    "rank_map": {"1301": 1},
+                    "signal_strength_map": {"1301": 0.84},
+                    "decision_reason_map": {"1301": ["月足box文脈"]},
+                    "risk_watch_map": {"1301": ["値幅荒い"]},
+                    "promotion_stage_map": {"1301": "weighted"},
+                    "provisional_map": {"1301": False},
+                    "hypothesis_family_map": {"1301": "monthly_box_breakout"},
+                    "bonus_map": {"1301": 0.018},
+                },
+                "down": {
+                    "asof": "2026-03-12",
+                    "codes": ["1303"],
+                    "rank_map": {"1303": 1},
+                    "signal_strength_map": {"1303": 0.77},
+                    "decision_reason_map": {"1303": ["上昇シナリオ破綻"]},
+                    "risk_watch_map": {"1303": ["出来高弱い"]},
+                    "promotion_stage_map": {"1303": "assist"},
+                    "provisional_map": {"1303": True},
+                    "hypothesis_family_map": {"1303": "broken_bullish_scenario"},
+                    "bonus_map": {"1303": 0.008},
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MEEMEE_RESEARCH_BRIDGE_DIR", str(tmp_path / "bridge"))
+    with rankings_cache._RESEARCH_PRIOR_CACHE_LOCK:  # type: ignore[attr-defined]
+        rankings_cache._RESEARCH_PRIOR_CACHE["loaded_at"] = None  # type: ignore[attr-defined]
+        rankings_cache._RESEARCH_PRIOR_CACHE["payload"] = None  # type: ignore[attr-defined]
+
+    db_path = tmp_path / "result.duckdb"
+    monkeypatch.setenv("MEEMEE_RESULT_DB_PATH", str(db_path))
+    ensure_result_db(str(db_path))
+    conn = duckdb.connect(str(db_path), read_only=False)
+    try:
+        conn.execute(
+            """
+            INSERT INTO candidate_daily (
+                publish_id, as_of_date, code, side, rank_position, candidate_score, expected_horizon_days,
+                primary_reason_codes, regime_tag, freshness_state
+            ) VALUES
+                ('pub_2026-03-12_20260312T230500Z_01', DATE '2026-03-12', '1301', 'long', 1, 12.5, 20, '["LONG_BASELINE"]', 'risk_on', 'fresh'),
+                ('pub_2026-03-12_20260312T230500Z_01', DATE '2026-03-12', '1303', 'short', 1, 11.0, 20, '["SHORT_BASELINE"]', 'risk_on', 'fresh')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO state_eval_daily (
+                publish_id, as_of_date, code, state_action, side, holding_band, strategy_tags,
+                decision_3way, confidence, reason_codes, reason_text_top3, freshness_state
+            ) VALUES
+                ('pub_2026-03-12_20260312T230500Z_01', DATE '2026-03-12', '1301', 'enter', 'long', 'buy_21_60', '["box_breakout"]', 'enter', 0.81, '["BUY_TREND"]', '["Box breakout"]', 'fresh'),
+                ('pub_2026-03-12_20260312T230500Z_01', DATE '2026-03-12', '1303', 'enter', 'short', 'sell_5_20', '["break_bear"]', 'enter', 0.75, '["SELL_BREAK"]', '["Broken bullish"]', 'fresh')
+            """
+        )
+    finally:
+        conn.close()
+    publish_result(
+        db_path=str(db_path),
+        publish_id="pub_2026-03-12_20260312T230500Z_01",
+        as_of_date="2026-03-12",
+        freshness_state="fresh",
+        table_row_counts={
+            "candidate_daily": 2,
+            "regime_daily": 0,
+            "state_eval_daily": 2,
+            "similar_cases_daily": 0,
+            "similar_case_paths": 0,
+        },
+    )
+
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "init_resources", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main_module, "cleanup_stale_jobs", lambda: None)
+    monkeypatch.setattr(main_module, "start_yf_daily_ingest_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_yf_daily_ingest_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module, "start_ranking_analysis_quality_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_ranking_analysis_quality_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module, "start_analysis_prewarm_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_analysis_prewarm_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
+
+    client = TestClient(main_module.create_app())
+    candidates = client.get("/api/analysis-bridge/candidates").json()
+    state_eval = client.get("/api/analysis-bridge/state-eval").json()
+
+    long_candidate = next(row for row in candidates["rows"] if row["code"] == "1301")
+    short_candidate = next(row for row in candidates["rows"] if row["code"] == "1303")
+    assert long_candidate["signalStrength"] == pytest.approx(0.84)
+    assert long_candidate["promotionStage"] == "weighted"
+    assert long_candidate["decisionReasons"] == ["月足box文脈"]
+    assert short_candidate["hypothesisFamily"] == "broken_bullish_scenario"
+    assert short_candidate["provisional"] is True
+
+    long_eval = next(row for row in state_eval["rows"] if row["code"] == "1301")
+    assert long_eval["signalStrength"] == pytest.approx(0.84)
+    assert long_eval["promotionStage"] == "weighted"
 
 
 def test_analysis_bridge_regime_degrades_when_publish_has_multiple_rows(monkeypatch, tmp_path) -> None:

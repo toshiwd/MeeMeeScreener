@@ -23,7 +23,9 @@ def _parse_date(value: str | None) -> datetime.date | None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run MeeMee current ranking backtests for raw ranking and ToreDex policy.")
+    parser = argparse.ArgumentParser(
+        description="Run MeeMee ranking backtests with baseline vs tradex-experiment comparison and ToreDex policy."
+    )
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--end-date", default=None)
     parser.add_argument("--output-dir", default=None)

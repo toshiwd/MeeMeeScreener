@@ -73,6 +73,70 @@ def _parse_timestamp(value: Any) -> datetime | None:
         return None
 
 
+def _research_side_from_public_side(side: Any) -> str | None:
+    side_key = str(side or "").strip().lower()
+    if side_key in {"long", "up"}:
+        return "up"
+    if side_key in {"short", "down"}:
+        return "down"
+    return None
+
+
+def _enrich_rows_with_research_prior(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not rows:
+        return rows
+    try:
+        from app.backend.services.ml import rankings_cache
+    except Exception:
+        return rows
+
+    snapshot = rankings_cache._load_research_prior_snapshot()
+    enriched: list[dict[str, Any]] = []
+    for base in rows:
+        row = dict(base)
+        side = _research_side_from_public_side(row.get("side"))
+        code = str(row.get("code") or "").strip()
+        if not side or not code:
+            enriched.append(row)
+            continue
+        probe: dict[str, Any] = {}
+        rankings_cache._calc_research_prior_bonus(
+            item=probe,
+            direction=side,  # type: ignore[arg-type]
+            code=code,
+            prior_snapshot=snapshot,
+        )
+        row["signalStrength"] = probe.get("researchSignalStrength")
+        row["promotionStage"] = probe.get("researchPromotionStage")
+        row["decisionReasons"] = probe.get("researchDecisionReasons")
+        row["riskWatch"] = probe.get("researchRiskWatch")
+        row["provisional"] = bool(probe.get("researchProvisional")) if probe.get("researchPriorAligned") else False
+        row["hypothesisFamily"] = probe.get("researchHypothesisFamily")
+        row["researchPriorBonus"] = probe.get("researchPriorBonus")
+        enriched.append(row)
+    return enriched
+
+
+def _research_prior_summary_payload() -> dict[str, Any] | None:
+    try:
+        from app.backend.services.ml import rankings_cache
+    except Exception:
+        return None
+    snapshot = rankings_cache._load_research_prior_snapshot()
+    if not isinstance(snapshot, dict):
+        return None
+    summary = snapshot.get("summary")
+    if not isinstance(summary, dict):
+        return None
+    return {
+        "family_leaderboard": summary.get("family_leaderboard") if isinstance(summary.get("family_leaderboard"), list) else [],
+        "worst_failure_patterns": summary.get("worst_failure_patterns") if isinstance(summary.get("worst_failure_patterns"), list) else [],
+        "next_promotion_candidates": summary.get("next_promotion_candidates") if isinstance(summary.get("next_promotion_candidates"), list) else [],
+        "provisional_deterioration": summary.get("provisional_deterioration") if isinstance(summary.get("provisional_deterioration"), list) else [],
+        "action_queue": summary.get("action_queue") if isinstance(summary.get("action_queue"), list) else [],
+    }
+
+
 def _table_exists(conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
     row = conn.execute(
         """
@@ -283,7 +347,7 @@ def get_candidate_daily_rows(pointer_name: str = LATEST_POINTER_NAME, *, limit_p
         side = str(row.get("side") or "")
         if side in by_side and len(by_side[side]) < int(limit_per_side):
             by_side[side].append(row)
-    ordered_rows = by_side["long"] + by_side["short"]
+    ordered_rows = _enrich_rows_with_research_prior(by_side["long"] + by_side["short"])
     snapshot.update({"rows": ordered_rows, **_public_payload_metadata(snapshot)})
     return snapshot
 
@@ -370,7 +434,8 @@ def get_state_eval_rows(
     finally:
         conn.close()
     columns = allowed_public_columns("state_eval_daily")
-    snapshot.update({"rows": [dict(zip(columns, row, strict=True)) for row in rows], **_public_payload_metadata(snapshot)})
+    out_rows = [dict(zip(columns, row, strict=True)) for row in rows]
+    snapshot.update({"rows": _enrich_rows_with_research_prior(out_rows), **_public_payload_metadata(snapshot)})
     return snapshot
 
 
@@ -666,6 +731,9 @@ def get_internal_state_eval_daily_summary(
             except (TypeError, ValueError, json.JSONDecodeError):
                 daily_summary = None
             if isinstance(daily_summary, dict):
+                research_summary = _research_prior_summary_payload()
+                if isinstance(research_summary, dict):
+                    daily_summary["decision_signal"] = research_summary
                 snapshot.update({"daily_summary": daily_summary, **_public_payload_metadata(snapshot)})
                 return snapshot
 
@@ -682,6 +750,9 @@ def get_internal_state_eval_daily_summary(
         "risk_watch": (tag_summary.get("risk_heavy") or [None])[0],
         "sample_watch": (tag_summary.get("needs_samples") or [None])[0],
     }
+    research_summary = _research_prior_summary_payload()
+    if isinstance(research_summary, dict):
+        daily_summary["decision_signal"] = research_summary
     tag_payload.update({"daily_summary": daily_summary, **_public_payload_metadata(tag_payload)})
     return tag_payload
 

@@ -34,6 +34,7 @@ def test_load_research_prior_snapshot_returns_empty_without_bridge(monkeypatch, 
     assert payload["up"]["codes"] == []
     assert payload["up"]["rank_map"] == {}
     assert payload["up"]["fit_score_map"] == {}
+    assert payload["up"]["bonus_map"] == {}
     assert payload["down"]["codes"] == []
     assert payload["down"]["rank_map"] == {}
 
@@ -254,3 +255,85 @@ def test_decorate_rule_items_reorders_entry_score_when_rebound_bonus_exists(monk
     assert decorated[1]["researchPriorBonus"] == 0.0
     assert decorated[0]["entryScore"] > decorated[1]["entryScore"]
     assert decorated[0]["hybridScore"] == decorated[1]["hybridScore"] == pytest.approx(0.42)
+
+
+def test_load_research_prior_snapshot_parses_decision_signal_fields(monkeypatch, tmp_path: Path) -> None:
+    bridge_latest = tmp_path / "bridge" / "latest"
+    bridge_latest.mkdir(parents=True, exist_ok=True)
+    (bridge_latest / "research_prior_snapshot.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "meemee_decision_signal_prior_v1",
+                "strategy_id": "meemee_decision_signal_prior_v1",
+                "run_id": "decision_signal_prior_20260331_close",
+                "up": {
+                    "asof": "2026-03-31",
+                    "codes": ["1001"],
+                    "rank_map": {"1001": 1},
+                    "fit_score_map": {"1001": 0.74},
+                    "signal_strength_map": {"1001": 0.82},
+                    "pattern_tag_map": {"1001": "UM-N-GU-HB"},
+                    "decision_reason_map": {"1001": ["月足box文脈", "週足support維持"]},
+                    "risk_watch_map": {"1001": ["値幅荒い"]},
+                    "promotion_stage_map": {"1001": "weighted"},
+                    "provisional_map": {"1001": False},
+                    "hypothesis_family_map": {"1001": "monthly_box_breakout"},
+                    "bonus_map": {"1001": 0.018},
+                    "bonus_cap": 0.03,
+                },
+                "down": {"asof": "2026-03-31", "codes": [], "rank_map": {}},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("MEEMEE_RESEARCH_BRIDGE_DIR", str(tmp_path / "bridge"))
+    _reset_research_prior_cache()
+
+    payload = rankings_cache._load_research_prior_snapshot()
+
+    assert payload["schema_version"] == "meemee_decision_signal_prior_v1"
+    assert payload["up"]["signal_strength_map"] == {"1001": 0.82}
+    assert payload["up"]["decision_reason_map"]["1001"] == ["月足box文脈", "週足support維持"]
+    assert payload["up"]["promotion_stage_map"] == {"1001": "weighted"}
+    assert payload["up"]["bonus_map"] == {"1001": pytest.approx(0.018)}
+
+
+def test_calc_research_prior_bonus_uses_direct_bonus_map_for_decision_signal_strategy() -> None:
+    snapshot = {
+        "run_id": "decision_signal_prior_20260331_close",
+        "strategy_id": "meemee_decision_signal_prior_v1",
+        "up": {
+            "asof": "2026-03-31",
+            "codes": ["1001"],
+            "rank_map": {"1001": 1},
+            "fit_score_map": {"1001": 0.74},
+            "signal_strength_map": {"1001": 0.82},
+            "pattern_tag_map": {"1001": "UM-N-GU-HB"},
+            "decision_reason_map": {"1001": ["月足box文脈"]},
+            "risk_watch_map": {"1001": ["値幅荒い"]},
+            "promotion_stage_map": {"1001": "weighted"},
+            "provisional_map": {"1001": True},
+            "hypothesis_family_map": {"1001": "monthly_box_breakout"},
+            "bonus_map": {"1001": 0.024},
+            "bonus_cap": 0.03,
+        },
+        "down": {"asof": None, "codes": [], "rank_map": {}},
+    }
+
+    item: dict[str, object] = {}
+    bonus = rankings_cache._calc_research_prior_bonus(
+        item=item,
+        direction="up",
+        code="1001",
+        prior_snapshot=snapshot,
+    )
+
+    assert bonus == pytest.approx(0.012)
+    assert item["researchSignalStrength"] == pytest.approx(0.82)
+    assert item["researchPromotionStage"] == "weighted"
+    assert item["researchDecisionReasons"] == ["月足box文脈"]
+    assert item["researchRiskWatch"] == ["値幅荒い"]
+    assert item["researchProvisional"] is True
+    assert item["researchHypothesisFamily"] == "monthly_box_breakout"
