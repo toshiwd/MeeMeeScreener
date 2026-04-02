@@ -58,6 +58,7 @@ export const isCanceledRequestError = (error: unknown) => {
 
 export const DEFAULT_LIMITS = {
   daily: 2000,
+  weekly: 520,
   monthly: 240
 };
 

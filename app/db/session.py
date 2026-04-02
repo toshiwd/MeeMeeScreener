@@ -19,6 +19,7 @@ from app.db.schema import ensure_schema, init_extra_schemas, init_schema
 _OPEN_LOCK: Any = None
 _SCHEMA_STATE_LOCK: Any = None
 _SCHEMA_READY_FOR_DB: str | None = None
+_SCHEMA_READY_FOR_PATHS: set[str] = set()
 _DB_OPEN_MODE_BY_PATH: dict[str, str] = {}
 _DB_ACCESS_LOCKS: dict[str, Any] = {}
 _DB_ACCESS_LOCKS_GUARD: Any = None
@@ -243,6 +244,19 @@ def _connect_with_retry(max_wait_sec: float = 1.0) -> duckdb.DuckDBPyConnection:
             raise
 
 
+def _ensure_schema_for_path_conn(conn: duckdb.DuckDBPyConnection, db_path: str) -> None:
+    global _SCHEMA_READY_FOR_PATHS
+    _ensure_locks()
+    normalized = _normalize_db_path(db_path)
+    with _SCHEMA_STATE_LOCK:
+        needs_schema = normalized not in _SCHEMA_READY_FOR_PATHS
+    if not needs_schema:
+        return
+    ensure_schema(conn)
+    with _SCHEMA_STATE_LOCK:
+        _SCHEMA_READY_FOR_PATHS.add(normalized)
+
+
 class _ConnContext:
     def __init__(self):
         self._conn: duckdb.DuckDBPyConnection | None = None
@@ -297,6 +311,16 @@ class _PathConnContext:
                 max_wait_sec=self._timeout_sec,
                 read_only=self._read_only,
             )
+            if not self._read_only:
+                try:
+                    _ensure_schema_for_path_conn(self._conn, self._db_path)
+                except Exception:
+                    try:
+                        self._conn.close()
+                    except Exception:
+                        pass
+                    self._conn = None
+                    raise
         except Exception:
             if self._access_lock is not None:
                 self._access_lock.release()

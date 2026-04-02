@@ -44,8 +44,16 @@ def test_rankings_router_defaults_to_trade_mode(monkeypatch) -> None:
         captured.append(str(mode))
         return {"items": [], "mode": mode, "tf": tf, "which": which, "dir": direction, "limit": limit}
 
+    def _fake_get_trade_direction_summary(tf, which, limit, *, risk_mode, top_n):
+        return {"tf": tf, "which": which, "limit": limit, "risk_mode": risk_mode, "top_n": top_n}
+
+    def _fake_get_trade_code_qualification_summary(tf, which, code, *, risk_mode, lookback_days, recent_hits, as_of, limit):
+        return {"tf": tf, "which": which, "code": code, "risk_mode": risk_mode, "lookback_days": lookback_days, "recent_hits": recent_hits, "as_of": as_of, "limit": limit}
+
     monkeypatch.setattr(rankings_router.rankings_cache, "get_rankings", _fake_get_rankings)
     monkeypatch.setattr(rankings_router.rankings_cache, "get_last_qualified_trace", _fake_get_last_qualified_trace)
+    monkeypatch.setattr(rankings_router.rankings_cache, "get_trade_direction_summary", _fake_get_trade_direction_summary)
+    monkeypatch.setattr(rankings_router.rankings_cache, "get_trade_code_qualification_summary", _fake_get_trade_code_qualification_summary)
 
     assert rankings_router.get_rankings(tf="D", which="latest", dir="up", mode="trade", risk_mode="balanced", limit=50)[
         "mode"
@@ -70,6 +78,19 @@ def test_rankings_router_defaults_to_trade_mode(monkeypatch) -> None:
         )["mode"]
         == "trade"
     )
+    assert rankings_router.get_rankings_trade_summary(tf="D", which="latest", risk_mode="balanced", limit=50, top_n=5)[
+        "top_n"
+    ] == 5
+    assert rankings_router.get_rankings_code_qualified_trace(
+        code="7203",
+        tf="D",
+        which="latest",
+        risk_mode="balanced",
+        lookback_days=260,
+        recent_hits=10,
+        as_of=None,
+        limit=200,
+    )["code"] == "7203"
     assert captured == ["trade", "trade", "trade", "trade", "trade"]
 
 

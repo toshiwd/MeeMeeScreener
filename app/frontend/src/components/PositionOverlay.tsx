@@ -37,6 +37,21 @@ type PositionOverlayProps = {
   hidePanel?: boolean;
 };
 
+type AggregatedPositionEntry = {
+  brokerKey: string;
+  brokerLabel: string;
+  time: number;
+  date: string;
+  close: number;
+  longLots: number;
+  shortLots: number;
+  longCost: number;
+  shortCost: number;
+  realizedPnL: number;
+  unrealizedPnL: number;
+  totalPnL: number;
+};
+
 const formatNumber = (value: number) => {
   if (!Number.isFinite(value)) return "0";
   return Math.round(value).toLocaleString();
@@ -212,6 +227,8 @@ export default function PositionOverlay({
     () => new Map(volume.map((item) => [item.time, item.value])),
     [volume]
   );
+  const shouldComputePositionInfo = showOverlay || showPnL;
+  const shouldComputeMarkerInfo = showOverlay && showMarkers;
   const activeIndex = useMemo(() => {
     if (!bars.length) return null;
     if (hoverTime == null) return bars.length - 1;
@@ -220,6 +237,7 @@ export default function PositionOverlay({
   }, [bars, hoverTime]);
 
   const positionsByTime = useMemo(() => {
+    if (!shouldComputePositionInfo) return new Map<number, DailyPosition[]>();
     const map = new Map<number, DailyPosition[]>();
     dailyPositions.forEach((pos) => {
       const list = map.get(pos.time) ?? [];
@@ -230,54 +248,21 @@ export default function PositionOverlay({
       list.sort((a, b) => compareBrokerKey(a.brokerKey, b.brokerKey))
     );
     return map;
-  }, [dailyPositions]);
+  }, [dailyPositions, shouldComputePositionInfo]);
   const positionTimes = useMemo(() => {
+    if (!shouldComputePositionInfo || positionsByTime.size === 0) return [];
     const times: number[] = [];
     positionsByTime.forEach((_value, key) => {
       times.push(key);
     });
     times.sort((a, b) => a - b);
     return times;
-  }, [positionsByTime]);
+  }, [positionsByTime, shouldComputePositionInfo]);
   const aggregatedPositionsByTime = useMemo(() => {
-    const map = new Map<
-      number,
-      Map<
-        string,
-        {
-          brokerKey: string;
-          brokerLabel: string;
-          time: number;
-          date: string;
-          close: number;
-          longLots: number;
-          shortLots: number;
-          longCost: number;
-          shortCost: number;
-          realizedPnL: number;
-          unrealizedPnL: number;
-          totalPnL: number;
-        }
-      >
-    >();
+    if (!shouldComputePositionInfo) return new Map<number, Map<string, AggregatedPositionEntry>>();
+    const map = new Map<number, Map<string, AggregatedPositionEntry>>();
     positionsByTime.forEach((positions, time) => {
-      const aggregated = new Map<
-        string,
-        {
-          brokerKey: string;
-          brokerLabel: string;
-          time: number;
-          date: string;
-          close: number;
-          longLots: number;
-          shortLots: number;
-          longCost: number;
-          shortCost: number;
-          realizedPnL: number;
-          unrealizedPnL: number;
-          totalPnL: number;
-        }
-      >();
+      const aggregated = new Map<string, AggregatedPositionEntry>();
       positions.forEach((pos) => {
         const brokerKey = normalizeBrokerKey(pos.brokerKey, pos.brokerLabel);
         const brokerLabel = resolveDisplayBrokerLabel(brokerKey, pos.brokerLabel);
@@ -310,8 +295,9 @@ export default function PositionOverlay({
       map.set(time, aggregated);
     });
     return map;
-  }, [positionsByTime]);
+  }, [positionsByTime, shouldComputePositionInfo]);
   const displayablePositionKeys = useMemo(() => {
+    if (!shouldComputePositionInfo) return new Set<string>();
     const tradeMarkerKeys = new Set<string>();
     tradeMarkers.forEach((marker) => {
       const fallbackMeta = resolveBrokerMeta(marker.trades[0]?.broker);
@@ -339,7 +325,7 @@ export default function PositionOverlay({
       });
     });
     return visible;
-  }, [aggregatedPositionsByTime, positionTimes, tradeMarkers]);
+  }, [aggregatedPositionsByTime, positionTimes, tradeMarkers, shouldComputePositionInfo]);
 
   const normalizeTimeValue = (value: unknown) => {
     if (typeof value === "number") return value;
@@ -353,7 +339,7 @@ export default function PositionOverlay({
   };
 
   useEffect(() => {
-    if (!chart) return;
+    if (!chart || !shouldComputeMarkerInfo) return;
     const timeScale = chart.timeScale?.();
     const priceScale = chart.priceScale?.("right");
 
@@ -381,15 +367,14 @@ export default function PositionOverlay({
         rangeRafRef.current = null;
       }
     };
-  }, [chart]);
+  }, [chart, shouldComputeMarkerInfo]);
 
   const activeBar = activeIndex != null ? bars[activeIndex] : null;
   const lastBar = bars.length ? bars[bars.length - 1] : null;
   const isLatestBarActive = activeBar != null && lastBar != null && activeBar.time === lastBar.time;
-  const showPositionInfo = showOverlay || showPnL;
   const activePositionTime = useMemo(
-    () => (showPositionInfo && activeBar ? findClosestTime(positionTimes, activeBar.time) : null),
-    [positionTimes, activeBar, showPositionInfo]
+    () => (shouldComputePositionInfo && activeBar ? findClosestTime(positionTimes, activeBar.time) : null),
+    [positionTimes, activeBar, shouldComputePositionInfo]
   );
   const activeMaValues = useMemo(() => {
     if (!maLines.length || !activeBar) return [];
@@ -407,7 +392,7 @@ export default function PositionOverlay({
       });
   }, [maLines, activeBar]);
   const maCounts = useMemo(() => {
-    if (!bars.length || !maLines.length) return [];
+    if (!shouldComputePositionInfo || !bars.length || !maLines.length) return [];
     return maLines
       .filter((line) => line.visible)
       .map((line) => {
@@ -448,7 +433,7 @@ export default function PositionOverlay({
           downCounts
         };
       });
-  }, [bars, maLines]);
+  }, [bars, maLines, shouldComputePositionInfo]);
   const activeMaCounts = useMemo(() => {
     if (activeIndex == null) return [];
     return maCounts.map((entry) => ({
@@ -460,7 +445,7 @@ export default function PositionOverlay({
     }));
   }, [maCounts, activeIndex]);
   const activePositions = useMemo(() => {
-    if (activePositionTime == null) return [];
+    if (!shouldComputePositionInfo || activePositionTime == null) return [];
     const positions = aggregatedPositionsByTime.get(activePositionTime);
     if (!positions || positions.size === 0) return [];
     return Array.from(positions.values())
@@ -489,9 +474,9 @@ export default function PositionOverlay({
         };
       })
       .sort((a, b) => compareBrokerKey(a.brokerKey, b.brokerKey));
-  }, [aggregatedPositionsByTime, activePositionTime, displayablePositionKeys]);
+  }, [aggregatedPositionsByTime, activePositionTime, displayablePositionKeys, shouldComputePositionInfo]);
   const currentPositionEntries = useMemo(() => {
-    if (!currentPositions || currentPositions.length === 0) return [];
+    if (!shouldComputePositionInfo || !currentPositions || currentPositions.length === 0) return [];
     if (!lastBar) return [];
     if (!isLatestBarActive) return [];
     const close = lastBar.close;
@@ -522,19 +507,20 @@ export default function PositionOverlay({
           brokerGroupKey: pos.brokerKey
         };
       });
-  }, [currentPositions, lastBar, isLatestBarActive]);
+  }, [currentPositions, lastBar, isLatestBarActive, shouldComputePositionInfo]);
   const displayedPositions = useMemo(() => {
+    if (!shouldComputePositionInfo) return [];
     if (isLatestBarActive && currentPositionEntries.length > 0) return currentPositionEntries;
     return activePositions;
-  }, [isLatestBarActive, currentPositionEntries, activePositions]);
+  }, [isLatestBarActive, currentPositionEntries, activePositions, shouldComputePositionInfo]);
   const activeTradeMarkers = useMemo(() => {
-    if (!showOverlay || !showMarkers || activePositionTime == null) return [];
+    if (!shouldComputeMarkerInfo || activePositionTime == null) return [];
     return tradeMarkers.filter((trade) => trade.time === activePositionTime);
-  }, [tradeMarkers, showOverlay, showMarkers, activePositionTime]);
+  }, [tradeMarkers, shouldComputeMarkerInfo, activePositionTime]);
 
   const labelEntries = useMemo(() => {
     void rangeTick;
-    if (!showMarkers || !chart || !candleSeries) return [];
+    if (!shouldComputeMarkerInfo || !chart || !candleSeries) return [];
     const timeScale = chart.timeScale?.();
     if (!timeScale || typeof timeScale.timeToCoordinate !== "function") return [];
     if (typeof candleSeries.priceToCoordinate !== "function") return [];
@@ -647,7 +633,16 @@ export default function PositionOverlay({
       });
     });
     return output;
-  }, [showMarkers, markerSuffix, chart, candleSeries, bars, tradeMarkers, aggregatedPositionsByTime, rangeTick]);
+  }, [
+    shouldComputeMarkerInfo,
+    markerSuffix,
+    chart,
+    candleSeries,
+    bars,
+    tradeMarkers,
+    aggregatedPositionsByTime,
+    rangeTick
+  ]);
 
   if (!activeBar) return null;
 
@@ -734,7 +729,7 @@ export default function PositionOverlay({
             ))}
           </div>
         )}
-        {showPositionInfo && displayedPositions.length > 0 && (
+        {shouldComputePositionInfo && displayedPositions.length > 0 && (
           <div className="position-overlay-block">
             {displayedPositions.map((position) => {
               const brokerKey = position.brokerKey ?? "unknown";

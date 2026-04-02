@@ -6,7 +6,7 @@ const navItems = [
   { to: "/market", label: "市場" },
   { to: "/positions", label: "建玉" },
   { to: "/favorites", label: "お気に入り" },
-  { to: "/candidates", label: "候補" }
+  { to: "/candidates", label: "候補" },
 ];
 
 export default function TopNav() {

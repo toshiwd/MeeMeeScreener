@@ -38,6 +38,45 @@ type DecisionHistoryItem = {
   tone: "up" | "down" | "neutral";
 };
 
+type IndividualResult = {
+  setupType?: string | null;
+  monthlyBoxState?: string | null;
+  tradePriorityScore?: number | null;
+  entryPriorityScore?: number | null;
+  hybridScore?: number | null;
+  entryQualified?: boolean | null;
+  entryQualifiedByFallback?: boolean | null;
+  entryQualifiedFallbackStage?: string | null;
+  researchPatternTag?: string | null;
+  researchDecisionReasons?: string[] | null;
+  researchRiskWatch?: string[] | null;
+  tradeDecisionReasons?: string[] | null;
+  tradeRiskWatch?: string[] | null;
+};
+
+type QualificationTraceSummary = {
+  todayState?: "buy" | "sell" | "wait" | "both" | null;
+  lastBuyDateIso?: string | null;
+  lastSellDateIso?: string | null;
+};
+
+type PersistedSignalEventItem = {
+  signalDate?: string | null;
+  side?: "buy" | "sell" | null;
+  setup_type?: string | null;
+  return_30d?: number | null;
+  current_directional_return?: number | null;
+  break_status?: string | null;
+  break_reason?: string | null;
+};
+
+type RankingAppearanceItem = {
+  date_iso?: string | null;
+  dir?: "up" | "down" | null;
+  rank?: number | null;
+  break_status?: string | null;
+};
+
 type FormatNumber = (value: number | null | undefined, digits?: number) => string;
 type FormatPercentLabel = (value: number | null | undefined, digits?: number) => string;
 type FormatSignedPercentLabel = (value: number | null | undefined, digits?: number) => string;
@@ -81,6 +120,10 @@ export type Props = {
   swingSetupExpectancy: AnalysisSwingSetupExpectancy | null;
   analysisMissingDataVisible: boolean;
   decisionHistory: DecisionHistoryItem[];
+  individualResult: IndividualResult | null;
+  qualificationTrace: QualificationTraceSummary | null;
+  persistedSignalEvents?: PersistedSignalEventItem[];
+  rankingAppearancesOnSelectedDate?: RankingAppearanceItem[];
   formatPercentLabel: FormatPercentLabel;
   formatNumber: FormatNumber;
   formatSignedPercentLabel: FormatSignedPercentLabel;
@@ -184,6 +227,13 @@ const formatDecisionDateLabel = (dtKey: number) => {
   return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
 };
 
+const formatTradeTodayState = (state?: "buy" | "sell" | "wait" | "both" | null) => {
+  if (state === "buy") return "買い";
+  if (state === "sell") return "売り";
+  if (state === "both") return "買い/売り両方";
+  return "見送り";
+};
+
 export function DetailAnalysisPanel(props: Props) {
   const {
     analysisAsOfTime,
@@ -224,6 +274,10 @@ export function DetailAnalysisPanel(props: Props) {
     swingSetupExpectancy,
     analysisMissingDataVisible,
     decisionHistory,
+    individualResult,
+    qualificationTrace,
+    persistedSignalEvents = [],
+    rankingAppearancesOnSelectedDate = [],
     formatPercentLabel,
     formatNumber,
     formatSignedPercentLabel,
@@ -374,6 +428,87 @@ export function DetailAnalysisPanel(props: Props) {
                   {edinetQualityMeta && <div className="detail-analysis-meta">EDI品質 {edinetQualityMeta}</div>}
                   {edinetMetricsMeta && <div className="detail-analysis-meta">{edinetMetricsMeta}</div>}
                   {edinetBonusMeta && <div className="detail-analysis-meta">{edinetBonusMeta}</div>}
+                </div>
+                <div className="detail-analysis-section">
+                  <div className="detail-analysis-section-title">persisted 判定</div>
+                  {persistedSignalEvents.length > 0 ? (
+                    persistedSignalEvents.map((item, index) => (
+                      <div key={`${item.signalDate ?? "na"}-${item.side ?? index}`} className="detail-analysis-meta">
+                        {item.signalDate ?? "--"} / {item.side === "sell" ? "売り" : "買い"} / {item.setup_type ?? "--"} / 現在 {formatSignedPercentLabel(item.current_directional_return)} / 30日 {formatSignedPercentLabel(item.return_30d)} / {item.break_status === "broken" ? `崩れ ${item.break_reason ?? ""}` : item.break_status === "completed_clean" ? "完走" : "継続中"}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="detail-analysis-meta">persisted 判定なし</div>
+                  )}
+                  {rankingAppearancesOnSelectedDate.length > 0 && (
+                    <div className="detail-analysis-meta">
+                      ランキング掲載{" "}
+                      {rankingAppearancesOnSelectedDate
+                        .map((item) => `${item.dir === "down" ? "下落側" : "上昇側"} ${item.rank ?? "--"}位`)
+                        .join(" / ")}
+                    </div>
+                  )}
+                </div>
+                <div className="detail-analysis-section">
+                  <div className="detail-analysis-section-title">個別結果</div>
+                  <div className="detail-analysis-meta">今日の判断 {formatTradeTodayState(qualificationTrace?.todayState)}</div>
+                  <div className="detail-analysis-meta">前回買い厳選通過 {qualificationTrace?.lastBuyDateIso ?? "--"}</div>
+                  <div className="detail-analysis-meta">前回売り厳選通過 {qualificationTrace?.lastSellDateIso ?? "--"}</div>
+                  <div className="detail-analysis-meta">
+                    厳選通過{" "}
+                    {individualResult?.entryQualified === true
+                      ? "通過"
+                      : individualResult?.entryQualified === false
+                        ? "未通過"
+                        : "--"}
+                  </div>
+                  <div className="detail-analysis-meta">セットアップ {individualResult?.setupType ?? "--"}</div>
+                  <div className="detail-analysis-meta">月足ボックス {individualResult?.monthlyBoxState ?? "--"}</div>
+                  <div className="detail-analysis-meta">
+                    tradePriorityScore {formatNumber(individualResult?.tradePriorityScore ?? null, 3)}
+                  </div>
+                  <div className="detail-analysis-meta">
+                    entryPriorityScore {formatNumber(individualResult?.entryPriorityScore ?? null, 3)}
+                  </div>
+                  <div className="detail-analysis-meta">
+                    hybridScore {formatNumber(individualResult?.hybridScore ?? null, 3)}
+                  </div>
+                  {individualResult?.entryQualifiedByFallback === true && (
+                    <div className="detail-analysis-meta">
+                      補完通過 {individualResult?.entryQualifiedFallbackStage ?? "--"}
+                    </div>
+                  )}
+                  {individualResult?.researchPatternTag && (
+                    <div className="detail-analysis-meta">研究タグ {individualResult.researchPatternTag}</div>
+                  )}
+                  {Array.isArray(
+                    individualResult?.tradeDecisionReasons?.length
+                      ? individualResult.tradeDecisionReasons
+                      : individualResult?.researchDecisionReasons
+                  ) &&
+                    (individualResult?.tradeDecisionReasons?.length || individualResult?.researchDecisionReasons?.length) ? (
+                      <div className="detail-analysis-meta">
+                        判定理由{" "}
+                        {(individualResult?.tradeDecisionReasons?.length
+                          ? individualResult.tradeDecisionReasons
+                          : individualResult?.researchDecisionReasons ?? []
+                        ).join(" / ")}
+                      </div>
+                    ) : null}
+                  {Array.isArray(
+                    individualResult?.tradeRiskWatch?.length
+                      ? individualResult.tradeRiskWatch
+                      : individualResult?.researchRiskWatch
+                  ) &&
+                    (individualResult?.tradeRiskWatch?.length || individualResult?.researchRiskWatch?.length) ? (
+                      <div className="detail-analysis-meta">
+                        注意点{" "}
+                        {(individualResult?.tradeRiskWatch?.length
+                          ? individualResult.tradeRiskWatch
+                          : individualResult?.researchRiskWatch ?? []
+                        ).join(" / ")}
+                      </div>
+                    ) : null}
                 </div>
                 <div className="detail-analysis-section">
                   <div className="detail-analysis-section-title">判定履歴</div>

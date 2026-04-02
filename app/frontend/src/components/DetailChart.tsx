@@ -321,8 +321,15 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     onVisibleRangeChange
   );
   const lastCrosshairTimeRef = useRef<number | null>(null);
+  const overlayRafRef = useRef<number | null>(null);
+  const visibleRangeRafRef = useRef<number | null>(null);
+  const pendingVisibleRangeRef = useRef<{ from: number; to: number } | null>(null);
   const resizeRafRef = useRef<number | null>(null);
   const pendingResizeRef = useRef<{ width: number; height: number; fit: boolean } | null>(null);
+  const lastAppliedCandlesRef = useRef<Candle[] | null>(null);
+  const lastAppliedVolumeRef = useRef<VolumePoint[] | null>(null);
+  const lastAppliedShowVolumeRef = useRef<boolean | null>(null);
+  const lastAppliedMaDataRef = useRef<Array<{ time: number; value: number }[] | undefined>>([]);
 
   const readChartColors = () => {
     const styles = getComputedStyle(document.documentElement);
@@ -998,7 +1005,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     return null;
   };
 
-  const drawOverlay = () => {
+  const renderOverlay = () => {
     const canvas = overlayRef.current;
     const chart = chartRef.current;
     if (!canvas || !chart) return;
@@ -1491,6 +1498,14 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     }
   };
 
+  const drawOverlay = () => {
+    if (overlayRafRef.current !== null) return;
+    overlayRafRef.current = window.requestAnimationFrame(() => {
+      overlayRafRef.current = null;
+      renderOverlay();
+    });
+  };
+
   const resizeOverlay = () => {
     const wrapper = wrapperRef.current;
     const canvas = overlayRef.current;
@@ -1557,6 +1572,13 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
 
   const applyData = (next: typeof dataRef.current) => {
     const chart = chartRef.current;
+    const prevCandles = lastAppliedCandlesRef.current;
+    const prevVolume = lastAppliedVolumeRef.current;
+    const prevShowVolume = lastAppliedShowVolumeRef.current;
+    const prevMaData = lastAppliedMaDataRef.current;
+    const nextCandles = next.candles;
+    const nextVolumeData = next.showVolume ? buildVolumeSeriesData(next.candles, next.volume) : [];
+    const nextMaData = next.maLines.map((line) => line.chartData ?? line.data);
     if (chart) {
       chart.applyOptions({
         rightPriceScale: {
@@ -1569,11 +1591,18 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       syncLineSeries(next.maLines);
     }
     if (candleSeriesRef.current) {
-      candleSeriesRef.current.setData(next.candles);
+      if (prevCandles !== nextCandles) {
+        candleSeriesRef.current.setData(nextCandles);
+      }
     }
     if (volumeSeriesRef.current) {
-      const volumeData = next.showVolume ? buildVolumeSeriesData(next.candles, next.volume) : [];
-      volumeSeriesRef.current.setData(volumeData);
+      if (
+        prevVolume !== next.volume ||
+        prevShowVolume !== next.showVolume ||
+        prevCandles !== nextCandles
+      ) {
+        volumeSeriesRef.current.setData(nextVolumeData);
+      }
       volumeSeriesRef.current.applyOptions({ visible: next.showVolume });
     }
     next.maLines.forEach((line, index) => {
@@ -1585,8 +1614,14 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         lineWidth: line.lineWidth,
         crosshairMarkerVisible: false
       });
-      series.setData(line.chartData ?? line.data);
+      if (prevMaData[index] !== nextMaData[index]) {
+        series.setData(nextMaData[index] ?? []);
+      }
     });
+    lastAppliedMaDataRef.current = nextMaData;
+    lastAppliedCandlesRef.current = nextCandles;
+    lastAppliedVolumeRef.current = next.volume;
+    lastAppliedShowVolumeRef.current = next.showVolume;
     if (chart && next.candles.length) {
       const wrapper = wrapperRef.current;
       if (wrapper) {
@@ -1980,19 +2015,27 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         if (!gapBandsPropRef.current) {
           updateGapBandsStable(resolveGapAsOfFromLatestCandle());
         }
-        drawOverlayStable();
-        if (Date.now() < suppressVisibleRangeUntilRef.current) return;
-        const handler = onVisibleRangeChangeRef.current;
-        if (!handler || typeof timeScale.getVisibleRange !== "function") return;
-        const range = timeScale.getVisibleRange();
-        if (!range) {
-          handler(null);
-          return;
-        }
-        const from = normalizeRangeTime(range.from);
-        const to = normalizeRangeTime(range.to);
-        if (from == null || to == null) return;
-        handler({ from, to });
+        pendingVisibleRangeRef.current = typeof timeScale.getVisibleRange === "function"
+          ? timeScale.getVisibleRange()
+          : null;
+        if (visibleRangeRafRef.current !== null) return;
+        visibleRangeRafRef.current = window.requestAnimationFrame(() => {
+          visibleRangeRafRef.current = null;
+          renderOverlay();
+          if (Date.now() < suppressVisibleRangeUntilRef.current) return;
+          const handler = onVisibleRangeChangeRef.current;
+          if (!handler || typeof timeScale.getVisibleRange !== "function") return;
+          const range = pendingVisibleRangeRef.current ?? timeScale.getVisibleRange();
+          pendingVisibleRangeRef.current = null;
+          if (!range) {
+            handler(null);
+            return;
+          }
+          const from = normalizeRangeTime(range.from);
+          const to = normalizeRangeTime(range.to);
+          if (from == null || to == null) return;
+          handler({ from, to });
+        });
       };
       if (timeScale?.subscribeVisibleLogicalRangeChange) {
         timeScale.subscribeVisibleLogicalRangeChange(rangeHandler);
@@ -2056,6 +2099,14 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
       if (resizeRafRef.current !== null) {
         window.cancelAnimationFrame(resizeRafRef.current);
         resizeRafRef.current = null;
+      }
+      if (overlayRafRef.current !== null) {
+        window.cancelAnimationFrame(overlayRafRef.current);
+        overlayRafRef.current = null;
+      }
+      if (visibleRangeRafRef.current !== null) {
+        window.cancelAnimationFrame(visibleRangeRafRef.current);
+        visibleRangeRafRef.current = null;
       }
       if (resizeObserver) resizeObserver.disconnect();
       if (chartRef.current) {

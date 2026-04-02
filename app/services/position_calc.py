@@ -3,120 +3,75 @@ from __future__ import annotations
 from app.db.session import get_conn
 from app.services.trade_events import get_events
 
-def _get_daily_positions_db(target_codes: list[str] | None = None) -> dict[str, list[dict]]:
-    # Reconstruct daily positions from DB events
-    with get_conn() as conn:
-        events = get_events(conn, target_codes)
-    
+
+def _build_daily_positions_from_db_events(events: list[tuple]) -> dict[str, list[dict]]:
     events_by_code = {}
     for ev in events:
         # 3:symbol
         code = ev[3]
         events_by_code.setdefault(code, []).append(ev)
-        
+
     result = {}
-    
+
     for code, ev_list in events_by_code.items():
         daily_list = []
-        
+
         # Sorting is guaranteed by get_events (exec_dt ASC)
-        # We need to walk through days.
-        # But for chart, we usually just want the change points or one per day?
-        # Usually one per day matching the daily bars is ideal, but here we just produce 
-        # a series of "end of day" positions for days where events happened OR all days?
-        # Frontend filters by `time === selectedBarData.time`. So we need entries for every relevant date.
-        # Ideally, we return a dense list or the frontend needs to fill gaps.
-        # Current _build_daily_positions returns sparse list (only days with trades?).
-        # No, let's look at `_build_daily_positions` again. It iterates keys of grouped trades.
-        # So it only returns days with trades. 
-        # BUT DetailView filters: `dailyPositions.filter(p => p.time === selectedBarData.time)`.
-        # This implies it EXPECTS an entry for that exact day.
-        # If the user held a position for 30 days but only traded on day 1 and 30, 
-        # the middle days would show 0 if sparse.
-        # This seems like a BUG in existing frontend logic if it relies on exact match from sparse list?
-        # Or maybe `dailyPositions` was dense?
-        # Existing logic: `for date in sorted(grouped.keys())`. Sparse.
-        # So the Chart Overlay probably only shows dots on trade days?
-        # The Position Ledger PnL panel?
-        # Wait, if `posList` is empty, `buy` is 0.
-        # So the existing app only shows position ON THE DAY OF TRADE? That seems wrong for "Held Position".
-        # But maybe that's the current behavior.
-        # User wants "Fix the calculation".
-        # If I output a dense list (carried forward), it would fix the chart to show "Holding" line.
-        # I will implement DENSE (carry forward) positions for every day since first trade?
-        # Or at least for every day in the event range.
-        # Actually, let's stick to Sparse (Event Days) + "carry forward" logic is handled where? 
-        # If I change to Dense, frontend logic `posList.reduce` will work (1 item).
-        # Let's try to be smart. Return a list of all dates where position CHANGED.
-        # Frontend logic `dailyPositions.filter(p => p.time === ...)` is strict equality.
-        # If I return dense list for all known dates, it acts as full history.
-        # But I don't know all "market dates" here easily without querying daily_bars.
-        # I'll stick to returning "Event Days" but with "Accumulated Balance".
-        # Wait, if I only return Event Days, then on non-event days the chart says 0.
-        # The user complained about "Trade History Sync".
-        # I will produce a DENSE list by querying daily_bars dates for the code?
-        # That might be too heavy.
-        # Let's perform a simpler approach: 
-        # Just return the Event Days with the *Post-Trade Balance*.
-        # And if the frontend needs more, we might need to change frontend.
-        # Checking DetailView: `const posList = dailyPositions.filter(p => p.time === selectedBarData.time);`
-        # It is strictly checking. So if I don't provide data for that day, it thinks 0.
-        # This confirms existing app only shows dots on trade days. 
-        # I will keep this behavior (Sparse) but ensure the values are "Total Held After Trade" (Cumulative), 
-        # not just "Trade Quantity".
-        # Existing `_build_daily_positions` accumulates `long_shares` and `short_shares` in the loop.
-        # So it WAS cumulative.
-        # My new logic must also be cumulative.
-        
         spot = 0.0
         margin_long = 0.0
         margin_short = 0.0
-        
+
         # 0:id, 1:broker, 2:exec_dt, 3:symbol, 4:action, 5:qty, 6:price, 7:hash, 8:created, 9:txn, 10:side
         for ev in ev_list:
-             dt_obj = ev[2] # datetime
-             date_str = dt_obj.strftime("%Y-%m-%d")
-             ts = int(dt_obj.replace(tzinfo=None).timestamp()) 
-             # Note: timezone handling might be needed. Data is likely JST/UTC naive.
-             # In `main.py`, `daily_bars` dates are unix timestamps.
-             # I should align with that. 
-             # `daily_bars` uses `date` column (integer YYYYMMDD? No, checking schema).
-             # Schema: `date INTEGER`. Usually YYYYMMDD or Unix?
-             # `ingest_txt.py`: `daily["date"] = (daily["date"].astype("int64") // 1_000_000_000)` -> Unix Secs.
-             # So I need Unix Secs for `time`.
-             
-             qty = float(ev[5] or 0)
-             action = ev[4]
-             
-             if action in ("SPOT_BUY", "SPOT_IN"): spot += qty
-             elif action == "SPOT_SELL": spot -= qty
-             elif action == "SPOT_OUT": spot -= qty
-             elif action == "MARGIN_OPEN_LONG": margin_long += qty
-             elif action == "MARGIN_CLOSE_LONG": margin_long -= qty
-             elif action == "MARGIN_OPEN_SHORT": margin_short += qty
-             elif action == "MARGIN_CLOSE_SHORT": margin_short -= qty
-             elif action == "DELIVERY_SHORT": spot -= qty; margin_short -= qty
-             elif action == "MARGIN_SWAP_TO_SPOT": margin_long -= qty; spot += qty
-             
-             # Append current state
-             # Check if we already have an entry for this day? 
-             # If multiple trades on same day, we update the last one or append?
-             # Frontend uses `filter`, so it handles multiple. But Chart usually wants one.
-             # We'll just append.
-             
-             daily_list.append({
-                 "time": ts,
-                 "date": date_str,
-                 "longLots": spot + margin_long,
-                 "shortLots": margin_short,
-                 "spotLots": spot,
-                 "marginLongLots": margin_long,
-                 "marginShortLots": margin_short
-             })
-             
+            dt_obj = ev[2]
+            date_str = dt_obj.strftime("%Y-%m-%d")
+            ts = int(dt_obj.replace(tzinfo=None).timestamp())
+            qty = float(ev[5] or 0)
+            action = ev[4]
+
+            if action in ("SPOT_BUY", "SPOT_IN"):
+                spot += qty
+            elif action == "SPOT_SELL":
+                spot -= qty
+            elif action == "SPOT_OUT":
+                spot -= qty
+            elif action == "MARGIN_OPEN_LONG":
+                margin_long += qty
+            elif action == "MARGIN_CLOSE_LONG":
+                margin_long -= qty
+            elif action == "MARGIN_OPEN_SHORT":
+                margin_short += qty
+            elif action == "MARGIN_CLOSE_SHORT":
+                margin_short -= qty
+            elif action == "DELIVERY_SHORT":
+                spot -= qty
+                margin_short -= qty
+            elif action == "MARGIN_SWAP_TO_SPOT":
+                margin_long -= qty
+                spot += qty
+
+            daily_list.append(
+                {
+                    "time": ts,
+                    "date": date_str,
+                    "longLots": spot + margin_long,
+                    "shortLots": margin_short,
+                    "spotLots": spot,
+                    "marginLongLots": margin_long,
+                    "marginShortLots": margin_short,
+                }
+            )
+
         result[code] = daily_list
-        
+
     return result
+
+
+def _get_daily_positions_db(target_codes: list[str] | None = None) -> dict[str, list[dict]]:
+    # Reconstruct daily positions from DB events
+    with get_conn() as conn:
+        events = get_events(conn, target_codes)
+    return _build_daily_positions_from_db_events(events)
     grouped: dict[str, list[dict]] = {}
     for trade in trades:
         date = trade.get("date")

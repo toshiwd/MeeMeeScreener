@@ -59,6 +59,14 @@ def _health_payload(
     return payload
 
 
+def _resolved_runtime_extra() -> dict:
+    return {
+        "resolved_data_dir": str(DATA_DIR),
+        "resolved_stocks_db_path": str(config.DB_PATH),
+        "resolved_favorites_db_path": str(config.FAVORITES_DB_PATH),
+    }
+
+
 @router.get("/health")
 def health_check():
     # Liveness endpoint for process-level checks.
@@ -70,7 +78,7 @@ def health_check():
         message="alive",
         errors=[],
         retry_after_ms=None,
-        extra={"last_updated": _get_last_updated_timestamp()},
+        extra={"last_updated": _get_last_updated_timestamp(), **_resolved_runtime_extra()},
     )
 
 
@@ -85,6 +93,7 @@ def health_live():
         message="alive",
         errors=[],
         retry_after_ms=None,
+        extra=_resolved_runtime_extra(),
     )
 
 
@@ -125,6 +134,7 @@ def health():
             "txt_count": None,
             "last_updated": None,
             "code_txt_missing": None,
+            **_resolved_runtime_extra(),
         },
     )
     if ready:
@@ -169,6 +179,7 @@ def health_deep():
             "pan_out_txt_dir": resolve_pan_out_txt_dir(),
             "last_updated": txt_status.get("last_updated"),
             "code_txt_missing": txt_status.get("code_txt_missing"),
+            **_resolved_runtime_extra(),
         },
     )
     if backend_ready:
@@ -187,7 +198,7 @@ def diagnostics():
         "version": APP_VERSION,
         "env": APP_ENV,
         "time": _utc_now_iso(),
-        "data_dir": DATA_DIR,
+        "data_dir": str(DATA_DIR),
         "pan_out_txt_dir": resolve_pan_out_txt_dir(),
         "db_path": db_path,
         "db_exists": os.path.isfile(db_path),
@@ -196,4 +207,5 @@ def diagnostics():
         "stats": stats,
         "db_retryable": bool(stats.get("db_retryable")),
         "db_connect_stats": stats.get("db_connect_stats"),
+        **_resolved_runtime_extra(),
     }

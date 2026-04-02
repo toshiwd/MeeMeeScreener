@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AxiosError } from "axios";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
@@ -168,14 +168,32 @@ type StoredRankViewState = {
 };
 type RankingFetchCacheEntry = {
   cacheVersion: number;
+  tf: RankTimeframe;
   items: RankItem[];
   errorMessage: string | null;
   useFallback: boolean;
 };
 
+type TradeDirectionSummary = {
+  dominant_direction: "up" | "down" | "wait";
+  difference_score: number;
+  buy: {
+    count: number;
+    avg_trade_priority_score: number | null;
+    avg_profit_expectancy: number | null;
+    avg_hit_score: number | null;
+  };
+  sell: {
+    count: number;
+    avg_trade_priority_score: number | null;
+    avg_profit_expectancy: number | null;
+    avg_hit_score: number | null;
+  };
+};
+
 const RANK_VIEW_STATE_KEY = "rankingViewState";
 const RANK_VIEW_STATE_VERSION = 6;
-const RANK_FETCH_CACHE_VERSION = 1;
+const RANK_FETCH_CACHE_VERSION = 2;
 const RANK_FETCH_CACHE_PREFIX = "rankingFetchCache";
 const RANK_LIMIT = 50;
 const RANK_FETCH_TIMEOUT_MS = 60000;
@@ -277,11 +295,18 @@ const readStoredRankViewState = (): StoredRankViewState | null => {
 };
 
 const buildRankingFetchCacheKey = (params: {
+  tf: RankTimeframe;
   which: RankWhich;
   dir: "up" | "down";
   mode: RankMode;
   riskMode: RankRiskMode;
-}) => `${RANK_FETCH_CACHE_PREFIX}:${params.which}:${params.dir}:${params.mode}:${params.riskMode}:${RANK_LIMIT}`;
+}) => `${RANK_FETCH_CACHE_PREFIX}:${params.tf}:${params.which}:${params.dir}:${params.mode}:${params.riskMode}:${RANK_LIMIT}`;
+
+const resolveRankFetchTimeframe = (value: "daily" | "weekly" | "monthly"): RankTimeframe => {
+  if (value === "weekly") return "W";
+  if (value === "monthly") return "M";
+  return "D";
+};
 
 const readRankingFetchCache = (cacheKey: string): RankingFetchCacheEntry | null => {
   const cached = rankingFetchMemoryCache.get(cacheKey);
@@ -296,6 +321,7 @@ const readRankingFetchCache = (cacheKey: string): RankingFetchCacheEntry | null 
     }
     const entry: RankingFetchCacheEntry = {
       cacheVersion: RANK_FETCH_CACHE_VERSION,
+      tf: parsed.tf === "W" || parsed.tf === "M" ? parsed.tf : "D",
       items: parsed.items as RankItem[],
       errorMessage: typeof parsed.errorMessage === "string" ? parsed.errorMessage : null,
       useFallback: parsed.useFallback
@@ -586,16 +612,17 @@ export default function RankingView() {
   const rankWhich: RankWhich = "latest";
   const rankMode: RankMode = "trade";
   const riskMode: RankRiskMode = "balanced";
+  const rankingTf = useMemo(() => resolveRankFetchTimeframe(listTimeframe), [listTimeframe]);
   const storedViewState = useMemo(() => readStoredRankViewState(), []);
   const initialDir: "up" | "down" = storedViewState?.dir === "down" ? "down" : "up";
   const initialFetchCache = useMemo(
     () => {
       const cached = readRankingFetchCache(
-        buildRankingFetchCacheKey({ which: rankWhich, dir: initialDir, mode: rankMode, riskMode })
+        buildRankingFetchCacheKey({ tf: rankingTf, which: rankWhich, dir: initialDir, mode: rankMode, riskMode })
       );
       return isUsableRankingFetchCache(cached) ? cached : null;
     },
-    [initialDir, rankMode, rankWhich, riskMode]
+    [initialDir, rankMode, rankWhich, riskMode, rankingTf]
   );
 
   const [dir, setDir] = useState<"up" | "down">(initialDir);
@@ -610,6 +637,7 @@ export default function RankingView() {
   const mtfStrictness: MtfStrictness = "auto";
   const [loading, setLoading] = useState(() => initialFetchCache == null);
   const [errorMessage, setErrorMessage] = useState<string | null>(() => initialFetchCache?.errorMessage ?? null);
+  const [tradeSummary, setTradeSummary] = useState<TradeDirectionSummary | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
@@ -840,6 +868,7 @@ export default function RankingView() {
   }, [baseFilteredItems, filterQualifiedOnly, useFallback]);
 
   const qualificationFilterRelaxed = useMemo(() => {
+    if (rankMode === "trade") return false;
     if (!filterQualifiedOnly || useFallback) return false;
     const hasQualificationSignal = baseFilteredItems.some(
       (item) =>
@@ -848,7 +877,7 @@ export default function RankingView() {
     );
     if (!hasQualificationSignal) return false;
     return baseFilteredItems.length > 0 && qualifiedFilteredItems.length === 0;
-  }, [baseFilteredItems, qualifiedFilteredItems, filterQualifiedOnly, useFallback]);
+  }, [baseFilteredItems, qualifiedFilteredItems, filterQualifiedOnly, rankMode, useFallback]);
 
   const filteredItems = useMemo(() => {
     if (qualificationFilterRelaxed) return baseFilteredItems;
@@ -897,14 +926,16 @@ export default function RankingView() {
     [mtfStrictGate, mtfStrictRule]
   );
   const mtfStrictFilteredItems = useMemo(() => {
+    if (rankMode === "trade") return filteredItems;
     if (!filterMtfStrictOnly || useFallback) return filteredItems;
     return filteredItems.filter((item) => matchesMtfStrictRule(item, mtfStrictRule.minQualified, mtfStrictGateApplied));
-  }, [filterMtfStrictOnly, useFallback, filteredItems, mtfStrictRule, mtfStrictGateApplied]);
+  }, [filterMtfStrictOnly, useFallback, filteredItems, mtfStrictRule, mtfStrictGateApplied, rankMode]);
 
   const mtfStrictFilterRelaxed = useMemo(() => {
+    if (rankMode === "trade") return false;
     if (!filterMtfStrictOnly || useFallback) return false;
     return filteredItems.length > 0 && mtfStrictFilteredItems.length === 0;
-  }, [filterMtfStrictOnly, useFallback, filteredItems, mtfStrictFilteredItems]);
+  }, [filterMtfStrictOnly, useFallback, filteredItems, mtfStrictFilteredItems, rankMode]);
 
   const effectiveItems = useMemo(() => {
     const base = mtfStrictFilterRelaxed ? filteredItems : mtfStrictFilteredItems;
@@ -941,12 +972,13 @@ export default function RankingView() {
   const rankingCacheKey = useMemo(
     () =>
       buildRankingFetchCacheKey({
+        tf: rankingTf,
         which: rankWhich,
         dir,
         mode: rankMode,
         riskMode
       }),
-    [dir, rankMode, rankWhich, riskMode]
+    [dir, rankMode, rankWhich, riskMode, rankingTf]
   );
 
   useEffect(() => {
@@ -1057,47 +1089,67 @@ export default function RankingView() {
     setUseFallback(false);
     (async () => {
       try {
-        const res = await api.get("/rankings/multi", {
-          params: { which: rankWhich, dir, mode: rankMode, risk_mode: riskMode, limit: RANK_LIMIT },
+        const endpoint = rankMode === "trade" ? "/rankings" : "/rankings/multi";
+        const params =
+          rankMode === "trade"
+            ? { tf: rankingTf, which: rankWhich, dir, mode: rankMode, risk_mode: riskMode, limit: RANK_LIMIT }
+            : { which: rankWhich, dir, mode: rankMode, risk_mode: riskMode, limit: RANK_LIMIT };
+        const res = await api.get(endpoint, {
+          params,
           timeout: RANK_FETCH_TIMEOUT_MS
         });
         if (cancelled) return;
         const payload = (res.data ?? {}) as {
           itemsByTf?: Partial<Record<RankTimeframe, RankItem[]>>;
+          items?: RankItem[];
           errors?: string[];
         };
-        const itemsByTf = payload.itemsByTf ?? {};
-        const dailyItems = Array.isArray(itemsByTf.D) ? itemsByTf.D : [];
-        const weeklyItems = Array.isArray(itemsByTf.W) ? itemsByTf.W : [];
-        const monthlyItems = Array.isArray(itemsByTf.M) ? itemsByTf.M : [];
         const backendErrors = formatRankingBackendErrors(payload.errors);
-        if (!dailyItems.length && !weeklyItems.length && !monthlyItems.length) {
-          throw new Error(backendErrors ?? "ランキング計算結果が空でした。");
-        }
-        const merged = mergeMultiTimeframeRankings(
-          {
-            D: dailyItems,
-            W: weeklyItems,
-            M: monthlyItems
-          },
-          { dir, limit: RANK_LIMIT }
-        );
-        if (!merged.length) {
-          throw new Error(backendErrors ?? "統合ランキングの生成結果が空でした。");
-        }
-        setItems(syncFavoriteFlags(merged));
+        const nextItems =
+          rankMode === "trade"
+            ? (Array.isArray(payload.items) ? payload.items : [])
+            : (() => {
+                const itemsByTf = payload.itemsByTf ?? {};
+                const dailyItems = Array.isArray(itemsByTf.D) ? itemsByTf.D : [];
+                const weeklyItems = Array.isArray(itemsByTf.W) ? itemsByTf.W : [];
+                const monthlyItems = Array.isArray(itemsByTf.M) ? itemsByTf.M : [];
+                if (!dailyItems.length && !weeklyItems.length && !monthlyItems.length) {
+                  throw new Error(backendErrors ?? "ランキング計算結果が空でした。");
+                }
+                const merged = mergeMultiTimeframeRankings(
+                  {
+                    D: dailyItems,
+                    W: weeklyItems,
+                    M: monthlyItems
+                  },
+                  { dir, limit: RANK_LIMIT }
+                );
+                if (!merged.length) {
+                  throw new Error(backendErrors ?? "統合ランキングの生成結果が空でした。");
+                }
+                return merged;
+              })();
+        setItems(syncFavoriteFlags(nextItems));
         setUseFallback(false);
         setErrorMessage(backendErrors);
         writeRankingFetchCache(rankingCacheKey, {
           cacheVersion: RANK_FETCH_CACHE_VERSION,
-          items: syncFavoriteFlags(merged),
+          tf: rankingTf,
+          items: syncFavoriteFlags(nextItems),
           errorMessage: backendErrors,
           useFallback: false
         });
       } catch (error) {
         if (cancelled) return;
-        setUseFallback(true);
-        setErrorMessage(buildRankingFallbackMessage(extractRankingFailureReason(error)));
+        if (rankMode === "trade") {
+          setItems([]);
+          setUseFallback(false);
+          setErrorMessage(extractRankingFailureReason(error) ?? "厳選ランキングの取得に失敗しました。");
+          clearRankingFetchCache(rankingCacheKey);
+        } else {
+          setUseFallback(true);
+          setErrorMessage(buildRankingFallbackMessage(extractRankingFailureReason(error)));
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1105,13 +1157,38 @@ export default function RankingView() {
     return () => {
       cancelled = true;
     };
-  }, [backendReady, dir, rankWhich, rankMode, rankingCacheKey, riskMode, syncFavoriteFlags]);
+  }, [backendReady, dir, rankWhich, rankMode, rankingCacheKey, riskMode, syncFavoriteFlags, rankingTf]);
 
   useEffect(() => {
+    if (!backendReady || rankMode !== "trade") {
+      setTradeSummary(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get("/rankings/trade-summary", {
+          params: { tf: rankingTf, which: rankWhich, risk_mode: riskMode, limit: RANK_LIMIT, top_n: 5 },
+          timeout: RANK_FETCH_TIMEOUT_MS,
+        });
+        if (!cancelled) {
+          setTradeSummary((res.data ?? null) as TradeDirectionSummary | null);
+        }
+      } catch {
+        if (!cancelled) setTradeSummary(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [backendReady, rankMode, rankWhich, riskMode, rankingTf]);
+
+  useEffect(() => {
+    if (rankMode === "trade") return;
     if (!useFallback) return;
     setItems(syncFavoriteFlags(fallbackItems));
     clearRankingFetchCache(rankingCacheKey);
-  }, [fallbackItems, rankingCacheKey, syncFavoriteFlags, useFallback]);
+  }, [fallbackItems, rankingCacheKey, syncFavoriteFlags, useFallback, rankMode]);
 
   useEffect(() => {
     setItems((current) => syncFavoriteFlags(current));
@@ -1344,13 +1421,21 @@ export default function RankingView() {
         filterQualifiedOnly ||
         filterMtfStrictOnly
         ? "該当する銘柄がありません。"
-        : "ランキングがありません。"
+        : rankMode === "trade"
+          ? "厳選条件に合う銘柄がありません。"
+          : "ランキングがありません。"
       : null;
   const isSingleDensity = columns === 1 && rows === 1;
   const formatPct = (value?: number | null) => {
     if (!Number.isFinite(value ?? NaN)) return "--";
     return `${((value ?? 0) * 100).toFixed(2)}%`;
   };
+  const tradeDirectionLabel =
+    tradeSummary?.dominant_direction === "up"
+      ? "買い優位"
+      : tradeSummary?.dominant_direction === "down"
+        ? "売り優位"
+        : "見送り";
   return (
     <div className="app-shell list-view">
       <UnifiedListHeader
@@ -1414,6 +1499,35 @@ export default function RankingView() {
               統合厳選(合意{mtfStrictRule.minQualified}/3+ または 勝ちやすさ{(mtfStrictGateApplied * 100).toFixed(1)}%以上)で0件のため、候補を自動緩和しています。
             </div>
           )}
+        </div>
+      )}
+      {rankMode === "trade" && tradeSummary && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "8px",
+            alignItems: "center",
+            padding: "8px 16px",
+            borderBottom: "1px solid var(--theme-border)",
+            background: "var(--theme-bg-secondary)"
+          }}
+        >
+          <div className="rank-top-summary">
+            今日の優位性 {tradeDirectionLabel} / 差 {formatPct(tradeSummary.difference_score ?? null)}
+          </div>
+          <div className="rank-top-summary">
+            買い {tradeSummary.buy?.count ?? 0}件 / 平均期待 {formatPct(tradeSummary.buy?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.buy?.avg_hit_score ?? null)}
+          </div>
+          <div className="rank-top-summary">
+            売り {tradeSummary.sell?.count ?? 0}件 / 平均期待 {formatPct(tradeSummary.sell?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.sell?.avg_hit_score ?? null)}
+          </div>
+          <Link
+            className="rank-top-tracking-link"
+            to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest`}
+          >
+            判定追跡を開く
+          </Link>
         </div>
       )}
       <div
@@ -1519,6 +1633,13 @@ export default function RankingView() {
                           researchPriorBonus={item.researchPriorBonus}
                           formatPct={formatPct}
                         />
+                        <Link
+                          className="rank-tracking-link"
+                          to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest&q=${encodeURIComponent(item.code)}`}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          追跡
+                        </Link>
                         <button
                           type="button"
                           className={item.is_favorite ? "favorite-toggle active" : "favorite-toggle"}

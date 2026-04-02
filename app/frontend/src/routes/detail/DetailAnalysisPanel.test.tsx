@@ -87,6 +87,8 @@ const baseProps = {
   swingSetupExpectancy: null,
   analysisMissingDataVisible: true,
   decisionHistory: [],
+  individualResult: null,
+  qualificationTrace: null,
   formatPercentLabel: fmtPercent,
   formatNumber: fmtNumber,
   formatSignedPercentLabel: fmtSignedPercent,
@@ -168,5 +170,44 @@ describe("DetailAnalysisPanel", () => {
     expect(markup).toContain("適合度 80%");
     expect(markup).toContain("採用理由 120MA上 / 陽線引け");
     expect(markup).toContain("反発初動狙い");
+  });
+  it("shows individual ranking result details when available", () => {
+    const markup = renderToStaticMarkup(
+      <DetailAnalysisPanel
+        {...baseProps}
+        canShowAnalysis={true}
+        analysisSummaryLoading={false}
+        qualificationTrace={{
+          todayState: "sell",
+          lastBuyDateIso: "2026-03-03",
+          lastSellDateIso: "2026-03-31",
+        }}
+        individualResult={{
+          setupType: "breakout",
+          monthlyBoxState: "box_upper",
+          tradePriorityScore: 0.712,
+          entryPriorityScore: 0.664,
+          hybridScore: 0.551,
+          entryQualified: true,
+          entryQualifiedByFallback: false,
+          researchPatternTag: "upper_rejection_short",
+          tradeDecisionReasons: ["月足ボックス上限", "週足上放れ優位"],
+          tradeRiskWatch: ["地合いが弱く買いは厳選"],
+          researchDecisionReasons: ["上限付近", "否定陰線"],
+          researchRiskWatch: ["週足が強いと失敗しやすい"],
+        }}
+      />
+    );
+
+    expect(markup).toContain("個別結果");
+    expect(markup).toContain("厳選通過 通過");
+    expect(markup).toContain("セットアップ breakout");
+    expect(markup).toContain("月足ボックス box_upper");
+    expect(markup).toContain("tradePriorityScore 0.712");
+    expect(markup).toContain("2026-03-03");
+    expect(markup).toContain("2026-03-31");
+    expect(markup).toContain("研究タグ upper_rejection_short");
+    expect(markup).toContain("判定理由 月足ボックス上限 / 週足上放れ優位");
+    expect(markup).toContain("注意点 地合いが弱く買いは厳選");
   });
 });
