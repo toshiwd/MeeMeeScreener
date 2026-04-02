@@ -38,13 +38,11 @@ def _db_retryable_response(*, error_detail: str | None = None) -> JSONResponse:
 @router.get("/api/trades/{code}")
 def trades_by_code(code: str):
     try:
-        daily_positions = position_calc._get_daily_positions_db([code])
-        daily_for_code = daily_positions.get(code, [])
-
         with try_get_conn(timeout_sec=0.4) as conn:
             if conn is None:
                 return _db_retryable_response()
             db_events = trade_events.get_events(conn, [code])
+            daily_for_code = position_calc._build_daily_positions_from_db_events(db_events).get(code, [])
 
             row = conn.execute(
                 "SELECT spot_qty, margin_long_qty, margin_short_qty, buy_qty, sell_qty, has_issue, issue_note FROM positions_live WHERE symbol = ?",
@@ -98,12 +96,12 @@ def trades_by_code(code: str):
 def trades(code: str | None = None):
     try:
         code_list = [code] if code else None
-        daily_positions_map = position_calc._get_daily_positions_db(code_list)
 
         with try_get_conn(timeout_sec=0.4) as conn:
             if conn is None:
                 return _db_retryable_response()
             db_events = trade_events.get_events(conn, code_list)
+            daily_positions_map = position_calc._build_daily_positions_from_db_events(db_events)
 
         events_payload = []
         for ev in db_events:

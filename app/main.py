@@ -190,6 +190,8 @@ from app.backend.api.routers import (
     market,
     memo,
     quality,
+    ranking_history,
+    signal_tracking,
     tradex,
     toredex,
 )
@@ -220,6 +222,16 @@ from app.backend.core.edinet_auto_start_job import (
 from app.backend.core.edinet_official_backfill_job import (
     EDINET_OFFICIAL_BACKFILL_JOB_TYPE,
     handle_edinet_official_backfill,
+)
+from app.backend.core.signal_tracking_job import (
+    RANKING_APPEARANCE_REBUILD_JOB_TYPE,
+    SIGNAL_TRACKING_BASIS_BACKFILL_JOB_TYPE,
+    SIGNAL_TRACKING_CAMPAIGN_REBUILD_JOB_TYPE,
+    SIGNAL_TRACKING_DECISION_REBUILD_JOB_TYPE,
+    handle_ranking_appearance_rebuild,
+    handle_signal_tracking_basis_backfill,
+    handle_signal_tracking_campaign_rebuild,
+    handle_signal_tracking_decision_rebuild,
 )
 from app.backend.core.screener_snapshot_job import (
     SCREENER_SNAPSHOT_JOB_TYPE,
@@ -300,6 +312,10 @@ job_manager.register_handler(TDNET_IMPORT_JOB_TYPE, handle_tdnet_import)
 job_manager.register_handler("toredex_live", handle_toredex_live)
 job_manager.register_handler("toredex_self_improve", handle_toredex_self_improve)
 job_manager.register_handler(SCREENER_SNAPSHOT_JOB_TYPE, handle_screener_snapshot_refresh)
+job_manager.register_handler(SIGNAL_TRACKING_BASIS_BACKFILL_JOB_TYPE, handle_signal_tracking_basis_backfill)
+job_manager.register_handler(SIGNAL_TRACKING_DECISION_REBUILD_JOB_TYPE, handle_signal_tracking_decision_rebuild)
+job_manager.register_handler(SIGNAL_TRACKING_CAMPAIGN_REBUILD_JOB_TYPE, handle_signal_tracking_campaign_rebuild)
+job_manager.register_handler(RANKING_APPEARANCE_REBUILD_JOB_TYPE, handle_ranking_appearance_rebuild)
 job_manager.register_handler(EDINETDB_DAILY_WATCH_JOB_TYPE, handle_edinetdb_daily_watch)
 job_manager.register_handler(EDINETDB_BACKFILL_700_JOB_TYPE, handle_edinetdb_backfill_700)
 job_manager.register_handler(EDINET_OFFICIAL_BACKFILL_JOB_TYPE, handle_edinet_official_backfill)
@@ -526,6 +542,8 @@ def create_app() -> FastAPI:
     app.include_router(market.router)
     app.include_router(memo.router)
     app.include_router(quality.router)
+    app.include_router(signal_tracking.router)
+    app.include_router(ranking_history.router)
     app.include_router(tradex.router)
     app.include_router(toredex.router)
     app.include_router(rankings.router)

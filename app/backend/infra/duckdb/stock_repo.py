@@ -151,11 +151,25 @@ class StockRepository:
             return preferred[-limit:]
         return preferred
 
+    def _finalize_monthly_rows(
+        self,
+        monthly_rows: List[Tuple],
+        recent_daily_rows: List[Tuple],
+        *,
+        limit: int,
+    ) -> List[Tuple]:
+        trimmed_monthly = trim_to_latest_continuous_segment(monthly_rows)
+        if recent_daily_rows and should_replace_monthly_with_daily(recent_daily_rows, trimmed_monthly):
+            return build_monthly_rows_from_daily(recent_daily_rows, limit=limit)
+        rows = merge_monthly_rows_with_daily(trimmed_monthly, recent_daily_rows)
+        return apply_split_gap_adjustment(rows)
+
     def get_monthly_bars(
         self,
         code: str,
         limit: int = 120,
-        asof_dt: int | None = None
+        asof_dt: int | None = None,
+        recent_daily_rows: List[Tuple] | None = None,
     ) -> List[Tuple]:
         query = """
             SELECT month, o, h, l, c, v
@@ -210,17 +224,19 @@ class StockRepository:
                     fallback_params,
                 ).fetchall()
         rows = sorted(rows, key=lambda x: x[0])
-        rows = trim_to_latest_continuous_segment(rows)
-        recent_daily_rows = self.get_daily_bars(code, limit=max(limit * 25, 260), asof_dt=asof_dt)
-        if should_replace_monthly_with_daily(recent_daily_rows, rows):
-            rows = build_monthly_rows_from_daily(recent_daily_rows, limit=limit)
-        return rows
+        recent_daily = (
+            recent_daily_rows
+            if recent_daily_rows is not None
+            else self.get_daily_bars(code, limit=max(limit * 25, 260), asof_dt=asof_dt)
+        )
+        return self._finalize_monthly_rows(rows, recent_daily, limit=limit)
 
     def get_monthly_bars_batch(
         self,
         codes: List[str],
         limit: int = 120,
         asof_dt: int | None = None,
+        recent_daily_rows_by_code: Dict[str, List[Tuple]] | None = None,
     ) -> Dict[str, List[Tuple]]:
         unique_codes = [code for code in dict.fromkeys(str(code).strip() for code in codes) if code]
         if not unique_codes:
@@ -315,14 +331,16 @@ class StockRepository:
             for row in fallback_rows:
                 code = str(row[0])
                 grouped.setdefault(code, []).append(tuple(row[1:]))
-        recent_daily_rows_by_code = self.get_daily_bars_batch(unique_codes, limit=max(limit * 25, 260), asof_dt=asof_dt)
+
+        if recent_daily_rows_by_code is None:
+            recent_daily_rows_by_code = self.get_daily_bars_batch(
+                unique_codes,
+                limit=max(limit * 25, 260),
+                asof_dt=asof_dt,
+            )
         for code, code_rows in list(grouped.items()):
-            trimmed_monthly = trim_to_latest_continuous_segment(code_rows)
             recent_daily = recent_daily_rows_by_code.get(code, [])
-            if should_replace_monthly_with_daily(recent_daily, trimmed_monthly):
-                grouped[code] = build_monthly_rows_from_daily(recent_daily, limit=limit)
-            else:
-                grouped[code] = trimmed_monthly
+            grouped[code] = self._finalize_monthly_rows(code_rows, recent_daily, limit=limit)
         return grouped
 
     def get_latest_params_for_screening(self, codes: Optional[List[str]] = None) -> List[Tuple]:

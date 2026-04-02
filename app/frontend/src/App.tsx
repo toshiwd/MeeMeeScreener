@@ -1,5 +1,5 @@
 import { Suspense, lazy, useLayoutEffect } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { BackendReadyProvider } from "./backendReady";
 import { AiExplainProvider } from "./features/aiExplain/AiExplainProvider";
 import { applyTheme, getStoredTheme } from "./utils/theme";
@@ -10,6 +10,7 @@ const FavoritesView = lazy(() => import("./routes/FavoritesView"));
 const CandidatesView = lazy(() => import("./routes/CandidatesView"));
 const PositionsView = lazy(() => import("./routes/PositionsView"));
 const MarketView = lazy(() => import("./routes/MarketView"));
+const TrackingView = lazy(() => import("./routes/TrackingView"));
 const DetailView = lazy(() => import("./routes/DetailView"));
 const PracticeView = lazy(() => import("./routes/PracticeView"));
 
@@ -30,6 +31,8 @@ export default function App() {
             <Route path="/candidates" element={<CandidatesView />} />
             <Route path="/positions" element={<PositionsView />} />
             <Route path="/market" element={<MarketView />} />
+            <Route path="/ranking/tracking" element={<TrackingView />} />
+            <Route path="/tracking" element={<Navigate to="/ranking/tracking" replace />} />
             <Route path="/detail/:code" element={<DetailView />} />
             <Route path="/practice/:code" element={<PracticeView />} />
           </Routes>

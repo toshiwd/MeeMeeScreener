@@ -119,6 +119,62 @@ def get_rankings_last_qualified_trace(
     )
 
 
+@router.get("/rankings/trade-summary")
+def get_rankings_trade_summary(
+    tf: str = Query("D"),
+    which: str = Query("latest"),
+    risk_mode: str = Query("balanced"),
+    limit: int = Query(50, ge=1, le=200),
+    top_n: int = Query(5, ge=1, le=20),
+):
+    tf = tf.upper()
+    risk_mode = risk_mode.lower()
+    if tf not in ("D", "W", "M"):
+        raise HTTPException(status_code=400, detail="tf must be D/W/M")
+    if which not in ("latest", "prev"):
+        raise HTTPException(status_code=400, detail="which must be latest/prev")
+    if risk_mode not in ("defensive", "balanced", "aggressive"):
+        raise HTTPException(status_code=400, detail="risk_mode must be defensive/balanced/aggressive")
+    return rankings_cache.get_trade_direction_summary(
+        tf,
+        which,
+        limit,
+        risk_mode=risk_mode,
+        top_n=top_n,
+    )
+
+
+@router.get("/rankings/trace/code-qualified")
+def get_rankings_code_qualified_trace(
+    code: str = Query(..., min_length=1),
+    tf: str = Query("D"),
+    which: str = Query("latest"),
+    risk_mode: str = Query("balanced"),
+    lookback_days: int = Query(120, ge=20, le=1200),
+    recent_hits: int = Query(5, ge=1, le=50),
+    as_of: str | None = Query(None),
+    limit: int = Query(200, ge=1, le=200),
+):
+    tf = tf.upper()
+    risk_mode = risk_mode.lower()
+    if tf not in ("D", "W", "M"):
+        raise HTTPException(status_code=400, detail="tf must be D/W/M")
+    if which not in ("latest", "prev"):
+        raise HTTPException(status_code=400, detail="which must be latest/prev")
+    if risk_mode not in ("defensive", "balanced", "aggressive"):
+        raise HTTPException(status_code=400, detail="risk_mode must be defensive/balanced/aggressive")
+    return rankings_cache.get_trade_code_qualification_summary(
+        tf,
+        which,
+        code,
+        risk_mode=risk_mode,
+        lookback_days=lookback_days,
+        recent_hits=recent_hits,
+        as_of=as_of,
+        limit=limit,
+    )
+
+
 @router.get("/rankings/edinet/monitor")
 def get_rankings_edinet_monitor(
     lookback_days: int = Query(365, ge=30, le=2000),

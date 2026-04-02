@@ -349,6 +349,286 @@ def _init_duckdb_schema(conn: duckdb.DuckDBPyConnection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS signal_logic_registry (
+            logic_version TEXT PRIMARY KEY,
+            basis_version TEXT,
+            label TEXT,
+            source_hash TEXT,
+            is_active BOOLEAN DEFAULT FALSE,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS signal_basis_daily (
+            dt INTEGER,
+            code TEXT,
+            basis_version TEXT,
+            name TEXT,
+            source_rank_buy INTEGER,
+            source_rank_sell INTEGER,
+            source_as_of INTEGER,
+            pred_dt INTEGER,
+            model_version TEXT,
+            basis_source TEXT,
+            source_hash TEXT,
+            payload_schema_version TEXT,
+            basis_payload_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(dt, code, basis_version)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS signal_decision_daily (
+            dt INTEGER,
+            code TEXT,
+            side TEXT,
+            logic_version TEXT,
+            basis_version TEXT,
+            name TEXT,
+            entry_qualified BOOLEAN,
+            setup_type TEXT,
+            reason_snapshot_json TEXT,
+            score_snapshot_json TEXT,
+            rank_snapshot_json TEXT,
+            decision_hash TEXT,
+            forward_return_5 DOUBLE,
+            forward_return_10 DOUBLE,
+            forward_return_20 DOUBLE,
+            forward_return_30 DOUBLE,
+            forward_return_60 DOUBLE,
+            max_favorable_30 DOUBLE,
+            max_adverse_30 DOUBLE,
+            days_to_max_favorable_30 INTEGER,
+            days_to_max_adverse_30 INTEGER,
+            date_of_max_favorable_30 INTEGER,
+            date_of_max_adverse_30 INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(dt, code, side, logic_version)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS signal_occurrence (
+            occurrence_id TEXT PRIMARY KEY,
+            campaign_id TEXT,
+            code TEXT,
+            side TEXT,
+            signal_date INTEGER,
+            basis_version TEXT,
+            logic_version TEXT,
+            reason_snapshot_json TEXT,
+            score_snapshot_json TEXT,
+            entry_close_price DOUBLE,
+            entry_next_open_price DOUBLE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS signal_campaign (
+            campaign_id TEXT PRIMARY KEY,
+            code TEXT,
+            side TEXT,
+            basis_version TEXT,
+            logic_version TEXT,
+            name TEXT,
+            first_signal_date INTEGER,
+            latest_signal_date INTEGER,
+            watch_horizon_bars INTEGER,
+            elapsed_bars INTEGER,
+            remaining_bars INTEGER,
+            status TEXT,
+            anchor_price_close DOUBLE,
+            anchor_price_next_open DOUBLE,
+            last_price DOUBLE,
+            favorable_return_close_basis DOUBLE,
+            favorable_return_exec_basis DOUBLE,
+            max_favorable_return DOUBLE,
+            max_adverse_return DOUBLE,
+            days_to_max_favorable_30 INTEGER,
+            days_to_max_adverse_30 INTEGER,
+            date_of_max_favorable_30 INTEGER,
+            date_of_max_adverse_30 INTEGER,
+            final_return_at_horizon DOUBLE,
+            signal_count INTEGER,
+            logic_version_first TEXT,
+            first_reason_snapshot_json TEXT,
+            latest_reason_snapshot_json TEXT,
+            completed_at TIMESTAMP,
+            archived_at TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ranking_logic_registry (
+            ranking_logic_version TEXT PRIMARY KEY,
+            basis_version TEXT,
+            label TEXT,
+            contract_json TEXT,
+            source_hash TEXT,
+            is_active BOOLEAN DEFAULT FALSE,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ranking_appearance_daily (
+            appearance_id TEXT PRIMARY KEY,
+            dt INTEGER,
+            dir TEXT,
+            rank INTEGER,
+            code TEXT,
+            ranking_logic_version TEXT,
+            signal_logic_version TEXT,
+            basis_version TEXT,
+            name TEXT,
+            display_score DOUBLE,
+            signal_state_at_appearance TEXT,
+            entry_qualified_at_appearance BOOLEAN,
+            setup_type_at_appearance TEXT,
+            anchor_price_close DOUBLE,
+            anchor_price_next_open DOUBLE,
+            current_directional_return DOUBLE,
+            return_30d DOUBLE,
+            max_favorable_30 DOUBLE,
+            max_adverse_30 DOUBLE,
+            days_to_max_favorable_30 INTEGER,
+            days_to_max_adverse_30 INTEGER,
+            date_of_max_favorable_30 INTEGER,
+            date_of_max_adverse_30 INTEGER,
+            status TEXT,
+            break_status TEXT,
+            first_break_date INTEGER,
+            break_reason TEXT,
+            completed_at TIMESTAMP,
+            archived_at TIMESTAMP,
+            payload_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    _try_alter_table(conn, "ALTER TABLE signal_occurrence ADD COLUMN basis_version TEXT")
+    _try_alter_table(conn, "ALTER TABLE signal_campaign ADD COLUMN basis_version TEXT")
+    _try_alter_table(conn, "ALTER TABLE signal_campaign ADD COLUMN logic_version TEXT")
+    _try_alter_table(conn, "ALTER TABLE signal_basis_daily ADD COLUMN source_as_of INTEGER")
+    _try_alter_table(conn, "ALTER TABLE signal_basis_daily ADD COLUMN pred_dt INTEGER")
+    _try_alter_table(conn, "ALTER TABLE signal_basis_daily ADD COLUMN model_version TEXT")
+    _try_alter_table(conn, "ALTER TABLE signal_basis_daily ADD COLUMN basis_source TEXT")
+    _try_alter_table(conn, "ALTER TABLE signal_basis_daily ADD COLUMN source_hash TEXT")
+    _try_alter_table(conn, "ALTER TABLE signal_basis_daily ADD COLUMN payload_schema_version TEXT")
+    _try_alter_table(conn, "ALTER TABLE signal_decision_daily ADD COLUMN forward_return_10 DOUBLE")
+    _try_alter_table(conn, "ALTER TABLE signal_decision_daily ADD COLUMN forward_return_30 DOUBLE")
+    _try_alter_table(conn, "ALTER TABLE signal_decision_daily ADD COLUMN max_favorable_30 DOUBLE")
+    _try_alter_table(conn, "ALTER TABLE signal_decision_daily ADD COLUMN max_adverse_30 DOUBLE")
+    _try_alter_table(conn, "ALTER TABLE signal_decision_daily ADD COLUMN days_to_max_favorable_30 INTEGER")
+    _try_alter_table(conn, "ALTER TABLE signal_decision_daily ADD COLUMN days_to_max_adverse_30 INTEGER")
+    _try_alter_table(conn, "ALTER TABLE signal_decision_daily ADD COLUMN date_of_max_favorable_30 INTEGER")
+    _try_alter_table(conn, "ALTER TABLE signal_decision_daily ADD COLUMN date_of_max_adverse_30 INTEGER")
+    _try_alter_table(conn, "ALTER TABLE signal_campaign ADD COLUMN days_to_max_favorable_30 INTEGER")
+    _try_alter_table(conn, "ALTER TABLE signal_campaign ADD COLUMN days_to_max_adverse_30 INTEGER")
+    _try_alter_table(conn, "ALTER TABLE signal_campaign ADD COLUMN date_of_max_favorable_30 INTEGER")
+    _try_alter_table(conn, "ALTER TABLE signal_campaign ADD COLUMN date_of_max_adverse_30 INTEGER")
+    _try_alter_table(conn, "ALTER TABLE ranking_appearance_daily ADD COLUMN days_to_max_favorable_30 INTEGER")
+    _try_alter_table(conn, "ALTER TABLE ranking_appearance_daily ADD COLUMN days_to_max_adverse_30 INTEGER")
+    _try_alter_table(conn, "ALTER TABLE ranking_appearance_daily ADD COLUMN date_of_max_favorable_30 INTEGER")
+    _try_alter_table(conn, "ALTER TABLE ranking_appearance_daily ADD COLUMN date_of_max_adverse_30 INTEGER")
+    try:
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_signal_occurrence_code_date
+            ON signal_occurrence(code, signal_date)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_signal_occurrence_campaign_date
+            ON signal_occurrence(campaign_id, signal_date)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_signal_campaign_status_first
+            ON signal_campaign(status, first_signal_date)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_signal_basis_daily_version_dt
+            ON signal_basis_daily(basis_version, dt)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_signal_decision_daily_logic_side_dt
+            ON signal_decision_daily(logic_version, side, dt)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_signal_campaign_logic_side_status
+            ON signal_campaign(logic_version, side, status)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ranking_logic_registry_active
+            ON ranking_logic_registry(is_active, created_at)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ranking_appearance_daily_logic_dir_dt
+            ON ranking_appearance_daily(ranking_logic_version, dir, dt)
+            """
+        )
+    except Exception:
+        pass
+    try:
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ranking_appearance_daily_code_dt
+            ON ranking_appearance_daily(code, dt)
+            """
+        )
+    except Exception:
+        pass
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS earnings_planned (
             code TEXT,
             planned_date DATE,

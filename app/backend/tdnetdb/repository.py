@@ -6,8 +6,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import duckdb
-
 from app.backend.tdnetdb.schema import ensure_tdnetdb_schema, utcnow_naive
 from app.db.session import get_conn_for_path
 
@@ -143,10 +141,8 @@ class TdnetdbRepository:
     def _connect_read(self):
         return get_conn_for_path(self._db_path, timeout_sec=2.5, read_only=True)
 
-    def _connect_write(self) -> duckdb.DuckDBPyConnection:
-        conn = duckdb.connect(self._db_path)
-        ensure_tdnetdb_schema(conn)
-        return conn
+    def _connect_write(self):
+        return get_conn_for_path(self._db_path, timeout_sec=2.5, read_only=False)
 
     def upsert_disclosures(self, items: list[dict[str, Any]], *, fetched_at: datetime | None = None) -> int:
         fetched_at = fetched_at or utcnow_naive()
@@ -193,6 +189,7 @@ class TdnetdbRepository:
         if not rows:
             return 0
         with self._connect_write() as conn:
+            ensure_tdnetdb_schema(conn)
             conn.executemany(
                 """
                 INSERT INTO tdnet_disclosures (

@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
-import { useTradexBootstrap } from "../useTradexBootstrap";
-import { readTradexLocal, tradexStorageKeys, writeTradexLocal } from "../storage";
+import TradexTrackingSummaryCard from "../components/TradexTrackingSummaryCard";
 import { tradexCandidateStatusLabel, tradexFreshnessLabel } from "../labels";
+import { readTradexLocal, tradexStorageKeys, writeTradexLocal } from "../storage";
+import { useTradexBootstrap } from "../useTradexBootstrap";
 
 const formatNumber = (value: number | null | undefined, digits = 3) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return "--";
@@ -33,26 +34,26 @@ function CandidateCard({
       <div className="tradex-candidate-card-status">
         <span className="tradex-pill">{tradexCandidateStatusLabel(status)}</span>
         <span className="tradex-pill is-muted">件数 {sampleCount == null ? "--" : sampleCount.toLocaleString("ja-JP")}</span>
-        <span className="tradex-pill is-muted">期待値差分 {expectancyDelta == null ? "--" : formatNumber(expectancyDelta, 4)}</span>
+        <span className="tradex-pill is-muted">期待差 {expectancyDelta == null ? "--" : formatNumber(expectancyDelta, 4)}</span>
       </div>
       <div className="tradex-candidate-card-actions">
         <Link
           to={`/compare?candidateId=${encodeURIComponent(candidateId)}`}
           onClick={() => writeTradexLocal(tradexStorageKeys.compareCandidateId, candidateId)}
         >
-          候補比較へ
+          比較へ
         </Link>
         <Link
           to={`/adopt?candidateId=${encodeURIComponent(candidateId)}`}
           onClick={() => writeTradexLocal(tradexStorageKeys.adoptCandidateId, candidateId)}
         >
-          反映判定へ
+          採用へ
         </Link>
         <Link
           to={`/detail/${encodeURIComponent(candidateId)}`}
           onClick={() => writeTradexLocal(tradexStorageKeys.detailCandidateId, candidateId)}
         >
-          候補詳細へ
+          詳細へ
         </Link>
       </div>
     </article>
@@ -73,15 +74,15 @@ export default function TradexHomePage() {
       <section className="tradex-hero">
         <div>
           <div className="tradex-page-kicker">検証ホーム</div>
-          <h1 className="tradex-page-title">研究の進捗と採用判断をまとめて確認する</h1>
+          <h1 className="tradex-page-title">候補の確認と採用判断をまとめて追う</h1>
           <p className="tradex-page-lead">
-            候補比較、反映判定、候補詳細をひとつにつなぎ、今どれを保留し、どれを採用判断に進めるかを素早く見ます。
+            比較、採用、候補詳細、そして判定追跡 summary を同じホームで確認します。重い追跡 UI は MeeMeeA 側へ寄せ、TRADEX は read-only に留めます。
           </p>
         </div>
         <div className="tradex-hero-aside">
           <div className="tradex-hero-chip">基準日 {summary?.as_of_date ?? (loading ? "読み込み中" : "--")}</div>
           <div className="tradex-hero-chip">鮮度 {tradexFreshnessLabel(summary?.freshness_state)}</div>
-          <div className="tradex-hero-chip">注目件数 {summary?.attention_count?.toLocaleString("ja-JP") ?? "0"}</div>
+          <div className="tradex-hero-chip">要確認 {summary?.attention_count?.toLocaleString("ja-JP") ?? "0"}</div>
         </div>
       </section>
 
@@ -90,13 +91,19 @@ export default function TradexHomePage() {
       <section className="tradex-panel">
         <div className="tradex-panel-head">
           <div>
-            <div className="tradex-panel-title">今すぐ見る候補</div>
-            <div className="tradex-panel-caption">採用候補を先に続ようにし、その後に比較と反映判定へ進みます。</div>
+            <div className="tradex-panel-title">まず見る候補</div>
+            <div className="tradex-panel-caption">比較と採用に繋げやすい候補を上位から並べます。</div>
           </div>
           <div className="tradex-panel-actions">
-            <Link className="tradex-secondary-action" to="/verify">検証へ</Link>
-            <Link className="tradex-secondary-action" to="/compare">候補比較へ</Link>
-            <Link className="tradex-secondary-action" to="/adopt">反映判定へ</Link>
+            <Link className="tradex-secondary-action" to="/verify">
+              検証へ
+            </Link>
+            <Link className="tradex-secondary-action" to="/compare">
+              比較へ
+            </Link>
+            <Link className="tradex-secondary-action" to="/adopt">
+              採用へ
+            </Link>
           </div>
         </div>
 
@@ -117,10 +124,10 @@ export default function TradexHomePage() {
         ) : (
           <div className="tradex-empty-state">
             <strong>候補がまだありません。</strong>
-            <p>検証データが届くまで、検証と比較の導線だけ先に使えるようにしています。</p>
+            <p>検証データを読み込み、候補の比較と採用に進める状態にしてください。</p>
             <div className="tradex-empty-actions">
               <Link to="/verify">検証へ</Link>
-              <Link to="/legacy/tags">旧検証画面へ</Link>
+              <Link to="/legacy/tags">旧タグ検証へ</Link>
             </div>
           </div>
         )}
@@ -130,34 +137,36 @@ export default function TradexHomePage() {
         <div className="tradex-panel-head">
           <div>
             <div className="tradex-panel-title">進め方</div>
-            <div className="tradex-panel-caption">候補比較を起点に、採用判断と候補詳細を順番に追います。</div>
+            <div className="tradex-panel-caption">確認から採用までの流れを短く保ちます。</div>
           </div>
         </div>
         <div className="tradex-flow-grid">
           <article className="tradex-flow-card">
             <div className="tradex-flow-step">1</div>
             <div className="tradex-flow-title">検証</div>
-            <div className="tradex-flow-text">研究候補の状態、進捗、異常を確認します。</div>
+            <div className="tradex-flow-text">候補の基礎統計と注意点をまず確認します。</div>
           </article>
           <article className="tradex-flow-card">
             <div className="tradex-flow-step">2</div>
-            <div className="tradex-flow-title">候補比較</div>
-            <div className="tradex-flow-text">現行版との差分を見て、候補同士を比べます。</div>
+            <div className="tradex-flow-title">比較</div>
+            <div className="tradex-flow-text">既存候補との差を並べて、残す理由を見極めます。</div>
           </article>
           <article className="tradex-flow-card">
             <div className="tradex-flow-step">3</div>
-            <div className="tradex-flow-title">反映判定</div>
-            <div className="tradex-flow-text">比較確認を経て、保留か採用申請かを決めます。</div>
+            <div className="tradex-flow-title">採用</div>
+            <div className="tradex-flow-text">採用判断を記録し、運用へ渡します。</div>
           </article>
           <article className="tradex-flow-card">
             <div className="tradex-flow-step">4</div>
-            <div className="tradex-flow-title">候補詳細</div>
-            <div className="tradex-flow-text">個別候補の内訳、差分、検証結果を掛け込みます。</div>
+            <div className="tradex-flow-title">追跡</div>
+            <div className="tradex-flow-text">予後監視は MeeMeeA の判定追跡で確認します。</div>
           </article>
         </div>
       </section>
 
-      {focusCandidateId ? <div className="tradex-inline-note">前回注目した候補: {focusCandidateId}</div> : null}
+      <TradexTrackingSummaryCard />
+
+      {focusCandidateId ? <div className="tradex-inline-note">前回注目していた候補: {focusCandidateId}</div> : null}
     </div>
   );
 }

@@ -30,6 +30,12 @@ const mocks = vi.hoisted(() => {
           close: 1000,
           chg1D: 0.01,
         },
+        {
+          code: "6758",
+          name: "Next Corp",
+          close: 2000,
+          chg1D: -0.02,
+        },
       ],
       ensureListLoaded: vi.fn(async () => {}),
       loadingList: false,
@@ -71,6 +77,11 @@ function MockIconButton(props: Record<string, unknown>) {
 function MockDetailHeaderChrome(props: Record<string, any>) {
   return (
     <div data-testid="detail-header-chrome">
+      {props.summaryBack}
+      {props.summaryMain}
+      {props.summaryStatus}
+      {props.summaryCenter}
+      {props.summaryActions}
       {props.modeControls}
       {props.topbarActions}
       {props.children}
@@ -182,8 +193,12 @@ vi.mock("../components/DetailChart", async () => {
   const React = await import("react");
   return {
     __esModule: true,
-    default: React.forwardRef(function MockDetailChart() {
-      return React.createElement("div", { "data-testid": "detail-chart" });
+    default: React.forwardRef(function MockDetailChart(props: Record<string, unknown>, _ref) {
+      const candles = Array.isArray(props.candles) ? props.candles.length : 0;
+      return React.createElement("div", {
+        "data-testid": "detail-chart",
+        "data-candles": candles,
+      });
     }),
     DetailChartHandle: class DetailChartHandle {},
   };
@@ -336,13 +351,42 @@ const flushMicrotasks = async () => {
   await Promise.resolve();
 };
 
-const renderDetailView = async () => {
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+const createBarsFrame = (time: number, base: number) => ({
+  bars: [[time, base, base + 2, base - 2, base + 1, base * 10]],
+});
+
+const createBarsResponse = (code: string, seed = 1000) => ({
+  data: {
+    items: {
+      [code]: {
+        daily: createBarsFrame(1_710_000_000, seed),
+        weekly: createBarsFrame(1_709_395_200, seed + 10),
+        monthly: {
+          ...createBarsFrame(1_707_264_000, seed + 20),
+          boxes: [],
+        },
+      },
+    },
+  },
+});
+
+const renderDetailView = async (initialEntry = "/detail/7203") => {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   await act(async () => {
     root.render(
-      <MemoryRouter initialEntries={["/detail/7203"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/detail/:code" element={<DetailView />} />
         </Routes>
@@ -352,11 +396,29 @@ const renderDetailView = async () => {
   return { container, root };
 };
 
+const findNextButton = (container: HTMLElement) =>
+  container.querySelectorAll("button.back.nav-button")[1] ?? null;
+
 describe("DetailView", () => {
   beforeEach(() => {
     mocks.backendReadyRef.value = false;
     mocks.apiGet.mockReset();
     mocks.apiPost.mockReset();
+    mocks.apiGet.mockResolvedValue({ data: {} });
+    mocks.storeState.tickers = [
+      {
+        code: "7203",
+        name: "Test Corp",
+        close: 1000,
+        chg1D: 0.01,
+      },
+      {
+        code: "6758",
+        name: "Next Corp",
+        close: 2000,
+        chg1D: -0.02,
+      },
+    ];
     mocks.storeState.ensureListLoaded.mockClear();
     mocks.storeState.loadFavorites.mockClear();
     mocks.storeState.setFavoriteLocal.mockClear();
@@ -377,6 +439,7 @@ describe("DetailView", () => {
 
   afterEach(() => {
     document.body.innerHTML = "";
+    vi.useRealTimers();
   });
 
   it("renders the detail route without throwing when the EDINET request is null", async () => {
@@ -471,6 +534,126 @@ describe("DetailView", () => {
 
     expect(container.querySelector("[data-testid='tradex-analysis-panel']")).not.toBeNull();
     expect(container.querySelector("[data-testid='legacy-analysis-panel']")).not.toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("requests daily, weekly, and monthly bars for both the current and next code", async () => {
+    vi.useFakeTimers();
+    mocks.backendReadyRef.value = true;
+    mocks.storeState.tickers = [
+      { code: "9101", name: "Alpha Corp", close: 1000, chg1D: 0.01 },
+      { code: "9102", name: "Beta Corp", close: 1100, chg1D: -0.01 },
+    ];
+    window.sessionStorage.setItem("detailListCodes", JSON.stringify(["9101", "9102"]));
+    mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
+      if (url !== "/batch_bars_v3") {
+        return Promise.resolve({ data: {} });
+      }
+      const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
+      if (code === "9101") {
+        return Promise.resolve(createBarsResponse("9101", 1000));
+      }
+      if (code === "9102") {
+        return Promise.resolve(createBarsResponse("9102", 2000));
+      }
+      return Promise.resolve({ data: { items: {} } });
+    });
+
+    const { container, root } = await renderDetailView("/detail/9101");
+
+    await act(async () => {
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(200);
+      await flushMicrotasks();
+    });
+
+    const batchBarsCalls = mocks.apiPost.mock.calls.filter(([url]) => url === "/batch_bars_v3");
+    expect(batchBarsCalls).toHaveLength(2);
+    expect(batchBarsCalls[0]?.[1]).toMatchObject({
+      codes: ["9101"],
+      timeframes: ["daily", "weekly", "monthly"],
+      timeframeLimits: {
+        daily: 2000,
+        weekly: 520,
+        monthly: 240,
+      },
+    });
+    expect(batchBarsCalls[1]?.[1]).toMatchObject({
+      codes: ["9102"],
+      timeframes: ["daily", "weekly", "monthly"],
+      timeframeLimits: {
+        daily: 2000,
+        weekly: 520,
+        monthly: 240,
+      },
+    });
+
+    const nextButton = findNextButton(container);
+    expect(nextButton).not.toBeNull();
+
+    await act(async () => {
+      nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    const batchBarsCallsAfterNavigate = mocks.apiPost.mock.calls.filter(([url]) => url === "/batch_bars_v3");
+    expect(batchBarsCallsAfterNavigate).toHaveLength(2);
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("keeps the previous chart rendered while the next-code session is still loading", async () => {
+    vi.useFakeTimers();
+    mocks.backendReadyRef.value = true;
+    mocks.storeState.tickers = [
+      { code: "9201", name: "Gamma Corp", close: 1200, chg1D: 0.03 },
+      { code: "9202", name: "Delta Corp", close: 1300, chg1D: -0.04 },
+    ];
+    window.sessionStorage.setItem("detailListCodes", JSON.stringify(["9201", "9202"]));
+    const nextDeferred = createDeferred<{ data: { items: Record<string, unknown> } }>();
+    mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
+      if (url !== "/batch_bars_v3") {
+        return Promise.resolve({ data: {} });
+      }
+      const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
+      if (code === "9201") {
+        return Promise.resolve(createBarsResponse("9201", 1000));
+      }
+      if (code === "9202") {
+        return nextDeferred.promise;
+      }
+      return Promise.resolve({ data: { items: {} } });
+    });
+
+    const { container, root } = await renderDetailView("/detail/9201");
+
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const nextButton = findNextButton(container);
+    expect(nextButton).not.toBeNull();
+
+    await act(async () => {
+      nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flushMicrotasks();
+    });
+
+    expect(container.textContent).not.toContain("Daily: Loading...");
+    expect(container.textContent).not.toContain("Weekly: Loading...");
+    expect(container.textContent).not.toContain("Monthly: Loading...");
+
+    await act(async () => {
+      nextDeferred.resolve(createBarsResponse("9202", 2000));
+      await flushMicrotasks();
+    });
 
     act(() => {
       root.unmount();

@@ -2847,6 +2847,14 @@ def build_market_regime_daily(
 ) -> dict[str, Any]:
     with get_conn() as conn:
         _ensure_market_regime_daily_schema(conn)
+        normalized_trade_date_sql = """
+            CASE
+                WHEN b.date IS NULL THEN NULL
+                WHEN b.date >= 1000000000000 THEN CAST(strftime(to_timestamp(b.date / 1000), '%Y%m%d') AS INTEGER)
+                WHEN b.date >= 1000000000 THEN CAST(strftime(to_timestamp(b.date), '%Y%m%d') AS INTEGER)
+                ELSE CAST(b.date AS INTEGER)
+            END
+        """
         has_sector = _table_exists(conn, "industry_master")
         sector_join = "LEFT JOIN industry_master im ON im.code = b.code" if has_sector else ""
         sector_select = "COALESCE(im.sector33_code, '__NA__') AS sector33_code" if has_sector else "'__NA__' AS sector33_code"
@@ -2863,13 +2871,13 @@ def build_market_regime_daily(
             f"""
             WITH base0 AS (
                 SELECT
-                    b.date AS dt,
+                    {normalized_trade_date_sql} AS dt,
                     b.code AS code,
                     b.c AS close,
                     b.h AS h,
                     b.l AS l,
                     {sector_select},
-                    LAG(b.c, 1) OVER (PARTITION BY b.code ORDER BY b.date) AS prev_close
+                    LAG(b.c, 1) OVER (PARTITION BY b.code ORDER BY {normalized_trade_date_sql}) AS prev_close
                 FROM daily_bars b
                 {sector_join}
                 WHERE b.c IS NOT NULL
@@ -2972,11 +2980,11 @@ def build_market_regime_daily(
             ),
             index_base0 AS (
                 SELECT
-                    b.date AS dt,
+                    {normalized_trade_date_sql} AS dt,
                     b.c AS close,
                     b.h AS h,
                     b.l AS l,
-                    LAG(b.c, 1) OVER (ORDER BY b.date) AS prev_close
+                    LAG(b.c, 1) OVER (ORDER BY {normalized_trade_date_sql}) AS prev_close
                 FROM daily_bars b
                 WHERE b.code = '1001' AND b.c IS NOT NULL
             ),

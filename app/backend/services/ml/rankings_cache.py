@@ -253,6 +253,17 @@ _TRADE_UP_SETUP_TYPES = {"breakout20", "breakout", "accumulation", "rebound", "c
 _TRADE_DOWN_SETUP_TYPES = {"breakout20", "breakout", "breakdown", "pressure", "continuation"}
 _STRICT_TRADE_UP_BOX_STATES = {"box_lower", "box_mid", "box_upper", "breakout_up"}
 _STRICT_TRADE_DOWN_BOX_STATES = {"below_box", "box_lower", "box_mid", "box_upper", "breakout_up"}
+_STRICT_RULE_TRADE_UP_BOX_STATES = {"box_upper", "breakout_up"}
+_STRICT_RULE_TRADE_DOWN_BOX_STATES = {"box_lower", "box_mid"}
+_STRICT_RULE_TRADE_UP_MIN_ENTRY_SCORE = 0.56
+_STRICT_RULE_TRADE_DOWN_MIN_ENTRY_SCORE = 0.58
+_STRICT_RULE_TRADE_UP_MIN_WEEKLY = 0.68
+_STRICT_RULE_TRADE_DOWN_MIN_WEEKLY = 0.70
+_STRICT_RULE_TRADE_UP_MIN_MONTHLY = 0.64
+_STRICT_RULE_TRADE_DOWN_MIN_MONTHLY = 0.58
+_STRICT_RULE_TRADE_UP_MIN_PROB = 0.60
+_STRICT_RULE_TRADE_DOWN_MIN_PROB = 0.58
+_STRICT_TRADE_DOWN_ENTRY_CLASSES = {"upper_rejection_primary", "strict_breakdown_secondary"}
 
 
 def _is_tradable_rank_item(item: dict[str, Any], *, direction: RankDir) -> bool:
@@ -285,7 +296,8 @@ def _is_strict_trade_rank_item(item: dict[str, Any], *, direction: RankDir) -> b
         return False
     if direction == "up":
         return monthly_box_state in _STRICT_TRADE_UP_BOX_STATES
-    return monthly_box_state in _STRICT_TRADE_DOWN_BOX_STATES
+    entry_class = str(item.get("tradeEntryClass") or "").strip()
+    return monthly_box_state in _STRICT_TRADE_DOWN_BOX_STATES and entry_class in _STRICT_TRADE_DOWN_ENTRY_CLASSES
 
 
 def _filter_strict_trade_rank_items(items: list[dict[str, Any]], *, direction: RankDir) -> list[dict[str, Any]]:
@@ -1139,6 +1151,20 @@ def _decorate_rule_items_with_entry_gate(
         monthly_range = _first_finite(item.get("monthlyRangeProb"))
         candle = _first_finite(item.get("candleTripletUp") if direction == "up" else item.get("candleTripletDown"))
         liquidity = _first_finite(item.get("liquidity20d"))
+        monthly_box_state = str(item.get("monthlyBoxState") or "").strip()
+        monthly_box_months = _first_finite(item.get("monthlyBoxMonths"))
+        monthly_box_wild = bool(item.get("monthlyBoxWild"))
+        weekly_breakout_up = _first_finite(item.get("weeklyBreakoutUpProb"))
+        weekly_breakout_down = _first_finite(item.get("weeklyBreakoutDownProb"))
+        monthly_breakout_up = _first_finite(item.get("monthlyBreakoutUpProb"))
+        monthly_breakout_down = _first_finite(item.get("monthlyBreakoutDownProb"))
+        reclaim60 = _first_finite(item.get("reclaim60")) or 0.0
+        v60_core = _first_finite(item.get("v60Core")) or 0.0
+        bull_marubozu = _first_finite(item.get("bullMarubozu")) or 0.0
+        bear_marubozu = _first_finite(item.get("bearMarubozu")) or 0.0
+        shooting_star_like = _first_finite(item.get("shootingStarLike")) or 0.0
+        upper_wick_ratio = _first_finite(item.get("candleUpperWickRatio")) or 0.0
+        market_risk_off = bool(item.get("marketRiskOff"))
         prob_proxy = _first_finite(
             weekly_breakout,
             monthly_breakout,
@@ -1166,18 +1192,146 @@ def _decorate_rule_items_with_entry_gate(
         )
         entry_score += float(research_bonus)
         entry_score = float(max(0.0, min(1.0, entry_score)))
-        gate_ok = bool(
-            liquidity is not None
-            and prob_proxy >= _DAILY_RULE_GATE_MIN_PROB
-            and (weekly_breakout is not None and weekly_breakout >= _DAILY_RULE_GATE_MIN_BREAKOUT)
-            and entry_score >= _DAILY_RULE_GATE_MIN_ENTRY_SCORE
-        )
-        if gate_ok and (monthly_breakout is not None and monthly_breakout >= 0.60):
-            setup_type = "breakout"
-        elif gate_ok:
-            setup_type = "watch"
+        decision_reasons: list[str] = []
+        risk_watch: list[str] = []
+        gate_ok = False
+        setup_type = "reject"
+        trade_entry_class: str | None = None
+        if direction == "up":
+            weekly_gate = _STRICT_RULE_TRADE_UP_MIN_WEEKLY + (0.04 if market_risk_off else 0.0)
+            monthly_gate = _STRICT_RULE_TRADE_UP_MIN_MONTHLY + (0.02 if market_risk_off else 0.0)
+            box_ok = bool(
+                monthly_box_state in _STRICT_RULE_TRADE_UP_BOX_STATES
+                and not monthly_box_wild
+                and monthly_box_months is not None
+                and 4.0 <= float(monthly_box_months) <= 12.0
+            )
+            signal_ok = bool(
+                (monthly_breakout_up is not None and monthly_breakout_up >= monthly_gate)
+                or reclaim60 >= 0.5
+                or v60_core >= 0.5
+                or bull_marubozu >= 0.5
+            )
+            bearish_block = bool(shooting_star_like >= 0.5 or bear_marubozu >= 0.5)
+            gate_ok = bool(
+                liquidity is not None
+                and box_ok
+                and prob_proxy >= _STRICT_RULE_TRADE_UP_MIN_PROB
+                and weekly_breakout_up is not None
+                and weekly_breakout_up >= weekly_gate
+                and entry_score >= _STRICT_RULE_TRADE_UP_MIN_ENTRY_SCORE
+                and signal_ok
+                and not bearish_block
+            )
+            if gate_ok:
+                setup_type = "breakout"
+                trade_entry_class = "box_upper_breakout"
+                decision_reasons.append("月足ボックス上限")
+                decision_reasons.append("週足上放れ優位")
+                if reclaim60 >= 0.5 or v60_core >= 0.5:
+                    decision_reasons.append("60日線回復")
+                if bull_marubozu >= 0.5:
+                    decision_reasons.append("強い陽線")
+                if monthly_breakout_up is not None and monthly_breakout_up >= monthly_gate:
+                    decision_reasons.append("月足上放れ確率")
+            else:
+                if market_risk_off:
+                    risk_watch.append("地合いが弱く買いは厳選")
+                if bearish_block:
+                    risk_watch.append("上ヒゲ/陰線で失速")
         else:
-            setup_type = "reject"
+            weekly_gate = _STRICT_RULE_TRADE_DOWN_MIN_WEEKLY + (0.03 if market_risk_off else 0.0)
+            monthly_gate = _STRICT_RULE_TRADE_DOWN_MIN_MONTHLY + (0.02 if market_risk_off else 0.0)
+            box_ok = bool(
+                monthly_box_state in _STRICT_RULE_TRADE_DOWN_BOX_STATES
+                and not monthly_box_wild
+                and monthly_box_months is not None
+                and float(monthly_box_months) >= 4.0
+            )
+            breakdown_block = bool(reclaim60 >= 0.5 or v60_core >= 0.5)
+            upper_rejection_primary = bool(
+                box_ok
+                and monthly_box_state in {"box_mid", "box_upper", "breakout_up"}
+                and weekly_breakout_down is not None
+                and weekly_breakout_down >= weekly_gate
+                and (
+                    shooting_star_like >= 0.5
+                    or upper_wick_ratio >= 0.45
+                    or bear_marubozu >= 0.5
+                )
+            )
+            strict_breakdown_secondary = bool(
+                box_ok
+                and monthly_box_state in {"box_mid", "box_lower"}
+                and monthly_box_months is not None
+                and 4.0 <= float(monthly_box_months) <= 8.0
+                and weekly_breakout_down is not None
+                and weekly_breakout_down >= weekly_gate
+                and monthly_breakout_down is not None
+                and monthly_breakout_down >= monthly_gate
+                and bear_marubozu >= 0.5
+            )
+            gate_ok = bool(
+                liquidity is not None
+                and box_ok
+                and prob_proxy >= _STRICT_RULE_TRADE_DOWN_MIN_PROB
+                and entry_score >= _STRICT_RULE_TRADE_DOWN_MIN_ENTRY_SCORE
+                and not breakdown_block
+                and (upper_rejection_primary or strict_breakdown_secondary)
+            )
+            if gate_ok:
+                setup_type = "breakout"
+                if monthly_box_state == "box_mid":
+                    decision_reasons.append("月足ボックス中段失速")
+                else:
+                    decision_reasons.append("月足ボックス下限圧力")
+                decision_reasons.append("週足下放れ優位")
+                if shooting_star_like >= 0.5 or upper_wick_ratio >= 0.45:
+                    decision_reasons.append("日足上値拒否")
+                if bear_marubozu >= 0.5:
+                    decision_reasons.append("強い陰線")
+                if monthly_breakout_down is not None and monthly_breakout_down >= _STRICT_RULE_TRADE_DOWN_MIN_MONTHLY:
+                    decision_reasons.append("月足下放れ確率")
+            else:
+                if breakdown_block:
+                    risk_watch.append("60日線をまだ回復維持")
+                if monthly_box_state == "box_mid":
+                    risk_watch.append("中段は支持割れ確認が必要")
+        if direction == "down":
+            if gate_ok and upper_rejection_primary:
+                setup_type = "pressure"
+                trade_entry_class = "upper_rejection_primary"
+                decision_reasons = [
+                    "月足ボックス上限付近",
+                    "週足の弱化確認",
+                    "日足の上値拒否",
+                ]
+                if shooting_star_like >= 0.5:
+                    decision_reasons.append("上ヒゲ否定足")
+                if upper_wick_ratio >= 0.45:
+                    decision_reasons.append("長い上ヒゲ")
+                if bear_marubozu >= 0.5:
+                    decision_reasons.append("強い陰線")
+            elif gate_ok and strict_breakdown_secondary:
+                setup_type = "breakdown"
+                trade_entry_class = "strict_breakdown_secondary"
+                decision_reasons = [
+                    "月足ボックス下限圧力",
+                    "週足の下放れ優位",
+                    "下抜け継続",
+                ]
+                if bear_marubozu >= 0.5:
+                    decision_reasons.append("強い陰線")
+                if monthly_breakout_down is not None and monthly_breakout_down >= monthly_gate:
+                    decision_reasons.append("月足下放れ確率")
+            else:
+                if breakdown_block:
+                    risk_watch.append("60日線回復中で踏み上げ注意")
+                if monthly_box_state == "box_mid":
+                    risk_watch.append("中段なので下放れ確認が弱い")
+                if monthly_box_months is not None and float(monthly_box_months) < 4.0:
+                    risk_watch.append("箱の期間が短く未成熟")
+                risk_watch = list(dict.fromkeys(risk_watch))
         item["hybridScore"] = item.get("hybridScore")
         item["entryScore"] = float(entry_score)
         item["playbookScoreBonus"] = 0.0
@@ -1186,6 +1340,9 @@ def _decorate_rule_items_with_entry_gate(
         item["probSide"] = float(prob_proxy)
         item["entryQualified"] = bool(gate_ok)
         item["setupType"] = setup_type
+        item["tradeEntryClass"] = trade_entry_class
+        item["tradeDecisionReasons"] = decision_reasons
+        item["tradeRiskWatch"] = risk_watch
         _apply_entry_playbook_fields(
             item,
             direction=direction,
@@ -4330,6 +4487,8 @@ def _apply_monthly_ml_mode(
             continue
         seen.add(code)
         selected.append(item)
+    if rank_mode == "trade":
+        return selected[:limit], pred_dt, model_version
     for base in items:
         code = str(base.get("code") or "")
         if code in seen:
@@ -4365,8 +4524,6 @@ def _apply_monthly_ml_mode(
                 shape_patterns={},
                 risk_mode=risk_mode,
             )
-        if rank_mode == "trade":
-            _apply_trade_priority_scores([candidate], direction=direction)
         selected.append(candidate)
         if len(selected) >= limit:
             break
@@ -4696,12 +4853,20 @@ def _apply_trade_priority_scores(items: list[dict], *, direction: RankDir) -> No
         profit_score = profit_rank.get(code, 0.5)
         quality_score = quality_rank.get(code, 0.5)
         safety_score = safety_rank.get(code, 0.5)
-        trade_priority_score = (
-            0.45 * hit_score
-            + 0.35 * profit_score
-            + 0.10 * quality_score
-            + 0.10 * safety_score
-        )
+        if direction == "down":
+            trade_priority_score = (
+                0.30 * hit_score
+                + 0.50 * profit_score
+                + 0.10 * quality_score
+                + 0.10 * safety_score
+            )
+        else:
+            trade_priority_score = (
+                0.45 * hit_score
+                + 0.35 * profit_score
+                + 0.10 * quality_score
+                + 0.10 * safety_score
+            )
         item["tradePriorityScore"] = float(max(0.0, min(1.0, trade_priority_score)))
         item["tradePriorityHitScore"] = float(hit_score)
         item["tradePriorityProfitScore"] = float(profit_score)
@@ -4718,6 +4883,92 @@ def _trade_priority_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
         -(item.get("tradePriorityQualityScore") or 0.0),
         item.get("code", ""),
     )
+
+
+def _candidate_source_for_mode(*, effective_mode: RankMode, legacy_analysis_disabled: bool) -> str:
+    if effective_mode == "trade" and legacy_analysis_disabled:
+        return "current_features"
+    if effective_mode == "rule":
+        return "current_features"
+    if effective_mode in {"hybrid", "trade"}:
+        return "ml_plus_features"
+    if effective_mode == "ml":
+        return "ml"
+    return "unknown"
+
+
+def _trade_direction_adjusted_profit_summary(item: dict[str, Any], *, direction: RankDir) -> float:
+    raw = _trade_direction_adjusted_profit_raw(item, direction=direction)
+    return float(raw) if raw is not None else 0.0
+
+
+def _summarize_trade_items(items: list[dict[str, Any]], *, direction: RankDir, top_n: int = 5) -> dict[str, Any]:
+    target = [dict(item) for item in items[: max(1, int(top_n))]]
+    if not target:
+        return {
+            "count": 0,
+            "top_n": int(top_n),
+            "avg_trade_priority_score": None,
+            "avg_profit_expectancy": None,
+            "avg_hit_score": None,
+            "avg_quality_score": None,
+            "avg_safety_score": None,
+            "top_codes": [],
+        }
+    def _avg(values: list[float]) -> float | None:
+        if not values:
+            return None
+        return float(sum(values) / len(values))
+
+    return {
+        "count": len(items),
+        "top_n": int(top_n),
+        "avg_trade_priority_score": _avg(
+            [float(item.get("tradePriorityScore")) for item in target if isinstance(item.get("tradePriorityScore"), (int, float))]
+        ),
+        "avg_profit_expectancy": _avg(
+            [_trade_direction_adjusted_profit_summary(item, direction=direction) for item in target]
+        ),
+        "avg_hit_score": _avg(
+            [float(item.get("tradePriorityHitScore")) for item in target if isinstance(item.get("tradePriorityHitScore"), (int, float))]
+        ),
+        "avg_quality_score": _avg(
+            [float(item.get("tradePriorityQualityScore")) for item in target if isinstance(item.get("tradePriorityQualityScore"), (int, float))]
+        ),
+        "avg_safety_score": _avg(
+            [float(item.get("tradePrioritySafetyScore")) for item in target if isinstance(item.get("tradePrioritySafetyScore"), (int, float))]
+        ),
+        "top_codes": [str(item.get("code") or "") for item in target if str(item.get("code") or "")],
+    }
+
+
+def _build_trade_summary_payload(
+    *,
+    up_payload: dict[str, Any],
+    down_payload: dict[str, Any],
+    top_n: int = 5,
+) -> dict[str, Any]:
+    up_items = list(up_payload.get("items") or [])
+    down_items = list(down_payload.get("items") or [])
+    buy_summary = _summarize_trade_items(up_items, direction="up", top_n=top_n)
+    sell_summary = _summarize_trade_items(down_items, direction="down", top_n=top_n)
+    buy_score = float(buy_summary.get("avg_trade_priority_score") or 0.0)
+    sell_score = float(sell_summary.get("avg_trade_priority_score") or 0.0)
+    diff_score = float(buy_score - sell_score)
+    dominant_direction: Literal["up", "down", "wait"]
+    if buy_summary["count"] == 0 and sell_summary["count"] == 0:
+        dominant_direction = "wait"
+    elif abs(diff_score) < 0.03:
+        dominant_direction = "wait"
+    else:
+        dominant_direction = "up" if diff_score > 0 else "down"
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "dominant_direction": dominant_direction,
+        "difference_score": diff_score,
+        "buy": buy_summary,
+        "sell": sell_summary,
+    }
 
 
 def _apply_ml_mode(
@@ -5848,12 +6099,23 @@ def _build_rankings_response(
     cache_key: RankBaseCacheKey = (tf, which, direction)
     items, last_updated = _load_live_cache_items(cache_key)
     source_items = _copy_rank_items(items)
+    legacy_analysis_disabled = is_legacy_analysis_disabled()
+    candidate_source = _candidate_source_for_mode(
+        effective_mode=effective_mode,
+        legacy_analysis_disabled=legacy_analysis_disabled,
+    )
 
     pred_dt = None
     model_version = None
     if effective_mode == "rule":
         out_items = _decorate_rule_items_with_entry_gate(
             source_items[:limit],
+            direction=direction,
+            risk_mode=risk_mode,
+        )
+    elif effective_mode == "trade" and legacy_analysis_disabled:
+        out_items = _decorate_rule_items_with_entry_gate(
+            source_items,
             direction=direction,
             risk_mode=risk_mode,
         )
@@ -5960,6 +6222,8 @@ def _build_rankings_response(
         "dir": direction,
         "mode": effective_mode,
         "risk_mode": risk_mode,
+        "legacy_analysis_disabled": legacy_analysis_disabled,
+        "candidate_source": candidate_source,
         "pred_dt": pred_dt,
         "model_version": model_version,
         "cache_generation": cache_generation,
@@ -6091,6 +6355,11 @@ def get_rankings_asof(
     as_of_int = _coerce_as_of_int(as_of)
     if as_of_int is None:
         raise ValueError("as_of must be YYYY-MM-DD or YYYYMMDD")
+    legacy_analysis_disabled = is_legacy_analysis_disabled()
+    candidate_source = _candidate_source_for_mode(
+        effective_mode=effective_mode,
+        legacy_analysis_disabled=legacy_analysis_disabled,
+    )
 
     cache_key = (tf, which, direction)
     _ensure_cache_fresh_stale_ok(key=cache_key)
@@ -6116,6 +6385,12 @@ def get_rankings_asof(
     if effective_mode == "rule" or not source_items:
         out_items = _decorate_rule_items_with_entry_gate(
             source_items[:limit],
+            direction=direction,
+            risk_mode=risk_mode,
+        )
+    elif effective_mode == "trade" and legacy_analysis_disabled:
+        out_items = _decorate_rule_items_with_entry_gate(
+            source_items,
             direction=direction,
             risk_mode=risk_mode,
         )
@@ -6231,6 +6506,8 @@ def get_rankings_asof(
         "dir": direction,
         "mode": effective_mode,
         "risk_mode": risk_mode,
+        "legacy_analysis_disabled": legacy_analysis_disabled,
+        "candidate_source": candidate_source,
         "requested_as_of": f"{as_of_int:08d}",
         "pred_dt": pred_dt,
         "model_version": model_version,
@@ -6245,7 +6522,33 @@ def _fetch_recent_asof_dates(
     lookback_days: int,
 ) -> list[int]:
     if is_legacy_analysis_disabled():
-        return []
+        where_parts = ["ymd IS NOT NULL"]
+        params: list[Any] = []
+        if as_of_int is not None:
+            where_parts.append("ymd <= ?")
+            params.append(int(as_of_int))
+        where_clause = "WHERE " + " AND ".join(where_parts)
+        query = f"""
+            WITH daily_dates AS (
+                SELECT DISTINCT
+                  CASE
+                    WHEN date BETWEEN 19000101 AND 20991231 THEN date
+                    WHEN date >= 1000000000000 THEN CAST(strftime(to_timestamp(date/1000), '%Y%m%d') AS INTEGER)
+                    WHEN date >= 1000000000 THEN CAST(strftime(to_timestamp(date), '%Y%m%d') AS INTEGER)
+                    ELSE NULL
+                  END AS ymd
+                FROM daily_bars
+            )
+            SELECT ymd
+            FROM daily_dates
+            {where_clause}
+            ORDER BY ymd DESC
+            LIMIT ?
+        """
+        params.append(int(max(1, lookback_days)))
+        with get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [int(row[0]) for row in rows if row and row[0] is not None]
     where_parts = ["ymd IS NOT NULL"]
     params: list[Any] = []
     if as_of_int is not None:
@@ -6365,6 +6668,150 @@ def get_last_qualified_trace(
         "recent_hits": hits[:recent_hits],
     }
 
+    to_cache = dict(result)
+    to_cache["_db_mtime"] = db_mtime
+    with _TRACE_CACHE_LOCK:
+        _TRACE_CACHE[cache_key] = to_cache
+        _TRACE_CACHE.move_to_end(cache_key)
+        while len(_TRACE_CACHE) > _TRACE_CACHE_MAX:
+            _TRACE_CACHE.popitem(last=False)
+    return result
+
+
+def get_trade_direction_summary(
+    tf: RankTimeframe,
+    which: RankWhich,
+    limit: int,
+    *,
+    risk_mode: RankRiskMode = "balanced",
+    top_n: int = 5,
+) -> dict[str, Any]:
+    limit = max(1, min(int(limit or 50), 200))
+    top_n = max(1, min(int(top_n or 5), 20))
+    up_payload = get_rankings(tf, which, "up", limit, mode="trade", risk_mode=risk_mode)
+    down_payload = get_rankings(tf, which, "down", limit, mode="trade", risk_mode=risk_mode)
+    summary = _build_trade_summary_payload(up_payload=up_payload, down_payload=down_payload, top_n=top_n)
+    summary["tf"] = tf
+    summary["which"] = which
+    summary["limit"] = limit
+    summary["risk_mode"] = risk_mode
+    summary["candidate_source"] = up_payload.get("candidate_source") or down_payload.get("candidate_source")
+    summary["legacy_analysis_disabled"] = bool(
+        up_payload.get("legacy_analysis_disabled") or down_payload.get("legacy_analysis_disabled")
+    )
+    return summary
+
+
+def get_trade_code_qualification_summary(
+    tf: RankTimeframe,
+    which: RankWhich,
+    code: str,
+    *,
+    risk_mode: RankRiskMode = "balanced",
+    lookback_days: int = 120,
+    recent_hits: int = 5,
+    as_of: str | int | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    code = str(code or "").strip()
+    if not code:
+        raise ValueError("code is required")
+    as_of_int = _coerce_as_of_int(as_of) if as_of is not None else None
+    lookback_days = max(20, min(int(lookback_days or 260), 1200))
+    recent_hits = max(1, min(int(recent_hits or 10), 50))
+    limit = max(1, min(int(limit or 200), 200))
+    cache_key = ("code", tf, which, code, risk_mode, lookback_days, recent_hits, as_of_int, limit)
+    db_mtime = _db_mtime()
+    with _TRACE_CACHE_LOCK:
+        cached = _TRACE_CACHE.get(cache_key)
+        if cached is not None and cached.get("_db_mtime") == db_mtime:
+            _TRACE_CACHE.move_to_end(cache_key)
+            cloned = dict(cached)
+            cloned.pop("_db_mtime", None)
+            return cloned
+
+    dates_desc = _fetch_recent_asof_dates(as_of_int=as_of_int, lookback_days=lookback_days)
+    buy_hits: list[dict[str, Any]] = []
+    sell_hits: list[dict[str, Any]] = []
+    today_state = "wait"
+    today_buy_item: dict[str, Any] | None = None
+    today_sell_item: dict[str, Any] | None = None
+
+    for index, ymd in enumerate(dates_desc):
+        up_payload = get_rankings_asof(
+            tf,
+            which,
+            "up",
+            limit,
+            as_of=ymd,
+            mode="trade",
+            risk_mode=risk_mode,
+        )
+        down_payload = get_rankings_asof(
+            tf,
+            which,
+            "down",
+            limit,
+            as_of=ymd,
+            mode="trade",
+            risk_mode=risk_mode,
+        )
+        up_item = next((item for item in list(up_payload.get("items") or []) if str(item.get("code") or "") == code), None)
+        down_item = next((item for item in list(down_payload.get("items") or []) if str(item.get("code") or "") == code), None)
+        if index == 0:
+            if up_item and down_item:
+                today_state = "both"
+            elif up_item:
+                today_state = "buy"
+            elif down_item:
+                today_state = "sell"
+            today_buy_item = up_item
+            today_sell_item = down_item
+        if up_item and len(buy_hits) < recent_hits:
+            buy_hits.append(
+                {
+                    "date": int(ymd),
+                    "date_iso": _ymd_int_to_iso(int(ymd)),
+                    "rank": len(buy_hits) + 1,
+                    "setup_type": up_item.get("setupType"),
+                    "monthly_box_state": up_item.get("monthlyBoxState"),
+                    "trade_priority_score": up_item.get("tradePriorityScore"),
+                    "entry_score": up_item.get("entryScore"),
+                }
+            )
+        if down_item and len(sell_hits) < recent_hits:
+            sell_hits.append(
+                {
+                    "date": int(ymd),
+                    "date_iso": _ymd_int_to_iso(int(ymd)),
+                    "rank": len(sell_hits) + 1,
+                    "setup_type": down_item.get("setupType"),
+                    "monthly_box_state": down_item.get("monthlyBoxState"),
+                    "trade_priority_score": down_item.get("tradePriorityScore"),
+                    "entry_score": down_item.get("entryScore"),
+                }
+            )
+        if len(buy_hits) >= recent_hits and len(sell_hits) >= recent_hits:
+            break
+
+    result: dict[str, Any] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "tf": tf,
+        "which": which,
+        "risk_mode": risk_mode,
+        "code": code,
+        "as_of": _ymd_int_to_iso(as_of_int) if as_of_int is not None else None,
+        "as_of_int": int(as_of_int) if as_of_int is not None else None,
+        "today_state": today_state,
+        "today_buy_item": today_buy_item,
+        "today_sell_item": today_sell_item,
+        "last_buy_date": buy_hits[0]["date"] if buy_hits else None,
+        "last_buy_date_iso": buy_hits[0]["date_iso"] if buy_hits else None,
+        "last_sell_date": sell_hits[0]["date"] if sell_hits else None,
+        "last_sell_date_iso": sell_hits[0]["date_iso"] if sell_hits else None,
+        "recent_buy_hits": buy_hits,
+        "recent_sell_hits": sell_hits,
+    }
     to_cache = dict(result)
     to_cache["_db_mtime"] = db_mtime
     with _TRACE_CACHE_LOCK:
