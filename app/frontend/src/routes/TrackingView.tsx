@@ -513,7 +513,7 @@ const STATUS_TABS: { key: TrackingStatus; label: string }[] = [
   { key: "archive", label: "Archive" },
 ];
 
-const LEGACY_MODE_TABS: { key: TrackingMode; label: string }[] = [
+const _LEGACY_MODE_TABS: { key: TrackingMode; label: string }[] = [
   { key: "ranking", label: "ランキング掲載履歴" },
   { key: "signal", label: "売買判定履歴" },
 ];
@@ -596,7 +596,7 @@ const formatDayCount = (value: number | null | undefined) => {
   return Number.isInteger(rounded) ? `${rounded.toFixed(0)}日目` : `${rounded.toFixed(1)}日目`;
 };
 
-const diffRate = (left: number | null | undefined, right: number | null | undefined) => {
+const _diffRate = (left: number | null | undefined, right: number | null | undefined) => {
   if (typeof left !== "number" || !Number.isFinite(left)) return null;
   if (typeof right !== "number" || !Number.isFinite(right)) return null;
   return left - right;

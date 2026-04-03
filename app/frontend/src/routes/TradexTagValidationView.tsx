@@ -503,7 +503,7 @@ export default function TradexTagValidationView() {
 
   const publishedAt = detail?.as_of_date ?? summary?.as_of_date ?? "--";
   const freshness = detail?.freshness_state ?? summary?.freshness_state ?? "--";
-  const rows = detail?.rows ?? [];
+  const rows = useMemo(() => detail?.rows ?? [], [detail?.rows]);
   const searchedRows = useMemo(() => {
     const query = search.trim().toLowerCase();
     return rows.filter((row) => {

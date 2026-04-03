@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import type {
   AnalysisEntryPolicy,
   AnalysisEntryPolicySide,
@@ -272,7 +272,6 @@ export function DetailAnalysisPanel(props: Props) {
     swingReasonsLabel,
     swingDiagnostics,
     swingSetupExpectancy,
-    analysisMissingDataVisible,
     decisionHistory,
     individualResult,
     qualificationTrace,
@@ -281,13 +280,11 @@ export function DetailAnalysisPanel(props: Props) {
     formatPercentLabel,
     formatNumber,
     formatSignedPercentLabel,
-    onSubmitAnalysisRecalc,
   } = props;
   const buyPolicy = analysisEntryPolicy?.up ?? null;
   const sellPolicy = analysisEntryPolicy?.down ?? null;
   const researchPriorUp = analysisResearchPrior?.up ?? null;
   const effectiveBuySetupType = resolveEffectiveBuySetupType(buyPolicy?.setupType, researchPriorUp);
-  const hasAnalysisSummary = canShowAnalysis;
 
   return (
     <ScreenPanel title="従来判定" className="detail-analysis-panel">
