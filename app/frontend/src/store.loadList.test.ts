@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const apiGet = vi.fn();
 const apiPost = vi.fn();
 const setApiErrorReporter = vi.fn();
+let consoleErrorSpy: ReturnType<typeof vi.spyOn> | null = null;
 
 vi.mock("./api", () => ({
   api: {
@@ -19,6 +20,7 @@ describe("store.loadList", () => {
     apiGet.mockReset();
     apiPost.mockReset();
     setApiErrorReporter.mockReset();
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const storage = new Map<string, string>();
     const windowStub = {
       MEEMEE_API_BASE: "/api",
@@ -41,6 +43,8 @@ describe("store.loadList", () => {
   });
 
   afterEach(() => {
+    consoleErrorSpy?.mockRestore();
+    consoleErrorSpy = null;
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
   });
@@ -79,6 +83,11 @@ describe("store.loadList", () => {
 
     expect(useStore.getState().favorites).toEqual(["1301"]);
     expect(useStore.getState().favoritesLoaded).toBe(false);
+    expect(consoleErrorSpy).toHaveBeenCalledWith("[favorites] load failed", {
+      status: null,
+      data: null,
+      message: "temporary favorites error"
+    });
 
     await vi.advanceTimersByTimeAsync(5_000);
 

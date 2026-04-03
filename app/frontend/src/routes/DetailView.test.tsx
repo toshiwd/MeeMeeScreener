@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installCanvasMock, type CanvasMockHandle } from "../test/canvasMock";
+import { renderClient, type RenderClientHandle } from "../test/renderClient";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -392,21 +393,14 @@ const createBarsResponse = (code: string, seed = 1000) => ({
   },
 });
 
-const renderDetailView = async (initialEntry = "/detail/7203") => {
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  await act(async () => {
-    root.render(
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <Routes>
-          <Route path="/detail/:code" element={<DetailView />} />
-        </Routes>
-      </MemoryRouter>
-    );
-  });
-  return { container, root };
-};
+const renderDetailView = async (initialEntry = "/detail/7203"): Promise<RenderClientHandle> =>
+  renderClient(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <Routes>
+        <Route path="/detail/:code" element={<DetailView />} />
+      </Routes>
+    </MemoryRouter>
+  );
 
 const findNextButton = (container: HTMLElement) =>
   container.querySelectorAll("button.back.nav-button")[1] ?? null;
@@ -449,21 +443,27 @@ describe("DetailView", () => {
     }
   });
 
+  let canvasMock: CanvasMockHandle | null = null;
+
+  beforeEach(() => {
+    canvasMock = installCanvasMock();
+  });
+
   afterEach(() => {
     document.body.innerHTML = "";
+    canvasMock?.restore();
+    canvasMock = null;
     vi.useRealTimers();
   });
 
   it("renders the detail route without throwing when the EDINET request is null", async () => {
-    const { container, root } = await renderDetailView();
+    const render = await renderDetailView();
+    const { container } = render;
 
     expect(container.querySelector("[data-testid='detail-header-chrome']")).not.toBeNull();
     expect(mocks.apiPost).not.toHaveBeenCalledWith("/jobs/edinet/official-backfill", expect.anything(), expect.anything());
 
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
+    render.cleanup();
   });
 
   it("stays mounted after switching to financial mode and requesting official EDINET backfill", async () => {
@@ -509,7 +509,8 @@ describe("DetailView", () => {
       return Promise.resolve({ data: {} });
     });
 
-    const { container, root } = await renderDetailView();
+    const render = await renderDetailView();
+    const { container } = render;
     const financialTab = container.querySelector("[data-testid='financial-tab']");
     expect(financialTab).not.toBeNull();
 
@@ -528,14 +529,12 @@ describe("DetailView", () => {
     );
     expect(container.querySelector("[data-testid='detail-header-chrome']")).not.toBeNull();
 
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
+    render.cleanup();
   });
 
   it("renders both TRADEX and legacy analysis panels on analysis mode", async () => {
-    const { container, root } = await renderDetailView();
+    const render = await renderDetailView();
+    const { container } = render;
     const analysisTab = container.querySelector("[data-testid='analysis-tab']");
     expect(analysisTab).not.toBeNull();
 
@@ -547,10 +546,7 @@ describe("DetailView", () => {
     expect(await waitForSelector(container, "[data-testid='tradex-analysis-panel']")).not.toBeNull();
     expect(await waitForSelector(container, "[data-testid='legacy-analysis-panel']")).not.toBeNull();
 
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
+    render.cleanup();
   });
 
   it("requests daily, weekly, and monthly bars for both the current and next code", async () => {
@@ -575,7 +571,8 @@ describe("DetailView", () => {
       return Promise.resolve({ data: { items: {} } });
     });
 
-    const { container, root } = await renderDetailView("/detail/9101");
+    const render = await renderDetailView("/detail/9101");
+    const { container } = render;
 
     await act(async () => {
       await flushMicrotasks();
@@ -615,10 +612,7 @@ describe("DetailView", () => {
     const batchBarsCallsAfterNavigate = mocks.apiPost.mock.calls.filter(([url]) => url === "/batch_bars_v3");
     expect(batchBarsCallsAfterNavigate).toHaveLength(2);
 
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
+    render.cleanup();
   });
 
   it("keeps the previous chart rendered while the next-code session is still loading", async () => {
@@ -644,7 +638,8 @@ describe("DetailView", () => {
       return Promise.resolve({ data: { items: {} } });
     });
 
-    const { container, root } = await renderDetailView("/detail/9201");
+    const render = await renderDetailView("/detail/9201");
+    const { container } = render;
 
     await act(async () => {
       await flushMicrotasks();
@@ -667,9 +662,6 @@ describe("DetailView", () => {
       await flushMicrotasks();
     });
 
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
+    render.cleanup();
   });
 });

@@ -1,55 +1,63 @@
 // @vitest-environment jsdom
-import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { renderClient, type RenderClientHandle } from "../test/renderClient";
 import TrackingView from "./TrackingView";
 
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
 describe("TrackingView", () => {
-  it("renders the tracking shell with ranking default mode", () => {
-    const markup = renderToStaticMarkup(
+  let render: RenderClientHandle | null = null;
+
+  afterEach(() => {
+    render?.cleanup();
+    render = null;
+  });
+
+  it("renders the tracking shell with ranking default mode", async () => {
+    render = await renderClient(
       <MemoryRouter initialEntries={["/ranking/tracking"]}>
         <TrackingView />
       </MemoryRouter>
     );
 
-    expect(markup).toContain("Ranking / Tracking");
-    expect(markup).toContain("解析");
-    expect(markup).toContain("Active");
-    expect(markup).toContain("Completed");
-    expect(markup).toContain("Archive");
-    expect(markup).toContain("rank bucket");
-    expect(markup).not.toContain("tracking-drawer-backdrop");
+    expect(render.html()).toContain("Ranking / Tracking");
+    expect(render.html()).toContain("tracking-page-title");
+    expect(render.html()).toContain("Active");
+    expect(render.html()).toContain("Completed");
+    expect(render.html()).toContain("Archive");
+    expect(render.html()).toContain("rank bucket");
+    expect(render.html()).not.toContain("tracking-drawer-backdrop");
   });
 
-  it("accepts signal query params for initial filtering", () => {
-    const markup = renderToStaticMarkup(
+  it("accepts signal query params for initial filtering", async () => {
+    render = await renderClient(
       <MemoryRouter initialEntries={["/ranking/tracking?view=signal&q=4444&side=sell&logic_version=logic:test:v2"]}>
         <TrackingView />
       </MemoryRouter>
     );
 
-    expect(markup).toContain('value="4444"');
-    expect(markup).toContain("売り");
-    expect(markup).toContain("logic version");
+    expect(render.html()).toContain('value="4444"');
+    expect(render.html()).toContain("コード / 銘柄名");
+    expect(render.html()).toContain("logic version");
   });
 
-  it("renders the analysis shell when analysis mode is selected", () => {
-    const markup = renderToStaticMarkup(
+  it("renders the analysis shell when analysis mode is selected", async () => {
+    render = await renderClient(
       <MemoryRouter initialEntries={["/ranking/tracking?view=analysis"]}>
         <TrackingView />
       </MemoryRouter>
     );
 
-    expect(markup).toContain("解析");
-    expect(markup).toContain("summary");
-    expect(markup).toContain("rolling");
-    expect(markup).toContain("sell compare");
-    expect(markup).toContain("sell subsets");
-    expect(markup).toContain("timing pattern");
-    expect(markup).toContain("peak day");
-    expect(markup).toContain("regime");
-    expect(markup).toContain("failure");
-    expect(markup).toContain("buy profit peak median");
-    expect(markup).toContain("sell adverse peak median");
+    expect(render.html()).toContain("summary");
+    expect(render.html()).toContain("rolling");
+    expect(render.html()).toContain("sell compare");
+    expect(render.html()).toContain("sell subsets");
+    expect(render.html()).toContain("timing pattern");
+    expect(render.html()).toContain("peak day");
+    expect(render.html()).toContain("regime");
+    expect(render.html()).toContain("failure");
+    expect(render.html()).toContain("buy profit peak median");
+    expect(render.html()).toContain("sell adverse peak median");
   });
 });
