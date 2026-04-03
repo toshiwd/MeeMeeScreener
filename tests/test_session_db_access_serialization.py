@@ -12,8 +12,18 @@ from app.db.session import get_conn_for_path
 
 
 class _FakeConn:
+    class _FakeResult:
+        def fetchone(self):
+            return None
+
+        def fetchall(self):
+            return []
+
     def close(self) -> None:
         return None
+
+    def execute(self, *args, **kwargs):
+        return self._FakeResult()
 
 
 def test_same_db_path_access_is_serialized():
@@ -37,7 +47,10 @@ def test_same_db_path_access_is_serialized():
         with get_conn_for_path("C:/tmp/stocks.duckdb", timeout_sec=0.1, read_only=True):
             return None
 
-    with patch("app.db.session._connect_with_retry_path", side_effect=_connect):
+    with (
+        patch("app.db.session._connect_with_retry_path", side_effect=_connect),
+        patch("app.db.session._ensure_schema_for_path_conn", return_value=None),
+    ):
         t1 = threading.Thread(target=_worker_first)
         t2 = threading.Thread(target=_worker_second)
         t1.start()
