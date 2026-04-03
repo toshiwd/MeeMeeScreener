@@ -6,8 +6,10 @@ application.  The GUI will be visible briefly during the operation.
 """
 from __future__ import annotations
 
+import csv
 import logging
 import os
+import subprocess
 import time
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,17 @@ RUNNING_TEXT_KEYWORDS = (
 )
 
 
+PANDTMGR_IMAGE_NAME = "pandtmgr.exe"
+BLOCKING_ERROR_KEYWORDS = (
+    "libstockdatabaseisinuse",
+    "databaseisinuse",
+)
+
+
+class PanImportError(RuntimeError):
+    """Pan import を即時中断すべきエラー。"""
+
+
 def _send_function_key(main_win: "object", key: str) -> bool:
     """Send a function key without depending on backend/version-specific kwargs."""
     try:
@@ -91,6 +104,13 @@ def run_pan_import(
     if not os.path.isfile(path):
         logger.error("pandtmgr.exe not found: %s", path)
         return False
+
+    running_pids = _list_running_pandtmgr_pids()
+    if running_pids:
+        raise PanImportError(
+            "Pan Data Manager is already running. Close PAN before daily update "
+            f"(pandtmgr.exe pids={','.join(str(pid) for pid in running_pids)})."
+        )
 
     try:
         from pywinauto import Application, timings  # type: ignore
@@ -148,6 +168,9 @@ def run_pan_import(
             logger.info("Pan Rolling import completed successfully")
             return True
 
+        except PanImportError:
+            logger.warning("Pan import blocked by Pan-side dialog (backend=%s)", backend)
+            raise
         except Exception:
             logger.exception("Pan import automation failed (backend=%s)", backend)
         finally:
@@ -198,6 +221,10 @@ def _wait_for_import_completion(
 
             if non_main:
                 settled_since = None
+                blocking_error = _find_blocking_error_dialog(non_main)
+                if blocking_error is not None:
+                    _dismiss_error_dialog(blocking_error)
+                    raise PanImportError(_format_blocking_error_message(blocking_error))
                 # A visible non-main dialog can be startup noise.
                 # Mark "started" only when it looks import-related.
                 dismissed = False
@@ -247,6 +274,8 @@ def _wait_for_import_completion(
                     logger.info("Import settled for %ss - import complete", SETTLE_WAIT_SECONDS)
                     return True
 
+        except PanImportError:
+            raise
         except Exception as exc:
             logger.debug("Polling error (non-fatal): %s", exc)
             continue
@@ -433,6 +462,77 @@ def _normalize_text(value: object) -> str:
     return str(value or "").strip().replace("&", "").replace(" ", "").lower()
 
 
+def _normalize_error_text(value: object) -> str:
+    return "".join(ch for ch in _normalize_text(value) if ch.isalnum() or ch == "%")
+
+
+def _tasklist_rows(image_name: str) -> list[list[str]]:
+    try:
+        raw = subprocess.check_output(
+            ["tasklist", "/FO", "CSV", "/NH", "/FI", f"IMAGENAME eq {image_name}"],
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            text=True,
+            encoding="cp932",
+            errors="ignore",
+        )
+    except Exception:
+        return []
+
+    rows: list[list[str]] = []
+    for row in csv.reader(line for line in raw.splitlines() if line.strip()):
+        if not row or row[0].startswith("INFO:"):
+            continue
+        rows.append(row)
+    return rows
+
+
+def _list_running_pandtmgr_pids() -> list[int]:
+    pids: list[int] = []
+    for row in _tasklist_rows(PANDTMGR_IMAGE_NAME):
+        if len(row) < 2:
+            continue
+        try:
+            pids.append(int(str(row[1]).replace(",", "").strip()))
+        except Exception:
+            continue
+    return pids
+
+
+def _find_blocking_error_dialog(dialogs: list[object]) -> object | None:
+    for dialog in dialogs:
+        if _is_blocking_error_dialog(dialog):
+            return dialog
+    return None
+
+
+def _is_blocking_error_dialog(dialog: "object") -> bool:
+    for text in _collect_dialog_texts(dialog):
+        norm = _normalize_error_text(text)
+        if any(keyword in norm for keyword in BLOCKING_ERROR_KEYWORDS):
+            return True
+    return False
+
+
+def _format_blocking_error_message(dialog: "object") -> str:
+    texts: list[str] = []
+    seen: set[str] = set()
+    for text in _collect_dialog_texts(dialog):
+        cleaned = str(text or "").strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        texts.append(cleaned)
+    summary = " | ".join(texts[:4]) or "Pan import blocked by Pan-side error dialog"
+    return f"Pan import blocked by Pan-side error dialog: {summary}"
+
+
+def _dismiss_error_dialog(dialog: "object") -> bool:
+    if _dismiss_completion_dialog(dialog):
+        return True
+    return _press_enter(dialog)
+
+
 def _iter_controls(window: "object") -> list[object]:
     controls: list[object] = []
     seen: set[int] = set()
@@ -483,9 +583,25 @@ def _close_app_safely(app: "Application | None") -> None:
                 win.close()
             except Exception:
                 pass
-        time.sleep(0.5)
+        _wait_for_app_exit(app, timeout_seconds=2.0)
         # If still running, kill
         if app.is_process_running():
             app.kill()
+            _wait_for_app_exit(app, timeout_seconds=5.0)
     except Exception:
         logger.debug("Error closing pandtmgr (non-fatal)", exc_info=True)
+
+
+def _wait_for_app_exit(app: "Application", timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + max(0.1, float(timeout_seconds))
+    while time.monotonic() < deadline:
+        try:
+            if not app.is_process_running():
+                return True
+        except Exception:
+            return True
+        time.sleep(0.1)
+    try:
+        return not app.is_process_running()
+    except Exception:
+        return True
