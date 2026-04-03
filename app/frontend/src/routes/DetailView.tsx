@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from "react";
 import { useCallback } from "react";
@@ -12,7 +12,6 @@ import {
   IconHeart,
   IconHeartFilled,
   IconSparkles,
-  IconRefresh,
   IconPointer,
   IconPointerOff,
 } from "@tabler/icons-react";
@@ -39,7 +38,6 @@ import { computeSignalMetrics } from "../utils/signals";
 import type { TradeEvent, CurrentPosition, DailyPosition } from "../utils/positions";
 import { buildCurrentPositions, buildDailyPositions, buildPositionLedger } from "../utils/positions";
 import { captureAndCopyScreenshot, saveBlobToFile, getScreenType } from "../utils/windowScreenshot";
-import { buildAIExport, copyToClipboard } from "../utils/aiExport";
 import { formatEventBadgeDate, parseEventDateMs } from "../utils/events";
 import DailyMemoPanel from "../components/DailyMemoPanel";
 import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from "../utils/consultCopy";
@@ -1391,18 +1389,6 @@ export default function DetailView() {
     setSelectedTdnetDisclosureIndex(0);
   }, [code]);
 
-  const formatPhaseScore = (value: number | null | undefined) => {
-    if (phaseFallbackLoading) return "読込中...";
-    return Number.isFinite(value)
-      ? String(Math.min(10, Math.max(0, Math.round(value! * 10))))
-      : "--";
-  };
-  const getPhaseTone = (value: number | null | undefined) => {
-    if (!Number.isFinite(value)) return "neutral";
-    if (value! > 0) return "up";
-    if (value! < 0) return "down";
-    return "neutral";
-  };
   const hasPhaseScores =
     activeTicker?.bodyScore != null ||
     activeTicker?.earlyScore != null ||
@@ -3353,17 +3339,9 @@ export default function DetailView() {
     () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
     [rangeMonths, mainAsOfTime]
   );
-  const compareDailyTargetRange = useMemo(
-    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, compareAsOfTime) : null),
-    [rangeMonths, compareAsOfTime]
-  );
   const mainMonthlyTargetRange = useMemo(
     () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, mainAsOfTime) : null),
     [rangeMonths, mainAsOfTime]
-  );
-  const compareMonthlyTargetRange = useMemo(
-    () => (rangeMonths ? buildRangeFromEndTime(rangeMonths, compareAsOfTime) : null),
-    [rangeMonths, compareAsOfTime]
   );
   const dailyVisibleRange = useMemo(() => {
     if (!rangeMonths) return null;
@@ -4723,7 +4701,7 @@ export default function DetailView() {
     } catch {
       return null;
     }
-  }, [location.search]);
+  }, []);
   const compareListItems = useMemo(() => compareList?.items ?? [], [compareList]);
   const compareListEligible = useMemo(() => {
     if (!compareList) return false;

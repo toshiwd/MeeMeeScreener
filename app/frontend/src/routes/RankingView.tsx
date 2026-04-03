@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AxiosError } from "axios";
@@ -804,7 +804,7 @@ export default function RankingView() {
       };
     });
     return list;
-  }, [tickers, barsCache, listTimeframe, rankWhich]);
+  }, [tickers, barsCache, rankWhich]);
 
   const searchResults = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -825,7 +825,7 @@ export default function RankingView() {
       map.set(item.code, computeSignalMetrics(series, 4));
     });
     return map;
-  }, [searchResults, barsCache, listTimeframe]);
+  }, [searchResults, barsCache]);
 
   const signalMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
@@ -862,7 +862,6 @@ export default function RankingView() {
     filterBuySignalsOnly,
     filterSellSignalsOnly,
     barsCache,
-    listTimeframe,
     signalMap,
     signalMetricsMap
   ]);
