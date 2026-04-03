@@ -37,7 +37,7 @@ describe("operator console hardening", () => {
     expect(markup).not.toContain("/ops/publish");
     expect(markup).not.toContain("検証");
     expect(markup).not.toContain("採用");
-    expect(markup).toContain("/tracking");
+    expect(markup).toContain("/positions");
     expect(markup).toContain("/candidates");
   });
 });

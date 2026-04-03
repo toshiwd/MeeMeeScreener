@@ -9,7 +9,7 @@ from typing import Any, Callable
 import duckdb
 
 from external_analysis.contracts.paths import resolve_export_db_path, resolve_source_db_path
-from external_analysis.exporter.diff_export import _source_signature, run_diff_export
+from external_analysis.exporter.diff_export import _source_signature_with_content, run_diff_export
 from external_analysis.exporter.export_schema import ensure_export_db
 from external_analysis.exporter.source_reader import connect_source_db, normalize_market_date, source_table_exists
 
@@ -117,6 +117,7 @@ def build_source_signature_payload(source_db_path: str | Path | None) -> dict[st
             else None
         )
         max_trade_date = normalize_market_date(max_trade_row[0]) if max_trade_row and max_trade_row[0] is not None else None
+        source_signature = _source_signature_with_content(source_conn, source_counts, max_trade_date)
     finally:
         source_conn.close()
     expected_export_signature = {
@@ -127,7 +128,7 @@ def build_source_signature_payload(source_db_path: str | Path | None) -> dict[st
     }
     return {
         "source_db_path": str(resolved_source_db_path),
-        "source_signature": _source_signature(source_counts, max_trade_date),
+        "source_signature": source_signature,
         "source_counts": source_counts,
         "expected_export_signature": expected_export_signature,
         "source_max_trade_date": int(max_trade_date or 0),

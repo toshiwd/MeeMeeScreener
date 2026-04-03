@@ -1,9 +1,10 @@
 ﻿// @ts-nocheck
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AxiosError } from "axios";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { IconHeart, IconHeartFilled } from "@tabler/icons-react";
+import { shallow } from "zustand/shallow";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import ChartListCard from "../components/ChartListCard";
@@ -21,6 +22,7 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
+import { buildDetailPrefetchBatchBarsRequestPayload } from "./detail/batchBarsRequest";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
 import { ResearchPatternBadges } from "./list/ResearchPatternBadges";
@@ -592,23 +594,43 @@ export default function RankingView() {
   const location = useLocation();
   const navigate = useNavigate();
   const { ready: backendReady } = useBackendReadyState();
-  const setFavoriteLocal = useStore((state) => state.setFavoriteLocal);
-  const ensureBarsForVisible = useStore((state) => state.ensureBarsForVisible);
-  const barsCache = useStore((state) => state.barsCache);
-  const barsStatus = useStore((state) => state.barsStatus);
-  const boxesCache = useStore((state) => state.boxesCache);
-  const maSettings = useStore((state) => state.maSettings);
-  const tickers = useStore((state) => state.tickers);
-  const ensureListLoaded = useStore((state) => state.ensureListLoaded);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
   const listRangeBars = useStore((state) => state.settings.listRangeBars);
   const columns = useStore((state) => state.settings.columns);
   const rows = useStore((state) => state.settings.rows);
-  const setListTimeframe = useStore((state) => state.setListTimeframe);
-  const setListRangeBars = useStore((state) => state.setListRangeBars);
-  const setColumns = useStore((state) => state.setColumns);
-  const setRows = useStore((state) => state.setRows);
-  const favoriteCodes = useStore((state) => state.favorites);
+  const consultTimeframe: ConsultationTimeframe = "monthly";
+  const {
+    setFavoriteLocal,
+    ensureBarsForVisible,
+    barsCache,
+    barsStatus,
+    boxesCache,
+    maSettings,
+    tickers,
+    ensureListLoaded,
+    setListTimeframe,
+    setListRangeBars,
+    setColumns,
+    setRows,
+    favoriteCodes
+  } = useStore(
+    (state) => ({
+      setFavoriteLocal: state.setFavoriteLocal,
+      ensureBarsForVisible: state.ensureBarsForVisible,
+      barsCache: state.barsCache[listTimeframe],
+      barsStatus: state.barsStatus[listTimeframe],
+      boxesCache: state.boxesCache[listTimeframe],
+      maSettings: state.maSettings[listTimeframe],
+      tickers: state.tickers,
+      ensureListLoaded: state.ensureListLoaded,
+      setListTimeframe: state.setListTimeframe,
+      setListRangeBars: state.setListRangeBars,
+      setColumns: state.setColumns,
+      setRows: state.setRows,
+      favoriteCodes: state.favorites
+    }),
+    shallow
+  );
   const rankWhich: RankWhich = "latest";
   const rankMode: RankMode = "trade";
   const riskMode: RankRiskMode = "balanced";
@@ -648,7 +670,6 @@ export default function RankingView() {
   const [consultSort, setConsultSort] = useState<ConsultationSort>("score");
   const [consultBusy, setConsultBusy] = useState(false);
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
-  const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
   const consultPaddingClass = consultVisible
     ? consultExpanded
@@ -708,14 +729,7 @@ export default function RankingView() {
     } as CSSProperties),
     [columns, rows]
   );
-  const listMaSettings =
-    listTimeframe === "daily"
-      ? maSettings.daily
-      : listTimeframe === "weekly"
-        ? maSettings.weekly
-        : maSettings.monthly;
-
-  const resolvedMaSettings = listMaSettings ?? RANK_MA_SETTINGS;
+  const resolvedMaSettings = maSettings ?? RANK_MA_SETTINGS;
 
   /*
   const timeframeButtons = useMemo(
@@ -778,7 +792,7 @@ export default function RankingView() {
       return { changePct: changeAbs / prevClose, changeAbs };
     };
     const list = tickers.map((ticker) => {
-      const payload = barsCache[listTimeframe]?.[ticker.code] ?? null;
+      const payload = barsCache[ticker.code] ?? null;
       const series = payload?.bars ?? [];
       const change = resolveChange(series);
       return {
@@ -805,7 +819,7 @@ export default function RankingView() {
   const signalMetricsMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>>();
     searchResults.forEach((item) => {
-      const payload = barsCache[listTimeframe]?.[item.code] ?? null;
+      const payload = barsCache[item.code] ?? null;
       const series = payload && payload.bars?.length ? payload.bars : item.series ?? [];
       if (!series.length) return;
       map.set(item.code, computeSignalMetrics(series, 4));
@@ -827,7 +841,7 @@ export default function RankingView() {
     const hasDirectionalFilter = filterBuySignalsOnly || filterSellSignalsOnly;
     if (!filterSignalsOnly && !filterDataOnly && !hasDirectionalFilter) return searchResults;
     return searchResults.filter((item) => {
-      const payload = barsCache[listTimeframe]?.[item.code] ?? null;
+      const payload = barsCache[item.code] ?? null;
       const series = payload && payload.bars?.length ? payload.bars : item.series ?? [];
       const hasData = series.length > 0;
       const metrics = signalMetricsMap.get(item.code);
@@ -1009,8 +1023,8 @@ export default function RankingView() {
           .slice(0, 3)
           .map((item) => ({
             code: item.code,
-            payload: barsCache[listTimeframe][item.code] ?? null,
-            boxes: boxesCache[listTimeframe][item.code] ?? [],
+            payload: barsCache[item.code] ?? null,
+            boxes: boxesCache[item.code] ?? [],
             maSettings: resolvedMaSettings,
             rangeBars: listRangeBars,
             timeframeLabel: listTimeframe,
@@ -1216,6 +1230,44 @@ export default function RankingView() {
   }, [consultVisible]);
 
   const selectedSet = useMemo(() => new Set(selectedCodes), [selectedCodes]);
+  const detailPrewarmLastAtRef = useRef<Map<string, number>>(new Map());
+  const detailPrewarmInFlightRef = useRef<Set<string>>(new Set());
+
+  const prewarmDetailData = useCallback(
+    async (code: string) => {
+      if (!backendReady || !code) return;
+      const rankItem = itemByCode.get(code);
+      const asof = rankItem?.asOf ?? null;
+      const cacheKey = `${code}:${asof ?? ""}`;
+      const now = Date.now();
+      const lastAt = detailPrewarmLastAtRef.current.get(cacheKey);
+      if (lastAt && now - lastAt < 60_000) return;
+      if (detailPrewarmInFlightRef.current.has(cacheKey)) return;
+      detailPrewarmInFlightRef.current.add(cacheKey);
+      detailPrewarmLastAtRef.current.set(cacheKey, now);
+      const limit = Math.max(60, Math.min(listRangeBars, 120));
+      try {
+        await api.post(
+          "/batch_bars_v3",
+          buildDetailPrefetchBatchBarsRequestPayload({
+            code,
+            dailyLimit: limit,
+            weeklyLimit: limit,
+            monthlyLimit: limit,
+            asof,
+            includeBoxes: false
+          })
+        );
+      } catch {
+        if (import.meta.env.DEV) {
+          console.debug("[ranking-detail-prewarm] failed", { code, asof });
+        }
+      } finally {
+        detailPrewarmInFlightRef.current.delete(cacheKey);
+      }
+    },
+    [backendReady, itemByCode, listRangeBars]
+  );
 
   const toggleSelect = useCallback((code: string) => {
     setSelectedCodes((prev) => {
@@ -1226,6 +1278,7 @@ export default function RankingView() {
 
   const handleOpenDetail = useCallback(
     (code: string) => {
+      void prewarmDetailData(code);
       try {
         sessionStorage.setItem("detailListBack", location.pathname);
         sessionStorage.setItem("detailListCodes", JSON.stringify(listCodes));
@@ -1234,7 +1287,7 @@ export default function RankingView() {
       }
       navigate(`/detail/${code}`, { state: { from: location.pathname } });
     },
-    [navigate, location.pathname, listCodes]
+    [navigate, location.pathname, listCodes, prewarmDetailData]
   );
 
   const handleEnsureVisibleItem = useCallback(
@@ -1281,10 +1334,11 @@ export default function RankingView() {
       } catch {
         // Use available cache even if fetch fails.
       }
+      const storeState = useStore.getState();
       const itemsForPack = selectedCodes.map((code) => {
         const rankItem = itemByCode.get(code);
-        const payload = barsCache[consultTimeframe]?.[code];
-        const boxes = boxesCache[consultTimeframe][code] ?? [];
+        const payload = storeState.barsCache[consultTimeframe]?.[code];
+        const boxes = storeState.boxesCache[consultTimeframe][code] ?? [];
         const monthlyP20 = Number.isFinite(rankItem?.mlP20Side1M ?? NaN)
           ? ((rankItem?.mlP20Side1M ?? 0) * 100)
           : null;
@@ -1357,8 +1411,6 @@ export default function RankingView() {
     mtfStrictTarget,
     mtfStrictGateApplied,
     itemByCode,
-    barsCache,
-    boxesCache,
     consultSort
   ]);
 
@@ -1558,104 +1610,104 @@ export default function RankingView() {
                 {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
                 <div className="rank-grid">
                   {sortedItems.map((item, index) => {
-                const payload = barsCache[listTimeframe]?.[item.code] ?? null;
-                const status = barsStatus[listTimeframe][item.code];
-                const series =
-                  payload && payload.bars?.length ? payload.bars : item.series ?? [];
-                const ticker = tickerMap.get(item.code);
-                const earningsLabel = formatEventBadgeDate(ticker?.eventEarningsDate);
-                const rightsLabel = formatEventBadgeDate(ticker?.eventRightsDate);
-                const tradexSummaryKey = buildTradexListSummaryKey(item.code, item.asOf ?? null);
-                const tradexSummary = tradexListSummaryState.itemsByKey[tradexSummaryKey] ?? null;
-                return (
-                  <ChartListCard
-                    key={item.code}
-                    code={item.code}
-                    name={item.name ?? item.code}
-                    payload={payload}
-                    fallbackSeries={series}
-                    status={status}
-                    maSettings={resolvedMaSettings}
-                    rangeBars={listRangeBars}
-                    densityKey={densityKey}
-                    onOpenDetail={handleOpenDetail}
-                    tileClassName={selectedSet.has(item.code) ? "is-selected" : ""}
-                    deferUntilInView
-                    onEnterView={handleEnsureVisibleItem}
-                    maxDate={item.asOf}
-                    phaseBody={ticker?.bodyScore ?? null}
-                    phaseEarly={ticker?.earlyScore ?? null}
-                    phaseLate={ticker?.lateScore ?? null}
-                    phaseN={ticker?.phaseN ?? null}
-                    annotation={
-                      selectedSet.has(item.code) ? (
-                        <TradexListSummary
-                          summary={tradexSummary}
-                          loading={tradexListSummaryState.loading && !tradexSummary}
-                        />
-                      ) : null
-                    }
-                    headerLeft={
-                    <div className="rank-header-main">
-                        <span className="rank-badge">{index + 1}</span>
-                        <label
-                          className="tile-select-toggle rank-select-toggle"
-                          onClick={(event) => event.stopPropagation()}
-                          onDoubleClick={(event) => event.stopPropagation()}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedSet.has(item.code)}
-                            onChange={() => toggleSelect(item.code)}
-                            aria-label={`${item.code} を選択`}
-                          />
-                          <span className="tile-code rank-tile-code">{item.code}</span>
-                        </label>
-                        <span className="tile-name rank-tile-name">{item.name ?? item.code}</span>
-                      </div>
-                    }
-                    headerRight={
-                      <div className="rank-header-meta">
-                        {(rightsLabel || earningsLabel) && (
-                          <span className="event-badges rank-header-event-badges">
-                            {rightsLabel && (
-                              <span className="event-badge event-rights">権利 {rightsLabel}</span>
-                            )}
-                            {earningsLabel && (
-                              <span className="event-badge event-earnings">
-                                決算 {earningsLabel}
+                    const payload = barsCache[item.code] ?? null;
+                    const status = barsStatus[item.code];
+                    const series =
+                      payload && payload.bars?.length ? payload.bars : item.series ?? [];
+                    const ticker = tickerMap.get(item.code);
+                    const earningsLabel = formatEventBadgeDate(ticker?.eventEarningsDate);
+                    const rightsLabel = formatEventBadgeDate(ticker?.eventRightsDate);
+                    const tradexSummaryKey = buildTradexListSummaryKey(item.code, item.asOf ?? null);
+                    const tradexSummary = tradexListSummaryState.itemsByKey[tradexSummaryKey] ?? null;
+                    return (
+                      <ChartListCard
+                        key={item.code}
+                        code={item.code}
+                        name={item.name ?? item.code}
+                        payload={payload}
+                        fallbackSeries={series}
+                        status={status}
+                        maSettings={resolvedMaSettings}
+                        rangeBars={listRangeBars}
+                        densityKey={densityKey}
+                        onOpenDetail={handleOpenDetail}
+                        tileClassName={selectedSet.has(item.code) ? "is-selected" : ""}
+                        deferUntilInView
+                        onEnterView={handleEnsureVisibleItem}
+                        maxDate={item.asOf}
+                        phaseBody={ticker?.bodyScore ?? null}
+                        phaseEarly={ticker?.earlyScore ?? null}
+                        phaseLate={ticker?.lateScore ?? null}
+                        phaseN={ticker?.phaseN ?? null}
+                        annotation={
+                          selectedSet.has(item.code) ? (
+                            <TradexListSummary
+                              summary={tradexSummary}
+                              loading={tradexListSummaryState.loading && !tradexSummary}
+                            />
+                          ) : null
+                        }
+                        headerLeft={
+                          <div className="rank-header-main">
+                            <span className="rank-badge">{index + 1}</span>
+                            <label
+                              className="tile-select-toggle rank-select-toggle"
+                              onClick={(event) => event.stopPropagation()}
+                              onDoubleClick={(event) => event.stopPropagation()}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedSet.has(item.code)}
+                                onChange={() => toggleSelect(item.code)}
+                                aria-label={`${item.code} を選択`}
+                              />
+                              <span className="tile-code rank-tile-code">{item.code}</span>
+                            </label>
+                            <span className="tile-name rank-tile-name">{item.name ?? item.code}</span>
+                          </div>
+                        }
+                        headerRight={
+                          <div className="rank-header-meta">
+                            {(rightsLabel || earningsLabel) && (
+                              <span className="event-badges rank-header-event-badges">
+                                {rightsLabel && (
+                                  <span className="event-badge event-rights">権利 {rightsLabel}</span>
+                                )}
+                                {earningsLabel && (
+                                  <span className="event-badge event-earnings">
+                                    決算 {earningsLabel}
+                                  </span>
+                                )}
                               </span>
                             )}
-                          </span>
-                        )}
-                        <ResearchPatternBadges
-                          researchPatternTag={item.researchPatternTag}
-                          researchPriorBonus={item.researchPriorBonus}
-                          formatPct={formatPct}
-                        />
-                        <Link
-                          className="rank-tracking-link"
-                          to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest&q=${encodeURIComponent(item.code)}`}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          追跡
-                        </Link>
-                        <button
-                          type="button"
-                          className={item.is_favorite ? "favorite-toggle active" : "favorite-toggle"}
-                          aria-label={item.is_favorite ? "お気に入り解除" : "お気に入り追加"}
-                          aria-pressed={Boolean(item.is_favorite)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleToggleFavorite(item.code, Boolean(item.is_favorite));
-                          }}
-                        >
-                          {item.is_favorite ? <IconHeartFilled size={16} /> : <IconHeart size={16} />}
-                        </button>
-                      </div>
-                    }
-                  />
-                );
+                            <ResearchPatternBadges
+                              researchPatternTag={item.researchPatternTag}
+                              researchPriorBonus={item.researchPriorBonus}
+                              formatPct={formatPct}
+                            />
+                            <Link
+                              className="rank-tracking-link"
+                              to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest&q=${encodeURIComponent(item.code)}`}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              追跡
+                            </Link>
+                            <button
+                              type="button"
+                              className={item.is_favorite ? "favorite-toggle active" : "favorite-toggle"}
+                              aria-label={item.is_favorite ? "お気に入り解除" : "お気に入り追加"}
+                              aria-pressed={Boolean(item.is_favorite)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleToggleFavorite(item.code, Boolean(item.is_favorite));
+                              }}
+                            >
+                              {item.is_favorite ? <IconHeartFilled size={16} /> : <IconHeart size={16} />}
+                            </button>
+                          </div>
+                        }
+                      />
+                    );
                   })}
                 </div>
               </>

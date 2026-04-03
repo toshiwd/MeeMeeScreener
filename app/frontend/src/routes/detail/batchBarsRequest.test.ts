@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildDetailBatchBarsRequestPayload, buildSingleBatchBarsRequestPayload } from "./batchBarsRequest";
+import {
+  buildDetailBatchBarsRequestPayload,
+  buildDetailPrefetchBatchBarsRequestPayload,
+  buildSingleBatchBarsRequestPayload
+} from "./batchBarsRequest";
 
 describe("buildSingleBatchBarsRequestPayload", () => {
   it("includes compare asof when provided", () => {
@@ -15,6 +19,7 @@ describe("buildSingleBatchBarsRequestPayload", () => {
       timeframes: ["daily"],
       limit: 240,
       includeProvisional: true,
+      includeBoxes: false,
       asof: "2026-03-19",
     });
   });
@@ -59,6 +64,32 @@ describe("buildDetailBatchBarsRequestPayload", () => {
       },
       includeProvisional: true,
       includeBoxes: true,
+      asof: "2026-03-19",
+    });
+  });
+});
+
+describe("buildDetailPrefetchBatchBarsRequestPayload", () => {
+  it("builds a bounded prefetch payload without boxes by default", () => {
+    expect(
+      buildDetailPrefetchBatchBarsRequestPayload({
+        code: "7203",
+        dailyLimit: 120,
+        weeklyLimit: 120,
+        monthlyLimit: 120,
+        asof: "2026-03-19",
+      })
+    ).toEqual({
+      codes: ["7203"],
+      timeframes: ["daily", "weekly", "monthly"],
+      limit: 120,
+      timeframeLimits: {
+        daily: 120,
+        weekly: 120,
+        monthly: 120,
+      },
+      includeProvisional: true,
+      includeBoxes: false,
       asof: "2026-03-19",
     });
   });

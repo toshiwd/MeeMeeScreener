@@ -1,5 +1,6 @@
 import os
-import tempfile
+from pathlib import Path
+from uuid import uuid4
 
 import duckdb
 
@@ -7,10 +8,13 @@ from app.db.schema import ensure_schema
 
 
 def test_duckdb_schema_includes_trade_tables():
-    tmp_dir = tempfile.mkdtemp(prefix="meemee_schema_")
-    db_path = os.path.join(tmp_dir, "stocks.duckdb")
+    root = (Path(__file__).resolve().parents[1] / ".tmp-tests" / "trade_schema").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    tmp_dir = (root / f"meemee_schema_{uuid4().hex}").resolve()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    db_path = os.path.join(str(tmp_dir), "stocks.duckdb")
 
-    os.environ["MEEMEE_DATA_DIR"] = tmp_dir
+    os.environ["MEEMEE_DATA_DIR"] = str(tmp_dir)
     os.environ["STOCKS_DB_PATH"] = db_path
 
     from app.db.session import get_conn
@@ -25,8 +29,11 @@ def test_duckdb_schema_includes_trade_tables():
 
 
 def test_trade_events_schema_migrates_source_row_hash_unique():
-    tmp_dir = tempfile.mkdtemp(prefix="meemee_trade_schema_")
-    db_path = os.path.join(tmp_dir, "stocks.duckdb")
+    root = (Path(__file__).resolve().parents[1] / ".tmp-tests" / "trade_schema").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    tmp_dir = (root / f"meemee_trade_schema_{uuid4().hex}").resolve()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    db_path = os.path.join(str(tmp_dir), "stocks.duckdb")
 
     conn = duckdb.connect(db_path)
     conn.execute(

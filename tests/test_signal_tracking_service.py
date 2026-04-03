@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-import tempfile
 from datetime import date, timedelta
+from pathlib import Path
+from uuid import uuid4
 
 import duckdb
 
@@ -21,8 +22,11 @@ def _build_business_days(start: date, count: int) -> list[int]:
 
 
 def _make_temp_db() -> str:
-    tmp_dir = tempfile.mkdtemp(prefix="meemee_signal_tracking_")
-    return os.path.join(tmp_dir, "stocks.duckdb")
+    root = (Path(__file__).resolve().parents[1] / ".tmp-tests" / "signal_tracking").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    tmp_dir = (root / f"meemee_signal_tracking_{uuid4().hex}").resolve()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    return os.path.join(str(tmp_dir), "stocks.duckdb")
 
 
 def _seed_market_data(db_path: str) -> list[int]:

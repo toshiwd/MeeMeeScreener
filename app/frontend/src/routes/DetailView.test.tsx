@@ -351,6 +351,18 @@ const flushMicrotasks = async () => {
   await Promise.resolve();
 };
 
+const waitForSelector = async (container: HTMLElement, selector: string, attempts = 10) => {
+  for (let index = 0; index < attempts; index += 1) {
+    const found = container.querySelector(selector);
+    if (found) return found;
+    await act(async () => {
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+  return container.querySelector(selector);
+};
+
 const createDeferred = <T,>() => {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -532,8 +544,8 @@ describe("DetailView", () => {
       await flushMicrotasks();
     });
 
-    expect(container.querySelector("[data-testid='tradex-analysis-panel']")).not.toBeNull();
-    expect(container.querySelector("[data-testid='legacy-analysis-panel']")).not.toBeNull();
+    expect(await waitForSelector(container, "[data-testid='tradex-analysis-panel']")).not.toBeNull();
+    expect(await waitForSelector(container, "[data-testid='legacy-analysis-panel']")).not.toBeNull();
 
     act(() => {
       root.unmount();

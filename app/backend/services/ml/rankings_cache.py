@@ -32,7 +32,18 @@ RankDir = Literal["up", "down"]
 RankMode = Literal["rule", "ml", "hybrid", "turn", "trade"]
 RankRiskMode = Literal["defensive", "balanced", "aggressive"]
 RankBaseCacheKey = tuple[RankTimeframe, RankWhich, RankDir]
-RankResultCacheKey = tuple[RankTimeframe, RankWhich, RankDir, RankMode, RankRiskMode, int, str | None, str, bool]
+RankResultCacheKey = tuple[
+    RankTimeframe,
+    RankWhich,
+    RankDir,
+    RankMode,
+    RankRiskMode,
+    int,
+    str | None,
+    str,
+    bool,
+    bool,
+]
 RefreshSignature = tuple[Any, ...]
 
 _CACHE: dict[RankBaseCacheKey, list[dict]] = {}
@@ -395,11 +406,11 @@ def _is_edinet_bonus_enabled() -> bool:
     }
 
 
-def _current_result_cache_variant() -> tuple[str | None, str, bool]:
+def _current_result_cache_variant() -> tuple[str | None, str, bool, bool]:
     with _LOCK:
         last_updated = _LAST_UPDATED.isoformat() if _LAST_UPDATED is not None else None
     db_path = str(os.getenv("STOCKS_DB_PATH", "") or "")
-    return last_updated, db_path, _is_edinet_bonus_enabled()
+    return last_updated, db_path, is_legacy_analysis_disabled(), _is_edinet_bonus_enabled()
 
 
 def _apply_edinet_defaults(item: dict, *, flag_applied: bool) -> dict:
@@ -6241,7 +6252,7 @@ def _get_cached_rankings_response(
     mode: RankMode,
     risk_mode: RankRiskMode,
 ) -> dict[str, Any]:
-    last_updated_key, db_path_key, edinet_flag_key = _current_result_cache_variant()
+    last_updated_key, db_path_key, legacy_disabled_key, edinet_flag_key = _current_result_cache_variant()
     result_key: RankResultCacheKey = (
         tf,
         which,
@@ -6251,6 +6262,7 @@ def _get_cached_rankings_response(
         limit,
         last_updated_key,
         db_path_key,
+        legacy_disabled_key,
         edinet_flag_key,
     )
     base_cache_key: RankBaseCacheKey = (tf, which, direction)

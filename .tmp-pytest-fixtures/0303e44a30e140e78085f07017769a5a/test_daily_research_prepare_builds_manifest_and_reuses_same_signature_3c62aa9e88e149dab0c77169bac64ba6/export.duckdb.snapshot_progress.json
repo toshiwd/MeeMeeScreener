@@ -1,0 +1,128 @@
+{
+  "completed_steps": [
+    "bars_daily_export",
+    "bars_monthly_export",
+    "indicator_daily_export",
+    "pattern_state_export",
+    "trade_event_export",
+    "position_snapshot_export",
+    "meta_export_runs"
+  ],
+  "current_step": null,
+  "export_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\0303e44a30e140e78085f07017769a5a\\test_daily_research_prepare_builds_manifest_and_reuses_same_signature_3c62aa9e88e149dab0c77169bac64ba6\\export.duckdb",
+  "reason_code": "prepare_complete",
+  "run_id": "prep_20260403T010438031353Z",
+  "schema_version": "tradex_export_snapshot_progress_v1",
+  "source_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\0303e44a30e140e78085f07017769a5a\\test_daily_research_prepare_builds_manifest_and_reuses_same_signature_3c62aa9e88e149dab0c77169bac64ba6\\source.duckdb",
+  "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907",
+  "started_at": "2026-04-03T01:04:38.031353+00:00",
+  "status": "complete",
+  "steps": [
+    {
+      "details": {
+        "completed_chunks": 4,
+        "eta_seconds": 0,
+        "table_name": "bars_daily_export",
+        "total_chunks": 4
+      },
+      "finished_at": "2026-04-03T01:04:38.130230",
+      "max_trade_date": 20260410,
+      "row_count": 280,
+      "started_at": "2026-04-03T01:04:38.082775",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "bars_daily_export"
+    },
+    {
+      "details": {
+        "completed_chunks": 1,
+        "eta_seconds": 0,
+        "table_name": "bars_monthly_export",
+        "total_chunks": 1
+      },
+      "finished_at": "2026-04-03T01:04:38.147929",
+      "max_trade_date": 202603,
+      "row_count": 1,
+      "started_at": "2026-04-03T01:04:38.134377",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "bars_monthly_export"
+    },
+    {
+      "details": {
+        "completed_chunks": 4,
+        "eta_seconds": 0,
+        "table_name": "indicator_daily_export",
+        "total_chunks": 4
+      },
+      "finished_at": "2026-04-03T01:04:38.200261",
+      "max_trade_date": 20260410,
+      "row_count": 280,
+      "started_at": "2026-04-03T01:04:38.156931",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "indicator_daily_export"
+    },
+    {
+      "details": {
+        "completed_chunks": 4,
+        "eta_seconds": 0,
+        "table_name": "pattern_state_export",
+        "total_chunks": 4
+      },
+      "finished_at": "2026-04-03T01:04:38.245800",
+      "max_trade_date": 20260410,
+      "row_count": 280,
+      "started_at": "2026-04-03T01:04:38.207262",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "pattern_state_export"
+    },
+    {
+      "details": {
+        "completed_chunks": 1,
+        "eta_seconds": 0,
+        "table_name": "trade_event_export",
+        "total_chunks": 1
+      },
+      "finished_at": "2026-04-03T01:04:38.262799",
+      "max_trade_date": null,
+      "row_count": 0,
+      "started_at": "2026-04-03T01:04:38.249800",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "trade_event_export"
+    },
+    {
+      "details": {
+        "completed_chunks": 1,
+        "eta_seconds": 0,
+        "table_name": "position_snapshot_export",
+        "total_chunks": 1
+      },
+      "finished_at": "2026-04-03T01:04:38.278441",
+      "max_trade_date": null,
+      "row_count": 0,
+      "started_at": "2026-04-03T01:04:38.267440",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "position_snapshot_export"
+    },
+    {
+      "details": {
+        "completed_chunks": 1,
+        "eta_seconds": 0,
+        "table_name": "meta_export_runs",
+        "total_chunks": 1
+      },
+      "finished_at": "2026-04-03T01:04:38.300445",
+      "max_trade_date": 20260410,
+      "row_count": 1,
+      "started_at": "2026-04-03T01:04:38.282441",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "meta_export_runs"
+    }
+  ],
+  "updated_at": "2026-04-03T01:04:38.306444+00:00"
+}

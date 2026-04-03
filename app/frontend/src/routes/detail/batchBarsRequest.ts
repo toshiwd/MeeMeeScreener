@@ -30,10 +30,8 @@ export const buildSingleBatchBarsRequestPayload = ({
     timeframes: [timeframe],
     limit,
     includeProvisional: true,
+    includeBoxes: typeof includeBoxes === "boolean" ? includeBoxes : false,
   };
-  if (typeof includeBoxes === "boolean") {
-    payload.includeBoxes = includeBoxes;
-  }
   if (typeof asof === "string" && asof.trim()) {
     payload.asof = asof.trim();
   }
@@ -70,5 +68,28 @@ export const buildDetailBatchBarsRequestPayload = ({
   if (typeof asof === "string" && asof.trim()) {
     payload.asof = asof.trim();
   }
+  return payload;
+};
+
+type DetailPrefetchParams = DetailParams & {
+  includeBoxes?: boolean;
+};
+
+export const buildDetailPrefetchBatchBarsRequestPayload = ({
+  code,
+  dailyLimit,
+  weeklyLimit,
+  monthlyLimit,
+  asof,
+  includeBoxes,
+}: DetailPrefetchParams): BatchBarsRequestPayload => {
+  const payload = buildDetailBatchBarsRequestPayload({
+    code,
+    dailyLimit,
+    weeklyLimit,
+    monthlyLimit,
+    asof,
+  });
+  payload.includeBoxes = typeof includeBoxes === "boolean" ? includeBoxes : false;
   return payload;
 };

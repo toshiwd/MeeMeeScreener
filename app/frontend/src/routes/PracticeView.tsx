@@ -1723,6 +1723,9 @@ export default function PracticeView() {
       onAnalysis={() => {
         if (code) navigate(`/detail/${code}`);
       }}
+      onSimilar={() => {
+        if (code) navigate(`/detail/${code}`);
+      }}
       onFinancial={() => {
         if (code) navigate(`/detail/${code}`);
       }}

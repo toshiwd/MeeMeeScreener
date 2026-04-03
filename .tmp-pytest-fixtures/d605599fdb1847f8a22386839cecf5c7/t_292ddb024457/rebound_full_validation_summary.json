@@ -1,0 +1,64 @@
+{
+  "dataset_id": "monthly-event-meemee-registered-sample100-v12",
+  "decision": "adopt_soft_bonus_only",
+  "decision_reason": {
+    "diagnosis": "primary_failure_axis=turnover does not block ranking policy adoption first.",
+    "monitor": "soft_bonus_only increased bonus-active days over baseline while keeping rank changes bounded."
+  },
+  "diagnosis_artifact_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\d605599fdb1847f8a22386839cecf5c7\\t_292ddb024457\\diagnosis\\toredex_policy_diagnosis.json",
+  "diagnosis_run_id": "diagnosis-run",
+  "diagnosis_summary": {
+    "base_current": {
+      "max_drawdown_pct": -21.0,
+      "total_return_pct": -20.0,
+      "worst_month_pct": -11.0
+    },
+    "gate_disabled_for_diagnosis": {
+      "max_drawdown_pct": -19.0,
+      "total_return_pct": -18.0,
+      "worst_month_pct": -10.0
+    },
+    "holdings_1": {
+      "max_drawdown_pct": -6.0,
+      "total_return_pct": -4.0,
+      "worst_month_pct": -3.0
+    },
+    "holdings_2": {
+      "max_drawdown_pct": -12.0,
+      "total_return_pct": -9.0,
+      "worst_month_pct": -6.0
+    },
+    "primary_failure_axis": "turnover",
+    "turnover_tight": {
+      "max_drawdown_pct": -16.0,
+      "total_return_pct": -15.0,
+      "worst_month_pct": -8.0
+    }
+  },
+  "generated_at": "2026-04-03T01:45:24.866269+00:00",
+  "lock_check": {
+    "blocking_processes": [],
+    "db_path": "C:/db/stocks.duckdb",
+    "status": "ok"
+  },
+  "monitor_artifact_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\d605599fdb1847f8a22386839cecf5c7\\t_292ddb024457\\monitor\\rebound_live_monitor.json",
+  "monitor_run_id": "monitor",
+  "monitor_summary": {
+    "baseline_days_with_bonus": 2,
+    "baseline_variant": "baseline_live",
+    "candidate_days_with_bonus": 4,
+    "candidate_variant": "soft_bonus_only",
+    "days_with_bonus_delta_vs_baseline": 2,
+    "max_entry_rank_changed_count": 5,
+    "median_bonus_candidate_count": 1.0,
+    "median_entry_rank_changed_count": 2.0
+  },
+  "period": {
+    "diagnosis_end_date": "2026-03-29",
+    "diagnosis_start_date": "2024-03-29",
+    "monitor_days": 60
+  },
+  "recommended_policy": "soft_bonus_only",
+  "schema_version": "tradex_rebound_full_validation_v1",
+  "wall_clock_seconds": 0.022
+}

@@ -1,0 +1,96 @@
+{
+  "common": {
+    "ma_periods": [
+      7,
+      20,
+      60,
+      100,
+      200
+    ],
+    "slope_lookback": 3,
+    "atr_period": 14,
+    "volume_period": 20,
+    "volume_ratio_mode": "exclude_latest",
+    "trigger_lookback": 20,
+    "min_daily_bars": 80,
+    "max_daily_bars": 260,
+    "min_monthly_bars": 24,
+    "max_monthly_bars": 120,
+    "max_reasons": 6,
+    "rank_series_bars": 240
+  },
+  "weekly": {
+    "weights": {
+      "ma_alignment": 20,
+      "ma_alignment_100": 8,
+      "ma_alignment_200": 5,
+      "pullback_above_ma20": 20,
+      "volume_spike": 10,
+      "near_high_break": 22,
+      "slope_up": 8,
+      "slope_up_100": 4,
+      "slope_up_200": 4,
+      "big_bull_candle": 12,
+      "ma20_support": 8,
+      "ma100_support": 5,
+      "ma200_support": 5,
+      "obs_above_ma100": 5,
+      "obs_above_ma200": 5
+    },
+    "thresholds": {
+      "pullback_down7_min": 1,
+      "pullback_down7_max": 2,
+      "volume_ratio": 1.8,
+      "near_break_pct": 2.0,
+      "slope_min": 0.0,
+      "big_candle_atr": 1.2,
+      "ma20_distance_pct": 2.0,
+      "ma100_distance_pct": 3.0,
+      "ma200_distance_pct": 3.0
+    },
+    "down_weights": {
+      "ma_alignment": 20,
+      "ma_alignment_100": 8,
+      "ma_alignment_200": 5,
+      "pullback_below_ma20": 18,
+      "volume_spike": 10,
+      "near_low_break": 20,
+      "slope_down": 8,
+      "slope_down_100": 4,
+      "slope_down_200": 4,
+      "big_bear_candle": 6,
+      "ma20_resistance": 8,
+      "ma100_resistance": 5,
+      "ma200_resistance": 5,
+      "obs_below_ma100": 5,
+      "obs_below_ma200": 5
+    },
+    "down_thresholds": {
+      "pullback_up7_min": 1,
+      "pullback_up7_max": 2,
+      "volume_ratio": 1.5,
+      "near_break_pct": 2.0,
+      "slope_max": 0.0,
+      "big_candle_atr": 1.2,
+      "ma20_distance_pct": 2.0,
+      "ma100_distance_pct": 3.0,
+      "ma200_distance_pct": 3.0
+    }
+  },
+  "monthly": {
+    "weights": {
+      "box_months": 4,
+      "near_edge": 20,
+      "ma_order_7_20_60": 25,
+      "ma_slopes_up": 15,
+      "wild_box_penalty": -5
+    },
+    "thresholds": {
+      "min_months": 3,
+      "max_months": 14,
+      "max_range_pct": 0.2,
+      "wild_wick_pct": 0.1,
+      "near_edge_pct": 4.0
+    }
+  }
+}

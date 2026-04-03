@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from "react";
 import { useCallback } from "react";
 import { startTransition } from "react";
@@ -30,8 +30,6 @@ import DetailModeTabs from "../components/DetailModeTabs";
 import DetailTimeframeSwitcher from "../components/DetailTimeframeSwitcher";
 import DetailDrawToolbar from "../components/DetailDrawToolbar";
 import ScreenPanel from "../components/ScreenPanel";
-import SimilarSearchPanel from "../components/SimilarSearchPanel";
-import AiExplainDock from "../features/aiExplain/AiExplainDock";
 import {
   buildAiExplainBarsPayload,
   buildAiExplainImages,
@@ -49,17 +47,28 @@ import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
 import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/useExactDecisionRange";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
-import { DetailAnalysisPanel } from "./detail/DetailAnalysisPanel";
-import { DetailFinancialPanel } from "./detail/DetailFinancialPanel";
-import { DetailTdnetCard } from "./detail/DetailTdnetCard";
-import TradexAnalysisMount from "./detail/TradexAnalysisMount";
 import {
   buildDetailBatchBarsRequestPayload,
 } from "./detail/batchBarsRequest";
 import DetailDebugBanner from "./detail/components/DetailDebugBanner";
-import DetailIndicatorOverlay from "./detail/components/DetailIndicatorOverlay";
 import DetailPositionLedgerSheet from "./detail/components/DetailPositionLedgerSheet";
 import { useDetailDrawings } from "./detail/hooks/useDetailDrawings";
+
+const LazySimilarSearchPanel = lazy(() => import("../components/SimilarSearchPanel"));
+const LazyAiExplainDock = lazy(() => import("../features/aiExplain/AiExplainDock"));
+const LazyDetailAnalysisPanel = lazy(() =>
+  import("./detail/DetailAnalysisPanel").then((mod) => ({ default: mod.DetailAnalysisPanel }))
+);
+const LazyDetailFinancialPanel = lazy(() =>
+  import("./detail/DetailFinancialPanel").then((mod) => ({ default: mod.DetailFinancialPanel }))
+);
+const LazyDetailTdnetCard = lazy(() =>
+  import("./detail/DetailTdnetCard").then((mod) => ({ default: mod.DetailTdnetCard }))
+);
+const LazyTradexAnalysisMount = lazy(() => import("./detail/TradexAnalysisMount"));
+const LazyDetailIndicatorOverlay = lazy(() =>
+  import("./detail/components/DetailIndicatorOverlay")
+);
 
 import type {
   Timeframe,
@@ -642,6 +651,21 @@ export default function DetailView() {
 
   const syncRangesRef = useRef(syncRanges);
   const [showSimilar, setShowSimilar] = useState(false);
+  const [similarSearchMounted, setSimilarSearchMounted] = useState(false);
+  const [aiExplainDockMounted, setAiExplainDockMounted] = useState(false);
+  useEffect(() => {
+    if (showSimilar) {
+      setSimilarSearchMounted(true);
+    }
+  }, [showSimilar]);
+  useEffect(() => {
+    if (aiExplainDockMounted) return;
+    if (loadingDaily || loadingMonthly || mainChartPendingSwap) return;
+    const timer = window.setTimeout(() => {
+      setAiExplainDockMounted(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [aiExplainDockMounted, loadingDaily, loadingMonthly, mainChartPendingSwap]);
   const resetMainChartState = useCallback((seed?: Partial<ChartPrefetchFrames>) => {
     const nextDailyLimit = DEFAULT_LIMITS.daily;
     const nextMonthlyLimit = DEFAULT_LIMITS.monthly;
@@ -4020,8 +4044,9 @@ export default function DetailView() {
     return `表示期間: ${dailyRangeLabel}`;
   }, [compareMonthlyVisibleRange, compareMonthlyInitialRange, compareAsOfTime, dailyRangeLabel]);
   const aiExplainImageSources = useMemo(
-    () =>
-      [
+    () => {
+      if (!aiExplainDockMounted) return [];
+      return [
         {
           code: code ?? "main",
           payload: buildAiExplainBarsPayload(dailyCandles),
@@ -4054,8 +4079,10 @@ export default function DetailView() {
               showBoxes,
             }
           : null,
-      ].filter(Boolean) as Parameters<typeof buildAiExplainImages>[0],
+      ].filter(Boolean) as Parameters<typeof buildAiExplainImages>[0];
+    },
     [
+      aiExplainDockMounted,
       boxes,
       code,
       compareBoxes,
@@ -4072,10 +4099,33 @@ export default function DetailView() {
     ]
   );
   const aiExplainImages = useMemo(
-    () => buildAiExplainImages(aiExplainImageSources, 3),
-    [aiExplainImageSources]
+    () => {
+      if (!aiExplainDockMounted) return [];
+      return buildAiExplainImages(aiExplainImageSources, 3);
+    },
+    [aiExplainDockMounted, aiExplainImageSources]
   );
   const aiExplainSnapshot = useMemo(() => {
+    if (!aiExplainDockMounted) {
+      return {
+        mode: compareCode ? "compare" : "explain",
+        screenType: compareCode ? "compare" : "detail",
+        asOfDate: compareCode ? compareAsOf ?? null : detailAsOfTime ?? null,
+        userQuestion: "",
+        selectedSymbols: code ? [code] : [],
+        compareSymbols: compareCode ? [compareCode] : [],
+        visibleTimeframe: {
+          daily: null,
+          weekly: null,
+          monthly: null,
+          compareDaily: null,
+          compareMonthly: null,
+        },
+        main: null,
+        compare: null,
+        compareDifference: null,
+      };
+    }
     const rangeToSnapshot = (range: { from: number; to: number } | null | undefined) =>
       range ? { from: range.from, to: range.to } : null;
     const mainSummary = summarizeDetailTickerForAiExplain(activeTicker, {
@@ -4113,6 +4163,7 @@ export default function DetailView() {
     };
   }, [
     activeTicker,
+    aiExplainDockMounted,
     code,
     compareAsOf,
     compareCode,
@@ -5713,92 +5764,96 @@ export default function DetailView() {
                     )}
                   </div>
                 </ScreenPanel>
-                <TradexAnalysisMount
-                  backendReady={backendReady}
-                  readyToFetch={analysisNetworkReady}
-                  analysisFetchEnabled={analysisFetchEnabled}
-                  code={code ?? null}
-                  asof={analysisAsOfTime}
-                  formatPercentLabel={formatPercentLabel}
-                  formatSignedPercentLabel={formatSignedPercentLabel}
-                  formatNumber={formatNumber}
-                />
-                <DetailAnalysisPanel
-                  analysisAsOfTime={analysisAsOfTime}
-                  analysisBackfillActive={analysisBackfillActive}
-                  analysisRecalcSubmitting={analysisRecalcSubmitting}
-                  analysisRecalcDisabled={analysisRecalcDisabled}
-                  analysisRecalcDisabledReason={analysisRecalcDisabledReason}
-                  submitAnalysisRecalc={submitAnalysisRecalc}
-                  analysisDtLabel={analysisDtLabel}
-                  cursorMode={cursorMode}
-                  analysisCursorDateLabel={analysisCursorDateLabel}
-                  canShowPhase={canShowPhase}
-                  phaseReasons={phaseReasons}
-                  canShowAnalysis={canShowAnalysis}
-                  analysisDecision={analysisDecision}
-                  analysisSummaryLoading={analysisSummaryLoading}
-                  analysisGuidance={analysisGuidance}
-                  analysisEntryPolicy={analysisEntryPolicy}
-                  patternSummary={patternSummary}
-                  analysisPreparationVisible={analysisPreparationVisible}
-                  analysisBackfillProgressLabel={analysisBackfillProgressLabel}
-                  analysisBackfillMessage={analysisBackfillMessage}
-                  sellAnalysisDtLabel={sellAnalysisDtLabel}
-                  sellPredDtLabel={sellPredDtLabel}
-                  researchPriorRunId={researchPriorRunId}
-                  analysisResearchPrior={analysisResearchPrior}
-                  researchPriorUpMeta={researchPriorUpMeta}
-                  researchPriorDownMeta={researchPriorDownMeta}
-                  edinetStatusMeta={edinetStatusMeta}
-                  edinetQualityMeta={edinetQualityMeta}
-                  edinetMetricsMeta={edinetMetricsMeta}
-                  edinetBonusMeta={edinetBonusMeta}
-                  hasSwingData={hasSwingData}
-                  swingPlan={swingPlan}
-                  swingSideLabel={swingSideLabel}
-                  swingReasonsLabel={swingReasonsLabel}
-                  swingDiagnostics={swingDiagnostics}
-                  swingSetupExpectancy={swingSetupExpectancy}
-                  analysisMissingDataVisible={analysisMissingDataVisible}
-                  decisionHistory={exactDecisionRange}
-                  individualResult={
-                    activeTicker
-                      ? {
-                          setupType: (activeTicker as any).setupType ?? null,
-                          monthlyBoxState: (activeTicker as any).monthlyBoxState ?? (activeTicker as any).boxState ?? null,
-                          tradePriorityScore: (activeTicker as any).tradePriorityScore ?? null,
-                          entryPriorityScore: (activeTicker as any).entryPriorityScore ?? null,
-                          hybridScore: (activeTicker as any).hybridScore ?? null,
-                          entryQualified: (activeTicker as any).entryQualified ?? null,
-                          entryQualifiedByFallback: (activeTicker as any).entryQualifiedByFallback ?? null,
-                          entryQualifiedFallbackStage: (activeTicker as any).entryQualifiedFallbackStage ?? null,
-                          researchPatternTag: (activeTicker as any).researchPatternTag ?? null,
-                          researchDecisionReasons: (activeTicker as any).researchDecisionReasons ?? null,
-                          researchRiskWatch: (activeTicker as any).researchRiskWatch ?? null,
-                          tradeDecisionReasons: (activeTicker as any).tradeDecisionReasons ?? null,
-                          tradeRiskWatch: (activeTicker as any).tradeRiskWatch ?? null,
-                        }
-                      : null
-                  }
-                  qualificationTrace={
-                    qualificationTrace
-                      ? {
-                          todayState: qualificationTrace.today_state ?? null,
-                          lastBuyDateIso: qualificationTrace.last_buy_date_iso ?? null,
-                          lastSellDateIso: qualificationTrace.last_sell_date_iso ?? null,
-                        }
-                      : null
-                  }
-                  persistedSignalEvents={selectedPersistedSignalEvents}
-                  rankingAppearancesOnSelectedDate={selectedRankingAppearances}
-                  formatPercentLabel={formatPercentLabel}
-                  formatNumber={formatNumber}
-                  formatSignedPercentLabel={formatSignedPercentLabel}
-                  onSubmitAnalysisRecalc={() => {
-                    void submitAnalysisRecalc();
-                  }}
-                />
+                <Suspense fallback={null}>
+                  <LazyTradexAnalysisMount
+                    backendReady={backendReady}
+                    readyToFetch={analysisNetworkReady}
+                    analysisFetchEnabled={analysisFetchEnabled}
+                    code={code ?? null}
+                    asof={analysisAsOfTime}
+                    formatPercentLabel={formatPercentLabel}
+                    formatSignedPercentLabel={formatSignedPercentLabel}
+                    formatNumber={formatNumber}
+                  />
+                </Suspense>
+                <Suspense fallback={null}>
+                  <LazyDetailAnalysisPanel
+                    analysisAsOfTime={analysisAsOfTime}
+                    analysisBackfillActive={analysisBackfillActive}
+                    analysisRecalcSubmitting={analysisRecalcSubmitting}
+                    analysisRecalcDisabled={analysisRecalcDisabled}
+                    analysisRecalcDisabledReason={analysisRecalcDisabledReason}
+                    submitAnalysisRecalc={submitAnalysisRecalc}
+                    analysisDtLabel={analysisDtLabel}
+                    cursorMode={cursorMode}
+                    analysisCursorDateLabel={analysisCursorDateLabel}
+                    canShowPhase={canShowPhase}
+                    phaseReasons={phaseReasons}
+                    canShowAnalysis={canShowAnalysis}
+                    analysisDecision={analysisDecision}
+                    analysisSummaryLoading={analysisSummaryLoading}
+                    analysisGuidance={analysisGuidance}
+                    analysisEntryPolicy={analysisEntryPolicy}
+                    patternSummary={patternSummary}
+                    analysisPreparationVisible={analysisPreparationVisible}
+                    analysisBackfillProgressLabel={analysisBackfillProgressLabel}
+                    analysisBackfillMessage={analysisBackfillMessage}
+                    sellAnalysisDtLabel={sellAnalysisDtLabel}
+                    sellPredDtLabel={sellPredDtLabel}
+                    researchPriorRunId={researchPriorRunId}
+                    analysisResearchPrior={analysisResearchPrior}
+                    researchPriorUpMeta={researchPriorUpMeta}
+                    researchPriorDownMeta={researchPriorDownMeta}
+                    edinetStatusMeta={edinetStatusMeta}
+                    edinetQualityMeta={edinetQualityMeta}
+                    edinetMetricsMeta={edinetMetricsMeta}
+                    edinetBonusMeta={edinetBonusMeta}
+                    hasSwingData={hasSwingData}
+                    swingPlan={swingPlan}
+                    swingSideLabel={swingSideLabel}
+                    swingReasonsLabel={swingReasonsLabel}
+                    swingDiagnostics={swingDiagnostics}
+                    swingSetupExpectancy={swingSetupExpectancy}
+                    analysisMissingDataVisible={analysisMissingDataVisible}
+                    decisionHistory={exactDecisionRange}
+                    individualResult={
+                      activeTicker
+                        ? {
+                            setupType: (activeTicker as any).setupType ?? null,
+                            monthlyBoxState: (activeTicker as any).monthlyBoxState ?? (activeTicker as any).boxState ?? null,
+                            tradePriorityScore: (activeTicker as any).tradePriorityScore ?? null,
+                            entryPriorityScore: (activeTicker as any).entryPriorityScore ?? null,
+                            hybridScore: (activeTicker as any).hybridScore ?? null,
+                            entryQualified: (activeTicker as any).entryQualified ?? null,
+                            entryQualifiedByFallback: (activeTicker as any).entryQualifiedByFallback ?? null,
+                            entryQualifiedFallbackStage: (activeTicker as any).entryQualifiedFallbackStage ?? null,
+                            researchPatternTag: (activeTicker as any).researchPatternTag ?? null,
+                            researchDecisionReasons: (activeTicker as any).researchDecisionReasons ?? null,
+                            researchRiskWatch: (activeTicker as any).researchRiskWatch ?? null,
+                            tradeDecisionReasons: (activeTicker as any).tradeDecisionReasons ?? null,
+                            tradeRiskWatch: (activeTicker as any).tradeRiskWatch ?? null,
+                          }
+                        : null
+                    }
+                    qualificationTrace={
+                      qualificationTrace
+                        ? {
+                            todayState: qualificationTrace.today_state ?? null,
+                            lastBuyDateIso: qualificationTrace.last_buy_date_iso ?? null,
+                            lastSellDateIso: qualificationTrace.last_sell_date_iso ?? null,
+                          }
+                        : null
+                    }
+                    persistedSignalEvents={selectedPersistedSignalEvents}
+                    rankingAppearancesOnSelectedDate={selectedRankingAppearances}
+                    formatPercentLabel={formatPercentLabel}
+                    formatNumber={formatNumber}
+                    formatSignedPercentLabel={formatSignedPercentLabel}
+                    onSubmitAnalysisRecalc={() => {
+                      void submitAnalysisRecalc();
+                    }}
+                  />
+                </Suspense>
               </>
             )}
             {rightRailKind === "cursor" && (
@@ -5815,42 +5870,46 @@ export default function DetailView() {
               />
             )}
             {rightRailKind === "financial" && (
-              <DetailFinancialPanel
-                financialPanelRef={financialPanelRef}
-                financialPanel={financialPanel}
-                financialFetchedLabel={financialFetchedLabel}
-                financialLoading={financialLoading}
-                financialSeries={financialSeries}
-                financialCards={financialDisplay.cards}
-                financialKeyStats={financialDisplay.stats}
-                tdnetHighlights={tdnetHighlights}
-                tdnetLoading={tdnetLoading}
-                tdnetStatusLabel={tdnetStatusLabel}
-                taisyakuCards={taisyakuDisplay.cards}
-                taisyakuHistory={taisyakuDisplay.history}
-                taisyakuRestrictions={taisyakuSnapshot?.restrictions ?? []}
-                taisyakuLoading={taisyakuLoading}
-                taisyakuStatusLabel={taisyakuStatusLabel}
-                taisyakuWatchLabel={taisyakuDisplay.watchLabel}
-                formatNumber={formatNumber}
-                formatPercentLabel={formatPercentLabel}
-                formatFinancialAmountLabel={formatFinancialAmountLabel}
-              />
+              <Suspense fallback={null}>
+                <LazyDetailFinancialPanel
+                  financialPanelRef={financialPanelRef}
+                  financialPanel={financialPanel}
+                  financialFetchedLabel={financialFetchedLabel}
+                  financialLoading={financialLoading}
+                  financialSeries={financialSeries}
+                  financialCards={financialDisplay.cards}
+                  financialKeyStats={financialDisplay.stats}
+                  tdnetHighlights={tdnetHighlights}
+                  tdnetLoading={tdnetLoading}
+                  tdnetStatusLabel={tdnetStatusLabel}
+                  taisyakuCards={taisyakuDisplay.cards}
+                  taisyakuHistory={taisyakuDisplay.history}
+                  taisyakuRestrictions={taisyakuSnapshot?.restrictions ?? []}
+                  taisyakuLoading={taisyakuLoading}
+                  taisyakuStatusLabel={taisyakuStatusLabel}
+                  taisyakuWatchLabel={taisyakuDisplay.watchLabel}
+                  formatNumber={formatNumber}
+                  formatPercentLabel={formatPercentLabel}
+                  formatFinancialAmountLabel={formatFinancialAmountLabel}
+                />
+              </Suspense>
             )}
           </aside>
         )}
       </div>
       {activeTdnetDisclosure && !compareCode && (
-        <DetailTdnetCard
-          activeTdnetDisclosure={activeTdnetDisclosure}
-          activeTdnetReaction={activeTdnetReaction}
-          selectedTdnetDisclosures={selectedTdnetDisclosures}
-          selectedTdnetDisclosureIndex={selectedTdnetDisclosureIndex}
-          setSelectedTdnetDisclosures={setSelectedTdnetDisclosures}
-          setSelectedTdnetDisclosureIndex={setSelectedTdnetDisclosureIndex}
-          formatNumber={formatNumber}
-          formatSignedPercentLabel={formatSignedPercentLabel}
-        />
+        <Suspense fallback={null}>
+          <LazyDetailTdnetCard
+            activeTdnetDisclosure={activeTdnetDisclosure}
+            activeTdnetReaction={activeTdnetReaction}
+            selectedTdnetDisclosures={selectedTdnetDisclosures}
+            selectedTdnetDisclosureIndex={selectedTdnetDisclosureIndex}
+            setSelectedTdnetDisclosures={setSelectedTdnetDisclosures}
+            setSelectedTdnetDisclosureIndex={setSelectedTdnetDisclosureIndex}
+            formatNumber={formatNumber}
+            formatSignedPercentLabel={formatSignedPercentLabel}
+          />
+        </Suspense>
       )}
       {!focusPanel && (
         <div className="detail-footer">
@@ -5892,35 +5951,47 @@ export default function DetailView() {
         onToggleInfoDetails={() => setShowInfoDetails((prev) => !prev)}
         onClose={() => setDebugOpen(false)}
       />
-      <DetailIndicatorOverlay
-        isOpen={showIndicators}
-        compareCode={compareCode}
-        maEditMode={maEditMode}
-        activeMaSettings={activeMaSettings}
-        onSetMaEditMode={setMaEditMode}
-        onUpdateSetting={updateSetting}
-        onResetSettings={resetSettings}
-        onClose={() => setShowIndicators(false)}
-      />
+      {showIndicators && (
+        <Suspense fallback={null}>
+          <LazyDetailIndicatorOverlay
+            isOpen={showIndicators}
+            compareCode={compareCode}
+            maEditMode={maEditMode}
+            activeMaSettings={activeMaSettings}
+            onSetMaEditMode={setMaEditMode}
+            onUpdateSetting={updateSetting}
+            onResetSettings={resetSettings}
+            onClose={() => setShowIndicators(false)}
+          />
+        </Suspense>
+      )}
       <Toast
         message={toastMessage}
         onClose={() => { setToastMessage(null); setToastAction(null); }}
         action={toastAction}
         duration={toastAction ? 8000 : 4000}
       />
-      <SimilarSearchPanel
-        isOpen={showSimilar}
-        onClose={() => setShowSimilar(false)}
-        queryTicker={code ?? null}
-      />
-      <AiExplainDock
-        screenType={compareCode ? "compare" : "detail"}
-        targetLabel={compareCode ? `${code ?? ""} vs ${compareCode}` : `${code ?? ""} ${tickerName}`.trim()}
-        compareLabel={compareCode ? `${compareCode}${compareTickerName ? ` ${compareTickerName}` : ""}` : null}
-        snapshot={aiExplainSnapshot}
-        images={aiExplainImages}
-        bottomOffsetPx={debugOpen ? 324 : hasIssues ? 96 : 18}
-      />
+      {similarSearchMounted && (
+        <Suspense fallback={null}>
+          <LazySimilarSearchPanel
+            isOpen={showSimilar}
+            onClose={() => setShowSimilar(false)}
+            queryTicker={code ?? null}
+          />
+        </Suspense>
+      )}
+      {aiExplainDockMounted && (
+        <Suspense fallback={null}>
+          <LazyAiExplainDock
+            screenType={compareCode ? "compare" : "detail"}
+            targetLabel={compareCode ? `${code ?? ""} vs ${compareCode}` : `${code ?? ""} ${tickerName}`.trim()}
+            compareLabel={compareCode ? `${compareCode}${compareTickerName ? ` ${compareTickerName}` : ""}` : null}
+            snapshot={aiExplainSnapshot}
+            images={aiExplainImages}
+            bottomOffsetPx={debugOpen ? 324 : hasIssues ? 96 : 18}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

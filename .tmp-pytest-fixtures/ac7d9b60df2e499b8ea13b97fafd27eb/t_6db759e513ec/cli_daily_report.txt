@@ -1,0 +1,25 @@
+Tradex Daily Research
+as_of_date: 20260410
+publish_id: pub_2026-04-10
+candidate_status: success
+similarity_status: success
+challenger_status: success
+promotion_ready: no
+promotion_expectancy_delta: None
+top_strategy: --
+top_candle: --
+risk_watch: --
+sample_watch: box_breakout
+approval_decision: pending
+approval_actor: --
+codex_next_step: Record promotion decision
+codex_next_status: pending
+pending_carryover_count: 0
+history_compare_target: --
+codex_brief_pending: 0
+codex_brief_improving: 0
+codex_brief_risk: 0
+today_queue:
+  - [Review] Record promotion decision | tag=-- | Expectancy delta=None
+  - [Study] Collect more samples | tag=box_breakout | Samples=0
+codex_command: python -m external_analysis promotion-decision-run --decision hold --note "needs_manual_review"

@@ -1,0 +1,57 @@
+{
+  "daily_research_reviews": [
+    {
+      "as_of_date": "2026-04-10",
+      "created_at": "2026-04-03 10:18:22.974851",
+      "publish_id": "pub_2026-04-10",
+      "recent_failure_rate": 0.0,
+      "recent_quarantine_count": 0,
+      "review_id": "daily_research:pub_2026-04-10:20260403T011822974851Z",
+      "review_kind": "daily_research",
+      "summary_json": "{\"as_of_date\": \"20260410\", \"candidate\": {\"quarantine_reason\": null, \"run_id\": \"nightly_candidate_20260410_20260403T011817164707Z\", \"status\": \"success\"}, \"challenger\": {\"quarantine_reason\": null, \"run_id\": \"challenger_eval_nightly_nightly_pub_2026-04-10\", \"status\": \"success\"}, \"ok\": true, \"publish_id\": \"pub_2026-04-10\", \"report\": {\"action_queue\": [{\"holding_band\": null, \"kind\": \"promotion_decision_pending\", \"label\": \"Review\", \"metric_label\": \"Expectancy delta\", \"metric_value\": null, \"note\": \"run promotion-decision-run from Codex\", \"priority\": 1, \"side\": \"all\", \"strategy_tag\": null, \"title\": \"Record promotion decision\"}, {\"holding_band\": \"buy_21_60\", \"kind\": \"sample_watch\", \"label\": \"Study\", \"metric_label\": \"Samples\", \"metric_value\": 0, \"note\": \"ラベル件数が不足。現在 0\", \"priority\": 5, \"side\": \"long\", \"strategy_tag\": \"box_breakout\", \"title\": \"Collect more samples\"}], \"approval_decision\": null, \"as_of_date\": \"2026-04-10\", \"codex_brief\": {\"improving\": [], \"pending\": [], \"risk\": []}, \"codex_next_step\": {\"kind\": \"promotion_decision_pending\", \"note\": \"run promotion-decision-run from Codex\", \"status\": \"pending\", \"suggested_command\": \"python -m external_analysis promotion-decision-run --decision hold --note \\\"needs_manual_review\\\"\", \"title\": \"Record promotion decision\"}, \"combo_trend_watch\": {\"improving\": [], \"persistent_risk\": [], \"weakening\": []}, \"daily_history\": [{\"approval_decision\": null, \"as_of_date\": \"2026-04-10\", \"codex_command\": null, \"decision_status\": \"not_ready\", \"promotion_ready\": false, \"promotion_sample_count\": 0, \"publish_id\": \"pub_2026-04-10\", \"risk_watch_loss_rate\": null, \"risk_watch_tag\": null, \"sample_watch_labeled_count\": 0, \"sample_watch_tag\": \"box_breakout\", \"side_scope\": \"all\", \"summary_json\": \"{\\\"promotion\\\": {\\\"expectancy_delta\\\": null, \\\"readiness_pass\\\": false, \\\"sample_count\\\": 0}, \\\"risk_watch\\\": null, \\\"risk_watch_reason\\\": null, \\\"sample_watch\\\": {\\\"expectancy_mean\\\": null, \\\"holding_band\\\": \\\"buy_21_60\\\", \\\"labeled_count\\\": 0, \\\"large_loss_rate\\\": null, \\\"readiness_hint\\\": \\\"needs_samples\\\", \\\"side\\\": \\\"long\\\", \\\"similarity_signal_mean\\\": 0.5647538541666666, \\\"strategy_tag\\\": \\\"box_breakout\\\", \\\"teacher_signal_mean\\\": 0.47375}, \\\"sample_watch_reason\\\": \\\"ラベル件数が不足。現在 0\\\", \\\"top_candle\\\": null, \\\"top_candle_reason\\\": null, \\\"top_strategy\\\": null, \\\"top_strategy_reason\\\": null}\", \"top_candle_expectancy\": null, \"top_candle_tag\": null, \"top_strategy_expectancy\": null, \"top_strategy_tag\": null}], \"daily_summary\": {\"promotion\": {\"expectancy_delta\": null, \"readiness_pass\": false, \"sample_count\": 0}, \"risk_watch\": null, \"risk_watch_reason\": null, \"sample_watch\": {\"expectancy_mean\": null, \"holding_band\": \"buy_21_60\", \"labeled_count\": 0, \"large_loss_rate\": null, \"readiness_hint\": \"needs_samples\", \"side\": \"long\", \"similarity_signal_mean\": 0.5647538541666666, \"strategy_tag\": \"box_breakout\", \"teacher_signal_mean\": 0.47375}, \"sample_watch_reason\": \"ラベル件数が不足。現在 0\", \"top_candle\": null, \"top_candle_reason\": null, \"top_strategy\": null, \"top_strategy_reason\": null}, \"freshness_state\": \"fresh\", \"history_comparison\": null, \"pending_carryover\": [], \"promotion_review\": {\"adverse_move_non_worse\": false, \"alignment_ok\": false, \"approval_decision\": null, \"as_of_date\": \"2026-04-10\", \"by_side\": [{\"adverse_move_mean\": null, \"challenger_enter_count\": 1, \"champion_enter_count\": 2, \"compared_count\": 4, \"expected_return_mean\": null, \"side\": \"long\", \"teacher_alignment_mean\": null}, {\"adverse_move_mean\": null, \"challenger_enter_count\": 0, \"champion_enter_count\": 0, \"compared_count\": 4, \"expected_return_mean\": null, \"side\": \"short\", \"teacher_alignment_mean\": null}], \"challenger_version\": \"state_eval_challenger_v2\", \"champion_version\": \"state_eval_baseline_v2\", \"expectancy_delta\": null, \"improved_expectancy\": false, \"mae_non_worse\": false, \"readiness_pass\": false, \"reason_codes\": [\"expectancy_not_improved\", \"adverse_move_regressed\", \"large_loss_rate_regressed\", \"sample_count_below_50\", \"teacher_alignment_not_improved\"], \"sample_count\": 0, \"stable_window\": false, \"summary\": {\"challenger_adverse\": null, \"challenger_adverse_rate\": null, \"challenger_alignment\": null, \"challenger_combo_prior\": null, \"challenger_expectancy\": null, \"challenger_selected\": 0, \"challenger_similarity\": null, \"challenger_tag_prior\": null, \"challenger_version\": \"state_eval_challenger_v2\", \"champion_adverse\": null, \"champion_adverse_rate\": null, \"champion_alignment\": null, \"champion_combo_prior\": null, \"champion_expectancy\": null, \"champion_selected\": 0, \"champion_similarity\": null, \"champion_tag_prior\": null, \"champion_version\": \"state_eval_baseline_v2\", \"expectancy_delta\": null, \"sample_count\": 0}}, \"publish\": {\"as_of_date\": \"2026-04-10\", \"contract_version\": \"phase1-v1\", \"freshness_state\": \"fresh\", \"pointer_name\": \"latest_successful\", \"publish_id\": \"pub_2026-04-10\", \"published_at\": \"2026-04-03 01:18:19.864221\", \"schema_version\": \"phase1-v1\"}, \"trend_watch\": {\"improving\": [], \"persistent_risk\": [], \"weakening\": []}}, \"similarity\": {\"quarantine_reason\": null, \"run_id\": \"nightly_similarity_20260410_20260403T011819469527Z\", \"status\": \"success\"}, \"source_snapshot\": {\"created_at\": \"2026-04-03T01:18:17.141708+00:00\", \"label\": \"daily_research\", \"snapshot_db_path\": \"C:\\\\work\\\\meemee-screener\\\\.tmp-pytest-fixtures\\\\43412be590e543969f2ee3d58921dfa1\\\\t_6db759e513ec\\\\source_snapshots\\\\daily_research_20260403T011817139708Z.duckdb\", \"snapshot_id\": \"daily_research_20260403T011817139708Z\", \"snapshot_size\": 1323008, \"snapshot_wal_path\": null, \"source_db_path\": \"C:\\\\work\\\\meemee-screener\\\\.tmp-pytest-fixtures\\\\43412be590e543969f2ee3d58921dfa1\\\\t_6db759e513ec\\\\source.duckdb\", \"source_size\": 1323008, \"source_wal_path\": null, \"wal_copied\": false}}"
+    }
+  ],
+  "external_job_runs": [
+    {
+      "as_of_date": "2026-04-10",
+      "created_at": "2026-04-03 01:18:20.361195",
+      "finished_at": "2026-04-03 01:18:21.984188",
+      "job_id": "challenger_eval_nightly_nightly_pub_2026-04-10",
+      "job_type": "challenger_eval_runner",
+      "publish_id": "pub_2026-04-10",
+      "started_at": "2026-04-03 01:18:20.268660",
+      "status": "success"
+    },
+    {
+      "as_of_date": "2026-04-10",
+      "created_at": "2026-04-03 01:18:20.125459",
+      "finished_at": null,
+      "job_id": "nightly_similarity_challenger_pipeline_pub_2026-04-10",
+      "job_type": "nightly_similarity_challenger_pipeline",
+      "publish_id": "pub_2026-04-10",
+      "started_at": null,
+      "status": "success"
+    },
+    {
+      "as_of_date": "2026-04-10",
+      "created_at": "2026-04-03 01:18:19.497526",
+      "finished_at": "2026-04-03 01:18:19.991423",
+      "job_id": "nightly_similarity_20260410_20260403T011819469527Z",
+      "job_type": "nightly_similarity_pipeline",
+      "publish_id": "pub_2026-04-10",
+      "started_at": "2026-04-03 01:18:19.469527",
+      "status": "success"
+    },
+    {
+      "as_of_date": "2026-04-10",
+      "created_at": "2026-04-03 01:18:17.226716",
+      "finished_at": "2026-04-03 01:18:19.392996",
+      "job_id": "nightly_candidate_20260410_20260403T011817164707Z",
+      "job_type": "nightly_candidate_pipeline",
+      "publish_id": "pub_2026-04-10",
+      "started_at": "2026-04-03 01:18:17.164707",
+      "status": "success"
+    }
+  ],
+  "generated_at": "2026-04-03 01:18:23.029860"
+}

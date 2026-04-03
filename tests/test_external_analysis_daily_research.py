@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import shutil
 import json
 import sys
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from uuid import uuid4
+from datetime import datetime, timedelta, timezone
 
 import duckdb
+import pytest
 
 import external_analysis.__main__ as external_analysis_main_module
 from external_analysis.__main__ import main as external_analysis_main
@@ -30,6 +33,34 @@ from external_analysis.runtime.daily_research import (
 from external_analysis.runtime.daily_research_prepare import run_daily_research_prepare
 from external_analysis.similarity.store import ensure_similarity_db
 from tests.test_phase2_slice_f_nightly_pipeline import _run_phase1_inputs, _seed_source_db
+
+
+ROOT = Path(__file__).resolve().parents[1]
+_DAILY_RESEARCH_TMP_ROOT = (ROOT / ".tmp-tests" / "daily_research").resolve()
+_DAILY_RESEARCH_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+class _WorkspaceTemporaryDirectory:
+    def __init__(self, prefix: str = "tmp_", suffix: str = "", dir: str | None = None) -> None:
+        base = Path(dir) if dir is not None else _DAILY_RESEARCH_TMP_ROOT
+        base.mkdir(parents=True, exist_ok=True)
+        self.name = str((base / f"{prefix}{uuid4().hex}{suffix}").resolve())
+        Path(self.name).mkdir(parents=True, exist_ok=True)
+
+    def __enter__(self) -> str:
+        return self.name
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        shutil.rmtree(self.name, ignore_errors=True)
+
+@pytest.fixture(autouse=True)
+def _patch_workspace_tempdirs(monkeypatch) -> None:
+    monkeypatch.setattr(
+        daily_research_module.tempfile,
+        "TemporaryDirectory",
+        _WorkspaceTemporaryDirectory,
+    )
+    yield
 
 
 def test_daily_research_cycle_runs_end_to_end_and_writes_reports(monkeypatch, tmp_path) -> None:

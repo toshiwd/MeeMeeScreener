@@ -1,0 +1,58 @@
+name,category,description
+ma7,ma,7-day moving average.
+ma20,ma,20-day moving average.
+ma60,ma,60-day moving average.
+ma100,ma,100-day moving average.
+ma200,ma,200-day moving average.
+dev_ma7,ma,Close deviation from MA7.
+dev_ma20,ma,Close deviation from MA20.
+dev_ma60,ma,Close deviation from MA60.
+dev_ma100,ma,Close deviation from MA100.
+dev_ma200,ma,Close deviation from MA200.
+ma7_slope_5,ma,MA7 slope over 5 sessions.
+ma20_slope_5,ma,MA20 slope over 5 sessions.
+ma60_slope_10,ma,MA60 slope over 10 sessions.
+ma20_slope_delta,ma,Change in MA20 slope.
+cnt_above_ma7_20,state,Days above MA7 in last 20 sessions.
+cnt_below_ma7_20,state,Days below MA7 in last 20 sessions.
+cnt_above_ma20_20,state,Days above MA20 in last 20 sessions.
+cnt_below_ma20_20,state,Days below MA20 in last 20 sessions.
+cnt_above_ma60_20,state,Days above MA60 in last 20 sessions.
+cnt_below_ma60_20,state,Days below MA60 in last 20 sessions.
+ma_cluster_width,ma,Width between the fastest and slowest MA.
+ma_spread_score,ma,Average MA separation score.
+body_size_pct,candle,Real body size relative to close.
+upper_wick_ratio,candle,Upper wick relative to candle range.
+lower_wick_ratio,candle,Lower wick relative to candle range.
+is_koma,candle,Small-body indecision candle.
+is_cross,candle,Cross / doji style candle.
+is_bull_engulf,pattern,Bullish engulfing pattern.
+is_bear_engulf,pattern,Bearish engulfing pattern.
+is_bull_harami,pattern,Bullish harami pattern.
+is_bear_harami,pattern,Bearish harami pattern.
+all_erase_5,pattern,5-day full erase pattern.
+all_return_10,pattern,10-day full return pattern.
+high_update_20,breakout,Close broke the prior 20-day high.
+low_update_20,breakout,Close broke the prior 20-day low.
+box_position_20,box,Close location inside 20-day range.
+box_position_60,box,Close location inside 60-day range.
+dist_recent_high_20,box,Distance to prior 20-day high.
+dist_recent_low_20,box,Distance to prior 20-day low.
+vol_ratio20,volume,Volume divided by 20-day average volume.
+atr14_ratio,volatility,ATR14 divided by close.
+atr_pct60,volatility,ATR14 percentile rank over 60 sessions.
+weekly_context_bias,regime,Weekly bias projected to daily bars.
+monthly_context_bias,regime,Monthly bias projected to daily bars.
+regime_key,regime,Combined market trend and volatility regime.
+n_shape_up,pattern,Simplified N-shape upward context.
+inverse_n_shape,pattern,Simplified inverse N-shape downward context.
+state_7up7,state,Seven straight closes above MA7.
+state_20up20,state,Twenty straight closes above MA20.
+state_60up60,state,Sixty straight closes above MA60.
+state_7down7,state,Seven straight closes below MA7.
+state_20down20,state,Twenty straight closes below MA20.
+state_60down60,state,Sixty straight closes below MA60.
+phase_initial,phase,Early / initial stage.
+phase_mid,phase,Middle stage.
+phase_late,phase,Late stage.
+phase_overheated,phase,Overheated stage.

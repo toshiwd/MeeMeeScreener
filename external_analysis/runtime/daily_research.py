@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 from unittest.mock import patch
+from uuid import uuid4
 
 import duckdb
 
@@ -141,13 +142,19 @@ def _temporary_duckdb_snapshot_path(*, db_path: str | Path | None, label: str) -
     if not resolved.exists():
         yield None
         return
-    with tempfile.TemporaryDirectory(prefix=f"{label}_") as temp_dir:
-        target = Path(temp_dir) / resolved.name
+    temp_root = (Path(tempfile.gettempdir()) / "meemee_daily_research_snapshots").resolve()
+    temp_root.mkdir(parents=True, exist_ok=True)
+    temp_dir = (temp_root / f"{label}_{uuid4().hex}").resolve()
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        target = temp_dir / resolved.name
         shutil.copy2(str(resolved), str(target))
         source_wal = _wal_path(resolved)
         if source_wal.exists():
             shutil.copy2(str(source_wal), str(_wal_path(target)))
         yield target
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def _load_json_value(value: Any) -> dict[str, Any]:

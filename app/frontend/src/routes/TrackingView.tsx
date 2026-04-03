@@ -9,6 +9,19 @@ type TrackingSide = "buy" | "sell";
 type TrackingMode = "ranking" | "signal" | "analysis";
 type RankingDirection = "up" | "down";
 
+type ParsedTrackingQuery = {
+  view: TrackingMode;
+  status: TrackingStatus;
+  side: TrackingSide;
+  dir: RankingDirection;
+  q: string;
+  logicVersion: string;
+  rankingLogicVersion: string;
+  rankBucket: string;
+  from: string;
+  to: string;
+};
+
 type SignalLogicVersionItem = {
   logic_version: string;
   basis_version: string;
@@ -852,18 +865,17 @@ function TrackingDrawer({
 export default function TrackingView() {
   const location = useLocation();
   const navigate = useNavigate();
-  const parsedQuery = useMemo(() => {
+  const parsedQuery = useMemo<ParsedTrackingQuery>(() => {
     const params = new URLSearchParams(location.search);
+    const view = params.get("view");
+    const status = params.get("status");
+    const side = params.get("side");
+    const dir = params.get("dir");
     return {
-      view:
-        params.get("view") === "signal"
-          ? "signal"
-          : params.get("view") === "analysis"
-            ? "analysis"
-            : "ranking",
-      status: (params.get("status") as TrackingStatus) || "active",
-      side: params.get("side") === "sell" ? "sell" : "buy",
-      dir: params.get("dir") === "down" ? "down" : "up",
+      view: view === "signal" ? "signal" : view === "analysis" ? "analysis" : "ranking",
+      status: status === "completed" || status === "archive" ? status : "active",
+      side: side === "sell" ? "sell" : "buy",
+      dir: dir === "down" ? "down" : "up",
       q: params.get("q")?.trim() ?? "",
       logicVersion: params.get("logic_version")?.trim() || "latest",
       rankingLogicVersion: params.get("ranking_logic_version")?.trim() || "latest",
@@ -1593,7 +1605,8 @@ export default function TrackingView() {
               >
                 <option value="latest">latest</option>
                 {(view === "signal" ? signalLogicVersions : rankingLogicVersions).map((item) => {
-                  const version = view === "signal" ? item.logic_version : item.ranking_logic_version;
+                  const version =
+                    "logic_version" in item ? item.logic_version : item.ranking_logic_version;
                   return (
                     <option key={version} value={version}>
                       {version}

@@ -1,0 +1,27 @@
+{
+  "daily_research_reviews": [
+    {
+      "as_of_date": "2026-03-19",
+      "created_at": "2026-04-03 01:18:55.972047",
+      "publish_id": "pub_demo",
+      "recent_failure_rate": 0.0,
+      "recent_quarantine_count": 0,
+      "review_id": "daily_research:pub_demo:20260319T000000000000Z",
+      "review_kind": "daily_research",
+      "summary_json": "{\"report\": {\"codex_brief\": {\"improving\": [{\"current\": \"box_breakout\", \"metric\": \"top_strategy\"}], \"pending\": [{\"command\": \"python -m external_analysis promotion-decision-run --decision hold --note \\\"needs_manual_review\\\"\", \"publish_id\": \"pub_demo\", \"tag\": \"box_breakout\"}], \"risk\": [{\"current\": \"extension_fade\", \"metric\": \"risk_watch\"}]}, \"codex_next_step\": {\"kind\": \"promotion_decision_pending\"}}}"
+    }
+  ],
+  "external_job_runs": [
+    {
+      "as_of_date": "2026-03-19",
+      "created_at": "2026-04-03 01:18:56.073583",
+      "finished_at": null,
+      "job_id": "nightly_candidate_20260319",
+      "job_type": "nightly_candidate_pipeline",
+      "publish_id": "pub_demo",
+      "started_at": "2026-04-02 23:18:55.972047",
+      "status": "running"
+    }
+  ],
+  "generated_at": "2026-04-03 01:18:56.116583"
+}

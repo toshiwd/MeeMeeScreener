@@ -1,0 +1,450 @@
+{
+  "candidate_rows": [
+    {
+      "avg_dd_delta": 0.0,
+      "avg_liquidity_fail_delta": 0.0,
+      "avg_monthly_capture_delta": -0.5,
+      "avg_top10_ret20_mean_delta": 0.0,
+      "avg_top5_ret20_mean_delta": 0.0,
+      "avg_turnover_delta": 0.5714285714285714,
+      "avg_worst_regime_delta": 0.0,
+      "avg_zero_pass_delta": 0.0,
+      "drop_count": 2,
+      "hold_count": 0,
+      "insufficient_samples": false,
+      "keep_count": 0,
+      "latest_decision": "drop",
+      "latest_decision_reasons": [
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top5",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "top5_median_underperform_bp": 0.0,
+          "top5_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top10",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 20.0,
+          "top10_median_underperform_bp": 0.0,
+          "top10_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.5,
+          "champion_value": 1.0,
+          "code": "monthly_capture",
+          "delta": -0.5,
+          "monthly_capture_degrade": 0.5,
+          "monthly_window_win_rate": 1.0,
+          "status": "fail",
+          "threshold": 0.6
+        },
+        {
+          "candidate_value": 0,
+          "champion_value": 0,
+          "code": "zero_pass",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0,
+          "zero_pass_degrade": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "worst_regime",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "worst_regime_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "dd",
+          "dd_degrade_bp": 0.0,
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0
+        },
+        {
+          "candidate_value": 0.5714285714285714,
+          "champion_value": 0.0,
+          "code": "turnover",
+          "delta": 0.5714285714285714,
+          "status": "fail",
+          "threshold": 0.1,
+          "turnover_degrade_ratio": 0.5714285714285714
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "liquidity_fail",
+          "delta": 0.0,
+          "liquidity_fail_degrade_ratio": 0.0,
+          "status": "pass",
+          "threshold": 0.0
+        }
+      ],
+      "latest_eval_window_mode": "standard",
+      "latest_eval_window_mode_reason": "standard_windows_available",
+      "latest_generated_at": "2026-04-03T01:18:30.056841+00:00",
+      "latest_session_id": "rs1",
+      "method_family": "existing-score rescaled",
+      "method_signature_hash": "fb07801ff9448ec4dda9b6be2b8853e997de178c45fa55677fe7a8f90e27de76",
+      "method_thesis": "再尺度化を少し強めて、点差が小さい候補を落としやすくする。",
+      "method_title": "既存点数の再尺度化強め",
+      "session_count": 2,
+      "session_ids": [
+        "rs1"
+      ]
+    },
+    {
+      "avg_dd_delta": 0.0,
+      "avg_liquidity_fail_delta": 0.0,
+      "avg_monthly_capture_delta": -0.7,
+      "avg_top10_ret20_mean_delta": 0.0,
+      "avg_top5_ret20_mean_delta": 0.0,
+      "avg_turnover_delta": 0.33333333333333337,
+      "avg_worst_regime_delta": 0.0,
+      "avg_zero_pass_delta": 0.0,
+      "drop_count": 2,
+      "hold_count": 0,
+      "insufficient_samples": false,
+      "keep_count": 0,
+      "latest_decision": "drop",
+      "latest_decision_reasons": [
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top5",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "top5_median_underperform_bp": 0.0,
+          "top5_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top10",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 20.0,
+          "top10_median_underperform_bp": 0.0,
+          "top10_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.30000000000000004,
+          "champion_value": 1.0,
+          "code": "monthly_capture",
+          "delta": -0.7,
+          "monthly_capture_degrade": 0.7,
+          "monthly_window_win_rate": 1.0,
+          "status": "fail",
+          "threshold": 0.6
+        },
+        {
+          "candidate_value": 0,
+          "champion_value": 0,
+          "code": "zero_pass",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0,
+          "zero_pass_degrade": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "worst_regime",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "worst_regime_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "dd",
+          "dd_degrade_bp": 0.0,
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0
+        },
+        {
+          "candidate_value": 0.33333333333333337,
+          "champion_value": 0.0,
+          "code": "turnover",
+          "delta": 0.33333333333333337,
+          "status": "fail",
+          "threshold": 0.1,
+          "turnover_degrade_ratio": 0.33333333333333337
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "liquidity_fail",
+          "delta": 0.0,
+          "liquidity_fail_degrade_ratio": 0.0,
+          "status": "pass",
+          "threshold": 0.0
+        }
+      ],
+      "latest_eval_window_mode": "standard",
+      "latest_eval_window_mode_reason": "standard_windows_available",
+      "latest_generated_at": "2026-04-03T01:18:30.056841+00:00",
+      "latest_session_id": "rs1",
+      "method_family": "penalty-first",
+      "method_signature_hash": "22c05f0a664b5a8e1bdbf179becad28b6448ac12d3b758e869dcb1c97097c4af",
+      "method_thesis": "さらに閾値を上げて、弱い候補を上位に残しにくくする。",
+      "method_title": "減点優先型厳しめ",
+      "session_count": 2,
+      "session_ids": [
+        "rs1"
+      ]
+    }
+  ],
+  "family_summary": [
+    {
+      "candidate_count": 1,
+      "decision": "hold",
+      "decision_reasons": [
+        {
+          "code": "additional_candidate_worth_trying",
+          "hold_count": 1
+        }
+      ],
+      "drop_count": 2,
+      "hold_count": 0,
+      "insufficient_samples": false,
+      "keep_count": 0,
+      "latest_decision": "drop",
+      "latest_decision_reasons": [
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top5",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "top5_median_underperform_bp": 0.0,
+          "top5_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top10",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 20.0,
+          "top10_median_underperform_bp": 0.0,
+          "top10_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.5,
+          "champion_value": 1.0,
+          "code": "monthly_capture",
+          "delta": -0.5,
+          "monthly_capture_degrade": 0.5,
+          "monthly_window_win_rate": 1.0,
+          "status": "fail",
+          "threshold": 0.6
+        },
+        {
+          "candidate_value": 0,
+          "champion_value": 0,
+          "code": "zero_pass",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0,
+          "zero_pass_degrade": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "worst_regime",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "worst_regime_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "dd",
+          "dd_degrade_bp": 0.0,
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0
+        },
+        {
+          "candidate_value": 0.5714285714285714,
+          "champion_value": 0.0,
+          "code": "turnover",
+          "delta": 0.5714285714285714,
+          "status": "fail",
+          "threshold": 0.1,
+          "turnover_degrade_ratio": 0.5714285714285714
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "liquidity_fail",
+          "delta": 0.0,
+          "liquidity_fail_degrade_ratio": 0.0,
+          "status": "pass",
+          "threshold": 0.0
+        }
+      ],
+      "latest_eval_window_mode": "unknown",
+      "latest_eval_window_mode_reason": "unknown",
+      "latest_generated_at": "2026-04-03T01:18:30.056841+00:00",
+      "latest_session_id": "rs1",
+      "method_family": "existing-score rescaled",
+      "method_thesis": "再尺度化を少し強めて、点差が小さい候補を落としやすくする。",
+      "method_title": "既存点数の再尺度化強め"
+    },
+    {
+      "candidate_count": 1,
+      "decision": "hold",
+      "decision_reasons": [
+        {
+          "code": "additional_candidate_worth_trying",
+          "hold_count": 1
+        }
+      ],
+      "drop_count": 2,
+      "hold_count": 0,
+      "insufficient_samples": false,
+      "keep_count": 0,
+      "latest_decision": "drop",
+      "latest_decision_reasons": [
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top5",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "top5_median_underperform_bp": 0.0,
+          "top5_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "top10",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 20.0,
+          "top10_median_underperform_bp": 0.0,
+          "top10_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.30000000000000004,
+          "champion_value": 1.0,
+          "code": "monthly_capture",
+          "delta": -0.7,
+          "monthly_capture_degrade": 0.7,
+          "monthly_window_win_rate": 1.0,
+          "status": "fail",
+          "threshold": 0.6
+        },
+        {
+          "candidate_value": 0,
+          "champion_value": 0,
+          "code": "zero_pass",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 0,
+          "zero_pass_degrade": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "worst_regime",
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0,
+          "worst_regime_underperform_bp": 0.0
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "dd",
+          "dd_degrade_bp": 0.0,
+          "delta": 0.0,
+          "status": "pass",
+          "threshold": 50.0
+        },
+        {
+          "candidate_value": 0.33333333333333337,
+          "champion_value": 0.0,
+          "code": "turnover",
+          "delta": 0.33333333333333337,
+          "status": "fail",
+          "threshold": 0.1,
+          "turnover_degrade_ratio": 0.33333333333333337
+        },
+        {
+          "candidate_value": 0.0,
+          "champion_value": 0.0,
+          "code": "liquidity_fail",
+          "delta": 0.0,
+          "liquidity_fail_degrade_ratio": 0.0,
+          "status": "pass",
+          "threshold": 0.0
+        }
+      ],
+      "latest_eval_window_mode": "unknown",
+      "latest_eval_window_mode_reason": "unknown",
+      "latest_generated_at": "2026-04-03T01:18:30.056841+00:00",
+      "latest_session_id": "rs1",
+      "method_family": "penalty-first",
+      "method_thesis": "さらに閾値を上げて、弱い候補を上位に残しにくくする。",
+      "method_title": "減点優先型厳しめ"
+    }
+  ],
+  "insufficient_samples": false,
+  "overview": {
+    "artifact_consistency_error_count": 0,
+    "candidate_count": 2,
+    "drop_candidate_count": 2,
+    "drop_family_count": 0,
+    "family_count": 2,
+    "hold_candidate_count": 0,
+    "hold_family_count": 2,
+    "insufficient_samples": false,
+    "invalid_session_count": 0,
+    "keep_candidate_count": 0,
+    "keep_family_count": 0,
+    "session_count": 1,
+    "valid_session_count": 1
+  },
+  "report_path": "C:\\work\\meemee-screener\\.tmp-tests\\tradex\\77a5afe2\\reports\\tradex_research_session_rollup.md",
+  "rollup_path": "C:\\work\\meemee-screener\\.tmp-tests\\tradex\\77a5afe2\\research_sessions\\session_leaderboard_rollup.json",
+  "schema_version": "tradex_session_leaderboard_rollup_v1",
+  "session_meta": {
+    "artifact_consistency_error_count": 0,
+    "eval_window_mode_counts": {
+      "fallback": 0,
+      "standard": 1,
+      "unknown": 0
+    },
+    "generated_at": "2026-04-03T01:18:30.381646+00:00",
+    "insufficient_samples": false,
+    "invalid_session_count": 0,
+    "session_count": 1,
+    "session_ids": [
+      "rs1"
+    ],
+    "valid_session_count": 1
+  },
+  "source_family_leaderboard_paths": [
+    "C:\\work\\meemee-screener\\.tmp-tests\\tradex\\77a5afe2\\research_sessions\\rs1\\family_leaderboard.json"
+  ]
+}

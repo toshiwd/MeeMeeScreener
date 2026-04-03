@@ -101,6 +101,12 @@ def _monthly_cache_items() -> list[dict]:
     ]
 
 
+def _prepare_hybrid_ml_cache(monkeypatch) -> None:
+    rankings_cache._RESULT_CACHE = {}  # type: ignore[attr-defined]
+    rankings_cache._RESULT_CACHE_GENERATION = 0  # type: ignore[attr-defined]
+    monkeypatch.setattr(rankings_cache, "is_legacy_analysis_disabled", lambda: False)
+
+
 def test_monthly_hybrid_uses_monthly_pred_scores(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "monthly_rankings.duckdb"
     _prepare_monthly_pred_db(db_path, with_rows=True)
@@ -118,8 +124,9 @@ def test_monthly_hybrid_uses_monthly_pred_scores(monkeypatch, tmp_path) -> None:
                 "ml_monthly_abs_dir_1m_v1",
                 '{"ret20_lookup":{"target_abs_ret":0.2,"up":{"baseline_rate":0.03,"bins":[{"min_prob":0.0,"max_prob":1.0,"event_rate":0.2,"samples":1000}]},"down":{"baseline_rate":0.02,"bins":[]}}}',
             ],
-        )
+    )
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    _prepare_hybrid_ml_cache(monkeypatch)
 
     now = datetime.now(timezone.utc)
     rankings_cache._CACHE = {  # type: ignore[attr-defined]
@@ -159,6 +166,7 @@ def test_monthly_hybrid_relaxes_strict_recommended_gate(monkeypatch, tmp_path) -
             ],
         )
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    _prepare_hybrid_ml_cache(monkeypatch)
 
     now = datetime.now(timezone.utc)
     rankings_cache._CACHE = {  # type: ignore[attr-defined]
@@ -192,6 +200,7 @@ def test_monthly_hybrid_prefers_backtested_target20_gate(monkeypatch, tmp_path) 
             ],
         )
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    _prepare_hybrid_ml_cache(monkeypatch)
 
     now = datetime.now(timezone.utc)
     rankings_cache._CACHE = {  # type: ignore[attr-defined]
@@ -209,6 +218,7 @@ def test_monthly_hybrid_falls_back_to_rule_order_when_pred_missing(monkeypatch, 
     db_path = tmp_path / "monthly_rankings_empty.duckdb"
     _prepare_monthly_pred_db(db_path, with_rows=False)
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    _prepare_hybrid_ml_cache(monkeypatch)
 
     now = datetime.now(timezone.utc)
     base_items = _monthly_cache_items()
@@ -226,6 +236,7 @@ def test_monthly_hybrid_falls_back_to_rule_order_when_pred_missing(monkeypatch, 
 
 def test_non_monthly_hybrid_uses_existing_ml_path(monkeypatch) -> None:
     now = datetime.now(timezone.utc)
+    _prepare_hybrid_ml_cache(monkeypatch)
     rankings_cache._CACHE = {  # type: ignore[attr-defined]
         ("D", "latest", "up"): [{"code": "D0", "asOf": "2024-02-29", "changePct": 0.01}],
         ("M", "latest", "up"): [{"code": "M0", "asOf": "2024-02-29", "changePct": 0.02}],

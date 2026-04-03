@@ -1,0 +1,489 @@
+{
+  "export_prepare": {
+    "expected_export_signature": {
+      "bars_count": 280,
+      "indicator_count": 280,
+      "max_trade_date": 20260410,
+      "pattern_count": 280
+    },
+    "export_counts": {
+      "bars_count": 280,
+      "indicator_count": 280,
+      "max_trade_date": 20260410,
+      "pattern_count": 280
+    },
+    "export_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb",
+    "export_signature": {
+      "bars_count": 280,
+      "indicator_count": 280,
+      "max_trade_date": 20260410,
+      "pattern_count": 280
+    },
+    "incomplete_steps": [],
+    "last_completed_step": "meta_export_runs",
+    "latest_export_run": {
+      "run_id": "prep_20260403T011910937071Z",
+      "source_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\source.duckdb",
+      "source_max_trade_date": 20260410,
+      "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907",
+      "status": "success"
+    },
+    "progress_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb.snapshot_progress.json",
+    "progress_status": "complete",
+    "reason_code": "complete_match",
+    "required_fields": [
+      "bars_count",
+      "indicator_count",
+      "pattern_count",
+      "max_trade_date"
+    ],
+    "reusable": true,
+    "schema_version": "tradex_export_snapshot_status_v1",
+    "snapshot_progress": {
+      "completed_steps": [
+        "bars_daily_export",
+        "bars_monthly_export",
+        "indicator_daily_export",
+        "pattern_state_export",
+        "trade_event_export",
+        "position_snapshot_export",
+        "meta_export_runs"
+      ],
+      "current_step": null,
+      "export_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb",
+      "progress_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb.snapshot_progress.json",
+      "reason_code": "prepare_complete",
+      "run_id": "prep_20260403T011910937071Z",
+      "schema_version": "tradex_export_snapshot_progress_v1",
+      "source_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\source.duckdb",
+      "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907",
+      "started_at": "2026-04-03T01:19:10.937071+00:00",
+      "status": "complete",
+      "steps": [
+        {
+          "details": {
+            "completed_chunks": 4,
+            "eta_seconds": 0,
+            "table_name": "bars_daily_export",
+            "total_chunks": 4
+          },
+          "finished_at": "2026-04-03T01:19:11.040563",
+          "max_trade_date": 20260410,
+          "row_count": 280,
+          "started_at": "2026-04-03T01:19:10.988562",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "bars_daily_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 1,
+            "eta_seconds": 0,
+            "table_name": "bars_monthly_export",
+            "total_chunks": 1
+          },
+          "finished_at": "2026-04-03T01:19:11.058937",
+          "max_trade_date": 202603,
+          "row_count": 1,
+          "started_at": "2026-04-03T01:19:11.044562",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "bars_monthly_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 4,
+            "eta_seconds": 0,
+            "table_name": "indicator_daily_export",
+            "total_chunks": 4
+          },
+          "finished_at": "2026-04-03T01:19:11.114984",
+          "max_trade_date": 20260410,
+          "row_count": 280,
+          "started_at": "2026-04-03T01:19:11.066953",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "indicator_daily_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 4,
+            "eta_seconds": 0,
+            "table_name": "pattern_state_export",
+            "total_chunks": 4
+          },
+          "finished_at": "2026-04-03T01:19:11.162992",
+          "max_trade_date": 20260410,
+          "row_count": 280,
+          "started_at": "2026-04-03T01:19:11.123985",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "pattern_state_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 1,
+            "eta_seconds": 0,
+            "table_name": "trade_event_export",
+            "total_chunks": 1
+          },
+          "finished_at": "2026-04-03T01:19:11.182513",
+          "max_trade_date": null,
+          "row_count": 0,
+          "started_at": "2026-04-03T01:19:11.168513",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "trade_event_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 1,
+            "eta_seconds": 0,
+            "table_name": "position_snapshot_export",
+            "total_chunks": 1
+          },
+          "finished_at": "2026-04-03T01:19:11.199513",
+          "max_trade_date": null,
+          "row_count": 0,
+          "started_at": "2026-04-03T01:19:11.187510",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "position_snapshot_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 1,
+            "eta_seconds": 0,
+            "table_name": "meta_export_runs",
+            "total_chunks": 1
+          },
+          "finished_at": "2026-04-03T01:19:11.227512",
+          "max_trade_date": 20260410,
+          "row_count": 1,
+          "started_at": "2026-04-03T01:19:11.205519",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "meta_export_runs"
+        }
+      ],
+      "updated_at": "2026-04-03T01:19:11.232513+00:00"
+    },
+    "snapshot_progress_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb.snapshot_progress.json",
+    "snapshot_status": {
+      "created_at": "2026-04-03T01:19:11.327535+00:00",
+      "expected_export_signature": {
+        "bars_count": 280,
+        "indicator_count": 280,
+        "max_trade_date": 20260410,
+        "pattern_count": 280
+      },
+      "export_counts": {
+        "bars_count": 280,
+        "indicator_count": 280,
+        "max_trade_date": 20260410,
+        "pattern_count": 280
+      },
+      "export_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb",
+      "export_run_id": "prep_20260403T011910937071Z",
+      "export_signature": {
+        "bars_count": 280,
+        "indicator_count": 280,
+        "max_trade_date": 20260410,
+        "pattern_count": 280
+      },
+      "reason_code": "complete_match",
+      "required_fields": [
+        "bars_count",
+        "indicator_count",
+        "pattern_count",
+        "max_trade_date"
+      ],
+      "schema_version": "tradex_export_snapshot_status_v1",
+      "source_counts": {
+        "daily_bars": 280,
+        "daily_ma": 280,
+        "feature_snapshot_daily": 280,
+        "monthly_bars": 1,
+        "position_rounds": 0,
+        "positions_live": 0
+      },
+      "source_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\source.duckdb",
+      "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907",
+      "status": "complete"
+    },
+    "snapshot_status_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb.snapshot_status.json",
+    "source_counts": {
+      "daily_bars": 280,
+      "daily_ma": 280,
+      "feature_snapshot_daily": 280,
+      "monthly_bars": 1,
+      "position_rounds": 0,
+      "positions_live": 0
+    },
+    "source_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\source.duckdb",
+    "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907",
+    "status": "complete",
+    "table_presence": {
+      "bars_daily_export": true,
+      "indicator_daily_export": true,
+      "meta_export_runs": true,
+      "pattern_state_export": true
+    }
+  },
+  "export_probe": {
+    "expected_export_signature": {
+      "bars_count": 280,
+      "indicator_count": 280,
+      "max_trade_date": 20260410,
+      "pattern_count": 280
+    },
+    "export_counts": {
+      "bars_count": 280,
+      "indicator_count": 280,
+      "max_trade_date": 20260410,
+      "pattern_count": 280
+    },
+    "export_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb",
+    "export_signature": {
+      "bars_count": 280,
+      "indicator_count": 280,
+      "max_trade_date": 20260410,
+      "pattern_count": 280
+    },
+    "incomplete_steps": [],
+    "last_completed_step": "meta_export_runs",
+    "latest_export_run": {
+      "run_id": "prep_20260403T011910937071Z",
+      "source_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\source.duckdb",
+      "source_max_trade_date": 20260410,
+      "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907",
+      "status": "success"
+    },
+    "progress_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb.snapshot_progress.json",
+    "progress_status": "complete",
+    "reason_code": "complete_match",
+    "required_fields": [
+      "bars_count",
+      "indicator_count",
+      "pattern_count",
+      "max_trade_date"
+    ],
+    "reusable": true,
+    "schema_version": "tradex_export_snapshot_status_v1",
+    "snapshot_progress": {
+      "completed_steps": [
+        "bars_daily_export",
+        "bars_monthly_export",
+        "indicator_daily_export",
+        "pattern_state_export",
+        "trade_event_export",
+        "position_snapshot_export",
+        "meta_export_runs"
+      ],
+      "current_step": null,
+      "export_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb",
+      "progress_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb.snapshot_progress.json",
+      "reason_code": "prepare_complete",
+      "run_id": "prep_20260403T011910937071Z",
+      "schema_version": "tradex_export_snapshot_progress_v1",
+      "source_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\source.duckdb",
+      "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907",
+      "started_at": "2026-04-03T01:19:10.937071+00:00",
+      "status": "complete",
+      "steps": [
+        {
+          "details": {
+            "completed_chunks": 4,
+            "eta_seconds": 0,
+            "table_name": "bars_daily_export",
+            "total_chunks": 4
+          },
+          "finished_at": "2026-04-03T01:19:11.040563",
+          "max_trade_date": 20260410,
+          "row_count": 280,
+          "started_at": "2026-04-03T01:19:10.988562",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "bars_daily_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 1,
+            "eta_seconds": 0,
+            "table_name": "bars_monthly_export",
+            "total_chunks": 1
+          },
+          "finished_at": "2026-04-03T01:19:11.058937",
+          "max_trade_date": 202603,
+          "row_count": 1,
+          "started_at": "2026-04-03T01:19:11.044562",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "bars_monthly_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 4,
+            "eta_seconds": 0,
+            "table_name": "indicator_daily_export",
+            "total_chunks": 4
+          },
+          "finished_at": "2026-04-03T01:19:11.114984",
+          "max_trade_date": 20260410,
+          "row_count": 280,
+          "started_at": "2026-04-03T01:19:11.066953",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "indicator_daily_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 4,
+            "eta_seconds": 0,
+            "table_name": "pattern_state_export",
+            "total_chunks": 4
+          },
+          "finished_at": "2026-04-03T01:19:11.162992",
+          "max_trade_date": 20260410,
+          "row_count": 280,
+          "started_at": "2026-04-03T01:19:11.123985",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "pattern_state_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 1,
+            "eta_seconds": 0,
+            "table_name": "trade_event_export",
+            "total_chunks": 1
+          },
+          "finished_at": "2026-04-03T01:19:11.182513",
+          "max_trade_date": null,
+          "row_count": 0,
+          "started_at": "2026-04-03T01:19:11.168513",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "trade_event_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 1,
+            "eta_seconds": 0,
+            "table_name": "position_snapshot_export",
+            "total_chunks": 1
+          },
+          "finished_at": "2026-04-03T01:19:11.199513",
+          "max_trade_date": null,
+          "row_count": 0,
+          "started_at": "2026-04-03T01:19:11.187510",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "position_snapshot_export"
+        },
+        {
+          "details": {
+            "completed_chunks": 1,
+            "eta_seconds": 0,
+            "table_name": "meta_export_runs",
+            "total_chunks": 1
+          },
+          "finished_at": "2026-04-03T01:19:11.227512",
+          "max_trade_date": 20260410,
+          "row_count": 1,
+          "started_at": "2026-04-03T01:19:11.205519",
+          "status": "complete",
+          "step_kind": "export",
+          "step_name": "meta_export_runs"
+        }
+      ],
+      "updated_at": "2026-04-03T01:19:11.232513+00:00"
+    },
+    "snapshot_progress_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb.snapshot_progress.json",
+    "snapshot_status": {
+      "created_at": "2026-04-03T01:19:11.327535+00:00",
+      "expected_export_signature": {
+        "bars_count": 280,
+        "indicator_count": 280,
+        "max_trade_date": 20260410,
+        "pattern_count": 280
+      },
+      "export_counts": {
+        "bars_count": 280,
+        "indicator_count": 280,
+        "max_trade_date": 20260410,
+        "pattern_count": 280
+      },
+      "export_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb",
+      "export_run_id": "prep_20260403T011910937071Z",
+      "export_signature": {
+        "bars_count": 280,
+        "indicator_count": 280,
+        "max_trade_date": 20260410,
+        "pattern_count": 280
+      },
+      "reason_code": "complete_match",
+      "required_fields": [
+        "bars_count",
+        "indicator_count",
+        "pattern_count",
+        "max_trade_date"
+      ],
+      "schema_version": "tradex_export_snapshot_status_v1",
+      "source_counts": {
+        "daily_bars": 280,
+        "daily_ma": 280,
+        "feature_snapshot_daily": 280,
+        "monthly_bars": 1,
+        "position_rounds": 0,
+        "positions_live": 0
+      },
+      "source_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\source.duckdb",
+      "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907",
+      "status": "complete"
+    },
+    "snapshot_status_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb.snapshot_status.json",
+    "source_counts": {
+      "daily_bars": 280,
+      "daily_ma": 280,
+      "feature_snapshot_daily": 280,
+      "monthly_bars": 1,
+      "position_rounds": 0,
+      "positions_live": 0
+    },
+    "source_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\source.duckdb",
+    "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907",
+    "status": "complete",
+    "table_presence": {
+      "bars_daily_export": true,
+      "indicator_daily_export": true,
+      "meta_export_runs": true,
+      "pattern_state_export": true
+    }
+  },
+  "export_status": "complete",
+  "label_prepare": {
+    "cache_state": "fresh",
+    "dirty_ranges": [],
+    "ok": true,
+    "reason": "source_signature_unchanged",
+    "skipped": true,
+    "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907"
+  },
+  "label_probe": {
+    "action": "skip",
+    "cache_state": "fresh",
+    "dirty_ranges": [],
+    "reason": "source_signature_unchanged",
+    "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907"
+  },
+  "label_status": "skip",
+  "latest_trade_date": "20260410",
+  "prepared": true,
+  "prepared_at": "2026-04-03T01:19:12.633886+00:00",
+  "progress_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\export.duckdb.daily_research_prepare.progress.json",
+  "reason_code": "prepared_complete",
+  "schema_version": "tradex_daily_research_prepare_v1",
+  "source_signature": "ae9adffc2786adf5c936ad9930ea813d9c8c6907",
+  "source_snapshot_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_ec886c7f90aa\\source.duckdb"
+}

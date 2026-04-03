@@ -35,7 +35,7 @@ class BatchBarsV3Request(BaseModel):
     limit: int = Field(..., ge=1, le=10000)
     timeframeLimits: Dict[str, int] = Field(default_factory=dict)
     includeProvisional: bool = True
-    includeBoxes: bool = True
+    includeBoxes: bool = False
     asof: str | int | None = None
 
 

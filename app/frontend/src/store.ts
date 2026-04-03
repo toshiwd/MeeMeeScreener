@@ -2,6 +2,7 @@
 import { api, setApiErrorReporter } from "./api";
 import { normalizeScreenerListResponse } from "./listSnapshot";
 import type {
+  BatchBarsLoadOptions,
   BarsPayload,
   Box,
   ListSnapshotMeta,
@@ -698,12 +699,13 @@ export const useStore = create<StoreState>((set, get) => ({
     })();
     return listLoadPromise;
   },
-  loadBarsBatch: async (timeframe, codes, limitOverride, reason) => {
+  loadBarsBatch: async (timeframe, codes, limitOverride, reason, options?: BatchBarsLoadOptions) => {
     const state = get();
     const loadingMap = state.barsLoading[timeframe];
     const uniqueCodes = [...new Set(codes.filter((code) => code))];
     const trimmed = uniqueCodes.filter((code) => !loadingMap[code]);
     if (!trimmed.length) return;
+    const includeBoxes = options?.includeBoxes ?? true;
 
     if (timeframe === "weekly") {
       const weeklyRequired = Math.max(
@@ -712,7 +714,7 @@ export const useStore = create<StoreState>((set, get) => ({
         get().settings.listRangeBars
       );
       const requestCodes = [...new Set(trimmed)].sort();
-      const requestKey = buildBatchKey(timeframe, weeklyRequired, requestCodes);
+      const requestKey = `${buildBatchKey(timeframe, weeklyRequired, requestCodes)}|boxes:${includeBoxes ? 1 : 0}`;
       const cachedAt = recentBatchRequests.get(requestKey);
       if (cachedAt && Date.now() - cachedAt < BATCH_TTL_MS) return;
 
@@ -763,7 +765,8 @@ export const useStore = create<StoreState>((set, get) => ({
             codes: requestCodes,
             timeframes: ["weekly"],
             limit: weeklyRequired,
-            includeProvisional: true
+            includeProvisional: true,
+            includeBoxes
           };
           let res: { status: number; data?: any } | null = null;
           let attempt = 0;
@@ -803,7 +806,7 @@ export const useStore = create<StoreState>((set, get) => ({
             const payload = rawItems[code]?.weekly;
             if (payload && Array.isArray(payload.bars)) {
               weeklyItems[code] = payload;
-              weeklyBoxes[code] = payload.boxes ?? [];
+              weeklyBoxes[code] = includeBoxes ? payload.boxes ?? [] : [];
             } else {
               weeklyItems[code] = {
                 bars: [],
@@ -877,7 +880,7 @@ export const useStore = create<StoreState>((set, get) => ({
       timeframe === "daily" ? get().maSettings.daily : get().maSettings.monthly;
     const limit = Math.max(limitOverride ?? 0, getRequiredBars(maSettings));
     const requestCodes = [...new Set(trimmed)].sort();
-    const requestKey = buildBatchKey(timeframe, limit, requestCodes);
+    const requestKey = `${buildBatchKey(timeframe, limit, requestCodes)}|boxes:${includeBoxes ? 1 : 0}`;
     const cachedAt = recentBatchRequests.get(requestKey);
     if (cachedAt && Date.now() - cachedAt < BATCH_TTL_MS) return;
 
@@ -928,7 +931,8 @@ export const useStore = create<StoreState>((set, get) => ({
           timeframes: [timeframe],
           codes: requestCodes,
           limit,
-          includeProvisional: true
+          includeProvisional: true,
+          includeBoxes
         };
         let res: { status: number; data?: any } | null = null;
         let attempt = 0;
@@ -972,7 +976,7 @@ export const useStore = create<StoreState>((set, get) => ({
                   boxes: []
                 };
           items[code] = payload;
-          const boxes = payload.boxes ?? [];
+          const boxes = includeBoxes ? payload.boxes ?? [] : [];
           if (timeframe === "monthly") {
             boxesMonthly[code] = boxes;
             boxesDaily[code] = boxes;
@@ -1042,11 +1046,12 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   loadBoxesBatch: async (codes) => {
     if (!codes.length) return;
-    await get().loadBarsBatch("monthly", codes, undefined, "boxes");
+    await get().loadBarsBatch("monthly", codes, undefined, "boxes", { includeBoxes: true });
   },
   ensureBarsForVisible: async (timeframe, codes, reason) => {
     const uniqueCodes = [...new Set(codes.filter((code) => code))];
     if (!uniqueCodes.length) return;
+    const includeBoxes = reason !== "ranking-visible";
     const pending = ensurePendingCodes[timeframe];
     uniqueCodes.forEach((code) => pending.add(code));
     if (reason) {
@@ -1078,7 +1083,7 @@ export const useStore = create<StoreState>((set, get) => ({
                 ? getRequiredBars(maSettings.weekly)
                 : getRequiredBars(maSettings.monthly);
           const requiredWithRange = Math.max(requiredBars, state.settings.listRangeBars);
-          const listKey = buildBatchKey(timeframe, requiredWithRange, mergedCodes);
+          const listKey = `${buildBatchKey(timeframe, requiredWithRange, mergedCodes)}|boxes:${includeBoxes ? 1 : 0}`;
           if (lastEnsureKeyByTimeframe[timeframe] !== listKey) {
             abortInFlightForTimeframe(timeframe);
             lastEnsureKeyByTimeframe[timeframe] = listKey;
@@ -1103,7 +1108,8 @@ export const useStore = create<StoreState>((set, get) => ({
               timeframe,
               batch,
               requiredWithRange,
-              mergedReason
+              mergedReason,
+              { includeBoxes }
             );
           }
           waiters.forEach((w) => w.resolve());

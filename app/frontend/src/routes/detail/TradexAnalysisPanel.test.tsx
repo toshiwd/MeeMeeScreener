@@ -20,6 +20,8 @@ describe('TradexAnalysisPanel', () => {
           analysis: {
             symbol: '7203',
             asof: '2026-03-19',
+            source: 'tradex',
+            displayLabel: 'TRADEX',
             sideRatios: { buy: 0.61, neutral: 0.24, sell: 0.15 },
             confidence: 0.77,
             reasons: ['tone=up', 'pattern=breakout', 'ev=positive'],

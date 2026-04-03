@@ -1,0 +1,74 @@
+{
+  "candidate_rows": [
+    {
+      "avg_dd_delta": -0.01,
+      "avg_liquidity_fail_delta": -0.01,
+      "avg_monthly_capture_delta": 0.01,
+      "avg_top10_ret20_mean_delta": 0.01,
+      "avg_top5_ret20_mean_delta": 0.01,
+      "avg_turnover_delta": -0.01,
+      "avg_worst_regime_delta": 0.01,
+      "avg_zero_pass_delta": 0.0,
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "candidate_value": 0.11,
+          "champion_value": 0.1,
+          "code": "top5",
+          "delta": 0.01,
+          "status": "pass"
+        }
+      ],
+      "drop_count": 0,
+      "hold_count": 0,
+      "keep_count": 1,
+      "latest_decision": "keep",
+      "latest_decision_reasons": [
+        {
+          "code": "top5",
+          "status": "pass"
+        }
+      ],
+      "method_family": "family-a",
+      "method_signature_hash": "hash-scope-good",
+      "method_thesis": "test",
+      "method_title": "candidate-a",
+      "session_count": 1
+    }
+  ],
+  "family_summary": [
+    {
+      "decision": "keep",
+      "decision_reasons": [
+        {
+          "code": "candidate_keep_present",
+          "keep_count": 1
+        }
+      ],
+      "method_family": "family-a",
+      "method_thesis": "test",
+      "method_title": "family-a"
+    }
+  ],
+  "overview": {
+    "candidate_count": 1,
+    "drop_candidate_count": 0,
+    "drop_family_count": 0,
+    "family_count": 1,
+    "hold_candidate_count": 0,
+    "hold_family_count": 0,
+    "insufficient_samples": false,
+    "keep_candidate_count": 1,
+    "keep_family_count": 1
+  },
+  "schema_version": "tradex_family_leaderboard_v1",
+  "session_meta": {
+    "eval_window_mode": "fallback",
+    "eval_window_mode_reason": "test",
+    "generated_at": "2025-03-23T00:00:00+09:00",
+    "insufficient_samples": false,
+    "random_seed": 7,
+    "sample_count": 11,
+    "session_id": "scope-b3228031e93e-seed-7"
+  }
+}

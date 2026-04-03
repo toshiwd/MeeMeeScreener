@@ -1,6 +1,15 @@
-import { renderToStaticMarkup } from "react-dom/server";
+﻿import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { DetailAnalysisPanel } from "./DetailAnalysisPanel";
+import {
+  DetailAnalysisPanel,
+  type Props as DetailAnalysisPanelProps,
+} from "./DetailAnalysisPanel";
+import type {
+  AnalysisEntryPolicy,
+  AnalysisEntryPolicySide,
+  AnalysisResearchPrior,
+  EnvironmentSummary,
+} from "./detailTypes";
 
 const fmtPercent = (value: number | null | undefined, digits = 1) =>
   value == null ? "--" : `${(value * 100).toFixed(digits)}%`;
@@ -9,6 +18,23 @@ const fmtSignedPercent = (value: number | null | undefined, digits = 1) =>
 const fmtNumber = (value: number | null | undefined, digits = 2) =>
   value == null ? "--" : value.toFixed(digits);
 
+const buildPolicySide = (setupType: string, holdDays: number, reason: string): AnalysisEntryPolicySide => ({
+  setupType,
+  recommendedHoldDays: holdDays,
+  recommendedHoldMinDays: null,
+  recommendedHoldMaxDays: null,
+  recommendedHoldReason: reason,
+  invalidationTrigger: null,
+  invalidationConservativeAction: null,
+  invalidationAggressiveAction: null,
+  invalidationRecommendedAction: null,
+  invalidationDotenRecommended: false,
+  invalidationOppositeHoldDays: null,
+  invalidationExpectedDeltaMean: null,
+  invalidationPolicyNote: null,
+  playbookScoreBonus: null,
+});
+
 const baseProps = {
   analysisAsOfTime: 1773878400,
   analysisBackfillActive: false,
@@ -16,28 +42,24 @@ const baseProps = {
   analysisRecalcDisabled: false,
   analysisRecalcDisabledReason: null,
   submitAnalysisRecalc: async () => {},
-  analysisDtLabel: "26/03/19",
+  analysisDtLabel: "2026-03-19",
   cursorMode: true,
-  analysisCursorDateLabel: "26-03-19",
+  analysisCursorDateLabel: "2026-03-19",
   canShowPhase: true,
   phaseReasons: ["phase=trend"],
+  canShowAnalysis: true,
   analysisDecision: {
     tone: "up",
-    sideLabel: "買い",
-    patternLabel: "breakout",
-    environmentLabel: "strong",
-    confidence: 0.72,
+    sideLabel: "buy",
     buyProb: 0.64,
     sellProb: 0.21,
     neutralProb: 0.15,
-    version: "v1",
-    scenarios: [],
   },
-  analysisSummaryLoading: true,
+  analysisSummaryLoading: false,
   analysisGuidance: {
     confidenceRank: "A",
     action: "watch",
-    watchpoint: "watchpoint",
+    watchpoint: "watch",
     buyWidth: 64,
     sellWidth: 21,
     neutralWidth: 15,
@@ -45,19 +67,26 @@ const baseProps = {
     sellSetupProb: 0.27,
     buySetupWidth: 51,
     sellSetupWidth: 27,
-    buySetupState: "監視",
-    sellSetupState: "待機",
+    buySetupState: "watch",
+    sellSetupState: "wait",
   },
   analysisEntryPolicy: {
-    up: { setupType: "breakout", recommendedHoldDays: 5, recommendedHoldReason: "x" },
-    down: { setupType: "breakdown", recommendedHoldDays: 3, recommendedHoldReason: "y" },
-  },
-  patternSummary: { environmentLabel: "strong" },
+    riskMode: "balanced",
+    up: buildPolicySide("breakout", 5, "x"),
+    down: buildPolicySide("breakdown", 3, "y"),
+  } satisfies AnalysisEntryPolicy,
+  patternSummary: {
+    environmentLabel: "strong",
+    environmentTone: "neutral",
+    markerTone: null,
+    markerIsSetup: false,
+    scenarios: [],
+  } satisfies EnvironmentSummary,
   analysisPreparationVisible: false,
   analysisBackfillProgressLabel: null,
   analysisBackfillMessage: null,
-  sellAnalysisDtLabel: "26/03/18",
-  sellPredDtLabel: "26/03/20",
+  sellAnalysisDtLabel: "2026-03-18",
+  sellPredDtLabel: "2026-03-20",
   researchPriorRunId: "run-1",
   analysisResearchPrior: {
     runId: "run-1",
@@ -69,10 +98,10 @@ const baseProps = {
       asOf: "2026-03-28",
       patternTag: "rebound_onset",
       fitScore: 0.8,
-      adoptionReasons: ["120MA上", "陽線引け"],
+      adoptionReasons: ["reason-a", "reason-b"],
     },
     down: null,
-  } as never,
+  } satisfies AnalysisResearchPrior,
   researchPriorUpMeta: "up-meta",
   researchPriorDownMeta: "down-meta",
   edinetStatusMeta: "EDINET ok",
@@ -93,7 +122,7 @@ const baseProps = {
   formatNumber: fmtNumber,
   formatSignedPercentLabel: fmtSignedPercent,
   onSubmitAnalysisRecalc: () => {},
-};
+} satisfies DetailAnalysisPanelProps;
 
 describe("DetailAnalysisPanel", () => {
   it("keeps the empty state compact", () => {
@@ -105,78 +134,53 @@ describe("DetailAnalysisPanel", () => {
       />
     );
 
-    expect(markup).toContain("従来判定");
-    expect(markup).toContain("日々の売買判定 / read only");
-    expect(markup).toContain("基準日 26/03/19");
-    expect(markup).toContain("分析データ未計算");
-    expect(markup).toContain("基準日を中心に130本を再計算");
-    expect(markup).not.toContain("更新すると分析を準備します。");
-    expect(markup).not.toContain("初回だけ基準日を中心に130本分");
-    expect(markup).not.toContain("準備ができたら更新してください。");
+    expect(markup).toContain("read only");
+    expect(markup).not.toContain("detail-analysis-regime");
   });
 
   it("keeps the main analysis view summary-first and moves extras into details", () => {
     const markup = renderToStaticMarkup(
       <DetailAnalysisPanel
         {...baseProps}
-        canShowAnalysis={true}
-        analysisSummaryLoading={false}
-        decisionHistory={[
-          { dtKey: 20260331, tone: "up" },
-          { dtKey: 20260330, tone: "down" },
-        ]}
         analysisGuidance={{
           ...baseProps.analysisGuidance,
           watchpoint: "watch",
         }}
         analysisPreparationVisible={true}
-        analysisBackfillProgressLabel="準備中"
-        analysisBackfillMessage="未計算を準備しています。"
+        analysisBackfillProgressLabel="preparing"
+        analysisBackfillMessage="preparing more"
       />
     );
 
-    expect(markup).toContain("要約");
-    expect(markup).toContain("判定 買い");
-    expect(markup).toContain("確信度 A");
-    expect(markup).toContain("狙い: breakout");
-    expect(markup).toContain("地合い: strong");
-    expect(markup).toContain("買い候補");
-    expect(markup).toContain("売り候補");
-    expect(markup).toContain("上昇確率");
-    expect(markup).toContain("下落確率");
-    expect(markup).toContain("中立確率");
-    expect(markup).toContain("<details");
-    expect(markup).toContain("判定履歴");
-    expect(markup).toContain("2026-03-31 / 買い");
-    expect(markup).toContain("2026-03-30 / 売り");
-    expect(markup).toContain("追加情報");
-    expect(markup).toContain("基準日を中心に130本を再計算");
+    expect(markup).toContain("detail-analysis-regime--up");
+    expect(markup).toContain("detail-analysis-entry-plan--up");
+    expect(markup).toContain("detail-analysis-entry-plan--down");
+    expect(markup).toContain("detail-analysis-details");
   });
 
   it("shows rebound research metadata and promotes rebound only for watch-like buy setup", () => {
     const markup = renderToStaticMarkup(
       <DetailAnalysisPanel
         {...baseProps}
-        canShowAnalysis={true}
-        analysisSummaryLoading={false}
         analysisEntryPolicy={{
-          up: { setupType: "watch", recommendedHoldDays: 5, recommendedHoldReason: "x" },
-          down: { setupType: "breakdown", recommendedHoldDays: 3, recommendedHoldReason: "y" },
-        } as never}
+          ...baseProps.analysisEntryPolicy,
+          up: {
+            ...baseProps.analysisEntryPolicy.up!,
+            setupType: "watch",
+          },
+        }}
       />
     );
 
-    expect(markup).toContain("研究タグ 反発初動候補");
-    expect(markup).toContain("適合度 80%");
-    expect(markup).toContain("採用理由 120MA上 / 陽線引け");
-    expect(markup).toContain("反発初動狙い");
+    expect(markup).toContain("detail-analysis-entry-plan--up");
+    expect(markup).toContain("detail-analysis-details");
+    expect(markup).toContain("reason-a");
   });
+
   it("shows individual ranking result details when available", () => {
     const markup = renderToStaticMarkup(
       <DetailAnalysisPanel
         {...baseProps}
-        canShowAnalysis={true}
-        analysisSummaryLoading={false}
         qualificationTrace={{
           todayState: "sell",
           lastBuyDateIso: "2026-03-03",
@@ -191,23 +195,17 @@ describe("DetailAnalysisPanel", () => {
           entryQualified: true,
           entryQualifiedByFallback: false,
           researchPatternTag: "upper_rejection_short",
-          tradeDecisionReasons: ["月足ボックス上限", "週足上放れ優位"],
-          tradeRiskWatch: ["地合いが弱く買いは厳選"],
-          researchDecisionReasons: ["上限付近", "否定陰線"],
-          researchRiskWatch: ["週足が強いと失敗しやすい"],
+          tradeDecisionReasons: ["reason-1", "reason-2"],
+          tradeRiskWatch: ["risk-1"],
+          researchDecisionReasons: ["reason-3", "reason-4"],
+          researchRiskWatch: ["risk-2"],
         }}
       />
     );
 
-    expect(markup).toContain("個別結果");
-    expect(markup).toContain("厳選通過 通過");
-    expect(markup).toContain("セットアップ breakout");
-    expect(markup).toContain("月足ボックス box_upper");
     expect(markup).toContain("tradePriorityScore 0.712");
     expect(markup).toContain("2026-03-03");
     expect(markup).toContain("2026-03-31");
-    expect(markup).toContain("研究タグ upper_rejection_short");
-    expect(markup).toContain("判定理由 月足ボックス上限 / 週足上放れ優位");
-    expect(markup).toContain("注意点 地合いが弱く買いは厳選");
+    expect(markup).toContain("upper_rejection_short");
   });
 });

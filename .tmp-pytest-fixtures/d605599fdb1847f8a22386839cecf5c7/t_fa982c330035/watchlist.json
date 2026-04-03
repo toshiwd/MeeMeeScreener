@@ -1,0 +1,65 @@
+{
+  "history_rows": 2,
+  "improving_tags": [
+    {
+      "count": 1,
+      "latest_as_of_date": "2026-03-13",
+      "next_action_kind": "observe",
+      "priority_label": "emerging",
+      "priority_score": 5,
+      "source_metric": "top_strategy",
+      "suggested_command": "python -m external_analysis daily-research-tag-report --strategy-tag \"box_breakout\" --limit 10",
+      "tag": "box_breakout"
+    }
+  ],
+  "pending_promotions": [
+    {
+      "command": "python -m external_analysis promotion-decision-run --decision hold --note \"needs_manual_review\"",
+      "count": 1,
+      "first_seen_as_of_date": "2026-03-13",
+      "latest_as_of_date": "2026-03-13",
+      "next_action_kind": "approve",
+      "priority_label": "medium",
+      "priority_score": 100,
+      "publish_id": "pub_old",
+      "suggested_command": "python -m external_analysis promotion-decision-run --decision hold --note \"needs_manual_review\"",
+      "tag": "box_breakout"
+    }
+  ],
+  "persistent_risk_tags": [
+    {
+      "count": 2,
+      "latest_as_of_date": "2026-03-13",
+      "next_action_kind": "avoid",
+      "priority_label": "medium",
+      "priority_score": 20,
+      "source_metric": "risk_watch",
+      "suggested_command": "python -m external_analysis daily-research-tag-report --strategy-tag \"extension_fade\" --limit 10",
+      "tag": "extension_fade"
+    }
+  ],
+  "stale_running_jobs": [],
+  "top_next_actions": [
+    {
+      "kind": "pending_promotion",
+      "label": "pub_old",
+      "next_action_kind": "approve",
+      "priority_score": 100,
+      "suggested_command": "python -m external_analysis promotion-decision-run --decision hold --note \"needs_manual_review\""
+    },
+    {
+      "kind": "persistent_risk",
+      "label": "extension_fade",
+      "next_action_kind": "avoid",
+      "priority_score": 20,
+      "suggested_command": "python -m external_analysis daily-research-tag-report --strategy-tag \"extension_fade\" --limit 10"
+    },
+    {
+      "kind": "improving_tag",
+      "label": "box_breakout",
+      "next_action_kind": "observe",
+      "priority_score": 5,
+      "suggested_command": "python -m external_analysis daily-research-tag-report --strategy-tag \"box_breakout\" --limit 10"
+    }
+  ]
+}

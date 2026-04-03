@@ -76,6 +76,7 @@ def _render_sample_rows(
     image_paths: list[str] = []
     for row in rows:
         image_path = renders_dir / subset / str(row["code"]) / f'{row["as_of_date"]}.png'
+        image_path.parent.mkdir(parents=True, exist_ok=True)
         render_day80_chart(bars=list(row["feature_window"]), path=image_path, config=render_config)
         image_paths.append(str(image_path))
         row["render_path"] = str(image_path)
