@@ -56,6 +56,22 @@ def _read_text_from_dir(root: str, rel_path: str) -> str:
         return handle.read()
 
 
+def _validate_bundled_db(conn) -> tuple[bool, list[str]]:
+    issues: list[str] = []
+    for table_name in ("tickers", "daily_bars", "monthly_bars", "industry_master"):
+        row = conn.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+            [table_name],
+        ).fetchone()
+        if not row or row[0] == 0:
+            issues.append(f"{table_name}:missing")
+            continue
+        count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+        if not count or int(count) <= 0:
+            issues.append(f"{table_name}:empty")
+    return (len(issues) == 0, issues)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         return _fail("Usage: python scripts/verify_portable_zip.py <portable.zip|onedir>")
@@ -173,7 +189,7 @@ def main(argv: list[str]) -> int:
             print(f"  file={import_positions_path}")
             return 1
 
-        # Verify industry_master table exists in bundled DuckDB
+        # Verify bundled DuckDB is actually usable for release selftest.
         db_path = "_internal/app/backend/stocks.duckdb"
         if db_path not in names:
             print("NG: bundled stocks.duckdb missing")
@@ -193,11 +209,11 @@ def main(argv: list[str]) -> int:
                 with open(temp_path, "wb") as dst:
                     dst.write(read_binary(db_path))
                 with duckdb.connect(temp_path, read_only=True) as conn:
-                    row = conn.execute(
-                        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'industry_master'"
-                    ).fetchone()
-                    if not row or row[0] == 0:
-                        print("NG: industry_master table missing in bundled DuckDB")
+                    ok, issues = _validate_bundled_db(conn)
+                    if not ok:
+                        print("NG: bundled DuckDB is missing required data")
+                        for issue in issues:
+                            print(f"  - {issue}")
                         return 1
             finally:
                 try:
@@ -207,11 +223,11 @@ def main(argv: list[str]) -> int:
         else:
             full_db = os.path.join(root, db_path.replace("/", os.sep))
             with duckdb.connect(full_db, read_only=True) as conn:
-                row = conn.execute(
-                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'industry_master'"
-                ).fetchone()
-                if not row or row[0] == 0:
-                    print("NG: industry_master table missing in bundled DuckDB")
+                ok, issues = _validate_bundled_db(conn)
+                if not ok:
+                    print("NG: bundled DuckDB is missing required data")
+                    for issue in issues:
+                        print(f"  - {issue}")
                     return 1
     finally:
         if "zf" in locals():

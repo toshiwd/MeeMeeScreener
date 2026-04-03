@@ -1,4 +1,4 @@
-﻿# MeeMee Screener
+# MeeMee Screener
 
 MeeMee Screener は、銘柄スクリーニングと売買履歴連携を行う Windows 向けデスクトップアプリです。  
 構成は `pywebview + FastAPI + React (Vite)` です。
@@ -81,11 +81,31 @@ npm run preview
 tools\build_release.cmd
 ```
 
+配布 ZIP が必要なときだけ:
+
+```powershell
+tools\build_release.cmd -PackageZip
+```
+
+build 後に exe 起動確認まで行うときだけ:
+
+```powershell
+tools\build_release.cmd -SmokeRun
+```
+
 成果物:
 
 - `release/MeeMeeScreener/`
 - `release/MeeMeeScreener/MeeMeeScreener.exe`
 - `release/MeeMeeScreener-portable.zip`
+
+補足:
+
+- `tools\build_release.cmd` の既定動作は `release/MeeMeeScreener/` の更新のみ
+- 既定の DuckDB 同梱元は `%LOCALAPPDATA%\MeeMeeScreener\data\stocks.duckdb`
+- 別 DB を使う場合だけ `MEEMEE_RELEASE_DB_PATH=<path>` を明示する
+- `release/MeeMeeScreener-portable.zip` は `-PackageZip` 指定時のみ更新
+- `portable_bootstrap.cmd` は ZIP 展開後の起動補助用であり、build 用ではない
 
 ## 関連ドキュメント
 

@@ -1482,19 +1482,19 @@ def _run_selftest() -> int:
             subprocess.run([py, "-m", "playwright", "install", "chromium"], check=False)
             script_path = os.path.join(artifacts_dir, "playwright_selftest.py")
             script = (
-                "import json,sys\n"
+                "import json,os,sys\n"
                 "from playwright.sync_api import sync_playwright\n"
                 "try:\n"
                 "    with sync_playwright() as p:\n"
                 "        browser = p.chromium.launch(headless=True)\n"
                 "        page = browser.new_page()\n"
                 f"        page.goto('{url}', timeout=30000)\n"
-                "        page.wait_for_selector('.market-heatmap', timeout=10000)\n"
-                "        page.wait_for_selector('.heatmap-canvas[data-heatmap-state]', timeout=15000)\n"
-                "        page.wait_for_function(\"() => { const el = document.querySelector('.heatmap-canvas[data-heatmap-state]'); return !!el && el.dataset.heatmapState !== 'loading'; }\", timeout=15000)\n"
+                "        page.wait_for_selector('.market-heatmap-panel', timeout=15000)\n"
+                "        page.wait_for_selector('.market-grid-heatmap', timeout=15000)\n"
+                "        page.wait_for_function(\"() => document.querySelectorAll('.market-grid-heatmap .market-grid-tile').length > 0\", timeout=15000)\n"
                 f"        page.screenshot(path=r'{screenshot_path}')\n"
-                "        print(json.dumps({'status': 'ok'}))\n"
-                "        browser.close()\n"
+                "        print(json.dumps({'status': 'ok'}), flush=True)\n"
+                "        os._exit(0)\n"
                 "except Exception as e:\n"
                 "    print(json.dumps({'status': 'error', 'detail': str(e)}))\n"
             )

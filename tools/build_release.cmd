@@ -9,12 +9,9 @@ set LOG_FILE=%LOG_DIR%\build_release_%TODAY%_%NOW%.log
 echo Closing MeeMeeScreener.exe if running...
 taskkill /IM MeeMeeScreener.exe /F >NUL 2>&1
 echo Build log: %LOG_FILE%
-powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%build_release.ps1" -LogPath "%LOG_FILE%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%build_release.ps1" -LogPath "%LOG_FILE%" %*
 if errorlevel 1 (
   echo Build failed. See log: %LOG_FILE%
   exit /b 1
 )
-
-echo Copying portable bootstrap scripts next to ZIP...
-copy /Y "%SCRIPT_DIR%portable_bootstrap.ps1" "%SCRIPT_DIR%..\release\" >NUL
-copy /Y "%SCRIPT_DIR%portable_bootstrap.cmd" "%SCRIPT_DIR%..\release\" >NUL
+exit /b 0

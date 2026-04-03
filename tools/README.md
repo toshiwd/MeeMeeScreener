@@ -1,39 +1,39 @@
-# Tools ディレクトリ
+# Tools
 
-開発・デバッグ・テスト用のツールとスクリプトを格納しています。
+MeeMee の build / release / selftest 用ツールの入口はここに集約する。
 
-## ディレクトリ構成
+## 正規入口
 
-### debug/
-デバッグ用スクリプト
+- `build_release.cmd`
+  - 公開 build 入口はこれだけ
+  - 既定は `release/MeeMeeScreener/` の onedir build のみ
+  - 既定の DuckDB 同梱元は `%LOCALAPPDATA%\\MeeMeeScreener\\data\\stocks.duckdb`
+  - 別 DB を使う場合だけ `MEEMEE_RELEASE_DB_PATH` を明示する
+  - `-PackageZip` を付けたときだけ `release/MeeMeeScreener-portable.zip` を作る
+  - `-SmokeRun` を付けたときだけ build 後に exe 起動確認を行う
+- `build_release.ps1`
+  - `build_release.cmd` の内部実装
 
-- `check_db_status.py` - データベースの状態を確認
-- `check_rights_data.py` - 権利落ち日データを確認
-- `debug_*.py` - 各種デバッグスクリプト
-- `diagnose_issues.py` - 問題診断ツール
+## 配布後ランチャー
 
-### setup/
-初期セットアップ用スクリプト
+- `portable_bootstrap.cmd`
+- `portable_bootstrap.ps1`
+  - ZIP 展開後に runtime 前提を確認して `MeeMeeScreener.exe` を起動する
+  - build はしない
 
-- `init_db_schema.py` - データベーススキーマの初期化
-- `init_events_meta.py` - イベントメタデータの初期化
-- `import_csv_to_db.py` - CSVデータのインポート
-- `list_tables.py` - データベーステーブル一覧表示
+## selftest
 
-### test/
-テストスクリプト
+- `selftest.ps1`
+  - `-Mode dev`: 開発環境 selftest
+  - `-Mode release`: build 済み `release/MeeMeeScreener/` に対する selftest
 
-- `test_api.py` - API エンドポイントのテスト
-- `test_events_fetch.py` - イベントデータ取得のテスト
-- `test_positions_api.py` - ポジションAPIのテスト
+## 補助ファイル
 
-## ビルド関連
-
-- `build_release.ps1` - リリースビルドスクリプト（メイン）
-- `build_release.cmd` - リリースビルドスクリプト（バッチファイル）
-
-## その他
-
-- `export_pan.vbs` - パン・ローリングデータエクスポート
-- `code.txt` - 銘柄コードリスト
-- `convert_moomoo_ebk.ps1` - moomooデータ変換
+- `export_pan.vbs`
+  - PAN export 用
+- `code.txt`
+  - `code.txt` の既定配置
+- `setup/`
+  - DB / seed / import 系のセットアップ補助
+- `debug/`
+  - 手元診断用スクリプト
