@@ -1447,6 +1447,32 @@ export default function TrackingView() {
     ] as const;
   }, [rankingSummary, signalSummary, view]);
 
+  const analysisScoreThresholdBlocks = useMemo(() => {
+    if (view !== "analysis") return { buy: [], sell: [] };
+    const buildBlocks = (rows: ScoreThresholdRow[]) => {
+      const scoreKeys = ["tradePriorityScore", "entryScore", "probSide"] as const;
+      return scoreKeys.map((scoreKey) => {
+        const sortedRows = rows
+          .filter((row) => row.score_key === scoreKey)
+          .slice()
+          .sort((left, right) => {
+            const leftReturn = left.average_directional_return_30 ?? Number.NEGATIVE_INFINITY;
+            const rightReturn = right.average_directional_return_30 ?? Number.NEGATIVE_INFINITY;
+            if (rightReturn !== leftReturn) return rightReturn - leftReturn;
+            const leftLift = left.lift_vs_same_date_universe_30 ?? Number.NEGATIVE_INFINITY;
+            const rightLift = right.lift_vs_same_date_universe_30 ?? Number.NEGATIVE_INFINITY;
+            if (rightLift !== leftLift) return rightLift - leftLift;
+            return right.count - left.count;
+          });
+        return { scoreKey, rows: sortedRows.slice(0, 3) };
+      });
+    };
+    return {
+      buy: buildBlocks(analysisBuyValidation?.decision_level?.score_threshold_rows ?? []),
+      sell: buildBlocks(analysisSellValidation?.decision_level?.score_threshold_rows ?? []),
+    };
+  }, [analysisBuyValidation, analysisSellValidation, view]);
+
   const analysisSummaryCards = useMemo(() => {
     if (view !== "analysis") return [];
     const buyDecision = analysisBuyValidation?.decision_level ?? null;
@@ -1706,32 +1732,6 @@ export default function TrackingView() {
     if (view !== "analysis") return [];
     return analysisSellValidation?.sell_subset_comparison?.subsets ?? [];
   }, [analysisSellValidation, view]);
-
-  const analysisScoreThresholdBlocks = useMemo(() => {
-    if (view !== "analysis") return { buy: [], sell: [] };
-    const buildBlocks = (rows: ScoreThresholdRow[]) => {
-      const scoreKeys = ["tradePriorityScore", "entryScore", "probSide"] as const;
-      return scoreKeys.map((scoreKey) => {
-        const sortedRows = rows
-          .filter((row) => row.score_key === scoreKey)
-          .slice()
-          .sort((left, right) => {
-            const leftReturn = left.average_directional_return_30 ?? Number.NEGATIVE_INFINITY;
-            const rightReturn = right.average_directional_return_30 ?? Number.NEGATIVE_INFINITY;
-            if (rightReturn !== leftReturn) return rightReturn - leftReturn;
-            const leftLift = left.lift_vs_same_date_universe_30 ?? Number.NEGATIVE_INFINITY;
-            const rightLift = right.lift_vs_same_date_universe_30 ?? Number.NEGATIVE_INFINITY;
-            if (rightLift !== leftLift) return rightLift - leftLift;
-            return right.count - left.count;
-          });
-        return { scoreKey, rows: sortedRows.slice(0, 3) };
-      });
-    };
-    return {
-      buy: buildBlocks(analysisBuyValidation?.decision_level?.score_threshold_rows ?? []),
-      sell: buildBlocks(analysisSellValidation?.decision_level?.score_threshold_rows ?? []),
-    };
-  }, [analysisBuyValidation, analysisSellValidation, view]);
 
   const analysisShockBlocks = useMemo(() => {
     if (view !== "analysis") return [];
