@@ -8,6 +8,8 @@ type TrackingStatus = "active" | "completed" | "archive";
 type TrackingSide = "buy" | "sell";
 type TrackingMode = "ranking" | "signal" | "analysis";
 type RankingDirection = "up" | "down";
+type TrackingOutcomeFilter = "all" | "good" | "bad" | "broken";
+type TrackingListSort = "recent" | "oldest" | "best" | "worst";
 
 type ParsedTrackingQuery = {
   view: TrackingMode;
@@ -20,6 +22,19 @@ type ParsedTrackingQuery = {
   rankBucket: string;
   from: string;
   to: string;
+  outcome: TrackingOutcomeFilter;
+  sort: TrackingListSort;
+};
+
+type TrackingListResponse<T> = {
+  items?: T[];
+  count?: number;
+  has_more?: boolean;
+  next_offset?: number | null;
+  offset?: number;
+  limit?: number;
+  outcome?: TrackingOutcomeFilter;
+  sort?: TrackingListSort;
 };
 
 type SignalLogicVersionItem = {
@@ -96,6 +111,17 @@ type ProfitTimingPatternRow = {
   average_directional_return_30?: number | null;
 };
 
+type ScoreThresholdRow = {
+  score_key: string;
+  threshold: number;
+  count: number;
+  coverage_rate: number | null;
+  directional_hit_rate_30: number | null;
+  average_directional_return_30: number | null;
+  same_date_universe_average_directional_return_30?: number | null;
+  lift_vs_same_date_universe_30?: number | null;
+};
+
 type SellSubsetComparisonRow = {
   subset_key: string;
   label: string;
@@ -108,6 +134,61 @@ type SellSubsetComparisonRow = {
   break_rate?: number | null;
   median_days_to_max_favorable_30?: number | null;
   median_days_to_max_adverse_30?: number | null;
+};
+
+type ShockAnalysisCohortRow = {
+  cohort_key: string;
+  label: string;
+  count: number;
+  share: number | null;
+  directional_hit_rate_30: number | null;
+  average_directional_return_30: number | null;
+  same_date_universe_average_directional_return_30: number | null;
+  lift_vs_same_date_universe_30: number | null;
+  average_trailing_return_20: number | null;
+  median_trailing_return_20: number | null;
+};
+
+type ShockAnalysisGroupRow = {
+  setup_type?: string;
+  regime_tag?: string;
+  break_reason?: string;
+  count: number;
+  directional_hit_rate_30: number | null;
+  average_directional_return_30: number | null;
+  average_lift_vs_universe_30?: number | null;
+};
+
+type ShockAnalysisExampleRow = {
+  dt: number;
+  code: string;
+  name?: string | null;
+  setup_type?: string | null;
+  regime_tag?: string | null;
+  trailing_return_20?: number | null;
+  return_30?: number | null;
+  lift_vs_universe_30?: number | null;
+  break_status?: string | null;
+  break_reason?: string | null;
+};
+
+type ShockAnalysisSideSummary = {
+  side: TrackingSide;
+  window: {
+    from_ymd: number;
+    to_ymd: number;
+    lookback_years: number;
+    trailing_horizon: number;
+    drop_threshold: number;
+    bottom_decile_threshold: number | null;
+  };
+  qualified_decisions: number;
+  qualified_with_trailing_return: number;
+  cohort_rows: ShockAnalysisCohortRow[];
+  by_setup_type: ShockAnalysisGroupRow[];
+  by_regime: ShockAnalysisGroupRow[];
+  by_break_reason: ShockAnalysisGroupRow[];
+  shock_examples: ShockAnalysisExampleRow[];
 };
 
 type SignalValidationSideSummary = {
@@ -123,6 +204,8 @@ type SignalValidationSideSummary = {
   average_directional_return_20: number | null;
   average_directional_return_30: number | null;
   average_directional_return_60: number | null;
+  score_threshold_rows?: ScoreThresholdRow[];
+  shock_analysis?: ShockAnalysisSideSummary | null;
   days_to_max_favorable_30?: number | null;
   days_to_max_adverse_30?: number | null;
   median_days_to_max_favorable_30?: number | null;
@@ -519,9 +602,9 @@ const _LEGACY_MODE_TABS: { key: TrackingMode; label: string }[] = [
 ];
 
 const MODE_TABS: { key: TrackingMode; label: string }[] = [
-  { key: "ranking", label: "繝ｩ繝ｳ繧ｭ繝ｳ繧ｰ謗ｲ霈牙ｱ･豁ｴ" },
-  { key: "signal", label: "螢ｲ雋ｷ蛻､螳壼ｱ･豁ｴ" },
-  { key: "analysis", label: "解析" },
+  { key: "ranking", label: "ランキング掲載履歴" },
+  { key: "signal", label: "売買判定履歴" },
+  { key: "analysis", label: "分析" },
 ];
 
 const SIDE_TABS: { key: TrackingSide; label: string }[] = [
@@ -533,6 +616,22 @@ const DIR_TABS: { key: RankingDirection; label: string }[] = [
   { key: "up", label: "上昇側" },
   { key: "down", label: "下落側" },
 ];
+
+const TRACKING_OUTCOME_OPTIONS: { value: TrackingOutcomeFilter; label: string }[] = [
+  { value: "all", label: "全件" },
+  { value: "good", label: "良かった" },
+  { value: "bad", label: "不調" },
+  { value: "broken", label: "シナリオ崩れ" },
+];
+
+const TRACKING_SORT_OPTIONS: { value: TrackingListSort; label: string }[] = [
+  { value: "recent", label: "新しい順" },
+  { value: "oldest", label: "古い順" },
+  { value: "best", label: "良い順" },
+  { value: "worst", label: "悪い順" },
+];
+
+const TRACKING_PAGE_SIZE = 100;
 
 const RANK_BUCKETS = [
   { value: "", label: "全順位" },
@@ -595,6 +694,63 @@ const formatDayCount = (value: number | null | undefined) => {
   const rounded = Math.round(value * 10) / 10;
   return Number.isInteger(rounded) ? `${rounded.toFixed(0)}日目` : `${rounded.toFixed(1)}日目`;
 };
+
+const formatDateInputYmd = (value: Date) => {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const date = `${value.getDate()}`.padStart(2, "0");
+  return `${year}${month}${date}`;
+};
+
+const parseDateInputYmd = (value: string) => {
+  const normalized = value.trim();
+  if (!/^\d{8}$/.test(normalized)) return null;
+  const year = Number.parseInt(normalized.slice(0, 4), 10);
+  const month = Number.parseInt(normalized.slice(4, 6), 10) - 1;
+  const date = Number.parseInt(normalized.slice(6, 8), 10);
+  const parsed = new Date(year, month, date);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month ||
+    parsed.getDate() !== date
+  ) {
+    return null;
+  }
+  return parsed;
+};
+
+const formatYmdDisplay = (value: number | string | null | undefined) => {
+  if (value === null || value === undefined) return "--";
+  const parsed = parseDateInputYmd(String(value).trim());
+  if (!parsed) return String(value);
+  return formatDateInputYmd(parsed);
+};
+
+const buildYearsPresetRange = (endYmd: string, years: number) => {
+  const endDate = parseDateInputYmd(endYmd) ?? new Date();
+  const startDate = new Date(endDate);
+  startDate.setFullYear(startDate.getFullYear() - years);
+  return {
+    from: formatDateInputYmd(startDate),
+    to: formatDateInputYmd(endDate),
+  };
+};
+
+const appendUniqueItems = <T,>(current: T[], incoming: T[], keyOf: (item: T) => string) => {
+  if (!current.length) return incoming;
+  const seen = new Set(current.map((item) => keyOf(item)));
+  const merged = [...current];
+  for (const item of incoming) {
+    const key = keyOf(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged;
+};
+
+const countFromPageFallback = <T,>(items: T[], offset: number) => offset + items.length;
 
 const _diffRate = (left: number | null | undefined, right: number | null | undefined) => {
   if (typeof left !== "number" || !Number.isFinite(left)) return null;
@@ -882,6 +1038,14 @@ export default function TrackingView() {
       rankBucket: params.get("rank_bucket")?.trim() ?? "",
       from: params.get("from")?.trim() ?? "",
       to: params.get("to")?.trim() ?? "",
+      outcome:
+        params.get("outcome") === "good" || params.get("outcome") === "bad" || params.get("outcome") === "broken"
+          ? (params.get("outcome") as TrackingOutcomeFilter)
+          : "all",
+      sort:
+        params.get("sort") === "oldest" || params.get("sort") === "best" || params.get("sort") === "worst"
+          ? (params.get("sort") as TrackingListSort)
+          : "recent",
     };
   }, [location.search]);
 
@@ -895,6 +1059,11 @@ export default function TrackingView() {
   const [search, setSearch] = useState(parsedQuery.q);
   const [fromYmd, setFromYmd] = useState(parsedQuery.from);
   const [toYmd, setToYmd] = useState(parsedQuery.to);
+  const [outcomeFilter, setOutcomeFilter] = useState<TrackingOutcomeFilter>(parsedQuery.outcome);
+  const [listSort, setListSort] = useState<TrackingListSort>(parsedQuery.sort);
+  const [pageOffset, setPageOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [signalItems, setSignalItems] = useState<SignalEvent[]>([]);
   const [rankingItems, setRankingItems] = useState<RankingAppearance[]>([]);
   const [signalSummary, setSignalSummary] = useState<SignalSummaryResponse | null>(null);
@@ -915,6 +1084,17 @@ export default function TrackingView() {
   const [rankingDetail, setRankingDetail] = useState<RankingAppearanceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const resetListViewState = () => {
+    setPageOffset(0);
+    setHasMore(false);
+    setTotalCount(null);
+    setSelectedSignalId(null);
+    setSelectedRankingId(null);
+    setSignalDetail(null);
+    setRankingDetail(null);
+  };
 
   useEffect(() => {
     setView(parsedQuery.view);
@@ -927,6 +1107,9 @@ export default function TrackingView() {
     setSearch(parsedQuery.q);
     setFromYmd(parsedQuery.from);
     setToYmd(parsedQuery.to);
+    setOutcomeFilter(parsedQuery.outcome);
+    setListSort(parsedQuery.sort);
+    setPageOffset(0);
   }, [parsedQuery]);
 
   useEffect(() => {
@@ -942,6 +1125,10 @@ export default function TrackingView() {
       params.set("ranking_logic_version", rankingLogicVersion);
       if (rankBucket) params.set("rank_bucket", rankBucket);
     }
+    if (view !== "analysis") {
+      params.set("sort", listSort);
+      if (outcomeFilter !== "all") params.set("outcome", outcomeFilter);
+    }
     if (search.trim()) params.set("q", search.trim());
     if (fromYmd.trim()) params.set("from", fromYmd.trim());
     if (toYmd.trim()) params.set("to", toYmd.trim());
@@ -956,10 +1143,12 @@ export default function TrackingView() {
     location.search,
     logicVersion,
     navigate,
+    outcomeFilter,
     rankBucket,
     rankingLogicVersion,
     search,
     side,
+    listSort,
     status,
     toYmd,
     view,
@@ -991,66 +1180,111 @@ export default function TrackingView() {
   useEffect(() => {
     let canceled = false;
     const load = async () => {
-      setLoading(true);
+      const isFirstPage = pageOffset === 0 || view === "analysis";
+      if (isFirstPage) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
       setError(null);
       try {
-        const statusRequest = api.get("/signal-tracking/status", {
-          timeout: 60000,
-        });
+        const statusRequest = isFirstPage
+          ? api.get("/signal-tracking/status", {
+              timeout: 60000,
+            })
+          : null;
         if (view === "signal") {
-          const [statusResponse, summaryResponse, listResponse] = await Promise.all([
-            statusRequest,
-            api.get("/signal-tracking/summary", {
-              params: { side, logic_version: logicVersion },
-              timeout: 60000,
-            }),
-            api.get("/signal-tracking/events", {
-              params: {
-                status,
-                side,
-                logic_version: logicVersion,
-                q: search.trim() || undefined,
-                from: fromYmd.trim() || undefined,
-                to: toYmd.trim() || undefined,
-                limit: 200,
-              },
-              timeout: 60000,
-            }),
-          ]);
+          const listRequest = api.get("/signal-tracking/events", {
+            params: {
+              status,
+              side,
+              logic_version: logicVersion,
+              q: search.trim() || undefined,
+              from: fromYmd.trim() || undefined,
+              to: toYmd.trim() || undefined,
+              limit: TRACKING_PAGE_SIZE,
+              offset: pageOffset,
+              sort: listSort,
+              outcome: outcomeFilter,
+            },
+            timeout: 60000,
+          });
+          if (isFirstPage && statusRequest) {
+            const [statusResponse, summaryResponse, listResponse] = await Promise.all([
+              statusRequest,
+              api.get("/signal-tracking/summary", {
+                params: { side, logic_version: logicVersion },
+                timeout: 60000,
+              }),
+              listRequest,
+            ]);
+            if (canceled) return;
+            const listPayload = (listResponse.data ?? null) as TrackingListResponse<SignalEvent> | null;
+            const items = Array.isArray(listPayload?.items) ? (listPayload.items as SignalEvent[]) : [];
+            setRuntimeStatus((statusResponse.data ?? null) as TrackingRuntimeStatus | null);
+            setSignalSummary((summaryResponse.data ?? null) as SignalSummaryResponse | null);
+            setSignalItems(items);
+            setHasMore(Boolean(listPayload?.has_more));
+            setTotalCount(typeof listPayload?.count === "number" ? listPayload.count : items.length);
+          } else {
+            const listResponse = await listRequest;
+            if (canceled) return;
+            const listPayload = (listResponse.data ?? null) as TrackingListResponse<SignalEvent> | null;
+            const items = Array.isArray(listPayload?.items) ? (listPayload.items as SignalEvent[]) : [];
+            setSignalItems((current) => appendUniqueItems(current, items, (item) => item.event_id));
+            setHasMore(Boolean(listPayload?.has_more));
+            setTotalCount(typeof listPayload?.count === "number" ? listPayload.count : countFromPageFallback(items, pageOffset));
+          }
           if (canceled) return;
-          setRuntimeStatus((statusResponse.data ?? null) as TrackingRuntimeStatus | null);
-          setSignalSummary((summaryResponse.data ?? null) as SignalSummaryResponse | null);
-          setSignalItems(Array.isArray(listResponse.data?.items) ? (listResponse.data.items as SignalEvent[]) : []);
           setAnalysisBuyValidation(null);
           setAnalysisSellValidation(null);
           setAnalysisRankingAnalysis(null);
           setAnalysisLeakageAudit(null);
           setAnalysisSellComparison(null);
         } else if (view === "ranking") {
-          const [statusResponse, summaryResponse, listResponse] = await Promise.all([
-            statusRequest,
-            api.get("/ranking-history/summary", {
-              params: { dir: direction, ranking_logic_version: rankingLogicVersion },
-              timeout: 60000,
-            }),
-            api.get("/ranking-history/appearances", {
-              params: {
-                status,
-                dir: direction,
-                ranking_logic_version: rankingLogicVersion,
-                q: search.trim() || undefined,
-                rank_bucket: rankBucket || undefined,
-                from: fromYmd.trim() || undefined,
-                to: toYmd.trim() || undefined,
-                limit: 200,
-              },
-              timeout: 60000,
-            }),
-          ]);
+          const listRequest = api.get("/ranking-history/appearances", {
+            params: {
+              status,
+              dir: direction,
+              ranking_logic_version: rankingLogicVersion,
+              q: search.trim() || undefined,
+              rank_bucket: rankBucket || undefined,
+              from: fromYmd.trim() || undefined,
+              to: toYmd.trim() || undefined,
+              limit: TRACKING_PAGE_SIZE,
+              offset: pageOffset,
+              sort: listSort,
+              outcome: outcomeFilter,
+            },
+            timeout: 60000,
+          });
+          if (isFirstPage && statusRequest) {
+            const [statusResponse, summaryResponse, listResponse] = await Promise.all([
+              statusRequest,
+              api.get("/ranking-history/summary", {
+                params: { dir: direction, ranking_logic_version: rankingLogicVersion },
+                timeout: 60000,
+              }),
+              listRequest,
+            ]);
+            if (canceled) return;
+            const listPayload = (listResponse.data ?? null) as TrackingListResponse<RankingAppearance> | null;
+            const items = Array.isArray(listPayload?.items) ? (listPayload.items as RankingAppearance[]) : [];
+            setRuntimeStatus((statusResponse.data ?? null) as TrackingRuntimeStatus | null);
+            setRankingSummary((summaryResponse.data ?? null) as RankingSummaryResponse | null);
+            setRankingItems(items);
+            setHasMore(Boolean(listPayload?.has_more));
+            setTotalCount(typeof listPayload?.count === "number" ? listPayload.count : items.length);
+          } else {
+            const listResponse = await listRequest;
+            if (canceled) return;
+            const listPayload = (listResponse.data ?? null) as TrackingListResponse<RankingAppearance> | null;
+            const items = Array.isArray(listPayload?.items) ? (listPayload.items as RankingAppearance[]) : [];
+            setRankingItems((current) => appendUniqueItems(current, items, (item) => item.appearance_id));
+            setHasMore(Boolean(listPayload?.has_more));
+            setTotalCount(typeof listPayload?.count === "number" ? listPayload.count : countFromPageFallback(items, pageOffset));
+          }
           if (canceled) return;
-          setRuntimeStatus((statusResponse.data ?? null) as TrackingRuntimeStatus | null);
-          setRankingSummary((summaryResponse.data ?? null) as RankingSummaryResponse | null);
-          setRankingItems(Array.isArray(listResponse.data?.items) ? (listResponse.data.items as RankingAppearance[]) : []);
           setAnalysisBuyValidation(null);
           setAnalysisSellValidation(null);
           setAnalysisRankingAnalysis(null);
@@ -1058,7 +1292,7 @@ export default function TrackingView() {
           setAnalysisSellComparison(null);
         } else {
           const [statusResponse, buyResponse, sellResponse, rankingAnalysisResponse, leakageAuditResponse, sellCompareResponse, signalResponse, rankingResponse] = await Promise.all([
-            statusRequest,
+            statusRequest!,
             api.get("/signal-tracking/validation", {
               params: { side: "buy", logic_version: logicVersion, from: fromYmd.trim() || undefined, to: toYmd.trim() || undefined },
               timeout: 60000,
@@ -1123,6 +1357,8 @@ export default function TrackingView() {
           setRankingItems(Array.isArray(rankingResponse.data?.items) ? (rankingResponse.data.items as RankingAppearance[]) : []);
           setSignalSummary(null);
           setRankingSummary(null);
+          setHasMore(false);
+          setTotalCount(null);
         }
       } catch (loadError) {
         if (!canceled) {
@@ -1130,14 +1366,20 @@ export default function TrackingView() {
           setError(describeTrackingLoadError(loadError));
         }
       } finally {
-        if (!canceled) setLoading(false);
+        if (!canceled) {
+          if (isFirstPage) {
+            setLoading(false);
+          } else {
+            setLoadingMore(false);
+          }
+        }
       }
     };
     void load();
     return () => {
       canceled = true;
     };
-  }, [direction, fromYmd, logicVersion, rankBucket, rankingLogicVersion, refreshToken, search, side, status, toYmd, view]);
+  }, [direction, fromYmd, logicVersion, outcomeFilter, pageOffset, rankBucket, rankingLogicVersion, refreshToken, search, side, listSort, status, toYmd, view]);
 
   useEffect(() => {
     const selectedId = view === "signal" ? selectedSignalId : selectedRankingId;
@@ -1210,6 +1452,24 @@ export default function TrackingView() {
     const buyDecision = analysisBuyValidation?.decision_level ?? null;
     const sellDecision = analysisSellValidation?.decision_level ?? null;
     const rankingUp = analysisRankingAnalysis?.by_dir.find((item) => item.dir === "up") ?? null;
+    const bestScoreThresholdRow = (rows: ScoreThresholdRow[]) =>
+      rows
+        .slice()
+        .sort((left, right) => {
+          const leftReturn = left.average_directional_return_30 ?? Number.NEGATIVE_INFINITY;
+          const rightReturn = right.average_directional_return_30 ?? Number.NEGATIVE_INFINITY;
+          if (rightReturn !== leftReturn) return rightReturn - leftReturn;
+          const leftLift = left.lift_vs_same_date_universe_30 ?? Number.NEGATIVE_INFINITY;
+          const rightLift = right.lift_vs_same_date_universe_30 ?? Number.NEGATIVE_INFINITY;
+          if (rightLift !== leftLift) return rightLift - leftLift;
+          return right.count - left.count;
+        })[0] ?? null;
+    const buyThresholdBest = bestScoreThresholdRow(
+      analysisScoreThresholdBlocks.buy.flatMap((block) => block.rows)
+    );
+    const sellThresholdBest = bestScoreThresholdRow(
+      analysisScoreThresholdBlocks.sell.flatMap((block) => block.rows)
+    );
     const leakageFlagCount =
       (analysisLeakageAudit?.basis_provenance?.future_source_as_of_count ?? 0) +
       (analysisLeakageAudit?.basis_provenance?.future_pred_dt_count ?? 0) +
@@ -1264,8 +1524,28 @@ export default function TrackingView() {
         label: "future leakage flags",
         value: formatPlainNumber(leakageFlagCount),
       },
+      {
+        label: "buy best threshold",
+        value: buyThresholdBest ? `${buyThresholdBest.score_key} ${buyThresholdBest.threshold.toFixed(2)}` : "--",
+        tone: metricTone(buyThresholdBest?.average_directional_return_30) === "is-up" ? "up" : "down",
+      },
+      {
+        label: "buy threshold ret",
+        value: formatSignedPercent(buyThresholdBest?.average_directional_return_30),
+        tone: metricTone(buyThresholdBest?.average_directional_return_30) === "is-up" ? "up" : "down",
+      },
+      {
+        label: "sell best threshold",
+        value: sellThresholdBest ? `${sellThresholdBest.score_key} ${sellThresholdBest.threshold.toFixed(2)}` : "--",
+        tone: metricTone(sellThresholdBest?.average_directional_return_30) === "is-up" ? "up" : "down",
+      },
+      {
+        label: "sell threshold ret",
+        value: formatSignedPercent(sellThresholdBest?.average_directional_return_30),
+        tone: metricTone(sellThresholdBest?.average_directional_return_30) === "is-up" ? "up" : "down",
+      },
     ] as const;
-  }, [analysisBuyValidation, analysisLeakageAudit, analysisRankingAnalysis, analysisSellValidation, view]);
+  }, [analysisBuyValidation, analysisLeakageAudit, analysisRankingAnalysis, analysisScoreThresholdBlocks, analysisSellValidation, view]);
 
   const analysisRollingBlocks = useMemo(() => {
     if (view !== "analysis") return [];
@@ -1427,6 +1707,54 @@ export default function TrackingView() {
     return analysisSellValidation?.sell_subset_comparison?.subsets ?? [];
   }, [analysisSellValidation, view]);
 
+  const analysisScoreThresholdBlocks = useMemo(() => {
+    if (view !== "analysis") return { buy: [], sell: [] };
+    const buildBlocks = (rows: ScoreThresholdRow[]) => {
+      const scoreKeys = ["tradePriorityScore", "entryScore", "probSide"] as const;
+      return scoreKeys.map((scoreKey) => {
+        const sortedRows = rows
+          .filter((row) => row.score_key === scoreKey)
+          .slice()
+          .sort((left, right) => {
+            const leftReturn = left.average_directional_return_30 ?? Number.NEGATIVE_INFINITY;
+            const rightReturn = right.average_directional_return_30 ?? Number.NEGATIVE_INFINITY;
+            if (rightReturn !== leftReturn) return rightReturn - leftReturn;
+            const leftLift = left.lift_vs_same_date_universe_30 ?? Number.NEGATIVE_INFINITY;
+            const rightLift = right.lift_vs_same_date_universe_30 ?? Number.NEGATIVE_INFINITY;
+            if (rightLift !== leftLift) return rightLift - leftLift;
+            return right.count - left.count;
+          });
+        return { scoreKey, rows: sortedRows.slice(0, 3) };
+      });
+    };
+    return {
+      buy: buildBlocks(analysisBuyValidation?.decision_level?.score_threshold_rows ?? []),
+      sell: buildBlocks(analysisSellValidation?.decision_level?.score_threshold_rows ?? []),
+    };
+  }, [analysisBuyValidation, analysisSellValidation, view]);
+
+  const analysisShockBlocks = useMemo(() => {
+    if (view !== "analysis") return [];
+    const buildBlock = (label: string, summary: ShockAnalysisSideSummary | null | undefined) => {
+      const cohortByKey = new Map((summary?.cohort_rows ?? []).map((row) => [row.cohort_key, row]));
+      const cohortOrder = ["both", "drop_10pct_only", "bottom_decile_only", "normal", "insufficient_history"] as const;
+      const cohortRows = cohortOrder.map((cohortKey) => cohortByKey.get(cohortKey) ?? null).filter(Boolean) as ShockAnalysisCohortRow[];
+      return {
+        label,
+        summary,
+        cohortRows,
+        topSetupTypes: pickTopEntries(summary?.by_setup_type ?? [], 3),
+        topRegimes: pickTopEntries(summary?.by_regime ?? [], 3),
+        topBreakReasons: pickTopEntries(summary?.by_break_reason ?? [], 3),
+        shockExamples: (summary?.shock_examples ?? []).slice(0, 4),
+      };
+    };
+    return [
+      buildBlock("buy", analysisBuyValidation?.decision_level?.shock_analysis ?? null),
+      buildBlock("sell", analysisSellValidation?.decision_level?.shock_analysis ?? null),
+    ];
+  }, [analysisBuyValidation, analysisSellValidation, view]);
+
   const analysisRegimeRows = useMemo(() => {
     if (view !== "analysis") return [];
     return pickTopEntries(
@@ -1508,9 +1836,8 @@ export default function TrackingView() {
               type="button"
               className={`tracking-tab ${view === tab.key ? "is-active" : ""}`}
               onClick={() => {
+                resetListViewState();
                 setView(tab.key);
-                setSelectedSignalId(null);
-                setSelectedRankingId(null);
               }}
             >
               {tab.label}
@@ -1524,7 +1851,10 @@ export default function TrackingView() {
               key={tab.key}
               type="button"
               className={`tracking-tab ${status === tab.key ? "is-active" : ""}`}
-              onClick={() => setStatus(tab.key)}
+              onClick={() => {
+                resetListViewState();
+                setStatus(tab.key);
+              }}
             >
               {tab.label}
             </button>
@@ -1547,6 +1877,7 @@ export default function TrackingView() {
                   view === "ranking" ? (direction === tab.key ? "is-active" : "") : (side === tab.key ? "is-active" : "")
                 }`}
                 onClick={() => {
+                  resetListViewState();
                   if (view === "ranking") {
                     setDirection(tab.key as RankingDirection);
                   } else {
@@ -1563,7 +1894,13 @@ export default function TrackingView() {
             <>
               <label className="tracking-version-field">
                 <span>signal logic version</span>
-                <select value={logicVersion} onChange={(event) => setLogicVersion(event.target.value)}>
+                <select
+                  value={logicVersion}
+                  onChange={(event) => {
+                    resetListViewState();
+                    setLogicVersion(event.target.value);
+                  }}
+                >
                   <option value="latest">latest</option>
                   {signalLogicVersions.map((item) => {
                     const version = item.logic_version;
@@ -1577,7 +1914,13 @@ export default function TrackingView() {
               </label>
               <label className="tracking-version-field">
                 <span>ranking logic version</span>
-                <select value={rankingLogicVersion} onChange={(event) => setRankingLogicVersion(event.target.value)}>
+                <select
+                  value={rankingLogicVersion}
+                  onChange={(event) => {
+                    resetListViewState();
+                    setRankingLogicVersion(event.target.value);
+                  }}
+                >
                   <option value="latest">latest</option>
                   {rankingLogicVersions.map((item) => {
                     const version = item.ranking_logic_version;
@@ -1596,6 +1939,7 @@ export default function TrackingView() {
               <select
                 value={view === "signal" ? logicVersion : rankingLogicVersion}
                 onChange={(event) => {
+                  resetListViewState();
                   if (view === "signal") {
                     setLogicVersion(event.target.value);
                   } else {
@@ -1620,7 +1964,13 @@ export default function TrackingView() {
           {view === "ranking" ? (
             <label className="tracking-version-field">
               <span>rank bucket</span>
-              <select value={rankBucket} onChange={(event) => setRankBucket(event.target.value)}>
+              <select
+                value={rankBucket}
+                onChange={(event) => {
+                  resetListViewState();
+                  setRankBucket(event.target.value);
+                }}
+              >
                 {RANK_BUCKETS.map((item) => (
                   <option key={item.value || "all"} value={item.value}>
                     {item.label}
@@ -1630,22 +1980,107 @@ export default function TrackingView() {
             </label>
           ) : null}
 
+          {view !== "analysis" ? (
+            <>
+              <label className="tracking-version-field">
+                <span>結果</span>
+                <select
+                  value={outcomeFilter}
+                  onChange={(event) => {
+                    resetListViewState();
+                    setOutcomeFilter(event.target.value as TrackingOutcomeFilter);
+                  }}
+                >
+                  {TRACKING_OUTCOME_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="tracking-version-field">
+                <span>並び順</span>
+                <select
+                  value={listSort}
+                  onChange={(event) => {
+                    resetListViewState();
+                    setListSort(event.target.value as TrackingListSort);
+                  }}
+                >
+                  {TRACKING_SORT_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : null}
+
           <label className="tracking-search-field">
             <span>コード / 銘柄名</span>
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="2413 / エムスリー" />
+            <input
+              value={search}
+              onChange={(event) => {
+                resetListViewState();
+                setSearch(event.target.value);
+              }}
+              placeholder="2413 / エムスリー"
+            />
           </label>
 
           <label className="tracking-version-field">
             <span>from</span>
-            <input value={fromYmd} onChange={(event) => setFromYmd(event.target.value)} placeholder="20250301" />
+            <input
+              value={fromYmd}
+              onChange={(event) => {
+                resetListViewState();
+                setFromYmd(event.target.value);
+              }}
+              placeholder="20250301"
+            />
           </label>
 
           <label className="tracking-version-field">
             <span>to</span>
-            <input value={toYmd} onChange={(event) => setToYmd(event.target.value)} placeholder="20260402" />
+            <input
+              value={toYmd}
+              onChange={(event) => {
+                resetListViewState();
+                setToYmd(event.target.value);
+              }}
+              placeholder="20260402"
+            />
           </label>
 
-          <button type="button" className="tracking-refresh-button" onClick={() => setRefreshToken((current) => current + 1)}>
+          {view !== "analysis" ? (
+            <div className="tracking-side-toggle">
+              {[1, 2].map((years) => (
+                <button
+                  key={years}
+                  type="button"
+                  className="tracking-side-button"
+                  onClick={() => {
+                    resetListViewState();
+                    const range = buildYearsPresetRange(toYmd, years);
+                    setFromYmd(range.from);
+                    setToYmd(range.to);
+                  }}
+                >
+                  {years}Y
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            className="tracking-refresh-button"
+            onClick={() => {
+              resetListViewState();
+              setRefreshToken((current) => current + 1);
+            }}
+          >
             再取得
           </button>
         </section>
@@ -1653,6 +2088,11 @@ export default function TrackingView() {
         {runtimeNote ? <div className="tracking-runtime-note">{runtimeNote}</div> : null}
         {error ? <div className="tracking-inline-error">{error}</div> : null}
         {loading ? <div className="tracking-empty">読み込み中...</div> : null}
+        {view !== "analysis" && !loading ? (
+          <div className="tracking-runtime-note">
+            {`表示 ${view === "signal" ? signalItems.length : rankingItems.length} / ${totalCount?.toLocaleString("ja-JP") ?? "--"} 件`}
+          </div>
+        ) : null}
 
         {view === "analysis" ? (
           <section className="tracking-analysis-shell">
@@ -1669,7 +2109,7 @@ export default function TrackingView() {
               </div>
             </AnalysisSection>
 
-            <AnalysisSection title="rolling" subtitle="5d, 20d, 30d, 60d ????????????">
+            <AnalysisSection title="rolling" subtitle="5d, 20d, 30d, 60d の勝率 / 平均リターン">
               <div className="tracking-analysis-card-grid">
                 {analysisRollingBlocks.map((block) => (
                   <article className="tracking-analysis-card" key={block.label}>
@@ -1917,6 +2357,91 @@ export default function TrackingView() {
                 </article>
               </div>
             </AnalysisSection>
+            <AnalysisSection title="shock" subtitle="過去10年の 20d 急落局面を buy / sell で分離してみる">
+              <div className="tracking-analysis-card-grid">
+                {analysisShockBlocks.map((block) => {
+                  const summary = block.summary;
+                  const severeCohort = block.cohortRows.find((row) => row.cohort_key === "both") ?? null;
+                  return (
+                    <article className="tracking-analysis-card" key={block.label}>
+                      <div className="tracking-analysis-card-title">{block.label}</div>
+                      <div className="tracking-analysis-card-body">
+                        {summary ? (
+                          <>
+                            <div className="tracking-analysis-mini-row">
+                              <span>window</span>
+                              <strong>
+                                {formatYmdDisplay(summary.window.from_ymd)} - {formatYmdDisplay(summary.window.to_ymd)}
+                              </strong>
+                              <small>
+                                {formatPercent(summary.window.drop_threshold)} / bottom {formatPercent(summary.window.bottom_decile_threshold)}
+                              </small>
+                            </div>
+                            <div className="tracking-analysis-mini-row">
+                              <span>qualified</span>
+                              <strong>{formatPlainNumber(summary.qualified_decisions)}</strong>
+                              <small>{formatPlainNumber(summary.qualified_with_trailing_return)} with 20d history</small>
+                            </div>
+                            {block.cohortRows.map((row) => (
+                              <div className="tracking-analysis-mini-row" key={`${block.label}-${row.cohort_key}`}>
+                                <span>{row.label}</span>
+                                <strong>
+                                  {formatPlainNumber(row.count)} / {formatPercent(row.share)}
+                                </strong>
+                                <small>
+                                  30d {formatSignedPercent(row.average_directional_return_30)} / lift {formatSignedPercent(row.lift_vs_same_date_universe_30)} / 20d {formatSignedPercent(row.average_trailing_return_20)}
+                                </small>
+                              </div>
+                            ))}
+                            <div className="tracking-analysis-mini-row">
+                              <span>severe return</span>
+                              <strong>{formatSignedPercent(severeCohort?.average_directional_return_30)}</strong>
+                              <small>{formatPercent(severeCohort?.share)} of qualified</small>
+                            </div>
+                            <div className="tracking-analysis-mini-row">
+                              <span>top setup</span>
+                              <strong>{block.topSetupTypes[0]?.setup_type ?? "--"}</strong>
+                              <small>
+                                {formatPlainNumber(block.topSetupTypes[0]?.count)} / {formatSignedPercent(block.topSetupTypes[0]?.average_directional_return_30)}
+                              </small>
+                            </div>
+                            <div className="tracking-analysis-mini-row">
+                              <span>top regime</span>
+                              <strong>{block.topRegimes[0]?.regime_tag ?? "--"}</strong>
+                              <small>
+                                {formatPlainNumber(block.topRegimes[0]?.count)} / {formatSignedPercent(block.topRegimes[0]?.average_directional_return_30)}
+                              </small>
+                            </div>
+                            <div className="tracking-analysis-mini-row">
+                              <span>top break</span>
+                              <strong>{block.topBreakReasons[0]?.break_reason ?? "--"}</strong>
+                              <small>
+                                {formatPlainNumber(block.topBreakReasons[0]?.count)} / {formatSignedPercent(block.topBreakReasons[0]?.average_directional_return_30)}
+                              </small>
+                            </div>
+                            {block.shockExamples.length > 0 ? (
+                              block.shockExamples.map((example) => (
+                                <div className="tracking-analysis-mini-row" key={`${block.label}-${example.dt}-${example.code}`}>
+                                  <span>{formatYmdDisplay(example.dt)} {example.code}</span>
+                                  <strong>
+                                    {formatSignedPercent(example.trailing_return_20)} / {formatSignedPercent(example.return_30)}
+                                  </strong>
+                                  <small>{example.regime_tag ?? "--"} / {example.break_reason ?? "--"}</small>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="tracking-analysis-empty-inline">shock example はまだありません。</div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="tracking-analysis-empty-inline">shock analysis is not available yet.</div>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </AnalysisSection>
           </section>
         ) : null}
 
@@ -2059,6 +2584,19 @@ export default function TrackingView() {
             )}
           </div>
         </section>
+
+        {view !== "analysis" && hasMore ? (
+          <div style={{ display: "flex", justifyContent: "center", padding: "12px 0 0" }}>
+            <button
+              type="button"
+              className="tracking-refresh-button"
+              onClick={() => setPageOffset((current) => current + TRACKING_PAGE_SIZE)}
+              disabled={loadingMore}
+            >
+              {loadingMore ? "続きを読み込み中..." : "さらに読み込む"}
+            </button>
+          </div>
+        ) : null}
 
         {detailLoading ? <div className="tracking-empty">詳細を読み込み中...</div> : null}
       </main>
