@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import shutil
 import sys
 from datetime import date, timedelta
+from pathlib import Path
+from uuid import uuid4
 
 import duckdb
 
@@ -11,6 +14,12 @@ from external_analysis.models import candidate_baseline as candidate_baseline_mo
 from external_analysis.models.candidate_baseline import run_candidate_baseline
 from external_analysis.ops.ops_schema import ensure_ops_db
 from external_analysis.runtime.nightly_pipeline import run_nightly_candidate_pipeline
+
+
+ROOT = Path(__file__).resolve().parents[1]
+_PHASE1_CACHE_ROOT = (ROOT / ".tmp-tests" / "phase1_seed" / uuid4().hex).resolve()
+_PHASE1_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+_PHASE1_CACHE: dict[str, tuple[list[int], dict[str, Path]]] = {}
 
 
 def _weekday_ints(start: date, count: int) -> list[int]:
@@ -59,20 +68,53 @@ def _seed_source_db(source_db: str) -> list[int]:
 
 
 def _run_phase1_inputs(monkeypatch, source_db: str, export_db: str, label_db: str, result_db: str, ops_db: str) -> list[int]:
-    dates = _seed_source_db(source_db)
+    cached = _PHASE1_CACHE.get("default")
+    if cached is None:
+        base_source_db = _PHASE1_CACHE_ROOT / "source.duckdb"
+        base_export_db = _PHASE1_CACHE_ROOT / "export.duckdb"
+        base_label_db = _PHASE1_CACHE_ROOT / "label.duckdb"
+        base_result_db = _PHASE1_CACHE_ROOT / "result.duckdb"
+        base_ops_db = _PHASE1_CACHE_ROOT / "ops.duckdb"
+        dates = _seed_source_db(str(base_source_db))
+        monkeypatch.setenv("STOCKS_DB_PATH", str(base_source_db))
+        monkeypatch.setenv("MEEMEE_RESULT_DB_PATH", str(base_result_db))
+        commands = [
+            ["external_analysis", "init-result-db", "--db-path", str(base_result_db)],
+            ["external_analysis", "init-export-db", "--db-path", str(base_export_db)],
+            ["external_analysis", "init-label-db", "--db-path", str(base_label_db)],
+            ["external_analysis", "init-ops-db", "--db-path", str(base_ops_db)],
+            ["external_analysis", "export-sync", "--source-db-path", str(base_source_db), "--export-db-path", str(base_export_db)],
+            ["external_analysis", "label-build", "--export-db-path", str(base_export_db), "--label-db-path", str(base_label_db)],
+        ]
+        for argv in commands:
+            monkeypatch.setattr(sys, "argv", argv)
+            assert external_analysis_main() == 0
+        cached = (
+            dates,
+            {
+                "source": base_source_db,
+                "export": base_export_db,
+                "label": base_label_db,
+                "result": base_result_db,
+                "ops": base_ops_db,
+            },
+        )
+        _PHASE1_CACHE["default"] = cached
+    dates, base_paths = cached
+    for key, dest in (
+        ("source", Path(source_db)),
+        ("export", Path(export_db)),
+        ("label", Path(label_db)),
+        ("result", Path(result_db)),
+        ("ops", Path(ops_db)),
+    ):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_paths[key], dest)
+        wal_path = Path(f"{base_paths[key]}.wal")
+        if wal_path.exists():
+            shutil.copy2(wal_path, Path(f"{dest}.wal"))
     monkeypatch.setenv("STOCKS_DB_PATH", str(source_db))
     monkeypatch.setenv("MEEMEE_RESULT_DB_PATH", str(result_db))
-    commands = [
-        ["external_analysis", "init-result-db", "--db-path", str(result_db)],
-        ["external_analysis", "init-export-db", "--db-path", str(export_db)],
-        ["external_analysis", "init-label-db", "--db-path", str(label_db)],
-        ["external_analysis", "init-ops-db", "--db-path", str(ops_db)],
-        ["external_analysis", "export-sync", "--source-db-path", str(source_db), "--export-db-path", str(export_db)],
-        ["external_analysis", "label-build", "--export-db-path", str(export_db), "--label-db-path", str(label_db)],
-    ]
-    for argv in commands:
-        monkeypatch.setattr(sys, "argv", argv)
-        assert external_analysis_main() == 0
     return dates
 
 

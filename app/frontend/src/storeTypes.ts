@@ -186,6 +186,10 @@ export type BarsPayload = {
   boxes?: Box[];
 };
 
+export type BatchBarsLoadOptions = {
+  includeBoxes?: boolean;
+};
+
 export type MultiTimeframeBarsPayload = {
   daily?: BarsPayload;
   weekly?: BarsPayload;
@@ -293,7 +297,13 @@ export type StoreState = {
   loadEventsMeta: () => Promise<EventsMeta | null>;
   refreshEventsIfStale: () => Promise<void>;
   refreshEvents: () => Promise<void>;
-  loadBarsBatch: (timeframe: GridTimeframe, codes: string[], limitOverride?: number, reason?: string) => Promise<void>;
+  loadBarsBatch: (
+    timeframe: GridTimeframe,
+    codes: string[],
+    limitOverride?: number,
+    reason?: string,
+    options?: BatchBarsLoadOptions
+  ) => Promise<void>;
   loadBoxesBatch: (codes: string[]) => Promise<void>;
   ensureBarsForVisible: (timeframe: GridTimeframe, codes: string[], reason?: string) => Promise<void>;
   setColumns: (value: 1 | 2 | 3 | 4) => void;

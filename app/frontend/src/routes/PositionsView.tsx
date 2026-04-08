@@ -14,6 +14,7 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
+import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 
 type HeldItem = {
   symbol: string;
@@ -409,15 +410,15 @@ export default function PositionsView() {
 
   const handleOpenDetail = useCallback(
     (code: string) => {
-      try {
-        sessionStorage.setItem("detailListBack", location.pathname);
-        sessionStorage.setItem("detailListCodes", JSON.stringify(listCodes));
-      } catch {
-        // ignore storage failures
-      }
-      navigate(`/detail/${code}`, { state: { from: location.pathname } });
+      void openDetailWithPrefetch({
+        navigate,
+        code,
+        listCodes,
+        backPath: location.pathname,
+        backendReady,
+      });
     },
-    [navigate, location.pathname, listCodes]
+    [backendReady, listCodes, location.pathname, navigate]
   );
 
   const handleEnsureVisibleItem = useCallback(

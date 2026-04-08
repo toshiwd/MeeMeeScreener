@@ -62,3 +62,4 @@
 - 旧 Quickstart / Launch ガイド
 - 一時検討メモ・実装計画メモ
 - `docs/archive/` 配下の完了レポート類
+- `docs/cleanup/CLEANUP_MANIFEST_2026-04-03.md`: 今回の tracked 生成物・キャッシュ整理の証跡と未整理候補

@@ -711,6 +711,8 @@ def refresh_ml_feature_table(
     end_dt: int | None = None,
 ) -> int:
     _ensure_ml_schema(conn)
+    if not _table_exists(conn, "ml_feature_daily"):
+        ensure_ml_runtime_schema(conn, legacy_schema_enabled=True)
     where: list[str] = []
     params: list[object] = [int(feature_version)]
     if start_dt is not None:

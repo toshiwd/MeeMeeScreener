@@ -8,6 +8,7 @@ from external_analysis.runtime import analysis_adapter
 from external_analysis.runtime.analysis_adapter import build_tradex_analysis_payload
 from external_analysis.runtime.input_normalization import normalize_tradex_analysis_input
 from external_analysis.runtime.orchestrator import run_tradex_analysis
+from external_analysis.runtime.score_aggregate import aggregate_tradex_score_decision
 from external_analysis.runtime.score_axes import (
     score_ev_upside_downside,
     score_short_bias_penalty,
@@ -96,6 +97,68 @@ def test_score_finalization_assembles_public_decision_shape() -> None:
         "environment=上昇優位",
         "version=2026-03-04-v2",
     )
+
+
+@pytest.mark.parametrize(
+    ("trend_axis", "turning_axis", "expected_label"),
+    [
+        (
+            {
+                "components": {
+                    "direction_up_component": 0.30,
+                    "direction_down_component": 0.28,
+                    "range_balance_component": 0.36,
+                },
+                "signals": {
+                    "up_prob": 0.48,
+                    "down_prob": 0.33,
+                    "down_threshold": 0.58,
+                    "box_bottom_aligned": True,
+                },
+            },
+            {"components": {"turn_up_component": 0.18, "turn_down_component": 0.12, "range_turn_component": 0.24}, "signals": {"turn_up": 0.52, "turn_down": 0.42}},
+            "レンジ優位（先回り買い監視）",
+        ),
+        (
+            {
+                "components": {
+                    "direction_up_component": 0.24,
+                    "direction_down_component": 0.28,
+                    "range_balance_component": 0.34,
+                },
+                "signals": {
+                    "up_prob": 0.26,
+                    "down_prob": 0.64,
+                    "down_threshold": 0.58,
+                    "trend_down": True,
+                },
+            },
+            {"components": {"turn_up_component": 0.08, "turn_down_component": 0.16, "range_turn_component": 0.23}, "signals": {"turn_up": 0.38, "turn_down": 0.45}},
+            "レンジ優位（戻り売り監視）",
+        ),
+    ],
+)
+def test_score_aggregate_uses_japanese_range_environment_labels(
+    trend_axis: dict[str, object],
+    turning_axis: dict[str, object],
+    expected_label: str,
+) -> None:
+    decision = aggregate_tradex_score_decision(
+        trend_axis=trend_axis,
+        turning_axis=turning_axis,
+        ev_axis={"components": {"up_ev_component": 0.02, "down_ev_component": 0.01, "range_ev_component": 0.03}},
+        short_axis={
+            "signals": {
+                "short_score_norm": 0.12,
+                "bullish_structure": False,
+                "short_signal_confirmed": expected_label.endswith("戻り売り監視）"),
+                "analysis_ev_net": -0.002 if expected_label.endswith("戻り売り監視）") else 0.004,
+            }
+        },
+    )
+
+    assert decision["tone"] == "neutral"
+    assert decision["environment_label"] == expected_label
 
 
 def test_tradex_analysis_adapter_composes_prepare_core_finalize_in_order(monkeypatch) -> None:

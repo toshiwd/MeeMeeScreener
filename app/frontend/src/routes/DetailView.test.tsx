@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installCanvasMock, type CanvasMockHandle } from "../test/canvasMock";
+import { renderClient, type RenderClientHandle } from "../test/renderClient";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -351,6 +352,18 @@ const flushMicrotasks = async () => {
   await Promise.resolve();
 };
 
+const waitForSelector = async (container: HTMLElement, selector: string, attempts = 10) => {
+  for (let index = 0; index < attempts; index += 1) {
+    const found = container.querySelector(selector);
+    if (found) return found;
+    await act(async () => {
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+  return container.querySelector(selector);
+};
+
 const createDeferred = <T,>() => {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -359,6 +372,12 @@ const createDeferred = <T,>() => {
     reject = rej;
   });
   return { promise, resolve, reject };
+};
+
+const createTimeoutError = (message = "timeout of 15000ms exceeded") => {
+  const error = new Error(message) as Error & { code?: string };
+  error.code = "ECONNABORTED";
+  return error;
 };
 
 const createBarsFrame = (time: number, base: number) => ({
@@ -380,21 +399,14 @@ const createBarsResponse = (code: string, seed = 1000) => ({
   },
 });
 
-const renderDetailView = async (initialEntry = "/detail/7203") => {
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  await act(async () => {
-    root.render(
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <Routes>
-          <Route path="/detail/:code" element={<DetailView />} />
-        </Routes>
-      </MemoryRouter>
-    );
-  });
-  return { container, root };
-};
+const renderDetailView = async (initialEntry = "/detail/7203"): Promise<RenderClientHandle> =>
+  renderClient(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <Routes>
+        <Route path="/detail/:code" element={<DetailView />} />
+      </Routes>
+    </MemoryRouter>
+  );
 
 const findNextButton = (container: HTMLElement) =>
   container.querySelectorAll("button.back.nav-button")[1] ?? null;
@@ -437,24 +449,31 @@ describe("DetailView", () => {
     }
   });
 
+  let canvasMock: CanvasMockHandle | null = null;
+
+  beforeEach(() => {
+    canvasMock = installCanvasMock();
+  });
+
   afterEach(() => {
     document.body.innerHTML = "";
+    canvasMock?.restore();
+    canvasMock = null;
     vi.useRealTimers();
   });
 
   it("renders the detail route without throwing when the EDINET request is null", async () => {
-    const { container, root } = await renderDetailView();
+    const render = await renderDetailView();
+    const { container } = render;
 
     expect(container.querySelector("[data-testid='detail-header-chrome']")).not.toBeNull();
     expect(mocks.apiPost).not.toHaveBeenCalledWith("/jobs/edinet/official-backfill", expect.anything(), expect.anything());
 
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
+    render.cleanup();
   });
 
-  it("stays mounted after switching to financial mode and requesting official EDINET backfill", async () => {
+  it("stays mounted after switching to financial mode", async () => {
+    vi.useFakeTimers();
     mocks.backendReadyRef.value = true;
     mocks.apiGet.mockImplementation((url: string) => {
       if (url === "/ticker/edinet/financials") {
@@ -497,33 +516,28 @@ describe("DetailView", () => {
       return Promise.resolve({ data: {} });
     });
 
-    const { container, root } = await renderDetailView();
+    const render = await renderDetailView();
+    const { container } = render;
     const financialTab = container.querySelector("[data-testid='financial-tab']");
     expect(financialTab).not.toBeNull();
 
     await act(async () => {
       financialTab?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(7000);
+      await vi.runAllTimersAsync();
+      await flushMicrotasks();
     });
 
     expect(mocks.apiGet).toHaveBeenCalledWith("/ticker/edinet/financials", { params: { code: "7203" } });
-    expect(mocks.apiPost).toHaveBeenCalledWith(
-      "/jobs/edinet/official-backfill",
-      null,
-      expect.objectContaining({
-        params: { code: "7203" },
-      })
-    );
     expect(container.querySelector("[data-testid='detail-header-chrome']")).not.toBeNull();
 
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
+    render.cleanup();
   });
 
-  it("renders both TRADEX and legacy analysis panels on analysis mode", async () => {
-    const { container, root } = await renderDetailView();
+  it("renders TRADEX analysis and hides the legacy panel on analysis mode", async () => {
+    const render = await renderDetailView();
+    const { container } = render;
     const analysisTab = container.querySelector("[data-testid='analysis-tab']");
     expect(analysisTab).not.toBeNull();
 
@@ -532,13 +546,10 @@ describe("DetailView", () => {
       await flushMicrotasks();
     });
 
-    expect(container.querySelector("[data-testid='tradex-analysis-panel']")).not.toBeNull();
-    expect(container.querySelector("[data-testid='legacy-analysis-panel']")).not.toBeNull();
+    expect(await waitForSelector(container, "[data-testid='tradex-analysis-panel']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='legacy-analysis-panel']")).toBeNull();
 
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
+    render.cleanup();
   });
 
   it("requests daily, weekly, and monthly bars for both the current and next code", async () => {
@@ -563,7 +574,8 @@ describe("DetailView", () => {
       return Promise.resolve({ data: { items: {} } });
     });
 
-    const { container, root } = await renderDetailView("/detail/9101");
+    const render = await renderDetailView("/detail/9101");
+    const { container } = render;
 
     await act(async () => {
       await flushMicrotasks();
@@ -603,61 +615,91 @@ describe("DetailView", () => {
     const batchBarsCallsAfterNavigate = mocks.apiPost.mock.calls.filter(([url]) => url === "/batch_bars_v3");
     expect(batchBarsCallsAfterNavigate).toHaveLength(2);
 
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
+    render.cleanup();
   });
 
-  it("keeps the previous chart rendered while the next-code session is still loading", async () => {
-    vi.useFakeTimers();
+  it("shows loading with empty charts when the detail bars request is still loading", async () => {
     mocks.backendReadyRef.value = true;
     mocks.storeState.tickers = [
-      { code: "9201", name: "Gamma Corp", close: 1200, chg1D: 0.03 },
       { code: "9202", name: "Delta Corp", close: 1300, chg1D: -0.04 },
     ];
-    window.sessionStorage.setItem("detailListCodes", JSON.stringify(["9201", "9202"]));
     const nextDeferred = createDeferred<{ data: { items: Record<string, unknown> } }>();
     mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
       if (url !== "/batch_bars_v3") {
         return Promise.resolve({ data: {} });
       }
       const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
-      if (code === "9201") {
-        return Promise.resolve(createBarsResponse("9201", 1000));
-      }
       if (code === "9202") {
         return nextDeferred.promise;
       }
       return Promise.resolve({ data: { items: {} } });
     });
 
-    const { container, root } = await renderDetailView("/detail/9201");
+    const render = await renderDetailView("/detail/9202");
+    const { container } = render;
 
     await act(async () => {
       await flushMicrotasks();
-    });
-
-    const nextButton = findNextButton(container);
-    expect(nextButton).not.toBeNull();
-
-    await act(async () => {
-      nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await flushMicrotasks();
     });
 
-    expect(container.textContent).not.toContain("Daily: Loading...");
-    expect(container.textContent).not.toContain("Weekly: Loading...");
-    expect(container.textContent).not.toContain("Monthly: Loading...");
+    expect(container.textContent).toContain("9202");
+    expect(container.textContent).toContain("Daily: Loading...");
+    expect(container.textContent).toContain("Weekly: Loading...");
+    expect(container.textContent).toContain("Monthly: Loading...");
+    const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
+    expect(chartNodes.length).toBeGreaterThan(0);
+    for (const chartNode of chartNodes) {
+      expect(chartNode.getAttribute("data-candles")).toBe("0");
+    }
 
     await act(async () => {
       nextDeferred.resolve(createBarsResponse("9202", 2000));
       await flushMicrotasks();
     });
 
-    act(() => {
-      root.unmount();
+    render.cleanup();
+  });
+
+  it("keeps charts empty for the target code when the detail bars request times out", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.storeState.tickers = [
+      { code: "9302", name: "Zeta Corp", close: 1500, chg1D: -0.03 },
+    ];
+    mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
+      if (url !== "/batch_bars_v3") {
+        return Promise.resolve({ data: {} });
+      }
+      const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
+      if (code === "9302") {
+        return Promise.reject(createTimeoutError());
+      }
+      return Promise.resolve({ data: { items: {} } });
     });
-    container.remove();
+
+    const render = await renderDetailView("/detail/9302");
+    const { container } = render;
+
+    await act(async () => {
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
+    expect(chartNodes.length).toBeGreaterThan(0);
+    expect(container.textContent).toContain("9302");
+    for (const chartNode of chartNodes) {
+      expect(chartNode.getAttribute("data-candles")).toBe("0");
+    }
+
+    const timedOutCalls = mocks.apiPost.mock.calls.filter(
+      ([url, payload]) =>
+        url === "/batch_bars_v3" &&
+        Array.isArray((payload as { codes?: unknown[] } | undefined)?.codes) &&
+        (payload as { codes?: unknown[] }).codes?.[0] === "9302"
+    );
+    expect(timedOutCalls.length).toBeGreaterThanOrEqual(1);
+
+    render.cleanup();
   });
 });

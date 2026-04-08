@@ -69,17 +69,17 @@ def _resolve_tone_and_environment(*, context: dict[str, Any], scenarios: list[di
         {
             "tone": "up",
             "when": lambda ctx: ctx["force_up_reclaim"] and ctx["up_score"] >= 0.56,
-            "environment": "????",
+            "environment": "上昇優位",
         },
         {
             "tone": "down",
             "when": lambda ctx: ctx["force_down_confirm"],
-            "environment": "????",
+            "environment": "下落優位",
         },
         {
             "tone": "up",
             "when": lambda ctx: ctx["top_key"] == "up" and ctx["top_score"] >= 0.56,
-            "environment": "????",
+            "environment": "上昇優位",
         },
         {
             "tone": "down",
@@ -91,12 +91,12 @@ def _resolve_tone_and_environment(*, context: dict[str, Any], scenarios: list[di
                     and ctx["sell_signal_quality"] >= 0.52
                 )
             ),
-            "environment": "????",
+            "environment": "下落優位",
         },
         {
             "tone": "neutral",
             "when": lambda ctx: ctx["top_key"] == "range" and ctx["top_score"] >= 0.56,
-            "environment": "?????",
+            "environment": "レンジ優位",
         },
     )
     context = dict(context)
@@ -107,15 +107,15 @@ def _resolve_tone_and_environment(*, context: dict[str, Any], scenarios: list[di
             tone = rule["tone"]
             if tone == "neutral":
                 if context.get("pre_surge_long") and not context.get("pre_surge_short"):
-                    return tone, "??????????????"
+                    return tone, "レンジ優位（先回り買い監視）"
                 if context.get("pre_surge_short") and not context.get("pre_surge_long"):
-                    return tone, "??????????????"
+                    return tone, "レンジ優位（戻り売り監視）"
             return tone, rule["environment"]
     if context.get("pre_surge_long") and not context.get("pre_surge_short"):
-        return "neutral", "??????????????"
+        return "neutral", "レンジ優位（先回り買い監視）"
     if context.get("pre_surge_short") and not context.get("pre_surge_long"):
-        return "neutral", "??????????????"
-    return "neutral", "?????"
+        return "neutral", "レンジ優位（戻り売り監視）"
+    return "neutral", "方向感拮抗"
 
 
 def aggregate_tradex_score_decision(

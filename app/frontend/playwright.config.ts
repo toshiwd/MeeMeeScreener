@@ -3,12 +3,24 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
+  outputDir: "../../test-results/app-frontend-playwright",
   expect: {
     timeout: 10_000
   },
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        browserName: "chromium"
+      }
+    }
+  ],
   use: {
     baseURL: "http://127.0.0.1:4173",
     trace: "retain-on-failure",
+    locale: "ja-JP",
+    timezoneId: "Asia/Tokyo",
+    colorScheme: "light",
     viewport: {
       width: 1440,
       height: 1200

@@ -11218,3 +11218,38 @@ body {
     grid-template-columns: 1fr;
   }
 }
+.route-transition-indicator {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 1200;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.22);
+  pointer-events: none;
+}
+
+.perf-diagnostics-tools {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 12px;
+}
+
+.perf-diagnostics-button {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #475569;
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.perf-diagnostics-button:hover {
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #1d4ed8;
+}

@@ -1,4 +1,12 @@
 import { NavLink } from "react-router-dom";
+import {
+  clearPerfDiagnostics,
+  exportPerfDiagnostics,
+  isPerfDiagnosticsEnabled,
+  openPerfDiagnosticsDir,
+  recordPerfEvent,
+} from "../perfDiagnostics";
+import { preloadRoute } from "../routePreload";
 
 const navItems = [
   { to: "/", label: "一覧", end: true },
@@ -10,6 +18,8 @@ const navItems = [
 ];
 
 export default function TopNav() {
+  const diagnosticsEnabled = isPerfDiagnosticsEnabled();
+
   return (
     <>
       <div className="app-brand">
@@ -22,6 +32,25 @@ export default function TopNav() {
             key={item.to}
             to={item.to}
             end={item.end}
+            onMouseEnter={() => {
+              void preloadRoute(item.to);
+            }}
+            onFocus={() => {
+              void preloadRoute(item.to);
+            }}
+            onPointerDown={() => {
+              void preloadRoute(item.to);
+              recordPerfEvent("topnav_pointerdown", {
+                route: item.to,
+                label: item.label,
+              });
+            }}
+            onClick={() => {
+              recordPerfEvent("topnav_click", {
+                route: item.to,
+                label: item.label,
+              });
+            }}
             className={({ isActive }) =>
               isActive
                 ? `list-tab${item.end ? " list-home" : ""} active`
@@ -32,6 +61,60 @@ export default function TopNav() {
           </NavLink>
         ))}
       </nav>
+      {diagnosticsEnabled ? (
+        <div className="perf-diagnostics-tools">
+          <button
+            type="button"
+            className="perf-diagnostics-button"
+            onClick={() => {
+              window.localStorage.removeItem("meemeePerfDiagnosticsEnabled");
+              window.location.reload();
+            }}
+          >
+            診断OFF
+          </button>
+          <button
+            type="button"
+            className="perf-diagnostics-button"
+            onClick={() => {
+              void exportPerfDiagnostics();
+            }}
+          >
+            診断保存
+          </button>
+          <button
+            type="button"
+            className="perf-diagnostics-button"
+            onClick={() => {
+              void openPerfDiagnosticsDir();
+            }}
+          >
+            保存先
+          </button>
+          <button
+            type="button"
+            className="perf-diagnostics-button"
+            onClick={() => {
+              void clearPerfDiagnostics();
+            }}
+          >
+            消去
+          </button>
+        </div>
+      ) : (
+        <div className="perf-diagnostics-tools">
+          <button
+            type="button"
+            className="perf-diagnostics-button"
+            onClick={() => {
+              window.localStorage.setItem("meemeePerfDiagnosticsEnabled", "1");
+              window.location.reload();
+            }}
+          >
+            診断ON
+          </button>
+        </div>
+      )}
     </>
   );
 }

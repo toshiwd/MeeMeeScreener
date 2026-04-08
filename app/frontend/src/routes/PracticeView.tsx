@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
@@ -159,7 +159,7 @@ export default function PracticeView() {
   const [activeDrawColorIndex, setActiveDrawColorIndex] = useState(4);
   const [activeLineOpacity, setActiveLineOpacity] = useState(0.8);
   const [activeLineWidth, setActiveLineWidth] = useState(2);
-  const [selectedDrawing, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
+  const [_selectedDrawing, setSelectedDrawing] = useState<SelectedDrawingInfo | null>(null);
   const suppressSessionFallbackRef = useRef(false);
   const COLOR_PALETTE = ["#ef4444", "#22c55e", "#0ea5e9", "#f59e0b", "#64748b"];
   const activeDrawColor = COLOR_PALETTE[activeDrawColorIndex] ?? "#64748b";
@@ -1160,7 +1160,7 @@ export default function PracticeView() {
   };
 
 
-  const buildExportPayload = () => {
+  const _buildExportPayload = () => {
     const exportedAt = new Date().toISOString();
     const cursorLabel = cursorTime != null ? formatDate(cursorTime) : null;
     const rangeStartLabel = rangeStartTime != null ? formatDate(rangeStartTime) : cursorLabel;
@@ -1591,9 +1591,9 @@ export default function PracticeView() {
     }
   };
 
-  const handleExport = () => {
+  const _handleExport = () => {
     if (!code) return;
-    const exportPayload = buildExportPayload();
+    const exportPayload = _buildExportPayload();
     exportFile(
       `practice_${code}_${startDate ?? "unset"}.json`,
       JSON.stringify(exportPayload, null, 2),
@@ -1610,7 +1610,7 @@ export default function PracticeView() {
     syncCrosshair("daily", time);
   };
 
-  const handleAIExport = async () => {
+  const _handleAIExport = async () => {
     const dailyMemos: Record<string, string> = {};
     const dailyVolumeMap = new Map(dailyVolume.map((item) => [item.time, item.value]));
     const weeklyVolumeCounts = new Map<number, number>();
@@ -1721,6 +1721,9 @@ export default function PracticeView() {
         if (code) navigate(`/detail/${code}`);
       }}
       onAnalysis={() => {
+        if (code) navigate(`/detail/${code}`);
+      }}
+      onSimilar={() => {
         if (code) navigate(`/detail/${code}`);
       }}
       onFinancial={() => {

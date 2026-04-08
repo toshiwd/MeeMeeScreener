@@ -125,8 +125,12 @@ describe("useTradexListSummary", () => {
 
   it("ignores stale responses when the symbol changes", async () => {
     let resolveFirst: ((value: { data: unknown }) => void) | null = null;
+    const mockPost = postMock;
+    if (!mockPost) {
+      throw new Error("postMock is not initialized");
+    }
 
-    postMock
+    mockPost
       .mockImplementationOnce(
         () =>
           new Promise((resolve) => {

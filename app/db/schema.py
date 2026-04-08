@@ -1295,15 +1295,66 @@ def init_schema() -> None:
         ensure_schema(conn)
 
 
-def _get_favorites_conn():
+def _open_favorites_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(FAVORITES_DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
-def _get_practice_conn():
+def _open_practice_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(PRACTICE_DB_PATH)
     conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _initialize_favorites_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS favorites (
+            code TEXT PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+
+
+def _initialize_practice_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS practice_sessions (
+            session_id TEXT PRIMARY KEY,
+            code TEXT NOT NULL,
+            start_date TEXT,
+            end_date TEXT,
+            cursor_time INTEGER,
+            max_unlocked_time INTEGER,
+            lot_size INTEGER,
+            range_months INTEGER,
+            trades TEXT,
+            notes TEXT,
+            ui_state TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    _ensure_practice_column(conn, "practice_sessions", "end_date", "TEXT")
+    _ensure_practice_column(conn, "practice_sessions", "cursor_time", "INTEGER")
+    _ensure_practice_column(conn, "practice_sessions", "max_unlocked_time", "INTEGER")
+    _ensure_practice_column(conn, "practice_sessions", "lot_size", "INTEGER")
+    _ensure_practice_column(conn, "practice_sessions", "range_months", "INTEGER")
+    _ensure_practice_column(conn, "practice_sessions", "ui_state", "TEXT")
+
+
+def _get_favorites_conn():
+    conn = _open_favorites_conn()
+    _initialize_favorites_schema(conn)
+    return conn
+
+
+def _get_practice_conn():
+    conn = _open_practice_conn()
+    _initialize_practice_schema(conn)
     return conn
 
 
@@ -1315,44 +1366,13 @@ def _ensure_practice_column(conn: sqlite3.Connection, table: str, column: str, c
 
 
 def _init_favorites_schema() -> None:
-    with _get_favorites_conn() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS favorites (
-                code TEXT PRIMARY KEY,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
+    with _open_favorites_conn() as conn:
+        _initialize_favorites_schema(conn)
 
 
 def _init_practice_schema() -> None:
-    with _get_practice_conn() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS practice_sessions (
-                session_id TEXT PRIMARY KEY,
-                code TEXT NOT NULL,
-                start_date TEXT,
-                end_date TEXT,
-                cursor_time INTEGER,
-                max_unlocked_time INTEGER,
-                lot_size INTEGER,
-                range_months INTEGER,
-                trades TEXT,
-                notes TEXT,
-                ui_state TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-        _ensure_practice_column(conn, "practice_sessions", "end_date", "TEXT")
-        _ensure_practice_column(conn, "practice_sessions", "cursor_time", "INTEGER")
-        _ensure_practice_column(conn, "practice_sessions", "max_unlocked_time", "INTEGER")
-        _ensure_practice_column(conn, "practice_sessions", "lot_size", "INTEGER")
-        _ensure_practice_column(conn, "practice_sessions", "range_months", "INTEGER")
-        _ensure_practice_column(conn, "practice_sessions", "ui_state", "TEXT")
+    with _open_practice_conn() as conn:
+        _initialize_practice_schema(conn)
 
 
 def init_extra_schemas() -> None:

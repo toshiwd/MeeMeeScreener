@@ -7,6 +7,7 @@ export type ExactDecisionTone = "up" | "down" | "neutral";
 export type ExactDecisionRangeItem = {
   dtKey: number;
   tone: ExactDecisionTone;
+  decision: unknown;
 };
 
 type Params = {
@@ -108,7 +109,11 @@ export function useExactDecisionRange({
               const dtKey = normalizeDtKey(payload.dt);
               const tone = normalizeTone((payload.decision as Record<string, unknown> | null | undefined)?.tone);
               if (dtKey == null || tone == null) return null;
-              return { dtKey, tone } satisfies ExactDecisionRangeItem;
+              return {
+                dtKey,
+                tone,
+                decision: payload.decision ?? null,
+              } satisfies ExactDecisionRangeItem;
             })
             .filter((value): value is ExactDecisionRangeItem => value != null);
         })

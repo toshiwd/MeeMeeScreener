@@ -1,0 +1,21 @@
+{
+  "generatedAt": "2026-04-03",
+  "status": "confirmed",
+  "deletedCounts": {
+    ".playwright-cli": 448,
+    "output/analysis": 6,
+    "output/playwright": 667
+  },
+  "kept": [
+    "docs/reports"
+  ],
+  "keptReason": {
+    "docs/reports": "Cross references still exist inside the reports tree, so deletion was not evidence-backed enough in this pass."
+  },
+  "referenceCheck": [
+    "Concrete generated filenames under output/playwright and output/analysis had no repo references.",
+    "Generator scripts were retained.",
+    "Build and targeted test runs still passed after cleanup."
+  ],
+  "sourceManifest": "docs/cleanup/CLEANUP_MANIFEST_2026-04-03.md"
+}

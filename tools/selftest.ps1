@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("dev", "portable", "release")]
+    [ValidateSet("dev", "release")]
     [string]$Mode = "dev"
 )
 
@@ -75,24 +75,9 @@ try {
         exit $proc.ExitCode
     }
 
-    if ($Mode -eq "portable") {
-        Write-Host "Building onedir..."
-        & (Join-Path $PSScriptRoot "build_onedir.ps1")
-        if (-not (Test-Path $releaseDir)) {
-            throw "Onedir build not found: $releaseDir"
-        }
-        $env:MEEMEE_SELFTEST = "1"
-        Write-Host "Running selftest (portable onedir)..."
-        $exe = Join-Path $releaseDir "MeeMeeScreener.exe"
-        $proc = Start-Process -FilePath $exe -WorkingDirectory $releaseDir -Wait -PassThru
-        exit $proc.ExitCode
-    }
-
     if ($Mode -eq "release") {
-        Write-Host "Running full release build..."
-        & (Join-Path $PSScriptRoot "build_release.cmd")
         if (-not (Test-Path $releaseDir)) {
-            throw "Release package not found: $releaseDir"
+            throw "Release package not found: $releaseDir`nRun tools\\build_release.cmd before selftest, or use tools\\build_release.cmd -SmokeRun."
         }
         $env:MEEMEE_SELFTEST = "1"
         Write-Host "Running selftest (release onedir)..."

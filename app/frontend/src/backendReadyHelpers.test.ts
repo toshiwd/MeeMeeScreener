@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasRecentApiActivity,
+  isBackendHealthUrl,
   isAliveHealthResponse,
   KEEPALIVE_FAIL_THRESHOLD,
   KEEPALIVE_RECONNECT_GRACE_MS,
+  RECENT_API_ACTIVITY_RECONNECT_GRACE_MS,
   shouldReconnectAfterKeepaliveFailure
 } from "./backendReadyHelpers";
 
@@ -41,5 +44,33 @@ describe("shouldReconnectAfterKeepaliveFailure", () => {
         nowMs: 10_000 + KEEPALIVE_RECONNECT_GRACE_MS
       })
     ).toBe(true);
+  });
+});
+
+describe("isBackendHealthUrl", () => {
+  it("matches health endpoints only", () => {
+    expect(isBackendHealthUrl("/api/health")).toBe(true);
+    expect(isBackendHealthUrl("/api/health/live")).toBe(true);
+    expect(isBackendHealthUrl("/api/favorites")).toBe(false);
+  });
+});
+
+describe("hasRecentApiActivity", () => {
+  it("returns true while recent non-health api traffic exists", () => {
+    expect(
+      hasRecentApiActivity({
+        lastSuccessfulApiAtMs: 10_000,
+        nowMs: 10_000 + RECENT_API_ACTIVITY_RECONNECT_GRACE_MS - 1
+      })
+    ).toBe(true);
+  });
+
+  it("returns false once the activity window expires", () => {
+    expect(
+      hasRecentApiActivity({
+        lastSuccessfulApiAtMs: 10_000,
+        nowMs: 10_000 + RECENT_API_ACTIVITY_RECONNECT_GRACE_MS
+      })
+    ).toBe(false);
   });
 });

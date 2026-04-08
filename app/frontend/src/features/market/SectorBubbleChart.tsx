@@ -244,7 +244,7 @@ export default function SectorBubbleChart() {
   const timelineLabel = activeFrame?.label ?? "";
 
   const renderCustomLabel = (props: any) => {
-    const { x, y, value, payload } = props;
+    const { x, y, payload } = props;
     const name = payload?.shortName ?? "";
     const momentum = payload?.momentum;
     const renderArrow = () => {

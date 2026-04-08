@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import copy
 import logging
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from collections import OrderedDict
+from threading import Event, Lock
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.backend.api.dependencies import get_stock_repo
+from app.core.config import config
 from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.services.data.yahoo_provisional import (
     apply_split_gap_adjustment,
@@ -21,6 +26,11 @@ from app.services.box_detector import detect_boxes
 router = APIRouter(prefix="/api", tags=["bars"])
 logger = logging.getLogger(__name__)
 _SUPPORTED_TIMEFRAMES = {"daily", "weekly", "monthly"}
+_BATCH_V3_CACHE_TTL_SEC = 300.0
+_BATCH_V3_CACHE_MAX_ENTRIES = 512
+_batch_v3_cache_lock = Lock()
+_batch_v3_cache: "OrderedDict[tuple[Any, ...], tuple[float, Dict[str, Dict[str, Dict[str, Any]]]]]" = OrderedDict()
+_batch_v3_inflight: dict[tuple[Any, ...], Event] = {}
 
 
 class BatchBarsRequest(BaseModel):
@@ -35,7 +45,7 @@ class BatchBarsV3Request(BaseModel):
     limit: int = Field(..., ge=1, le=10000)
     timeframeLimits: Dict[str, int] = Field(default_factory=dict)
     includeProvisional: bool = True
-    includeBoxes: bool = True
+    includeBoxes: bool = False
     asof: str | int | None = None
 
 
@@ -128,6 +138,21 @@ def _to_payload_rows(rows: List[tuple], *, boxes_enabled: bool) -> Dict[str, Any
     }
 
 
+def _build_batch_meta() -> Dict[str, str | None]:
+    db_path = getattr(config, "DB_PATH", None)
+    data_version: str | None = None
+    if db_path:
+        try:
+            mtime = Path(str(db_path)).stat().st_mtime
+            data_version = f"duckdb-mtime:{mtime:.6f}"
+        except OSError:
+            data_version = None
+    return {
+        "data_version": data_version,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def _normalize_codes(codes: List[str]) -> List[str]:
     seen: set[str] = set()
     out: List[str] = []
@@ -176,6 +201,76 @@ def _normalize_timeframe_limits(raw_limits: Dict[str, int]) -> Dict[str, int]:
             raise HTTPException(status_code=400, detail=f"Invalid timeframe limit for {frame}")
         normalized[frame] = limit
     return normalized
+
+
+def _make_batch_v3_cache_key(
+    *,
+    codes: List[str],
+    requested_frames: List[str],
+    limit: int,
+    timeframe_limits: Dict[str, int],
+    include_provisional: bool,
+    include_boxes: bool,
+    asof_dt: int | None,
+    data_version: str | None,
+) -> tuple[Any, ...]:
+    normalized_limits = tuple(sorted((frame, int(value)) for frame, value in timeframe_limits.items()))
+    return (
+        tuple(codes),
+        tuple(requested_frames),
+        int(limit),
+        normalized_limits,
+        bool(include_provisional),
+        bool(include_boxes),
+        int(asof_dt) if asof_dt is not None else None,
+        data_version,
+    )
+
+
+def _get_cached_batch_v3_items(cache_key: tuple[Any, ...]) -> Dict[str, Dict[str, Dict[str, Any]]] | None:
+    now = datetime.now(timezone.utc).timestamp()
+    with _batch_v3_cache_lock:
+        expired_keys = [key for key, (expires_at, _) in _batch_v3_cache.items() if expires_at <= now]
+        for key in expired_keys:
+            _batch_v3_cache.pop(key, None)
+        cached = _batch_v3_cache.get(cache_key)
+        if cached is None:
+            return None
+        expires_at, items = cached
+        if expires_at <= now:
+            _batch_v3_cache.pop(cache_key, None)
+            return None
+        _batch_v3_cache.move_to_end(cache_key)
+        return copy.deepcopy(items)
+
+
+def _store_cached_batch_v3_items(
+    cache_key: tuple[Any, ...],
+    items: Dict[str, Dict[str, Dict[str, Any]]],
+) -> None:
+    expires_at = datetime.now(timezone.utc).timestamp() + _BATCH_V3_CACHE_TTL_SEC
+    with _batch_v3_cache_lock:
+        _batch_v3_cache[cache_key] = (expires_at, copy.deepcopy(items))
+        _batch_v3_cache.move_to_end(cache_key)
+        while len(_batch_v3_cache) > _BATCH_V3_CACHE_MAX_ENTRIES:
+            _batch_v3_cache.popitem(last=False)
+
+
+def _claim_batch_v3_inflight(cache_key: tuple[Any, ...]) -> tuple[Event, bool]:
+    with _batch_v3_cache_lock:
+        event = _batch_v3_inflight.get(cache_key)
+        if event is not None:
+            return event, False
+        event = Event()
+        _batch_v3_inflight[cache_key] = event
+        return event, True
+
+
+def _finish_batch_v3_inflight(cache_key: tuple[Any, ...]) -> None:
+    with _batch_v3_cache_lock:
+        event = _batch_v3_inflight.pop(cache_key, None)
+    if event is not None:
+        event.set()
 
 
 def _fetch_multi_timeframe_items(
@@ -307,12 +402,12 @@ def batch_bars_v3(
 ) -> Dict[str, Dict]:
     requested_frames = _normalize_requested_frames(payload.timeframes)
     valid_codes = _normalize_codes(payload.codes)
+    meta = _build_batch_meta()
     if not valid_codes:
-        return {"items": {}}
+        return {"items": {}, "meta": meta}
     asof_dt = _parse_asof(payload.asof)
     timeframe_limits = _normalize_timeframe_limits(payload.timeframeLimits)
-    items = _fetch_multi_timeframe_items(
-        repo=repo,
+    cache_key = _make_batch_v3_cache_key(
         codes=valid_codes,
         requested_frames=requested_frames,
         limit=int(payload.limit),
@@ -320,5 +415,32 @@ def batch_bars_v3(
         include_provisional=bool(payload.includeProvisional),
         include_boxes=bool(payload.includeBoxes),
         asof_dt=asof_dt,
+        data_version=meta.get("data_version"),
     )
-    return {"items": items}
+    cached_items = _get_cached_batch_v3_items(cache_key)
+    if cached_items is not None:
+        return {"items": cached_items, "meta": meta}
+
+    inflight_event, is_owner = _claim_batch_v3_inflight(cache_key)
+    if not is_owner:
+        inflight_event.wait(timeout=15.0)
+        cached_items = _get_cached_batch_v3_items(cache_key)
+        if cached_items is not None:
+            return {"items": cached_items, "meta": meta}
+
+    try:
+        items = _fetch_multi_timeframe_items(
+            repo=repo,
+            codes=valid_codes,
+            requested_frames=requested_frames,
+            limit=int(payload.limit),
+            timeframe_limits=timeframe_limits,
+            include_provisional=bool(payload.includeProvisional),
+            include_boxes=bool(payload.includeBoxes),
+            asof_dt=asof_dt,
+        )
+        _store_cached_batch_v3_items(cache_key, items)
+    finally:
+        if is_owner:
+            _finish_batch_v3_inflight(cache_key)
+    return {"items": items, "meta": meta}

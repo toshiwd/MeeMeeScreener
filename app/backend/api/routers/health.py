@@ -120,15 +120,16 @@ def health():
 
     payload = _health_payload(
         ok=ready,
-        status="degraded" if transient_db_busy else "ok" if ready else "starting",
+        status="ok" if ready else "starting",
         ready=ready,
         phase="ready" if ready else "starting",
-        message="backend ready (database busy)" if transient_db_busy else "ready" if ready else "backend is starting",
-        errors=detail_errors if (not ready or transient_db_busy) else [],
+        message="ready" if ready else "backend is starting",
+        errors=detail_errors if not ready else [],
         retry_after_ms=None if ready else 1000,
         extra={
             "missing_tables": missing_tables,
             "db_retryable": bool(readiness.get("db_retryable")),
+            "transient_db_busy": transient_db_busy,
             "db_connect_stats": readiness.get("db_connect_stats"),
             "readiness_state": readiness_state,
             "txt_count": None,

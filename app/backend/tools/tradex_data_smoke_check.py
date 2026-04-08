@@ -42,7 +42,9 @@ def _probe_duckdb(path: Path, table_name: str) -> dict[str, Any]:
 
 
 def collect_tradex_data_smoke() -> dict[str, Any]:
-    db_path = Path(str(app_config.DB_PATH)).expanduser().resolve()
+    configured_db_path = Path(str(app_config.DB_PATH)).expanduser().resolve()
+    data_dir_db_path = Path(str(app_config.DATA_DIR)).expanduser().resolve() / "stocks.duckdb"
+    db_path = data_dir_db_path if data_dir_db_path.exists() else configured_db_path
     repo = StockRepository(str(db_path))
     codes = [code for code in repo.get_all_codes() if str(code).strip()]
     source_probe = _probe_duckdb(db_path, "daily_bars")

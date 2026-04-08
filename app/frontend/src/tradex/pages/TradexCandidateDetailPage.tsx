@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { loadTradexRun, loadTradexRunDetail, type TradexDetail, type TradexRun } from "../experimentApi";
 import { readTradexLocal, tradexStorageKeys, writeTradexLocal } from "../storage";
@@ -12,16 +12,32 @@ function SummaryMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
+const resolvePreferredCode = (targetCode: string, byCode?: Record<string, Record<string, unknown>> | undefined) => {
+  if (targetCode.trim()) return targetCode.trim();
+  if (!byCode) return "";
+  const firstCode = Object.values(byCode)
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+    .sort((left, right) => {
+      const leftCount = typeof left.signal_count === "number" ? left.signal_count : 0;
+      const rightCount = typeof right.signal_count === "number" ? right.signal_count : 0;
+      return rightCount - leftCount || String(left.code ?? "").localeCompare(String(right.code ?? ""));
+    })[0]?.code;
+  return typeof firstCode === "string" ? firstCode.trim() : "";
+};
+
 export default function TradexCandidateDetailPage() {
-  const { runId: runIdParam } = useParams();
+  const { runId: runIdParam } = useParams<{ runId?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [run, setRun] = useState<TradexRun | null>(null);
   const [detail, setDetail] = useState<TradexDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [code, setCode] = useState(searchParams.get("code") || readTradexLocal<string>(tradexStorageKeys.detailCode, ""));
+  const [code, setCode] = useState<string>(
+    searchParams.get("code")?.trim() || readTradexLocal<string>(tradexStorageKeys.detailCode, "")
+  );
+  const codeRef = useRef(code);
 
-  const runId = runIdParam || readTradexLocal<string>(tradexStorageKeys.runId, "");
+  const runId = runIdParam?.trim() || readTradexLocal<string>(tradexStorageKeys.runId, "");
 
   const codeOptions = useMemo(() => {
     const byCode = (run?.analysis as Record<string, unknown> | undefined)?.by_code as Record<string, Record<string, unknown>> | undefined;
@@ -37,24 +53,15 @@ export default function TradexCandidateDetailPage() {
       .filter(Boolean);
   }, [run]);
 
-  const load = async (targetRunId: string, targetCode: string) => {
+  const load = useCallback(async (targetRunId: string, targetCode: string) => {
     setLoading(true);
     setError(null);
     try {
       const runResponse = await loadTradexRun(targetRunId);
       setRun(runResponse.run);
       const byCode = (runResponse.run.analysis as Record<string, unknown> | undefined)?.by_code as Record<string, Record<string, unknown>> | undefined;
-      const nextCode = targetCode
-        || (byCode
-          ? Object.values(byCode)
-              .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
-              .sort((left, right) => {
-                const leftCount = typeof left.signal_count === "number" ? left.signal_count : 0;
-                const rightCount = typeof right.signal_count === "number" ? right.signal_count : 0;
-                return rightCount - leftCount || String(left.code ?? "").localeCompare(String(right.code ?? ""));
-              })[0]?.code
-          : "")
-        || "";
+      const nextCode = resolvePreferredCode(targetCode, byCode);
+      codeRef.current = nextCode;
       setCode(nextCode);
       writeTradexLocal(tradexStorageKeys.runId, targetRunId);
       if (nextCode) {
@@ -72,15 +79,20 @@ export default function TradexCandidateDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    codeRef.current = code;
+  }, [code]);
 
   useEffect(() => {
     if (!runId) return;
-    void load(runId, code);
-  }, [runId]);
+    void load(runId, codeRef.current);
+  }, [runId, load]);
 
   const loadSelectedCode = async (selectedCode: string) => {
     if (!runId) return;
+    codeRef.current = selectedCode;
     setCode(selectedCode);
     writeTradexLocal(tradexStorageKeys.detailCode, selectedCode);
     setSearchParams({ code: selectedCode });

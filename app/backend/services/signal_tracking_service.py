@@ -32,12 +32,18 @@ DEFAULT_RANKING_LIMIT = 50
 SUPPORTED_STATUSES = {"active", "completed", "archive"}
 SUPPORTED_SIDES = {"buy": "up", "sell": "down"}
 SUPPORTED_RANKING_DIRS = {"up": "buy", "down": "sell"}
+SUPPORTED_TRACKING_OUTCOMES = {"all", "good", "bad", "broken"}
+SUPPORTED_TRACKING_SORTS = {"recent", "oldest", "best", "worst"}
 DECISION_HORIZONS = (5, 10, 20, 30, 60)
 BASIS_PAYLOAD_SCHEMA_VERSION = "signal-basis-payload:v1"
 DEFAULT_REGIME_LABEL_VERSION = "v1"
 SELL_TIGHTENED_LOGIC_VERSION = "logic:trade:v2-sell-tightened"
 PRIMARY_HORIZON_BY_SIDE = {"buy": 20, "sell": 10}
 SELL_WEAK_REGIME_TAGS = ("risk_off_trend", "high_vol_chaos", "neutral_range")
+SHOCK_TRAILING_HORIZON = 20
+SHOCK_DRAWDOWN_THRESHOLD = -0.10
+SHOCK_BOTTOM_DECILE = 0.10
+SHOCK_LOOKBACK_YEARS = 10
 PROHIBITED_BASIS_KEY_TOKENS = (
     "forward_return",
     "future_window",
@@ -116,6 +122,25 @@ def _ymd_to_date(ymd: int | None) -> date | None:
     if not iso:
         return None
     return date.fromisoformat(iso)
+
+
+def _shift_ymd_by_days(ymd: int | None, days: int) -> int | None:
+    base = _ymd_to_date(ymd)
+    if base is None:
+        return None
+    return int((base + timedelta(days=int(days))).strftime("%Y%m%d"))
+
+
+def _shift_ymd_by_years(ymd: int | None, years: int) -> int | None:
+    base = _ymd_to_date(ymd)
+    if base is None:
+        return None
+    target_year = base.year - int(years)
+    try:
+        return int(base.replace(year=target_year).strftime("%Y%m%d"))
+    except ValueError:
+        # うるう日は 2/28 に寄せる。
+        return int(base.replace(year=target_year, month=2, day=28).strftime("%Y%m%d"))
 
 
 def _json_dump(value: Any) -> str | None:
@@ -280,6 +305,45 @@ def _build_profit_timing_patterns(rows: list[dict[str, Any]]) -> list[dict[str, 
     return out
 
 
+_SCORE_THRESHOLD_KEYS: tuple[str, ...] = ("tradePriorityScore", "entryScore", "probSide")
+_SCORE_THRESHOLD_CANDIDATES: tuple[float, ...] = tuple(round(value / 100.0, 2) for value in range(50, 96, 5))
+
+
+def _build_score_threshold_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for score_key in _SCORE_THRESHOLD_KEYS:
+        scored_rows: list[dict[str, Any]] = []
+        for row in rows:
+            score_value = row.get(score_key)
+            if not isinstance(score_value, (int, float)):
+                continue
+            scored_rows.append({**row, "score_value": float(score_value)})
+        if not scored_rows:
+            continue
+        total_count = len(scored_rows)
+        for threshold in _SCORE_THRESHOLD_CANDIDATES:
+            selected_rows = [row for row in scored_rows if float(row["score_value"]) >= threshold]
+            returns_30 = [float(row["return_30"]) for row in selected_rows if isinstance(row.get("return_30"), (int, float))]
+            baselines_30 = [float(row["baseline_30"]) for row in selected_rows if isinstance(row.get("baseline_30"), (int, float))]
+            avg_return_30 = _safe_mean(returns_30)
+            avg_baseline_30 = _safe_mean(baselines_30)
+            out.append(
+                {
+                    "score_key": score_key,
+                    "threshold": threshold,
+                    "count": len(selected_rows),
+                    "coverage_rate": _safe_ratio(len(selected_rows), total_count),
+                    "directional_hit_rate_30": _safe_ratio(sum(1 for value in returns_30 if value > 0), len(returns_30)),
+                    "average_directional_return_30": avg_return_30,
+                    "same_date_universe_average_directional_return_30": avg_baseline_30,
+                    "lift_vs_same_date_universe_30": (
+                        None if avg_return_30 is None or avg_baseline_30 is None else float(avg_return_30 - avg_baseline_30)
+                    ),
+                }
+            )
+    return out
+
+
 def _sorted_break_reason_counts(items: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, Any]]:
     grouped: dict[str, int] = {}
     for item in items:
@@ -424,6 +488,51 @@ def _normalize_ranking_dir(direction: str | None) -> str:
 
 def _ranking_dir_to_side(direction: str) -> str:
     return SUPPORTED_RANKING_DIRS[_normalize_ranking_dir(direction)]
+
+
+def _normalize_tracking_outcome(outcome: str | None) -> str:
+    normalized = str(outcome or "all").strip().lower()
+    if normalized not in SUPPORTED_TRACKING_OUTCOMES:
+        raise ValueError("outcome must be all|good|bad|broken")
+    return normalized
+
+
+def _normalize_tracking_sort(sort: str | None) -> str:
+    normalized = str(sort or "recent").strip().lower()
+    if normalized not in SUPPORTED_TRACKING_SORTS:
+        raise ValueError("sort must be recent|oldest|best|worst")
+    return normalized
+
+
+def _coerce_tracking_limit(limit: int | None) -> int:
+    return max(1, min(int(limit or DEFAULT_LIMIT), 500))
+
+
+def _coerce_tracking_offset(offset: int | None) -> int:
+    return max(0, int(offset or 0))
+
+
+def _tracking_outcome_metric(primary_value: Any, fallback_value: Any) -> float | None:
+    numeric = _safe_float(primary_value)
+    if numeric is not None:
+        return numeric
+    return _safe_float(fallback_value)
+
+
+def _matches_tracking_outcome(*, metric: float | None, break_status: str | None, outcome: str) -> bool:
+    if outcome == "all":
+        return True
+    if outcome == "broken":
+        return str(break_status or "").strip().lower() == "broken"
+    if metric is None:
+        return False
+    if outcome == "good":
+        return metric > 0
+    return metric < 0
+
+
+def _signal_event_metric(item: dict[str, Any]) -> float | None:
+    return _tracking_outcome_metric(item.get("return_30d"), item.get("current_directional_return"))
 
 
 def _normalize_external_candidate_side(value: str | None) -> str | None:
@@ -2940,7 +3049,8 @@ def get_signal_tracking_validation(
                 forward_return_30,
                 forward_return_60,
                 days_to_max_favorable_30,
-                days_to_max_adverse_30
+                days_to_max_adverse_30,
+                score_snapshot_json
             FROM signal_decision_daily
             WHERE {" AND ".join(decision_where)}
             ORDER BY dt, code
@@ -3014,10 +3124,12 @@ def get_signal_tracking_validation(
     qualified_decision_rows = [row for row in decision_rows if bool(row[2])]
     decision_map_by_key = {
         (int(row[0]), str(row[1])): {
+            "code": str(row[1]),
             "return_10d": float(row[5]) if row[5] is not None else None,
             "return_20d": float(row[6]) if row[6] is not None else None,
             "return_30d": float(row[7]) if row[7] is not None else None,
             "setup_type": str(row[3] or "unknown").strip() or "unknown",
+            "score_snapshot_json": _json_load(str(row[11]) if row[11] is not None else None) or {},
         }
         for row in qualified_decision_rows
     }
@@ -3062,6 +3174,8 @@ def get_signal_tracking_validation(
         dt = int(row[0])
         payload = {
             "dt": dt,
+            "code": str(row[1]),
+            "setup_type": str(row[3] or "unknown").strip() or "unknown",
             "return_10": float(row[5]) if row[5] is not None else None,
             "return_20": float(row[6]) if row[6] is not None else None,
             "return_30": float(row[7]) if row[7] is not None else None,
@@ -3069,7 +3183,16 @@ def get_signal_tracking_validation(
             "baseline_30": baseline_lookup.get(dt),
             "days_to_max_favorable_30": int(row[9]) if row[9] is not None else None,
             "days_to_max_adverse_30": int(row[10]) if row[10] is not None else None,
+            "entryScore": None,
+            "tradePriorityScore": None,
+            "probSide": None,
         }
+        score_snapshot = _json_load(str(row[11]) if len(row) > 11 and row[11] is not None else None) or {}
+        if isinstance(score_snapshot, dict):
+            for key in _SCORE_THRESHOLD_KEYS:
+                value = score_snapshot.get(key)
+                if isinstance(value, (int, float)):
+                    payload[key] = float(value)
         qualified_payload_rows.append(payload)
         month_key = _month_key(dt)
         if month_key:
@@ -3101,6 +3224,7 @@ def get_signal_tracking_validation(
         "failure_examples": [],
         "by_break_reason": [],
         "profit_timing_patterns": [],
+        "shock_analysis": None,
     }
     decision_level.update(_peak_day_metrics_dict(decision_peak_favorable_days, decision_peak_adverse_days))
     decision_level["profit_timing_patterns"] = _build_profit_timing_patterns(qualified_payload_rows)
@@ -3181,6 +3305,32 @@ def get_signal_tracking_validation(
         value_key="average_directional_return_30",
         window=6,
     )
+    score_threshold_rows = _build_score_threshold_rows(qualified_payload_rows)
+    decision_level["score_threshold_rows"] = score_threshold_rows
+    shock_analysis = None
+    shock_to = to_int if to_int is not None else (max(observed_dates) if observed_dates else None)
+    if shock_to is not None:
+        shock_from = from_int if from_int is not None else _shift_ymd_by_years(shock_to, SHOCK_LOOKBACK_YEARS)
+        if shock_from is None:
+            shock_from = shock_to
+        with _open_conn(db_path, read_only=True) as shock_conn:
+            trailing_return_map, trailing_return_threshold = _load_trailing_return_map(
+                shock_conn,
+                from_ymd=int(shock_from),
+                to_ymd=int(shock_to),
+                horizon=SHOCK_TRAILING_HORIZON,
+            )
+        shock_analysis = _build_shock_analysis_rows(
+            side=normalized_side,
+            from_ymd=int(shock_from),
+            to_ymd=int(shock_to),
+            qualified_rows=qualified_payload_rows,
+            signal_events=enriched_event_items,
+            trailing_return_map=trailing_return_map,
+            trailing_return_threshold=trailing_return_threshold,
+            regime_lookup=regime_lookup,
+        )
+    decision_level["shock_analysis"] = shock_analysis
     regime_rows = []
     for regime_key, rows in sorted(regime_groups.items(), key=lambda item: (-len(item[1]), item[0])):
         signal_returns_10 = [float(row["return_10"]) for row in rows if isinstance(row.get("return_10"), (int, float))]
@@ -3859,6 +4009,213 @@ def _build_group_metric_rows(
     return items
 
 
+def _load_trailing_return_map(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    from_ymd: int,
+    to_ymd: int,
+    horizon: int = SHOCK_TRAILING_HORIZON,
+) -> tuple[dict[tuple[int, str], float], float | None]:
+    query_from = _shift_ymd_by_days(from_ymd, -120) or int(from_ymd)
+    rows = conn.execute(
+        f"""
+        WITH normalized AS (
+            SELECT
+                code,
+                CASE
+                    WHEN date BETWEEN 19000101 AND 20991231 THEN date
+                    WHEN date >= 1000000000000 THEN CAST(strftime(to_timestamp(date / 1000), '%Y%m%d') AS INTEGER)
+                    WHEN date >= 1000000000 THEN CAST(strftime(to_timestamp(date), '%Y%m%d') AS INTEGER)
+                    ELSE NULL
+                END AS dt,
+                c AS close
+            FROM daily_bars
+        ),
+        ordered AS (
+            SELECT
+                code,
+                dt,
+                close,
+                LAG(close, {int(horizon)}) OVER (PARTITION BY code ORDER BY dt) AS close_h
+            FROM normalized
+            WHERE dt IS NOT NULL
+              AND dt >= ?
+              AND dt <= ?
+        )
+        SELECT
+            dt,
+            code,
+            CASE
+                WHEN close IS NULL OR close_h IS NULL OR close <= 0 OR close_h <= 0 THEN NULL
+                ELSE (close / close_h) - 1.0
+            END AS trailing_return
+        FROM ordered
+        WHERE close_h IS NOT NULL
+        ORDER BY dt, code
+        """,
+        [int(query_from), int(to_ymd)],
+    ).fetchall()
+    trailing_return_map: dict[tuple[int, str], float] = {}
+    window_returns: list[float] = []
+    for row in rows:
+        dt = int(row[0])
+        code = str(row[1])
+        trailing_return = float(row[2]) if row[2] is not None else None
+        if trailing_return is None:
+            continue
+        trailing_return_map[(dt, code)] = trailing_return
+        if dt >= int(from_ymd):
+            window_returns.append(trailing_return)
+    threshold = float(pd.Series(window_returns).quantile(SHOCK_BOTTOM_DECILE)) if window_returns else None
+    return trailing_return_map, threshold
+
+
+def _build_shock_analysis_rows(
+    *,
+    side: str,
+    from_ymd: int,
+    to_ymd: int,
+    qualified_rows: list[dict[str, Any]],
+    signal_events: list[dict[str, Any]],
+    trailing_return_map: dict[tuple[int, str], float],
+    trailing_return_threshold: float | None,
+    regime_lookup: dict[int, str],
+) -> dict[str, Any]:
+    event_by_key = {
+        (int(item["signal_date"]), str(item["code"])): item
+        for item in signal_events
+        if item.get("signal_date") is not None and item.get("code") is not None
+    }
+    cohort_groups: dict[str, list[dict[str, Any]]] = {
+        "insufficient_history": [],
+        "normal": [],
+        "bottom_decile_only": [],
+        "drop_10pct_only": [],
+        "both": [],
+    }
+    shock_rows: list[dict[str, Any]] = []
+    for row in qualified_rows:
+        dt = int(row["dt"])
+        code = str(row["code"])
+        trailing_return_20 = trailing_return_map.get((dt, code))
+        baseline_30 = row.get("baseline_30")
+        return_30 = row.get("return_30")
+        setup_type = str(row.get("setup_type") or "unknown").strip() or "unknown"
+        regime_tag = str(regime_lookup.get(dt, "unclassified") or "unclassified")
+        event = event_by_key.get((dt, code))
+        payload = {
+            "dt": dt,
+            "code": code,
+            "setup_type": setup_type,
+            "regime_tag": regime_tag,
+            "return_30": return_30,
+            "baseline_30": baseline_30,
+            "lift_vs_universe_30": (
+                None
+                if not isinstance(return_30, (int, float)) or not isinstance(baseline_30, (int, float))
+                else float(return_30) - float(baseline_30)
+            ),
+            "days_to_max_favorable_30": row.get("days_to_max_favorable_30"),
+            "days_to_max_adverse_30": row.get("days_to_max_adverse_30"),
+            "trailing_return_20": trailing_return_20,
+            "break_status": str((event or {}).get("break_status") or "") or None,
+            "break_reason": str((event or {}).get("break_reason") or "") or None,
+            "name": (event or {}).get("name"),
+        }
+        if trailing_return_20 is None:
+            cohort_groups["insufficient_history"].append(payload)
+            continue
+        shock_drop = trailing_return_20 <= SHOCK_DRAWDOWN_THRESHOLD
+        shock_bottom = trailing_return_threshold is not None and trailing_return_20 <= trailing_return_threshold
+        if shock_drop and shock_bottom:
+            cohort_groups["both"].append(payload)
+            shock_rows.append(payload)
+        elif shock_drop:
+            cohort_groups["drop_10pct_only"].append(payload)
+            shock_rows.append(payload)
+        elif shock_bottom:
+            cohort_groups["bottom_decile_only"].append(payload)
+            shock_rows.append(payload)
+        else:
+            cohort_groups["normal"].append(payload)
+    shock_setup_groups: dict[str, list[dict[str, Any]]] = {}
+    shock_regime_groups: dict[str, list[dict[str, Any]]] = {}
+    shock_break_reason_groups: dict[str, list[dict[str, Any]]] = {}
+    for payload in shock_rows:
+        shock_setup_groups.setdefault(str(payload.get("setup_type") or "unknown"), []).append(payload)
+        shock_regime_groups.setdefault(str(payload.get("regime_tag") or "unclassified"), []).append(payload)
+        if str(payload.get("break_status") or "") == "broken":
+            shock_break_reason_groups.setdefault(str(payload.get("break_reason") or "unknown"), []).append(payload)
+
+    def _build_cohort_row(cohort_key: str, label: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+        returns_30 = [float(item["return_30"]) for item in items if isinstance(item.get("return_30"), (int, float))]
+        baselines_30 = [float(item["baseline_30"]) for item in items if isinstance(item.get("baseline_30"), (int, float))]
+        trailing_returns_20 = [float(item["trailing_return_20"]) for item in items if isinstance(item.get("trailing_return_20"), (int, float))]
+        avg_return_30 = _safe_mean(returns_30)
+        avg_baseline_30 = _safe_mean(baselines_30)
+        return {
+            "cohort_key": cohort_key,
+            "label": label,
+            "count": len(items),
+            "share": _safe_ratio(len(items), len(qualified_rows)),
+            "directional_hit_rate_30": _safe_ratio(sum(1 for value in returns_30 if value > 0), len(returns_30)),
+            "average_directional_return_30": avg_return_30,
+            "same_date_universe_average_directional_return_30": avg_baseline_30,
+            "lift_vs_same_date_universe_30": None if avg_return_30 is None or avg_baseline_30 is None else float(avg_return_30 - avg_baseline_30),
+            "average_trailing_return_20": _safe_mean(trailing_returns_20),
+            "median_trailing_return_20": _safe_median(trailing_returns_20),
+        }
+
+    cohort_rows = [
+        _build_cohort_row("insufficient_history", "insufficient history", cohort_groups["insufficient_history"]),
+        _build_cohort_row("normal", "normal", cohort_groups["normal"]),
+        _build_cohort_row("bottom_decile_only", "bottom decile only", cohort_groups["bottom_decile_only"]),
+        _build_cohort_row("drop_10pct_only", f"20d <= {SHOCK_DRAWDOWN_THRESHOLD:.0%} only", cohort_groups["drop_10pct_only"]),
+        _build_cohort_row("both", f"{SHOCK_DRAWDOWN_THRESHOLD:.0%} && bottom decile", cohort_groups["both"]),
+    ]
+    shock_examples = sorted(
+        shock_rows,
+        key=lambda item: (
+            float(item["trailing_return_20"]) if isinstance(item.get("trailing_return_20"), (int, float)) else float("inf"),
+            float(item["return_30"]) if isinstance(item.get("return_30"), (int, float)) else float("inf"),
+            int(item["dt"]),
+            str(item["code"]),
+        ),
+    )[:10]
+    return {
+        "side": side,
+        "window": {
+            "from_ymd": int(from_ymd),
+            "to_ymd": int(to_ymd),
+            "lookback_years": SHOCK_LOOKBACK_YEARS,
+            "trailing_horizon": SHOCK_TRAILING_HORIZON,
+            "drop_threshold": SHOCK_DRAWDOWN_THRESHOLD,
+            "bottom_decile_threshold": trailing_return_threshold,
+        },
+        "qualified_decisions": len(qualified_rows),
+        "qualified_with_trailing_return": len([row for row in qualified_rows if trailing_return_map.get((int(row["dt"]), str(row["code"]))) is not None]),
+        "cohort_rows": cohort_rows,
+        "by_setup_type": _build_group_metric_rows(shock_setup_groups, label_key="setup_type", return_key="return_30", lift_key="lift_vs_universe_30"),
+        "by_regime": _build_group_metric_rows(shock_regime_groups, label_key="regime_tag", return_key="return_30", lift_key="lift_vs_universe_30"),
+        "by_break_reason": _build_group_metric_rows(shock_break_reason_groups, label_key="break_reason", return_key="return_30", lift_key="lift_vs_universe_30"),
+        "shock_examples": [
+            {
+                "dt": item["dt"],
+                "code": item["code"],
+                "name": item.get("name"),
+                "setup_type": item.get("setup_type"),
+                "regime_tag": item.get("regime_tag"),
+                "trailing_return_20": item.get("trailing_return_20"),
+                "return_30": item.get("return_30"),
+                "lift_vs_universe_30": item.get("lift_vs_universe_30"),
+                "break_status": item.get("break_status"),
+                "break_reason": item.get("break_reason"),
+            }
+            for item in shock_examples
+        ],
+    }
+
+
 def _signal_failure_examples(
     items: list[dict[str, Any]],
     *,
@@ -4465,6 +4822,9 @@ def list_signal_events(
     from_ymd: int | str | None = None,
     to_ymd: int | str | None = None,
     limit: int = 200,
+    offset: int = 0,
+    sort: str = "recent",
+    outcome: str = "all",
     as_of: int | str | None = None,
     db_path: str | None = None,
 ) -> dict[str, Any]:
@@ -4472,6 +4832,10 @@ def list_signal_events(
     if normalized_status not in SUPPORTED_STATUSES:
         raise ValueError("status must be active|completed|archive")
     normalized_side = _normalize_side(side)
+    normalized_sort = _normalize_tracking_sort(sort)
+    normalized_outcome = _normalize_tracking_outcome(outcome)
+    normalized_limit = _coerce_tracking_limit(limit)
+    normalized_offset = _coerce_tracking_offset(offset)
     ensure_signal_tracking_current(as_of=as_of, db_path=db_path)
     from_int = _coerce_ymd(from_ymd)
     to_int = _coerce_ymd(to_ymd)
@@ -4521,9 +4885,8 @@ def list_signal_events(
               ON sm.code = so.code
             WHERE {" AND ".join(where_parts)}
             ORDER BY so.signal_date DESC, so.code ASC
-            LIMIT ?
             """,
-            [*params, max(1, min(int(limit or DEFAULT_LIMIT), 500))],
+            params,
         ).fetchall()
         bars_cache: dict[str, tuple[list[DailyBar], dict[int, int]]] = {}
         decision_rows_cache: dict[tuple[str, str, int, int], list[dict[str, Any]]] = {}
@@ -4538,20 +4901,61 @@ def list_signal_events(
             )
             if not item or item["status"] != normalized_status:
                 continue
+            metric = _signal_event_metric(item)
+            if not _matches_tracking_outcome(
+                metric=metric,
+                break_status=str(item.get("break_status") or "").strip().lower() or None,
+                outcome=normalized_outcome,
+            ):
+                continue
             items.append(item)
-    items.sort(
-        key=lambda item: (
-            -int(item["signal_date"]),
-            -(float(item["priority_score"]) if isinstance(item.get("priority_score"), (int, float)) else float("-inf")),
-            str(item["event_id"]),
+    if normalized_sort == "oldest":
+        items.sort(
+            key=lambda item: (
+                int(item["signal_date"]),
+                -(float(item["priority_score"]) if isinstance(item.get("priority_score"), (int, float)) else float("-inf")),
+                str(item["event_id"]),
+            )
         )
-    )
+    elif normalized_sort == "best":
+        items.sort(
+            key=lambda item: (
+                -(_signal_event_metric(item) if _signal_event_metric(item) is not None else float("-inf")),
+                -int(item["signal_date"]),
+                str(item["event_id"]),
+            )
+        )
+    elif normalized_sort == "worst":
+        items.sort(
+            key=lambda item: (
+                _signal_event_metric(item) if _signal_event_metric(item) is not None else float("inf"),
+                -int(item["signal_date"]),
+                str(item["event_id"]),
+            )
+        )
+    else:
+        items.sort(
+            key=lambda item: (
+                -int(item["signal_date"]),
+                -(float(item["priority_score"]) if isinstance(item.get("priority_score"), (int, float)) else float("-inf")),
+                str(item["event_id"]),
+            )
+        )
+    total_count = len(items)
+    page_items = items[normalized_offset : normalized_offset + normalized_limit]
+    next_offset = normalized_offset + len(page_items)
     return {
         "status": normalized_status,
         "side": normalized_side,
         "logic_version": resolved_logic_version,
-        "items": items,
-        "count": len(items),
+        "items": page_items,
+        "count": total_count,
+        "offset": normalized_offset,
+        "limit": normalized_limit,
+        "sort": normalized_sort,
+        "outcome": normalized_outcome,
+        "has_more": next_offset < total_count,
+        "next_offset": next_offset if next_offset < total_count else None,
         "query": search or code_filter or None,
     }
 
@@ -4975,12 +5379,19 @@ def list_ranking_appearances(
     from_ymd: int | str | None = None,
     to_ymd: int | str | None = None,
     limit: int = 200,
+    offset: int = 0,
+    sort: str = "recent",
+    outcome: str = "all",
     db_path: str | None = None,
 ) -> dict[str, Any]:
     normalized_status = str(status or DEFAULT_STATUS).strip().lower()
     if normalized_status not in SUPPORTED_STATUSES:
         raise ValueError("status must be active|completed|archive")
     normalized_dir = _normalize_ranking_dir(direction)
+    normalized_sort = _normalize_tracking_sort(sort)
+    normalized_outcome = _normalize_tracking_outcome(outcome)
+    normalized_limit = _coerce_tracking_limit(limit)
+    normalized_offset = _coerce_tracking_offset(offset)
     from_int = _coerce_ymd(from_ymd)
     to_int = _coerce_ymd(to_ymd)
     search = str(query or "").strip()
@@ -4989,6 +5400,7 @@ def list_ranking_appearances(
         resolved_ranking_logic_version, _ = _resolve_ranking_logic_version(conn, ranking_logic_version)
     where_parts = ["status = ?", "dir = ?", "ranking_logic_version = ?"]
     params: list[Any] = [normalized_status, normalized_dir, resolved_ranking_logic_version]
+    score_expr = "COALESCE(return_30d, current_directional_return)"
     if from_int is not None:
         where_parts.append("dt >= ?")
         params.append(int(from_int))
@@ -5009,7 +5421,31 @@ def list_ranking_appearances(
         where_parts.append("rank BETWEEN 11 AND 20")
     elif rank_bucket == "21-50":
         where_parts.append("rank BETWEEN 21 AND 50")
+    if normalized_outcome == "good":
+        where_parts.append(f"{score_expr} > 0")
+    elif normalized_outcome == "bad":
+        where_parts.append(f"{score_expr} < 0")
+    elif normalized_outcome == "broken":
+        where_parts.append("break_status = 'broken'")
+    if normalized_sort == "oldest":
+        order_clause = "dt ASC, rank ASC, appearance_id ASC"
+    elif normalized_sort == "best":
+        order_clause = f"{score_expr} DESC NULLS LAST, dt DESC, rank ASC, appearance_id ASC"
+    elif normalized_sort == "worst":
+        order_clause = f"{score_expr} ASC NULLS LAST, dt DESC, rank ASC, appearance_id ASC"
+    else:
+        order_clause = "dt DESC, rank ASC, appearance_id ASC"
     with _open_conn(db_path, read_only=True) as conn:
+        total_count = int(
+            conn.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM ranking_appearance_daily
+                WHERE {" AND ".join(where_parts)}
+                """,
+                params,
+            ).fetchone()[0]
+        )
         rows = conn.execute(
             f"""
             SELECT
@@ -5044,11 +5480,14 @@ def list_ranking_appearances(
                 archived_at
             FROM ranking_appearance_daily
             WHERE {" AND ".join(where_parts)}
-            ORDER BY dt DESC, rank ASC, appearance_id ASC
-            LIMIT ?
+            ORDER BY {order_clause}
+            LIMIT ? OFFSET ?
             """,
-            [*params, max(1, min(int(limit or DEFAULT_LIMIT), 500))],
+            [*params, normalized_limit + 1, normalized_offset],
         ).fetchall()
+    has_more = len(rows) > normalized_limit
+    if has_more:
+        rows = rows[:normalized_limit]
     items = [
         {
             "appearance_id": str(row[0]),
@@ -5090,7 +5529,13 @@ def list_ranking_appearances(
         "dir": normalized_dir,
         "ranking_logic_version": resolved_ranking_logic_version,
         "items": items,
-        "count": len(items),
+        "count": total_count,
+        "offset": normalized_offset,
+        "limit": normalized_limit,
+        "sort": normalized_sort,
+        "outcome": normalized_outcome,
+        "has_more": has_more,
+        "next_offset": (normalized_offset + len(items)) if has_more else None,
         "query": search or code_filter or None,
         "rank_bucket": rank_bucket,
     }

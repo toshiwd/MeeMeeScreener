@@ -40,7 +40,7 @@ const TOOLTIP_APPROX_HEIGHT = 132;
 
 const computeTooltipPlacement = (
   surfaceRect: DOMRect,
-  anchorRect: DOMRect,
+  anchorRect: DOMRect | TooltipAnchor,
   tooltipWidth: number,
   tooltipHeight: number
 ) => {

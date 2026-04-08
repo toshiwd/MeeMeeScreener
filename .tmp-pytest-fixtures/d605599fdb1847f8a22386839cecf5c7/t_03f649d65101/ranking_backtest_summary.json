@@ -1,0 +1,164 @@
+{
+  "comparison": {
+    "metric_scope": "top10_entryQualified",
+    "selection_variant_baseline": "baseline",
+    "selection_variant_experiment": "tradex_experiment",
+    "threshold_check": {
+      "lift_vs_all_ranked_non_decreasing": true,
+      "mean_forward_return_20_non_decreasing": true
+    },
+    "top10": {
+      "daily_overlap_rate": {
+        "baseline": 0.4,
+        "delta": 0.0,
+        "experiment": 0.4
+      },
+      "daily_turnover_rate": {
+        "baseline": 0.6,
+        "delta": 0.0,
+        "experiment": 0.6
+      },
+      "hit_rate_20": {
+        "baseline": 0.6,
+        "delta": 0.0,
+        "experiment": 0.6
+      },
+      "lift_vs_all_ranked": {
+        "baseline": 0.01,
+        "delta": 0.004999999999999999,
+        "experiment": 0.015
+      },
+      "lift_vs_bottom_bucket": {
+        "baseline": 0.03,
+        "delta": 0.0,
+        "experiment": 0.03
+      },
+      "mean_forward_return_20": {
+        "baseline": 0.03,
+        "delta": 0.010000000000000002,
+        "experiment": 0.04
+      },
+      "mean_forward_return_5": {
+        "baseline": 0.01,
+        "delta": 0.0,
+        "experiment": 0.01
+      },
+      "mean_forward_return_60": {
+        "baseline": 0.07,
+        "delta": 0.0,
+        "experiment": 0.07
+      }
+    },
+    "top10_entryQualified": {
+      "daily_overlap_rate": {
+        "baseline": 0.5,
+        "delta": 0.0,
+        "experiment": 0.5
+      },
+      "daily_turnover_rate": {
+        "baseline": 0.5,
+        "delta": 0.0,
+        "experiment": 0.5
+      },
+      "hit_rate_20": {
+        "baseline": 0.7,
+        "delta": 0.0,
+        "experiment": 0.7
+      },
+      "lift_vs_all_ranked": {
+        "baseline": 0.02,
+        "delta": 0.005000000000000001,
+        "experiment": 0.025
+      },
+      "lift_vs_bottom_bucket": {
+        "baseline": 0.04,
+        "delta": 0.0,
+        "experiment": 0.04
+      },
+      "mean_forward_return_20": {
+        "baseline": 0.04,
+        "delta": 0.010000000000000002,
+        "experiment": 0.05
+      },
+      "mean_forward_return_5": {
+        "baseline": 0.02,
+        "delta": 0.0,
+        "experiment": 0.02
+      },
+      "mean_forward_return_60": {
+        "baseline": 0.08,
+        "delta": 0.0,
+        "experiment": 0.08
+      }
+    }
+  },
+  "disposition": "usable",
+  "generated_at": "2026-04-03T01:45:19.965222+00:00",
+  "period": {
+    "end_date": "2024-03-31",
+    "start_date": "2024-01-01"
+  },
+  "ranking_contract": {
+    "direction": "up",
+    "limit": 200,
+    "mode": "hybrid",
+    "risk_mode": "balanced",
+    "tf": "D",
+    "which": "latest"
+  },
+  "raw_ranking": {
+    "top10": {
+      "daily_overlap_rate": 0.4,
+      "daily_turnover_rate": 0.6,
+      "hit_rate_20": 0.6,
+      "lift_vs_all_ranked": 0.01,
+      "lift_vs_bottom_bucket": 0.03,
+      "mean_forward_return_20": 0.03,
+      "mean_forward_return_5": 0.01,
+      "mean_forward_return_60": 0.07
+    },
+    "top10_entryQualified": {
+      "daily_overlap_rate": 0.5,
+      "daily_turnover_rate": 0.5,
+      "hit_rate_20": 0.7,
+      "lift_vs_all_ranked": 0.02,
+      "lift_vs_bottom_bucket": 0.04,
+      "mean_forward_return_20": 0.04,
+      "mean_forward_return_5": 0.02,
+      "mean_forward_return_60": 0.08
+    }
+  },
+  "run_id": "ranking_backtest_20260403014519",
+  "schema_version": "ranking_backtest_v1",
+  "toredex_policy": {
+    "final_equity": 11000000,
+    "max_turnover_pct_per_month": 120.0,
+    "risk_gate": {
+      "pass": true
+    },
+    "total_return_pct": 10.0,
+    "worst_month_pct": -3.0
+  },
+  "tradex_experiment": {
+    "top10": {
+      "daily_overlap_rate": 0.4,
+      "daily_turnover_rate": 0.6,
+      "hit_rate_20": 0.6,
+      "lift_vs_all_ranked": 0.015,
+      "lift_vs_bottom_bucket": 0.03,
+      "mean_forward_return_20": 0.04,
+      "mean_forward_return_5": 0.01,
+      "mean_forward_return_60": 0.07
+    },
+    "top10_entryQualified": {
+      "daily_overlap_rate": 0.5,
+      "daily_turnover_rate": 0.5,
+      "hit_rate_20": 0.7,
+      "lift_vs_all_ranked": 0.025,
+      "lift_vs_bottom_bucket": 0.04,
+      "mean_forward_return_20": 0.05,
+      "mean_forward_return_5": 0.02,
+      "mean_forward_return_60": 0.08
+    }
+  }
+}

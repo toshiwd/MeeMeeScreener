@@ -1,6 +1,7 @@
 import duckdb
 
 from app.db.schema import ensure_legacy_analysis_schema, ensure_schema
+from app.db import schema as db_schema
 
 
 def _table_exists(conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
@@ -55,3 +56,29 @@ def test_ensure_schema_keeps_legacy_analysis_tables_when_enabled(monkeypatch):
         assert _table_exists(conn, "ml_model_registry")
     finally:
         conn.close()
+
+
+def test_practice_conn_initializes_schema(tmp_path, monkeypatch):
+    practice_db_path = tmp_path / "practice.db"
+    monkeypatch.setattr(db_schema, "PRACTICE_DB_PATH", practice_db_path)
+
+    with db_schema._get_practice_conn() as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'practice_sessions'"
+        ).fetchone()
+
+    assert row is not None
+    assert practice_db_path.exists()
+
+
+def test_favorites_conn_initializes_schema(tmp_path, monkeypatch):
+    favorites_db_path = tmp_path / "favorites.db"
+    monkeypatch.setattr(db_schema, "FAVORITES_DB_PATH", favorites_db_path)
+
+    with db_schema._get_favorites_conn() as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'favorites'"
+        ).fetchone()
+
+    assert row is not None
+    assert favorites_db_path.exists()

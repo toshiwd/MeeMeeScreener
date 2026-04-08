@@ -404,8 +404,8 @@ UIは「Profileを選ぶだけ」で並び替えが変わる。
   - `C:\Users\enish\AppData\Local\MeeMeeScreener\data` (example on this machine)
   - General form: `%LOCALAPPDATA%\MeeMeeScreener\data`
 - Trade CSV canonical filenames (stored under the local data dir or its `csv` subdir):
-  - `????????.csv`
-  - `SBI??????.csv`
+  - `楽天取引履歴.csv`
+  - `SBI取引履歴.csv`
 - Stock data TXT (code.txt and related) must be read/written under the same local data dir.
 - Any change to local path resolution or filenames must be recorded here in this spec.
   3. インストーラーで新規インストール

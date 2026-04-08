@@ -1,0 +1,185 @@
+{
+  "generated_at": "2026-04-03T01:29:39Z",
+  "items": [
+    {
+      "adopted": true,
+      "adoption_failed_reasons": NaN,
+      "cluster_consistency": 0.0,
+      "family": "bottom",
+      "fold_months": 10,
+      "folds": 5,
+      "is_pareto": true,
+      "oos_return": -0.0236150202877875,
+      "params": {
+        "breakout_window": 40,
+        "ma_threshold": 0.01,
+        "neg_penalties": {
+          "breakout_fail": 0.21026651286149206,
+          "context_conflict": 0.19364115269165005,
+          "trend_conflict": 0.21556530488112546,
+          "volume_dry": 0.22027241990844193
+        },
+        "pivot_window": 3,
+        "selection_cutoff": 0.005,
+        "volume_threshold": 1.6,
+        "weights": {
+          "Candle": 0.125,
+          "Cluster": 0.125,
+          "MA": 0.125,
+          "MonthlyContext": 0.125,
+          "Pivot": 0.125,
+          "Regime": 0.125,
+          "Volume": 0.125,
+          "WeeklyContext": 0.125
+        }
+      },
+      "params_json": "{\"breakout_window\": 40, \"ma_threshold\": 0.01, \"neg_penalties\": {\"breakout_fail\": 0.21026651286149206, \"context_conflict\": 0.19364115269165005, \"trend_conflict\": 0.21556530488112546, \"volume_dry\": 0.22027241990844193}, \"pivot_window\": 3, \"selection_cutoff\": 0.005, \"volume_threshold\": 1.6, \"weights\": {\"Candle\": 0.125, \"Cluster\": 0.125, \"MA\": 0.125, \"MonthlyContext\": 0.125, \"Pivot\": 0.125, \"Regime\": 0.125, \"Volume\": 0.125, \"WeeklyContext\": 0.125}}",
+      "positive_window_ratio": 0.2,
+      "profit_factor": 0.1145147143589692,
+      "rank_within_combo": 1,
+      "retained": true,
+      "retention_failed_reasons": NaN,
+      "samples": 10,
+      "stability": 0.182476506072959,
+      "study_score": 1.0253584149994541,
+      "timeframe": "daily",
+      "trial_id": "9f45073d48b6",
+      "worst_drawdown": 0.1931721600744128
+    },
+    {
+      "adopted": false,
+      "adoption_failed_reasons": "pf",
+      "cluster_consistency": 0.0,
+      "family": "bottom",
+      "fold_months": 10,
+      "folds": 5,
+      "is_pareto": false,
+      "oos_return": -0.0529451140025472,
+      "params": {
+        "breakout_window": 40,
+        "ma_threshold": 0.005,
+        "neg_penalties": {
+          "breakout_fail": 0.3,
+          "context_conflict": 0.2,
+          "trend_conflict": 0.3,
+          "volume_dry": 0.3
+        },
+        "pivot_window": 3,
+        "selection_cutoff": 0.05,
+        "volume_threshold": 2.0,
+        "weights": {
+          "Candle": 0.06600539478225873,
+          "Cluster": 0.10218168800048578,
+          "MA": 0.1377173679189434,
+          "MonthlyContext": 0.09983272838854958,
+          "Pivot": 0.08864623974131668,
+          "Regime": 0.09153749329709109,
+          "Volume": 0.1567514339506366,
+          "WeeklyContext": 0.2573276539207182
+        }
+      },
+      "params_json": "{\"breakout_window\": 40, \"ma_threshold\": 0.005, \"neg_penalties\": {\"breakout_fail\": 0.3, \"context_conflict\": 0.2, \"trend_conflict\": 0.3, \"volume_dry\": 0.3}, \"pivot_window\": 3, \"selection_cutoff\": 0.05, \"volume_threshold\": 2.0, \"weights\": {\"Candle\": 0.06600539478225873, \"Cluster\": 0.10218168800048578, \"MA\": 0.1377173679189434, \"MonthlyContext\": 0.09983272838854958, \"Pivot\": 0.08864623974131668, \"Regime\": 0.09153749329709109, \"Volume\": 0.1567514339506366, \"WeeklyContext\": 0.2573276539207182}}",
+      "positive_window_ratio": 0.0,
+      "profit_factor": 0.0,
+      "rank_within_combo": 2,
+      "retained": false,
+      "retention_failed_reasons": "pf",
+      "samples": 39,
+      "stability": 0.0,
+      "study_score": -0.42179539624704593,
+      "timeframe": "daily",
+      "trial_id": "a64ea3bd562b",
+      "worst_drawdown": 0.3790968182687387
+    },
+    {
+      "adopted": true,
+      "adoption_failed_reasons": NaN,
+      "cluster_consistency": 0.0,
+      "family": "up_cont",
+      "fold_months": 10,
+      "folds": 5,
+      "is_pareto": true,
+      "oos_return": -0.017762432705381,
+      "params": {
+        "breakout_window": 10,
+        "ma_threshold": 0.02,
+        "neg_penalties": {
+          "breakout_fail": 0.18200957923869077,
+          "context_conflict": 0.206326839646706,
+          "trend_conflict": 0.18379304175817893,
+          "volume_dry": 0.19581560782636692
+        },
+        "pivot_window": 3,
+        "selection_cutoff": 0.05,
+        "volume_threshold": 1.1,
+        "weights": {
+          "BreakoutShape": 0.125,
+          "Cluster": 0.125,
+          "MA": 0.125,
+          "MonthlyContext": 0.125,
+          "Pivot": 0.125,
+          "Regime": 0.125,
+          "Volume": 0.125,
+          "WeeklyContext": 0.125
+        }
+      },
+      "params_json": "{\"breakout_window\": 10, \"ma_threshold\": 0.02, \"neg_penalties\": {\"breakout_fail\": 0.18200957923869077, \"context_conflict\": 0.206326839646706, \"trend_conflict\": 0.18379304175817893, \"volume_dry\": 0.19581560782636692}, \"pivot_window\": 3, \"selection_cutoff\": 0.05, \"volume_threshold\": 1.1, \"weights\": {\"BreakoutShape\": 0.125, \"Cluster\": 0.125, \"MA\": 0.125, \"MonthlyContext\": 0.125, \"Pivot\": 0.125, \"Regime\": 0.125, \"Volume\": 0.125, \"WeeklyContext\": 0.125}}",
+      "positive_window_ratio": 0.1,
+      "profit_factor": 0.0250136314896482,
+      "rank_within_combo": 1,
+      "retained": true,
+      "retention_failed_reasons": NaN,
+      "samples": 39,
+      "stability": 0.1813639180296308,
+      "study_score": 1.037989723482553,
+      "timeframe": "daily",
+      "trial_id": "ec5688910066",
+      "worst_drawdown": 0.1347201287737732
+    },
+    {
+      "adopted": false,
+      "adoption_failed_reasons": "pf",
+      "cluster_consistency": 0.0,
+      "family": "up_cont",
+      "fold_months": 10,
+      "folds": 5,
+      "is_pareto": false,
+      "oos_return": -0.0537851281260605,
+      "params": {
+        "breakout_window": 40,
+        "ma_threshold": 0.02,
+        "neg_penalties": {
+          "breakout_fail": 0.3,
+          "context_conflict": 0.45,
+          "trend_conflict": 0.2,
+          "volume_dry": 0.2
+        },
+        "pivot_window": 5,
+        "selection_cutoff": 0.05,
+        "volume_threshold": 1.6,
+        "weights": {
+          "BreakoutShape": 0.0964362600771198,
+          "Cluster": 0.14176423788331322,
+          "MA": 0.20534430881337884,
+          "MonthlyContext": 0.04955920597552871,
+          "Pivot": 0.07603235679821214,
+          "Regime": 0.16886852501894917,
+          "Volume": 0.18818712840644625,
+          "WeeklyContext": 0.07380797702705179
+        }
+      },
+      "params_json": "{\"breakout_window\": 40, \"ma_threshold\": 0.02, \"neg_penalties\": {\"breakout_fail\": 0.3, \"context_conflict\": 0.45, \"trend_conflict\": 0.2, \"volume_dry\": 0.2}, \"pivot_window\": 5, \"selection_cutoff\": 0.05, \"volume_threshold\": 1.6, \"weights\": {\"BreakoutShape\": 0.0964362600771198, \"Cluster\": 0.14176423788331322, \"MA\": 0.20534430881337884, \"MonthlyContext\": 0.04955920597552871, \"Pivot\": 0.07603235679821214, \"Regime\": 0.16886852501894917, \"Volume\": 0.18818712840644625, \"WeeklyContext\": 0.07380797702705179}}",
+      "positive_window_ratio": 0.0,
+      "profit_factor": 0.0,
+      "rank_within_combo": 2,
+      "retained": false,
+      "retention_failed_reasons": "pf",
+      "samples": 39,
+      "stability": 0.0,
+      "study_score": -0.4916056738062481,
+      "timeframe": "daily",
+      "trial_id": "5bc1dc7596d2",
+      "worst_drawdown": 0.3855132458099178
+    }
+  ]
+}

@@ -20,6 +20,13 @@ import {
   type MarketSectorViewItem
 } from "./marketHelpers";
 
+type MarketBubbleItem = MarketSectorViewItem & {
+  x: number;
+  y: number;
+  z: number;
+  bubbleColor: string;
+};
+
 type Props = {
   loading: boolean;
   error: string | null;
@@ -75,7 +82,7 @@ export default function MarketBubblePanel({
   onSectorSelect,
   onSectorHover
 }: Props) {
-  const chartData = useMemo(() => {
+  const chartData = useMemo<MarketBubbleItem[]>(() => {
     if (!items.length) return [];
     const rateAbs = Math.max(...items.map((item) => Math.abs(item.rate)), 1);
     const flowAbs = Math.max(...items.map((item) => Math.abs(item.flow)), 1);
@@ -184,7 +191,7 @@ export default function MarketBubblePanel({
               }}
               onMouseLeave={() => onSectorHover(null)}
               shape={(props: any) => {
-                const item = props.payload as MarketSectorViewItem | undefined;
+                const item = props.payload as MarketBubbleItem | undefined;
                 const isSelected = item?.sector33_code && item.sector33_code === selectedSector;
                 const fill = item?.bubbleColor ?? "var(--theme-text-muted)";
                 return (

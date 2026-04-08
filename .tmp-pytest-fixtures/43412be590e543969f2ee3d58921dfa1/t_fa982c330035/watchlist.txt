@@ -1,0 +1,17 @@
+Tradex Daily Research Watchlist
+history_rows: 2
+pending_promotions: 1
+improving_tags: 1
+persistent_risk_tags: 1
+top_next_actions: 3
+stale_running_jobs: 0
+top_next_actions:
+  - pending_promotion | pub_old | action=approve | priority=100 | command=python -m external_analysis promotion-decision-run --decision hold --note "needs_manual_review"
+  - persistent_risk | extension_fade | action=avoid | priority=20 | command=python -m external_analysis daily-research-tag-report --strategy-tag "extension_fade" --limit 10
+  - improving_tag | box_breakout | action=observe | priority=5 | command=python -m external_analysis daily-research-tag-report --strategy-tag "box_breakout" --limit 10
+pending:
+  - pub_old | count=1 | tag=box_breakout | action=approve | priority=medium:100 | command=python -m external_analysis promotion-decision-run --decision hold --note "needs_manual_review"
+improving:
+  - box_breakout | count=1 | metric=top_strategy | action=observe | priority=emerging:5 | command=python -m external_analysis daily-research-tag-report --strategy-tag "box_breakout" --limit 10
+risk:
+  - extension_fade | count=2 | metric=risk_watch | action=avoid | priority=medium:20 | command=python -m external_analysis daily-research-tag-report --strategy-tag "extension_fade" --limit 10

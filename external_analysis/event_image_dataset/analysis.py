@@ -915,7 +915,7 @@ def _subset_model_metrics(frame: pd.DataFrame, *, prob_column: str, pred_column:
         roc_auc = float(roc_auc_score(label, prob))
     month_metrics = [_month_top_bottom_metrics(month_frame, prob_column=prob_column, pred_column=pred_column) for _, month_frame in frame.groupby("as_of_date", sort=True)]
     return {
-        "balanced_accuracy": float(balanced_accuracy_score(label, pred)),
+        "balanced_accuracy": float((label == pred).mean()) if label.nunique(dropna=True) < 2 else float(balanced_accuracy_score(label, pred)),
         "roc_auc": roc_auc,
         "monthly_top10_precision_up": float(np.mean([row["monthly_top10_precision_up"] for row in month_metrics])) if month_metrics else None,
         "monthly_long_short_spread": float(np.mean([row["monthly_long_short_spread"] for row in month_metrics])) if month_metrics else None,

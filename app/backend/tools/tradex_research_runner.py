@@ -6,6 +6,7 @@ import json
 import os
 import random
 import re
+from functools import lru_cache
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -217,6 +218,7 @@ def _champion_family_id(session_id: str) -> str:
     return f"tradex-research-{_slug(session_id)}-champion"
 
 
+@lru_cache(maxsize=1)
 def _build_family_specs() -> tuple[FamilySpec, ...]:
     return (
         FamilySpec(

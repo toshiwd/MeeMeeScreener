@@ -75,7 +75,9 @@ def _fake_regime_rows() -> list[dict[str, object]]:
 
 def _short_tradex_root(tmp_path: Path) -> Path:
     digest = hashlib.sha1(str(tmp_path).encode("utf-8")).hexdigest()[:8]
-    return Path("C:/tmp-tradex-tests") / digest
+    target = (Path(__file__).resolve().parents[1] / ".tmp-tests" / "tradex" / digest).resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    return target
 
 
 @pytest.fixture(autouse=True)

@@ -155,6 +155,7 @@ def _render_agg(*, bars: list[dict[str, Any]], path: Path, config: RendererConfi
         ax.bar(xs[idx], (volume / volume_max) * (price_span * 0.18), bottom=price_min - (price_span * 0.22), width=candle_width, color=palette["volume"], edgecolor=palette["volume"], alpha=0.85)
     ax.set_xlim(-1, max(1, count))
     ax.set_ylim(price_min - (price_span * 0.25), price_max + (price_span * 0.1))
+    path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=dpi, facecolor=palette["background"], edgecolor=palette["background"], pad_inches=0)
     plt.close(fig)
     png_bytes = path.read_bytes()

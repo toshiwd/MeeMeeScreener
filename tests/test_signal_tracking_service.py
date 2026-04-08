@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-import tempfile
 from datetime import date, timedelta
+from pathlib import Path
+from uuid import uuid4
 
 import duckdb
 
@@ -21,8 +22,11 @@ def _build_business_days(start: date, count: int) -> list[int]:
 
 
 def _make_temp_db() -> str:
-    tmp_dir = tempfile.mkdtemp(prefix="meemee_signal_tracking_")
-    return os.path.join(tmp_dir, "stocks.duckdb")
+    root = (Path(__file__).resolve().parents[1] / ".tmp-tests" / "signal_tracking").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    tmp_dir = (root / f"meemee_signal_tracking_{uuid4().hex}").resolve()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    return os.path.join(str(tmp_dir), "stocks.duckdb")
 
 
 def _seed_market_data(db_path: str) -> list[int]:
@@ -344,6 +348,12 @@ def test_signal_tracking_validation_returns_decision_and_campaign_levels(monkeyp
     assert buy_validation["decision_level"]["median_days_to_max_favorable_30"] is not None
     assert buy_validation["decision_level"]["peak_day_buckets"]
     assert buy_validation["decision_level"]["profit_timing_patterns"]
+    assert buy_validation["decision_level"]["score_threshold_rows"]
+    assert {row["score_key"] for row in buy_validation["decision_level"]["score_threshold_rows"]} == {
+        "tradePriorityScore",
+        "entryScore",
+        "probSide",
+    }
     assert buy_validation["decision_level"]["by_regime"]
     assert isinstance(buy_validation["decision_level"]["failure_examples"], list)
     assert buy_validation["campaign_level"]["total_campaigns"] == 1
@@ -353,6 +363,7 @@ def test_signal_tracking_validation_returns_decision_and_campaign_levels(monkeyp
     assert sell_validation["decision_level"]["qualified_decisions"] == 2
     assert sell_validation["decision_level"]["qualified_directional_hit_rate_30"] is not None
     assert sell_validation["decision_level"]["median_days_to_max_favorable_30"] is not None
+    assert sell_validation["decision_level"]["score_threshold_rows"]
     assert sell_validation["campaign_level"]["total_campaigns"] == 1
     assert sell_validation["campaign_level"]["by_setup_type"][0]["setup_type"] == "short_breakdown"
 
@@ -695,6 +706,263 @@ def test_signal_events_and_ranking_appearances_are_materialized(monkeypatch) -> 
     assert ranking_analysis["by_dir"][0]["median_days_to_max_favorable_30"] is not None
 
 
+def test_ranking_appearances_support_offset_sort_and_outcome(monkeypatch) -> None:
+    db_path = _make_temp_db()
+    market_days = _seed_market_data(db_path)
+    target_dates = market_days[:3]
+    _install_fake_pipeline(monkeypatch, target_dates)
+
+    service.backfill_signal_basis(
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        basis_version="basis:test:v1",
+        reset_scope=True,
+        db_path=db_path,
+    )
+    service.rebuild_signal_decisions(
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        logic_version="logic:test:v1",
+        side="all",
+        basis_version="basis:test:v1",
+        reset_scope=True,
+        db_path=db_path,
+    )
+    service.rebuild_signal_campaigns(logic_version="logic:test:v1", side="all", db_path=db_path)
+    service.rebuild_ranking_appearances(
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        ranking_logic_version="ranking:test:v1",
+        signal_logic_version="logic:test:v1",
+        basis_version="basis:test:v1",
+        reset_scope=True,
+        db_path=db_path,
+    )
+
+    monkeypatch.setattr(service, "ensure_signal_tracking_current", _no_refresh)
+    first_page = service.list_ranking_appearances(
+        status="completed",
+        direction="up",
+        ranking_logic_version="ranking:test:v1",
+        limit=1,
+        offset=0,
+        sort="recent",
+        outcome="all",
+        db_path=db_path,
+    )
+    second_page = service.list_ranking_appearances(
+        status="completed",
+        direction="up",
+        ranking_logic_version="ranking:test:v1",
+        limit=1,
+        offset=1,
+        sort="recent",
+        outcome="all",
+        db_path=db_path,
+    )
+    oldest_first = service.list_ranking_appearances(
+        status="completed",
+        direction="up",
+        ranking_logic_version="ranking:test:v1",
+        limit=6,
+        sort="oldest",
+        outcome="all",
+        db_path=db_path,
+    )
+    good_only = service.list_ranking_appearances(
+        status="completed",
+        direction="up",
+        ranking_logic_version="ranking:test:v1",
+        limit=6,
+        sort="best",
+        outcome="good",
+        db_path=db_path,
+    )
+    bad_only = service.list_ranking_appearances(
+        status="completed",
+        direction="up",
+        ranking_logic_version="ranking:test:v1",
+        limit=6,
+        sort="worst",
+        outcome="bad",
+        db_path=db_path,
+    )
+    broken_only = service.list_ranking_appearances(
+        status="completed",
+        direction="up",
+        ranking_logic_version="ranking:test:v1",
+        limit=6,
+        sort="recent",
+        outcome="broken",
+        db_path=db_path,
+    )
+
+    assert first_page["count"] == 6
+    assert first_page["has_more"] is True
+    assert first_page["next_offset"] == 1
+    assert len(first_page["items"]) == 1
+    assert len(second_page["items"]) == 1
+    assert first_page["items"][0]["appearance_id"] != second_page["items"][0]["appearance_id"]
+    assert oldest_first["items"][0]["date"] <= oldest_first["items"][-1]["date"]
+    assert good_only["count"] > 0
+    assert all((item["return_30d"] or item["current_directional_return"] or 0) > 0 for item in good_only["items"])
+    assert bad_only["count"] > 0
+    assert all((item["return_30d"] or item["current_directional_return"] or 0) < 0 for item in bad_only["items"])
+    assert broken_only["count"] > 0
+    assert all(item["break_status"] == "broken" for item in broken_only["items"])
+
+
+def test_signal_events_support_offset_sort_and_outcome(monkeypatch) -> None:
+    db_path = _make_temp_db()
+    market_days = _seed_market_data(db_path)
+    target_dates = market_days[:1]
+
+    def _fake_eval(*, items, as_of_int: int, side: str):
+        _ = items
+        if side == "buy":
+            all_items = [
+                {
+                    "code": "1111",
+                    "name": "Alpha",
+                    "asOf": service._ymd_to_iso(as_of_int),  # type: ignore[attr-defined]
+                    "entryQualified": True,
+                    "setupType": "breakout",
+                    "monthlyBoxState": "box_upper",
+                    "tradeDecisionReasons": ["上放れ初動"],
+                    "tradeRiskWatch": [],
+                    "tradePriorityScore": 0.9,
+                    "entryScore": 0.8,
+                    "probSide": 0.7,
+                },
+                {
+                    "code": "2222",
+                    "name": "Beta",
+                    "asOf": service._ymd_to_iso(as_of_int),  # type: ignore[attr-defined]
+                    "entryQualified": True,
+                    "setupType": "rebound",
+                    "monthlyBoxState": "box_lower",
+                    "tradeDecisionReasons": ["逆張り監視"],
+                    "tradeRiskWatch": [],
+                    "tradePriorityScore": 0.4,
+                    "entryScore": 0.4,
+                    "probSide": 0.45,
+                },
+            ]
+            ranked_items = [dict(item) for item in all_items]
+            return all_items, ranked_items, as_of_int, "model:test:v1"
+        all_items = [
+            {
+                "code": "1111",
+                "name": "Alpha",
+                "asOf": service._ymd_to_iso(as_of_int),  # type: ignore[attr-defined]
+                "entryQualified": False,
+                "setupType": "watch",
+                "monthlyBoxState": "box_upper",
+                "tradeDecisionReasons": ["見送り"],
+                "tradeRiskWatch": [],
+                "tradePriorityScore": 0.1,
+                "entryScore": 0.1,
+                "probSide": 0.2,
+            },
+            {
+                "code": "2222",
+                "name": "Beta",
+                "asOf": service._ymd_to_iso(as_of_int),  # type: ignore[attr-defined]
+                "entryQualified": False,
+                "setupType": "watch",
+                "monthlyBoxState": "box_lower",
+                "tradeDecisionReasons": ["見送り"],
+                "tradeRiskWatch": [],
+                "tradePriorityScore": 0.1,
+                "entryScore": 0.1,
+                "probSide": 0.2,
+            },
+        ]
+        return all_items, [], as_of_int, "model:test:v1"
+
+    _install_fake_pipeline(monkeypatch, target_dates)
+    monkeypatch.setattr(service, "_evaluate_trade_items_from_basis", _fake_eval)
+
+    service.backfill_signal_basis(
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        basis_version="basis:test:v1",
+        reset_scope=True,
+        db_path=db_path,
+    )
+    service.rebuild_signal_decisions(
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        logic_version="logic:test:v1",
+        side="all",
+        basis_version="basis:test:v1",
+        reset_scope=True,
+        db_path=db_path,
+    )
+    service.rebuild_signal_campaigns(logic_version="logic:test:v1", side="all", db_path=db_path)
+
+    monkeypatch.setattr(service, "ensure_signal_tracking_current", _no_refresh)
+    first_page = service.list_signal_events(
+        status="completed",
+        side="buy",
+        logic_version="logic:test:v1",
+        limit=1,
+        offset=0,
+        sort="recent",
+        outcome="all",
+        db_path=db_path,
+    )
+    second_page = service.list_signal_events(
+        status="completed",
+        side="buy",
+        logic_version="logic:test:v1",
+        limit=1,
+        offset=1,
+        sort="recent",
+        outcome="all",
+        db_path=db_path,
+    )
+    oldest_first = service.list_signal_events(
+        status="completed",
+        side="buy",
+        logic_version="logic:test:v1",
+        limit=10,
+        sort="oldest",
+        outcome="all",
+        db_path=db_path,
+    )
+    good_only = service.list_signal_events(
+        status="completed",
+        side="buy",
+        logic_version="logic:test:v1",
+        limit=10,
+        sort="best",
+        outcome="good",
+        db_path=db_path,
+    )
+    bad_only = service.list_signal_events(
+        status="completed",
+        side="buy",
+        logic_version="logic:test:v1",
+        limit=10,
+        sort="worst",
+        outcome="bad",
+        db_path=db_path,
+    )
+
+    assert first_page["count"] == 2
+    assert first_page["has_more"] is True
+    assert first_page["next_offset"] == 1
+    assert len(first_page["items"]) == 1
+    assert len(second_page["items"]) == 1
+    assert first_page["items"][0]["event_id"] != second_page["items"][0]["event_id"]
+    assert oldest_first["items"][0]["signal_date"] <= oldest_first["items"][-1]["signal_date"]
+    assert good_only["count"] == 1
+    assert good_only["items"][0]["code"] == "1111"
+    assert bad_only["count"] == 1
+    assert bad_only["items"][0]["code"] == "2222"
+
+
 def test_tracking_runtime_status_reports_generated_history(monkeypatch) -> None:
     db_path = _make_temp_db()
     market_days = _seed_market_data(db_path)
@@ -737,3 +1005,134 @@ def test_tracking_runtime_status_reports_generated_history(monkeypatch) -> None:
     assert status["ranking_appearance_count"] == 12
     assert status["signal_latest_date_iso"] == "2026-01-07"
     assert status["ranking_latest_date_iso"] == "2026-01-07"
+
+
+def test_signal_validation_shock_analysis_separates_buy_and_sell(monkeypatch) -> None:
+    db_path = _make_temp_db()
+    market_days = _seed_market_data(db_path)
+    target_dates = market_days[20:30]
+    qualified_dates = set(target_dates[:3])
+
+    def _fake_build_basis_rows_for_date(as_of_int: int) -> list[dict[str, object]]:
+        if as_of_int not in target_dates:
+            return []
+        return [
+            _basis_row(as_of_int, "1111", "Alpha", 1, 2),
+            _basis_row(as_of_int, "2222", "Beta", 2, 1),
+        ]
+
+    def _fake_evaluate_trade_items_from_basis(*, items, as_of_int: int, side: str):
+        _ = items
+        if side == "buy":
+            all_items = [
+                {
+                    "code": "1111",
+                    "name": "Alpha",
+                    "asOf": service._ymd_to_iso(as_of_int),  # type: ignore[attr-defined]
+                    "entryQualified": as_of_int in qualified_dates,
+                    "setupType": "breakout",
+                    "monthlyBoxState": "box_upper",
+                    "tradeDecisionReasons": ["buy_reason"],
+                    "tradeRiskWatch": [],
+                    "tradePriorityScore": 0.9,
+                    "entryScore": 0.8,
+                    "probSide": 0.7,
+                },
+                {
+                    "code": "2222",
+                    "name": "Beta",
+                    "asOf": service._ymd_to_iso(as_of_int),  # type: ignore[attr-defined]
+                    "entryQualified": False,
+                    "setupType": "watch",
+                    "monthlyBoxState": "box_lower",
+                    "tradeDecisionReasons": ["watch_reason"],
+                    "tradeRiskWatch": [],
+                    "tradePriorityScore": 0.2,
+                    "entryScore": 0.1,
+                    "probSide": 0.3,
+                },
+            ]
+        else:
+            all_items = [
+                {
+                    "code": "1111",
+                    "name": "Alpha",
+                    "asOf": service._ymd_to_iso(as_of_int),  # type: ignore[attr-defined]
+                    "entryQualified": False,
+                    "setupType": "watch",
+                    "monthlyBoxState": "box_upper",
+                    "tradeDecisionReasons": ["watch_reason"],
+                    "tradeRiskWatch": [],
+                    "tradePriorityScore": 0.1,
+                    "entryScore": 0.1,
+                    "probSide": 0.2,
+                },
+                {
+                    "code": "2222",
+                    "name": "Beta",
+                    "asOf": service._ymd_to_iso(as_of_int),  # type: ignore[attr-defined]
+                    "entryQualified": as_of_int in qualified_dates,
+                    "setupType": "short_breakdown",
+                    "monthlyBoxState": "box_lower",
+                    "tradeDecisionReasons": ["sell_reason"],
+                    "tradeRiskWatch": ["sell_watch"],
+                    "tradePriorityScore": 0.95,
+                    "entryScore": 0.82,
+                    "probSide": 0.74,
+                },
+            ]
+        ranked_items = [dict(item) for item in all_items if item.get("entryQualified") is True]
+        return all_items, ranked_items, as_of_int, "model:test:v1"
+
+    monkeypatch.setattr(service, "_build_basis_rows_for_date", _fake_build_basis_rows_for_date)
+    monkeypatch.setattr(service, "_evaluate_trade_items_from_basis", _fake_evaluate_trade_items_from_basis)
+
+    service.backfill_signal_basis(
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        basis_version="basis:test:v1",
+        reset_scope=True,
+        db_path=db_path,
+    )
+    service.rebuild_signal_decisions(
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        logic_version="logic:test:v1",
+        side="all",
+        basis_version="basis:test:v1",
+        reset_scope=True,
+        db_path=db_path,
+    )
+    service.rebuild_signal_campaigns(logic_version="logic:test:v1", side="all", db_path=db_path)
+
+    monkeypatch.setattr(service, "ensure_signal_tracking_current", _no_refresh)
+    buy_validation = service.get_signal_tracking_validation(
+        side="buy",
+        logic_version="logic:test:v1",
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        db_path=db_path,
+    )
+    sell_validation = service.get_signal_tracking_validation(
+        side="sell",
+        logic_version="logic:test:v1",
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        db_path=db_path,
+    )
+
+    buy_shock = buy_validation["decision_level"]["shock_analysis"]
+    sell_shock = sell_validation["decision_level"]["shock_analysis"]
+
+    assert buy_shock is not None
+    assert sell_shock is not None
+    assert buy_shock["window"]["trailing_horizon"] == 20
+    assert buy_shock["window"]["drop_threshold"] == -0.10
+    assert buy_shock["qualified_with_trailing_return"] > 0
+    assert sell_shock["qualified_with_trailing_return"] > 0
+    assert buy_shock["shock_examples"] == []
+    assert sell_shock["shock_examples"]
+    assert buy_shock["by_setup_type"] == []
+    assert sell_shock["by_setup_type"][0]["setup_type"] == "short_breakdown"
+    assert any(row["cohort_key"] in {"drop_10pct_only", "both"} and row["count"] > 0 for row in sell_shock["cohort_rows"])
+    assert all(row["count"] == 0 for row in buy_shock["cohort_rows"] if row["cohort_key"] in {"drop_10pct_only", "both"})

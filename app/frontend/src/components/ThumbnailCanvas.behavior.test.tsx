@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { act } from "react";
-import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ThumbnailCanvas, { resolveThumbnailCrosshairLeft } from "./ThumbnailCanvas";
 import {
@@ -10,28 +9,10 @@ import {
   getThumbnailCache
 } from "./thumbnailCache";
 import type { BarsPayload } from "../store";
+import { installCanvasMock, type CanvasMockHandle } from "../test/canvasMock";
+import { renderClient, type RenderClientHandle } from "../test/renderClient";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-
-type CanvasContextStub = {
-  clearRect: ReturnType<typeof vi.fn>;
-  beginPath: ReturnType<typeof vi.fn>;
-  moveTo: ReturnType<typeof vi.fn>;
-  lineTo: ReturnType<typeof vi.fn>;
-  stroke: ReturnType<typeof vi.fn>;
-  fillRect: ReturnType<typeof vi.fn>;
-  strokeRect: ReturnType<typeof vi.fn>;
-  fillText: ReturnType<typeof vi.fn>;
-  save: ReturnType<typeof vi.fn>;
-  restore: ReturnType<typeof vi.fn>;
-  setTransform: ReturnType<typeof vi.fn>;
-  lineWidth: number;
-  font: string;
-  textAlign: CanvasTextAlign;
-  textBaseline: CanvasTextBaseline;
-  strokeStyle: string;
-  fillStyle: string;
-};
 
 type ResizeTrigger = (() => void) | null;
 
@@ -53,37 +34,11 @@ let currentWidth = 240;
 let currentHeight = 120;
 let resizeTrigger: ResizeTrigger = null;
 
-const createContextStub = () => {
-  const ctx: CanvasContextStub = {
-    clearRect: vi.fn(),
-    beginPath: vi.fn(),
-    moveTo: vi.fn(),
-    lineTo: vi.fn(),
-    stroke: vi.fn(),
-    fillRect: vi.fn(),
-    strokeRect: vi.fn(),
-    fillText: vi.fn(),
-    save: vi.fn(),
-    restore: vi.fn(),
-    setTransform: vi.fn(),
-    lineWidth: 1,
-    font: "",
-    textAlign: "left",
-    textBaseline: "alphabetic",
-    strokeStyle: "#000",
-    fillStyle: "#000"
-  };
-  return ctx;
-};
-
 describe("ThumbnailCanvas", () => {
-  let root: ReturnType<typeof createRoot> | null = null;
-  let container: HTMLDivElement | null = null;
-  let ctx: CanvasContextStub;
-  let getContextSpy: ReturnType<typeof vi.spyOn>;
-  let toDataURLSpy: ReturnType<typeof vi.spyOn>;
+  let render: RenderClientHandle | null = null;
+  let canvasMock: CanvasMockHandle | null = null;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     currentWidth = 240;
     currentHeight = 120;
     resizeTrigger = null;
@@ -117,37 +72,38 @@ describe("ThumbnailCanvas", () => {
     }
 
     vi.stubGlobal("ResizeObserver", ResizeObserverMock as unknown as typeof ResizeObserver);
-    vi.stubGlobal("requestAnimationFrame", ((callback: FrameRequestCallback) =>
-      window.setTimeout(() => callback(performance.now()), 0)) as typeof requestAnimationFrame);
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      ((callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0)) as typeof requestAnimationFrame
+    );
     vi.stubGlobal("cancelAnimationFrame", ((handle: number) => window.clearTimeout(handle)) as typeof cancelAnimationFrame);
 
-    ctx = createContextStub();
-    getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ctx as never);
-    toDataURLSpy = vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockImplementation(function (this: HTMLCanvasElement) {
-      return `data:image/png;base64,${this.width}x${this.height}`;
-    });
-
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
+    canvasMock = installCanvasMock();
+    render = await renderClient(
+      <ThumbnailCanvas
+        payload={makePayload()}
+        boxes={[]}
+        showBoxes={false}
+        maSettings={[]}
+        showAxes={true}
+        theme="dark"
+        cacheKey="thumbnail"
+      />
+    );
   });
 
   afterEach(() => {
-    act(() => {
-      root?.unmount();
-    });
-    container?.remove();
-    root = null;
-    container = null;
-    getContextSpy.mockRestore();
-    toDataURLSpy.mockRestore();
+    render?.cleanup();
+    render = null;
+    canvasMock?.restore();
+    canvasMock = null;
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
   });
 
   const renderCanvas = (payload = makePayload()) => {
     act(() => {
-      root?.render(
+      render?.root.render(
         <ThumbnailCanvas
           payload={payload}
           boxes={[]}
@@ -168,13 +124,13 @@ describe("ThumbnailCanvas", () => {
       await vi.runAllTimersAsync();
     });
 
-    const canvas = container?.querySelector("canvas");
+    const canvas = render?.container.querySelector("canvas");
     expect(canvas).not.toBeNull();
     expect(canvas?.width).toBe(480);
     expect(canvas?.height).toBe(240);
     expect(canvas?.style.width).toBe("240px");
     expect(canvas?.style.height).toBe("120px");
-    expect(ctx.fillRect).toHaveBeenCalled();
+    expect(canvasMock?.ctx.fillRect).toHaveBeenCalled();
   });
 
   it("skips drawing when the container size is zero", async () => {
@@ -187,10 +143,10 @@ describe("ThumbnailCanvas", () => {
       await vi.runAllTimersAsync();
     });
 
-    const canvas = container?.querySelector("canvas");
+    const canvas = render?.container.querySelector("canvas");
     expect(canvas).not.toBeNull();
-    expect(ctx.fillRect).not.toHaveBeenCalled();
-    expect(ctx.clearRect).not.toHaveBeenCalled();
+    expect(canvasMock?.ctx.fillRect).not.toHaveBeenCalled();
+    expect(canvasMock?.ctx.clearRect).not.toHaveBeenCalled();
   });
 
   it("does not redraw again when the observed size stays unchanged", async () => {
@@ -200,7 +156,7 @@ describe("ThumbnailCanvas", () => {
       await vi.runAllTimersAsync();
     });
 
-    const initialFillCount = ctx.fillRect.mock.calls.length;
+    const initialFillCount = canvasMock?.ctx.fillRect.mock.calls.length ?? 0;
 
     act(() => {
       resizeTrigger?.();
@@ -210,7 +166,7 @@ describe("ThumbnailCanvas", () => {
       await vi.runAllTimersAsync();
     });
 
-    expect(ctx.fillRect.mock.calls.length).toBe(initialFillCount);
+    expect(canvasMock?.ctx.fillRect.mock.calls.length).toBe(initialFillCount);
   });
 
   it("updates the internal size after a real resize", async () => {
@@ -231,12 +187,12 @@ describe("ThumbnailCanvas", () => {
       await vi.runAllTimersAsync();
     });
 
-    const canvas = container?.querySelector("canvas");
+    const canvas = render?.container.querySelector("canvas");
     expect(canvas?.width).toBe(600);
     expect(canvas?.height).toBe(300);
     expect(canvas?.style.width).toBe("300px");
     expect(canvas?.style.height).toBe("150px");
-    expect(ctx.fillRect.mock.calls.length).toBeGreaterThan(0);
+    expect(canvasMock?.ctx.fillRect.mock.calls.length).toBeGreaterThan(0);
   });
 
   it("keeps cached snapshots separated by size so resize does not reuse a stale bitmap", async () => {
@@ -282,9 +238,9 @@ describe("ThumbnailCanvas", () => {
       await vi.runAllTimersAsync();
     });
 
-    const initialFillCount = ctx.fillRect.mock.calls.length;
-    const initialSnapshotCount = toDataURLSpy.mock.calls.length;
-    const firstImg = container?.querySelector("img.thumb-canvas-image");
+    const initialFillCount = canvasMock?.ctx.fillRect.mock.calls.length ?? 0;
+    const initialSnapshotCount = canvasMock?.toDataURLSpy.mock.calls.length ?? 0;
+    const firstImg = render?.container.querySelector("img.thumb-canvas-image");
     const firstSnapshotSrc = firstImg?.getAttribute("src");
     expect(firstSnapshotSrc).toBe("data:image/png;base64,480x240");
     const nextPayload: BarsPayload = {
@@ -307,18 +263,18 @@ describe("ThumbnailCanvas", () => {
       await vi.advanceTimersByTimeAsync(80);
     });
 
-    expect(ctx.fillRect.mock.calls.length).toBe(initialFillCount);
-    expect(toDataURLSpy.mock.calls.length).toBe(initialSnapshotCount);
-    expect(container?.querySelector("img.thumb-canvas-image")?.getAttribute("src")).toBe(firstSnapshotSrc);
-    expect(container?.querySelector("canvas")?.style.opacity).toBe("0");
+    expect(canvasMock?.ctx.fillRect.mock.calls.length).toBe(initialFillCount);
+    expect(canvasMock?.toDataURLSpy.mock.calls.length).toBe(initialSnapshotCount);
+    expect(render?.container.querySelector("img.thumb-canvas-image")?.getAttribute("src")).toBe(firstSnapshotSrc);
+    expect(render?.container.querySelector("canvas")?.style.opacity).toBe("0");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60);
       await vi.runAllTimersAsync();
     });
 
-    expect(ctx.fillRect.mock.calls.length).toBeGreaterThan(initialFillCount);
-    expect(container?.querySelector("img.thumb-canvas-image")?.getAttribute("src")).not.toBe(firstSnapshotSrc);
+    expect(canvasMock?.ctx.fillRect.mock.calls.length).toBeGreaterThan(initialFillCount);
+    expect(render?.container.querySelector("img.thumb-canvas-image")?.getAttribute("src")).not.toBe(firstSnapshotSrc);
   });
 
   it("aligns the hover crosshair to the candle center inside the plot area", async () => {
@@ -328,7 +284,7 @@ describe("ThumbnailCanvas", () => {
       await vi.runAllTimersAsync();
     });
 
-    const thumb = container?.querySelector(".thumb-canvas") as HTMLDivElement | null;
+    const thumb = render?.container.querySelector(".thumb-canvas") as HTMLDivElement | null;
     expect(thumb).not.toBeNull();
     vi.spyOn(thumb!, "getBoundingClientRect").mockReturnValue({
       x: 0,
@@ -350,7 +306,7 @@ describe("ThumbnailCanvas", () => {
       await vi.runAllTimersAsync();
     });
 
-    const crosshair = container?.querySelector(".thumb-crosshair") as HTMLDivElement | null;
+    const crosshair = render?.container.querySelector(".thumb-crosshair") as HTMLDivElement | null;
     expect(crosshair).not.toBeNull();
     expect(crosshair?.style.left).toBe(resolveThumbnailCrosshairLeft(1, 240, 2, true));
   });

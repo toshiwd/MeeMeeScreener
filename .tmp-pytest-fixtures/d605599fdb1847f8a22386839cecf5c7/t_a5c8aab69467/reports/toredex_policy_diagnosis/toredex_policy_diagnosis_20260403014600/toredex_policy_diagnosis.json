@@ -1,0 +1,119 @@
+{
+  "generated_at": "2026-04-03T01:46:00.191626+00:00",
+  "period": {
+    "end_date": "2024-02-29",
+    "start_date": "2024-01-01"
+  },
+  "primary_failure_axis": "holdings",
+  "ranking_contract": {
+    "direction": "up",
+    "long_only": true,
+    "mode": "hybrid",
+    "risk_mode": "balanced",
+    "tf": "D",
+    "which": "latest"
+  },
+  "schema_version": "toredex_policy_diagnosis_v1",
+  "variant_results": [
+    {
+      "cut_loss_exit_share_pct": 80.0,
+      "final_equity": 80.0,
+      "gate_ng_exit_share_pct": 20.0,
+      "holdings_count_max": 3,
+      "max_drawdown_pct": -21.0,
+      "max_turnover_pct_per_month": 200.0,
+      "policy_config_hash": "hash-base_current",
+      "processed_days": 40,
+      "reason_counts": {
+        "R_CUT_LOSS_WARN": 8,
+        "X_EXIT_GATE_NG": 2
+      },
+      "risk_gate_pass": false,
+      "risk_gate_reason": "MAX_DD",
+      "season_id": "diagnosis_base_current_20260403014600191626",
+      "total_return_pct": -20.0,
+      "variant_name": "base_current",
+      "worst_month_pct": -11.0
+    },
+    {
+      "cut_loss_exit_share_pct": 75.0,
+      "final_equity": 96.0,
+      "gate_ng_exit_share_pct": 25.0,
+      "holdings_count_max": 1,
+      "max_drawdown_pct": -6.0,
+      "max_turnover_pct_per_month": 120.0,
+      "policy_config_hash": "hash-holdings_1",
+      "processed_days": 40,
+      "reason_counts": {
+        "R_CUT_LOSS_WARN": 3,
+        "X_EXIT_GATE_NG": 1
+      },
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "season_id": "diagnosis_holdings_1_20260403014600191626",
+      "total_return_pct": -4.0,
+      "variant_name": "holdings_1",
+      "worst_month_pct": -3.0
+    },
+    {
+      "cut_loss_exit_share_pct": 83.333333,
+      "final_equity": 90.0,
+      "gate_ng_exit_share_pct": 16.666667,
+      "holdings_count_max": 2,
+      "max_drawdown_pct": -12.0,
+      "max_turnover_pct_per_month": 150.0,
+      "policy_config_hash": "hash-holdings_2",
+      "processed_days": 40,
+      "reason_counts": {
+        "R_CUT_LOSS_WARN": 5,
+        "X_EXIT_GATE_NG": 1
+      },
+      "risk_gate_pass": false,
+      "risk_gate_reason": "MAX_DD",
+      "season_id": "diagnosis_holdings_2_20260403014600191626",
+      "total_return_pct": -10.0,
+      "variant_name": "holdings_2",
+      "worst_month_pct": -6.0
+    },
+    {
+      "cut_loss_exit_share_pct": 85.714286,
+      "final_equity": 85.0,
+      "gate_ng_exit_share_pct": 14.285714,
+      "holdings_count_max": 3,
+      "max_drawdown_pct": -16.0,
+      "max_turnover_pct_per_month": 90.0,
+      "policy_config_hash": "hash-turnover_tight",
+      "processed_days": 40,
+      "reason_counts": {
+        "R_CUT_LOSS_WARN": 6,
+        "X_EXIT_GATE_NG": 1
+      },
+      "risk_gate_pass": false,
+      "risk_gate_reason": "MAX_DD",
+      "season_id": "diagnosis_turnover_tight_20260403014600191626",
+      "total_return_pct": -15.0,
+      "variant_name": "turnover_tight",
+      "worst_month_pct": -8.0
+    },
+    {
+      "cut_loss_exit_share_pct": 88.888889,
+      "final_equity": 82.0,
+      "gate_ng_exit_share_pct": 11.111111,
+      "holdings_count_max": 3,
+      "max_drawdown_pct": -20.0,
+      "max_turnover_pct_per_month": 205.0,
+      "policy_config_hash": "hash-gate_disabled_for_diagnosis",
+      "processed_days": 40,
+      "reason_counts": {
+        "R_CUT_LOSS_WARN": 8,
+        "X_EXIT_GATE_NG": 1
+      },
+      "risk_gate_pass": true,
+      "risk_gate_reason": "",
+      "season_id": "diagnosis_gate_disabled_for_diagnosis_20260403014600191626",
+      "total_return_pct": -18.0,
+      "variant_name": "gate_disabled_for_diagnosis",
+      "worst_month_pct": -10.0
+    }
+  ]
+}

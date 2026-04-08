@@ -84,10 +84,12 @@ PUBLISHED_LOGIC_MANIFEST_FIELDS: tuple[str, ...] = (
     "output_schema_version",
     "trained_at",
     "published_at",
-    "bootstrap_champion",
-    "last_stable_promoted",
     "artifact_uri",
     "checksum",
+)
+PUBLISHED_LOGIC_MANIFEST_OPTIONAL_FIELDS: tuple[str, ...] = (
+    "bootstrap_champion",
+    "last_stable_promoted",
 )
 PUBLISHED_RANKING_SNAPSHOT_FIELDS: tuple[str, ...] = (
     "artifact_version",

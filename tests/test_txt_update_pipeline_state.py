@@ -237,6 +237,43 @@ def test_txt_update_practical_fast_skips_legacy_followup_after_initial_cache_ref
     assert any(call.args[2] == "success" for call in mock_update_db.call_args_list)
 
 
+def test_txt_update_preserves_pan_lock_reason_in_warning_state():
+    state_store: dict = {}
+    with (
+        patch("app.backend.core.txt_update_job.os.path.isfile", return_value=True),
+        patch(
+            "app.backend.infra.panrolling.pan_import.run_pan_import",
+            side_effect=RuntimeError("Pan import blocked by Pan-side error dialog: libStock database is in use."),
+        ),
+        patch("app.backend.core.txt_update_job.run_vbs_export", return_value=(0, ["SUMMARY: total=1 ok=1 err=0"])),
+        patch("app.backend.core.txt_update_job.run_ingest", return_value=("", "", {"rows": "10"})),
+        patch("app.backend.core.txt_update_job._run_phase_batch_latest", return_value=20260101),
+        patch(
+            "app.backend.core.txt_update_job._is_existing_txt_data_fresh",
+            return_value=(True, "latest_txt_age_hours=0.50"),
+        ),
+        patch("app.backend.core.txt_update_job.job_manager.is_cancel_requested", return_value=False),
+        patch("app.backend.core.txt_update_job.job_manager._update_db") as mock_update_db,
+        patch("app.backend.api.dependencies.get_stock_repo", return_value=object()),
+        patch("app.backend.core.txt_update_job._load_update_state", return_value=state_store),
+        patch("app.backend.core.txt_update_job._save_update_state") as mock_save_state,
+        patch("app.backend.jobs.scoring_job.ScoringJob.run", return_value=[{"code": "1301"}]),
+        patch("app.backend.services.rankings_cache.refresh_cache"),
+    ):
+        txt_update_job.handle_txt_update(
+            "job-pan-lock",
+            {"auto_ml_predict": False, "auto_ml_train": False, "strict_pan_import": False, "pan_retry": 1},
+        )
+
+    assert mock_save_state.call_count > 0
+    saved_state = mock_save_state.call_args[0][0]
+    assert "libStock database is in use" in saved_state["last_pan_import_warning"]
+    assert any(
+        call.kwargs.get("message") == "PAN import failed. Continuing with existing TXT data."
+        for call in mock_update_db.call_args_list
+    )
+
+
 def test_txt_followup_failure_does_not_revert_txt_update_success():
     state_store = {"last_pipeline_status": "success"}
     with (

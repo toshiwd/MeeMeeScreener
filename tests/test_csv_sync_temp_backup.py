@@ -7,6 +7,17 @@ import duckdb
 from app.backend.core import csv_sync
 
 
+def test_resolve_trade_csv_paths_accepts_japanese_broker_history_names(monkeypatch, tmp_path):
+    (tmp_path / "楽天取引履歴.csv").write_text("dummy", encoding="utf-8")
+    (tmp_path / "SBI証券取引履歴.csv").write_text("dummy", encoding="utf-8")
+    monkeypatch.setattr(csv_sync.config, "DATA_DIR", tmp_path)
+
+    resolved = csv_sync.resolve_trade_csv_paths()
+
+    assert str(tmp_path / "楽天取引履歴.csv") in resolved
+    assert str(tmp_path / "SBI証券取引履歴.csv") in resolved
+
+
 def test_sync_trade_csvs_uses_temp_backup_table(monkeypatch, tmp_path):
     csv_path = tmp_path / "rakuten_trade_history.csv"
     csv_path.write_bytes(b"dummy")
