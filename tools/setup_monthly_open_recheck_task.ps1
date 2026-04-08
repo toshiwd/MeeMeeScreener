@@ -2,9 +2,9 @@ param(
     [string]$TaskName = "MeeMee-Monthly-Open-Recheck",
     [string]$StartTime = "08:45",
     [string]$PythonExe = "python",
-    [string]$PlanFile = "tmp/monthly_execution_plan_202603_strictplus_backups.json",
-    [string]$BasePlanFile = "tmp/monthly_execution_plan_202603.json",
-    [string]$OutputDir = "tmp",
+    [string]$PlanFile = "",
+    [string]$BasePlanFile = "",
+    [string]$OutputDir = "",
     [switch]$DryRun,
     [switch]$RunNow
 )
@@ -21,10 +21,20 @@ if (-not (Test-Path $runnerPath)) {
     throw "Runner script not found: $runnerPath"
 }
 
+$tradexRoot = [Environment]::GetEnvironmentVariable("MEEMEE_TRADEX_ROOT")
+if ([string]::IsNullOrWhiteSpace($tradexRoot)) {
+    $tradexRoot = "G:\Tradex"
+}
+$tradexScratchRoot = Join-Path $tradexRoot "scratch"
+$defaultMonthlyOpenDir = Join-Path $tradexScratchRoot "monthly_open"
+$defaultPlanFile = Join-Path $defaultMonthlyOpenDir "monthly_execution_plan_202603_strictplus_backups.json"
+$defaultBasePlanFile = Join-Path $defaultMonthlyOpenDir "monthly_execution_plan_202603.json"
+$defaultOutputDir = $defaultMonthlyOpenDir
+$PlanFile = if ([string]::IsNullOrWhiteSpace($PlanFile)) { $defaultPlanFile } else { $PlanFile }
+$BasePlanFile = if ([string]::IsNullOrWhiteSpace($BasePlanFile)) { $defaultBasePlanFile } else { $BasePlanFile }
+$OutputDir = if ([string]::IsNullOrWhiteSpace($OutputDir)) { $defaultOutputDir } else { $OutputDir }
+
 $defaultPythonExe = "python"
-$defaultPlanFile = "tmp/monthly_execution_plan_202603_strictplus_backups.json"
-$defaultBasePlanFile = "tmp/monthly_execution_plan_202603.json"
-$defaultOutputDir = "tmp"
 
 $argParts = @(
     "-NoProfile",

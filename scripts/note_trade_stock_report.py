@@ -6,6 +6,7 @@ from pathlib import Path
 import duckdb
 import numpy as np
 import pandas as pd
+from shared.tradex_storage import tradex_scratch_path
 
 
 TARGETS = [
@@ -297,7 +298,11 @@ def _build_stock_report(df: pd.DataFrame, target: dict[str, str]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Detailed stock-by-stock MA/candle/regime report for note targets")
     parser.add_argument("--db-path", type=Path, action="append", default=None)
-    parser.add_argument("--output", type=Path, default=Path("tmp/note_trade_stock_report.md"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=tradex_scratch_path("reports", "note_trade_stock_report.md").resolve(),
+    )
     args = parser.parse_args()
 
     db_paths = args.db_path or _resolve_default_db_paths()

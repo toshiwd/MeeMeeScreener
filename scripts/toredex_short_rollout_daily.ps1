@@ -3,7 +3,7 @@ param(
   [ValidateSet("champion", "challenger")]
   [string]$OperatingMode = "champion",
   [string]$AsOf = "",
-  [string]$ConfigOverrideJson = "tmp/toredex_short_hybrid_shadow_config_20260304.json",
+  [string]$ConfigOverrideJson = "",
   [int]$WindowDays = 10,
   [double]$RollbackMaxDd = -8.0,
   [string]$DailyLogPath = "",
@@ -16,6 +16,15 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+
+$tradexRoot = [Environment]::GetEnvironmentVariable("MEEMEE_TRADEX_ROOT")
+if ([string]::IsNullOrWhiteSpace($tradexRoot)) {
+  $tradexRoot = "G:\Tradex"
+}
+$tradexScratchRoot = Join-Path $tradexRoot "scratch"
+if ([string]::IsNullOrWhiteSpace($ConfigOverrideJson)) {
+  $ConfigOverrideJson = Join-Path $tradexScratchRoot "toredex_short_hybrid_shadow_config_20260304.json"
+}
 
 $args = @(
   "scripts/toredex_short_rollout_daily.py",

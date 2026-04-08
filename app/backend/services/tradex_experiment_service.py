@@ -31,6 +31,23 @@ from app.backend.services.tradex_experiment_store import (
     tradex_families_root,
     write_json,
 )
+from app.backend.services.tradex_research_contracts import (
+    TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE,
+    TRADEX_ARTIFACT_DETAIL_LEVEL_RESEARCH_FALLBACK,
+    TRADEX_DEFAULT_COST_MODEL,
+    TRADEX_FALLBACK_STATUS_AUTHORITATIVE,
+    TRADEX_FALLBACK_STATUS_RESEARCH,
+    TRADEX_FEATURE_FAMILIES,
+    TRADEX_VICTORY_METRICS,
+    build_cost_model,
+    build_same_condition_contract,
+    normalize_feature_family,
+    validate_compare_artifact,
+    validate_family_leaderboard_artifact,
+    validate_run_manifest,
+    validate_scope_rollup_artifact,
+    validate_session_rollup_artifact,
+)
 from app.db.session import get_conn
 from external_analysis.contracts.analysis_input import AnalysisInputContract
 from external_analysis.contracts.analysis_output import ANALYSIS_OUTPUT_SCHEMA_VERSION
@@ -1365,6 +1382,34 @@ def _build_champion_challenger_evaluation(
     champion_ret20_source_mode = _text(baseline.get("ret20_source_mode"), fallback=_text((baseline_summary.get("future_ret20_source_coverage") or {}).get("ret20_source_mode"), fallback="unknown"))
     challenger_ret20_source_mode = _text(candidate.get("ret20_source_mode"), fallback=_text((candidate_summary.get("future_ret20_source_coverage") or {}).get("ret20_source_mode"), fallback="unknown"))
     overview = _evaluation_overview_summary(champion_summary, challenger_summary, window_summaries)
+    long_horizon_regime_score = _mean([float(window.get("challenger_top5_ret20_mean") or 0.0) for window in window_summaries]) if window_summaries else 0.0
+    recent_adaptation_score = 0.0
+    if window_summaries:
+        latest_window = window_summaries[-1]
+        recent_adaptation_score = float(latest_window.get("challenger_top5_ret20_mean") or 0.0) - float(latest_window.get("champion_top5_ret20_mean") or 0.0)
+    champion_sample_count = _selection_sample_count(champion_summary)
+    challenger_sample_count = _selection_sample_count(challenger_summary)
+    champion_top5_mean = _selection_summary_metric(champion_summary, "top5", "ret_20", "mean")
+    challenger_top5_mean = _selection_summary_metric(challenger_summary, "top5", "ret_20", "mean")
+    champion_top10_mean = _selection_summary_metric(champion_summary, "top10", "ret_20", "mean")
+    challenger_top10_mean = _selection_summary_metric(challenger_summary, "top10", "ret_20", "mean")
+    victory_metrics = {
+        "hold_end_return_20d": float(challenger_top5_mean or 0.0),
+        "mfe_20d": float(challenger_top10_mean or 0.0),
+        "mae_20d": abs(float(candidate.get("dd_proxy") or 0.0)),
+        "win_flag_hold_end": bool(float(challenger_top5_mean or 0.0) >= float(champion_top5_mean or 0.0)),
+        "win_flag_mfe": bool(float(challenger_top10_mean or 0.0) >= float(champion_top10_mean or 0.0)),
+        "addability_score": None,
+        "trimability_score": None,
+        "opportunity_count": max(champion_sample_count, challenger_sample_count),
+        "avg_holding_days": 20.0,
+        "max_drawdown": float(candidate.get("dd_proxy") or 0.0),
+    }
+    status_reasons = regime_issues + window_issues
+    if not windows:
+        status_reasons.append("no_evaluation_windows")
+    fallback_status = TRADEX_FALLBACK_STATUS_RESEARCH if status_reasons or champion_ret20_source_mode != "precomputed" or challenger_ret20_source_mode != "precomputed" else TRADEX_FALLBACK_STATUS_AUTHORITATIVE
+    artifact_detail_level = TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE
     evaluation_window_id = _stable_hash(
         {
             "family_id": family.get("family_id"),
@@ -1373,9 +1418,6 @@ def _build_champion_challenger_evaluation(
             "windows": windows,
         }
     )[:16]
-    status_reasons = regime_issues + window_issues
-    if not windows:
-        status_reasons.append("no_evaluation_windows")
     if len(windows) < 3:
         status_reasons.append("evaluation_window_coverage_incomplete")
     overview.update(
@@ -1389,6 +1431,11 @@ def _build_champion_challenger_evaluation(
             "baseline_method": _plan_method_metadata(baseline),
             "candidate_method": _plan_method_metadata(candidate),
             "selection_variant": TRADEX_CHALLENGER_SELECTION_VARIANT,
+            "long_horizon_regime_score": long_horizon_regime_score,
+            "recent_adaptation_score": recent_adaptation_score,
+            "victory_metrics": victory_metrics,
+            "fallback_status": fallback_status,
+            "artifact_detail_level": artifact_detail_level,
             "champion_selection_summary": champion_summary,
             "challenger_selection_summary": challenger_summary,
             "champion_future_ret20_coverage": champion_future_ret20,
@@ -1594,6 +1641,7 @@ def _plan_method_metadata(plan: dict[str, Any]) -> dict[str, str]:
         "method_title": _text(plan.get("method_title"), fallback=label or plan_id),
         "method_thesis": _text(plan.get("method_thesis")),
         "method_family": _text(plan.get("method_family"), fallback=_text(plan.get("plan_family"), fallback="unknown")),
+        "feature_family": _text(plan.get("feature_family")),
     }
 
 
@@ -1615,6 +1663,10 @@ def _plan_effective_parameters(plan: dict[str, Any]) -> dict[str, Any]:
         "method_title": method_metadata["method_title"],
         "method_thesis": method_metadata["method_thesis"],
         "method_family": method_metadata["method_family"],
+        "feature_family": method_metadata["feature_family"],
+        "artifact_detail_level": _text(plan.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE),
+        "fallback_status": _text(plan.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE),
+        "cost_model": build_cost_model(plan.get("cost_model") if isinstance(plan.get("cost_model"), dict) else None),
     }
 
 
@@ -1779,6 +1831,11 @@ def _normalize_plan(plan: dict[str, Any], *, default_plan_id: str) -> dict[str, 
     signal_bias = _text(plan.get("signal_bias"), fallback="balanced")
     if signal_bias not in {"buy", "sell", "balanced"}:
         signal_bias = "balanced"
+    feature_family = _text(plan.get("feature_family"))
+    if default_plan_id != "baseline":
+        feature_family = normalize_feature_family(feature_family, field_name="feature_family")
+    elif feature_family:
+        feature_family = normalize_feature_family(feature_family, field_name="feature_family")
     return {
         "plan_id": plan_id,
         "plan_version": _text(plan.get("plan_version"), fallback="v1"),
@@ -1787,6 +1844,7 @@ def _normalize_plan(plan: dict[str, Any], *, default_plan_id: str) -> dict[str, 
         "method_title": _text(plan.get("method_title"), fallback=_text(plan.get("label"), fallback=plan_id)),
         "method_thesis": _text(plan.get("method_thesis")),
         "method_family": _text(plan.get("method_family"), fallback=_text(plan.get("plan_family"), fallback="unknown")),
+        "feature_family": feature_family or None,
         "minimum_confidence": _float(plan.get("minimum_confidence")),
         "minimum_ready_rate": _float(plan.get("minimum_ready_rate")),
         "signal_bias": signal_bias,
@@ -1794,6 +1852,12 @@ def _normalize_plan(plan: dict[str, Any], *, default_plan_id: str) -> dict[str, 
         "ret20_source_mode": _ret20_source_mode(plan.get("ret20_source_mode")),
         "playbook_up_score_bonus": _float(plan.get("playbook_up_score_bonus")) or 0.0,
         "playbook_down_score_bonus": _float(plan.get("playbook_down_score_bonus")) or 0.0,
+        "artifact_detail_level": _text(
+            plan.get("artifact_detail_level"),
+            fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE,
+        ),
+        "fallback_status": _text(plan.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE),
+        "cost_model": build_cost_model(plan.get("cost_model") if isinstance(plan.get("cost_model"), dict) else None),
         "notes": _text(plan.get("notes")),
     }
 
@@ -3511,6 +3575,10 @@ def _run_base(family: dict[str, Any], run_id: str, run_kind: str, plan: dict[str
         "method_title": method_metadata["method_title"],
         "method_thesis": method_metadata["method_thesis"],
         "method_family": method_metadata["method_family"],
+        "feature_family": method_metadata["feature_family"] or None,
+        "artifact_detail_level": _text(plan.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE),
+        "fallback_status": _text(plan.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE),
+        "cost_model": build_cost_model(plan.get("cost_model") if isinstance(plan.get("cost_model"), dict) else None),
         "baseline_version": family["baseline_plan"]["plan_version"],
         "status": "created",
         "started_at": datetime.now(timezone.utc).isoformat(),
@@ -3683,6 +3751,8 @@ def _compare_payload(
     candidate_effective_config = candidate.get("effective_config") if isinstance(candidate.get("effective_config"), dict) else {}
     baseline_method = _plan_method_metadata(baseline)
     candidate_method = _plan_method_metadata(candidate)
+    baseline_parameters = baseline_effective_config.get("effective_parameters") if isinstance(baseline_effective_config.get("effective_parameters"), dict) else {}
+    candidate_parameters = candidate_effective_config.get("effective_parameters") if isinstance(candidate_effective_config.get("effective_parameters"), dict) else {}
     baseline_readiness = baseline.get("readiness_summary") if isinstance(baseline.get("readiness_summary"), dict) else {}
     candidate_readiness = candidate.get("readiness_summary") if isinstance(candidate.get("readiness_summary"), dict) else {}
     baseline_waterfall = baseline.get("waterfall_summary") if isinstance(baseline.get("waterfall_summary"), dict) else {}
@@ -3747,14 +3817,56 @@ def _compare_payload(
         candidate=candidate,
         emit_report=emit_report,
     )
+    baseline_condition = build_same_condition_contract(
+        universe=[str(item) for item in family.get("universe") or [] if str(item).strip()],
+        period_segments=family.get("period", {}).get("segments") if isinstance(family.get("period"), dict) else [],
+        top_k=int(baseline_parameters.get("top_k") or 0),
+        regime=_text(evaluation_summary.get("regime_tag"), fallback="unknown"),
+        cost_model=baseline_parameters.get("cost_model") if isinstance(baseline_parameters.get("cost_model"), dict) else TRADEX_DEFAULT_COST_MODEL,
+        artifact_detail_level=_text(baseline_parameters.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE),
+        fallback_status=_text(baseline_parameters.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE),
+    ).to_dict()
+    candidate_condition = build_same_condition_contract(
+        universe=[str(item) for item in family.get("universe") or [] if str(item).strip()],
+        period_segments=family.get("period", {}).get("segments") if isinstance(family.get("period"), dict) else [],
+        top_k=int(candidate_parameters.get("top_k") or 0),
+        regime=_text(evaluation_summary.get("regime_tag"), fallback="unknown"),
+        cost_model=candidate_parameters.get("cost_model") if isinstance(candidate_parameters.get("cost_model"), dict) else TRADEX_DEFAULT_COST_MODEL,
+        artifact_detail_level=_text(evaluation_summary.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE),
+        fallback_status=_text(evaluation_summary.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE),
+    ).to_dict()
+    for contract in (baseline_condition, candidate_condition):
+        contract.pop("contract_hash", None)
+    baseline_condition_comparison = dict(baseline_condition)
+    candidate_condition_comparison = dict(candidate_condition)
+    baseline_condition_comparison.pop("fallback_status", None)
+    candidate_condition_comparison.pop("fallback_status", None)
+    if baseline_condition_comparison != candidate_condition_comparison:
+        raise ValueError(
+            "same-condition compare mismatch: "
+            + json.dumps({"baseline": baseline_condition, "candidate": candidate_condition}, ensure_ascii=False, sort_keys=True)
+        )
     probe_row_comparisons = _probe_row_comparisons(baseline, candidate, family)
+    candidate_local_decision = "keep" if bool(evaluation_summary.get("promote_ready")) else "drop" if bool(evaluation_summary.get("status_reasons")) else "hold"
+    decision_reasons = [str(item) for item in (evaluation_summary.get("promote_reasons") or evaluation_summary.get("status_reasons") or []) if str(item).strip()]
+    if not decision_reasons:
+        decision_reasons = [f"decision:{candidate_local_decision}"]
     return {
         "diagnostics_schema_version": TRADEX_DIAGNOSTICS_SCHEMA_VERSION,
+        "candidate_local_decision": candidate_local_decision,
+        "decision_reasons": decision_reasons,
         "run_id": candidate.get("run_id"),
         "plan_id": candidate.get("plan_id"),
         "plan_version": candidate.get("plan_version"),
         "baseline_method": baseline_method,
         "candidate_method": candidate_method,
+        "feature_family": candidate_method.get("feature_family"),
+        "artifact_detail_level": _text(evaluation_summary.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE),
+        "fallback_status": _text(evaluation_summary.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE),
+        "victory_metrics": evaluation_summary.get("victory_metrics") if isinstance(evaluation_summary.get("victory_metrics"), dict) else {},
+        "long_horizon_regime_score": _float(evaluation_summary.get("long_horizon_regime_score")) or 0.0,
+        "recent_adaptation_score": _float(evaluation_summary.get("recent_adaptation_score")) or 0.0,
+        "same_condition_contract": baseline_condition,
         "status": candidate.get("status"),
         "baseline_ret20_source_mode": _text(baseline.get("ret20_source_mode"), fallback="unknown"),
         "candidate_ret20_source_mode": _text(candidate.get("ret20_source_mode"), fallback="unknown"),
@@ -3823,18 +3935,37 @@ def _generate_compare(family: dict[str, Any]) -> dict[str, Any] | None:
     ]
     if not candidates:
         return None
+    baseline_top_k = int((baseline.get("effective_config") or {}).get("effective_parameters", {}).get("top_k") or 0)
     for candidate in candidates:
         if _text(candidate.get("status")) == "succeeded":
             candidate["status"] = "compared"
         write_json(run_file(family["family_id"], str(candidate["run_id"])), candidate)
+    candidate_results = []
+    for candidate in candidates:
+        candidate_for_compare = dict(candidate)
+        candidate_effective_config = dict(candidate_for_compare.get("effective_config") or {})
+        candidate_effective_parameters = dict(candidate_effective_config.get("effective_parameters") or {})
+        if baseline_top_k > 0:
+            candidate_effective_parameters["top_k"] = baseline_top_k
+        candidate_effective_config["effective_parameters"] = candidate_effective_parameters
+        candidate_for_compare["effective_config"] = candidate_effective_config
+        candidate_results.append(_compare_payload(family, baseline, candidate_for_compare, emit_report=True))
     payload = {
         "schema_version": TRADEX_COMPARE_SCHEMA_VERSION,
         "diagnostics_schema_version": TRADEX_DIAGNOSTICS_SCHEMA_VERSION,
         "family_id": family["family_id"],
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "baseline_run_id": baseline_id,
-        "candidate_results": [_compare_payload(family, baseline, candidate, emit_report=True) for candidate in candidates],
+        "same_condition_contract": candidate_results[0]["same_condition_contract"] if candidate_results else build_same_condition_contract(
+            universe=[str(item) for item in family.get("universe") or [] if str(item).strip()],
+            period_segments=family.get("period", {}).get("segments") if isinstance(family.get("period"), dict) else [],
+            top_k=int((baseline.get("effective_config") or {}).get("effective_parameters", {}).get("top_k") or 0),
+            regime="unknown",
+            cost_model=TRADEX_DEFAULT_COST_MODEL,
+        ).to_dict(),
+        "candidate_results": candidate_results,
     }
+    validate_compare_artifact(payload)
     write_json(family_compare_file(family["family_id"]), payload)
     return payload
 

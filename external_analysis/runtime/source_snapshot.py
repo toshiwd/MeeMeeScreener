@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import shutil
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from app.core.config import config as core_config
 from external_analysis.contracts.paths import resolve_source_db_path
+from shared.tradex_storage import tradex_scratch_path
 
 SNAPSHOT_KEEP_LATEST = 2
 SNAPSHOT_COPY_RETRIES = 10
@@ -20,7 +20,7 @@ def _utcnow() -> datetime:
 
 
 def _default_snapshot_root() -> Path:
-    return (core_config.DATA_DIR / "external_analysis" / "source_snapshots").expanduser().resolve()
+    return tradex_scratch_path("source_snapshots").resolve()
 
 
 def _wal_path(db_path: Path) -> Path:
@@ -46,11 +46,30 @@ def _copy_file_with_retry(*, source: Path, target: Path) -> None:
         raise last_error
 
 
-def _cleanup_old_snapshots(*, snapshot_root: Path, keep_latest: int) -> None:
+def _cleanup_old_snapshots(*, snapshot_root: Path, keep_latest: int, retention_days: int = 14) -> None:
     keep = max(1, int(keep_latest))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(retention_days)))
     metadata_files = sorted(snapshot_root.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     stale_metadata = metadata_files[keep:]
     for metadata_path in stale_metadata:
+        try:
+            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except Exception:
+            payload = {}
+        snapshot_db_raw = str(payload.get("snapshot_db_path") or "").strip()
+        snapshot_wal_raw = str(payload.get("snapshot_wal_path") or "").strip()
+        snapshot_db = Path(snapshot_db_raw) if snapshot_db_raw else None
+        snapshot_wal = Path(snapshot_wal_raw) if snapshot_wal_raw else None
+        for candidate in (snapshot_db, snapshot_wal, metadata_path):
+            if candidate is not None and candidate.exists() and candidate != snapshot_root:
+                candidate.unlink(missing_ok=True)
+    for metadata_path in list(snapshot_root.glob("*.json")):
+        try:
+            modified = datetime.fromtimestamp(metadata_path.stat().st_mtime, tz=timezone.utc)
+        except OSError:
+            continue
+        if modified >= cutoff:
+            continue
         try:
             payload = json.loads(metadata_path.read_text(encoding="utf-8"))
         except Exception:

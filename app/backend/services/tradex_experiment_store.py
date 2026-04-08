@@ -8,17 +8,11 @@ import time
 from pathlib import Path
 from typing import Any, Iterator
 
+from shared.tradex_storage import tradex_keep_path, tradex_research_families_root, tradex_research_sessions_root
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_TRADEX_ROOT = Path("G:/Tradex")
 DEFAULT_CONFIG_ROOT = REPO_ROOT / "config" / "tradex"
-
-
-def resolve_tradex_root() -> Path:
-    raw = os.getenv("MEEMEE_TRADEX_ROOT", "").strip()
-    if raw:
-        return Path(raw).expanduser().resolve()
-    return DEFAULT_TRADEX_ROOT.resolve()
 
 
 def resolve_tradex_config_root() -> Path:
@@ -29,13 +23,13 @@ def resolve_tradex_config_root() -> Path:
 
 
 def tradex_reports_root() -> Path:
-    root = resolve_tradex_root() / "reports"
+    root = tradex_keep_path("research", "reports")
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
 def tradex_families_root() -> Path:
-    root = resolve_tradex_root() / "families"
+    root = tradex_research_families_root()
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -54,6 +48,10 @@ def baseline_lock_file(family_id: str) -> Path:
 
 def family_compare_file(family_id: str) -> Path:
     return family_dir(family_id) / "compare.json"
+
+
+def run_manifest_file(session_id: str) -> Path:
+    return tradex_research_sessions_root() / str(session_id) / "run_manifest.json"
 
 
 def runs_dir(family_id: str) -> Path:

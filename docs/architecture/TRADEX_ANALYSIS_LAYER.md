@@ -4,6 +4,7 @@
 
 TRADEX owns analysis responsibilities, not UI responsibilities.
 This boundary exists so MeeMee can stay the operational product while TRADEX becomes the research, validation, and comparison layer.
+The authoritative research contract for the v1.1 harness is documented in [TRADEX_RESEARCH_CONTRACT.md](./TRADEX_RESEARCH_CONTRACT.md).
 
 The carve-out starts from responsibilities:
 

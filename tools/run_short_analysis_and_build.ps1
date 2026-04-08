@@ -19,8 +19,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$tradexRoot = [Environment]::GetEnvironmentVariable("MEEMEE_TRADEX_ROOT")
+if ([string]::IsNullOrWhiteSpace($tradexRoot)) {
+    $tradexRoot = "G:\Tradex"
+}
+$tradexScratchRoot = Join-Path $tradexRoot "scratch"
 $runStamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$tmpDir = Join-Path $repoRoot "tmp"
+$tmpDir = Join-Path $tradexScratchRoot "short_analysis_and_build"
 if (-not (Test-Path $tmpDir)) {
     New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
 }
@@ -279,8 +284,8 @@ function Submit-JobAndWait {
 
 function Run-FullRetraceAnalysis {
     $scriptPath = Join-Path $repoRoot "tools/analytics/full_retrace_impact.py"
-    $inputCsv = Join-Path $repoRoot "tmp/monthly_box3_range_trade_events.csv"
-    $outDir = Join-Path $repoRoot "tmp"
+    $inputCsv = Join-Path $tmpDir "monthly_box3_range_trade_events.csv"
+    $outDir = $tmpDir
     if (-not (Test-Path $scriptPath)) {
         throw "analysis script not found: $scriptPath"
     }
@@ -404,7 +409,7 @@ print("" if value is None else int(value))
 }
 
 function Verify-Outputs {
-    $summaryPath = Join-Path $repoRoot "tmp/full_retrace_impact_summary.csv"
+    $summaryPath = Join-Path $tmpDir "full_retrace_impact_summary.csv"
     if (-not (Test-Path $summaryPath)) {
         throw "missing summary csv: $summaryPath"
     }

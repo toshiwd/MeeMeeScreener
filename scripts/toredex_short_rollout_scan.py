@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 from app.backend.services.toredex_config import load_toredex_config
 from app.backend.services.toredex_policy import build_decision
 from app.backend.services.toredex_snapshot_service import build_snapshot
+from shared.tradex_storage import tradex_scratch_path
 
 
 DEFAULT_VARIANTS: list[dict[str, Any]] = [
@@ -238,7 +239,10 @@ def run_scan(
 def _resolve_output_path(raw: str | None, *, start_date: date, end_date: date) -> Path:
     if raw:
         return Path(raw)
-    return Path("tmp") / f"toredex_short_rollout_scan_{start_date.isoformat()}_{end_date.isoformat()}.json"
+    return tradex_scratch_path(
+        "reports",
+        f"toredex_short_rollout_scan_{start_date.isoformat()}_{end_date.isoformat()}.json",
+    ).resolve()
 
 
 def main() -> None:
@@ -246,7 +250,7 @@ def main() -> None:
     parser.add_argument("--start-date", required=True, help="YYYY-MM-DD")
     parser.add_argument("--end-date", required=True, help="YYYY-MM-DD")
     parser.add_argument("--variants-file", default="", help="JSON file path. Supports list or {\"variants\": [...]}")
-    parser.add_argument("--output", default="", help="Output JSON path (default: tmp/...)")
+    parser.add_argument("--output", default="", help="Output JSON path (default: Tradex scratch)")
     parser.add_argument("--include-daily", action="store_true", help="Include per-day action rows.")
     args = parser.parse_args()
 

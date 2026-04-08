@@ -9,6 +9,8 @@ from pathlib import Path
 
 import duckdb
 
+from shared.tradex_storage import tradex_scratch_path
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -213,7 +215,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output",
-        default="tmp/backfill_sell_analysis_summary.json",
+        default=str(tradex_scratch_path("reports", "backfill_sell_analysis_summary.json").resolve()),
         help="Output summary JSON path",
     )
     args = parser.parse_args()

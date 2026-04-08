@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from app.core.config import config
 from scripts.month_end_shape_study import ROUND_TRIP_COST_DEFAULT, _build_events, _summary_from_returns
+from shared.tradex_storage import tradex_scratch_path
 
 
 def _period_label(entry_year: int) -> str:
@@ -353,7 +354,11 @@ def run_mining(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Mine month-end entry patterns with multiple methods")
-    parser.add_argument("--output", type=Path, default=Path("tmp/month_end_pattern_mining.json"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=tradex_scratch_path("reports", "month_end_pattern_mining.json").resolve(),
+    )
     parser.add_argument("--round-trip-cost", type=float, default=ROUND_TRIP_COST_DEFAULT)
     parser.add_argument("--min-samples-uni", type=int, default=2000)
     parser.add_argument("--min-samples-pair", type=int, default=1200)

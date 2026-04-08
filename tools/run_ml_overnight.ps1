@@ -15,15 +15,20 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$tradexRoot = [Environment]::GetEnvironmentVariable("MEEMEE_TRADEX_ROOT")
+if ([string]::IsNullOrWhiteSpace($tradexRoot)) {
+    $tradexRoot = "G:\Tradex"
+}
+$tradexLogsRoot = Join-Path $tradexRoot "logs"
 if (-not $LogPath) {
-    $LogPath = Join-Path $repoRoot ("tmp/ml_overnight_{0}.log" -f (Get-Date -Format "yyyyMMdd"))
+    $LogPath = Join-Path $tradexLogsRoot ("ml_overnight_{0}.log" -f (Get-Date -Format "yyyyMMdd"))
 }
 $logDir = Split-Path -Parent $LogPath
 if ($logDir -and -not (Test-Path $logDir)) {
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 }
-$backendOutLogPath = Join-Path $repoRoot ("tmp/backend_overnight_{0}.out.log" -f (Get-Date -Format "yyyyMMdd"))
-$backendErrLogPath = Join-Path $repoRoot ("tmp/backend_overnight_{0}.err.log" -f (Get-Date -Format "yyyyMMdd"))
+$backendOutLogPath = Join-Path $tradexLogsRoot ("backend_overnight_{0}.out.log" -f (Get-Date -Format "yyyyMMdd"))
+$backendErrLogPath = Join-Path $tradexLogsRoot ("backend_overnight_{0}.err.log" -f (Get-Date -Format "yyyyMMdd"))
 
 $backendProc = $null
 $backendStartedByScript = $false

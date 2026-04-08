@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.month_end_shape_study import classify_5541_premise_bucket
+from shared.tradex_storage import tradex_scratch_path
 
 
 ROUND_TRIP_COST = 0.002
@@ -1011,8 +1012,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Regime x pattern x path backtest for note-style studies")
     parser.add_argument("--db-path", type=Path, action="append", default=None, help="stocks.duckdb path; repeatable")
     parser.add_argument("--min-samples", type=int, default=80)
-    parser.add_argument("--output-json", type=Path, default=Path("tmp/note_trade_repro_backtest.json"))
-    parser.add_argument("--output-md", type=Path, default=Path("tmp/note_trade_repro_backtest.md"))
+    parser.add_argument(
+        "--output-json",
+        type=Path,
+        default=tradex_scratch_path("reports", "note_trade_repro_backtest.json").resolve(),
+    )
+    parser.add_argument(
+        "--output-md",
+        type=Path,
+        default=tradex_scratch_path("reports", "note_trade_repro_backtest.md").resolve(),
+    )
     args = parser.parse_args()
 
     db_paths = args.db_path or _resolve_default_db_paths()

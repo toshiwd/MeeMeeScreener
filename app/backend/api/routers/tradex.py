@@ -59,6 +59,7 @@ class TradexPlanSpec(BaseModel):
     method_title: str | None = None
     method_thesis: str | None = None
     method_family: str | None = None
+    feature_family: str | None = None
     minimum_confidence: float | None = None
     minimum_ready_rate: float | None = None
     signal_bias: str | None = None

@@ -12,9 +12,17 @@ from typing import Any
 
 import pandas as pd
 
+from shared.tradex_storage import (
+    cleanup_tradex_scratch,
+    tradex_db_path,
+    tradex_keep_root,
+    tradex_logs_path,
+    tradex_research_home,
+    tradex_research_keep_root,
+)
+
 
 _ASOF_FILE_RE = re.compile(r".*_(\d{4}-\d{2}-\d{2})\.csv$")
-_DEFAULT_RESEARCH_HOME_NAME = "MeeMeeResearch"
 _DEFAULT_MEEMEE_HOME_NAME = "MeeMeeScreener"
 
 
@@ -94,14 +102,14 @@ def default_research_home() -> Path:
     raw = str(os.getenv("MEEMEE_RESEARCH_HOME") or "").strip()
     if raw:
         return Path(raw).expanduser().resolve()
-    return (_local_appdata_root() / _DEFAULT_RESEARCH_HOME_NAME).resolve()
+    return tradex_research_home().resolve()
 
 
 def default_research_bridge_root(research_home: Path) -> Path:
     raw = str(os.getenv("MEEMEE_RESEARCH_BRIDGE_DIR") or "").strip()
     if raw:
         return Path(raw).expanduser().resolve()
-    return (research_home / "bridge").resolve()
+    return (tradex_research_keep_root() / "bridge").resolve()
 
 
 def default_source_db_path() -> Path:
@@ -109,7 +117,7 @@ def default_source_db_path() -> Path:
         raw = str(os.getenv(env_name) or "").strip()
         if raw:
             return Path(raw).expanduser().resolve()
-    return (_local_appdata_root() / _DEFAULT_MEEMEE_HOME_NAME / "data" / "stocks.duckdb").resolve()
+    return tradex_db_path("stocks.duckdb").resolve()
 
 
 @dataclass(frozen=True)
@@ -130,7 +138,7 @@ class ResearchPaths:
         root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
         resolved_home = (research_home or default_research_home()).resolve()
         workspace = (workspace_root or (resolved_home / "workspace")).resolve()
-        published = (published_root or (resolved_home / "legacy_published")).resolve()
+        published = (published_root or (tradex_research_keep_root() / "published")).resolve()
         paths = cls(repo_root=root, research_home=resolved_home, workspace_root=workspace, published_root=published)
         paths.ensure_base_dirs()
         return paths
@@ -148,6 +156,7 @@ class ResearchPaths:
         self.mirror_root.mkdir(parents=True, exist_ok=True)
         self.bridge_root.mkdir(parents=True, exist_ok=True)
         self.published_root.mkdir(parents=True, exist_ok=True)
+        cleanup_tradex_scratch()
 
     @property
     def snapshots_root(self) -> Path:
@@ -175,7 +184,7 @@ class ResearchPaths:
 
     @property
     def logs_root(self) -> Path:
-        return self.research_home / "logs"
+        return tradex_logs_path("research").resolve()
 
     @property
     def mirror_root(self) -> Path:

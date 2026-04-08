@@ -61,3 +61,12 @@
 - 影響範囲と回帰リスクが説明できる。
 - 必要な検証を実施し、結果を明記した。
 - 重大な未検証が残る場合は Done にしない。
+
+## Repository Hygiene Contract
+- Heavy TRADEX outputs must go to `G:\Tradex`.
+- Do not create repo-root temp/test/cache trees.
+- In-repo release canonical artifact is the portable zip only.
+- Do not keep build or unpacked release trees resident in the repo.
+- Codex may autonomously maintain repo hygiene and safe cleanup of reproducible temp/cache/output residue.
+- Destructive deletion and storage-boundary changes require explicit approval.
+- Run `tools/check_repo_hygiene.ps1` before heavy Codex or VS Code work.

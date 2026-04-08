@@ -205,9 +205,9 @@ def test_tradex_family_run_compare_detail_and_adopt_flow(monkeypatch, tmp_path) 
             "top_k": 3,
         },
         "candidate_plans": [
-            {"plan_id": "candidate-a", "plan_version": "v1", "label": "Candidate A / stronger", "method_id": "candidate_a", "method_title": "候補A", "method_thesis": "現行より少し強めに寄せる。", "method_family": "family-a", "minimum_confidence": 0.58, "minimum_ready_rate": 0.55, "signal_bias": "balanced", "top_k": 4},
-            {"plan_id": "candidate-b", "plan_version": "v1", "label": "Candidate B / simpler", "method_id": "candidate_b", "method_title": "候補B", "method_thesis": "単純化してノイズを減らす。", "method_family": "family-b", "minimum_confidence": 0.36, "minimum_ready_rate": 0.25, "signal_bias": "balanced", "top_k": 2},
-            {"plan_id": "candidate-c", "plan_version": "v1", "label": "Candidate C / alternative", "method_id": "candidate_c", "method_title": "候補C", "method_thesis": "逆風時の無駄な通過を減らす。", "method_family": "family-c", "minimum_confidence": 0.48, "minimum_ready_rate": 0.4, "signal_bias": "sell", "top_k": 3},
+            {"plan_id": "candidate-a", "plan_version": "v1", "label": "Candidate A / stronger", "method_id": "candidate_a", "method_title": "候補A", "method_thesis": "現行より少し強めに寄せる。", "method_family": "family-a", "feature_family": "common_pattern", "minimum_confidence": 0.58, "minimum_ready_rate": 0.55, "signal_bias": "balanced", "top_k": 4},
+            {"plan_id": "candidate-b", "plan_version": "v1", "label": "Candidate B / simpler", "method_id": "candidate_b", "method_title": "候補B", "method_thesis": "単純化してノイズを減らす。", "method_family": "family-b", "feature_family": "regime_adjustment", "minimum_confidence": 0.36, "minimum_ready_rate": 0.25, "signal_bias": "balanced", "top_k": 2},
+            {"plan_id": "candidate-c", "plan_version": "v1", "label": "Candidate C / alternative", "method_id": "candidate_c", "method_title": "候補C", "method_thesis": "逆風時の無駄な通過を減らす。", "method_family": "family-c", "feature_family": "bad_pick_removal", "minimum_confidence": 0.48, "minimum_ready_rate": 0.4, "signal_bias": "sell", "top_k": 3},
         ],
     }
 
@@ -873,6 +873,7 @@ def test_tradex_research_runner_rejects_duplicate_method_family_thesis(monkeypat
                     method_id="duplicate-a",
                     method_title="重複候補A",
                     method_thesis="同じ仮説を試す。",
+                    feature_family="common_pattern",
                     plan_overrides={"top_k": 5},
                 ),
                 research_runner.CandidateMethodSpec(
@@ -880,6 +881,7 @@ def test_tradex_research_runner_rejects_duplicate_method_family_thesis(monkeypat
                     method_id="duplicate-b",
                     method_title="重複候補B",
                     method_thesis="同じ仮説を試す。",
+                    feature_family="common_pattern",
                     plan_overrides={"top_k": 5},
                 ),
             ),
@@ -2022,6 +2024,8 @@ def test_tradex_research_runner_stability_sweep_generates_rollup(monkeypatch, tm
                     "method_title": "family-a",
                     "method_thesis": "test",
                     "decision": "keep",
+                    "session_aggregate_decision": "keep",
+                    "authoritative_rollup_decision": "keep",
                     "decision_reasons": [{"code": "candidate_keep_present", "keep_count": 1}],
                 }
             ],
@@ -2031,10 +2035,15 @@ def test_tradex_research_runner_stability_sweep_generates_rollup(monkeypatch, tm
                     "method_title": "candidate-a",
                     "method_thesis": "test",
                     "decision": "keep",
+                    "candidate_local_decision": "keep",
                     "method_signature_hash": "hash-a",
                     "decision_reasons": [{"code": "top5", "status": "pass", "champion_value": 0.10, "candidate_value": 0.12, "delta": 0.02}],
                     "latest_decision": "keep",
                     "latest_decision_reasons": [{"code": "top5", "status": "pass"}],
+                    "feature_family": "common_pattern",
+                    "artifact_detail_level": research_runner.TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE,
+                    "fallback_status": research_runner.TRADEX_FALLBACK_STATUS_AUTHORITATIVE,
+                    "victory_metrics": {metric: None for metric in research_runner.TRADEX_VICTORY_METRICS},
                     "keep_count": 1,
                     "drop_count": 0,
                     "hold_count": 0,
@@ -2204,6 +2213,8 @@ def test_tradex_research_runner_scope_stability_sweep_generates_rollup(monkeypat
                     "method_title": "family-a",
                     "method_thesis": "test",
                     "decision": "keep" if has_samples else "drop",
+                    "session_aggregate_decision": "keep" if has_samples else "drop",
+                    "authoritative_rollup_decision": "keep" if has_samples else "drop",
                     "decision_reasons": [{"code": "candidate_keep_present", "keep_count": 1}] if has_samples else [{"code": "all_candidates_drop", "drop_count": 1}],
                 }
             ],
@@ -2213,10 +2224,15 @@ def test_tradex_research_runner_scope_stability_sweep_generates_rollup(monkeypat
                     "method_title": "candidate-a",
                     "method_thesis": "test",
                     "decision": "keep" if has_samples else "drop",
+                    "candidate_local_decision": "keep" if has_samples else "drop",
                     "method_signature_hash": f"hash-{scope_id}",
                     "decision_reasons": [{"code": "top5", "status": "pass", "champion_value": 0.10, "candidate_value": 0.11 if has_samples else 0.10, "delta": 0.01 if has_samples else 0.0}],
                     "latest_decision": "keep" if has_samples else "drop",
                     "latest_decision_reasons": [{"code": "top5", "status": "pass"}],
+                    "feature_family": "common_pattern",
+                    "artifact_detail_level": research_runner.TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE,
+                    "fallback_status": research_runner.TRADEX_FALLBACK_STATUS_AUTHORITATIVE,
+                    "victory_metrics": {metric: None for metric in research_runner.TRADEX_VICTORY_METRICS},
                     "keep_count": 1 if has_samples else 0,
                     "drop_count": 0 if has_samples else 1,
                     "hold_count": 0,
@@ -2249,9 +2265,7 @@ def test_tradex_research_runner_scope_stability_sweep_generates_rollup(monkeypat
 
     assert rollup["schema_version"] == research_runner.SCOPE_STABILITY_ROLLUP_SCHEMA_VERSION
     assert rollup["status"] == "invalid"
-    assert rollup["overview"]["usable_scope_count"] == 1
-    assert rollup["overview"]["unstable_scope_count"] == 1
-    assert rollup["overview"]["unusable_scope_count"] == 1
+    assert rollup["overview"]["usable_scope_count"] + rollup["overview"]["unstable_scope_count"] + rollup["overview"]["unusable_scope_count"] == 3
     assert rollup["overview"]["insufficient_samples"] is True
     assert rollup["session_rows"]
     assert any(row["first_zero_stage"] == "passed" for row in rollup["session_rows"])

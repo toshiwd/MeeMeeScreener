@@ -18,17 +18,35 @@ import pandas as pd
 from app.backend.api.dependencies import get_stock_repo
 from app.backend.core.legacy_analysis_control import LEGACY_ANALYSIS_DISABLE_ENV, is_legacy_analysis_disabled
 from app.backend.services import tradex_experiment_service as tradex
+from app.backend.services.tradex_research_contracts import (
+    TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE,
+    TRADEX_ARTIFACT_DETAIL_LEVEL_RESEARCH_FALLBACK,
+    TRADEX_DEFAULT_COST_MODEL,
+    TRADEX_FALLBACK_STATUS_AUTHORITATIVE,
+    TRADEX_FALLBACK_STATUS_RESEARCH,
+    TRADEX_FEATURE_FAMILIES,
+    TRADEX_VICTORY_METRICS,
+    TRADEX_RUN_MANIFEST_SCHEMA_VERSION,
+    build_run_manifest,
+    build_same_condition_contract,
+    normalize_feature_family,
+    validate_family_leaderboard_artifact,
+    validate_run_manifest,
+    validate_scope_rollup_artifact,
+    validate_session_rollup_artifact,
+)
 from app.backend.services.tradex_experiment_store import (
     family_dir,
     family_file,
     load_family,
     load_run,
-    resolve_tradex_root,
     tradex_reports_root,
+    run_manifest_file,
     run_file,
     write_json,
 )
 from app.core.config import config as app_config
+from shared.tradex_storage import tradex_research_sessions_root
 
 
 SESSION_SCHEMA_VERSION = "tradex_research_session_v1"
@@ -58,6 +76,7 @@ class CandidateMethodSpec:
     method_title: str
     method_thesis: str
     plan_overrides: dict[str, Any]
+    feature_family: str | None = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +85,22 @@ class FamilySpec:
     family_title: str
     family_thesis: str
     candidates: tuple[CandidateMethodSpec, ...]
+
+
+FEATURE_FAMILY_BY_METHOD_FAMILY: dict[str, str] = {
+    "existing-score rescaled": "common_pattern",
+    "penalty-first": "bad_pick_removal",
+    "readiness-aware": "environment_recognition",
+    "liquidity-aware": "symbol_specific_adjustment",
+    "regime-aware": "regime_adjustment",
+}
+
+
+def _feature_family_for_method_family(method_family: str) -> str:
+    feature_family = FEATURE_FAMILY_BY_METHOD_FAMILY.get(_text(method_family))
+    if not feature_family:
+        raise ValueError(f"feature_family required for method_family={method_family}")
+    return feature_family
 
 
 def _utc_now_iso() -> str:
@@ -146,7 +181,7 @@ def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _session_root() -> Path:
-    root = resolve_tradex_root() / "research_sessions"
+    root = tradex_research_sessions_root()
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -415,6 +450,11 @@ def _write_session_state(session_id: str, payload: dict[str, Any]) -> None:
     _write_json(_session_compare_file(session_id), payload)
 
 
+def _write_run_manifest(session_id: str, payload: dict[str, Any]) -> None:
+    validate_run_manifest(payload)
+    _write_json(run_manifest_file(session_id), payload)
+
+
 def _build_manifest(
     session_id: str,
     random_seed: int,
@@ -460,6 +500,7 @@ def _build_champion_plan(*, ret20_source_mode: str = tradex.TRADEX_RET20_SOURCE_
         "method_title": "現行ランキング",
         "method_thesis": "現行のTRADEX標準順位をそのまま再現する。",
         "method_family": "champion",
+        "feature_family": "boundary_feature",
         "minimum_confidence": 0.60,
         "minimum_ready_rate": 0.50,
         "signal_bias": "balanced",
@@ -467,6 +508,9 @@ def _build_champion_plan(*, ret20_source_mode: str = tradex.TRADEX_RET20_SOURCE_
         "playbook_up_score_bonus": 0.0,
         "playbook_down_score_bonus": 0.0,
         "ret20_source_mode": ret20_source_mode,
+        "artifact_detail_level": TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE,
+        "fallback_status": TRADEX_FALLBACK_STATUS_AUTHORITATIVE,
+        "cost_model": dict(TRADEX_DEFAULT_COST_MODEL),
         "notes": "session champion baseline",
     }
 
@@ -492,7 +536,13 @@ def _build_family_body(
             "method_title": candidate.method_title,
             "method_thesis": candidate.method_thesis,
             "method_family": candidate.method_family,
+            "feature_family": normalize_feature_family(
+                candidate.feature_family or _feature_family_for_method_family(candidate.method_family)
+            ),
             "ret20_source_mode": ret20_source_mode,
+            "artifact_detail_level": TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE,
+            "fallback_status": TRADEX_FALLBACK_STATUS_AUTHORITATIVE,
+            "cost_model": dict(TRADEX_DEFAULT_COST_MODEL),
             **dict(candidate.plan_overrides),
             "notes": f"{family_spec.method_family}:{candidate.method_id}",
         }
@@ -512,6 +562,7 @@ def _build_family_body(
         "code_revision": tradex._git_commit(),
         "timezone": "Asia/Tokyo",
         "price_source": "daily_bars",
+        "cost_model": dict(TRADEX_DEFAULT_COST_MODEL),
         "data_cutoff_at": period_segments[-1]["end_date"] if period_segments else None,
         "random_seed": int(random_seed),
         "notes": family_spec.family_thesis,
@@ -1055,17 +1106,24 @@ def _build_candidate_leaderboard_row(family_result: dict[str, Any], candidate_re
         "method_id": _text(candidate_method.get("method_id"), fallback=_text(candidate_result.get("plan_id"))),
         "method_title": _text(candidate_method.get("method_title"), fallback=_text(candidate_result.get("plan_id"))),
         "method_thesis": _text(candidate_method.get("method_thesis")),
+        "feature_family": _text(candidate_method.get("feature_family")),
         "method_signature_hash": method_signature_hash,
         "candidate_run_id": _text(candidate_result.get("run_id"), fallback=_text(candidate_result.get("plan_id"))),
         "baseline_run_id": _text(candidate_result.get("baseline_run_id")),
         "baseline_method_title": _text(baseline_method.get("method_title")),
         "decision": decision,
+        "candidate_local_decision": decision,
         "decision_reasons": decision_reasons,
         "promote_ready": bool(evaluation.get("promote_ready")),
         "promote_reasons": [str(item) for item in (evaluation.get("promote_reasons") or []) if str(item).strip()],
         "evaluation_window_count": int(evaluation.get("evaluation_window_count") or 0),
         "evaluation_window_ids": [str(item) for item in (evaluation.get("evaluation_window_ids") or []) if str(item).strip()],
         "regime_tag": _text(evaluation.get("regime_tag")),
+        "artifact_detail_level": _text(evaluation.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE),
+        "fallback_status": _text(evaluation.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE),
+        "victory_metrics": evaluation.get("victory_metrics") if isinstance(evaluation.get("victory_metrics"), dict) else {},
+        "long_horizon_regime_score": tradex._float(evaluation.get("long_horizon_regime_score")) or 0.0,
+        "recent_adaptation_score": tradex._float(evaluation.get("recent_adaptation_score")) or 0.0,
         "ret20_source_mode": _text(candidate_result.get("candidate_ret20_source_mode"), fallback=_text(evaluation.get("challenger_ret20_source_mode"), fallback="unknown")),
         "ret20_source_mode_reason": _text(candidate_result.get("candidate_ret20_source_mode_reason"), fallback=_text(evaluation.get("ret20_source_mode_reason"), fallback="unknown")),
         "champion_future_ret20_code_coverage": champion_future_ret20_code_coverage,
@@ -1135,6 +1193,8 @@ def _build_family_leaderboard(session_state: dict[str, Any]) -> dict[str, Any]:
                 "family_title": _text(family_result.get("family_title")),
                 "family_thesis": _text(family_result.get("family_thesis")),
                 "decision": family_decision,
+                "session_aggregate_decision": family_decision,
+                "authoritative_rollup_decision": family_decision,
                 "decision_reasons": family_decision_reasons,
                 "candidate_count": len(family_candidate_rows),
                 "keep_count": keep_count,
@@ -1145,6 +1205,7 @@ def _build_family_leaderboard(session_state: dict[str, Any]) -> dict[str, Any]:
                 "best_candidate_method_title": _text(best_candidate.get("method_title")) if isinstance(best_candidate, dict) else None,
                 "best_candidate_method_thesis": _text(best_candidate.get("method_thesis")) if isinstance(best_candidate, dict) else None,
                 "best_candidate_decision": _text(best_candidate.get("decision")) if isinstance(best_candidate, dict) else None,
+                "best_candidate_feature_family": _text(best_candidate.get("feature_family")) if isinstance(best_candidate, dict) else None,
             }
         )
     family_rows = sorted(family_rows, key=lambda row: (_text(row.get("method_family")), _text(row.get("family_id"))))
@@ -1194,6 +1255,7 @@ def _build_family_leaderboard(session_state: dict[str, Any]) -> dict[str, Any]:
         "source_report_path": str(_session_report_file(_text(session_state.get("session_id")))),
         "coverage_waterfall": coverage_waterfall,
         "overview": overview,
+        "authoritative_rollup_decision": "keep" if overview.get("keep_family_count") else "hold" if overview.get("hold_family_count") else "drop",
         "family_summary": family_rows,
         "candidate_rows": candidate_rows,
     }
@@ -1794,6 +1856,7 @@ def _write_family_leaderboard_artifacts(session_state: dict[str, Any]) -> tuple[
     if not session_id:
         raise RuntimeError("session_id is required for leaderboard generation")
     leaderboard = _build_family_leaderboard(session_state)
+    validate_family_leaderboard_artifact(leaderboard)
     leaderboard_path = _session_family_leaderboard_file(session_id)
     report_path = _session_family_leaderboard_report_file(session_id)
     _write_json(leaderboard_path, leaderboard)
@@ -1900,6 +1963,12 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                     "method_family": family_id,
                     "method_title": _text(row.get("method_title")),
                     "method_thesis": _text(row.get("method_thesis")),
+                    "feature_family": _text(row.get("feature_family")),
+                    "artifact_detail_level": _text(row.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE),
+                    "fallback_status": _text(row.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE),
+                    "victory_metrics": row.get("victory_metrics") if isinstance(row.get("victory_metrics"), dict) else {},
+                    "long_horizon_regime_score": tradex._float(row.get("long_horizon_regime_score")) or 0.0,
+                    "recent_adaptation_score": tradex._float(row.get("recent_adaptation_score")) or 0.0,
                     "keep_count": 0,
                     "drop_count": 0,
                     "hold_count": 0,
@@ -1927,6 +1996,7 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
             candidate_entry["method_family"] = family_id or candidate_entry["method_family"]
             candidate_entry["method_title"] = _text(row.get("method_title"), fallback=candidate_entry["method_title"])
             candidate_entry["method_thesis"] = _text(row.get("method_thesis"), fallback=candidate_entry["method_thesis"])
+            candidate_entry["feature_family"] = _text(row.get("feature_family"), fallback=_text(candidate_entry.get("feature_family")))
             candidate_entry["session_count"] += 1
             if session_id and session_id not in candidate_entry["session_ids"]:
                 candidate_entry["session_ids"].append(session_id)
@@ -1990,6 +2060,7 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                 "method_family": _text(entry.get("method_family")),
                 "method_title": _text(entry.get("method_title")),
                 "method_thesis": _text(entry.get("method_thesis")),
+                "feature_family": _text(entry.get("feature_family")),
                 "keep_count": int(entry.get("keep_count") or 0),
                 "drop_count": int(entry.get("drop_count") or 0),
                 "hold_count": int(entry.get("hold_count") or 0),
@@ -2008,7 +2079,15 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                 "latest_eval_window_mode": _text(entry.get("latest_eval_window_mode"), fallback="unknown"),
                 "latest_eval_window_mode_reason": _text(entry.get("latest_eval_window_mode_reason"), fallback="unknown"),
                 "latest_decision": _text(entry.get("latest_decision")),
+                "candidate_local_decision": _text(entry.get("latest_decision")),
+                "session_aggregate_decision": _text(entry.get("latest_decision")),
+                "decision_reasons": _json_ready(entry.get("latest_decision_reasons") or []),
                 "latest_decision_reasons": _json_ready(entry.get("latest_decision_reasons") or []),
+                "artifact_detail_level": _text(entry.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE),
+                "fallback_status": _text(entry.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE),
+                "victory_metrics": _json_ready(entry.get("victory_metrics") or {}),
+                "long_horizon_regime_score": tradex._float(entry.get("long_horizon_regime_score")) or 0.0,
+                "recent_adaptation_score": tradex._float(entry.get("recent_adaptation_score")) or 0.0,
                 "insufficient_samples": bool(entry.get("insufficient_samples")),
             }
         )
@@ -2022,6 +2101,7 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                 "method_family": family_id,
                 "method_title": _text(row.get("method_title")),
                 "method_thesis": _text(row.get("method_thesis")),
+                "feature_family": _text(row.get("feature_family")),
                 "keep_count": 0,
                 "drop_count": 0,
                 "hold_count": 0,
@@ -2031,6 +2111,8 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                 "latest_session_id": "",
                 "latest_generated_at": "",
                 "latest_decision": "",
+                "session_aggregate_decision": "",
+                "authoritative_rollup_decision": "",
                 "latest_decision_reasons": [],
                 "insufficient_samples": False,
             },
@@ -2048,6 +2130,8 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
             family_entry["latest_session_id"] = _text(row.get("latest_session_id"))
             family_entry["latest_generated_at"] = _text(row.get("latest_generated_at"))
             family_entry["latest_decision"] = _text(row.get("latest_decision"))
+            family_entry["session_aggregate_decision"] = _text(row.get("session_aggregate_decision"), fallback=_text(row.get("latest_decision")))
+            family_entry["authoritative_rollup_decision"] = _text(row.get("authoritative_rollup_decision"), fallback=_text(row.get("latest_decision")))
             family_entry["latest_decision_reasons"] = row.get("latest_decision_reasons") if isinstance(row.get("latest_decision_reasons"), list) else []
         if bool(row.get("insufficient_samples")):
             family_entry["insufficient_samples"] = True
@@ -2066,6 +2150,8 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                 "drop_count": int(family_entry.get("drop_count") or 0),
                 "hold_count": int(family_entry.get("hold_count") or 0),
                 "decision": family_decision,
+                "session_aggregate_decision": family_decision,
+                "authoritative_rollup_decision": family_decision,
                 "decision_reasons": family_decision_reasons,
                 "latest_session_id": _text(family_entry.get("latest_session_id")),
                 "latest_generated_at": _text(family_entry.get("latest_generated_at")),
@@ -2122,6 +2208,7 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
         },
         "source_family_leaderboard_paths": [str(_session_family_leaderboard_file(session_entry["session_id"])) for session_entry in session_payloads],
         "insufficient_samples": overview["insufficient_samples"] or overview["artifact_consistency_error_count"] > 0,
+        "authoritative_rollup_decision": "keep" if overview["keep_family_count"] else "hold" if overview["hold_family_count"] else "drop",
         "overview": overview,
         "family_summary": family_summary,
         "candidate_rows": candidate_rows,
@@ -2231,6 +2318,7 @@ def _write_session_leaderboard_rollup_artifacts() -> tuple[Path, Path, dict[str,
     report_path = _session_leaderboard_rollup_report_file()
     rollup["rollup_path"] = str(rollup_path)
     rollup["report_path"] = str(report_path)
+    validate_session_rollup_artifact(rollup)
     _write_json(rollup_path, rollup)
     _verify_json_roundtrip(rollup_path, rollup, artifact_name="session_leaderboard_rollup")
     report_path.write_text(_format_session_leaderboard_rollup_markdown(rollup), encoding="utf-8")
@@ -2247,6 +2335,17 @@ def _stability_session_row(session_state: dict[str, Any]) -> dict[str, Any]:
     comparison = best_result.get("selection_compare") if isinstance(best_result.get("selection_compare"), dict) else {}
     evaluation = best_result.get("evaluation_summary") if isinstance(best_result.get("evaluation_summary"), dict) else {}
     best_present = bool(best_result)
+    family_summary_rows = family_leaderboard.get("family_summary") if isinstance(family_leaderboard.get("family_summary"), list) else []
+    family_summary_row = family_summary_rows[0] if family_summary_rows and isinstance(family_summary_rows[0], dict) else {}
+    session_decision = _text(
+        family_leaderboard.get("authoritative_rollup_decision"),
+        fallback=_text(family_summary_row.get("session_aggregate_decision"), fallback=_text(family_summary_row.get("decision"), fallback="")),
+    )
+    if not session_decision:
+        session_decision = "keep" if int(overview.get("keep_family_count") or 0) else "hold" if int(overview.get("hold_family_count") or 0) else "drop"
+    decision_reasons = _json_ready(family_summary_row.get("decision_reasons") or [])
+    if not isinstance(decision_reasons, list) or not decision_reasons:
+        decision_reasons = [{"code": f"{session_decision}_from_family_leaderboard"}]
     champion_top5 = _first_metric_value(
         (comparison, "champion_topk_ret20_mean"),
         (comparison, "champion_top5_ret20_mean"),
@@ -2317,6 +2416,9 @@ def _stability_session_row(session_state: dict[str, Any]) -> dict[str, Any]:
         "eval_window_mode_reason": _text(session_state.get("eval_window_mode_reason"), fallback="unknown"),
         "ret20_source_mode": _text(session_state.get("ret20_source_mode"), fallback="unknown"),
         "ret20_source_mode_reason": _text(session_state.get("ret20_source_mode_reason"), fallback="unknown"),
+        "decision": session_decision,
+        "session_aggregate_decision": session_decision,
+        "decision_reasons": decision_reasons,
         "first_zero_stage": _text((coverage or {}).get("first_zero_stage"), fallback=_text((coverage or {}).get("failure_stage"), fallback="passed")),
         "sample_count": int(coverage.get("sample_count") or 0),
         "confirmed_universe_count": int(coverage.get("confirmed_universe_count") or 0),
@@ -2506,6 +2608,15 @@ def _scope_decision_from_rows(session_rows: list[dict[str, Any]]) -> tuple[str, 
 
 def _build_scope_stability_rollup(rows: list[dict[str, Any]]) -> dict[str, Any]:
     rows = sorted(rows, key=lambda row: (row.get("session_scope_id") or "", row.get("random_seed") or 0, row.get("session_id") or ""))
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        decision = _text(row.get("decision"))
+        if not decision:
+            decision = "keep" if int(row.get("sample_count") or 0) > 0 else "drop"
+        row["decision"] = decision
+        row["session_aggregate_decision"] = _text(row.get("session_aggregate_decision"), fallback=decision)
+        row["decision_reasons"] = _json_ready(row.get("decision_reasons") or [{"code": f"{decision}_from_scope_rollup"}])
     scope_map: dict[str, dict[str, Any]] = {}
     candidate_scope_gap_reason_counts: dict[str, int] = {}
     candidate_scope_key_mismatch_reason_counts: dict[str, int] = {}
@@ -2653,6 +2764,7 @@ def _build_scope_stability_rollup(rows: list[dict[str, Any]]) -> dict[str, Any]:
             {
                 "session_scope_id": _text(scope_entry.get("session_scope_id")),
                 "decision": scope_decision,
+                "session_aggregate_decision": scope_decision,
                 "decision_reasons": scope_decision_reasons,
                 "session_count": len(session_rows),
                 "seed_count": len({int(row.get("random_seed") or 0) for row in session_rows}),
@@ -2768,6 +2880,7 @@ def _build_scope_stability_rollup(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "schema_version": SCOPE_STABILITY_ROLLUP_SCHEMA_VERSION,
         "status": "complete" if any(_text(item.get("decision")) == "usable" for item in scope_summary) and not has_insufficient_samples else "invalid",
+        "authoritative_rollup_decision": "keep" if any(_text(item.get("decision")) == "usable" for item in scope_summary) and not has_insufficient_samples else "drop",
         "session_meta": {
             "generated_at": _utc_now_iso(),
             "scope_count": len(scope_summary),
@@ -3000,6 +3113,7 @@ def _write_scope_stability_rollup_artifacts(session_rows: list[dict[str, Any]]) 
     report_path = _scope_stability_rollup_report_file()
     rollup["rollup_path"] = str(rollup_path)
     rollup["report_path"] = str(report_path)
+    validate_scope_rollup_artifact(rollup)
     _write_json(rollup_path, rollup)
     _verify_json_roundtrip(rollup_path, rollup, artifact_name="scope_stability_rollup")
     report_path.write_text(_format_scope_stability_rollup_markdown(rollup), encoding="utf-8")
@@ -3058,6 +3172,9 @@ def _build_stability_failure_row(*, session_id: str, random_seed: int, error: Ex
         "ret20_source_mode_reason": session_failure_reason,
         "session_failure_reason": session_failure_reason,
         "session_failure_reason_detail": _text(error),
+        "decision": "drop",
+        "session_aggregate_decision": "drop",
+        "decision_reasons": [{"code": session_failure_reason, "status": "fail"}],
         "first_zero_stage": session_failure_reason,
         "failure_stage": session_failure_reason,
         "sample_count": 0,
@@ -3491,7 +3608,61 @@ def _build_session_state(
         "eval_window_mode_fallback_window_count": int((runtime_meta or {}).get("fallback_window_count") or 0),
         "eval_window_mode_standard_issues": list((runtime_meta or {}).get("standard_issues") or []),
         "eval_window_mode_fallback_issues": list((runtime_meta or {}).get("fallback_issues") or []),
+        "fallback_status": TRADEX_FALLBACK_STATUS_RESEARCH if _text((runtime_meta or {}).get("eval_window_mode"), fallback="standard") != "standard" else TRADEX_FALLBACK_STATUS_AUTHORITATIVE,
+        "artifact_detail_level": TRADEX_ARTIFACT_DETAIL_LEVEL_RESEARCH_FALLBACK if _text((runtime_meta or {}).get("eval_window_mode"), fallback="standard") != "standard" else TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE,
+        "cost_model": dict(TRADEX_DEFAULT_COST_MODEL),
     }
+
+
+def _build_run_manifest(
+    *,
+    session_id: str,
+    random_seed: int,
+    universe: list[str],
+    period_segments: list[dict[str, Any]],
+    runtime_meta: dict[str, Any],
+    session_scope_id: str,
+    ret20_source_mode: str,
+) -> dict[str, Any]:
+    fallback_status = TRADEX_FALLBACK_STATUS_RESEARCH if _text(runtime_meta.get("eval_window_mode"), fallback="standard") != "standard" or ret20_source_mode != tradex.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED else TRADEX_FALLBACK_STATUS_AUTHORITATIVE
+    artifact_detail_level = (
+        TRADEX_ARTIFACT_DETAIL_LEVEL_RESEARCH_FALLBACK if fallback_status == TRADEX_FALLBACK_STATUS_RESEARCH else TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE
+    )
+    config = {
+        "session_scope_id": session_scope_id,
+        "random_seed": int(random_seed),
+        "max_candidates_per_family": DEFAULT_MAX_CANDIDATES_PER_FAMILY,
+        "ret20_source_mode": ret20_source_mode,
+        "eval_window_mode": _text(runtime_meta.get("eval_window_mode"), fallback="unknown"),
+        "eval_window_mode_reason": _text(runtime_meta.get("eval_window_mode_reason"), fallback="unknown"),
+        "cost_model": dict(TRADEX_DEFAULT_COST_MODEL),
+    }
+    input_artifacts = [
+        {"kind": "confirmed_universe", "path": "daily_bars distinct codes"},
+        {"kind": "evaluation_regime_rows", "path": "tradex evaluation windows"},
+        {"kind": "ret20_source_mode", "path": ret20_source_mode},
+    ]
+    asof = period_segments[-1]["end_date"] if period_segments else ""
+    manifest = build_run_manifest(
+        session_id=session_id,
+        seed=int(random_seed),
+        random_seed=int(random_seed),
+        input_artifacts=input_artifacts,
+        asof=asof,
+        config=config,
+        universe=universe,
+        period={"segments": list(period_segments)},
+        horizon="20d",
+        artifact_detail_level=artifact_detail_level,
+        fallback_status=fallback_status,
+        cost_model=TRADEX_DEFAULT_COST_MODEL,
+    )
+    manifest["session_scope_id"] = session_scope_id
+    manifest["ret20_source_mode"] = ret20_source_mode
+    manifest["fallback_reasons"] = [
+        _text(runtime_meta.get("eval_window_mode_reason"), fallback="unknown")
+    ] if fallback_status == TRADEX_FALLBACK_STATUS_RESEARCH else []
+    return manifest
 
 
 def run_tradex_research_session(
@@ -3588,10 +3759,25 @@ def run_tradex_research_session(
     state["eval_window_mode_fallback_window_count"] = int(runtime_meta.get("fallback_window_count") or 0)
     state["eval_window_mode_standard_issues"] = list(runtime_meta.get("standard_issues") or [])
     state["eval_window_mode_fallback_issues"] = list(runtime_meta.get("fallback_issues") or [])
+    run_manifest = _build_run_manifest(
+        session_id=session_id,
+        random_seed=random_seed,
+        universe=universe,
+        period_segments=period_segments,
+        runtime_meta=runtime_meta,
+        session_scope_id=scope_id,
+        ret20_source_mode=ret20_mode,
+    )
+    state["fallback_status"] = _text(run_manifest.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE)
+    state["artifact_detail_level"] = _text(run_manifest.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE)
+    state["cost_model"] = dict(run_manifest.get("cost_model") or TRADEX_DEFAULT_COST_MODEL)
+    state["run_manifest_hash"] = _text(run_manifest.get("run_manifest_hash"))
+    state["run_manifest"] = run_manifest
 
     if _text(state.get("status")) == "complete" and _text(state.get("manifest_hash")) == manifest_hash:
         _write_family_leaderboard_artifacts(state)
         _write_session_leaderboard_rollup_artifacts()
+        _write_run_manifest(session_id, run_manifest)
         return state
 
     completed_family_results: dict[str, dict[str, Any]] = {}
@@ -3630,6 +3816,7 @@ def run_tradex_research_session(
         },
     )
     _write_session_state(session_id, state)
+    _write_run_manifest(session_id, run_manifest)
 
     champion_family_id = _champion_family_id(session_id)
     champion_family = load_family(champion_family_id)

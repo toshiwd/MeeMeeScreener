@@ -14,6 +14,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from app.core.config import config
 from app.backend.services.rankings_cache import get_rankings_asof
+from shared.tradex_storage import tradex_scratch_path
 
 
 def _collect_trading_dates(start_ymd: int, end_ymd: int) -> list[int]:
@@ -112,7 +113,10 @@ def main() -> None:
     parser.add_argument("--start-ymd", type=int, default=20250101)
     parser.add_argument("--end-ymd", type=int, default=20260226)
     parser.add_argument("--recent-count", type=int, default=10)
-    parser.add_argument("--output", default="tmp/ranking_trace_last_qualified.json")
+    parser.add_argument(
+        "--output",
+        default=str(tradex_scratch_path("reports", "ranking_trace_last_qualified.json").resolve()),
+    )
     args = parser.parse_args()
 
     result = run(args)
