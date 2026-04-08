@@ -28,12 +28,20 @@ def run_promotion_decision_command(
             ops_db_path=ops_db_path,
         )
         review = payload.get("review") or {}
+        decision_payload = review.get("approval_decision")
+        if not isinstance(decision_payload, dict) or not decision_payload:
+            normalized_decision = str(decision or "").strip().lower()
+            decision_payload = {
+                "decision": normalized_decision,
+                "note": None if note is None or not str(note).strip() else str(note).strip(),
+                "actor": None if actor is None or not str(actor).strip() else str(actor).strip(),
+            }
         result = {
             "ok": not bool(payload.get("degraded")),
             "publish": payload.get("publish"),
             "as_of_date": payload.get("as_of_date"),
             "freshness_state": payload.get("freshness_state"),
-            "decision": (review.get("approval_decision") or {}),
+            "decision": decision_payload,
             "review": {
                 "readiness_pass": review.get("readiness_pass"),
                 "expectancy_delta": review.get("expectancy_delta"),

@@ -1,0 +1,239 @@
+{
+  "aggregate_visibility": {
+    "embargo_only": 120,
+    "feature_and_label_overlap": 360,
+    "feature_overlap": 288,
+    "label_overlap": 120
+  },
+  "block_size_days": 20,
+  "blocks": [
+    {
+      "block_end_index": 19,
+      "block_index": 0,
+      "block_start_index": 0,
+      "date_count": 20,
+      "end_date": 20260130,
+      "role": "train",
+      "start_date": 20260105
+    },
+    {
+      "block_end_index": 39,
+      "block_index": 1,
+      "block_start_index": 20,
+      "date_count": 20,
+      "end_date": 20260227,
+      "role": "train",
+      "start_date": 20260202
+    },
+    {
+      "block_end_index": 59,
+      "block_index": 2,
+      "block_start_index": 40,
+      "date_count": 20,
+      "end_date": 20260327,
+      "role": "train",
+      "start_date": 20260302
+    },
+    {
+      "block_end_index": 79,
+      "block_index": 3,
+      "block_start_index": 60,
+      "date_count": 20,
+      "end_date": 20260424,
+      "role": "train",
+      "start_date": 20260330
+    },
+    {
+      "block_end_index": 99,
+      "block_index": 4,
+      "block_start_index": 80,
+      "date_count": 20,
+      "end_date": 20260522,
+      "role": "train",
+      "start_date": 20260427
+    },
+    {
+      "block_end_index": 119,
+      "block_index": 5,
+      "block_start_index": 100,
+      "date_count": 20,
+      "end_date": 20260619,
+      "role": "val",
+      "start_date": 20260525
+    },
+    {
+      "block_end_index": 129,
+      "block_index": 6,
+      "block_start_index": 120,
+      "date_count": 10,
+      "end_date": 20260703,
+      "role": "test",
+      "start_date": 20260622
+    }
+  ],
+  "boundary_checks": [
+    {
+      "boundary_index": 0,
+      "embargo_end_index": 74,
+      "left_block_index": 0,
+      "protected_block_index": 1,
+      "protected_end_date": 20260227,
+      "protected_end_index": 39,
+      "protected_start_date": 20260202,
+      "protected_start_index": 20,
+      "purge_start_index": 10,
+      "reason_codes": [
+        "feature_overlap",
+        "feature_and_label_overlap"
+      ],
+      "reason_counts": {
+        "embargo_only": 0,
+        "feature_and_label_overlap": 120,
+        "feature_overlap": 264,
+        "label_overlap": 0
+      },
+      "sample_count": 384
+    },
+    {
+      "boundary_index": 1,
+      "embargo_end_index": 94,
+      "left_block_index": 1,
+      "protected_block_index": 2,
+      "protected_end_date": 20260327,
+      "protected_end_index": 59,
+      "protected_start_date": 20260302,
+      "protected_start_index": 40,
+      "purge_start_index": 30,
+      "reason_codes": [
+        "feature_overlap",
+        "label_overlap",
+        "feature_and_label_overlap",
+        "embargo_only"
+      ],
+      "reason_counts": {
+        "embargo_only": 60,
+        "feature_and_label_overlap": 228,
+        "feature_overlap": 24,
+        "label_overlap": 60
+      },
+      "sample_count": 384
+    },
+    {
+      "boundary_index": 2,
+      "embargo_end_index": 114,
+      "left_block_index": 2,
+      "protected_block_index": 3,
+      "protected_end_date": 20260424,
+      "protected_end_index": 79,
+      "protected_start_date": 20260330,
+      "protected_start_index": 60,
+      "purge_start_index": 50,
+      "reason_codes": [
+        "label_overlap",
+        "feature_and_label_overlap",
+        "embargo_only"
+      ],
+      "reason_counts": {
+        "embargo_only": 60,
+        "feature_and_label_overlap": 12,
+        "feature_overlap": 0,
+        "label_overlap": 60
+      },
+      "sample_count": 384
+    },
+    {
+      "boundary_index": 3,
+      "embargo_end_index": 129,
+      "left_block_index": 3,
+      "protected_block_index": 4,
+      "protected_end_date": 20260522,
+      "protected_end_index": 99,
+      "protected_start_date": 20260427,
+      "protected_start_index": 80,
+      "purge_start_index": 70,
+      "reason_codes": [],
+      "reason_counts": {
+        "embargo_only": 0,
+        "feature_and_label_overlap": 0,
+        "feature_overlap": 0,
+        "label_overlap": 0
+      },
+      "sample_count": 384
+    },
+    {
+      "boundary_index": 4,
+      "embargo_end_index": 129,
+      "left_block_index": 4,
+      "protected_block_index": 5,
+      "protected_end_date": 20260619,
+      "protected_end_index": 119,
+      "protected_start_date": 20260525,
+      "protected_start_index": 100,
+      "purge_start_index": 90,
+      "reason_codes": [],
+      "reason_counts": {
+        "embargo_only": 0,
+        "feature_and_label_overlap": 0,
+        "feature_overlap": 0,
+        "label_overlap": 0
+      },
+      "sample_count": 384
+    },
+    {
+      "boundary_index": 5,
+      "embargo_end_index": 129,
+      "left_block_index": 5,
+      "protected_block_index": 6,
+      "protected_end_date": 20260703,
+      "protected_end_index": 129,
+      "protected_start_date": 20260622,
+      "protected_start_index": 120,
+      "purge_start_index": 110,
+      "reason_codes": [],
+      "reason_counts": {
+        "embargo_only": 0,
+        "feature_and_label_overlap": 0,
+        "feature_overlap": 0,
+        "label_overlap": 0
+      },
+      "sample_count": 384
+    }
+  ],
+  "counts": {
+    "block_count": 7,
+    "boundary_count": 6,
+    "test_block_count": 1,
+    "trading_date_count": 130,
+    "train_block_count": 5,
+    "val_block_count": 1
+  },
+  "embargo_days": 5,
+  "feature_lookback_days": 30,
+  "label_horizon_days": 5,
+  "purge_rule": {
+    "basis": "trading_day_index",
+    "contract_status": "fixed",
+    "embargo_check": true,
+    "feature_window_overlap_check": true,
+    "label_horizon_overlap_check": true,
+    "mechanism": "purge rows whose feature window, label horizon, or embargo band intersects the protected block",
+    "name": "time-block split + purge + embargo",
+    "protected_block_rule": "boundary checks are anchored to the protected block",
+    "stress_feasibility_condition": "block_size_days > label_horizon_days + embargo_days",
+    "stress_verify_note": "default-style stress verify is only feasible when the kept training zone survives purge and embargo"
+  },
+  "reason_code_definitions": {
+    "embargo_only": "sample does not overlap the protected block but falls inside the embargo band",
+    "feature_and_label_overlap": "sample feature and label windows both overlap the protected block",
+    "feature_overlap": "sample feature window overlaps the protected block",
+    "label_overlap": "sample label window overlaps the protected block"
+  },
+  "reason_counts": {
+    "embargo_only": 120,
+    "feature_and_label_overlap": 360,
+    "feature_overlap": 288,
+    "label_overlap": 120
+  },
+  "run_id": "image-rerank-cli",
+  "schema_version": "tradex_image_rerank_split_v1"
+}

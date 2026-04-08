@@ -1,7 +1,16 @@
 ﻿import { create } from "zustand";
 import { api, setApiErrorReporter } from "./api";
 import { normalizeScreenerListResponse } from "./listSnapshot";
+import {
+  applyChartDataVersion,
+  getActiveChartDataVersion,
+  getPersistentChartFrame,
+  setPersistentChartFrame,
+  subscribeToChartDataVersionChange,
+} from "./persistentChartCache";
+import type { BatchBarsRequestTimeframe, BatchBarsV3Response } from "./routes/detail/batchBarsRequest";
 import type {
+  BatchBarsLoadOptions,
   BarsPayload,
   Box,
   ListSnapshotMeta,
@@ -59,14 +68,114 @@ import {
   sleepMs,
   startEventsMetaPolling
 } from "./storeHelpers";
+import { recordPerfEvent } from "./perfDiagnostics";
 
 
 
 const SHOULD_LOG_BACKGROUND_ERRORS = import.meta.env.DEV;
 const LIST_CACHE_TTL_MS = 30_000;
 const FAVORITES_RETRY_DELAY_MS = 5_000;
+const SCREENER_LIST_CACHE_VERSION = 1;
+const SCREENER_LIST_CACHE_KEY = "screenerListCache";
+const BARS_LOADING_HARD_TIMEOUT_MS = 15_000;
 let listLoadPromise: Promise<void> | null = null;
 let favoritesRetryTimer: number | null = null;
+let barsLoadingRequestSeq = 0;
+const barsLoadingRequestToken: Record<GridTimeframe, Record<string, number>> = {
+  monthly: {},
+  weekly: {},
+  daily: {}
+};
+
+type ScreenerListCacheEntry = {
+  cacheVersion: number;
+  tickers: Ticker[];
+  listSnapshotMeta: ListSnapshotMeta | null;
+  listLoadedAt: number;
+};
+
+const readPersistedScreenerListCache = (): ScreenerListCacheEntry | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SCREENER_LIST_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ScreenerListCacheEntry>;
+    if (
+      parsed.cacheVersion !== SCREENER_LIST_CACHE_VERSION ||
+      !Array.isArray(parsed.tickers) ||
+      !Number.isFinite(parsed.listLoadedAt ?? NaN)
+    ) {
+      return null;
+    }
+    return {
+      cacheVersion: SCREENER_LIST_CACHE_VERSION,
+      tickers: parsed.tickers as Ticker[],
+      listSnapshotMeta: parsed.listSnapshotMeta ?? null,
+      listLoadedAt: Number(parsed.listLoadedAt),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const writePersistedScreenerListCache = ({
+  tickers,
+  listSnapshotMeta,
+  listLoadedAt,
+}: {
+  tickers: Ticker[];
+  listSnapshotMeta: ListSnapshotMeta | null;
+  listLoadedAt: number;
+}) => {
+  if (typeof window === "undefined") return;
+  try {
+    const payload: ScreenerListCacheEntry = {
+      cacheVersion: SCREENER_LIST_CACHE_VERSION,
+      tickers,
+      listSnapshotMeta,
+      listLoadedAt,
+    };
+    window.localStorage.setItem(SCREENER_LIST_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage failures
+  }
+};
+
+const createEmptyBarsPayload = (): BarsPayload => ({
+  bars: [],
+  ma: { ma7: [], ma20: [], ma60: [] },
+  boxes: []
+});
+
+const resetBarsRuntimeState = () => {
+  recentBatchRequests.clear();
+  barsFetchedLimit.daily = {};
+  barsFetchedLimit.weekly = {};
+  barsFetchedLimit.monthly = {};
+  barsLoadingRequestToken.daily = {};
+  barsLoadingRequestToken.weekly = {};
+  barsLoadingRequestToken.monthly = {};
+  lastEnsureKeyByTimeframe.daily = null;
+  lastEnsureKeyByTimeframe.weekly = null;
+  lastEnsureKeyByTimeframe.monthly = null;
+};
+
+const claimBarsLoadingToken = (timeframe: GridTimeframe, codes: string[]) => {
+  const requestToken = ++barsLoadingRequestSeq;
+  codes.forEach((code) => {
+    barsLoadingRequestToken[timeframe][code] = requestToken;
+  });
+  return requestToken;
+};
+
+const hasCurrentBarsLoadingToken = (timeframe: GridTimeframe, code: string, token: number) =>
+  barsLoadingRequestToken[timeframe][code] === token;
+
+const releaseBarsLoadingToken = (timeframe: GridTimeframe, code: string, token: number) => {
+  if (barsLoadingRequestToken[timeframe][code] === token) {
+    delete barsLoadingRequestToken[timeframe][code];
+  }
+};
 
 const clearFavoritesRetryTimer = () => {
   if (favoritesRetryTimer == null || typeof window === "undefined") return;
@@ -249,9 +358,27 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   loadList: async () => {
     if (listLoadPromise) return listLoadPromise;
-    set({ loadingList: true, listLoadError: null });
+    const previousState = get();
+    const cachedList = !previousState.tickers.length ? readPersistedScreenerListCache() : null;
+    if (cachedList?.tickers.length) {
+      recordPerfEvent("screener_cache_hydrated", {
+        count: cachedList.tickers.length,
+      });
+      set({
+        tickers: cachedList.tickers,
+        listSnapshotMeta: cachedList.listSnapshotMeta,
+        listLoadedAt: cachedList.listLoadedAt,
+        listLoadError: null,
+        loadingList: false,
+      });
+    } else {
+      set({ loadingList: true, listLoadError: null });
+    }
     listLoadPromise = (async () => {
       try {
+      recordPerfEvent("screener_fetch_start", {
+        cachedCount: cachedList?.tickers.length ?? 0,
+      });
       const res = await api.get("/grid/screener");
       const normalized = normalizeScreenerListResponse(res.data as { items?: Ticker[] } | Ticker[]);
       const items = normalized.items;
@@ -679,18 +806,49 @@ export const useStore = create<StoreState>((set, get) => ({
       } catch {
         // ignore watchlist failures for now
       }
-      set({ tickers, listLoadError: null, listSnapshotMeta, listLoadedAt: Date.now() });
+      const loadedAt = Date.now();
+      set({ tickers, listLoadError: null, listSnapshotMeta, listLoadedAt: loadedAt });
+      writePersistedScreenerListCache({
+        tickers,
+        listSnapshotMeta,
+        listLoadedAt: loadedAt,
+      });
+      recordPerfEvent("screener_fetch_end", {
+        count: tickers.length,
+      });
     } catch (gridError) {
       const gridMessage =
         gridError instanceof Error && gridError.message.trim()
           ? gridError.message.trim()
           : "grid/screener request failed";
-      set({
-        tickers: [],
-        listSnapshotMeta: null,
-        listLoadedAt: null,
-        listLoadError: `一覧の読み込みに失敗しました。${gridMessage}`
-      });
+      const fallbackState = get();
+      if (fallbackState.tickers.length) {
+        recordPerfEvent("screener_fetch_failed", {
+          message: gridMessage,
+          retainedCount: fallbackState.tickers.length,
+        });
+        set({
+          listSnapshotMeta: {
+            stale: true,
+            asOf: fallbackState.listSnapshotMeta?.asOf ?? null,
+            updatedAt: fallbackState.listSnapshotMeta?.updatedAt ?? null,
+            generation: fallbackState.listSnapshotMeta?.generation ?? null,
+            lastError: gridMessage,
+          },
+          listLoadError: null,
+        });
+      } else {
+        recordPerfEvent("screener_fetch_failed", {
+          message: gridMessage,
+          retainedCount: 0,
+        });
+        set({
+          tickers: [],
+          listSnapshotMeta: null,
+          listLoadedAt: null,
+          listLoadError: `一覧の読み込みに失敗しました。${gridMessage}`
+        });
+      }
     } finally {
       set({ loadingList: false });
       listLoadPromise = null;
@@ -698,190 +856,102 @@ export const useStore = create<StoreState>((set, get) => ({
     })();
     return listLoadPromise;
   },
-  loadBarsBatch: async (timeframe, codes, limitOverride, reason) => {
+  loadBarsBatch: async (timeframe, codes, limitOverride, reason, options?: BatchBarsLoadOptions) => {
     const state = get();
     const loadingMap = state.barsLoading[timeframe];
     const uniqueCodes = [...new Set(codes.filter((code) => code))];
     const trimmed = uniqueCodes.filter((code) => !loadingMap[code]);
     if (!trimmed.length) return;
-
-    if (timeframe === "weekly") {
-      const weeklyRequired = Math.max(
-        limitOverride ?? 0,
-        getRequiredBars(get().maSettings.weekly),
-        get().settings.listRangeBars
-      );
-      const requestCodes = [...new Set(trimmed)].sort();
-      const requestKey = buildBatchKey(timeframe, weeklyRequired, requestCodes);
-      const cachedAt = recentBatchRequests.get(requestKey);
-      if (cachedAt && Date.now() - cachedAt < BATCH_TTL_MS) return;
-
-      const inFlight = inFlightBatchRequests.get(requestKey);
-      if (inFlight) {
-        counters.dedupHitCount += 1;
-        return inFlight.promise;
-      }
-
-      counters.batchRequestCount += 1;
-      counters.v3RequestCount += 1;
-      console.debug("[batch_bars_v3]", {
-        count: counters.batchRequestCount,
-        v3_request_count: counters.v3RequestCount,
-        coalesced_request_count: counters.coalescedRequestCount,
-        dedup_hit_count: counters.dedupHitCount,
-        key: requestKey,
-        reason: reason ?? "unknown",
-        timeframe,
-        limit: weeklyRequired,
-        codes: requestCodes.length
-      });
-
-      const controller = new AbortController();
-      const requestPromise = (async () => {
-        set((prev) => {
-          const nextLoading = { ...prev.barsLoading.weekly };
-          requestCodes.forEach((code) => {
-            nextLoading[code] = true;
-          });
-          return {
-            barsLoading: { ...prev.barsLoading, weekly: nextLoading },
-            barsStatus: {
-              ...prev.barsStatus,
-              weekly: {
-                ...prev.barsStatus.weekly,
-                ...requestCodes.reduce((acc, code) => {
-                  acc[code] = "loading";
-                  return acc;
-                }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
-              }
-            }
-          };
-        });
-
-        try {
-          const requestPayload = {
-            codes: requestCodes,
-            timeframes: ["weekly"],
-            limit: weeklyRequired,
-            includeProvisional: true
-          };
-          let res: { status: number; data?: any } | null = null;
-          let attempt = 0;
-          while (true) {
-            try {
-              res = await api.post("/batch_bars_v3", requestPayload, {
-                signal: controller.signal,
-                timeout: BATCH_REQUEST_TIMEOUT_MS
-              });
-              break;
-            } catch (error) {
-              const canRetry =
-                attempt < BATCH_RETRY_DELAYS_MS.length && isRetriableBatchError(error);
-              if (!canRetry) throw error;
-              const retryDelay =
-                BATCH_RETRY_DELAYS_MS[attempt] ??
-                BATCH_RETRY_DELAYS_MS[BATCH_RETRY_DELAYS_MS.length - 1] ??
-                0;
-              attempt += 1;
-              await sleepMs(retryDelay);
-            }
-          }
-          if (!res) {
-            throw new Error("batch_bars_v3 failed without response");
-          }
-          if (res.status !== 200) {
-            throw new Error(`batch_bars_v3 failed with status ${res.status}`);
-          }
-
-          const rawItems = (res.data?.items || {}) as Record<
-            string,
-            MultiTimeframeBarsPayload | undefined
-          >;
-          const weeklyItems: Record<string, BarsPayload> = {};
-          const weeklyBoxes: Record<string, Box[]> = {};
-          requestCodes.forEach((code) => {
-            const payload = rawItems[code]?.weekly;
-            if (payload && Array.isArray(payload.bars)) {
-              weeklyItems[code] = payload;
-              weeklyBoxes[code] = payload.boxes ?? [];
-            } else {
-              weeklyItems[code] = {
-                bars: [],
-                ma: { ma7: [], ma20: [], ma60: [] },
-                boxes: []
-              };
-              weeklyBoxes[code] = [];
-            }
-            markFetchedLimit("weekly", code, weeklyRequired);
-          });
-          recentBatchRequests.set(requestKey, Date.now());
-          set((prev) => ({
-            barsCache: {
-              ...prev.barsCache,
-              weekly: { ...prev.barsCache.weekly, ...weeklyItems }
-            },
-            boxesCache: {
-              ...prev.boxesCache,
-              weekly: { ...prev.boxesCache.weekly, ...weeklyBoxes }
-            },
-            barsStatus: {
-              ...prev.barsStatus,
-              weekly: {
-                ...prev.barsStatus.weekly,
-                ...requestCodes.reduce((acc, code) => {
-                  const payload = weeklyItems[code];
-                  acc[code] = payload && payload.bars.length ? "success" : "empty";
-                  return acc;
-                }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
-              }
-            }
-          }));
-        } catch (error) {
-          if (isAbortError(error)) return;
-          set((prev) => ({
-            barsStatus: {
-              ...prev.barsStatus,
-              weekly: {
-                ...prev.barsStatus.weekly,
-                ...requestCodes.reduce((acc, code) => {
-                  const cached = prev.barsCache.weekly[code];
-                  acc[code] = cached ? (cached.bars.length ? "success" : "empty") : "error";
-                  return acc;
-                }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
-              }
-            }
-          }));
-          throw error;
-        } finally {
-          set((prev) => {
-            const cleared = { ...prev.barsLoading.weekly };
-            requestCodes.forEach((code) => {
-              delete cleared[code];
-            });
-            return { barsLoading: { ...prev.barsLoading, weekly: cleared } };
-          });
-        }
-      })();
-
-      inFlightBatchRequests.set(requestKey, { promise: requestPromise, controller });
-      requestPromise.finally(() => {
-        const entry = inFlightBatchRequests.get(requestKey);
-        if (entry?.controller === controller) {
-          inFlightBatchRequests.delete(requestKey);
-        }
-      });
-      return requestPromise;
-    }
-
-    const maSettings =
-      timeframe === "daily" ? get().maSettings.daily : get().maSettings.monthly;
-    const limit = Math.max(limitOverride ?? 0, getRequiredBars(maSettings));
+    const includeBoxes = options?.includeBoxes ?? true;
+    const limit =
+      timeframe === "weekly"
+        ? Math.max(
+            limitOverride ?? 0,
+            getRequiredBars(get().maSettings.weekly),
+            get().settings.listRangeBars
+          )
+        : Math.max(
+            limitOverride ?? 0,
+            getRequiredBars(timeframe === "daily" ? get().maSettings.daily : get().maSettings.monthly)
+          );
     const requestCodes = [...new Set(trimmed)].sort();
-    const requestKey = buildBatchKey(timeframe, limit, requestCodes);
+    const activeVersion = getActiveChartDataVersion() ?? "unknown";
+    const requestKey = `${buildBatchKey(timeframe, limit, requestCodes)}|version:${activeVersion}|boxes:${includeBoxes ? 1 : 0}`;
     const cachedAt = recentBatchRequests.get(requestKey);
     if (cachedAt && Date.now() - cachedAt < BATCH_TTL_MS) return;
 
-    const inFlight = inFlightBatchRequests.get(requestKey);
+    const persistentFrames = await Promise.all(
+      requestCodes.map(async (code) => ({
+        code,
+        entry: await getPersistentChartFrame({
+          code,
+          timeframe: timeframe as BatchBarsRequestTimeframe,
+          limit,
+          includeBoxes,
+        })
+      }))
+    );
+
+    const cachedItems: Record<string, BarsPayload> = {};
+    const cachedWeeklyBoxes: Record<string, Box[]> = {};
+    const cachedMonthlyBoxes: Record<string, Box[]> = {};
+    const cachedDailyBoxes: Record<string, Box[]> = {};
+    const missingCodes: string[] = [];
+
+    persistentFrames.forEach(({ code, entry }) => {
+      if (!entry) {
+        missingCodes.push(code);
+        return;
+      }
+      const payload: BarsPayload = {
+        bars: entry.bars,
+        ma: { ma7: [], ma20: [], ma60: [] },
+        boxes: entry.boxes
+      };
+      cachedItems[code] = payload;
+      markFetchedLimit(timeframe, code, limit);
+      const boxes = includeBoxes ? entry.boxes ?? [] : [];
+      if (timeframe === "weekly") {
+        cachedWeeklyBoxes[code] = boxes;
+      } else if (timeframe === "monthly") {
+        cachedMonthlyBoxes[code] = boxes;
+        cachedDailyBoxes[code] = boxes;
+      } else if (timeframe === "daily") {
+        cachedDailyBoxes[code] = boxes;
+      }
+    });
+
+    if (Object.keys(cachedItems).length) {
+      set((prev) => ({
+        barsCache: {
+          ...prev.barsCache,
+          [timeframe]: { ...prev.barsCache[timeframe], ...cachedItems }
+        },
+        boxesCache: {
+          monthly: { ...prev.boxesCache.monthly, ...cachedMonthlyBoxes },
+          weekly: { ...prev.boxesCache.weekly, ...cachedWeeklyBoxes },
+          daily: { ...prev.boxesCache.daily, ...cachedDailyBoxes }
+        },
+        barsStatus: {
+          ...prev.barsStatus,
+          [timeframe]: {
+            ...prev.barsStatus[timeframe],
+            ...Object.entries(cachedItems).reduce((acc, [code, payload]) => {
+              acc[code] = payload.bars.length ? "success" : "empty";
+              return acc;
+            }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
+          }
+        }
+      }));
+    }
+
+    if (!missingCodes.length) {
+      recentBatchRequests.set(requestKey, Date.now());
+      return;
+    }
+
+    const networkRequestKey = `${buildBatchKey(timeframe, limit, missingCodes)}|version:${activeVersion}|boxes:${includeBoxes ? 1 : 0}`;
+    const inFlight = inFlightBatchRequests.get(networkRequestKey);
     if (inFlight) {
       counters.dedupHitCount += 1;
       return inFlight.promise;
@@ -894,18 +964,19 @@ export const useStore = create<StoreState>((set, get) => ({
       v3_request_count: counters.v3RequestCount,
       coalesced_request_count: counters.coalescedRequestCount,
       dedup_hit_count: counters.dedupHitCount,
-      key: requestKey,
+      key: networkRequestKey,
       reason: reason ?? "unknown",
       timeframe,
       limit,
-      codes: requestCodes.length
+      codes: missingCodes.length
     });
 
     const controller = new AbortController();
+    const requestToken = claimBarsLoadingToken(timeframe, missingCodes);
     const requestPromise = (async () => {
       set((prev) => {
         const nextLoading = { ...prev.barsLoading[timeframe] };
-        requestCodes.forEach((code) => {
+        missingCodes.forEach((code) => {
           nextLoading[code] = true;
         });
         return {
@@ -914,7 +985,7 @@ export const useStore = create<StoreState>((set, get) => ({
             ...prev.barsStatus,
             [timeframe]: {
               ...prev.barsStatus[timeframe],
-              ...requestCodes.reduce((acc, code) => {
+              ...missingCodes.reduce((acc, code) => {
                 acc[code] = "loading";
                 return acc;
               }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
@@ -923,14 +994,28 @@ export const useStore = create<StoreState>((set, get) => ({
         };
       });
 
+      const hardTimeoutId = setTimeout(() => {
+        const entry = inFlightBatchRequests.get(networkRequestKey);
+        if (entry?.controller !== controller) return;
+        recordPerfEvent("bars_request_hard_timeout", {
+          timeframe,
+          limit,
+          reason: reason ?? "unknown",
+          codes: missingCodes.length,
+          timeoutMs: BARS_LOADING_HARD_TIMEOUT_MS,
+        });
+        controller.abort();
+      }, BARS_LOADING_HARD_TIMEOUT_MS);
+
       try {
         const requestPayload = {
           timeframes: [timeframe],
-          codes: requestCodes,
+          codes: missingCodes,
           limit,
-          includeProvisional: true
+          includeProvisional: true,
+          includeBoxes
         };
-        let res: { status: number; data?: any } | null = null;
+        let res: { status: number; data?: BatchBarsV3Response } | null = null;
         let attempt = 0;
         while (true) {
           try {
@@ -957,31 +1042,64 @@ export const useStore = create<StoreState>((set, get) => ({
         if (res.status !== 200) {
           throw new Error(`batch_bars_v3 failed with status ${res.status}`);
         }
+
+        await applyChartDataVersion(res.data?.meta?.data_version ?? null);
+        const settledCodes = missingCodes.filter((code) =>
+          hasCurrentBarsLoadingToken(timeframe, code, requestToken)
+        );
+        if (!settledCodes.length) {
+          return;
+        }
+
         const rawItems = (res.data?.items || {}) as Record<string, MultiTimeframeBarsPayload | undefined>;
         const items: Record<string, BarsPayload> = {};
         const boxesMonthly: Record<string, Box[]> = {};
+        const boxesWeekly: Record<string, Box[]> = {};
         const boxesDaily: Record<string, Box[]> = {};
-        requestCodes.forEach((code) => {
-          const framePayload = rawItems[code]?.[timeframe];
-          const payload: BarsPayload =
-            framePayload && Array.isArray(framePayload.bars)
-              ? framePayload
-              : {
-                  bars: [],
-                  ma: { ma7: [], ma20: [], ma60: [] },
-                  boxes: []
-                };
-          items[code] = payload;
-          const boxes = payload.boxes ?? [];
-          if (timeframe === "monthly") {
-            boxesMonthly[code] = boxes;
-            boxesDaily[code] = boxes;
-          } else if (timeframe === "daily") {
-            boxesDaily[code] = boxes;
-          }
-        });
-        requestCodes.forEach((code) => markFetchedLimit(timeframe, code, limit));
+        const fetchedAt = Date.now();
+        const dataVersion =
+          typeof res.data?.meta?.data_version === "string" && res.data.meta.data_version.trim()
+            ? res.data.meta.data_version.trim()
+            : getActiveChartDataVersion() ?? "unknown";
+
+        await Promise.all(
+          settledCodes.map(async (code) => {
+            const framePayload = rawItems[code]?.[timeframe];
+            const payload: BarsPayload =
+              framePayload && Array.isArray(framePayload.bars)
+                ? framePayload
+                : createEmptyBarsPayload();
+            items[code] = payload;
+            const boxes = includeBoxes ? payload.boxes ?? [] : [];
+            if (timeframe === "weekly") {
+              boxesWeekly[code] = boxes;
+            } else if (timeframe === "monthly") {
+              boxesMonthly[code] = boxes;
+              boxesDaily[code] = boxes;
+            } else if (timeframe === "daily") {
+              boxesDaily[code] = boxes;
+            }
+            markFetchedLimit(timeframe, code, limit);
+            await setPersistentChartFrame(
+              {
+                code,
+                timeframe: timeframe as BatchBarsRequestTimeframe,
+                limit,
+                includeBoxes,
+                dataVersion,
+              },
+              {
+                bars: payload.bars,
+                boxes: payload.boxes ?? [],
+                fetchedAt,
+                dataVersion,
+              }
+            );
+          })
+        );
+
         recentBatchRequests.set(requestKey, Date.now());
+        recentBatchRequests.set(networkRequestKey, Date.now());
         set((prev) => ({
           barsCache: {
             ...prev.barsCache,
@@ -989,29 +1107,30 @@ export const useStore = create<StoreState>((set, get) => ({
           },
           boxesCache: {
             monthly: { ...prev.boxesCache.monthly, ...boxesMonthly },
-            weekly: prev.boxesCache.weekly,
+            weekly: { ...prev.boxesCache.weekly, ...boxesWeekly },
             daily: { ...prev.boxesCache.daily, ...boxesDaily }
           },
           barsStatus: {
             ...prev.barsStatus,
-            [timeframe]: {
-              ...prev.barsStatus[timeframe],
-              ...requestCodes.reduce((acc, code) => {
-                const payload = items[code];
-                acc[code] = payload && payload.bars.length ? "success" : "empty";
-                return acc;
-              }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
-            }
+          [timeframe]: {
+            ...prev.barsStatus[timeframe],
+            ...settledCodes.reduce((acc, code) => {
+              const payload = items[code] ?? createEmptyBarsPayload();
+              acc[code] = payload.bars.length ? "success" : "empty";
+              return acc;
+            }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
+          }
           }
         }));
       } catch (error) {
-        if (isAbortError(error)) return;
+        const isAbort = isAbortError(error);
         set((prev) => ({
           barsStatus: {
             ...prev.barsStatus,
             [timeframe]: {
               ...prev.barsStatus[timeframe],
-              ...requestCodes.reduce((acc, code) => {
+              ...missingCodes.reduce((acc, code) => {
+                if (!hasCurrentBarsLoadingToken(timeframe, code, requestToken)) return acc;
                 const cached = prev.barsCache[timeframe][code];
                 acc[code] = cached ? (cached.bars.length ? "success" : "empty") : "error";
                 return acc;
@@ -1019,34 +1138,40 @@ export const useStore = create<StoreState>((set, get) => ({
             }
           }
         }));
-        throw error;
+        if (!isAbort) {
+          throw error;
+        }
       } finally {
+        clearTimeout(hardTimeoutId);
         set((prev) => {
           const cleared = { ...prev.barsLoading[timeframe] };
-          requestCodes.forEach((code) => {
+          missingCodes.forEach((code) => {
+            if (!hasCurrentBarsLoadingToken(timeframe, code, requestToken)) return;
             delete cleared[code];
+            releaseBarsLoadingToken(timeframe, code, requestToken);
           });
           return { barsLoading: { ...prev.barsLoading, [timeframe]: cleared } };
         });
       }
     })();
 
-    inFlightBatchRequests.set(requestKey, { promise: requestPromise, controller });
+    inFlightBatchRequests.set(networkRequestKey, { promise: requestPromise, controller });
     requestPromise.finally(() => {
-      const entry = inFlightBatchRequests.get(requestKey);
+      const entry = inFlightBatchRequests.get(networkRequestKey);
       if (entry?.controller === controller) {
-        inFlightBatchRequests.delete(requestKey);
+        inFlightBatchRequests.delete(networkRequestKey);
       }
     });
     return requestPromise;
   },
   loadBoxesBatch: async (codes) => {
     if (!codes.length) return;
-    await get().loadBarsBatch("monthly", codes, undefined, "boxes");
+    await get().loadBarsBatch("monthly", codes, undefined, "boxes", { includeBoxes: true });
   },
   ensureBarsForVisible: async (timeframe, codes, reason) => {
     const uniqueCodes = [...new Set(codes.filter((code) => code))];
     if (!uniqueCodes.length) return;
+    const includeBoxes = reason !== "ranking-visible";
     const pending = ensurePendingCodes[timeframe];
     uniqueCodes.forEach((code) => pending.add(code));
     if (reason) {
@@ -1078,7 +1203,7 @@ export const useStore = create<StoreState>((set, get) => ({
                 ? getRequiredBars(maSettings.weekly)
                 : getRequiredBars(maSettings.monthly);
           const requiredWithRange = Math.max(requiredBars, state.settings.listRangeBars);
-          const listKey = buildBatchKey(timeframe, requiredWithRange, mergedCodes);
+          const listKey = `${buildBatchKey(timeframe, requiredWithRange, mergedCodes)}|boxes:${includeBoxes ? 1 : 0}`;
           if (lastEnsureKeyByTimeframe[timeframe] !== listKey) {
             abortInFlightForTimeframe(timeframe);
             lastEnsureKeyByTimeframe[timeframe] = listKey;
@@ -1103,7 +1228,8 @@ export const useStore = create<StoreState>((set, get) => ({
               timeframe,
               batch,
               requiredWithRange,
-              mergedReason
+              mergedReason,
+              { includeBoxes }
             );
           }
           waiters.forEach((w) => w.resolve());
@@ -1248,13 +1374,7 @@ export const useStore = create<StoreState>((set, get) => ({
     abortInFlightForTimeframe("daily");
     abortInFlightForTimeframe("weekly");
     abortInFlightForTimeframe("monthly");
-    recentBatchRequests.clear();
-    barsFetchedLimit.daily = {};
-    barsFetchedLimit.weekly = {};
-    barsFetchedLimit.monthly = {};
-    lastEnsureKeyByTimeframe.daily = null;
-    lastEnsureKeyByTimeframe.weekly = null;
-    lastEnsureKeyByTimeframe.monthly = null;
+    resetBarsRuntimeState();
     set(() => ({
       barsCache: { monthly: {}, weekly: {}, daily: {} },
       boxesCache: { monthly: {}, weekly: {}, daily: {} },
@@ -1392,6 +1512,16 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
 }));
+
+subscribeToChartDataVersionChange(() => {
+  resetBarsRuntimeState();
+  useStore.setState({
+    barsCache: { monthly: {}, weekly: {}, daily: {} },
+    boxesCache: { monthly: {}, weekly: {}, daily: {} },
+    barsStatus: { monthly: {}, weekly: {}, daily: {} },
+    barsLoading: { monthly: {}, weekly: {}, daily: {} }
+  });
+});
 
 setApiErrorReporter((info) => {
   useStore.getState().setLastApiError(info);

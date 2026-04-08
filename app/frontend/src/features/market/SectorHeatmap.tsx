@@ -604,7 +604,7 @@ export default function SectorHeatmap() {
       totalFlow,
       avgValue
     };
-  }, [activeItems]);
+  }, [activeItems, viewMode]);
 
   const rendered = !loading && activeItems.length > 0;
   const showEmpty = !loading && (!frames.length || activeItems.length === 0);

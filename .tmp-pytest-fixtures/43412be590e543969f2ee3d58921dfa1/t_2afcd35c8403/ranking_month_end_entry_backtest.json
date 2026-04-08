@@ -1,0 +1,628 @@
+{
+  "comparison": {
+    "baseline_top10_mean20_net": 0.0962291666666667,
+    "baseline_top10_mean_month_end_net": 0.1449999999999999,
+    "baseline_top10_pf20_net": null,
+    "lift_strict_buy_state_vs_baseline_20": 0.0856041666666667,
+    "lift_strict_buy_vs_baseline_20": 0.0856041666666667,
+    "strict_buy_state_top10_mean20_net": 0.1818333333333334,
+    "strict_buy_state_top10_mean_month_end_net": 0.2729999999999999,
+    "strict_buy_state_top10_pf20_net": null,
+    "strict_buy_top10_mean20_net": 0.1818333333333334,
+    "strict_buy_top10_mean_month_end_net": 0.2729999999999999,
+    "strict_buy_top10_pf20_net": null
+  },
+  "db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_2afcd35c8403\\stocks.duckdb",
+  "generated_at": "2026-04-03T01:29:25.992190+00:00",
+  "period": {
+    "direction": "up",
+    "end_ymd": 20240229,
+    "focus_ymd": 20240229,
+    "month_end_count": 2,
+    "month_end_dates": [
+      20240131,
+      20240229
+    ],
+    "month_end_mode": "rolling_last_n",
+    "rank_mode": "trade",
+    "selection_limit": 2,
+    "start_ymd": 20240131
+  },
+  "regression_case": {
+    "focus_ymd": 20240229,
+    "variants": {
+      "baseline": {
+        "codes": [
+          "2001",
+          "2002"
+        ],
+        "fallback_count": 0,
+        "mean_20_net": 0.03945833333333337,
+        "mean_month_end_net": null,
+        "monthly_box_states": [
+          "breakout_up",
+          "no_box"
+        ],
+        "reject_count": 0,
+        "selected_count": 2,
+        "setup_types": [
+          "breakout20",
+          "watch"
+        ],
+        "top_items": [
+          {
+            "code": "2001",
+            "displayScore": 0.93,
+            "entryQualified": true,
+            "entryQualifiedByFallback": false,
+            "entryScore": 0.93,
+            "forward_return_20_net": 0.07566666666666677,
+            "forward_return_month_end_net": null,
+            "monthlyBoxState": "breakout_up",
+            "rank": 1,
+            "selectionScore": null,
+            "setupType": "breakout20"
+          },
+          {
+            "code": "2002",
+            "displayScore": 0.72,
+            "entryQualified": true,
+            "entryQualifiedByFallback": false,
+            "entryScore": 0.72,
+            "forward_return_20_net": 0.003249999999999977,
+            "forward_return_month_end_net": null,
+            "monthlyBoxState": "no_box",
+            "rank": 2,
+            "selectionScore": null,
+            "setupType": "watch"
+          }
+        ],
+        "watch_count": 1
+      },
+      "strict_buy": {
+        "codes": [
+          "2001"
+        ],
+        "fallback_count": 0,
+        "mean_20_net": 0.07566666666666677,
+        "mean_month_end_net": null,
+        "monthly_box_states": [
+          "breakout_up"
+        ],
+        "reject_count": 0,
+        "selected_count": 1,
+        "setup_types": [
+          "breakout20"
+        ],
+        "top_items": [
+          {
+            "code": "2001",
+            "displayScore": 0.93,
+            "entryQualified": true,
+            "entryQualifiedByFallback": false,
+            "entryScore": 0.93,
+            "forward_return_20_net": 0.07566666666666677,
+            "forward_return_month_end_net": null,
+            "monthlyBoxState": "breakout_up",
+            "rank": 1,
+            "selectionScore": 1.2610000000000003,
+            "setupType": "breakout20"
+          }
+        ],
+        "watch_count": 0
+      },
+      "strict_buy_state": {
+        "codes": [
+          "2001"
+        ],
+        "fallback_count": 0,
+        "mean_20_net": 0.07566666666666677,
+        "mean_month_end_net": null,
+        "monthly_box_states": [
+          "breakout_up"
+        ],
+        "reject_count": 0,
+        "selected_count": 1,
+        "setup_types": [
+          "breakout20"
+        ],
+        "top_items": [
+          {
+            "code": "2001",
+            "displayScore": 0.93,
+            "entryQualified": true,
+            "entryQualifiedByFallback": false,
+            "entryScore": 0.93,
+            "forward_return_20_net": 0.07566666666666677,
+            "forward_return_month_end_net": null,
+            "monthlyBoxState": "breakout_up",
+            "rank": 1,
+            "selectionScore": 1.3410000000000004,
+            "setupType": "breakout20"
+          }
+        ],
+        "watch_count": 0
+      }
+    }
+  },
+  "round_trip_cost": 0.002,
+  "schema_version": "ranking_month_end_entry_backtest_v2",
+  "summary": {
+    "baseline_pf20": null,
+    "baseline_rows": 4,
+    "strict_buy_pf20": null,
+    "strict_buy_rows": 2,
+    "strict_buy_state_rows": 2
+  },
+  "variants": {
+    "baseline": {
+      "label": "current broad ranking",
+      "month_rows": [
+        {
+          "as_of": 20240131,
+          "as_of_iso": "2024-01-31",
+          "codes": [
+            "1001",
+            "1002"
+          ],
+          "entry_qualified": [
+            true,
+            true
+          ],
+          "fallback_count": 0,
+          "mean_20_net": 0.15300000000000002,
+          "mean_month_end_net": 0.1449999999999999,
+          "monthly_box_states": [
+            "box_upper",
+            "no_box"
+          ],
+          "reject_count": 0,
+          "selected_count": 2,
+          "selection_scores": [],
+          "setup_types": [
+            "breakout",
+            "watch"
+          ],
+          "top_items": [
+            {
+              "code": "1001",
+              "displayScore": 0.91,
+              "entryQualified": true,
+              "entryQualifiedByFallback": false,
+              "entryScore": 0.91,
+              "forward_return_20_net": 0.28800000000000003,
+              "forward_return_month_end_net": 0.2729999999999999,
+              "monthlyBoxState": "box_upper",
+              "rank": 1,
+              "selectionScore": null,
+              "setupType": "breakout"
+            },
+            {
+              "code": "1002",
+              "displayScore": 0.75,
+              "entryQualified": true,
+              "entryQualifiedByFallback": false,
+              "entryScore": 0.75,
+              "forward_return_20_net": 0.018000000000000016,
+              "forward_return_month_end_net": 0.016999999999999904,
+              "monthlyBoxState": "no_box",
+              "rank": 2,
+              "selectionScore": null,
+              "setupType": "watch"
+            }
+          ],
+          "variant": "baseline",
+          "watch_count": 1
+        },
+        {
+          "as_of": 20240229,
+          "as_of_iso": "2024-02-29",
+          "codes": [
+            "2001",
+            "2002"
+          ],
+          "entry_qualified": [
+            true,
+            true
+          ],
+          "fallback_count": 0,
+          "mean_20_net": 0.03945833333333337,
+          "mean_month_end_net": null,
+          "monthly_box_states": [
+            "breakout_up",
+            "no_box"
+          ],
+          "reject_count": 0,
+          "selected_count": 2,
+          "selection_scores": [],
+          "setup_types": [
+            "breakout20",
+            "watch"
+          ],
+          "top_items": [
+            {
+              "code": "2001",
+              "displayScore": 0.93,
+              "entryQualified": true,
+              "entryQualifiedByFallback": false,
+              "entryScore": 0.93,
+              "forward_return_20_net": 0.07566666666666677,
+              "forward_return_month_end_net": null,
+              "monthlyBoxState": "breakout_up",
+              "rank": 1,
+              "selectionScore": null,
+              "setupType": "breakout20"
+            },
+            {
+              "code": "2002",
+              "displayScore": 0.72,
+              "entryQualified": true,
+              "entryQualifiedByFallback": false,
+              "entryScore": 0.72,
+              "forward_return_20_net": 0.003249999999999977,
+              "forward_return_month_end_net": null,
+              "monthlyBoxState": "no_box",
+              "rank": 2,
+              "selectionScore": null,
+              "setupType": "watch"
+            }
+          ],
+          "variant": "baseline",
+          "watch_count": 1
+        }
+      ],
+      "top10": {
+        "avg_per_day": 2.0,
+        "concentration": {
+          "top5_code_share": 1.0,
+          "top_code_share": 0.25,
+          "unique_codes": 4
+        },
+        "daily_count": 2,
+        "fallback_count": 0,
+        "monthly": {
+          "best_month": 0.15300000000000002,
+          "month_count": 2,
+          "positive_month_rate": 1.0,
+          "worst_month": 0.03945833333333337
+        },
+        "reject_count": 0,
+        "return_20": {
+          "mdd": 0.0,
+          "mean": 0.0982291666666667,
+          "median": 0.048833333333333395,
+          "n": 4,
+          "profit_factor": Infinity,
+          "sum": 0.3929166666666668,
+          "win_rate": 1.0
+        },
+        "return_20_net": {
+          "mdd": 0.0,
+          "mean": 0.0962291666666667,
+          "median": 0.04683333333333339,
+          "n": 4,
+          "profit_factor": Infinity,
+          "sum": 0.3849166666666668,
+          "win_rate": 1.0
+        },
+        "return_month_end": {
+          "mdd": 0.0,
+          "mean": 0.1469999999999999,
+          "median": 0.1469999999999999,
+          "n": 2,
+          "profit_factor": Infinity,
+          "sum": 0.2939999999999998,
+          "win_rate": 1.0
+        },
+        "return_month_end_net": {
+          "mdd": 0.0,
+          "mean": 0.1449999999999999,
+          "median": 0.1449999999999999,
+          "n": 2,
+          "profit_factor": Infinity,
+          "sum": 0.2899999999999998,
+          "win_rate": 1.0
+        },
+        "sample_count": 4,
+        "selected_count_by_month": {
+          "202401": 2,
+          "202402": 2
+        },
+        "watch_count": 2
+      }
+    },
+    "strict_buy": {
+      "label": "strict buy mode",
+      "month_rows": [
+        {
+          "as_of": 20240131,
+          "as_of_iso": "2024-01-31",
+          "codes": [
+            "1001"
+          ],
+          "entry_qualified": [
+            true
+          ],
+          "fallback_count": 0,
+          "mean_20_net": 0.28800000000000003,
+          "mean_month_end_net": 0.2729999999999999,
+          "monthly_box_states": [
+            "box_upper"
+          ],
+          "reject_count": 0,
+          "selected_count": 1,
+          "selection_scores": [
+            1.2270000000000003
+          ],
+          "setup_types": [
+            "breakout"
+          ],
+          "top_items": [
+            {
+              "code": "1001",
+              "displayScore": 0.91,
+              "entryQualified": true,
+              "entryQualifiedByFallback": false,
+              "entryScore": 0.91,
+              "forward_return_20_net": 0.28800000000000003,
+              "forward_return_month_end_net": 0.2729999999999999,
+              "monthlyBoxState": "box_upper",
+              "rank": 1,
+              "selectionScore": 1.2270000000000003,
+              "setupType": "breakout"
+            }
+          ],
+          "variant": "strict_buy",
+          "watch_count": 0
+        },
+        {
+          "as_of": 20240229,
+          "as_of_iso": "2024-02-29",
+          "codes": [
+            "2001"
+          ],
+          "entry_qualified": [
+            true
+          ],
+          "fallback_count": 0,
+          "mean_20_net": 0.07566666666666677,
+          "mean_month_end_net": null,
+          "monthly_box_states": [
+            "breakout_up"
+          ],
+          "reject_count": 0,
+          "selected_count": 1,
+          "selection_scores": [
+            1.2610000000000003
+          ],
+          "setup_types": [
+            "breakout20"
+          ],
+          "top_items": [
+            {
+              "code": "2001",
+              "displayScore": 0.93,
+              "entryQualified": true,
+              "entryQualifiedByFallback": false,
+              "entryScore": 0.93,
+              "forward_return_20_net": 0.07566666666666677,
+              "forward_return_month_end_net": null,
+              "monthlyBoxState": "breakout_up",
+              "rank": 1,
+              "selectionScore": 1.2610000000000003,
+              "setupType": "breakout20"
+            }
+          ],
+          "variant": "strict_buy",
+          "watch_count": 0
+        }
+      ],
+      "top10": {
+        "avg_per_day": 1.0,
+        "concentration": {
+          "top5_code_share": 1.0,
+          "top_code_share": 0.5,
+          "unique_codes": 2
+        },
+        "daily_count": 2,
+        "fallback_count": 0,
+        "monthly": {
+          "best_month": 0.28800000000000003,
+          "month_count": 2,
+          "positive_month_rate": 1.0,
+          "worst_month": 0.07566666666666677
+        },
+        "reject_count": 0,
+        "return_20": {
+          "mdd": 0.0,
+          "mean": 0.1838333333333334,
+          "median": 0.1838333333333334,
+          "n": 2,
+          "profit_factor": Infinity,
+          "sum": 0.3676666666666668,
+          "win_rate": 1.0
+        },
+        "return_20_net": {
+          "mdd": 0.0,
+          "mean": 0.1818333333333334,
+          "median": 0.1818333333333334,
+          "n": 2,
+          "profit_factor": Infinity,
+          "sum": 0.3636666666666668,
+          "win_rate": 1.0
+        },
+        "return_month_end": {
+          "mdd": 0.0,
+          "mean": 0.2749999999999999,
+          "median": 0.2749999999999999,
+          "n": 1,
+          "profit_factor": Infinity,
+          "sum": 0.2749999999999999,
+          "win_rate": 1.0
+        },
+        "return_month_end_net": {
+          "mdd": 0.0,
+          "mean": 0.2729999999999999,
+          "median": 0.2729999999999999,
+          "n": 1,
+          "profit_factor": Infinity,
+          "sum": 0.2729999999999999,
+          "win_rate": 1.0
+        },
+        "sample_count": 2,
+        "selected_count_by_month": {
+          "202401": 1,
+          "202402": 1
+        },
+        "watch_count": 0
+      }
+    },
+    "strict_buy_state": {
+      "label": "strict buy + state",
+      "month_rows": [
+        {
+          "as_of": 20240131,
+          "as_of_iso": "2024-01-31",
+          "codes": [
+            "1001"
+          ],
+          "entry_qualified": [
+            true
+          ],
+          "fallback_count": 0,
+          "mean_20_net": 0.28800000000000003,
+          "mean_month_end_net": 0.2729999999999999,
+          "monthly_box_states": [
+            "box_upper"
+          ],
+          "reject_count": 0,
+          "selected_count": 1,
+          "selection_scores": [
+            1.3070000000000004
+          ],
+          "setup_types": [
+            "breakout"
+          ],
+          "top_items": [
+            {
+              "code": "1001",
+              "displayScore": 0.91,
+              "entryQualified": true,
+              "entryQualifiedByFallback": false,
+              "entryScore": 0.91,
+              "forward_return_20_net": 0.28800000000000003,
+              "forward_return_month_end_net": 0.2729999999999999,
+              "monthlyBoxState": "box_upper",
+              "rank": 1,
+              "selectionScore": 1.3070000000000004,
+              "setupType": "breakout"
+            }
+          ],
+          "variant": "strict_buy_state",
+          "watch_count": 0
+        },
+        {
+          "as_of": 20240229,
+          "as_of_iso": "2024-02-29",
+          "codes": [
+            "2001"
+          ],
+          "entry_qualified": [
+            true
+          ],
+          "fallback_count": 0,
+          "mean_20_net": 0.07566666666666677,
+          "mean_month_end_net": null,
+          "monthly_box_states": [
+            "breakout_up"
+          ],
+          "reject_count": 0,
+          "selected_count": 1,
+          "selection_scores": [
+            1.3410000000000004
+          ],
+          "setup_types": [
+            "breakout20"
+          ],
+          "top_items": [
+            {
+              "code": "2001",
+              "displayScore": 0.93,
+              "entryQualified": true,
+              "entryQualifiedByFallback": false,
+              "entryScore": 0.93,
+              "forward_return_20_net": 0.07566666666666677,
+              "forward_return_month_end_net": null,
+              "monthlyBoxState": "breakout_up",
+              "rank": 1,
+              "selectionScore": 1.3410000000000004,
+              "setupType": "breakout20"
+            }
+          ],
+          "variant": "strict_buy_state",
+          "watch_count": 0
+        }
+      ],
+      "top10": {
+        "avg_per_day": 1.0,
+        "concentration": {
+          "top5_code_share": 1.0,
+          "top_code_share": 0.5,
+          "unique_codes": 2
+        },
+        "daily_count": 2,
+        "fallback_count": 0,
+        "monthly": {
+          "best_month": 0.28800000000000003,
+          "month_count": 2,
+          "positive_month_rate": 1.0,
+          "worst_month": 0.07566666666666677
+        },
+        "reject_count": 0,
+        "return_20": {
+          "mdd": 0.0,
+          "mean": 0.1838333333333334,
+          "median": 0.1838333333333334,
+          "n": 2,
+          "profit_factor": Infinity,
+          "sum": 0.3676666666666668,
+          "win_rate": 1.0
+        },
+        "return_20_net": {
+          "mdd": 0.0,
+          "mean": 0.1818333333333334,
+          "median": 0.1818333333333334,
+          "n": 2,
+          "profit_factor": Infinity,
+          "sum": 0.3636666666666668,
+          "win_rate": 1.0
+        },
+        "return_month_end": {
+          "mdd": 0.0,
+          "mean": 0.2749999999999999,
+          "median": 0.2749999999999999,
+          "n": 1,
+          "profit_factor": Infinity,
+          "sum": 0.2749999999999999,
+          "win_rate": 1.0
+        },
+        "return_month_end_net": {
+          "mdd": 0.0,
+          "mean": 0.2729999999999999,
+          "median": 0.2729999999999999,
+          "n": 1,
+          "profit_factor": Infinity,
+          "sum": 0.2729999999999999,
+          "win_rate": 1.0
+        },
+        "sample_count": 2,
+        "selected_count_by_month": {
+          "202401": 1,
+          "202402": 1
+        },
+        "watch_count": 0
+      }
+    }
+  },
+  "verdict": "watch"
+}

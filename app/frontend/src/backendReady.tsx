@@ -2,11 +2,15 @@
 /* eslint-disable react-refresh/only-export-components */
 import type { ReactNode } from "react";
 import { useCallback } from "react";
-import { api } from "./api";
+import { api, setApiSuccessReporter } from "./api";
+import { recordPerfEvent, updatePerfDiagnosticsSnapshot } from "./perfDiagnostics";
 import {
+  hasRecentApiActivity,
   type HealthReadyResponse,
+  isBackendHealthUrl,
   isAliveHealthResponse,
   KEEPALIVE_RECONNECT_GRACE_MS,
+  KEEPALIVE_TIMEOUT_MS,
   shouldReconnectAfterKeepaliveFailure
 } from "./backendReadyHelpers";
 import { useStore } from "./store";
@@ -43,6 +47,10 @@ const ERROR_GRACE_MS = 60000;
 const HEALTH_TIMEOUT_MS = 5000;
 const KEEPALIVE_INTERVAL_MS = 15000;
 const STARTUP_BACKGROUND_TASK_DELAY_MS = 2500;
+const DETAIL_BACKGROUND_TASK_RETRY_MS = 4000;
+const DETAIL_BACKGROUND_TASK_MAX_DEFERS = 5;
+
+const isDetailRouteActive = () => window.location.pathname.startsWith("/detail/");
 
 const getDefaultMessage = (phase: string) => {
   if (phase === "ingesting") return "データ準備中";
@@ -71,6 +79,7 @@ const useBackendReadyInternal = (): BackendReadyState => {
   const startRef = useRef(Date.now());
   const keepaliveFailRef = useRef(0);
   const keepaliveFirstFailAtRef = useRef<number | null>(null);
+  const recentSuccessfulApiAtRef = useRef<number | null>(null);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -95,6 +104,11 @@ const useBackendReadyInternal = (): BackendReadyState => {
   const setNotReadyState = useCallback((nextPhase: string, nextMessage: string) => {
     setPhase(nextPhase);
     setMessage(nextMessage);
+  }, []);
+
+  const clearKeepaliveFailures = useCallback(() => {
+    keepaliveFailRef.current = 0;
+    keepaliveFirstFailAtRef.current = null;
   }, []);
 
   const probe = useCallback(async () => {
@@ -124,8 +138,7 @@ const useBackendReadyInternal = (): BackendReadyState => {
         setMessage("準備完了");
         setError(null);
         setErrorDetails(null);
-        keepaliveFailRef.current = 0;
-        keepaliveFirstFailAtRef.current = null;
+        clearKeepaliveFailures();
         return;
       }
 
@@ -189,20 +202,19 @@ const useBackendReadyInternal = (): BackendReadyState => {
     } finally {
       probeInFlightRef.current = false;
     }
-  }, [scheduleNext, setNotReadyState]);
+  }, [clearKeepaliveFailures, scheduleNext, setNotReadyState]);
 
   const keepalive = useCallback(async () => {
     if (!readyRef.current || keepaliveInFlightRef.current) return;
     keepaliveInFlightRef.current = true;
     try {
       const res = await api.get("/health/live", {
-        timeout: 2000,
+        timeout: KEEPALIVE_TIMEOUT_MS,
         validateStatus: () => true
       });
       const data = res.data as HealthReadyResponse;
       if (isAliveHealthResponse(res.status, data)) {
-        keepaliveFailRef.current = 0;
-        keepaliveFirstFailAtRef.current = null;
+        clearKeepaliveFailures();
         setBackendAlive(true);
         return;
       }
@@ -219,11 +231,23 @@ const useBackendReadyInternal = (): BackendReadyState => {
       keepaliveInFlightRef.current = false;
     }
 
+    const nowMs = Date.now();
+    if (
+      hasRecentApiActivity({
+        lastSuccessfulApiAtMs: recentSuccessfulApiAtRef.current,
+        nowMs
+      })
+    ) {
+      clearKeepaliveFailures();
+      setBackendAlive(true);
+      return;
+    }
+
     if (
       shouldReconnectAfterKeepaliveFailure({
         failCount: keepaliveFailRef.current,
         firstFailureAtMs: keepaliveFirstFailAtRef.current,
-        nowMs: Date.now(),
+        nowMs,
         graceMs: KEEPALIVE_RECONNECT_GRACE_MS
       })
     ) {
@@ -236,12 +260,11 @@ const useBackendReadyInternal = (): BackendReadyState => {
       setError(null);
       setErrorDetails(null);
       setNotReadyState("starting", "バックエンド再接続中");
-      keepaliveFailRef.current = 0;
-      keepaliveFirstFailAtRef.current = null;
+      clearKeepaliveFailures();
       clearTimer();
       void probeRef.current();
     }
-  }, [clearTimer, setNotReadyState]);
+  }, [clearKeepaliveFailures, clearTimer, setNotReadyState]);
 
   useEffect(() => {
     probeRef.current = probe;
@@ -287,6 +310,44 @@ const useBackendReadyInternal = (): BackendReadyState => {
     return () => window.clearInterval(timer);
   }, [ready]);
 
+  useEffect(() => {
+    setApiSuccessReporter((info) => {
+      if (isBackendHealthUrl(info.url)) return;
+      recentSuccessfulApiAtRef.current = Date.now();
+    });
+    return () => {
+      setApiSuccessReporter(null);
+    };
+  }, []);
+
+  useEffect(() => {
+    const nextBackendState = {
+      ready,
+      backendAlive,
+      backendReady,
+      dbBusy,
+      phase,
+      message,
+      error,
+      errorDetails,
+      attemptCount,
+    };
+    updatePerfDiagnosticsSnapshot({
+      backendState: nextBackendState,
+    });
+    recordPerfEvent("backend_ready_state_changed", nextBackendState);
+  }, [
+    attemptCount,
+    backendAlive,
+    backendReady,
+    dbBusy,
+    error,
+    errorDetails,
+    message,
+    phase,
+    ready,
+  ]);
+
   return {
     ready,
     backendAlive,
@@ -309,6 +370,7 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
   const loadEventsMeta = useStore((store) => store.loadEventsMeta);
   const [renderOverlay, setRenderOverlay] = useState(true);
   const [overlayVisible, setOverlayVisible] = useState(true);
+  const overlayRequest = !state.ready && isBackendHealthUrl(lastApiError?.url) ? lastApiError : null;
 
   useEffect(() => {
     if (state.ready) {
@@ -330,22 +392,34 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
 
     let idleCallbackId: number | null = null;
     let timeoutId: number | null = null;
+    let deferredTimeoutId: number | null = null;
+    const scheduleBackgroundTasks = (remainingDefers: number) => {
+      if (isDetailRouteActive() && remainingDefers > 0) {
+        deferredTimeoutId = window.setTimeout(() => {
+          deferredTimeoutId = null;
+          scheduleBackgroundTasks(remainingDefers - 1);
+        }, DETAIL_BACKGROUND_TASK_RETRY_MS);
+        return;
+      }
+      runBackgroundTasks();
+    };
     if (typeof window.requestIdleCallback === "function") {
       idleCallbackId = window.requestIdleCallback(
         () => {
-          runBackgroundTasks();
+          scheduleBackgroundTasks(DETAIL_BACKGROUND_TASK_MAX_DEFERS);
           idleCallbackId = null;
         },
         { timeout: STARTUP_BACKGROUND_TASK_DELAY_MS }
       );
     } else {
       timeoutId = window.setTimeout(() => {
-        runBackgroundTasks();
+        scheduleBackgroundTasks(DETAIL_BACKGROUND_TASK_MAX_DEFERS);
         timeoutId = null;
       }, STARTUP_BACKGROUND_TASK_DELAY_MS);
     }
 
     const timer = window.setInterval(() => {
+      if (isDetailRouteActive()) return;
       void loadEventsMeta();
     }, 60000);
     return () => {
@@ -355,6 +429,9 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
       }
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId);
+      }
+      if (deferredTimeoutId !== null) {
+        window.clearTimeout(deferredTimeoutId);
       }
     };
   }, [state.ready, refreshEventsIfStale, loadEventsMeta]);
@@ -368,7 +445,7 @@ export function BackendReadyProvider({ children }: { children: ReactNode }) {
           subtitle={state.message}
           error={state.error}
           errorDetails={state.errorDetails}
-          lastRequest={lastApiError}
+          lastRequest={overlayRequest}
           attemptCount={state.attemptCount}
           elapsedMs={state.elapsedMs}
           onRetry={state.retry}

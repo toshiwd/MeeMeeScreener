@@ -40,7 +40,7 @@ export type TradexListSummaryReadResult = {
   items: TradexListSummaryItem[];
 };
 
-const resolveWarmCap = (scope: string, fallback = TRADEX_LIST_SUMMARY_WARM_CAPS.visible) => {
+const resolveWarmCap = (scope: string, fallback: number = TRADEX_LIST_SUMMARY_WARM_CAPS.visible) => {
   const normalized = toText(scope, "").toLowerCase();
   if (normalized.includes("favorite")) return TRADEX_LIST_SUMMARY_WARM_CAPS.favorites;
   if (normalized.includes("selected")) return TRADEX_LIST_SUMMARY_WARM_CAPS.selected;
@@ -51,7 +51,7 @@ const resolveWarmCap = (scope: string, fallback = TRADEX_LIST_SUMMARY_WARM_CAPS.
 export const buildTradexListSummaryWarmItems = (
   items: TradexListSummaryRequestItem[],
   scope: string,
-  fallbackCap = TRADEX_LIST_SUMMARY_WARM_CAPS.visible
+  fallbackCap: number = TRADEX_LIST_SUMMARY_WARM_CAPS.visible
 ) => {
   const limit = resolveWarmCap(scope, fallbackCap);
   const capped: TradexListSummaryRequestItem[] = [];

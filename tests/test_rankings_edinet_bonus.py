@@ -232,10 +232,17 @@ def _monthly_cache_items() -> list[dict]:
     ]
 
 
+def _prepare_hybrid_ml_cache(monkeypatch) -> None:
+    rankings_cache._RESULT_CACHE = {}  # type: ignore[attr-defined]
+    rankings_cache._RESULT_CACHE_GENERATION = 0  # type: ignore[attr-defined]
+    monkeypatch.setattr(rankings_cache, "is_legacy_analysis_disabled", lambda: False)
+
+
 def test_monthly_edinet_fields_and_flag_application(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "rankings_edinet.duckdb"
     _prepare_monthly_db(db_path, with_edinet=True)
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    _prepare_hybrid_ml_cache(monkeypatch)
 
     now = datetime.now(timezone.utc)
     cache_items = _monthly_cache_items()
@@ -272,6 +279,7 @@ def test_monthly_edinet_missing_table_fallback(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "rankings_edinet_missing.duckdb"
     _prepare_monthly_db(db_path, with_edinet=False)
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    _prepare_hybrid_ml_cache(monkeypatch)
     monkeypatch.setenv("MEEMEE_RANK_EDINET_BONUS_ENABLED", "1")
 
     now = datetime.now(timezone.utc)
@@ -282,7 +290,7 @@ def test_monthly_edinet_missing_table_fallback(monkeypatch, tmp_path) -> None:
 
     result = rankings_cache.get_rankings("M", "latest", "up", 3, mode="hybrid")
     assert result["items"]
-    assert all(item.get("edinetStatus") == "missing_tables" for item in result["items"])
+    assert all(item.get("edinetStatus") == "empty_tables" for item in result["items"])
     assert all(item.get("edinetFeatureFlagApplied") is True for item in result["items"])
 
 
@@ -290,6 +298,7 @@ def test_edinet_audit_and_monitor_api(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "rankings_edinet_audit.duckdb"
     _prepare_monthly_db(db_path, with_edinet=True)
     monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    _prepare_hybrid_ml_cache(monkeypatch)
     monkeypatch.setenv("MEEMEE_RANK_EDINET_BONUS_ENABLED", "1")
 
     now = datetime.now(timezone.utc)

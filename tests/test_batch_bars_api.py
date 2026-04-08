@@ -16,7 +16,7 @@ class _FakeRepo:
         ]
         return {code: rows[-limit:] for code in codes}
 
-    def get_monthly_bars_batch(self, codes, limit, asof_dt=None):
+    def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
         rows = [
             (202601, 90.0, 101.0, 88.0, 100.0, 10000.0),
             (202602, 100.0, 108.0, 96.0, 107.0, 11000.0),

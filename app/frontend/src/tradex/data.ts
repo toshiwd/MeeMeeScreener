@@ -255,7 +255,7 @@ const buildAnomalyReport = (
   return {
     error_type: validationResult.status || "candidate_validation_pending",
     target: text(bundle.logic_key || bundle.candidate_id, "unknown"),
-    probable_causes,
+    probable_causes: probableCauses,
     impact_scope: "候補詳細 / 候補比較 / 反映判定",
     suggested_fix: "validation_summary.metrics を整え、差分 DTO を再計算してください。",
     ai_prompt:

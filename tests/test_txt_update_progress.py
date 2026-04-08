@@ -2,12 +2,18 @@ import os
 import sys
 from pathlib import Path
 from unittest.mock import PropertyMock, patch
+from uuid import uuid4
 
 BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app", "backend"))
 sys.path.append(BACKEND_DIR)
+ROOT = Path(__file__).resolve().parents[1]
+TEST_TEMP_ROOT = ROOT / ".tmp-tests"
+TEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+TEST_DATA_DIR = (TEST_TEMP_ROOT / f"meemee_screener_test_{uuid4().hex}").resolve()
+TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
+os.environ["MEEMEE_DATA_DIR"] = str(TEST_DATA_DIR)
 
-with patch("core.config.config.DATA_DIR", new=Path(".")), \
-     patch("core.config.AppConfig.DB_PATH", new_callable=PropertyMock) as mock_db_path, \
+with patch("core.config.AppConfig.DB_PATH", new_callable=PropertyMock) as mock_db_path, \
      patch("core.config.AppConfig.PAN_CODE_TXT_PATH", new_callable=PropertyMock) as mock_code_path, \
      patch("core.config.AppConfig.PAN_EXPORT_VBS_PATH", new_callable=PropertyMock) as mock_vbs_path:
     mock_db_path.return_value = ":memory:"

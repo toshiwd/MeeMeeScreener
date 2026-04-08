@@ -1,5 +1,6 @@
 import sys
 import os
+import asyncio
 import threading
 import time
 import subprocess
@@ -19,16 +20,60 @@ _PROCESS_LOCK_PATH: str | None = None
 logger = logging.getLogger(__name__)
 
 
+def _configure_windows_backend_event_loop_policy() -> None:
+    """Windows では selector policy を優先し、accept 系の不安定を避ける。"""
+    if os.name != "nt":
+        return
+    selector_cls = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
+    if selector_cls is None:
+        return
+    current = asyncio.get_event_loop_policy()
+    if isinstance(current, selector_cls):
+        return
+    asyncio.set_event_loop_policy(selector_cls())
+
+
+def _rankings_warmup_enabled() -> bool:
+    raw = os.getenv("MEEMEE_RANKINGS_WARMUP_ENABLED", "1")
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _rankings_warmup_delay_sec() -> float:
-    raw = os.getenv("MEEMEE_RANKINGS_WARMUP_DELAY_SEC", "0")
+    raw = os.getenv("MEEMEE_RANKINGS_WARMUP_DELAY_SEC", "12")
     try:
         return max(0.0, float(raw))
     except Exception:
-        return 0.0
+        return 12.0
+
+
+def _rankings_result_warmup_delay_sec() -> float:
+    raw = os.getenv("MEEMEE_RANKINGS_RESULT_WARMUP_DELAY_SEC", "3")
+    try:
+        return max(0.0, float(raw))
+    except Exception:
+        return 3.0
+
+
+def _warm_rankings_result_cache_async() -> None:
+    try:
+        if not _rankings_warmup_enabled():
+            print("[main] Rankings result warmup disabled by env.")
+            return
+        delay_sec = _rankings_result_warmup_delay_sec()
+        if delay_sec > 0:
+            time.sleep(delay_sec)
+        from app.backend.services import rankings_cache
+        rankings_cache.warm_trade_daily_result_cache()
+        print("[main] Rankings result cache warmed.")
+    except Exception as exc:
+        print(f"[main] Rankings result warmup failed: {exc}")
 
 
 def _refresh_rankings_cache_async() -> None:
     try:
+        if not _rankings_warmup_enabled():
+            print("[main] Rankings cache warmup disabled by env.")
+            return
         delay_sec = _rankings_warmup_delay_sec()
         if delay_sec > 0:
             time.sleep(delay_sec)
@@ -445,6 +490,11 @@ async def lifespan(app: FastAPI):
         print("[Main] Resources Initialized.")
         # Warm cache in background so /health is not blocked by heavy or locked DB work.
         threading.Thread(
+            target=_warm_rankings_result_cache_async,
+            name="rankings-result-warmup",
+            daemon=True,
+        ).start()
+        threading.Thread(
             target=_refresh_rankings_cache_async,
             name="rankings-cache-warmup",
             daemon=True,
@@ -563,5 +613,6 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
+    _configure_windows_backend_event_loop_policy()
     # Clean Arch Entrypoint
     uvicorn.run(app, host="127.0.0.1", port=8000)

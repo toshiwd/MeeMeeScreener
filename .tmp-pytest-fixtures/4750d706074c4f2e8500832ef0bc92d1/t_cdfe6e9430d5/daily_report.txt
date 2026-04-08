@@ -1,0 +1,28 @@
+Tradex Daily Research
+as_of_date: 20260309
+publish_id: pub_2026-03-12_20260312T235930Z_01
+candidate_status: success
+similarity_status: success
+challenger_status: success
+promotion_ready: no
+promotion_expectancy_delta: 0.0
+top_strategy: --
+top_candle: --
+risk_watch: extension_fade
+sample_watch: box_breakout
+approval_decision: pending
+approval_actor: --
+codex_next_step: Record promotion decision
+codex_next_status: pending
+pending_carryover_count: 0
+history_compare_target: --
+codex_brief_pending: 0
+codex_brief_improving: 0
+codex_brief_risk: 1
+today_queue:
+  - [Review] Record promotion decision | tag=-- | Expectancy delta=0.0
+  - [Risk] Review risk-heavy tag | tag=extension_fade | Loss rate=1.0
+  - [Study] Collect more samples | tag=box_breakout | Samples=1
+codex_command: python -m external_analysis promotion-decision-run --decision hold --note "needs_manual_review"
+codex_brief:
+  - [risk] risk_watch | current=extension_fade

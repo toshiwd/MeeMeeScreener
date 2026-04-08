@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   createTradexFamily,
@@ -57,18 +57,22 @@ export default function TradexVerifyPage() {
   const [segmentsText, setSegmentsText] = useState(pretty(defaultSegments));
   const [baselinePlanText, setBaselinePlanText] = useState(pretty(defaultBaselinePlan));
   const [candidatePlansText, setCandidatePlansText] = useState(pretty(defaultCandidatePlans));
+  const selectedFamilyIdRef = useRef(selectedFamilyId);
   const selectedFamily = useMemo(() => families.find((item) => item.family_id === selectedFamilyId) ?? families[0] ?? null, [families, selectedFamilyId]);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const response = await loadTradexFamilies();
       setFamilies(response.items ?? []);
       const stored = readTradexLocal<string>(tradexStorageKeys.familyId, "");
+      const currentSelectedFamilyId = selectedFamilyIdRef.current;
       if (stored && response.items?.some((item) => item.family_id === stored)) {
+        selectedFamilyIdRef.current = stored;
         setSelectedFamilyId(stored);
-      } else if (!selectedFamilyId && response.items?.[0]) {
+      } else if (!currentSelectedFamilyId && response.items?.[0]) {
+        selectedFamilyIdRef.current = response.items[0].family_id;
         setSelectedFamilyId(response.items[0].family_id);
         writeTradexLocal(tradexStorageKeys.familyId, response.items[0].family_id);
       }
@@ -77,13 +81,18 @@ export default function TradexVerifyPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    selectedFamilyIdRef.current = selectedFamilyId;
+  }, [selectedFamilyId]);
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
 
   const selectFamily = (familyId: string) => {
+    selectedFamilyIdRef.current = familyId;
     setSelectedFamilyId(familyId);
     writeTradexLocal(tradexStorageKeys.familyId, familyId);
   };

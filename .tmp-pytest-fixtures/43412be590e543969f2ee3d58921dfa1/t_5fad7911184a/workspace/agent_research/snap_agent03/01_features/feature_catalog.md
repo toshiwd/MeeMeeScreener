@@ -1,0 +1,61 @@
+# Feature Catalog
+
+Agent research uses the following fixed feature catalog.
+
+- `ma7`: 7-day moving average.
+- `ma20`: 20-day moving average.
+- `ma60`: 60-day moving average.
+- `ma100`: 100-day moving average.
+- `ma200`: 200-day moving average.
+- `dev_ma7`: Close deviation from MA7.
+- `dev_ma20`: Close deviation from MA20.
+- `dev_ma60`: Close deviation from MA60.
+- `dev_ma100`: Close deviation from MA100.
+- `dev_ma200`: Close deviation from MA200.
+- `ma7_slope_5`: MA7 slope over 5 sessions.
+- `ma20_slope_5`: MA20 slope over 5 sessions.
+- `ma60_slope_10`: MA60 slope over 10 sessions.
+- `ma20_slope_delta`: Change in MA20 slope.
+- `cnt_above_ma7_20`: Days above MA7 in last 20 sessions.
+- `cnt_below_ma7_20`: Days below MA7 in last 20 sessions.
+- `cnt_above_ma20_20`: Days above MA20 in last 20 sessions.
+- `cnt_below_ma20_20`: Days below MA20 in last 20 sessions.
+- `cnt_above_ma60_20`: Days above MA60 in last 20 sessions.
+- `cnt_below_ma60_20`: Days below MA60 in last 20 sessions.
+- `ma_cluster_width`: Width between the fastest and slowest MA.
+- `ma_spread_score`: Average MA separation score.
+- `body_size_pct`: Real body size relative to close.
+- `upper_wick_ratio`: Upper wick relative to candle range.
+- `lower_wick_ratio`: Lower wick relative to candle range.
+- `is_koma`: Small-body indecision candle.
+- `is_cross`: Cross / doji style candle.
+- `is_bull_engulf`: Bullish engulfing pattern.
+- `is_bear_engulf`: Bearish engulfing pattern.
+- `is_bull_harami`: Bullish harami pattern.
+- `is_bear_harami`: Bearish harami pattern.
+- `all_erase_5`: 5-day full erase pattern.
+- `all_return_10`: 10-day full return pattern.
+- `high_update_20`: Close broke the prior 20-day high.
+- `low_update_20`: Close broke the prior 20-day low.
+- `box_position_20`: Close location inside 20-day range.
+- `box_position_60`: Close location inside 60-day range.
+- `dist_recent_high_20`: Distance to prior 20-day high.
+- `dist_recent_low_20`: Distance to prior 20-day low.
+- `vol_ratio20`: Volume divided by 20-day average volume.
+- `atr14_ratio`: ATR14 divided by close.
+- `atr_pct60`: ATR14 percentile rank over 60 sessions.
+- `weekly_context_bias`: Weekly bias projected to daily bars.
+- `monthly_context_bias`: Monthly bias projected to daily bars.
+- `regime_key`: Combined market trend and volatility regime.
+- `n_shape_up`: Simplified N-shape upward context.
+- `inverse_n_shape`: Simplified inverse N-shape downward context.
+- `state_7up7`: Seven straight closes above MA7.
+- `state_20up20`: Twenty straight closes above MA20.
+- `state_60up60`: Sixty straight closes above MA60.
+- `state_7down7`: Seven straight closes below MA7.
+- `state_20down20`: Twenty straight closes below MA20.
+- `state_60down60`: Sixty straight closes below MA60.
+- `phase_initial`: Early / initial stage.
+- `phase_mid`: Middle stage.
+- `phase_late`: Late stage.
+- `phase_overheated`: Overheated stage.

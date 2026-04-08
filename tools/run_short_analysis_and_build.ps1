@@ -8,8 +8,8 @@ param(
     [int]$PollIntervalSec = 30,
     [int]$BackendStartupTimeoutSec = 120,
     [int]$JobTimeoutSec = 21600,
-    [ValidateSet("ps1", "cmd")][string]$BuildTool = "ps1",
     [switch]$SkipBuild,
+    [switch]$PackageZip,
     [string]$ResultPath = "",
     [int64]$ExpectedMinMlPredDt = 1770940800,
     [int64]$MlTrainStartDt = 0,
@@ -336,37 +336,36 @@ function Run-FrontendBuild {
 
 function Run-ReleaseBuild {
     $buildReleaseLogPath = Join-Path $tmpDir ("build_release_{0}.log" -f $runStamp)
-    if ($BuildTool -eq "ps1") {
-        $buildScript = Join-Path $repoRoot "tools/build_release.ps1"
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildScript -LogPath $buildReleaseLogPath
-        if ($LASTEXITCODE -ne 0) {
-            throw "build_release.ps1 failed (exit=$LASTEXITCODE)"
-        }
-    } else {
-        $buildCmd = Join-Path $repoRoot "build_release.cmd"
-        & cmd /c $buildCmd
-        if ($LASTEXITCODE -ne 0) {
-            throw "build_release.cmd failed (exit=$LASTEXITCODE)"
-        }
+    $buildScript = Join-Path $repoRoot "tools/build_release.ps1"
+    $buildArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $buildScript, "-LogPath", $buildReleaseLogPath)
+    if ($PackageZip) {
+        $buildArgs += "-PackageZip"
+    }
+    & powershell @buildArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "build_release.ps1 failed (exit=$LASTEXITCODE)"
     }
 
     $releaseDir = Join-Path $repoRoot "release/MeeMeeScreener"
-    $releaseZip = Join-Path $repoRoot "release/MeeMeeScreener-portable.zip"
     if (-not (Test-Path $releaseDir)) {
         throw "release directory not found: $releaseDir"
-    }
-    if (-not (Test-Path $releaseZip)) {
-        throw "release zip not found: $releaseZip"
     }
 
     $script:Artifacts.buildReleaseLog = $buildReleaseLogPath
     $script:Artifacts.releaseDir = $releaseDir
-    $script:Artifacts.releaseZip = $releaseZip
-    return @{
+    $result = @{
         logPath = $buildReleaseLogPath
         releaseDir = $releaseDir
-        releaseZip = $releaseZip
     }
+    if ($PackageZip) {
+        $releaseZip = Join-Path $repoRoot "release/MeeMeeScreener-portable.zip"
+        if (-not (Test-Path $releaseZip)) {
+            throw "release zip not found: $releaseZip"
+        }
+        $script:Artifacts.releaseZip = $releaseZip
+        $result.releaseZip = $releaseZip
+    }
+    return $result
 }
 
 function Get-MlPredMaxDt {
@@ -427,12 +426,14 @@ function Verify-Outputs {
 
     if (-not $SkipBuild) {
         $releaseDir = Join-Path $repoRoot "release/MeeMeeScreener"
-        $releaseZip = Join-Path $repoRoot "release/MeeMeeScreener-portable.zip"
         if (-not (Test-Path $releaseDir)) {
             throw "missing release directory: $releaseDir"
         }
-        if (-not (Test-Path $releaseZip)) {
-            throw "missing release zip: $releaseZip"
+        if ($PackageZip) {
+            $releaseZip = Join-Path $repoRoot "release/MeeMeeScreener-portable.zip"
+            if (-not (Test-Path $releaseZip)) {
+                throw "missing release zip: $releaseZip"
+            }
         }
     }
 
@@ -446,7 +447,7 @@ function Verify-Outputs {
 
 try {
     Write-Log "Short analysis and build pipeline started."
-    Write-Log "BaseUrl=$BaseUrl LookbackDays=$LookbackDays MaxMissingDays=$MaxMissingDays IncludeSell=$IncludeSellBool IncludePhase=$IncludePhaseBool BuildTool=$BuildTool SkipBuild=$SkipBuild MlTrainStartDt=$MlTrainStartDt MlTrainEndDt=$MlTrainEndDt"
+    Write-Log "BaseUrl=$BaseUrl LookbackDays=$LookbackDays MaxMissingDays=$MaxMissingDays IncludeSell=$IncludeSellBool IncludePhase=$IncludePhaseBool SkipBuild=$SkipBuild PackageZip=$PackageZip MlTrainStartDt=$MlTrainStartDt MlTrainEndDt=$MlTrainEndDt"
 
     Invoke-Step -Name "pre_stop" -Action { Stop-RunningProcesses } | Out-Null
     Invoke-Step -Name "start_backend" -Action { Start-Backend } | Out-Null
@@ -506,7 +507,7 @@ try {
         includeSell = [bool]$IncludeSellBool
         includePhase = [bool]$IncludePhaseBool
         skipBuild = [bool]$SkipBuild
-        buildTool = $BuildTool
+        packageZip = [bool]$PackageZip
         expectedMinMlPredDt = [int64]$ExpectedMinMlPredDt
         mlTrainStartDt = [int64]$MlTrainStartDt
         mlTrainEndDt = [int64]$MlTrainEndDt

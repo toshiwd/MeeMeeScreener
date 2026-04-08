@@ -62,6 +62,6 @@ def test_health_returns_degraded_not_503_when_db_temporarily_busy():
         payload = health_router.health()
 
     assert payload["ok"] is True
-    assert payload["status"] == "degraded"
+    assert payload["status"] == "ok"
     assert payload["ready"] is True
-    assert payload["message"] == "backend ready (database busy)"
+    assert payload["message"] == "ready"

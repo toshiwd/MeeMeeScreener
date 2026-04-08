@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from "react";
 import { IconTrash } from "@tabler/icons-react";
 import { CrosshairMode, createChart, type Time } from "lightweight-charts";
@@ -1005,7 +1005,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     return null;
   };
 
-  const renderOverlay = () => {
+  const renderOverlay = useStableCallback(() => {
     const canvas = overlayRef.current;
     const chart = chartRef.current;
     if (!canvas || !chart) return;
@@ -1496,7 +1496,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
         ctx.restore();
       }
     }
-  };
+  });
 
   const drawOverlay = () => {
     if (overlayRafRef.current !== null) return;
@@ -2124,6 +2124,7 @@ const DetailChart = forwardRef<DetailChartHandle, DetailChartProps>(function Det
     readChartColorsStable,
     resizeOverlayStable,
     scheduleResizeAndFitStable,
+    renderOverlay,
     updateGapBandsStable
   ]);
 

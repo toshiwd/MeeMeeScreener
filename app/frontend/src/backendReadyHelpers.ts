@@ -14,11 +14,31 @@ export type HealthReadyResponse = {
 
 export const KEEPALIVE_FAIL_THRESHOLD = 3;
 export const KEEPALIVE_RECONNECT_GRACE_MS = 25000;
+export const KEEPALIVE_TIMEOUT_MS = 5000;
+export const RECENT_API_ACTIVITY_RECONNECT_GRACE_MS = 20000;
 
 export const isAliveHealthResponse = (
   status: number,
   data: HealthReadyResponse | null | undefined
 ): boolean => status >= 200 && status < 300 && data?.ready === true;
+
+export const isBackendHealthUrl = (url: string | null | undefined): boolean => {
+  if (!url) return false;
+  return /\/health(?:\/live)?(?:[/?#]|$)/.test(url);
+};
+
+export const hasRecentApiActivity = ({
+  lastSuccessfulApiAtMs,
+  nowMs,
+  graceMs = RECENT_API_ACTIVITY_RECONNECT_GRACE_MS
+}: {
+  lastSuccessfulApiAtMs: number | null;
+  nowMs: number;
+  graceMs?: number;
+}): boolean => {
+  if (lastSuccessfulApiAtMs == null) return false;
+  return nowMs - lastSuccessfulApiAtMs < graceMs;
+};
 
 export const shouldReconnectAfterKeepaliveFailure = ({
   failCount,

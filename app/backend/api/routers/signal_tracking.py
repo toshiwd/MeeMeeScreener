@@ -69,6 +69,9 @@ def get_signal_tracking_events(
     from_ymd: int | None = Query(None, alias="from"),
     to_ymd: int | None = Query(None, alias="to"),
     limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    sort: str = Query("recent"),
+    outcome: str = Query("all"),
     as_of: int | None = Query(None),
 ):
     try:
@@ -81,6 +84,9 @@ def get_signal_tracking_events(
             from_ymd=from_ymd,
             to_ymd=to_ymd,
             limit=limit,
+            offset=offset,
+            sort=sort,
+            outcome=outcome,
             as_of=as_of,
         )
     except ValueError as exc:

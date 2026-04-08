@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import importlib
 import os
 import sys
 from datetime import datetime, timedelta, timezone
@@ -41,6 +42,8 @@ class _PredictBulkConn:
         args = list(params or [])
         if "SELECT COUNT(*) FROM ml_feature_daily" in sql:
             return _FakeRows([(5,)])
+        if "SELECT MAX(dt) FROM ml_feature_daily" in sql:
+            return _FakeRows([(20260311,)])
         if "SELECT DISTINCT CASE WHEN dt >= 1000000000" in sql and "FROM ml_feature_daily" in sql and "IN (" in sql:
             return _FakeRows([(20260311,)])
         if "SELECT DISTINCT dt, CASE WHEN dt >= 1000000000" in sql and "ORDER BY dt_key, dt" in sql:
@@ -48,6 +51,10 @@ class _PredictBulkConn:
             if not self.refreshed:
                 return _FakeRows([(20260311, 20260311)])
             return _FakeRows([(20260311, 20260311), (20260312, 20260312)])
+        if "FROM daily_bars" in sql and "GROUP BY 1" in sql:
+            return _FakeRows([])
+        if "FROM feature_snapshot_daily" in sql and "GROUP BY 1" in sql:
+            return _FakeRows([])
         raise AssertionError(f"Unexpected query: {sql} params={args}")
 
 
@@ -56,7 +63,16 @@ def _fake_conn_ctx(conn):
     yield conn
 
 
-def test_predict_for_dates_bulk_refreshes_features_for_missing_requested_date() -> None:
+def setup_function() -> None:
+    global yahoo_provisional
+    yahoo_provisional = importlib.reload(
+        importlib.import_module("app.backend.services.data.yahoo_provisional")
+    )
+    yahoo_provisional._clear_caches_for_tests()
+
+
+def test_predict_for_dates_bulk_refreshes_features_for_missing_requested_date(monkeypatch) -> None:
+    monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "0")
     conn = _PredictBulkConn()
     replaced = {}
 
@@ -114,10 +130,15 @@ class _PredictBulkEpochConn:
             if not self.refreshed:
                 return _FakeRows([(1773187200, 20260311)])
             return _FakeRows([(1773187200, 20260311), (1773273600, 20260312)])
+        if "FROM daily_bars" in sql and "GROUP BY 1" in sql:
+            return _FakeRows([])
+        if "FROM feature_snapshot_daily" in sql and "GROUP BY 1" in sql:
+            return _FakeRows([])
         raise AssertionError(f"Unexpected query: {sql} params={args}")
 
 
-def test_predict_for_dates_bulk_resolves_epoch_feature_dates_from_yyyymmdd_requests() -> None:
+def test_predict_for_dates_bulk_resolves_epoch_feature_dates_from_yyyymmdd_requests(monkeypatch) -> None:
+    monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "0")
     conn = _PredictBulkEpochConn()
     replaced = {}
 

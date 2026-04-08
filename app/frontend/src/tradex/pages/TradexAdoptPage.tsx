@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   adoptTradexRun,
@@ -17,14 +17,17 @@ export default function TradexAdoptPage() {
   const [gate, setGate] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submittingRunId, setSubmittingRunId] = useState<string | null>(null);
+  const selectedFamilyIdRef = useRef(selectedFamilyId);
 
   const selectedFamily = useMemo(() => families.find((item) => item.family_id === selectedFamilyId) ?? families[0] ?? null, [families, selectedFamilyId]);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     const response = await loadTradexFamilies();
     setFamilies(response.items ?? []);
-    const family = response.items?.find((item) => item.family_id === selectedFamilyId) ?? response.items?.[0] ?? null;
+    const currentFamilyId = selectedFamilyIdRef.current;
+    const family = response.items?.find((item) => item.family_id === currentFamilyId) ?? response.items?.[0] ?? null;
     if (family) {
+      selectedFamilyIdRef.current = family.family_id;
       setSelectedFamilyId(family.family_id);
       writeTradexLocal(tradexStorageKeys.familyId, family.family_id);
       try {
@@ -36,13 +39,18 @@ export default function TradexAdoptPage() {
         setGate(null);
       }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    selectedFamilyIdRef.current = selectedFamilyId;
+  }, [selectedFamilyId]);
 
   useEffect(() => {
     void refresh().catch((err) => setError(err instanceof Error ? err.message : "failed to load adopt page"));
-  }, []);
+  }, [refresh]);
 
   const selectFamily = async (familyId: string) => {
+    selectedFamilyIdRef.current = familyId;
     setSelectedFamilyId(familyId);
     writeTradexLocal(tradexStorageKeys.familyId, familyId);
     setError(null);

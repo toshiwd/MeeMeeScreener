@@ -114,6 +114,98 @@ def _read_csv_bytes(data: bytes) -> tuple[list[list[str]], list[str]]:
     return [row for row in csv.reader(io.StringIO(text))], warnings
 
 
+def _row_token_set(row: list[str]) -> set[str]:
+    return {_normalize_label(cell) for cell in row if _normalize_label(cell)}
+
+
+def _find_header_index_by_tokens(
+    rows: list[list[str]],
+    tokens: list[str],
+    minimum_matches: int,
+) -> int | None:
+    normalized_tokens = [_normalize_label(token) for token in tokens if _normalize_label(token)]
+    if not normalized_tokens:
+        return None
+
+    best_index: int | None = None
+    best_matches = 0
+
+    for idx, row in enumerate(rows):
+        if not row or not any(cell.strip() for cell in row):
+            continue
+        row_tokens = _row_token_set(row)
+        matches = sum(1 for token in normalized_tokens if token in row_tokens)
+        if matches >= minimum_matches:
+            return idx
+        if matches > best_matches:
+            best_matches = matches
+            best_index = idx
+
+    if best_matches >= minimum_matches:
+        return best_index
+    return None
+
+
+def _find_rakuten_header_index(rows: list[list[str]]) -> int | None:
+    # 楽天CSVは前文や説明行が混ざることがあるため、見出し語が複数一致する行を探す。
+    return _find_header_index_by_tokens(rows, RAKUTEN_HASH_KEYS, minimum_matches=3)
+
+
+def _find_sbi_header_index(rows: list[list[str]]) -> int | None:
+    # SBI は日付と銘柄コードの列が見つかった行を見出しとみなす。
+    return _find_header_index_by_tokens(rows, ["邏・ｮ壽律", "驫俶氛繧ｳ繝ｼ繝・"], minimum_matches=2)
+
+
+def _parse_trade_rows_with_header_recovery(
+    data: bytes,
+    parser,
+    header_index_resolver,
+) -> dict | None:
+    best_result: dict | None = None
+    best_rows = -1
+    best_warnings = 10**9
+    seen_text: set[str] = set()
+
+    for encoding in ("cp932", "utf-8-sig", "utf-8"):
+        try:
+            text = data.decode(encoding)
+        except Exception:
+            continue
+
+        if not text or text in seen_text:
+            continue
+        seen_text.add(text)
+
+        rows_all = list(csv.reader(text.splitlines()))
+        if not rows_all:
+            continue
+
+        candidate_rows: list[list[list[str]]] = [rows_all]
+        header_index = header_index_resolver(rows_all)
+        if header_index is not None and header_index > 0:
+            sliced_rows = rows_all[header_index:]
+            if sliced_rows and sliced_rows != rows_all:
+                candidate_rows.insert(0, sliced_rows)
+
+        for rows in candidate_rows:
+            try:
+                result = parser(rows, encoding)
+            except Exception:
+                continue
+
+            parsed_rows = result.get("rows") if isinstance(result, dict) else None
+            warnings = result.get("warnings") if isinstance(result, dict) else None
+            row_count = len(parsed_rows) if isinstance(parsed_rows, list) else 0
+            warning_count = len(warnings) if isinstance(warnings, list) else 0
+
+            if row_count > best_rows or (row_count == best_rows and warning_count < best_warnings):
+                best_result = result
+                best_rows = row_count
+                best_warnings = warning_count
+
+    return best_result
+
+
 def _build_header_map(headers: list[str], expected: list[str]) -> dict[str, str]:
     mapping: dict[str, str] = {}
     normalized_headers = { _normalize_label(h): h for h in headers }
@@ -212,66 +304,32 @@ def _map_parser_row_to_event(row: dict) -> TradeEvent:
 
 
 def parse_rakuten_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
-    result = _parse_with_best_encoding(data, TradeParser.parse_rakuten_rows)
+    result = _parse_trade_rows_with_header_recovery(
+        data,
+        TradeParser.parse_rakuten_rows,
+        _find_rakuten_header_index,
+    )
     if result is None:
         return [], ["decode_failed"]
-    
+
     events = [_map_parser_row_to_event(r) for r in result["rows"]]
     warnings = [w["message"] for w in result["warnings"]]
     return events, warnings
-
-
-def _find_header_row(rows: list[list[str]], header_keys: list[str]) -> int | None:
-    for idx, row in enumerate(rows):
-        normalized = [_normalize_label(cell) for cell in row]
-        if all(any(_normalize_label(key) == cell for cell in normalized) for key in header_keys):
-            return idx
-    return None
 
 
 
 def parse_sbi_csv(data: bytes) -> tuple[list[TradeEvent], list[str]]:
-    result = _parse_with_best_encoding(data, TradeParser.parse_sbi_rows)
+    result = _parse_trade_rows_with_header_recovery(
+        data,
+        TradeParser.parse_sbi_rows,
+        _find_sbi_header_index,
+    )
     if result is None:
         return [], ["decode_failed"]
-    
+
     events = [_map_parser_row_to_event(r) for r in result["rows"]]
     warnings = [w["message"] for w in result["warnings"]]
     return events, warnings
-
-
-def _parse_with_best_encoding(data: bytes, parser) -> dict | None:
-    best_result: dict | None = None
-    best_rows = -1
-    best_warnings = 10**9
-    seen_text: set[str] = set()
-
-    for enc in ("cp932", "utf-8-sig", "utf-8"):
-        try:
-            text = data.decode(enc)
-        except Exception:
-            continue
-        if not text or text in seen_text:
-            continue
-        seen_text.add(text)
-
-        rows_all = list(csv.reader(text.splitlines()))
-        if not rows_all:
-            continue
-        try:
-            result = parser(rows_all, enc)
-        except Exception:
-            continue
-        rows = result.get("rows") if isinstance(result, dict) else None
-        warnings = result.get("warnings") if isinstance(result, dict) else None
-        row_count = len(rows) if isinstance(rows, list) else 0
-        warning_count = len(warnings) if isinstance(warnings, list) else 0
-        if row_count > best_rows or (row_count == best_rows and warning_count < best_warnings):
-            best_result = result
-            best_rows = row_count
-            best_warnings = warning_count
-
-    return best_result
 
 
 def rebuild_positions(conn) -> dict:

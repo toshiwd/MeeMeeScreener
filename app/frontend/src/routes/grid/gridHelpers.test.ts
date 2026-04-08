@@ -75,15 +75,15 @@ describe("buildAvailableSectorOptions", () => {
     expect(
       buildAvailableSectorOptions([
         { sector33Code: null, sector33Name: null },
-        { sector33Code: "30", sector33Name: "髴茨ｽｸ鬨ｾ竏ｫ逡題ｮ匁ｺｷ蜍｣" },
-        { sector33Code: "10", sector33Name: "鬩ｫﾂ髯ｦ譴ｧ・･・ｭ" },
-        { sector33Code: "30", sector33Name: "髴茨ｽｸ鬨ｾ竏ｫ逡題ｮ匁ｺｷ蜍｣" },
+        { sector33Code: "30", sector33Name: "情報・通信業" },
+        { sector33Code: "10", sector33Name: "食料品" },
+        { sector33Code: "30", sector33Name: "情報・通信業" },
         { sector33Code: "99", sector33Name: "" }
       ])
     ).toEqual([
       { code: "99", name: "99" },
-      { code: "30", name: "髴茨ｽｸ鬨ｾ竏ｫ逡題ｮ匁ｺｷ蜍｣" },
-      { code: "10", name: "鬩ｫﾂ髯ｦ譴ｧ・･・ｭ" }
+      { code: "30", name: "情報・通信業" },
+      { code: "10", name: "食料品" }
     ]);
   });
 

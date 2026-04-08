@@ -1,0 +1,119 @@
+{
+  "schema_version": "ranking_article_gate_backtest_v1",
+  "strategy_id": "ranking_article_gate_prior_article_best_entryQualified_filter",
+  "source_dataset_id": "ranking_article_gate_backtest",
+  "source_artifacts": {
+    "old.json": "old.json",
+    "ranking_article_gate_backtest.json": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_0468df3fc2c4\\ranking_article_gate_backtest.json",
+    "ranking_article_gate_backtest.md": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_0468df3fc2c4\\ranking_article_gate_backtest.md"
+  },
+  "run_id": "ranking_article_gate_prior_article_best_entryQualified_filter_2024-01-02_20260403T012925Z",
+  "up": {
+    "asof": "2024-01-02",
+    "codes": [
+      "2222"
+    ],
+    "rank_map": {
+      "2222": 1
+    },
+    "fit_score_map": {
+      "2222": 1.0
+    },
+    "signal_strength_map": {
+      "2222": 1.0
+    },
+    "pattern_tag_map": {
+      "2222": "article_best_entryQualified_filter"
+    },
+    "decision_reason_map": {
+      "2222": [
+        "月足ボックス記事の組み合わせ条件",
+        "variant=article_best_entryQualified_filter",
+        "小さなpriorとして反映"
+      ]
+    },
+    "adoption_reason_map": {
+      "2222": [
+        "月足ボックス記事の組み合わせ条件",
+        "variant=article_best_entryQualified_filter",
+        "小さなpriorとして反映"
+      ]
+    },
+    "risk_watch_map": {
+      "2222": [
+        "baselineを置換せず補助priorとしてのみ反映",
+        "state gateへ昇格するまで小さく使う"
+      ]
+    },
+    "promotion_stage_map": {
+      "2222": "assist"
+    },
+    "provisional_map": {
+      "2222": false
+    },
+    "hypothesis_family_map": {
+      "2222": "monthly_box_time_window"
+    },
+    "bonus_map": {
+      "2222": 0.01
+    },
+    "bonus_cap": 0.01,
+    "source_pattern": "article_best_entryQualified_filter",
+    "source_disposition": "article_gate_prior"
+  },
+  "down": {
+    "asof": "2024-01-01",
+    "codes": [
+      "9999"
+    ],
+    "rank_map": {
+      "9999": 1
+    },
+    "fit_score_map": {},
+    "signal_strength_map": {},
+    "pattern_tag_map": {},
+    "decision_reason_map": {},
+    "adoption_reason_map": {},
+    "risk_watch_map": {},
+    "promotion_stage_map": {},
+    "provisional_map": {},
+    "hypothesis_family_map": {},
+    "bonus_map": {
+      "9999": 0.0
+    },
+    "bonus_cap": 0.01,
+    "source_pattern": null,
+    "source_disposition": null
+  },
+  "generated_at": "2026-04-03T01:29:25.572596+00:00",
+  "asof": "2024-01-02",
+  "provisional": false,
+  "summary": {
+    "family_leaderboard": [
+      {
+        "family": "monthly_box_time_window",
+        "variant": "article_best_entryQualified_filter",
+        "asof": "2024-01-02",
+        "sample_count": 1,
+        "top_code_count": 1,
+        "bonus_cap": 0.01,
+        "note": "small long-side prior derived from monthly-box article gate"
+      }
+    ],
+    "next_promotion_candidates": [
+      {
+        "family": "monthly_box_time_window",
+        "variant": "article_best_entryQualified_filter",
+        "codes": [
+          "2222"
+        ]
+      }
+    ],
+    "worst_failure_patterns": [],
+    "action_queue": [
+      "反映済みのarticle gateは小さな補助priorとしてのみ使用",
+      "baseline置換ではなく上位候補の微調整に限定"
+    ],
+    "provisional_deterioration": []
+  }
+}

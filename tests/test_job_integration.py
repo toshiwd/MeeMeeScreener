@@ -1,18 +1,23 @@
 
 import sys
 import os
-import tempfile
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch
+from pathlib import Path
+from uuid import uuid4
 
 # Setup path to import backend modules
 BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app", "backend"))
 sys.path.append(BACKEND_DIR)
+ROOT = Path(__file__).resolve().parents[1]
 
 # Use an isolated data dir so tests never touch the user's real AppData DB (DuckDB locks).
-_TEST_DATA_DIR = tempfile.mkdtemp(prefix="meemee_screener_test_")
-os.environ["MEEMEE_DATA_DIR"] = _TEST_DATA_DIR
+_TEST_TEMP_ROOT = ROOT / ".tmp-tests"
+_TEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+_TEST_DATA_DIR = (_TEST_TEMP_ROOT / f"meemee_screener_test_{uuid4().hex}").resolve()
+_TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
+os.environ["MEEMEE_DATA_DIR"] = str(_TEST_DATA_DIR)
 
 # Mocking config/env early if needed.
 os.environ["PAN_CODE_TXT_PATH"] = os.path.join(_TEST_DATA_DIR, "dummy_code.txt")

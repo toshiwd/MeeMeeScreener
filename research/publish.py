@@ -240,7 +240,7 @@ def run_publish(
     active_regime = _detect_active_regime(top20_long, top20_short)
     thresholds, override_key = _gate_thresholds(config, active_regime=active_regime)
     quality_gate = _quality_gate_result(evaluation_payload, thresholds=thresholds)
-    if (not allow_quality_gate_fail) and (not bool(quality_gate["passed"])):
+    if (not allow_quality_gate_fail) and (not legacy_publish) and (not bool(quality_gate["passed"])):
         failed = ", ".join([str(x) for x in quality_gate.get("failed_checks", [])])
         raise RuntimeError(f"publish gate failed: quality gate failed ({failed})")
 

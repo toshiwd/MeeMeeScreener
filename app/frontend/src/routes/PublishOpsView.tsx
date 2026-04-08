@@ -466,7 +466,7 @@ export default function PublishOpsView() {
   const maintenanceAction = useCallback(
     async (action: "backfill" | "snapshot-sweep" | "cleanup" | "mirror-normalize" | "mirror-resync", dryRun: boolean) => {
       const key = `${action}:${dryRun ? "dry" : "run"}`;
-      const label = action.replaceAll("-", " ");
+      const label = action.replace(/-/g, " ");
       const needsConfirm = !dryRun || action === "mirror-normalize" || action === "mirror-resync";
       const endpoint =
         action === "backfill"

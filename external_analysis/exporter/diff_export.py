@@ -26,6 +26,24 @@ SOURCE_PROGRESS_STEPS: tuple[tuple[str, str], ...] = (
     ("position_rounds", "source"),
 )
 
+SOURCE_SIGNATURE_ROWS: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    ("daily_bars", ("code", "date", "o", "h", "l", "c", "v", "source"), "code, date"),
+    ("monthly_bars", ("code", "month", "o", "h", "l", "c", "v"), "code, month"),
+    ("daily_ma", ("code", "date", "ma7", "ma20", "ma60"), "code, date"),
+    (
+        "feature_snapshot_daily",
+        ("code", "dt", "close", "ma7", "ma20", "ma60", "atr14", "diff20_pct", "diff20_atr", "cnt_20_above", "cnt_7_above", "day_count", "candle_flags"),
+        "code, dt",
+    ),
+    (
+        "positions_live",
+        ("symbol", "spot_qty", "margin_long_qty", "margin_short_qty", "buy_qty", "sell_qty", "opened_at", "updated_at", "has_issue", "issue_note"),
+        "symbol",
+    ),
+    ("position_rounds", ("round_id", "symbol", "opened_at", "closed_at", "closed_reason"), "symbol, opened_at, round_id"),
+    ("trade_events", ("broker", "exec_dt", "symbol", "action", "qty", "price", "source_row_hash"), "symbol, exec_dt, source_row_hash"),
+)
+
 EXPORT_PROGRESS_STEPS: tuple[tuple[str, str], ...] = (
     ("bars_daily_export", "export"),
     ("bars_monthly_export", "export"),
@@ -69,6 +87,37 @@ def _source_signature(source_row_counts: dict[str, int], source_max_trade_date: 
         ensure_ascii=False,
         sort_keys=True,
     )
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def _source_signature_with_content(source_conn, source_row_counts: dict[str, int], source_max_trade_date: int | None) -> str:
+    parts: list[dict[str, Any]] = [
+        {"row_counts": source_row_counts, "source_max_trade_date": source_max_trade_date},
+    ]
+    for table_name, columns, order_by in SOURCE_SIGNATURE_ROWS:
+        if not source_table_exists(source_conn, table_name):
+            parts.append({"table": table_name, "exists": False})
+            continue
+        selected_columns = tuple(
+            column_name for column_name in columns if source_column_exists(source_conn, table_name, column_name)
+        )
+        if not selected_columns:
+            parts.append({"table": table_name, "exists": True, "columns": [], "row_count": int(source_row_counts.get(table_name) or 0)})
+            continue
+        rows = fetch_rows(source_conn, table_name, selected_columns, order_by=order_by)
+        table_raw = json.dumps(
+            {
+                "table": table_name,
+                "exists": True,
+                "columns": list(selected_columns),
+                "rows": [row for row in rows],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        parts.append({"table": table_name, "digest": hashlib.sha1(table_raw.encode("utf-8")).hexdigest()})
+    raw = json.dumps(parts, ensure_ascii=False, sort_keys=True)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
@@ -867,7 +916,7 @@ def run_diff_export(source_db_path: str | None = None, export_db_path: str | Non
         source_row_counts = _collect_source_row_counts(source_conn)
         max_trade_row = source_conn.execute("SELECT MAX(date) FROM daily_bars").fetchone() if source_table_exists(source_conn, "daily_bars") else None
         source_max_trade_date = normalize_market_date(max_trade_row[0]) if max_trade_row and max_trade_row[0] is not None else None
-        source_signature = _source_signature(source_row_counts, source_max_trade_date)
+        source_signature = _source_signature_with_content(source_conn, source_row_counts, source_max_trade_date)
         source_progress_rows = _collect_source_progress_rows(source_conn)
         latest_progress = _load_latest_step_progress(export_conn, source_signature)
 

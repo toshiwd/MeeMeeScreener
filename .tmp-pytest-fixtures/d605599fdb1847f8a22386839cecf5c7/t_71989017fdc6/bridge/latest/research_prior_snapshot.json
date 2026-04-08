@@ -1,0 +1,73 @@
+{
+  "schema_version": "meemee_decision_signal_prior_v1",
+  "strategy_id": "meemee_decision_signal_prior_v1",
+  "run_id": "decision_signal_prior_20260312_close",
+  "up": {
+    "asof": "2026-03-12",
+    "codes": [
+      "1301"
+    ],
+    "rank_map": {
+      "1301": 1
+    },
+    "signal_strength_map": {
+      "1301": 0.84
+    },
+    "decision_reason_map": {
+      "1301": [
+        "月足box文脈"
+      ]
+    },
+    "risk_watch_map": {
+      "1301": [
+        "値幅荒い"
+      ]
+    },
+    "promotion_stage_map": {
+      "1301": "weighted"
+    },
+    "provisional_map": {
+      "1301": false
+    },
+    "hypothesis_family_map": {
+      "1301": "monthly_box_breakout"
+    },
+    "bonus_map": {
+      "1301": 0.018
+    }
+  },
+  "down": {
+    "asof": "2026-03-12",
+    "codes": [
+      "1303"
+    ],
+    "rank_map": {
+      "1303": 1
+    },
+    "signal_strength_map": {
+      "1303": 0.77
+    },
+    "decision_reason_map": {
+      "1303": [
+        "上昇シナリオ破綻"
+      ]
+    },
+    "risk_watch_map": {
+      "1303": [
+        "出来高弱い"
+      ]
+    },
+    "promotion_stage_map": {
+      "1303": "assist"
+    },
+    "provisional_map": {
+      "1303": true
+    },
+    "hypothesis_family_map": {
+      "1303": "broken_bullish_scenario"
+    },
+    "bonus_map": {
+      "1303": 0.008
+    }
+  }
+}

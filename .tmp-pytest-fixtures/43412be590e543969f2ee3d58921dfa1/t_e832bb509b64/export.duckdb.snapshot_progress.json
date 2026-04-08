@@ -1,0 +1,216 @@
+{
+  "completed_steps": [
+    "daily_bars",
+    "monthly_bars",
+    "daily_ma",
+    "feature_snapshot_daily",
+    "positions_live",
+    "position_rounds",
+    "bars_daily_export",
+    "bars_monthly_export",
+    "indicator_daily_export",
+    "pattern_state_export",
+    "trade_event_export",
+    "position_snapshot_export",
+    "meta_export_runs"
+  ],
+  "current_step": null,
+  "export_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_e832bb509b64\\export.duckdb",
+  "reason_code": "export_complete",
+  "run_id": "exp_20260403T012115581732Z",
+  "schema_version": "tradex_export_snapshot_progress_v1",
+  "source_db_path": "C:\\work\\meemee-screener\\.tmp-pytest-fixtures\\43412be590e543969f2ee3d58921dfa1\\t_e832bb509b64\\source.duckdb",
+  "source_signature": "27b3727b3c6716cdaf56d36aec2e755f3582d36a",
+  "started_at": "2026-04-03T01:21:15.581732",
+  "status": "complete",
+  "steps": [
+    {
+      "details": {
+        "source_table": "daily_bars",
+        "table_exists": true
+      },
+      "finished_at": "2026-04-03T01:21:15.805393",
+      "max_trade_date": 20260410,
+      "row_count": 280,
+      "started_at": "2026-04-03T01:21:15.805393",
+      "status": "complete",
+      "step_kind": "source",
+      "step_name": "daily_bars"
+    },
+    {
+      "details": {
+        "source_table": "monthly_bars",
+        "table_exists": true
+      },
+      "finished_at": "2026-04-03T01:21:15.840744",
+      "max_trade_date": 20260301,
+      "row_count": 1,
+      "started_at": "2026-04-03T01:21:15.840744",
+      "status": "complete",
+      "step_kind": "source",
+      "step_name": "monthly_bars"
+    },
+    {
+      "details": {
+        "source_table": "daily_ma",
+        "table_exists": true
+      },
+      "finished_at": "2026-04-03T01:21:15.852741",
+      "max_trade_date": 20260410,
+      "row_count": 280,
+      "started_at": "2026-04-03T01:21:15.852741",
+      "status": "complete",
+      "step_kind": "source",
+      "step_name": "daily_ma"
+    },
+    {
+      "details": {
+        "source_table": "feature_snapshot_daily",
+        "table_exists": true
+      },
+      "finished_at": "2026-04-03T01:21:15.863750",
+      "max_trade_date": 20260410,
+      "row_count": 280,
+      "started_at": "2026-04-03T01:21:15.863750",
+      "status": "complete",
+      "step_kind": "source",
+      "step_name": "feature_snapshot_daily"
+    },
+    {
+      "details": {
+        "source_table": "positions_live",
+        "table_exists": true
+      },
+      "finished_at": "2026-04-03T01:21:15.875490",
+      "max_trade_date": null,
+      "row_count": 0,
+      "started_at": "2026-04-03T01:21:15.875490",
+      "status": "complete",
+      "step_kind": "source",
+      "step_name": "positions_live"
+    },
+    {
+      "details": {
+        "source_table": "position_rounds",
+        "table_exists": true
+      },
+      "finished_at": "2026-04-03T01:21:15.887493",
+      "max_trade_date": null,
+      "row_count": 0,
+      "started_at": "2026-04-03T01:21:15.887493",
+      "status": "complete",
+      "step_kind": "source",
+      "step_name": "position_rounds"
+    },
+    {
+      "details": {
+        "changed_rows": 280,
+        "deleted": 0,
+        "inserted": 280,
+        "table_name": "bars_daily_export",
+        "updated": 0
+      },
+      "finished_at": "2026-04-03T01:21:18.040848",
+      "max_trade_date": 20260410,
+      "row_count": 280,
+      "started_at": "2026-04-03T01:21:15.899492",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "bars_daily_export"
+    },
+    {
+      "details": {
+        "changed_rows": 1,
+        "deleted": 0,
+        "inserted": 1,
+        "table_name": "bars_monthly_export",
+        "updated": 0
+      },
+      "finished_at": "2026-04-03T01:21:18.083692",
+      "max_trade_date": 20260301,
+      "row_count": 1,
+      "started_at": "2026-04-03T01:21:18.050845",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "bars_monthly_export"
+    },
+    {
+      "details": {
+        "changed_rows": 280,
+        "deleted": 0,
+        "inserted": 280,
+        "table_name": "indicator_daily_export",
+        "updated": 0
+      },
+      "finished_at": "2026-04-03T01:21:20.145140",
+      "max_trade_date": 20260410,
+      "row_count": 280,
+      "started_at": "2026-04-03T01:21:18.093692",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "indicator_daily_export"
+    },
+    {
+      "details": {
+        "changed_rows": 280,
+        "deleted": 0,
+        "inserted": 280,
+        "table_name": "pattern_state_export",
+        "updated": 0
+      },
+      "finished_at": "2026-04-03T01:21:22.612643",
+      "max_trade_date": 20260410,
+      "row_count": 280,
+      "started_at": "2026-04-03T01:21:20.154142",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "pattern_state_export"
+    },
+    {
+      "details": {
+        "changed_rows": 0,
+        "deleted": 0,
+        "inserted": 0,
+        "table_name": "trade_event_export",
+        "updated": 0
+      },
+      "finished_at": "2026-04-03T01:21:22.635546",
+      "max_trade_date": null,
+      "row_count": 0,
+      "started_at": "2026-04-03T01:21:22.622137",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "trade_event_export"
+    },
+    {
+      "details": {
+        "changed_rows": 0,
+        "deleted": 0,
+        "inserted": 0,
+        "table_name": "position_snapshot_export",
+        "updated": 0
+      },
+      "finished_at": "2026-04-03T01:21:22.659209",
+      "max_trade_date": null,
+      "row_count": 0,
+      "started_at": "2026-04-03T01:21:22.644545",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "position_snapshot_export"
+    },
+    {
+      "details": {
+        "status": "success",
+        "table_name": "meta_export_runs"
+      },
+      "finished_at": "2026-04-03T01:21:22.706081",
+      "max_trade_date": 20260410,
+      "row_count": 1,
+      "started_at": "2026-04-03T01:21:22.667022",
+      "status": "complete",
+      "step_kind": "export",
+      "step_name": "meta_export_runs"
+    }
+  ],
+  "updated_at": "2026-04-03T01:21:22.756078+00:00"
+}
