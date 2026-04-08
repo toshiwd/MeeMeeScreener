@@ -65,6 +65,7 @@ import {
 import { useResizeObserver } from "./grid/hooks/useResizeObserver";
 import GridIndicatorOverlay from "./grid/components/GridIndicatorOverlay";
 import { useTerminalJobPolling } from "./grid/hooks/useTerminalJobPolling";
+import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
 import type {
@@ -1462,15 +1463,15 @@ export default function GridView() {
 
   const handleOpenDetail = useCallback(
     (code: string) => {
-      try {
-        sessionStorage.setItem("detailListBack", location.pathname);
-        sessionStorage.setItem("detailListCodes", JSON.stringify(sortedCodes));
-      } catch {
-        // ignore storage failures
-      }
-      navigate(`/detail/${code}`, { state: { from: location.pathname } });
+      void openDetailWithPrefetch({
+        navigate,
+        code,
+        listCodes: sortedCodes,
+        backPath: location.pathname,
+        backendReady,
+      });
     },
-    [navigate, location.pathname, sortedCodes]
+    [backendReady, location.pathname, navigate, sortedCodes]
   );
 
   const handleRemoveWatchlist = useCallback(

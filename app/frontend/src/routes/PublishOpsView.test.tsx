@@ -45,8 +45,8 @@ describe("operator console hardening", () => {
     );
 
     expect(render.html()).not.toContain("/ops/publish");
-    expect(render.html()).not.toContain("讀懆ｨｼ");
-    expect(render.html()).not.toContain("謗｡逕ｨ");
+    expect(render.html()).not.toContain("運用");
+    expect(render.html()).not.toContain("公開");
     expect(render.html()).toContain("/positions");
     expect(render.html()).toContain("/candidates");
   });

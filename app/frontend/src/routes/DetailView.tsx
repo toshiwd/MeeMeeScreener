@@ -46,27 +46,36 @@ import { useDetailInfo } from "../hooks/useDetailInfo";
 import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/useExactDecisionRange";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
 import {
-  buildDetailBatchBarsRequestPayload,
-} from "./detail/batchBarsRequest";
+  hasCompleteDetailChartPrefetch,
+  loadDetailChartPrefetch,
+  prefetchDetailChartFrames,
+  readDetailChartPrefetchSync,
+  type ChartPrefetchFrames,
+} from "./detail/detailChartPrefetch";
+import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import DetailDebugBanner from "./detail/components/DetailDebugBanner";
 import DetailPositionLedgerSheet from "./detail/components/DetailPositionLedgerSheet";
 import { useDetailDrawings } from "./detail/hooks/useDetailDrawings";
 
-const LazySimilarSearchPanel = lazy(() => import("../components/SimilarSearchPanel"));
+const loadSimilarSearchPanel = () => import("../components/SimilarSearchPanel");
+const loadAiExplainDock = () => import("../features/aiExplain/AiExplainDock");
+const loadDetailJudgementPanel = () =>
+  import("./detail/DetailJudgementPanel").then((mod) => ({ default: mod.DetailJudgementPanel }));
+const loadDetailFinancialPanel = () =>
+  import("./detail/DetailFinancialPanel").then((mod) => ({ default: mod.DetailFinancialPanel }));
+const loadDetailTdnetCard = () =>
+  import("./detail/DetailTdnetCard").then((mod) => ({ default: mod.DetailTdnetCard }));
+const loadTradexAnalysisMount = () => import("./detail/TradexAnalysisMount");
+const loadDetailIndicatorOverlay = () =>
+  import("./detail/components/DetailIndicatorOverlay");
+
+const LazySimilarSearchPanel = lazy(loadSimilarSearchPanel);
 const LazyAiExplainDock = lazy(() => import("../features/aiExplain/AiExplainDock"));
-const LazyDetailAnalysisPanel = lazy(() =>
-  import("./detail/DetailAnalysisPanel").then((mod) => ({ default: mod.DetailAnalysisPanel }))
-);
-const LazyDetailFinancialPanel = lazy(() =>
-  import("./detail/DetailFinancialPanel").then((mod) => ({ default: mod.DetailFinancialPanel }))
-);
-const LazyDetailTdnetCard = lazy(() =>
-  import("./detail/DetailTdnetCard").then((mod) => ({ default: mod.DetailTdnetCard }))
-);
-const LazyTradexAnalysisMount = lazy(() => import("./detail/TradexAnalysisMount"));
-const LazyDetailIndicatorOverlay = lazy(() =>
-  import("./detail/components/DetailIndicatorOverlay")
-);
+const LazyDetailJudgementPanel = lazy(loadDetailJudgementPanel);
+const LazyDetailFinancialPanel = lazy(loadDetailFinancialPanel);
+const LazyDetailTdnetCard = lazy(loadDetailTdnetCard);
+const LazyTradexAnalysisMount = lazy(loadTradexAnalysisMount);
+const LazyDetailIndicatorOverlay = lazy(loadDetailIndicatorOverlay);
 
 import type {
   Timeframe,
@@ -164,6 +173,24 @@ import {
 
 const DETAIL_DAILY_ROW_RATIO = 0.72;
 const DETAIL_DEFAULT_WEEKLY_RATIO = 0.64;
+const DETAIL_TAB_CHUNK_PRELOAD_DELAY_MS = 1200;
+
+let detailTabChunksPreloadPromise: Promise<unknown> | null = null;
+
+const preloadDetailTabChunks = () => {
+  if (!detailTabChunksPreloadPromise) {
+    detailTabChunksPreloadPromise = Promise.allSettled([
+      loadSimilarSearchPanel(),
+      loadDetailJudgementPanel(),
+      loadDetailFinancialPanel(),
+      loadTradexAnalysisMount(),
+      loadDetailTdnetCard(),
+      loadAiExplainDock(),
+      loadDetailIndicatorOverlay(),
+    ]);
+  }
+  return detailTabChunksPreloadPromise;
+};
 
 const buildDetailMaLines = (candles: Candle[], settings: MaSetting[]) =>
   settings.map((setting) => {
@@ -234,15 +261,6 @@ const summarizeDetailTickerForAiExplain = (
   };
 };
 
-type BatchBarsFramePayload = {
-  bars?: number[][];
-  boxes?: Box[];
-};
-
-type BatchBarsV3Response = {
-  items?: Record<string, Partial<Record<"daily" | "weekly" | "monthly", BatchBarsFramePayload>>>;
-};
-
 type TradesResponsePayload = {
   events?: TradeEvent[];
   warnings?: ApiWarnings;
@@ -254,22 +272,6 @@ type TradesResponsePayload = {
 };
 
 type RouteReadyPhase = "chart" | "analysis";
-
-type ChartPrefetchEntry = {
-  rows: number[][];
-  boxes: Box[];
-  fetchedAt: number;
-};
-
-type ChartPrefetchFrames = {
-  daily: ChartPrefetchEntry | null;
-  weekly: ChartPrefetchEntry | null;
-  monthly: ChartPrefetchEntry | null;
-};
-
-const CHART_PREFETCH_TTL_MS = 60_000;
-const chartPrefetchCache = new Map<string, ChartPrefetchEntry>();
-const chartPrefetchInFlight = new Map<string, Promise<ChartPrefetchFrames>>();
 const tradesCache = new Map<
   string,
   {
@@ -282,186 +284,7 @@ const tradesCache = new Map<
 >();
 const COMPARE_FOCUS_MONTHS = 12;
 const RANGE_SETTLE_MS = 2_000;
-
-const buildChartPrefetchKey = (
-  symbol: string,
-  timeframe: "daily" | "weekly" | "monthly",
-  limit: number,
-  asof?: string | null
-) => `${symbol}|${timeframe}|${limit}|${asof ?? ""}`;
-
-const buildDetailPrefetchKey = (
-  symbol: string,
-  dailyLimit: number,
-  weeklyLimit: number,
-  monthlyLimit: number,
-  asof?: string | null
-) => `detail|${symbol}|${dailyLimit}|${weeklyLimit}|${monthlyLimit}|${asof ?? ""}`;
-
-const readChartPrefetch = (
-  symbol: string,
-  timeframe: "daily" | "weekly" | "monthly",
-  limit: number,
-  asof?: string | null
-) => {
-  const key = buildChartPrefetchKey(symbol, timeframe, limit, asof);
-  const cached = chartPrefetchCache.get(key);
-  if (!cached) return null;
-  if (Date.now() - cached.fetchedAt > CHART_PREFETCH_TTL_MS) {
-    chartPrefetchCache.delete(key);
-    return null;
-  }
-  return cached;
-};
-
-const writeChartPrefetch = ({
-  code,
-  timeframe,
-  limit,
-  asof,
-  rows,
-  boxes,
-}: {
-  code: string;
-  timeframe: "daily" | "weekly" | "monthly";
-  limit: number;
-  asof?: string | null;
-  rows: number[][];
-  boxes?: Box[];
-}) => {
-  chartPrefetchCache.set(buildChartPrefetchKey(code, timeframe, limit, asof), {
-    rows,
-    boxes: boxes ?? [],
-    fetchedAt: Date.now(),
-  });
-};
-
-const readDetailChartPrefetch = ({
-  code,
-  dailyLimit,
-  weeklyLimit,
-  monthlyLimit,
-  asof,
-}: {
-  code: string;
-  dailyLimit: number;
-  weeklyLimit: number;
-  monthlyLimit: number;
-  asof?: string | null;
-}): ChartPrefetchFrames => ({
-  daily: readChartPrefetch(code, "daily", dailyLimit, asof),
-  weekly: readChartPrefetch(code, "weekly", weeklyLimit, asof),
-  monthly: readChartPrefetch(code, "monthly", monthlyLimit, asof),
-});
-
-const hasCompleteDetailChartPrefetch = (frames?: Partial<ChartPrefetchFrames>) =>
-  frames?.daily != null && frames?.weekly != null && frames?.monthly != null;
-
-const extractDetailChartFrames = ({
-  code,
-  dailyLimit,
-  weeklyLimit,
-  monthlyLimit,
-  asof,
-  response,
-}: {
-  code: string;
-  dailyLimit: number;
-  weeklyLimit: number;
-  monthlyLimit: number;
-  asof?: string | null;
-  response: BatchBarsV3Response | null;
-}): ChartPrefetchFrames => {
-  const items = response?.items ?? {};
-  const item = items[code] ?? {};
-  const dailyFrame = item.daily;
-  const weeklyFrame = item.weekly;
-  const monthlyFrame = item.monthly;
-  const dailyRows = Array.isArray(dailyFrame?.bars) ? dailyFrame.bars : [];
-  const weeklyRows = Array.isArray(weeklyFrame?.bars) ? weeklyFrame.bars : [];
-  const monthlyRows = Array.isArray(monthlyFrame?.bars) ? monthlyFrame.bars : [];
-  const monthlyBoxes = Array.isArray(monthlyFrame?.boxes) ? monthlyFrame.boxes : [];
-  writeChartPrefetch({
-    code,
-    timeframe: "daily",
-    limit: dailyLimit,
-    asof,
-    rows: dailyRows,
-  });
-  writeChartPrefetch({
-    code,
-    timeframe: "weekly",
-    limit: weeklyLimit,
-    asof,
-    rows: weeklyRows,
-  });
-  writeChartPrefetch({
-    code,
-    timeframe: "monthly",
-    limit: monthlyLimit,
-    asof,
-    rows: monthlyRows,
-    boxes: monthlyBoxes,
-  });
-  return {
-    daily: readChartPrefetch(code, "daily", dailyLimit, asof),
-    weekly: readChartPrefetch(code, "weekly", weeklyLimit, asof),
-    monthly: readChartPrefetch(code, "monthly", monthlyLimit, asof),
-  };
-};
-
-const prefetchDetailChartFrames = async ({
-  code,
-  dailyLimit,
-  weeklyLimit,
-  monthlyLimit,
-  asof,
-}: {
-  code: string;
-  dailyLimit: number;
-  weeklyLimit: number;
-  monthlyLimit: number;
-  asof?: string | null;
-}) => {
-  const key = buildDetailPrefetchKey(code, dailyLimit, weeklyLimit, monthlyLimit, asof);
-  const cached = readDetailChartPrefetch({ code, dailyLimit, weeklyLimit, monthlyLimit, asof });
-  if (hasCompleteDetailChartPrefetch(cached)) return;
-  const inFlight = chartPrefetchInFlight.get(key);
-  if (inFlight) {
-    await inFlight;
-    return;
-  }
-  const request = api
-    .post(
-      "/batch_bars_v3",
-      buildDetailBatchBarsRequestPayload({
-        code,
-        dailyLimit,
-        weeklyLimit,
-        monthlyLimit,
-        asof,
-      })
-    )
-    .then((res) =>
-      extractDetailChartFrames({
-        code,
-        dailyLimit,
-        weeklyLimit,
-        monthlyLimit,
-        asof,
-        response: res.data as BatchBarsV3Response | null,
-      })
-    )
-    .finally(() => {
-      chartPrefetchInFlight.delete(key);
-    });
-  chartPrefetchInFlight.set(key, request);
-  try {
-    await request;
-  } catch {
-    // ignore prefetch failures
-  }
-};
+const DETAIL_CACHE_REFRESH_DELAY_MS = 4_000;
 
 const getRetryDelayMs = (error: unknown) => {
   const retryAfterHeader = (error as { response?: { headers?: Record<string, unknown> } })?.response?.headers?.[
@@ -480,7 +303,12 @@ const getRetryDelayMs = (error: unknown) => {
 };
 
 const SECONDARY_FETCH_STABLE_DELAY_MS = 450;
+const QUALIFICATION_TRACE_DELAY_MS = 800;
+const DETAIL_MARKERS_DELAY_MS = 4000;
 const SECONDARY_JOB_READY_DELAY_MS = 2500;
+const FINANCIAL_BACKGROUND_JOB_DELAY_MS = 4000;
+const ANALYSIS_NEIGHBOR_PREFETCH_DELAY_MS = 1200;
+const ANALYSIS_JOB_POLL_DELAY_MS = 1200;
 const TRADES_FETCH_DELAY_MS = 1200;
 
 const isRetryableTradesError = (error: unknown) => {
@@ -613,6 +441,8 @@ export default function DetailView() {
   const [secondaryFetchReady, setSecondaryFetchReady] = useState(false);
   const [secondaryFetchStableReady, setSecondaryFetchStableReady] = useState(false);
   const [secondaryJobReady, setSecondaryJobReady] = useState(false);
+  const [financialBackgroundJobReady, setFinancialBackgroundJobReady] = useState(false);
+  const [analysisNeighborPrefetchReady, setAnalysisNeighborPrefetchReady] = useState(false);
   const [positionLedgerExpanded, setPositionLedgerExpanded] = useState(false);
   const [ledgerViewMode, setLedgerViewMode] = useState<"iizuka" | "stock">(() => {
     try {
@@ -670,13 +500,12 @@ export default function DetailView() {
     const dailySeed = seed?.daily ?? null;
     const weeklySeed = seed?.weekly ?? null;
     const monthlySeed = seed?.monthly ?? null;
-    const hasSeed = dailySeed != null && weeklySeed != null && monthlySeed != null;
     setDailyLimit(nextDailyLimit);
     setMonthlyLimit(nextMonthlyLimit);
-    setDailyData((current) => (dailySeed?.rows ?? (hasSeed ? [] : current)));
-    setWeeklyData((current) => (weeklySeed?.rows ?? (hasSeed ? [] : current)));
-    setMonthlyData((current) => (monthlySeed?.rows ?? (hasSeed ? [] : current)));
-    setBoxes((current) => (monthlySeed?.boxes ?? (hasSeed ? [] : current)));
+    setDailyData(dailySeed?.rows ?? []);
+    setWeeklyData(weeklySeed?.rows ?? []);
+    setMonthlyData(monthlySeed?.rows ?? []);
+    setBoxes(monthlySeed?.boxes ?? []);
     setDailyErrors([]);
     setWeeklyErrors([]);
     setMonthlyErrors([]);
@@ -699,21 +528,20 @@ export default function DetailView() {
     });
     setLoadingDaily(false);
     setLoadingMonthly(false);
-    setHasMoreDaily((current) => (dailySeed ? dailySeed.rows.length >= nextDailyLimit : current));
-    setHasMoreMonthly((current) => (monthlySeed ? monthlySeed.rows.length >= nextMonthlyLimit : current));
+    setHasMoreDaily(dailySeed ? dailySeed.rows.length >= nextDailyLimit : false);
+    setHasMoreMonthly(monthlySeed ? monthlySeed.rows.length >= nextMonthlyLimit : false);
   }, []);
   const resetCompareChartState = useCallback((seed?: Partial<ChartPrefetchFrames>) => {
     const dailySeed = seed?.daily ?? null;
     const monthlySeed = seed?.monthly ?? null;
-    const hasSeed = dailySeed != null && monthlySeed != null;
     setCompareDailyLimit(DEFAULT_LIMITS.daily);
-    setCompareMonthlyData((current) => (monthlySeed?.rows ?? (hasSeed ? [] : current)));
+    setCompareMonthlyData(monthlySeed?.rows ?? []);
     setCompareMonthlyErrors([]);
     setCompareLoading(false);
-    setCompareDailyData((current) => (dailySeed?.rows ?? (hasSeed ? [] : current)));
+    setCompareDailyData(dailySeed?.rows ?? []);
     setCompareDailyErrors([]);
     setCompareDailyLoading(false);
-    setCompareBoxes((current) => (monthlySeed?.boxes ?? (hasSeed ? [] : current)));
+    setCompareBoxes(monthlySeed?.boxes ?? []);
     setCompareTrades([]);
   }, []);
   const compareCode = useMemo(() => {
@@ -824,7 +652,7 @@ export default function DetailView() {
     const seed =
       compareCode == null
         ? undefined
-        : readDetailChartPrefetch({
+        : readDetailChartPrefetchSync({
             code: compareCode,
             dailyLimit: DEFAULT_LIMITS.daily,
             weeklyLimit: DEFAULT_LIMITS.weekly,
@@ -851,7 +679,7 @@ export default function DetailView() {
     const seed =
       code == null
         ? undefined
-        : readDetailChartPrefetch({
+        : readDetailChartPrefetchSync({
             code,
             dailyLimit: DEFAULT_LIMITS.daily,
             weeklyLimit: DEFAULT_LIMITS.weekly,
@@ -901,6 +729,7 @@ export default function DetailView() {
   const [qualificationTrace, setQualificationTrace] = useState<any>(null);
   const [persistedSignalEvents, setPersistedSignalEvents] = useState<any[]>([]);
   const [persistedRankingAppearances, setPersistedRankingAppearances] = useState<any[]>([]);
+  const [persistedMarkersLoading, setPersistedMarkersLoading] = useState(false);
   const earningsLabel = useMemo(
     () => formatEventBadgeDate(activeTicker?.eventEarningsDate),
     [activeTicker?.eventEarningsDate]
@@ -926,35 +755,53 @@ export default function DetailView() {
       .map((offset) => analysisPrefetchCandles[selectedBarIndex + offset]?.time ?? null)
       .filter((value): value is number => value != null);
   }, [cursorMode, selectedBarIndex, analysisPrefetchCandles]);
+  const analysisDeferredPrefetchAsofs = useMemo(
+    () => (analysisNeighborPrefetchReady ? analysisPrefetchAsofs : []),
+    [analysisNeighborPrefetchReady, analysisPrefetchAsofs]
+  );
 
   useEffect(() => {
-    if (!backendReady || !code) {
+    setAnalysisNeighborPrefetchReady(false);
+    if (!analysisNetworkReady || !analysisFetchEnabled) return;
+    const timerId = window.setTimeout(() => {
+      setAnalysisNeighborPrefetchReady(true);
+    }, ANALYSIS_NEIGHBOR_PREFETCH_DELAY_MS);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [analysisAsOfTime, analysisFetchEnabled, analysisNetworkReady, code]);
+
+  useEffect(() => {
+    if (!backendReady || !code || !secondaryFetchStableReady || mainChartPendingSwap) {
       setQualificationTrace(null);
       return;
     }
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await api.get("/rankings/trace/code-qualified", {
-          params: {
-            code,
-            tf: "D",
-            which: "latest",
-            risk_mode: analysisRiskMode,
-            lookback_days: 120,
-            recent_hits: 5,
-          },
-          timeout: 60000,
-        });
-        if (!cancelled) setQualificationTrace(res.data ?? null);
-      } catch {
-        if (!cancelled) setQualificationTrace(null);
-      }
-    })();
+    const timerId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await api.get("/rankings/trace/code-qualified", {
+            params: {
+              code,
+              tf: "D",
+              which: "latest",
+              risk_mode: analysisRiskMode,
+              lookback_days: 120,
+              recent_hits: 5,
+            },
+            timeout: 60000,
+          });
+          if (!cancelled) setQualificationTrace(res.data ?? null);
+        } catch {
+          if (!cancelled) setQualificationTrace(null);
+        }
+      })();
+    }, QUALIFICATION_TRACE_DELAY_MS);
     return () => {
       cancelled = true;
+      window.clearTimeout(timerId);
     };
-  }, [backendReady, code, analysisRiskMode]);
+  }, [backendReady, code, analysisRiskMode, mainChartPendingSwap, secondaryFetchStableReady]);
 
   useEffect(() => {
     setAnalysisBackfillJob(null);
@@ -976,7 +823,7 @@ export default function DetailView() {
     backendReady,
     code,
     asof: analysisAsOfTime,
-    prefetchAsofs: analysisPrefetchAsofs,
+    prefetchAsofs: analysisDeferredPrefetchAsofs,
     readyToFetch: analysisNetworkReady,
     endpoint: "/ticker/phase",
     timeoutMs: 10000,
@@ -1018,7 +865,7 @@ export default function DetailView() {
     backendReady,
     code,
     asof: analysisAsOfTime,
-    prefetchAsofs: analysisPrefetchAsofs,
+    prefetchAsofs: analysisDeferredPrefetchAsofs,
     enabled: analysisFetchEnabled,
     readyToFetch: analysisNetworkReady,
     endpoint: "/ticker/analysis",
@@ -1064,7 +911,7 @@ export default function DetailView() {
     backendReady,
     code,
     asof: analysisAsOfTime,
-    prefetchAsofs: analysisPrefetchAsofs,
+    prefetchAsofs: analysisDeferredPrefetchAsofs,
     enabled: analysisFetchEnabled,
     readyToFetch: analysisNetworkReady,
     endpoint: "/ticker/analysis/sell",
@@ -1174,7 +1021,7 @@ export default function DetailView() {
   }, [backendReady, code, headerMode, taisyakuRefreshToken]);
 
   useEffect(() => {
-    if (!backendReady || !code || !secondaryJobReady || headerMode !== "financial") return;
+    if (!backendReady || !code || !secondaryJobReady || !financialBackgroundJobReady || headerMode !== "financial") return;
     if (!taisyakuFetchedOnce || taisyakuLoading) return;
     if (!shouldAutoRefreshTaisyaku(taisyakuSnapshot)) return;
     const requestKey = `${code}:${taisyakuSnapshot ? "stale" : "empty"}`;
@@ -1193,7 +1040,7 @@ export default function DetailView() {
     return () => {
       cancelled = true;
     };
-  }, [backendReady, code, headerMode, secondaryJobReady, taisyakuFetchedOnce, taisyakuLoading, taisyakuSnapshot]);
+  }, [backendReady, code, financialBackgroundJobReady, headerMode, secondaryJobReady, taisyakuFetchedOnce, taisyakuLoading, taisyakuSnapshot]);
 
   useEffect(() => {
     if (!backendReady || !code || !secondaryFetchStableReady) return;
@@ -1230,7 +1077,7 @@ export default function DetailView() {
   }, [backendReady, code, secondaryFetchStableReady, tdnetRefreshToken]);
 
   useEffect(() => {
-    if (!backendReady || !code || !secondaryJobReady || headerMode !== "financial") return;
+    if (!backendReady || !code || !secondaryJobReady || !financialBackgroundJobReady || headerMode !== "financial") return;
     if (!tdnetFetchedOnce || tdnetLoading) return;
     if (!shouldAutoRefreshTdnet(tdnetDisclosures)) return;
     const requestKey = `${code}:${tdnetDisclosures.length > 0 ? "stale" : "empty"}`;
@@ -1249,7 +1096,7 @@ export default function DetailView() {
     return () => {
       cancelled = true;
     };
-  }, [backendReady, code, headerMode, secondaryJobReady, tdnetDisclosures, tdnetFetchedOnce, tdnetLoading]);
+  }, [backendReady, code, financialBackgroundJobReady, headerMode, secondaryJobReady, tdnetDisclosures, tdnetFetchedOnce, tdnetLoading]);
 
   // 依存配列で参照する派生値は先に宣言して、TDZ を避ける。
   const edinetOfficialBackfillRequest = useMemo(
@@ -1258,7 +1105,7 @@ export default function DetailView() {
   );
 
   useEffect(() => {
-    if (!backendReady || !code || headerMode !== "financial") return;
+    if (!backendReady || !code || !financialBackgroundJobReady || headerMode !== "financial") return;
     if (!financialFetchedOnce || financialLoading) return;
     if (!edinetOfficialBackfillRequest) return;
     if (financialPanel?.bootstrapState?.active === true) return;
@@ -1295,11 +1142,12 @@ export default function DetailView() {
     financialFetchedOnce,
     financialLoading,
     financialPanel?.bootstrapState?.active,
+    financialBackgroundJobReady,
     headerMode,
   ]);
 
   useEffect(() => {
-    if (!backendReady || !code || headerMode !== "financial") return;
+    if (!backendReady || !code || !financialBackgroundJobReady || headerMode !== "financial") return;
     if (!financialFetchedOnce || financialLoading) return;
     if (!edinetOfficialBackfillRequest) return;
     const requestKey = edinetOfficialBackfillRequest.requestKey;
@@ -1381,6 +1229,7 @@ export default function DetailView() {
     financialFetchedOnce,
     financialLoading,
     financialPanel?.bootstrapState?.active,
+    financialBackgroundJobReady,
     headerMode,
   ]);
 
@@ -1902,6 +1751,29 @@ export default function DetailView() {
   const canShowAnalysis = showBuyAnalysis || showSellAnalysis;
   const analysisLoadingText = analysisLoading ? "読込中..." : null;
   const sellAnalysisLoadingText = sellAnalysisLoading ? "読込中..." : null;
+  const selectedDateKey = useMemo(() => {
+    if (!selectedDate) return null;
+    const normalized = normalizeTime(selectedDate);
+    if (normalized == null) return null;
+    return toDateKey(normalized);
+  }, [selectedDate]);
+  const { items: selectedDayExactDecisionRange } = useExactDecisionRange({
+    backendReady,
+    code,
+    startDt: selectedDateKey,
+    endDt: selectedDateKey,
+    riskMode: analysisRiskMode,
+    enabled: analysisFetchEnabled && showDecisionMarkers && selectedDateKey != null,
+    readyToFetch: analysisNetworkReady,
+    cacheKeyExtra: analysisFetchRefreshToken,
+  });
+  const selectedExactDecisionItem = useMemo(() => {
+    return selectedDayExactDecisionRange[0] ?? null;
+  }, [selectedDayExactDecisionRange]);
+  const selectedExactAnalysisDecision = useMemo(() => {
+    if (!selectedExactDecisionItem) return null;
+    return normalizeAnalysisDecision(selectedExactDecisionItem.decision);
+  }, [selectedExactDecisionItem]);
   const analysisDtLabel = useMemo(() => {
     if (!analysisFallback) return "";
     const normalized = normalizeTime(analysisFallback.dt);
@@ -1917,6 +1789,72 @@ export default function DetailView() {
     const normalized = normalizeTime(sellAnalysisFallback.predDt);
     return formatDateLabel(normalized);
   }, [sellAnalysisFallback]);
+  const selectedAnalysisDtLabel = useMemo(() => {
+    if (!selectedExactDecisionItem) return null;
+    const normalized = normalizeTime(selectedExactDecisionItem.dtKey);
+    return normalized == null ? null : formatDateLabel(normalized);
+  }, [selectedExactDecisionItem]);
+  const analysisDecisionForDisplay = useMemo(() => {
+    if (!selectedExactAnalysisDecision) return analysisDecision;
+    return {
+      ...analysisDecision,
+      tone: selectedExactAnalysisDecision.tone,
+      sideLabel:
+        selectedExactAnalysisDecision.sideLabel ??
+        (selectedExactAnalysisDecision.tone === "up"
+          ? "買い"
+          : selectedExactAnalysisDecision.tone === "down"
+            ? "売り"
+            : "中立"),
+      patternLabel: selectedExactAnalysisDecision.patternLabel ?? analysisDecision.patternLabel,
+      confidence: toFiniteNumber(selectedExactAnalysisDecision.confidence),
+      buyProb: toFiniteNumber(selectedExactAnalysisDecision.buyProb),
+      sellProb: toFiniteNumber(selectedExactAnalysisDecision.sellProb),
+      neutralProb: toFiniteNumber(selectedExactAnalysisDecision.neutralProb),
+    };
+  }, [analysisDecision, selectedExactAnalysisDecision]);
+  const analysisGuidanceForDisplay = useMemo(() => {
+    if (!selectedExactAnalysisDecision) return analysisGuidance;
+    const buyProb = clamp(selectedExactAnalysisDecision.buyProb ?? 0, 0, 1);
+    const sellProb = clamp(selectedExactAnalysisDecision.sellProb ?? 0, 0, 1);
+    const neutralProb = clamp(selectedExactAnalysisDecision.neutralProb ?? 0, 0, 1);
+    const confidence = clamp(selectedExactAnalysisDecision.confidence ?? 0, 0, 1);
+    const confidenceRank = confidence >= 0.66 ? "高" : confidence >= 0.56 ? "中" : "低";
+    const action =
+      selectedExactAnalysisDecision.tone === "up"
+        ? "買い優先"
+        : selectedExactAnalysisDecision.tone === "down"
+          ? "売り優先"
+          : "中立";
+    const watchpoint = selectedAnalysisDtLabel
+      ? `選択日 ${selectedAnalysisDtLabel} の exact decision を表示`
+      : "選択日の exact decision を表示";
+    return {
+      ...analysisGuidance,
+      confidenceRank,
+      action,
+      watchpoint,
+      buyWidth: Math.round(buyProb * 100),
+      sellWidth: Math.round(sellProb * 100),
+      neutralWidth: Math.round(neutralProb * 100),
+      buySetupProb: buyProb,
+      sellSetupProb: sellProb,
+      buySetupWidth: Math.round(buyProb * 100),
+      sellSetupWidth: Math.round(sellProb * 100),
+      buySetupState:
+        selectedExactAnalysisDecision.tone === "up"
+          ? "確定"
+          : selectedExactAnalysisDecision.tone === "down"
+            ? "警戒"
+            : "中立",
+      sellSetupState:
+        selectedExactAnalysisDecision.tone === "down"
+          ? "確定"
+          : selectedExactAnalysisDecision.tone === "up"
+            ? "警戒"
+            : "中立",
+    };
+  }, [analysisGuidance, selectedExactAnalysisDecision, selectedAnalysisDtLabel]);
   const analysisResearchPrior = analysisFallback?.researchPrior ?? null;
   const researchPriorRunId = analysisResearchPrior?.runId ?? null;
   const researchPriorUpMeta = formatResearchPriorMetaLine("研究連携 上", analysisResearchPrior?.up ?? null);
@@ -2063,6 +2001,7 @@ export default function DetailView() {
 
     let disposed = false;
     let timerId: number | null = null;
+    let startTimerId: number | null = null;
     const pollCurrentJob = async () => {
       try {
         const res = await api.get("/jobs/current", { timeout: 4000 });
@@ -2088,9 +2027,14 @@ export default function DetailView() {
       }
     };
 
-    void pollCurrentJob();
+    startTimerId = window.setTimeout(() => {
+      void pollCurrentJob();
+    }, ANALYSIS_JOB_POLL_DELAY_MS);
     return () => {
       disposed = true;
+      if (startTimerId != null) {
+        window.clearTimeout(startTimerId);
+      }
       if (timerId != null) {
         window.clearTimeout(timerId);
       }
@@ -2139,6 +2083,7 @@ export default function DetailView() {
   useEffect(() => {
     setSecondaryFetchStableReady(false);
     setSecondaryJobReady(false);
+    setFinancialBackgroundJobReady(false);
     if (!backendReady || !code || !secondaryFetchReady) return;
     const stableTimerId = window.setTimeout(() => {
       setSecondaryFetchStableReady(true);
@@ -2153,17 +2098,29 @@ export default function DetailView() {
   }, [backendReady, code, compareCode, secondaryFetchReady]);
 
   useEffect(() => {
+    setFinancialBackgroundJobReady(false);
+    if (headerMode !== "financial") return;
+    if (!secondaryJobReady) return;
+    const timerId = window.setTimeout(() => {
+      setFinancialBackgroundJobReady(true);
+    }, FINANCIAL_BACKGROUND_JOB_DELAY_MS);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [code, headerMode, secondaryJobReady]);
+
+  useEffect(() => {
     if (!backendReady) return;
     if (!code) return;
-    const requestKey = buildDetailPrefetchKey(code, dailyLimit, DEFAULT_LIMITS.weekly, monthlyLimit, mainAsOf);
-    const prefetched = readDetailChartPrefetch({
+    const requestParams = {
       code,
       dailyLimit,
       weeklyLimit: DEFAULT_LIMITS.weekly,
       monthlyLimit,
       asof: mainAsOf,
-    });
-    if (hasCompleteDetailChartPrefetch(prefetched)) {
+    };
+    const applyFrames = (frames: ChartPrefetchFrames) => {
+      if (!hasCompleteDetailChartPrefetch(frames)) return false;
       setLoadingDaily(false);
       setLoadingMonthly(false);
       setMainChartPendingSwap(false);
@@ -2172,97 +2129,64 @@ export default function DetailView() {
       setMonthlyErrors([]);
       setDailyBarsMeta(null);
       setMonthlyBarsMeta(null);
-      setDailyData(prefetched.daily.rows);
-      setWeeklyData(prefetched.weekly.rows);
-      setMonthlyData(prefetched.monthly.rows);
-      setBoxes(prefetched.monthly.boxes);
-      setHasMoreDaily(prefetched.daily.rows.length >= dailyLimit);
-      setHasMoreMonthly(prefetched.monthly.rows.length >= monthlyLimit);
+      setDailyData(frames.daily.rows);
+      setWeeklyData(frames.weekly.rows);
+      setMonthlyData(frames.monthly.rows);
+      setBoxes(frames.monthly.boxes);
+      setHasMoreDaily(frames.daily.rows.length >= dailyLimit);
+      setHasMoreMonthly(frames.monthly.rows.length >= monthlyLimit);
       setDailyFetch({
         status: "success",
-        responseCount: prefetched.daily.rows.length,
+        responseCount: frames.daily.rows.length,
         errorMessage: null,
       });
       setWeeklyFetch({
         status: "success",
-        responseCount: prefetched.weekly.rows.length,
+        responseCount: frames.weekly.rows.length,
         errorMessage: null,
       });
       setMonthlyFetch({
         status: "success",
-        responseCount: prefetched.monthly.rows.length,
+        responseCount: frames.monthly.rows.length,
         errorMessage: null,
       });
       rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
-      return;
-    }
+      return true;
+    };
+    const prefetched = readDetailChartPrefetchSync(requestParams);
+    const hasSeed = applyFrames(prefetched);
     let active = true;
-    setLoadingDaily(true);
-    setLoadingMonthly(true);
-    setDailyErrors([]);
-    setWeeklyErrors([]);
-    setMonthlyErrors([]);
-    setDailyBarsMeta(null);
-    setMonthlyBarsMeta(null);
-    setDailyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
-    setWeeklyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
-    setMonthlyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
-    const inFlightPrefetch = chartPrefetchInFlight.get(requestKey);
-    const request = inFlightPrefetch
-      ? inFlightPrefetch
-      : api
-          .post(
-            "/batch_bars_v3",
-            buildDetailBatchBarsRequestPayload({
-              code,
-              dailyLimit,
-              weeklyLimit: DEFAULT_LIMITS.weekly,
-              monthlyLimit,
-              asof: mainAsOf,
-            })
-          )
-          .then((res) =>
-            extractDetailChartFrames({
-              code,
-              dailyLimit,
-              weeklyLimit: DEFAULT_LIMITS.weekly,
-              monthlyLimit,
-              asof: mainAsOf,
-              response: res.data as BatchBarsV3Response | null,
-            })
-          );
-    request
-      .then((frames) => {
+    let refreshTimerId: number | null = null;
+    const controller = new AbortController();
+    if (!hasSeed) {
+      setLoadingDaily(true);
+      setLoadingMonthly(true);
+      setDailyErrors([]);
+      setWeeklyErrors([]);
+      setMonthlyErrors([]);
+      setDailyBarsMeta(null);
+      setMonthlyBarsMeta(null);
+      setDailyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
+      setWeeklyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
+      setMonthlyFetch((prev) => ({ ...prev, status: "loading", errorMessage: null }));
+    }
+    const runNetworkRefresh = async () => {
+      try {
+        const frames = await prefetchDetailChartFrames(requestParams, { signal: controller.signal });
         if (!active) return;
-        const dailyRows = frames.daily?.rows ?? [];
-        const weeklyRows = frames.weekly?.rows ?? [];
-        const monthlyRows = frames.monthly?.rows ?? [];
-        const monthlyBoxes = frames.monthly?.boxes ?? [];
-        setMainChartPendingSwap(false);
-        setDailyData(dailyRows);
-        setWeeklyData(weeklyRows);
-        setMonthlyData(monthlyRows);
-        setBoxes(monthlyBoxes);
-        setDailyErrors(frames.daily ? [] : ["daily_response_invalid"]);
-        setWeeklyErrors(frames.weekly ? [] : ["weekly_response_invalid"]);
-        setMonthlyErrors(frames.monthly ? [] : ["monthly_response_invalid"]);
-        setHasMoreDaily(dailyRows.length >= dailyLimit);
-        setHasMoreMonthly(monthlyRows.length >= monthlyLimit);
-        setDailyFetch({ status: "success", responseCount: dailyRows.length, errorMessage: null });
-        setWeeklyFetch({ status: "success", responseCount: weeklyRows.length, errorMessage: null });
-        setMonthlyFetch({ status: "success", responseCount: monthlyRows.length, errorMessage: null });
-      })
-      .catch((error) => {
+        const applied = applyFrames(frames);
+        if (!applied) {
+          setDailyErrors(frames.daily ? [] : ["daily_response_invalid"]);
+          setWeeklyErrors(frames.weekly ? [] : ["weekly_response_invalid"]);
+          setMonthlyErrors(frames.monthly ? [] : ["monthly_response_invalid"]);
+        }
+      } catch (error) {
         if (!active || isCanceledRequestError(error)) return;
         const message = error?.message || "Bars fetch failed";
         setMainChartPendingSwap(false);
-        setDailyData([]);
-        setWeeklyData([]);
-        setMonthlyData([]);
         setDailyErrors([message]);
         setWeeklyErrors([message]);
         setMonthlyErrors([message]);
-        setBoxes([]);
         setDailyFetch((prev) => ({
           status: "error",
           responseCount: prev.responseCount,
@@ -2278,15 +2202,39 @@ export default function DetailView() {
           responseCount: prev.responseCount,
           errorMessage: message
         }));
-      })
-      .finally(() => {
+      } finally {
         if (!active) return;
         setLoadingDaily(false);
         setLoadingMonthly(false);
         rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
-      });
+      }
+    };
+    void (async () => {
+      let cachedApplied = hasSeed;
+      try {
+        const cached = await loadDetailChartPrefetch(requestParams);
+        if (active) {
+          cachedApplied = applyFrames(cached) || cachedApplied;
+        }
+      } catch {
+        // 永続キャッシュの読み込み失敗は network refresh で補う。
+      }
+      if (!active) return;
+      if (cachedApplied) {
+        refreshTimerId = window.setTimeout(() => {
+          refreshTimerId = null;
+          void runNetworkRefresh();
+        }, DETAIL_CACHE_REFRESH_DELAY_MS);
+        return;
+      }
+      await runNetworkRefresh();
+    })();
     return () => {
       active = false;
+      controller.abort();
+      if (refreshTimerId != null) {
+        window.clearTimeout(refreshTimerId);
+      }
     };
   }, [backendReady, code, dailyLimit, mainAsOf, monthlyLimit]);
 
@@ -2303,88 +2251,97 @@ export default function DetailView() {
   }, [analysisFetchEnabled, dailyFetch.status, routeReadyPhase]);
 
   useEffect(() => {
+    if (!backendReady || dailyFetch.status !== "success" || mainChartPendingSwap) return;
+    const timerId = window.setTimeout(() => {
+      void preloadDetailTabChunks();
+    }, DETAIL_TAB_CHUNK_PRELOAD_DELAY_MS);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [backendReady, dailyFetch.status, mainChartPendingSwap]);
+
+  useEffect(() => {
     if (!backendReady) return;
     if (!compareCode) return;
-    const requestKey = buildDetailPrefetchKey(compareCode, compareDailyLimit, DEFAULT_LIMITS.weekly, monthlyLimit, compareAsOf);
-    const prefetched = readDetailChartPrefetch({
+    const requestParams = {
       code: compareCode,
       dailyLimit: compareDailyLimit,
       weeklyLimit: DEFAULT_LIMITS.weekly,
       monthlyLimit,
       asof: compareAsOf,
-    });
-    if (hasCompleteDetailChartPrefetch(prefetched)) {
+    };
+    const applyCompareFrames = (frames: ChartPrefetchFrames) => {
+      if (!hasCompleteDetailChartPrefetch(frames)) return false;
       setCompareDailyLoading(false);
       setCompareLoading(false);
       setCompareChartPendingSwap(false);
       setCompareDailyErrors([]);
       setCompareMonthlyErrors([]);
-      setCompareDailyData(prefetched.daily.rows);
-      setCompareMonthlyData(prefetched.monthly.rows);
-      setCompareBoxes(prefetched.monthly.boxes);
+      setCompareDailyData(frames.daily.rows);
+      setCompareMonthlyData(frames.monthly.rows);
+      setCompareBoxes(frames.monthly.boxes);
       rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
-      return;
-    }
+      return true;
+    };
+    const prefetched = readDetailChartPrefetchSync(requestParams);
+    const hasSeed = applyCompareFrames(prefetched);
     let active = true;
-    setCompareDailyLoading(true);
-    setCompareLoading(true);
-    setCompareDailyErrors([]);
-    setCompareMonthlyErrors([]);
-    const inFlightPrefetch = chartPrefetchInFlight.get(requestKey);
-    const request = inFlightPrefetch
-      ? inFlightPrefetch
-      : api
-          .post(
-            "/batch_bars_v3",
-            buildDetailBatchBarsRequestPayload({
-              code: compareCode,
-              dailyLimit: compareDailyLimit,
-              weeklyLimit: DEFAULT_LIMITS.weekly,
-              monthlyLimit,
-              asof: compareAsOf,
-            })
-          )
-          .then((res) =>
-            extractDetailChartFrames({
-              code: compareCode,
-              dailyLimit: compareDailyLimit,
-              weeklyLimit: DEFAULT_LIMITS.weekly,
-              monthlyLimit,
-              asof: compareAsOf,
-              response: res.data as BatchBarsV3Response | null,
-            })
-          );
-    request
-      .then((frames) => {
+    let refreshTimerId: number | null = null;
+    const controller = new AbortController();
+    if (!hasSeed) {
+      setCompareDailyLoading(true);
+      setCompareLoading(true);
+      setCompareDailyErrors([]);
+      setCompareMonthlyErrors([]);
+    }
+    const runCompareNetworkRefresh = async () => {
+      try {
+        const frames = await prefetchDetailChartFrames(requestParams, { signal: controller.signal });
         if (!active) return;
-        const dailyRows = frames.daily?.rows ?? [];
-        const monthlyRows = frames.monthly?.rows ?? [];
-        const monthlyBoxes = frames.monthly?.boxes ?? [];
-        setCompareChartPendingSwap(false);
-        setCompareDailyData(dailyRows);
-        setCompareMonthlyData(monthlyRows);
-        setCompareBoxes(monthlyBoxes);
-        setCompareDailyErrors(frames.daily ? [] : ["daily_response_invalid"]);
-        setCompareMonthlyErrors(frames.monthly ? [] : ["monthly_response_invalid"]);
-      })
-      .catch((error) => {
+        const applied = applyCompareFrames(frames);
+        if (!applied) {
+          setCompareDailyErrors(frames.daily ? [] : ["daily_response_invalid"]);
+          setCompareMonthlyErrors(frames.monthly ? [] : ["monthly_response_invalid"]);
+        }
+      } catch (error) {
         if (!active || isCanceledRequestError(error)) return;
         const message = error?.message || "Bars fetch failed";
         setCompareChartPendingSwap(false);
         setCompareDailyErrors([message]);
         setCompareMonthlyErrors([message]);
-        setCompareDailyData([]);
-        setCompareMonthlyData([]);
-        setCompareBoxes([]);
-      })
-      .finally(() => {
+      } finally {
         if (!active) return;
         setCompareDailyLoading(false);
         setCompareLoading(false);
         rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
-      });
+      }
+    };
+    void (async () => {
+      let cachedApplied = hasSeed;
+      try {
+        const cached = await loadDetailChartPrefetch(requestParams);
+        if (active) {
+          cachedApplied = applyCompareFrames(cached) || cachedApplied;
+        }
+      } catch {
+        // 永続キャッシュの読み込み失敗は network refresh で補う。
+      }
+      if (!active) return;
+      if (cachedApplied) {
+        refreshTimerId = window.setTimeout(() => {
+          refreshTimerId = null;
+          void runCompareNetworkRefresh();
+        }, DETAIL_CACHE_REFRESH_DELAY_MS);
+        return;
+      }
+      await runCompareNetworkRefresh();
+    })();
     return () => {
       active = false;
+      controller.abort();
+      if (refreshTimerId != null) {
+        window.clearTimeout(refreshTimerId);
+      }
     };
   }, [backendReady, compareAsOf, compareCode, compareDailyLimit, monthlyLimit]);
 
@@ -2582,41 +2539,54 @@ export default function DetailView() {
     };
   }, [dailyCandles]);
   useEffect(() => {
-    if (!backendReady || !code || !detailMarkerRange) {
+    if (!backendReady || !code || !detailMarkerRange || !secondaryFetchStableReady || mainChartPendingSwap) {
       setPersistedSignalEvents([]);
       setPersistedRankingAppearances([]);
+      setPersistedMarkersLoading(false);
       return;
     }
     let cancelled = false;
-    (async () => {
-      try {
-        const response = await api.get("/signal-tracking/markers", {
-          params: {
-            code,
-            from: detailMarkerRange.from,
-            to: detailMarkerRange.to,
-            logic_version: "latest",
-            ranking_logic_version: "latest",
-          },
-          timeout: 60000,
-        });
-        if (cancelled) return;
-        setPersistedSignalEvents(Array.isArray(response.data?.signal_events) ? response.data.signal_events : []);
-        setPersistedRankingAppearances(
-          Array.isArray(response.data?.ranking_appearances) ? response.data.ranking_appearances : []
-        );
-      } catch (error) {
-        if (!cancelled) {
-          console.error("[detail] persisted markers load failed", error);
-          setPersistedSignalEvents([]);
-          setPersistedRankingAppearances([]);
+    const abortController = new AbortController();
+    setPersistedMarkersLoading(true);
+    const timerId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await api.get("/signal-tracking/markers", {
+            params: {
+              code,
+              from: detailMarkerRange.from,
+              to: detailMarkerRange.to,
+              logic_version: "latest",
+              ranking_logic_version: "latest",
+            },
+            timeout: 60000,
+            signal: abortController.signal,
+          });
+          if (cancelled) return;
+          setPersistedSignalEvents(Array.isArray(response.data?.signal_events) ? response.data.signal_events : []);
+          setPersistedRankingAppearances(
+            Array.isArray(response.data?.ranking_appearances) ? response.data.ranking_appearances : []
+          );
+        } catch (error) {
+          if (!cancelled) {
+            console.error("[detail] persisted markers load failed", error);
+            setPersistedSignalEvents([]);
+            setPersistedRankingAppearances([]);
+          }
+        } finally {
+          if (!cancelled) {
+            setPersistedMarkersLoading(false);
+          }
         }
-      }
-    })();
+      })();
+    }, DETAIL_MARKERS_DELAY_MS);
     return () => {
       cancelled = true;
+      abortController.abort();
+      window.clearTimeout(timerId);
+      setPersistedMarkersLoading(false);
     };
-  }, [backendReady, code, detailMarkerRange]);
+  }, [backendReady, code, detailMarkerRange, mainChartPendingSwap, secondaryFetchStableReady]);
   const monthlyCandles = useMemo(
     () => filterCandlesByAsOf(monthlyParse.candles, mainAsOfTime),
     [monthlyParse.candles, mainAsOfTime]
@@ -3779,6 +3749,244 @@ export default function DetailView() {
     if (!selectedDate) return [];
     return persistedRankingAppearancesByDate.get(selectedDate) ?? [];
   }, [persistedRankingAppearancesByDate, selectedDate]);
+  const selectedCodeRankingAppearances = useMemo(() => {
+    if (!code) return [];
+    return selectedRankingAppearances.filter((item) => {
+      if (!item || typeof item !== "object") return false;
+      return String((item as Record<string, unknown>).code ?? "").trim() === code;
+    });
+  }, [code, selectedRankingAppearances]);
+  const selectedRankingAppearancesForSummary = useMemo(() => {
+    if (!selectedCodeRankingAppearances.length) return [];
+    if (!selectedDate) {
+      const latestDateCandidates = selectedCodeRankingAppearances
+        .map((item) => (typeof (item as Record<string, unknown>).date_iso === "string" ? String((item as Record<string, unknown>).date_iso) : null))
+        .filter((value): value is string => Boolean(value))
+        .sort();
+      const latestDate = latestDateCandidates.length > 0 ? latestDateCandidates[latestDateCandidates.length - 1] : null;
+      if (!latestDate) return selectedCodeRankingAppearances;
+      return selectedCodeRankingAppearances.filter((item) => {
+        const dateIso = String((item as Record<string, unknown>).date_iso ?? "");
+        return dateIso === latestDate;
+      });
+    }
+    return selectedCodeRankingAppearances;
+  }, [selectedCodeRankingAppearances, selectedDate]);
+  const selectedRankingJudgement = useMemo(() => {
+    const empty = {
+      analysisDtLabel: selectedDate ?? null,
+      analysisSummaryLoading: persistedMarkersLoading,
+      analysisMissingDataVisible: false,
+      analysisDecision: {
+        tone: "neutral",
+        sideLabel: null,
+        patternLabel: null,
+        confidence: null,
+        buyProb: null,
+        sellProb: null,
+        neutralProb: null,
+      },
+      analysisGuidance: {
+        confidenceRank: "low",
+        action: "neutral_watch",
+        watchpoint: "no ranking appearance data",
+        buyWidth: 0,
+        sellWidth: 0,
+        neutralWidth: 100,
+        buySetupProb: null,
+        sellSetupProb: null,
+        buySetupWidth: 0,
+        sellSetupWidth: 0,
+        buySetupState: "wait",
+        sellSetupState: "wait",
+      },
+      analysisEntryPolicy: {
+        riskMode: analysisRiskMode,
+        up: null,
+        down: null,
+      },
+      patternSummary: {
+        environmentLabel: "ranking",
+        environmentTone: "neutral",
+        markerTone: "neutral",
+        markerIsSetup: false,
+        scenarios: [],
+      },
+      analysisResearchPrior: null,
+    };
+
+    if (!selectedRankingAppearancesForSummary.length) {
+      return empty;
+    }
+
+    const itemByDir = (dir: "up" | "down") =>
+      (selectedRankingAppearancesForSummary.find((item) => {
+        if (!item || typeof item !== "object") return false;
+        return String((item as Record<string, unknown>).dir ?? "").trim() === dir;
+      }) ?? null) as Record<string, unknown> | null;
+
+    const upItem = itemByDir("up");
+    const downItem = itemByDir("down");
+    const toScore = (item: Record<string, unknown> | null) => {
+      const raw = toFiniteNumber(item?.display_score);
+      return raw == null ? null : clamp(raw / 100, 0, 1);
+    };
+    const upScore = toScore(upItem);
+    const downScore = toScore(downItem);
+    const bestItem =
+      (upScore ?? 0) >= (downScore ?? 0)
+        ? upItem ?? downItem
+        : downItem ?? upItem;
+    const bestScore = Math.max(upScore ?? 0, downScore ?? 0);
+    const scoreGap = Math.abs((upScore ?? 0) - (downScore ?? 0));
+    const bestQualified = Boolean(bestItem?.entry_qualified_at_appearance);
+    const bestTone =
+      bestItem == null || bestScore < 0.26 || (scoreGap < 0.05 && !bestQualified)
+        ? "neutral"
+        : (upScore ?? 0) >= (downScore ?? 0)
+          ? "up"
+          : "down";
+    const confidence = clamp(0.35 + bestScore * 0.75 + scoreGap * 1.2 + (bestQualified ? 0.08 : 0), 0, 1);
+    const confidenceRank = confidence >= 0.7 ? "high" : confidence >= 0.55 ? "mid" : "low";
+    const formatAppearanceSummary = (item: Record<string, unknown> | null) => {
+      if (!item) return null;
+      const parts: string[] = [];
+      const rankValue = toFiniteNumber(item.rank);
+      const scoreValue = toFiniteNumber(item.display_score);
+      const setupType = typeof item.setup_type_at_appearance === "string" ? item.setup_type_at_appearance.trim() : "";
+      const signalState = typeof item.signal_state_at_appearance === "string" ? item.signal_state_at_appearance.trim() : "";
+      if (rankValue != null) parts.push(`rank ${Math.round(rankValue)}`);
+      if (scoreValue != null) parts.push(`score ${formatPercentLabel(scoreValue / 100)}`);
+      if (setupType) parts.push(setupType);
+      if (signalState) parts.push(signalState);
+      if (item.entry_qualified_at_appearance === true) parts.push("entryQualified");
+      return parts.length > 0 ? parts.join(" / ") : null;
+    };
+    const bestSummary = formatAppearanceSummary(bestItem);
+    const buildPolicySide = (item: Record<string, unknown> | null, score: number | null) => {
+      if (!item) return null;
+      const breakStatus = typeof item.break_status === "string" ? item.break_status.trim() : "";
+      const breakReason = typeof item.break_reason === "string" ? item.break_reason.trim() : "";
+      const holdReasonParts = [
+        score != null ? `priority ${formatPercentLabel(score)}` : null,
+        formatAppearanceSummary(item),
+      ].filter(isNonEmptyString);
+      return {
+        setupType: typeof item.setup_type_at_appearance === "string" ? item.setup_type_at_appearance.trim() || null : null,
+        recommendedHoldDays: null,
+        recommendedHoldMinDays: null,
+        recommendedHoldMaxDays: null,
+        recommendedHoldReason: holdReasonParts.length > 0 ? holdReasonParts.join(" / ") : null,
+        invalidationTrigger: breakStatus || null,
+        invalidationConservativeAction: breakStatus ? "exit" : "hold",
+        invalidationAggressiveAction: breakStatus ? "exit" : "hold",
+        invalidationRecommendedAction: breakStatus ? "exit" : "hold",
+        invalidationDotenRecommended: false,
+        invalidationOppositeHoldDays: null,
+        invalidationExpectedDeltaMean: toFiniteNumber(item.current_directional_return ?? item.return_30d ?? null),
+        invalidationPolicyNote: breakReason || null,
+        playbookScoreBonus: score,
+      };
+    };
+    const buyWidth = Math.round((upScore ?? 0) * 100);
+    const sellWidth = Math.round((downScore ?? 0) * 100);
+    const neutralProb = clamp(bestTone === "neutral" ? Math.max(0.55, 1 - bestScore) : 1 - bestScore, 0, 1);
+    const neutralWidth = Math.round(neutralProb * 100);
+    const buySetupState = upItem ? (upItem.entry_qualified_at_appearance === true ? "monitor" : "wait") : "--";
+    const sellSetupState = downItem ? (downItem.entry_qualified_at_appearance === true ? "monitor" : "wait") : "--";
+    const action =
+      bestTone === "up"
+        ? bestQualified
+          ? "buy_watch"
+          : "buy_setup"
+        : bestTone === "down"
+          ? bestQualified
+            ? "sell_watch"
+            : "sell_setup"
+          : "neutral_watch";
+    const watchpoint = [
+      selectedDate ? `date ${selectedDate}` : null,
+      bestSummary,
+      bestItem?.break_status ? `break ${String(bestItem.break_status)}` : null,
+      bestItem?.break_reason ? String(bestItem.break_reason) : null,
+    ].filter(isNonEmptyString).join(" / ") || "no ranking appearance data";
+    const analysisDecision = {
+      tone: bestTone,
+      sideLabel: null,
+      patternLabel: bestSummary,
+      confidence,
+      buyProb: upScore,
+      sellProb: downScore,
+      neutralProb,
+    };
+    const analysisGuidance = {
+      confidenceRank,
+      action,
+      watchpoint,
+      buyWidth,
+      sellWidth,
+      neutralWidth,
+      buySetupProb: upScore,
+      sellSetupProb: downScore,
+      buySetupWidth: buyWidth,
+      sellSetupWidth: sellWidth,
+      buySetupState,
+      sellSetupState,
+    };
+    const analysisEntryPolicy = {
+      riskMode: analysisRiskMode,
+      up: buildPolicySide(upItem, upScore),
+      down: buildPolicySide(downItem, downScore),
+    };
+    const analysisResearchPrior = null;
+    const patternSummary = {
+      environmentLabel: selectedDate ? `ranking ${selectedDate}` : "latest ranking",
+      environmentTone: bestTone,
+      markerTone: bestTone,
+      markerIsSetup: bestQualified,
+      scenarios: [
+        {
+          key: "up",
+          label: "buy",
+          tone: "up",
+          score: upScore ?? 0,
+          reasons: [formatAppearanceSummary(upItem), upItem?.break_status ? `break ${String(upItem.break_status)}` : null].filter(
+            isNonEmptyString
+          ),
+        },
+        {
+          key: "range",
+          label: "neutral",
+          tone: "neutral",
+          score: neutralProb,
+          reasons: [
+            selectedDate ? `date ${selectedDate}` : "latest",
+            bestItem?.entry_qualified_at_appearance === true ? "entryQualified" : "wait",
+          ],
+        },
+        {
+          key: "down",
+          label: "sell",
+          tone: "down",
+          score: downScore ?? 0,
+          reasons: [formatAppearanceSummary(downItem), downItem?.break_status ? `break ${String(downItem.break_status)}` : null].filter(
+            isNonEmptyString
+          ),
+        },
+      ],
+    };
+
+    return {
+      analysisDtLabel: selectedDate ?? (typeof bestItem?.date_iso === "string" ? bestItem.date_iso : null),
+      analysisSummaryLoading: false,
+      analysisMissingDataVisible: false,
+      analysisDecision,
+      analysisGuidance,
+      analysisEntryPolicy,
+      patternSummary,
+      analysisResearchPrior,
+    };
+  }, [analysisRiskMode, formatPercentLabel, selectedCodeRankingAppearances, selectedDate, selectedRankingAppearancesForSummary]);
   const holdDailyChartUntilDecisionReady = false;
   const shouldRenderCompareMonthlyChart = compareMonthlyCandles.length > 0;
   const autoAnalysisBackfillRequest = useMemo(
@@ -4731,25 +4939,69 @@ export default function DetailView() {
     if (index < 0) return null;
     return listCodes[index + 1] ?? null;
   }, [listCodes, code]);
+  const detailPrefetchTargets = useMemo(() => {
+    if (!code) {
+      return {
+        immediate: [] as string[],
+        delayed: [] as string[],
+      };
+    }
+    const index = listCodes.indexOf(code);
+    if (index < 0) {
+      return {
+        immediate: [] as string[],
+        delayed: [] as string[],
+      };
+    }
+    const immediate: string[] = [];
+    const delayed: string[] = [];
+    for (let offset = 1; offset <= 8; offset += 1) {
+      const left = listCodes[index - offset] ?? null;
+      const right = listCodes[index + offset] ?? null;
+      const bucket = offset <= 2 ? immediate : delayed;
+      if (left) bucket.push(left);
+      if (right) bucket.push(right);
+    }
+    return { immediate, delayed };
+  }, [listCodes, code]);
   useEffect(() => {
     if (!backendReady || compareCode) return;
-    if (!prevCode && !nextCode) return;
-    const timerId = window.setTimeout(() => {
-      [prevCode, nextCode].forEach((candidate) => {
-        if (!candidate) return;
-        void prefetchDetailChartFrames({
-          code: candidate,
-          dailyLimit: DEFAULT_LIMITS.daily,
-          weeklyLimit: DEFAULT_LIMITS.weekly,
-          monthlyLimit: DEFAULT_LIMITS.monthly,
-          asof: mainAsOf,
-        });
+    if (dailyFetch.status !== "success") return;
+    if (!detailPrefetchTargets.immediate.length && !detailPrefetchTargets.delayed.length) return;
+    let cancelled = false;
+    const sleep = (delayMs: number) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, delayMs);
       });
-    }, 150);
-    return () => {
-      window.clearTimeout(timerId);
+    const runPrefetchQueue = async (candidates: string[], initialDelayMs: number, stepDelayMs: number) => {
+      for (let index = 0; index < candidates.length; index += 1) {
+        const candidate = candidates[index];
+        if (!candidate) continue;
+        const delayMs = index === 0 ? initialDelayMs : stepDelayMs;
+        await sleep(delayMs);
+        if (cancelled) return;
+        try {
+          await prefetchDetailChartFrames({
+            code: candidate,
+            dailyLimit: DEFAULT_LIMITS.daily,
+            weeklyLimit: DEFAULT_LIMITS.weekly,
+            monthlyLimit: DEFAULT_LIMITS.monthly,
+            asof: mainAsOf,
+          });
+        } catch {
+          // 背景先読みの失敗は現在表示中の詳細チャートに影響させない。
+        }
+      }
     };
-  }, [backendReady, compareCode, mainAsOf, nextCode, prevCode]);
+    void (async () => {
+      await runPrefetchQueue(detailPrefetchTargets.immediate, 120, 160);
+      if (cancelled) return;
+      await runPrefetchQueue(detailPrefetchTargets.delayed, 420, 240);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [backendReady, compareCode, dailyFetch.status, detailPrefetchTargets, mainAsOf]);
   const headerScreenshotButton = (
     <IconButton
       label="スクショ"
@@ -5033,7 +5285,15 @@ export default function DetailView() {
               className="back nav-button"
               onClick={() => {
                 if (!prevCode) return;
-                navigate(`/detail/${prevCode}`, { state: { from: listBackPath } });
+                void openDetailWithPrefetch({
+                  navigate,
+                  code: prevCode,
+                  listCodes,
+                  backPath: listBackPath,
+                  asof: mainAsOf,
+                  backendReady,
+                  prefetchWaitMs: 120,
+                });
               }}
               disabled={!prevCode}
             >
@@ -5046,7 +5306,15 @@ export default function DetailView() {
               className="back nav-button"
               onClick={() => {
                 if (!nextCode) return;
-                navigate(`/detail/${nextCode}`, { state: { from: listBackPath } });
+                void openDetailWithPrefetch({
+                  navigate,
+                  code: nextCode,
+                  listCodes,
+                  backPath: listBackPath,
+                  asof: mainAsOf,
+                  backendReady,
+                  prefetchWaitMs: 120,
+                });
               }}
               disabled={!nextCode}
             >
@@ -5743,6 +6011,21 @@ export default function DetailView() {
                   </div>
                 </ScreenPanel>
                 <Suspense fallback={null}>
+                  <LazyDetailJudgementPanel
+                    analysisDtLabel={selectedRankingJudgement.analysisDtLabel ?? selectedAnalysisDtLabel ?? analysisDtLabel}
+                    analysisSummaryLoading={persistedMarkersLoading && selectedRankingAppearancesForSummary.length === 0}
+                    analysisMissingDataVisible={selectedDate != null && !persistedMarkersLoading && selectedRankingAppearancesForSummary.length === 0}
+                    analysisDecision={selectedRankingJudgement.analysisDecision}
+                    analysisGuidance={selectedRankingJudgement.analysisGuidance}
+                    analysisEntryPolicy={selectedRankingJudgement.analysisEntryPolicy}
+                    patternSummary={selectedRankingJudgement.patternSummary}
+                    analysisResearchPrior={selectedRankingJudgement.analysisResearchPrior}
+                    formatPercentLabel={formatPercentLabel}
+                    formatNumber={formatNumber}
+                    formatSignedPercentLabel={formatSignedPercentLabel}
+                  />
+                </Suspense>
+                <Suspense fallback={null}>
                   <LazyTradexAnalysisMount
                     backendReady={backendReady}
                     readyToFetch={analysisNetworkReady}
@@ -5752,84 +6035,6 @@ export default function DetailView() {
                     formatPercentLabel={formatPercentLabel}
                     formatSignedPercentLabel={formatSignedPercentLabel}
                     formatNumber={formatNumber}
-                  />
-                </Suspense>
-                <Suspense fallback={null}>
-                  <LazyDetailAnalysisPanel
-                    analysisAsOfTime={analysisAsOfTime}
-                    analysisBackfillActive={analysisBackfillActive}
-                    analysisRecalcSubmitting={analysisRecalcSubmitting}
-                    analysisRecalcDisabled={analysisRecalcDisabled}
-                    analysisRecalcDisabledReason={analysisRecalcDisabledReason}
-                    submitAnalysisRecalc={submitAnalysisRecalc}
-                    analysisDtLabel={analysisDtLabel}
-                    cursorMode={cursorMode}
-                    analysisCursorDateLabel={analysisCursorDateLabel}
-                    canShowPhase={canShowPhase}
-                    phaseReasons={phaseReasons}
-                    canShowAnalysis={canShowAnalysis}
-                    analysisDecision={analysisDecision}
-                    analysisSummaryLoading={analysisSummaryLoading}
-                    analysisGuidance={analysisGuidance}
-                    analysisEntryPolicy={analysisEntryPolicy}
-                    patternSummary={patternSummary}
-                    analysisPreparationVisible={analysisPreparationVisible}
-                    analysisBackfillProgressLabel={analysisBackfillProgressLabel}
-                    analysisBackfillMessage={analysisBackfillMessage}
-                    sellAnalysisDtLabel={sellAnalysisDtLabel}
-                    sellPredDtLabel={sellPredDtLabel}
-                    researchPriorRunId={researchPriorRunId}
-                    analysisResearchPrior={analysisResearchPrior}
-                    researchPriorUpMeta={researchPriorUpMeta}
-                    researchPriorDownMeta={researchPriorDownMeta}
-                    edinetStatusMeta={edinetStatusMeta}
-                    edinetQualityMeta={edinetQualityMeta}
-                    edinetMetricsMeta={edinetMetricsMeta}
-                    edinetBonusMeta={edinetBonusMeta}
-                    hasSwingData={hasSwingData}
-                    swingPlan={swingPlan}
-                    swingSideLabel={swingSideLabel}
-                    swingReasonsLabel={swingReasonsLabel}
-                    swingDiagnostics={swingDiagnostics}
-                    swingSetupExpectancy={swingSetupExpectancy}
-                    analysisMissingDataVisible={analysisMissingDataVisible}
-                    decisionHistory={exactDecisionRange}
-                    individualResult={
-                      activeTicker
-                        ? {
-                            setupType: (activeTicker as any).setupType ?? null,
-                            monthlyBoxState: (activeTicker as any).monthlyBoxState ?? (activeTicker as any).boxState ?? null,
-                            tradePriorityScore: (activeTicker as any).tradePriorityScore ?? null,
-                            entryPriorityScore: (activeTicker as any).entryPriorityScore ?? null,
-                            hybridScore: (activeTicker as any).hybridScore ?? null,
-                            entryQualified: (activeTicker as any).entryQualified ?? null,
-                            entryQualifiedByFallback: (activeTicker as any).entryQualifiedByFallback ?? null,
-                            entryQualifiedFallbackStage: (activeTicker as any).entryQualifiedFallbackStage ?? null,
-                            researchPatternTag: (activeTicker as any).researchPatternTag ?? null,
-                            researchDecisionReasons: (activeTicker as any).researchDecisionReasons ?? null,
-                            researchRiskWatch: (activeTicker as any).researchRiskWatch ?? null,
-                            tradeDecisionReasons: (activeTicker as any).tradeDecisionReasons ?? null,
-                            tradeRiskWatch: (activeTicker as any).tradeRiskWatch ?? null,
-                          }
-                        : null
-                    }
-                    qualificationTrace={
-                      qualificationTrace
-                        ? {
-                            todayState: qualificationTrace.today_state ?? null,
-                            lastBuyDateIso: qualificationTrace.last_buy_date_iso ?? null,
-                            lastSellDateIso: qualificationTrace.last_sell_date_iso ?? null,
-                          }
-                        : null
-                    }
-                    persistedSignalEvents={selectedPersistedSignalEvents}
-                    rankingAppearancesOnSelectedDate={selectedRankingAppearances}
-                    formatPercentLabel={formatPercentLabel}
-                    formatNumber={formatNumber}
-                    formatSignedPercentLabel={formatSignedPercentLabel}
-                    onSubmitAnalysisRecalc={() => {
-                      void submitAnalysisRecalc();
-                    }}
                   />
                 </Suspense>
               </>
@@ -5973,6 +6178,3 @@ export default function DetailView() {
     </div>
   );
 }
-
-
-

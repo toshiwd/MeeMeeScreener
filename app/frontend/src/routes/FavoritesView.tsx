@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRef } from "react";
 import type { CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -18,6 +19,8 @@ import {
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
+import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
+import { recordPerfEvent } from "../perfDiagnostics";
 
 type FavoriteItem = {
   code: string;
@@ -31,10 +34,51 @@ type FavoritesResponse = {
 
 type FavoriteSortKey = "code" | "change" | "scoreUp" | "scoreDown";
 const FAVORITES_VIEW_STATE_KEY = "favoritesViewState";
+const FAVORITES_VIEW_CACHE_VERSION = 1;
+const FAVORITES_VIEW_CACHE_KEY = "favoritesViewCache";
+
+type FavoritesViewCacheEntry = {
+  cacheVersion: number;
+  items: FavoriteItem[];
+  updatedAt: number;
+};
+
+const readFavoritesViewCache = (): FavoriteItem[] | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(FAVORITES_VIEW_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<FavoritesViewCacheEntry>;
+    if (
+      parsed.cacheVersion !== FAVORITES_VIEW_CACHE_VERSION ||
+      !Array.isArray(parsed.items)
+    ) {
+      return null;
+    }
+    return parsed.items as FavoriteItem[];
+  } catch {
+    return null;
+  }
+};
+
+const writeFavoritesViewCache = (items: FavoriteItem[]) => {
+  if (typeof window === "undefined") return;
+  try {
+    const payload: FavoritesViewCacheEntry = {
+      cacheVersion: FAVORITES_VIEW_CACHE_VERSION,
+      items,
+      updatedAt: Date.now(),
+    };
+    window.localStorage.setItem(FAVORITES_VIEW_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage failures
+  }
+};
 
 export default function FavoritesView() {
   const location = useLocation();
   const navigate = useNavigate();
+  const initialCachedItems = useMemo(() => readFavoritesViewCache() ?? [], []);
   const { ready: backendReady } = useBackendReadyState();
   const setFavoriteLocal = useStore((state) => state.setFavoriteLocal);
   const replaceFavorites = useStore((state) => state.replaceFavorites);
@@ -54,7 +98,7 @@ export default function FavoritesView() {
   const setColumns = useStore((state) => state.setColumns);
   const setRows = useStore((state) => state.setRows);
 
-  const [items, setItems] = useState<FavoriteItem[]>([]);
+  const [items, setItems] = useState<FavoriteItem[]>(() => initialCachedItems);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<FavoriteSortKey>("code");
   const [loading, setLoading] = useState(false);
@@ -71,6 +115,7 @@ export default function FavoritesView() {
   const [consultSort, setConsultSort] = useState<ConsultationSort>("score");
   const [consultBusy, setConsultBusy] = useState(false);
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
+  const itemsRef = useRef<FavoriteItem[]>(initialCachedItems);
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
   const consultPaddingClass = consultVisible
@@ -78,6 +123,17 @@ export default function FavoritesView() {
       ? "consult-padding-expanded"
       : "consult-padding-mini"
     : "";
+
+  useEffect(() => {
+    recordPerfEvent("favorites_view_mount", {
+      cachedCount: initialCachedItems.length,
+      route: location.pathname,
+    });
+  }, [initialCachedItems.length, location.pathname]);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -137,6 +193,14 @@ export default function FavoritesView() {
     }
   }, [search, sortKey, filterSignalsOnly, filterDataOnly, filterBuySignalsOnly, filterSellSignalsOnly]);
 
+  useEffect(() => {
+    if (!initialCachedItems.length) return;
+    replaceFavorites(initialCachedItems.map((item) => item.code));
+    recordPerfEvent("favorites_cache_hydrated", {
+      count: initialCachedItems.length,
+    });
+  }, [initialCachedItems, replaceFavorites]);
+
   const listStyles = useMemo(
     () =>
     ({
@@ -189,10 +253,17 @@ export default function FavoritesView() {
 
   useEffect(() => {
     if (!backendReady) return;
-    setLoading(true);
+    const cachedItems = readFavoritesViewCache() ?? initialCachedItems;
+    const controller = new AbortController();
+    let cancelled = false;
+    setLoading(cachedItems.length === 0);
+    recordPerfEvent("favorites_fetch_start", {
+      cachedCount: cachedItems.length,
+    });
     api
-      .get("/favorites")
+      .get("/favorites", { signal: controller.signal })
       .then((res) => {
+        if (cancelled) return;
         const payload = res.data as FavoritesResponse & { codes?: string[] };
         let list = Array.isArray(payload.items) ? payload.items : [];
         if (!list.length && Array.isArray(payload.codes)) {
@@ -200,29 +271,51 @@ export default function FavoritesView() {
         }
         setItems(list);
         replaceFavorites(list.map((item) => item.code));
+        writeFavoritesViewCache(list);
+        recordPerfEvent("favorites_fetch_end", {
+          count: list.length,
+        });
       })
       .catch((error) => {
+        if (cancelled) return;
         const err = error as {
           message?: string;
           response?: { status?: number; data?: unknown };
         };
+        if (controller.signal.aborted) return;
         console.error("[favorites] load failed (view)", {
           status: err?.response?.status ?? null,
           data: err?.response?.data ?? null,
           message: err?.message ?? null
         });
-        setItems([]);
-        replaceFavorites([]);
+        recordPerfEvent("favorites_fetch_failed", {
+          status: err?.response?.status ?? null,
+          message: err?.message ?? null,
+          retainedCount: cachedItems.length || itemsRef.current.length,
+        });
         setToastMessage("お気に入りの取得に失敗しました。");
       })
-      .finally(() => setLoading(false));
-  }, [replaceFavorites, backendReady]);
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [replaceFavorites, backendReady, initialCachedItems]);
 
   useEffect(() => {
     if (!backendReady) return;
     if (tickers.length) return;
     ensureListLoaded().catch(() => { });
   }, [backendReady, ensureListLoaded, tickers.length]);
+
+  useEffect(() => {
+    recordPerfEvent("favorites_items_state", {
+      count: items.length,
+      loading,
+    });
+  }, [items.length, loading]);
 
   const tickerMap = useMemo(() => {
     return new Map(tickers.map((ticker) => [ticker.code, ticker]));
@@ -375,15 +468,19 @@ export default function FavoritesView() {
 
   const handleOpenDetail = useCallback(
     (code: string) => {
-      try {
-        sessionStorage.setItem("detailListBack", location.pathname);
-        sessionStorage.setItem("detailListCodes", JSON.stringify(listCodes));
-      } catch {
-        // ignore storage failures
-      }
-      navigate(`/detail/${code}`, { state: { from: location.pathname } });
+      recordPerfEvent("favorites_open_detail", {
+        code,
+        listCount: listCodes.length,
+      });
+      void openDetailWithPrefetch({
+        navigate,
+        code,
+        listCodes,
+        backPath: location.pathname,
+        backendReady,
+      });
     },
-    [navigate, location.pathname, listCodes]
+    [backendReady, listCodes, location.pathname, navigate]
   );
 
   const handleEnsureVisibleItem = useCallback(

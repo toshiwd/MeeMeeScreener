@@ -208,4 +208,47 @@ describe("DetailAnalysisPanel", () => {
     expect(markup).toContain("2026-03-31");
     expect(markup).toContain("upper_rejection_short");
   });
+
+  it("shows the new persisted signal analysis summary", () => {
+    const markup = renderToStaticMarkup(
+      <DetailAnalysisPanel
+        {...baseProps}
+        persistedSignalEvents={[
+          {
+            signalDate: "2026-03-18",
+            side: "buy",
+            setup_type: "breakout",
+            current_directional_return: 0.012,
+            return_30d: 0.031,
+            break_status: "broken",
+            break_reason: "stop5",
+          },
+          {
+            signalDate: "2026-03-19",
+            side: "buy",
+            setup_type: "breakout",
+            current_directional_return: 0.006,
+            return_30d: 0.018,
+            break_status: "completed_clean",
+            break_reason: null,
+          },
+          {
+            signalDate: "2026-03-20",
+            side: "sell",
+            setup_type: "breakdown",
+            current_directional_return: -0.022,
+            return_30d: -0.054,
+            break_status: "broken",
+            break_reason: "box_reclaim",
+          },
+        ]}
+      />
+    );
+
+    expect(markup).toContain("新しい分析");
+    expect(markup).toContain("買い");
+    expect(markup).toContain("売り");
+    expect(markup).toContain("stop5");
+    expect(markup).toContain("box_reclaim");
+  });
 });

@@ -993,7 +993,7 @@ def test_event_image_dataset_pattern_adoption_writes_bridge_snapshot(monkeypatch
     compare["regime_summary"] = [
         {
             "regime_tag": "rebound_onset",
-            "regime_label": "蜿咲匱蛻晏虚",
+            "regime_label": "反発初動",
             "month_count": 1,
             "image_accuracy_mean": 0.6,
             "numeric_accuracy_mean": 0.4,
@@ -1007,7 +1007,7 @@ def test_event_image_dataset_pattern_adoption_writes_bridge_snapshot(monkeypatch
         },
         {
             "regime_tag": "uptrend",
-            "regime_label": "荳頑・繝医Ξ繝ｳ繝・",
+            "regime_label": "上昇トレンド",
             "month_count": 1,
             "image_accuracy_mean": 0.55,
             "numeric_accuracy_mean": 0.45,

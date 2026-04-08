@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:e2e": "playwright test",
+    "test:e2e:meemee-boundary": "playwright test --project=chromium e2e/meemee-boundary.vrt.spec.ts",
     "test:e2e:real": "playwright test e2e/ops-publish.real-backend.smoke.spec.ts",
     "test": "vitest run --config vitest.config.ts",
     "lint:ops-publish": "eslint src/App.tsx src/components/TopNav.tsx src/routes/PublishOpsView.tsx src/routes/PublishOpsView.test.tsx src/routes/PublishOpsRouteGuard.tsx src/routes/PublishOpsRouteGuard.test.tsx src/utils/operatorConsole.ts e2e/ops-publish.smoke.spec.ts e2e/ops-publish.real-backend.smoke.spec.ts",

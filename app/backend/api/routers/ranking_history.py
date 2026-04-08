@@ -23,6 +23,9 @@ def get_ranking_history_appearances(
     from_ymd: int | None = Query(None, alias="from"),
     to_ymd: int | None = Query(None, alias="to"),
     limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    sort: str = Query("recent"),
+    outcome: str = Query("all"),
 ):
     try:
         return signal_tracking_service.list_ranking_appearances(
@@ -35,6 +38,9 @@ def get_ranking_history_appearances(
             from_ymd=from_ymd,
             to_ymd=to_ymd,
             limit=limit,
+            offset=offset,
+            sort=sort,
+            outcome=outcome,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

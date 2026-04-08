@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
+import { useBackendReadyState } from "../backendReady";
 import { useStore } from "../store";
 import { api } from "../api";
 import MarketHeatmapPanel from "../features/market/MarketHeatmapPanel";
@@ -23,7 +24,11 @@ import {
   resolveInitialMarketCursor,
   type StoredMarketViewState
 } from "./marketViewState";
+import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
+import { recordPerfEvent } from "../perfDiagnostics";
 const TIMELINE_LIMIT = 180;
+const MARKET_TIMELINE_CACHE_VERSION = 1;
+const MARKET_TIMELINE_CACHE_PREFIX = "marketTimelineCache";
 
 const PERIOD_OPTIONS: { key: MarketPeriodKey; label: string }[] = [
   { key: "1d", label: "1日" },
@@ -50,6 +55,48 @@ const readStoredState = (): Partial<StoredMarketViewState> | null => {
   }
 };
 
+type MarketTimelineCacheEntry = {
+  cacheVersion: number;
+  period: MarketPeriodKey;
+  frames: MarketTimelineFrame[];
+};
+
+const buildMarketTimelineCacheKey = (period: MarketPeriodKey) =>
+  `${MARKET_TIMELINE_CACHE_PREFIX}:${period}:${TIMELINE_LIMIT}`;
+
+const readMarketTimelineCache = (period: MarketPeriodKey): MarketTimelineFrame[] | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(buildMarketTimelineCacheKey(period));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<MarketTimelineCacheEntry>;
+    if (
+      parsed.cacheVersion !== MARKET_TIMELINE_CACHE_VERSION ||
+      parsed.period !== period ||
+      !Array.isArray(parsed.frames)
+    ) {
+      return null;
+    }
+    return parsed.frames as MarketTimelineFrame[];
+  } catch {
+    return null;
+  }
+};
+
+const writeMarketTimelineCache = (period: MarketPeriodKey, frames: MarketTimelineFrame[]) => {
+  if (typeof window === "undefined") return;
+  try {
+    const payload: MarketTimelineCacheEntry = {
+      cacheVersion: MARKET_TIMELINE_CACHE_VERSION,
+      period,
+      frames
+    };
+    window.localStorage.setItem(buildMarketTimelineCacheKey(period), JSON.stringify(payload));
+  } catch {
+    // ignore storage failures
+  }
+};
+
 const formatSelectedSummary = (item: MarketSectorViewItem | null) => {
   if (!item) return "未選択";
   return `${item.label} ${item.sector33_code}`;
@@ -58,6 +105,7 @@ const formatSelectedSummary = (item: MarketSectorViewItem | null) => {
 export default function MarketView() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { ready: backendReady } = useBackendReadyState();
   const ensureListLoaded = useStore((state) => state.ensureListLoaded);
   const tickers = useStore((state) => state.tickers);
   const keepList = useStore((state) => state.keepList);
@@ -72,6 +120,13 @@ export default function MarketView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cursorInitializedPeriodRef = useRef<MarketPeriodKey | null>(null);
+  const loadingStartedAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    recordPerfEvent("market_view_mount", {
+      route: location.pathname,
+    });
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!ensureListLoaded) return;
@@ -81,8 +136,26 @@ export default function MarketView() {
   useEffect(() => {
     let canceled = false;
     const load = async () => {
-      setLoading(true);
+      const cachedFrames = readMarketTimelineCache(period);
+      if (cachedFrames?.length) {
+        setFrames(cachedFrames);
+        recordPerfEvent("market_timeline_cache_hydrated", {
+          period,
+          frameCount: cachedFrames.length,
+        });
+        if (cursorInitializedPeriodRef.current !== period) {
+          const resolved = resolveInitialMarketCursor(cachedFrames, readStoredState());
+          setCursorIndex(resolved.index);
+          cursorInitializedPeriodRef.current = period;
+        }
+      }
+      setLoading(!cachedFrames?.length);
+      loadingStartedAtRef.current = performance.now();
       setError(null);
+      recordPerfEvent("market_timeline_fetch_start", {
+        period,
+        cachedFrameCount: cachedFrames?.length ?? 0,
+      });
       try {
         const res = await api.get("/market/heatmap/timeline", {
           params: { period, limit: TIMELINE_LIMIT }
@@ -92,6 +165,11 @@ export default function MarketView() {
         const hasItems = rawFrames.some((frame) => Array.isArray(frame.items) && frame.items.length > 0);
         if (rawFrames.length > 0 && hasItems) {
           setFrames(rawFrames);
+          writeMarketTimelineCache(period, rawFrames);
+          recordPerfEvent("market_timeline_fetch_end", {
+            period,
+            frameCount: rawFrames.length,
+          });
           if (cursorInitializedPeriodRef.current !== period) {
             const resolved = resolveInitialMarketCursor(rawFrames, readStoredState());
             setCursorIndex(resolved.index);
@@ -108,6 +186,11 @@ export default function MarketView() {
           items
         };
         setFrames([fallbackFrame]);
+        writeMarketTimelineCache(period, [fallbackFrame]);
+        recordPerfEvent("market_timeline_fallback_used", {
+          period,
+          itemCount: items.length,
+        });
         if (cursorInitializedPeriodRef.current !== period) {
           const resolved = resolveInitialMarketCursor([fallbackFrame], readStoredState());
           setCursorIndex(resolved.index);
@@ -118,10 +201,26 @@ export default function MarketView() {
         const message = loadError instanceof Error && loadError.message.trim()
           ? loadError.message.trim()
           : "市場データの読み込みに失敗しました。";
-        setError(message);
-        setFrames([]);
+        recordPerfEvent("market_timeline_fetch_failed", {
+          period,
+          message,
+          retainedFrameCount: cachedFrames?.length ?? 0,
+        });
+        if (!cachedFrames?.length) {
+          setError(message);
+          setFrames([]);
+        }
       } finally {
-        if (!canceled) setLoading(false);
+        if (!canceled) {
+          setLoading(false);
+          if (loadingStartedAtRef.current != null) {
+            recordPerfEvent("market_loading_state_complete", {
+              period,
+              visibleMs: Number((performance.now() - loadingStartedAtRef.current).toFixed(1)),
+            });
+          }
+          loadingStartedAtRef.current = null;
+        }
       }
     };
     void load();
@@ -210,18 +309,19 @@ export default function MarketView() {
 
   const handleDetailOpen = useCallback(
     (code: string) => {
-      try {
-        sessionStorage.setItem("detailListBack", location.pathname);
-        sessionStorage.setItem(
-          "detailListCodes",
-          JSON.stringify(selectedSectorFallbackItems.map((item) => item.code))
-        );
-      } catch {
-        // ignore storage failures
-      }
-      navigate(`/detail/${code}`, { state: { from: location.pathname } });
+      recordPerfEvent("market_open_detail", {
+        code,
+        listCount: selectedSectorFallbackItems.length,
+      });
+      void openDetailWithPrefetch({
+        navigate,
+        code,
+        listCodes: selectedSectorFallbackItems.map((item) => item.code),
+        backPath: location.pathname,
+        backendReady
+      });
     },
-    [navigate, location.pathname, selectedSectorFallbackItems]
+    [backendReady, navigate, location.pathname, selectedSectorFallbackItems]
   );
 
   const panelItems = selectedSectorFallbackItems;

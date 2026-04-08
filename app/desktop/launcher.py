@@ -44,6 +44,24 @@ def _is_selftest_mode() -> bool:
     return os.getenv("MEEMEE_SELFTEST", "").lower() in ("1", "true", "yes", "on")
 
 
+def _apply_packaged_backend_defaults(env: dict[str, str]) -> None:
+    if not getattr(sys, "frozen", False):
+        return
+    if str(env.get("APP_ENV") or "").lower() not in {"prod", "production"}:
+        return
+    # packaged desktop は閲覧体験を最優先にする。
+    # 重い/壊れている background job は env 明示 opt-in まで既定停止する。
+    env["MEEMEE_EDINET_AUTO_START_ENABLED"] = "0"
+    env["MEEMEE_EDINET_EMPTY_DB_BACKFILL_ENABLED"] = "0"
+    env["MEEMEE_YF_DAILY_INGEST_ENABLED"] = "0"
+    env["MEEMEE_YF_DAILY_INGEST_INTRADAY_ENABLED"] = "0"
+    env["MEEMEE_SCREENER_SNAPSHOT_ENABLED"] = "0"
+    env["MEEMEE_RANKINGS_WARMUP_ENABLED"] = "0"
+    env["MEEMEE_ANALYSIS_PREWARM_ENABLED"] = "0"
+    env["MEEMEE_RANK_QUALITY_ENABLED"] = "0"
+    env["MEEMEE_PUBLISH_CANDIDATE_MAINTENANCE_ENABLED"] = "0"
+
+
 def _storage_app_name() -> str:
     if _is_selftest_mode():
         return f"{APP_NAME}-selftest"
@@ -1218,6 +1236,7 @@ def _configure_environment(paths: dict[str, str]) -> None:
     else:
         os.environ["PAN_EXPORT_VBS_PATH"] = resolve_path("tools", "export_pan.vbs")
     os.environ["PAN_CODE_TXT_PATH"] = paths["code_txt"]
+    _apply_packaged_backend_defaults(os.environ)
     os.environ["STATIC_DIR"] = resolve_path("app", "backend", "static")
     os.environ["TRADE_CSV_DIR"] = paths["csv_dir"]
     os.environ.setdefault(
@@ -1298,6 +1317,10 @@ def _start_backend_process(port: int, backend_log_path: str) -> tuple[subprocess
     env["MEEMEE_BACKEND_ONLY"] = "1"
     env["MEEMEE_BACKEND_PORT"] = str(port)
     env.setdefault("PYTHONUNBUFFERED", "1")
+    _apply_packaged_backend_defaults(env)
+    if getattr(sys, "frozen", False) and str(env.get("APP_ENV") or "").lower() in {"prod", "production"}:
+        # packaged desktop では detail 操作を最優先し、壊れている auto-start job による DB 競合を避ける。
+        env.setdefault("MEEMEE_EDINET_AUTO_START_ENABLED", "0")
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     cmd = _backend_command()
     if _is_dev_mode() and not getattr(sys, "frozen", False):
@@ -1333,6 +1356,7 @@ def _stop_backend_process(proc: subprocess.Popen | None, log_handle: object | No
 
 
 def _run_backend_only() -> None:
+    _configure_windows_backend_event_loop_policy()
     from importlib import import_module
     import uvicorn
 
@@ -1353,6 +1377,25 @@ def _run_backend_only() -> None:
     )
     server = uvicorn.Server(config=config)
     server.run()
+
+
+def _configure_windows_backend_event_loop_policy() -> None:
+    """Windows packaged backend では selector policy を使い、accept 不安定を避ける。"""
+    if os.name != "nt":
+        return
+    try:
+        import asyncio
+
+        current = asyncio.get_event_loop_policy()
+        selector_cls = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
+        if selector_cls is None:
+            return
+        if isinstance(current, selector_cls):
+            return
+        asyncio.set_event_loop_policy(selector_cls())
+        print("[launcher] Using WindowsSelectorEventLoopPolicy for backend.")
+    except Exception as exc:
+        print(f"[launcher] Failed to set WindowsSelectorEventLoopPolicy: {exc}")
 
 
 def _run_selftest() -> int:
@@ -1586,6 +1629,255 @@ def main() -> None:
         import base64
 
         class JsApi:
+            def _perf_diagnostics_dir(self) -> Path:
+                return Path(paths["logs_dir"]) / "perf-diagnostics"
+
+            def _ensure_perf_diagnostics_dir(self) -> Path:
+                directory = self._perf_diagnostics_dir()
+                directory.mkdir(parents=True, exist_ok=True)
+                return directory
+
+            def _next_perf_diagnostics_path(self, directory: Path, name: str, suffix: str) -> Path:
+                safe_name = Path(str(name)).name.strip() or "perf-diagnostics"
+                safe_suffix = suffix if suffix.startswith(".") else f".{suffix}"
+                if not safe_name.lower().endswith(safe_suffix.lower()):
+                    safe_name = f"{safe_name}{safe_suffix}"
+
+                candidate = directory / safe_name
+                if not candidate.exists():
+                    return candidate
+
+                stem = Path(safe_name).stem
+                ext = Path(safe_name).suffix or safe_suffix
+                stamp = time.strftime("%Y%m%d-%H%M%S")
+                for index in range(1, 1000):
+                    candidate = directory / f"{stem}-{stamp}-{index:03d}{ext}"
+                    if not candidate.exists():
+                        return candidate
+                return directory / f"{stem}-{time.time_ns()}{ext}"
+
+            def _write_perf_diagnostics_file(self, directory: Path, name: str, content: object) -> str:
+                text_mode = isinstance(content, str)
+                if isinstance(content, (bytes, bytearray)):
+                    file_path = self._next_perf_diagnostics_path(directory, name, ".bin")
+                    with open(file_path, "wb") as f:
+                        f.write(bytes(content))
+                    return str(file_path)
+
+                if text_mode:
+                    suffix = ".jsonl" if "\n" in content or name.lower().endswith(".jsonl") else ".json"
+                    file_path = self._next_perf_diagnostics_path(directory, name, suffix)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    return str(file_path)
+
+                file_path = self._next_perf_diagnostics_path(directory, name, ".json")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(content, f, ensure_ascii=False, indent=2)
+                    f.write("\n")
+                return str(file_path)
+
+            def _append_perf_diagnostics_backend_tail(
+                self,
+                directory: Path,
+                written_files: list[str],
+            ) -> None:
+                backend_log_path = Path(paths["logs_dir"]) / "backend.log"
+                if not backend_log_path.exists():
+                    return
+                log_tail, log_err = _tail_file(str(backend_log_path), 200)
+                payload = {
+                    "path": str(backend_log_path),
+                    "tail": log_tail,
+                    "error": log_err,
+                }
+                written_files.append(
+                    self._write_perf_diagnostics_file(
+                        directory,
+                        "backend-log-tail",
+                        payload,
+                    )
+                )
+
+            def _build_perf_diagnostics_response(
+                self,
+                directory: Path,
+                written_files: list[str],
+                *,
+                include_existing: bool = False,
+            ) -> dict:
+                self._append_perf_diagnostics_backend_tail(directory, written_files)
+                response = {
+                    "success": True,
+                    "directory": str(directory),
+                    "writtenFiles": written_files,
+                }
+                if include_existing:
+                    response["existingFiles"] = [
+                        str(path)
+                        for path in sorted(directory.iterdir())
+                        if path.is_file()
+                    ]
+                return response
+
+            def export_perf_diagnostics(self, payload: object = None) -> dict:
+                try:
+                    directory = self._ensure_perf_diagnostics_dir()
+                    written_files: list[str] = []
+
+                    if payload is None:
+                        return self._build_perf_diagnostics_response(
+                            directory,
+                            written_files,
+                            include_existing=True,
+                        )
+
+                    if isinstance(payload, dict):
+                        files = payload.get("files")
+                        if isinstance(files, list) and files:
+                            for entry in files:
+                                if isinstance(entry, dict):
+                                    entry_name = str(
+                                        entry.get("name")
+                                        or entry.get("filename")
+                                        or entry.get("path")
+                                        or f"perf-diagnostics-{time.time_ns()}"
+                                    )
+                                    if "content" in entry:
+                                        written_files.append(
+                                            self._write_perf_diagnostics_file(
+                                                directory,
+                                                entry_name,
+                                                entry["content"],
+                                            )
+                                        )
+                                    elif "text" in entry:
+                                        written_files.append(
+                                            self._write_perf_diagnostics_file(
+                                                directory,
+                                                entry_name,
+                                                entry["text"],
+                                            )
+                                        )
+                                elif isinstance(entry, str):
+                                    written_files.append(
+                                        self._write_perf_diagnostics_file(
+                                            directory,
+                                            f"perf-diagnostics-{time.time_ns()}",
+                                            entry,
+                                        )
+                                    )
+                            return self._build_perf_diagnostics_response(directory, written_files)
+
+                        content = payload.get("content")
+                        if content is not None:
+                            written_files.append(
+                                self._write_perf_diagnostics_file(
+                                    directory,
+                                    str(
+                                        payload.get("name")
+                                        or payload.get("filename")
+                                        or payload.get("path")
+                                        or f"perf-diagnostics-{time.time_ns()}"
+                                    ),
+                                    content,
+                                )
+                            )
+                            return self._build_perf_diagnostics_response(directory, written_files)
+
+                        if "jsonl" in payload:
+                            written_files.append(
+                                self._write_perf_diagnostics_file(
+                                    directory,
+                                    str(
+                                        payload.get("name")
+                                        or payload.get("filename")
+                                        or f"perf-diagnostics-{time.time_ns()}"
+                                    ),
+                                    str(payload["jsonl"]),
+                                )
+                            )
+                            return self._build_perf_diagnostics_response(directory, written_files)
+
+                        written_files.append(
+                            self._write_perf_diagnostics_file(
+                                directory,
+                                str(
+                                    payload.get("name")
+                                    or payload.get("filename")
+                                    or f"perf-diagnostics-{time.time_ns()}"
+                                ),
+                                payload,
+                            )
+                        )
+                        return self._build_perf_diagnostics_response(directory, written_files)
+
+                    if isinstance(payload, list):
+                        written_files.append(
+                            self._write_perf_diagnostics_file(
+                                directory,
+                                f"perf-diagnostics-{time.time_ns()}",
+                                payload,
+                            )
+                        )
+                        return self._build_perf_diagnostics_response(directory, written_files)
+
+                    if isinstance(payload, (str, bytes, bytearray)):
+                        written_files.append(
+                            self._write_perf_diagnostics_file(
+                                directory,
+                                f"perf-diagnostics-{time.time_ns()}",
+                                payload,
+                            )
+                        )
+                        return self._build_perf_diagnostics_response(directory, written_files)
+
+                    written_files.append(
+                        self._write_perf_diagnostics_file(
+                            directory,
+                            f"perf-diagnostics-{time.time_ns()}",
+                            payload,
+                        )
+                    )
+                    return self._build_perf_diagnostics_response(directory, written_files)
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": str(e),
+                    }
+
+            def clear_perf_diagnostics(self) -> dict:
+                try:
+                    directory = self._ensure_perf_diagnostics_dir()
+                    removed_count = 0
+                    for entry in list(directory.iterdir()):
+                        try:
+                            if entry.is_dir():
+                                shutil.rmtree(entry)
+                            else:
+                                entry.unlink()
+                            removed_count += 1
+                        except FileNotFoundError:
+                            continue
+                    return {
+                        "success": True,
+                        "directory": str(directory),
+                        "removedCount": removed_count,
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "error": str(e),
+                    }
+
+            def open_perf_diagnostics_dir(self) -> bool:
+                try:
+                    directory = self._ensure_perf_diagnostics_dir()
+                    os.startfile(str(directory))
+                    return True
+                except Exception:
+                    return False
+
             def save_screenshot(self, data_uri: str, filename: str) -> dict:
                 try:
                     # Remove header if present (data:image/png;base64,...)

@@ -27,12 +27,15 @@ describe("TrackingView", () => {
     expect(render.html()).toContain("Completed");
     expect(render.html()).toContain("Archive");
     expect(render.html()).toContain("rank bucket");
+    expect(render.html()).toContain("結果");
+    expect(render.html()).toContain("並び順");
+    expect(render.html()).toContain(">2Y<");
     expect(render.html()).not.toContain("tracking-drawer-backdrop");
   });
 
   it("accepts signal query params for initial filtering", async () => {
     render = await renderClient(
-      <MemoryRouter initialEntries={["/ranking/tracking?view=signal&q=4444&side=sell&logic_version=logic:test:v2"]}>
+      <MemoryRouter initialEntries={["/ranking/tracking?view=signal&q=4444&side=sell&logic_version=logic:test:v2&outcome=bad&sort=worst"]}>
         <TrackingView />
       </MemoryRouter>
     );
@@ -40,6 +43,8 @@ describe("TrackingView", () => {
     expect(render.html()).toContain('value="4444"');
     expect(render.html()).toContain("コード / 銘柄名");
     expect(render.html()).toContain("logic version");
+    expect(render.html()).toContain('value="bad"');
+    expect(render.html()).toContain('value="worst"');
   });
 
   it("renders the analysis shell when analysis mode is selected", async () => {

@@ -374,6 +374,12 @@ const createDeferred = <T,>() => {
   return { promise, resolve, reject };
 };
 
+const createTimeoutError = (message = "timeout of 15000ms exceeded") => {
+  const error = new Error(message) as Error & { code?: string };
+  error.code = "ECONNABORTED";
+  return error;
+};
+
 const createBarsFrame = (time: number, base: number) => ({
   bars: [[time, base, base + 2, base - 2, base + 1, base * 10]],
 });
@@ -466,7 +472,8 @@ describe("DetailView", () => {
     render.cleanup();
   });
 
-  it("stays mounted after switching to financial mode and requesting official EDINET backfill", async () => {
+  it("stays mounted after switching to financial mode", async () => {
+    vi.useFakeTimers();
     mocks.backendReadyRef.value = true;
     mocks.apiGet.mockImplementation((url: string) => {
       if (url === "/ticker/edinet/financials") {
@@ -517,22 +524,18 @@ describe("DetailView", () => {
     await act(async () => {
       financialTab?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(7000);
+      await vi.runAllTimersAsync();
+      await flushMicrotasks();
     });
 
     expect(mocks.apiGet).toHaveBeenCalledWith("/ticker/edinet/financials", { params: { code: "7203" } });
-    expect(mocks.apiPost).toHaveBeenCalledWith(
-      "/jobs/edinet/official-backfill",
-      null,
-      expect.objectContaining({
-        params: { code: "7203" },
-      })
-    );
     expect(container.querySelector("[data-testid='detail-header-chrome']")).not.toBeNull();
 
     render.cleanup();
   });
 
-  it("renders both TRADEX and legacy analysis panels on analysis mode", async () => {
+  it("renders TRADEX analysis and hides the legacy panel on analysis mode", async () => {
     const render = await renderDetailView();
     const { container } = render;
     const analysisTab = container.querySelector("[data-testid='analysis-tab']");
@@ -544,7 +547,7 @@ describe("DetailView", () => {
     });
 
     expect(await waitForSelector(container, "[data-testid='tradex-analysis-panel']")).not.toBeNull();
-    expect(await waitForSelector(container, "[data-testid='legacy-analysis-panel']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='legacy-analysis-panel']")).toBeNull();
 
     render.cleanup();
   });
@@ -615,52 +618,87 @@ describe("DetailView", () => {
     render.cleanup();
   });
 
-  it("keeps the previous chart rendered while the next-code session is still loading", async () => {
-    vi.useFakeTimers();
+  it("shows loading with empty charts when the detail bars request is still loading", async () => {
     mocks.backendReadyRef.value = true;
     mocks.storeState.tickers = [
-      { code: "9201", name: "Gamma Corp", close: 1200, chg1D: 0.03 },
       { code: "9202", name: "Delta Corp", close: 1300, chg1D: -0.04 },
     ];
-    window.sessionStorage.setItem("detailListCodes", JSON.stringify(["9201", "9202"]));
     const nextDeferred = createDeferred<{ data: { items: Record<string, unknown> } }>();
     mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
       if (url !== "/batch_bars_v3") {
         return Promise.resolve({ data: {} });
       }
       const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
-      if (code === "9201") {
-        return Promise.resolve(createBarsResponse("9201", 1000));
-      }
       if (code === "9202") {
         return nextDeferred.promise;
       }
       return Promise.resolve({ data: { items: {} } });
     });
 
-    const render = await renderDetailView("/detail/9201");
+    const render = await renderDetailView("/detail/9202");
     const { container } = render;
 
     await act(async () => {
       await flushMicrotasks();
-    });
-
-    const nextButton = findNextButton(container);
-    expect(nextButton).not.toBeNull();
-
-    await act(async () => {
-      nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await flushMicrotasks();
     });
 
-    expect(container.textContent).not.toContain("Daily: Loading...");
-    expect(container.textContent).not.toContain("Weekly: Loading...");
-    expect(container.textContent).not.toContain("Monthly: Loading...");
+    expect(container.textContent).toContain("9202");
+    expect(container.textContent).toContain("Daily: Loading...");
+    expect(container.textContent).toContain("Weekly: Loading...");
+    expect(container.textContent).toContain("Monthly: Loading...");
+    const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
+    expect(chartNodes.length).toBeGreaterThan(0);
+    for (const chartNode of chartNodes) {
+      expect(chartNode.getAttribute("data-candles")).toBe("0");
+    }
 
     await act(async () => {
       nextDeferred.resolve(createBarsResponse("9202", 2000));
       await flushMicrotasks();
     });
+
+    render.cleanup();
+  });
+
+  it("keeps charts empty for the target code when the detail bars request times out", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.storeState.tickers = [
+      { code: "9302", name: "Zeta Corp", close: 1500, chg1D: -0.03 },
+    ];
+    mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
+      if (url !== "/batch_bars_v3") {
+        return Promise.resolve({ data: {} });
+      }
+      const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
+      if (code === "9302") {
+        return Promise.reject(createTimeoutError());
+      }
+      return Promise.resolve({ data: { items: {} } });
+    });
+
+    const render = await renderDetailView("/detail/9302");
+    const { container } = render;
+
+    await act(async () => {
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    const chartNodes = Array.from(container.querySelectorAll("[data-testid='detail-chart']"));
+    expect(chartNodes.length).toBeGreaterThan(0);
+    expect(container.textContent).toContain("9302");
+    for (const chartNode of chartNodes) {
+      expect(chartNode.getAttribute("data-candles")).toBe("0");
+    }
+
+    const timedOutCalls = mocks.apiPost.mock.calls.filter(
+      ([url, payload]) =>
+        url === "/batch_bars_v3" &&
+        Array.isArray((payload as { codes?: unknown[] } | undefined)?.codes) &&
+        (payload as { codes?: unknown[] }).codes?.[0] === "9302"
+    );
+    expect(timedOutCalls.length).toBeGreaterThanOrEqual(1);
 
     render.cleanup();
   });

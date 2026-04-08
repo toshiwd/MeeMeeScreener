@@ -234,6 +234,60 @@ const formatTradeTodayState = (state?: "buy" | "sell" | "wait" | "both" | null) 
   return "見送り";
 };
 
+type PersistedSignalEventSummary = {
+  side: "buy" | "sell";
+  total: number;
+  broken: number;
+  clean: number;
+  active: number;
+  avgCurrentDirectionalReturn: number | null;
+  avgReturn30d: number | null;
+  topBreakReasons: Array<{ reason: string; count: number }>;
+};
+
+const summarizePersistedSignalEvents = (items: PersistedSignalEventItem[]): PersistedSignalEventSummary[] => {
+  const grouped: Record<"buy" | "sell", PersistedSignalEventItem[]> = { buy: [], sell: [] };
+  for (const item of items) {
+    grouped[item.side === "sell" ? "sell" : "buy"].push(item);
+  }
+
+  return (["buy", "sell"] as const).map((side) => {
+    const subset = grouped[side];
+    const brokenItems = subset.filter((item) => item.break_status === "broken");
+    const cleanItems = subset.filter((item) => item.break_status === "completed_clean");
+    const activeCount = subset.length - brokenItems.length - cleanItems.length;
+
+    const average = (selector: (item: PersistedSignalEventItem) => number | null | undefined) => {
+      const values = subset.map(selector).filter((value): value is number => Number.isFinite(value));
+      if (values.length === 0) return null;
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    };
+
+    const breakReasonCounts = new Map<string, number>();
+    for (const item of brokenItems) {
+      const reason = item.break_reason?.trim();
+      if (!reason) continue;
+      breakReasonCounts.set(reason, (breakReasonCounts.get(reason) ?? 0) + 1);
+    }
+
+    const topBreakReasons = [...breakReasonCounts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja"))
+      .slice(0, 3)
+      .map(([reason, count]) => ({ reason, count }));
+
+    return {
+      side,
+      total: subset.length,
+      broken: brokenItems.length,
+      clean: cleanItems.length,
+      active: activeCount,
+      avgCurrentDirectionalReturn: average((item) => item.current_directional_return),
+      avgReturn30d: average((item) => item.return_30d),
+      topBreakReasons,
+    };
+  });
+};
+
 export function DetailAnalysisPanel(props: Props) {
   const {
     analysisAsOfTime,
@@ -285,12 +339,30 @@ export function DetailAnalysisPanel(props: Props) {
   const sellPolicy = analysisEntryPolicy?.down ?? null;
   const researchPriorUp = analysisResearchPrior?.up ?? null;
   const effectiveBuySetupType = resolveEffectiveBuySetupType(buyPolicy?.setupType, researchPriorUp);
+  const persistedSignalEventSummaries = summarizePersistedSignalEvents(persistedSignalEvents);
 
   return (
     <ScreenPanel title="従来判定" className="detail-analysis-panel">
       <div className="detail-analysis-body">
         <div className="detail-analysis-meta">日々の売買判定 / read only</div>
         {analysisDtLabel && <div className="detail-analysis-meta">基準日 {analysisDtLabel}</div>}
+                <div className="detail-analysis-section">
+                  <div className="detail-analysis-section-title">新しい分析</div>
+                  {persistedSignalEventSummaries.some((item) => item.total > 0) ? (
+                    persistedSignalEventSummaries.map((summary) => (
+                      <div key={summary.side} className="detail-analysis-meta">
+                        {summary.side === "buy" ? "買い" : "売り"} / n {formatNumber(summary.total, 0)} / broken {formatNumber(summary.broken, 0)} / clean {formatNumber(summary.clean, 0)} / active {formatNumber(summary.active, 0)} / 現在 {formatSignedPercentLabel(summary.avgCurrentDirectionalReturn)} / 30日 {formatSignedPercentLabel(summary.avgReturn30d)}
+                        {summary.topBreakReasons.length > 0 && (
+                          <div className="detail-analysis-meta">
+                            主因 {summary.topBreakReasons.map((reason) => `${reason.reason} x${reason.count}`).join(" / ")}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="detail-analysis-meta">新しい分析データなし</div>
+                  )}
+                </div>
         {canShowAnalysis ? (
           <>
             <div className="detail-analysis-section">

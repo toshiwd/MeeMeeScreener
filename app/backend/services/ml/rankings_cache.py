@@ -72,6 +72,13 @@ _TRACE_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
 _TRACE_CACHE_MAX = 16
 
 
+def _log_rankings_timing(tag: str, payload: dict[str, Any]) -> None:
+    try:
+        logger.debug("%s %s", tag, json.dumps(payload, ensure_ascii=False, default=str))
+    except Exception as exc:
+        logger.debug("%s logging failed: %s", tag, exc)
+
+
 def _analysis_provisional_enabled() -> bool:
     raw = os.getenv("MEEMEE_ANALYSIS_PROVISIONAL_ENABLED")
     if raw is None:
@@ -6106,9 +6113,14 @@ def _build_rankings_response(
     risk_mode: RankRiskMode,
     cache_generation: int,
 ) -> dict[str, Any]:
+    build_started_at = time.perf_counter()
+    phase_timings: dict[str, float] = {}
     effective_mode = _resolve_effective_rank_mode(mode)
     cache_key: RankBaseCacheKey = (tf, which, direction)
+    phase_started_at = time.perf_counter()
     items, last_updated = _load_live_cache_items(cache_key)
+    phase_timings["load_live_cache_items_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
+    phase_started_at = time.perf_counter()
     source_items = _copy_rank_items(items)
     legacy_analysis_disabled = is_legacy_analysis_disabled()
     candidate_source = _candidate_source_for_mode(
@@ -6118,6 +6130,7 @@ def _build_rankings_response(
 
     pred_dt = None
     model_version = None
+    phase_started_at = time.perf_counter()
     if effective_mode == "rule":
         out_items = _decorate_rule_items_with_entry_gate(
             source_items[:limit],
@@ -6146,6 +6159,8 @@ def _build_rankings_response(
             limit=limit,
             risk_mode=risk_mode,
         )
+    phase_timings["apply_mode_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
+    phase_started_at = time.perf_counter()
     out_items, pred_dt, model_version = _fallback_down_ml_items_when_empty(
         tf=tf,
         direction=direction,
@@ -6157,6 +6172,9 @@ def _build_rankings_response(
         pred_dt=pred_dt,
         model_version=model_version,
     )
+    phase_timings["fallback_down_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
+    phase_started_at = time.perf_counter()
+    monthly_edinet_ms = 0.0
     if tf == "M" and effective_mode in {"hybrid", "trade"}:
         flag_applied = _is_edinet_bonus_enabled()
         out_items = [_apply_edinet_defaults(dict(item), flag_applied=flag_applied) for item in out_items]
@@ -6168,15 +6186,23 @@ def _build_rankings_response(
             risk_mode=risk_mode,
             items=out_items,
         )
+        monthly_edinet_ms = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
+        phase_started_at = time.perf_counter()
+    phase_timings["monthly_edinet_ms"] = monthly_edinet_ms
     out_items = _attach_quality_flags(
         out_items,
         mode=effective_mode,
         direction=direction,
     )
+    phase_timings["quality_flags_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
+    phase_started_at = time.perf_counter()
     out_items = _attach_swing_fields(
         out_items,
         direction=direction,
     )
+    phase_timings["swing_fields_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
+    phase_started_at = time.perf_counter()
+    trade_priority_ms = 0.0
     if effective_mode == "trade":
         scored_items = _copy_rank_items(out_items)
         _apply_trade_priority_scores(scored_items, direction=direction)
@@ -6192,7 +6218,12 @@ def _build_rankings_response(
                 item.get("code", ""),
             )
         )
+    trade_priority_ms = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
+    phase_timings["trade_priority_ms"] = trade_priority_ms
+    phase_started_at = time.perf_counter()
     out_items = [_sanitize_rank_item_for_json(item) for item in out_items]
+    phase_timings["sanitize_ms"] = round((time.perf_counter() - phase_started_at) * 1000.0, 3)
+    total_ms = round((time.perf_counter() - build_started_at) * 1000.0, 3)
 
     try:
         top_items = out_items[:10] if out_items else []
@@ -6227,6 +6258,27 @@ def _build_rankings_response(
         logger.debug("rank_request %s", json.dumps(log_payload, ensure_ascii=False))
     except Exception as exc:
         logger.debug("rank_request debug logging failed: %s", exc)
+    _log_rankings_timing(
+        "rank_build_timing",
+        {
+            "tf": tf,
+            "which": which,
+            "direction": direction,
+            "mode": effective_mode,
+            "risk_mode": risk_mode,
+            "limit": limit,
+            "cache_generation": cache_generation,
+            "legacy_analysis_disabled": legacy_analysis_disabled,
+            "candidate_source": candidate_source,
+            "source_count": len(source_items),
+            "result_count": len(out_items),
+            "pred_dt": pred_dt,
+            "model_version": model_version,
+            "last_updated": last_updated.isoformat() if last_updated else None,
+            "total_ms": total_ms,
+            "phases": phase_timings,
+        },
+    )
     return {
         "tf": tf,
         "which": which,
@@ -6266,8 +6318,12 @@ def _get_cached_rankings_response(
         edinet_flag_key,
     )
     base_cache_key: RankBaseCacheKey = (tf, which, direction)
+    cold_started_at = time.perf_counter()
+    freshness_wait_ms = 0.0
     while True:
+        freshness_started_at = time.perf_counter()
         _ensure_cache_fresh_stale_ok(key=base_cache_key)
+        freshness_wait_ms += round((time.perf_counter() - freshness_started_at) * 1000.0, 3)
         with _LOCK:
             cached = _RESULT_CACHE.get(result_key)
             if cached is not None:
@@ -6287,6 +6343,7 @@ def _get_cached_rankings_response(
             build_generation = _RESULT_CACHE_GENERATION
             _RESULT_REFRESH_IN_PROGRESS[result_key] = build_generation
             _RESULT_REFRESH_LAST_ERROR.pop(result_key, None)
+        build_started_at = time.perf_counter()
         try:
             payload = _build_rankings_response(
                 tf,
@@ -6298,18 +6355,59 @@ def _get_cached_rankings_response(
                 cache_generation=build_generation,
             )
         except Exception as exc:
+            build_ms = round((time.perf_counter() - build_started_at) * 1000.0, 3)
             with _LOCK:
                 _RESULT_REFRESH_IN_PROGRESS.pop(result_key, None)
                 if _RESULT_CACHE_GENERATION == build_generation:
                     _RESULT_REFRESH_LAST_ERROR[result_key] = (build_generation, exc)
-                _RESULT_REFRESH_COND.notify_all()
+                    _RESULT_REFRESH_COND.notify_all()
+            _log_rankings_timing(
+                "rank_result_cache_cold_path",
+                {
+                    "tf": tf,
+                    "which": which,
+                    "direction": direction,
+                    "mode": mode,
+                    "risk_mode": risk_mode,
+                    "limit": limit,
+                    "result_key": str(result_key),
+                    "cache_generation": build_generation,
+                    "freshness_wait_ms": freshness_wait_ms,
+                    "build_ms": build_ms,
+                    "store_ms": 0.0,
+                    "status": "error",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "total_ms": round((time.perf_counter() - cold_started_at) * 1000.0, 3),
+                },
+            )
             raise
+        build_ms = round((time.perf_counter() - build_started_at) * 1000.0, 3)
+        store_started_at = time.perf_counter()
         with _LOCK:
             _RESULT_REFRESH_IN_PROGRESS.pop(result_key, None)
             if _RESULT_CACHE_GENERATION == build_generation:
                 _RESULT_CACHE[result_key] = payload
                 _RESULT_REFRESH_LAST_ERROR.pop(result_key, None)
                 _RESULT_REFRESH_COND.notify_all()
+                store_ms = round((time.perf_counter() - store_started_at) * 1000.0, 3)
+                _log_rankings_timing(
+                    "rank_result_cache_cold_path",
+                    {
+                        "tf": tf,
+                        "which": which,
+                        "direction": direction,
+                        "mode": mode,
+                        "risk_mode": risk_mode,
+                        "limit": limit,
+                        "result_key": str(result_key),
+                        "cache_generation": build_generation,
+                        "freshness_wait_ms": freshness_wait_ms,
+                        "build_ms": build_ms,
+                        "store_ms": store_ms,
+                        "status": "ok",
+                        "total_ms": round((time.perf_counter() - cold_started_at) * 1000.0, 3),
+                    },
+                )
                 return payload
             _RESULT_REFRESH_COND.notify_all()
         logger.debug("ranking result cache generation changed during build: key=%s", result_key)
@@ -6348,9 +6446,21 @@ def warm_default_result_cache() -> None:
                 "latest",
                 direction,
                 50,
-                mode="hybrid",
+                mode="trade",
                 risk_mode="balanced",
             )
+
+
+def warm_trade_daily_result_cache() -> None:
+    for direction in ("up", "down"):
+        get_rankings(
+            "D",
+            "latest",
+            direction,
+            50,
+            mode="trade",
+            risk_mode="balanced",
+        )
 
 
 def get_rankings_asof(

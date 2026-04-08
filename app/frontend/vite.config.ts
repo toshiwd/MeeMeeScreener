@@ -12,6 +12,19 @@ const appVersion = packageJson.version ?? "0.0.0";
 
 const hasFileExtension = (pathname: string) => /\.[a-zA-Z0-9]+$/.test(pathname);
 
+const resolveApiProxyTarget = () => {
+  const explicitTarget = process.env.VITE_API_PROXY_TARGET?.trim();
+  if (explicitTarget) return explicitTarget;
+
+  const devBackendPort = process.env.MEEMEE_DEV_BACKEND_PORT?.trim();
+  if (devBackendPort) return `http://127.0.0.1:${devBackendPort}`;
+
+  const backendPort = process.env.MEEMEE_BACKEND_PORT?.trim();
+  if (backendPort) return `http://127.0.0.1:${backendPort}`;
+
+  return "http://127.0.0.1:8000";
+};
+
 const shouldBypassRewrite = (pathname: string) => {
   if (!pathname) return true;
   if (pathname.startsWith("/api/")) return true;
@@ -68,7 +81,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": process.env.VITE_API_PROXY_TARGET || "http://localhost:8000"
+      "/api": resolveApiProxyTarget()
     }
   },
   build: {

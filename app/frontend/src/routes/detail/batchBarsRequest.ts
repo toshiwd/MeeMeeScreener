@@ -10,6 +10,24 @@ export type BatchBarsRequestPayload = {
   asof?: string;
 };
 
+export type BatchBarsFramePayload = {
+  bars?: number[][];
+  boxes?: import("../../storeTypes").Box[];
+};
+
+export type BatchBarsResponseMeta = {
+  data_version?: string | null;
+  fetched_at?: string | null;
+};
+
+export type BatchBarsV3Response = {
+  items?: Record<
+    string,
+    Partial<Record<BatchBarsRequestTimeframe, BatchBarsFramePayload>>
+  >;
+  meta?: BatchBarsResponseMeta | null;
+};
+
 type Params = {
   code: string;
   timeframe: BatchBarsRequestTimeframe;
@@ -92,4 +110,31 @@ export const buildDetailPrefetchBatchBarsRequestPayload = ({
   });
   payload.includeBoxes = typeof includeBoxes === "boolean" ? includeBoxes : false;
   return payload;
+};
+
+export const postDetailBatchBarsRequest = async (
+  payload: BatchBarsRequestPayload,
+  signal?: AbortSignal
+) => {
+  const [{ api }, { BATCH_REQUEST_TIMEOUT_MS, BATCH_RETRY_DELAYS_MS, isRetriableBatchError, sleepMs }] =
+    await Promise.all([import("../../api"), import("../../storeHelpers")]);
+  let attempt = 0;
+  while (true) {
+    try {
+      return await api.post("/batch_bars_v3", payload, {
+        signal,
+        timeout: BATCH_REQUEST_TIMEOUT_MS,
+      });
+    } catch (error) {
+      const canRetry =
+        attempt < BATCH_RETRY_DELAYS_MS.length && isRetriableBatchError(error);
+      if (!canRetry) throw error;
+      const retryDelay =
+        BATCH_RETRY_DELAYS_MS[attempt] ??
+        BATCH_RETRY_DELAYS_MS[BATCH_RETRY_DELAYS_MS.length - 1] ??
+        0;
+      attempt += 1;
+      await sleepMs(retryDelay);
+    }
+  }
 };

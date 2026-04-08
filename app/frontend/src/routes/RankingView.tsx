@@ -22,10 +22,11 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
-import { buildDetailPrefetchBatchBarsRequestPayload } from "./detail/batchBarsRequest";
+import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
 import { ResearchPatternBadges } from "./list/ResearchPatternBadges";
+import { recordPerfEvent } from "../perfDiagnostics";
 
 type RankItem = {
   code: string;
@@ -314,25 +315,33 @@ const readRankingFetchCache = (cacheKey: string): RankingFetchCacheEntry | null 
   const cached = rankingFetchMemoryCache.get(cacheKey);
   if (cached) return cached;
   if (typeof window === "undefined") return null;
-  try {
-    const stored = window.sessionStorage.getItem(cacheKey);
-    if (!stored) return null;
-    const parsed = JSON.parse(stored) as Partial<RankingFetchCacheEntry>;
-    if (parsed.cacheVersion !== RANK_FETCH_CACHE_VERSION || !Array.isArray(parsed.items) || typeof parsed.useFallback !== "boolean") {
-      return null;
+  const storages = [window.sessionStorage, window.localStorage];
+  for (const storage of storages) {
+    try {
+      const stored = storage.getItem(cacheKey);
+      if (!stored) continue;
+      const parsed = JSON.parse(stored) as Partial<RankingFetchCacheEntry>;
+      if (
+        parsed.cacheVersion !== RANK_FETCH_CACHE_VERSION ||
+        !Array.isArray(parsed.items) ||
+        typeof parsed.useFallback !== "boolean"
+      ) {
+        continue;
+      }
+      const entry: RankingFetchCacheEntry = {
+        cacheVersion: RANK_FETCH_CACHE_VERSION,
+        tf: parsed.tf === "W" || parsed.tf === "M" ? parsed.tf : "D",
+        items: parsed.items as RankItem[],
+        errorMessage: typeof parsed.errorMessage === "string" ? parsed.errorMessage : null,
+        useFallback: parsed.useFallback
+      };
+      rankingFetchMemoryCache.set(cacheKey, entry);
+      return entry;
+    } catch {
+      // ignore storage failures
     }
-    const entry: RankingFetchCacheEntry = {
-      cacheVersion: RANK_FETCH_CACHE_VERSION,
-      tf: parsed.tf === "W" || parsed.tf === "M" ? parsed.tf : "D",
-      items: parsed.items as RankItem[],
-      errorMessage: typeof parsed.errorMessage === "string" ? parsed.errorMessage : null,
-      useFallback: parsed.useFallback
-    };
-    rankingFetchMemoryCache.set(cacheKey, entry);
-    return entry;
-  } catch {
-    return null;
   }
+  return null;
 };
 
 const clearRankingFetchCache = (cacheKey: string) => {
@@ -340,6 +349,7 @@ const clearRankingFetchCache = (cacheKey: string) => {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.removeItem(cacheKey);
+    window.localStorage.removeItem(cacheKey);
   } catch {
     // ignore storage failures
   }
@@ -350,6 +360,7 @@ const writeRankingFetchCache = (cacheKey: string, entry: RankingFetchCacheEntry)
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.setItem(cacheKey, JSON.stringify(entry));
+    window.localStorage.setItem(cacheKey, JSON.stringify(entry));
   } catch {
     // ignore storage failures
   }
@@ -677,6 +688,7 @@ export default function RankingView() {
       : "consult-padding-mini"
     : "";
   const [useFallback, setUseFallback] = useState(() => initialFetchCache?.useFallback ?? false);
+  const itemsRef = useRef<RankItem[]>(initialFetchCache?.items ?? []);
   const favoriteCodeSet = useMemo(() => new Set(favoriteCodes), [favoriteCodes]);
   const syncFavoriteFlags = useCallback(
     (entries: RankItem[]) => {
@@ -696,6 +708,17 @@ export default function RankingView() {
 
   // Use the screenshot hook
   const { generateScreenshots, isProcessing: screenshotBusy } = useConsultScreenshot();
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    recordPerfEvent("ranking_view_mount", {
+      route: location.pathname,
+      cachedCount: initialFetchCache?.items.length ?? 0,
+    });
+  }, [initialFetchCache?.items.length, location.pathname]);
 
   useEffect(() => {
     if (storedViewState?.listTimeframe) {
@@ -1071,35 +1094,51 @@ export default function RankingView() {
 
   useEffect(() => {
     const cached = readRankingFetchCache(rankingCacheKey);
-    if (isUsableRankingFetchCache(cached)) {
+    if (cached?.items.length) {
       setItems(syncFavoriteFlags(cached.items));
       setUseFallback(cached.useFallback);
       setErrorMessage(cached.errorMessage);
       setLoading(false);
+      recordPerfEvent("ranking_cache_hydrated", {
+        cacheKey: rankingCacheKey,
+        count: cached.items.length,
+        fallback: cached.useFallback,
+      });
       return;
     }
     if (cached) {
       clearRankingFetchCache(rankingCacheKey);
     }
-    setItems([]);
-    setUseFallback(false);
-    setErrorMessage(null);
+    recordPerfEvent("ranking_cache_miss", {
+      cacheKey: rankingCacheKey,
+      retainedCount: itemsRef.current.length,
+    });
+    if (!itemsRef.current.length) {
+      setUseFallback(false);
+      setErrorMessage(null);
+    }
   }, [rankingCacheKey, syncFavoriteFlags]);
 
   useEffect(() => {
     if (!backendReady) return;
     const cached = readRankingFetchCache(rankingCacheKey);
-    if (isUsableRankingFetchCache(cached)) {
-      setLoading(false);
-      return;
-    }
     if (cached) {
-      clearRankingFetchCache(rankingCacheKey);
+      recordPerfEvent("ranking_fetch_using_stale_cache", {
+        cacheKey: rankingCacheKey,
+        count: cached.items.length,
+      });
     }
     let cancelled = false;
-    setLoading(true);
-    setErrorMessage(null);
-    setUseFallback(false);
+    const visibleCount = cached?.items.length || itemsRef.current.length;
+    setLoading(visibleCount === 0);
+    if (visibleCount === 0) {
+      setErrorMessage(null);
+      setUseFallback(false);
+    }
+    recordPerfEvent("ranking_fetch_start", {
+      cacheKey: rankingCacheKey,
+      visibleCount,
+    });
     (async () => {
       try {
         const endpoint = rankMode === "trade" ? "/rankings" : "/rankings/multi";
@@ -1152,19 +1191,41 @@ export default function RankingView() {
           errorMessage: backendErrors,
           useFallback: false
         });
+        recordPerfEvent("ranking_fetch_end", {
+          cacheKey: rankingCacheKey,
+          count: nextItems.length,
+          backendErrors,
+        });
       } catch (error) {
         if (cancelled) return;
         if (rankMode === "trade") {
-          setItems([]);
           setUseFallback(false);
           setErrorMessage(extractRankingFailureReason(error) ?? "厳選ランキングの取得に失敗しました。");
-          clearRankingFetchCache(rankingCacheKey);
+          recordPerfEvent("ranking_fetch_failed", {
+            cacheKey: rankingCacheKey,
+            retainedCount: itemsRef.current.length,
+            reason: extractRankingFailureReason(error),
+          });
+          if (!itemsRef.current.length) {
+            clearRankingFetchCache(rankingCacheKey);
+          }
         } else {
           setUseFallback(true);
           setErrorMessage(buildRankingFallbackMessage(extractRankingFailureReason(error)));
+          recordPerfEvent("ranking_fetch_failed", {
+            cacheKey: rankingCacheKey,
+            retainedCount: itemsRef.current.length,
+            reason: buildRankingFallbackMessage(extractRankingFailureReason(error)),
+          });
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          recordPerfEvent("ranking_loading_complete", {
+            cacheKey: rankingCacheKey,
+            visibleCount: itemsRef.current.length,
+          });
+        }
       }
     })();
     return () => {
@@ -1208,6 +1269,14 @@ export default function RankingView() {
   }, [syncFavoriteFlags]);
 
   useEffect(() => {
+    recordPerfEvent("ranking_items_state", {
+      count: items.length,
+      loading,
+      fallback: useFallback,
+    });
+  }, [items.length, loading, useFallback]);
+
+  useEffect(() => {
     if (!items.length) {
       setSelectedCodes([]);
       return;
@@ -1229,45 +1298,6 @@ export default function RankingView() {
   }, [consultVisible]);
 
   const selectedSet = useMemo(() => new Set(selectedCodes), [selectedCodes]);
-  const detailPrewarmLastAtRef = useRef<Map<string, number>>(new Map());
-  const detailPrewarmInFlightRef = useRef<Set<string>>(new Set());
-
-  const prewarmDetailData = useCallback(
-    async (code: string) => {
-      if (!backendReady || !code) return;
-      const rankItem = itemByCode.get(code);
-      const asof = rankItem?.asOf ?? null;
-      const cacheKey = `${code}:${asof ?? ""}`;
-      const now = Date.now();
-      const lastAt = detailPrewarmLastAtRef.current.get(cacheKey);
-      if (lastAt && now - lastAt < 60_000) return;
-      if (detailPrewarmInFlightRef.current.has(cacheKey)) return;
-      detailPrewarmInFlightRef.current.add(cacheKey);
-      detailPrewarmLastAtRef.current.set(cacheKey, now);
-      const limit = Math.max(60, Math.min(listRangeBars, 120));
-      try {
-        await api.post(
-          "/batch_bars_v3",
-          buildDetailPrefetchBatchBarsRequestPayload({
-            code,
-            dailyLimit: limit,
-            weeklyLimit: limit,
-            monthlyLimit: limit,
-            asof,
-            includeBoxes: false
-          })
-        );
-      } catch {
-        if (import.meta.env.DEV) {
-          console.debug("[ranking-detail-prewarm] failed", { code, asof });
-        }
-      } finally {
-        detailPrewarmInFlightRef.current.delete(cacheKey);
-      }
-    },
-    [backendReady, itemByCode, listRangeBars]
-  );
-
   const toggleSelect = useCallback((code: string) => {
     setSelectedCodes((prev) => {
       if (prev.includes(code)) return prev.filter((item) => item !== code);
@@ -1277,16 +1307,19 @@ export default function RankingView() {
 
   const handleOpenDetail = useCallback(
     (code: string) => {
-      void prewarmDetailData(code);
-      try {
-        sessionStorage.setItem("detailListBack", location.pathname);
-        sessionStorage.setItem("detailListCodes", JSON.stringify(listCodes));
-      } catch {
-        // ignore storage failures
-      }
-      navigate(`/detail/${code}`, { state: { from: location.pathname } });
+      recordPerfEvent("ranking_open_detail", {
+        code,
+        listCount: listCodes.length,
+      });
+      void openDetailWithPrefetch({
+        navigate,
+        code,
+        listCodes,
+        backPath: location.pathname,
+        backendReady,
+      });
     },
-    [navigate, location.pathname, listCodes, prewarmDetailData]
+    [backendReady, listCodes, location.pathname, navigate]
   );
 
   const handleEnsureVisibleItem = useCallback(
@@ -1874,8 +1907,3 @@ export default function RankingView() {
     </div>
   );
 }
-
-
-
-
-

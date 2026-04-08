@@ -207,10 +207,8 @@ def resolve_trade_csv_paths() -> list[str]:
         "SBI証券取引履歴.csv",
     )
     legacy_names = (
-        "????????.csv",
-        "SBI??????.csv",
-        "????????????????.csv",
-        "SBI????????????.csv",
+        "楽天取引履歴.csv",
+        "SBI取引履歴.csv",
     )
     def _scan_dir(base: Path) -> None:
         if not base or not base.is_dir():
@@ -228,9 +226,10 @@ def resolve_trade_csv_paths() -> list[str]:
                 if entry.suffix.lower() != ".csv":
                     continue
                 name = entry.name.lower()
-                if "????????" not in entry.name and "trade" not in name:
+                has_trade_hint = "trade" in name or any(keyword in entry.name for keyword in ("取引", "履歴"))
+                if not has_trade_hint:
                     continue
-                if any(key in entry.name for key in ("????", "??????", "SBI")) or any(key in name for key in ("rakuten", "sbi")):
+                if any(key in entry.name for key in ("楽天", "SBI")) or any(key in name for key in ("rakuten", "sbi")):
                     paths.append(str(entry))
         except OSError:
             return
