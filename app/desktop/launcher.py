@@ -2141,7 +2141,7 @@ def main() -> None:
 
         # Trigger bootstrap after window creation
         # webview.start blocks, so we can't run code after it in main thread easily unless we use the func argument
-        webview.start(_bootstrap, window, icon=icon_path, private_mode=False, storage_path=paths["state_dir"])
+        webview.start(_bootstrap, args=(window,), icon=icon_path, private_mode=False, storage_path=paths["state_dir"])
     except Exception as exc:
         detail = "".join(traceback.format_exception(exc))
         if log_path:
