@@ -56,6 +56,10 @@ def family_compare_file(family_id: str) -> Path:
     return family_dir(family_id) / "compare.json"
 
 
+def run_manifest_file(session_id: str) -> Path:
+    return Path(resolve_tradex_root()) / "research_sessions" / str(session_id) / "run_manifest.json"
+
+
 def runs_dir(family_id: str) -> Path:
     return family_dir(family_id) / "runs"
 

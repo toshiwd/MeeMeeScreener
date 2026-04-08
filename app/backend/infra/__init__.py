@@ -4,4 +4,4 @@ from pathlib import Path
 
 from external_analysis._pyc_importer import install_bytecode_finder
 
-install_bytecode_finder("external_analysis.results", Path(__file__).resolve().parent)
+install_bytecode_finder("app.backend.infra", Path(__file__).resolve().parent)

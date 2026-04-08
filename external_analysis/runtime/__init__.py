@@ -5,6 +5,10 @@ import sys as _sys
 from pathlib import Path
 from types import ModuleType
 
+from external_analysis._pyc_importer import install_bytecode_finder
+
+install_bytecode_finder("external_analysis.runtime", Path(__file__).resolve().parent)
+
 _PKG = __name__
 _PKG_PATH = Path(__file__).resolve().parent
 _MODULE_TARGETS = {
