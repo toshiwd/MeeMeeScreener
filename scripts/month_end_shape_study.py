@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.core.config import config
+from shared.tradex_storage import tradex_scratch_path
 
 
 ROUND_TRIP_COST_DEFAULT = 0.002
@@ -631,7 +632,11 @@ def run_analysis(round_trip_cost: float, min_samples: int) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Month-end (last 3 trading days) entry shape study")
-    parser.add_argument("--output", type=Path, default=Path("tmp/month_end_shape_study.json"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=tradex_scratch_path("reports", "month_end_shape_study.json").resolve(),
+    )
     parser.add_argument("--round-trip-cost", type=float, default=ROUND_TRIP_COST_DEFAULT)
     parser.add_argument("--min-samples", type=int, default=120)
     args = parser.parse_args()

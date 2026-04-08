@@ -29,6 +29,7 @@ from scripts.month_end_shape_study import (
     _summary_from_returns,
     _trend_bucket,
 )
+from shared.tradex_storage import tradex_scratch_path
 
 
 LONG_SIDE = "long"
@@ -621,14 +622,18 @@ def main() -> None:
     parser.add_argument(
         "--pattern-source",
         type=Path,
-        default=Path("tmp/short_long_holding_recommendation_20260227.json"),
+        default=tradex_scratch_path("entry_invalidation", "short_long_holding_recommendation_20260227.json").resolve(),
     )
     parser.add_argument("--patterns-per-side", type=int, default=8)
     parser.add_argument("--min-source-n", type=int, default=1200)
     parser.add_argument("--min-source-pf", type=float, default=1.0)
     parser.add_argument("--min-source-mean", type=float, default=0.0)
     parser.add_argument("--round-trip-cost", type=float, default=ROUND_TRIP_COST_DEFAULT)
-    parser.add_argument("--output", type=Path, default=Path("tmp/entry_invalidation_doten_study.json"))
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=tradex_scratch_path("entry_invalidation", "entry_invalidation_doten_study.json").resolve(),
+    )
     args = parser.parse_args()
 
     result = run_study(

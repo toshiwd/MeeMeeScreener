@@ -1,15 +1,25 @@
 param(
   [int]$Phase = 0,
   [string]$AsOfDate = "",
-  [string]$PlanFile = "tmp/monthly_execution_plan_202603_strictplus_backups.json",
-  [string]$BasePlanFile = "tmp/monthly_execution_plan_202603.json",
-  [string]$OutputDir = "tmp",
+  [string]$PlanFile = "",
+  [string]$BasePlanFile = "",
+  [string]$OutputDir = "",
   [string]$PythonExe = "python"
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+
+$tradexRoot = [Environment]::GetEnvironmentVariable("MEEMEE_TRADEX_ROOT")
+if ([string]::IsNullOrWhiteSpace($tradexRoot)) {
+  $tradexRoot = "G:\Tradex"
+}
+$tradexScratchRoot = Join-Path $tradexRoot "scratch"
+$defaultMonthlyOpenDir = Join-Path $tradexScratchRoot "monthly_open"
+if ([string]::IsNullOrWhiteSpace($PlanFile)) { $PlanFile = Join-Path $defaultMonthlyOpenDir "monthly_execution_plan_202603_strictplus_backups.json" }
+if ([string]::IsNullOrWhiteSpace($BasePlanFile)) { $BasePlanFile = Join-Path $defaultMonthlyOpenDir "monthly_execution_plan_202603.json" }
+if ([string]::IsNullOrWhiteSpace($OutputDir)) { $OutputDir = $defaultMonthlyOpenDir }
 
 if (-not $AsOfDate -or $AsOfDate.Trim().Length -eq 0) {
   $AsOfDate = (Get-Date).ToString("yyyy-MM-dd")

@@ -11,6 +11,8 @@ from pathlib import Path
 
 import duckdb
 
+from shared.tradex_storage import tradex_scratch_path
+
 
 CODE_PATTERN = re.compile(r"^\d{4}[A-Z]?$")
 
@@ -127,7 +129,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output",
-        default="tmp/code_txt_sync_report.json",
+        default=str(tradex_scratch_path("reports", "code_txt_sync_report.json").resolve()),
         help="Output JSON report path",
     )
     args = parser.parse_args()

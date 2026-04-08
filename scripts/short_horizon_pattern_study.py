@@ -30,6 +30,7 @@ from scripts.month_end_shape_study import (
     _summary_from_returns,
     _trend_bucket,
 )
+from shared.tradex_storage import tradex_scratch_path
 
 
 @dataclass
@@ -670,7 +671,11 @@ def main() -> None:
     parser.add_argument("--horizons", type=str, default="3,5,7,10,12,15,20,25,30")
     parser.add_argument("--round-trip-cost", type=float, default=ROUND_TRIP_COST_DEFAULT)
     parser.add_argument("--min-samples", type=int, default=1200)
-    parser.add_argument("--output", type=str, default="tmp/short_horizon_pattern_study.json")
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=str(tradex_scratch_path("reports", "short_horizon_pattern_study.json").resolve()),
+    )
     args = parser.parse_args()
 
     horizons = _parse_horizons(args.horizons)

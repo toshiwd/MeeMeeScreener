@@ -16,12 +16,14 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.core.config import config
+from shared.tradex_storage import tradex_scratch_path
 
 
 PRIMARY_STRICT = {"p_up_min": 0.47, "ev20_net_min": -0.005, "turnover20_min": 12_000_000}
 STRICT = {"p_up_min": 0.46, "ev20_net_min": -0.005, "turnover20_min": 5_000_000}
 STRICT_PLUS = {"p_up_min": 0.45, "ev20_net_min": -0.005, "turnover20_min": 5_000_000}
 RELAXED = {"p_up_min": 0.44, "ev20_net_min": -0.010, "turnover20_min": 3_000_000}
+MONTHLY_OPEN_SCRATCH_DIR = tradex_scratch_path("monthly_open").resolve()
 
 
 @dataclass
@@ -434,12 +436,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--plan-file",
-        default="tmp/monthly_execution_plan_202603_strictplus_backups.json",
+        default=str(MONTHLY_OPEN_SCRATCH_DIR / "monthly_execution_plan_202603_strictplus_backups.json"),
         help="Phase plan JSON with backup ladder",
     )
     parser.add_argument(
         "--base-plan-file",
-        default="tmp/monthly_execution_plan_202603.json",
+        default=str(MONTHLY_OPEN_SCRATCH_DIR / "monthly_execution_plan_202603.json"),
         help="Base execution JSON including primary composites",
     )
     parser.add_argument("--phase", type=int, default=None, help="Target phase. If omitted, choose first phase >= asof-date")
@@ -450,14 +452,16 @@ def main() -> None:
 
     result = run(args)
     default_json = Path(
-        f"tmp/monthly_open_check_{result['phase_date'].replace('-', '')}_phase{result['phase']}.json"
+        MONTHLY_OPEN_SCRATCH_DIR
+        / f"monthly_open_check_{result['phase_date'].replace('-', '')}_phase{result['phase']}.json"
     )
     out_json = Path(args.output) if args.output else default_json
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 
     default_csv = Path(
-        f"tmp/monthly_open_selected_{result['phase_date'].replace('-', '')}_phase{result['phase']}.csv"
+        MONTHLY_OPEN_SCRATCH_DIR
+        / f"monthly_open_selected_{result['phase_date'].replace('-', '')}_phase{result['phase']}.csv"
     )
     out_csv = Path(args.output_csv) if args.output_csv else default_csv
     _write_selected_csv(result, out_csv)

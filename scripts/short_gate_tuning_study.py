@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.backend.services import rankings_cache as rc  # noqa: E402
+from shared.tradex_storage import tradex_scratch_path
 
 
 @dataclass
@@ -159,7 +160,10 @@ def main() -> None:
     parser.add_argument("--start-ymd", type=int, default=20160226)
     parser.add_argument("--end-ymd", type=int, default=20260226)
     parser.add_argument("--limit", type=int, default=20)
-    parser.add_argument("--output", default="tmp/short_gate_tuning_study_20260227.json")
+    parser.add_argument(
+        "--output",
+        default=str(tradex_scratch_path("reports", "short_gate_tuning_study_20260227.json").resolve()),
+    )
     args = parser.parse_args()
 
     db_path = _resolve_db_path(args.db_path or None)

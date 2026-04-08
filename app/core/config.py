@@ -5,13 +5,13 @@ import re
 import sys
 from pathlib import Path
 
+from shared.tradex_storage import ensure_tradex_layout, tradex_db_path, tradex_research_home, tradex_research_keep_root
+
 # --- Constants & Defaults ---
 APP_NAME = "MeeMeeScreener"
 DEFAULT_DATA_DIR_NAME = "data"
 CONFIG_FILENAME = "meemee.config.json"
 PORTABLE_FLAG_FILENAME = "portable.flag"
-DEFAULT_RESEARCH_HOME_NAME = "MeeMeeResearch"
-
 logger = logging.getLogger(__name__)
 
 
@@ -102,35 +102,39 @@ class AppConfig:
         (self.DATA_DIR / "txt").mkdir(exist_ok=True)
         (self.DATA_DIR / "logs").mkdir(exist_ok=True)
         (self.DATA_DIR / "external_analysis").mkdir(exist_ok=True)
+        self.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        self.RESULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        self.RESEARCH_HOME.mkdir(parents=True, exist_ok=True)
+        self.RESEARCH_BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
+        ensure_tradex_layout()
 
     @property
     def RESEARCH_HOME(self) -> Path:
         env = os.getenv("MEEMEE_RESEARCH_HOME")
         if env:
             return Path(env).expanduser().resolve()
-        local_app_data = os.getenv("LOCALAPPDATA") or str(Path.home())
-        return (Path(local_app_data) / DEFAULT_RESEARCH_HOME_NAME).resolve()
+        return tradex_research_home().resolve()
 
     @property
     def RESEARCH_BRIDGE_DIR(self) -> Path:
         env = os.getenv("MEEMEE_RESEARCH_BRIDGE_DIR")
         if env:
             return Path(env).expanduser().resolve()
-        return (self.RESEARCH_HOME / "bridge").resolve()
+        return (tradex_research_keep_root() / "bridge").resolve()
 
     @property
     def RESULT_DB_PATH(self) -> Path:
         env = os.getenv("MEEMEE_RESULT_DB_PATH")
         if env:
             return Path(env).expanduser().resolve()
-        return (self.DATA_DIR / "external_analysis" / "result.duckdb").resolve()
+        return tradex_db_path("result.duckdb").resolve()
 
     @property
     def DB_PATH(self) -> Path:
         env = os.getenv("STOCKS_DB_PATH")
         if env:
             return Path(env)
-        return self.DATA_DIR / "stocks.duckdb"
+        return tradex_db_path("stocks.duckdb")
 
     @property
     def FAVORITES_DB_PATH(self) -> Path:

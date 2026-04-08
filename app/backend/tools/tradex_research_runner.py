@@ -40,13 +40,13 @@ from app.backend.services.tradex_experiment_store import (
     family_file,
     load_family,
     load_run,
-    resolve_tradex_root,
     tradex_reports_root,
     run_manifest_file,
     run_file,
     write_json,
 )
 from app.core.config import config as app_config
+from shared.tradex_storage import tradex_research_sessions_root
 
 
 SESSION_SCHEMA_VERSION = "tradex_research_session_v1"
@@ -181,7 +181,7 @@ def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _session_root() -> Path:
-    root = resolve_tradex_root() / "research_sessions"
+    root = tradex_research_sessions_root()
     root.mkdir(parents=True, exist_ok=True)
     return root
 

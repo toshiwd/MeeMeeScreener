@@ -33,6 +33,7 @@ from external_analysis.runtime.nightly_pipeline import run_nightly_candidate_pip
 from external_analysis.runtime.nightly_similarity_challenger_pipeline import run_nightly_similarity_challenger_pipeline
 from external_analysis.runtime.nightly_similarity_pipeline import run_nightly_similarity_pipeline
 from external_analysis.runtime.source_snapshot import create_source_snapshot
+from shared.tradex_storage import tradex_scratch_path
 
 DAILY_RESEARCH_LOOKBACK_DAYS = 5
 DAILY_RESEARCH_STALE_RUNNING_HOURS = 1.0
@@ -142,7 +143,7 @@ def _temporary_duckdb_snapshot_path(*, db_path: str | Path | None, label: str) -
     if not resolved.exists():
         yield None
         return
-    temp_root = (Path(tempfile.gettempdir()) / "meemee_daily_research_snapshots").resolve()
+    temp_root = tradex_scratch_path("temp", "meemee_daily_research_snapshots").resolve()
     temp_root.mkdir(parents=True, exist_ok=True)
     temp_dir = (temp_root / f"{label}_{uuid4().hex}").resolve()
     temp_dir.mkdir(parents=True, exist_ok=True)
