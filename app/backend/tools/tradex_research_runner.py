@@ -67,6 +67,7 @@ SCOPE_STABILITY_ROLLUP_FILE = "scope_stability_rollup.json"
 DEFAULT_UNIVERSE_SIZE = 30
 DEFAULT_MAX_CANDIDATES_PER_FAMILY = 2
 STABILITY_SWEEP_DEFAULT_SEEDS = (7, 11, 19, 23, 29)
+FEATURE_SNAPSHOT_SCOPE_ID = "rr_confirmed_20260323_fix6"
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,7 @@ class FamilySpec:
 FEATURE_FAMILY_BY_METHOD_FAMILY: dict[str, str] = {
     "existing-score rescaled": "common_pattern",
     "penalty-first": "bad_pick_removal",
+    "bad-pick-prune": "bad_pick_removal",
     "readiness-aware": "environment_recognition",
     "liquidity-aware": "symbol_specific_adjustment",
     "regime-aware": "regime_adjustment",
@@ -322,6 +324,58 @@ def _build_family_specs() -> tuple[FamilySpec, ...]:
                         "top_k": 5,
                         "playbook_up_score_bonus": 0.0,
                         "playbook_down_score_bonus": -0.015,
+                    },
+                ),
+            ),
+        ),
+        FamilySpec(
+            method_family="bad-pick-prune",
+            family_title="Bad pick prune",
+            family_thesis="トップ帯の悪い銘柄を落とす方向にだけ寄せて、上位入れ替えの質を確認する。",
+            candidates=(
+                CandidateMethodSpec(
+                    method_family="bad-pick-prune",
+                    method_id="bad_pick_prune_v1",
+                    method_title="Bad pick prune v1",
+                    method_thesis="bad pick 系ペナルティだけを 2 倍にして、上位からの悪い残留を減らせるかを確認する。",
+                    plan_overrides={
+                        "minimum_confidence": 0.60,
+                        "minimum_ready_rate": 0.50,
+                        "signal_bias": "balanced",
+                        "top_k": 5,
+                        "bad_pick_penalty_scale": 2.0,
+                        "playbook_up_score_bonus": 0.0,
+                        "playbook_down_score_bonus": 0.0,
+                    },
+                ),
+                CandidateMethodSpec(
+                    method_family="bad-pick-prune",
+                    method_id="bad_pick_prune_v2",
+                    method_title="Bad pick prune v2",
+                    method_thesis="bad pick 系ペナルティを 3 倍にして、上位の悪い残留をさらに減らせるかを確認する。",
+                    plan_overrides={
+                        "minimum_confidence": 0.60,
+                        "minimum_ready_rate": 0.50,
+                        "signal_bias": "balanced",
+                        "top_k": 5,
+                        "bad_pick_penalty_scale": 3.0,
+                        "playbook_up_score_bonus": 0.0,
+                        "playbook_down_score_bonus": 0.0,
+                    },
+                ),
+                CandidateMethodSpec(
+                    method_family="bad-pick-prune",
+                    method_id="bad_pick_prune_v3",
+                    method_title="Bad pick prune v3",
+                    method_thesis="bad pick 系ペナルティを 4 倍にして、上位の悪い残留をさらに強く抑えられるかを確認する。",
+                    plan_overrides={
+                        "minimum_confidence": 0.60,
+                        "minimum_ready_rate": 0.50,
+                        "signal_bias": "balanced",
+                        "top_k": 5,
+                        "bad_pick_penalty_scale": 4.0,
+                        "playbook_up_score_bonus": 0.0,
+                        "playbook_down_score_bonus": 0.0,
                     },
                 ),
             ),
@@ -575,6 +629,117 @@ def _choose_universe(codes: list[str], *, session_id: str, random_seed: int, uni
     rng = random.Random(_seed_int(session_id, random_seed))
     chosen = rng.sample(sorted(codes), universe_size)
     return sorted(chosen)
+
+
+def _scope_analysis_eligible_codes(
+    repo,
+    *,
+    codes: list[str],
+    period_segments: list[dict[str, Any]],
+) -> tuple[list[str], dict[str, Any]]:
+    selected_segments = [
+        {
+            "start_date": _text(segment.get("start_date")),
+            "end_date": _text(segment.get("end_date")),
+        }
+        for segment in period_segments
+        if _text(segment.get("start_date")) and _text(segment.get("end_date"))
+    ]
+    if not selected_segments:
+        return sorted({_text(code) for code in codes if _text(code)}), {
+            "requested_code_count": len([code for code in codes if _text(code)]),
+            "eligible_code_count": len([code for code in codes if _text(code)]),
+            "segment_coverage_counts": {},
+            "segments": [],
+            "source_path": "daily_bars distinct codes",
+            "selection_mode": "unfiltered_daily_bars",
+        }
+    eligible_codes: list[str] = []
+    segment_coverage_counts: dict[str, int] = {
+        f"{segment['start_date']}..{segment['end_date']}": 0 for segment in selected_segments
+    }
+    for raw_code in codes:
+        code = _text(raw_code)
+        if not code:
+            continue
+        code_has_scope_points = False
+        for segment in selected_segments:
+            points = tradex._analysis_points(repo, code, segment["start_date"], segment["end_date"])
+            if points:
+                code_has_scope_points = True
+                segment_key = f"{segment['start_date']}..{segment['end_date']}"
+                segment_coverage_counts[segment_key] = int(segment_coverage_counts.get(segment_key) or 0) + 1
+        if code_has_scope_points:
+            eligible_codes.append(code)
+    eligible_codes = sorted(set(eligible_codes))
+    return eligible_codes, {
+        "requested_code_count": len([code for code in codes if _text(code)]),
+        "eligible_code_count": len(eligible_codes),
+        "segment_coverage_counts": segment_coverage_counts,
+        "segments": list(selected_segments),
+        "source_path": "analysis timeline codes intersecting selected evaluation segments",
+        "selection_mode": "scope_analysis_eligible",
+    }
+
+
+def _scope_feature_snapshot_eligible_codes(
+    repo,
+    *,
+    codes: list[str],
+    period_segments: list[dict[str, Any]],
+) -> tuple[list[str], dict[str, Any]]:
+    selected_segments = [
+        {
+            "start_date": _text(segment.get("start_date")),
+            "end_date": _text(segment.get("end_date")),
+        }
+        for segment in period_segments
+        if _text(segment.get("start_date")) and _text(segment.get("end_date"))
+    ]
+    if not selected_segments:
+        eligible_codes = sorted({_text(code) for code in codes if _text(code)})
+        return eligible_codes, {
+            "requested_code_count": len(eligible_codes),
+            "eligible_code_count": len(eligible_codes),
+            "segment_coverage_counts": {},
+            "segments": [],
+            "source_path": "feature_snapshot_daily distinct codes",
+            "selection_mode": "unfiltered_feature_snapshot_daily",
+        }
+
+    code_filter = sorted({_text(code) for code in codes if _text(code)})
+    code_filter_set = set(code_filter)
+    eligible_codes: set[str] = set()
+    segment_coverage_counts: dict[str, int] = {
+        f"{segment['start_date']}..{segment['end_date']}": 0 for segment in selected_segments
+    }
+    with repo._get_read_conn() as conn:
+        for segment in selected_segments:
+            segment_key = f"{segment['start_date']}..{segment['end_date']}"
+            rows = conn.execute(
+                """
+                SELECT DISTINCT code
+                FROM feature_snapshot_daily
+                WHERE CASE
+                    WHEN dt >= 1000000000 THEN CAST(TO_TIMESTAMP(CAST(dt AS BIGINT)) AS DATE)
+                    ELSE CAST(TRY_STRPTIME(CAST(dt AS VARCHAR), '%Y%m%d') AS DATE)
+                END BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)
+                ORDER BY code
+                """,
+                [segment["start_date"], segment["end_date"]],
+            ).fetchall()
+            segment_codes = sorted({ _text(row[0]) for row in rows if _text(row[0]) and _text(row[0]) in code_filter_set })
+            segment_coverage_counts[segment_key] = len(segment_codes)
+            eligible_codes.update(segment_codes)
+    eligible_codes = sorted(eligible_codes)
+    return eligible_codes, {
+        "requested_code_count": len(code_filter),
+        "eligible_code_count": len(eligible_codes),
+        "segment_coverage_counts": segment_coverage_counts,
+        "segments": list(selected_segments),
+        "source_path": "feature_snapshot_daily codes intersecting selected evaluation segments",
+        "selection_mode": "feature_snapshot_eligible",
+    }
 
 
 def _build_period_segments_with_mode() -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -896,6 +1061,12 @@ def _leaderboard_candidate_reasons(evaluation: dict[str, Any]) -> tuple[list[dic
     challenger_future_ret20_source_coverage = evaluation.get("challenger_future_ret20_source_coverage") if isinstance(evaluation.get("challenger_future_ret20_source_coverage"), dict) else {}
     champion_future_ret20_code_coverage = evaluation.get("champion_future_ret20_code_coverage") if isinstance(evaluation.get("champion_future_ret20_code_coverage"), dict) else {}
     challenger_future_ret20_code_coverage = evaluation.get("challenger_future_ret20_code_coverage") if isinstance(evaluation.get("challenger_future_ret20_code_coverage"), dict) else {}
+    meaningful_topk_branching_possible = bool(
+        evaluation.get("meaningful_topk_branching_possible")
+        if "meaningful_topk_branching_possible" in evaluation
+        else False
+    )
+    topk_branching_block_reason = _text(evaluation.get("topk_branching_block_reason"), fallback="")
 
     top5_underperform_bp = _leaderboard_metric_underperform_bp(champion_top5_mean, challenger_top5_mean)
     top5_median_underperform_bp = _leaderboard_metric_underperform_bp(champion_top5_median, challenger_top5_median)
@@ -1040,6 +1211,20 @@ def _leaderboard_candidate_reasons(evaluation: dict[str, Any]) -> tuple[list[dic
             },
         ),
     ]
+    if not meaningful_topk_branching_possible:
+        decision_reasons.append(
+            _leaderboard_reason_entry(
+                code="topk_branching",
+                status="hold",
+                champion_value=float(evaluation.get("top_k") or 0.0),
+                candidate_value=float(evaluation.get("top_k") or 0.0),
+                delta=0.0,
+                detail={
+                    "meaningful_topk_branching_possible": False,
+                    "topk_branching_block_reason": topk_branching_block_reason or "topk_boundary_absent",
+                },
+            )
+        )
     comparison = {
         "champion_top5_ret20_mean": champion_top5_mean,
         "challenger_top5_ret20_mean": challenger_top5_mean,
@@ -1074,12 +1259,33 @@ def _leaderboard_candidate_reasons(evaluation: dict[str, Any]) -> tuple[list[dic
         "challenger_future_ret20_code_coverage": challenger_future_ret20_code_coverage,
         "future_ret20_source_coverage": challenger_future_ret20_source_coverage or champion_future_ret20_source_coverage,
         "future_ret20_code_coverage": challenger_future_ret20_code_coverage or champion_future_ret20_code_coverage,
+        "changed_top5_members_count": int(evaluation.get("changed_top5_members_count") or 0),
+        "changed_top10_members_count": int(evaluation.get("changed_top10_members_count") or 0),
+        "changed_rank_count": int(evaluation.get("changed_rank_count") or 0),
+        "top5_boundary_score_gap": float(evaluation.get("top5_boundary_score_gap") or 0.0),
+        "top10_boundary_score_gap": float(evaluation.get("top10_boundary_score_gap") or 0.0),
+        "selection_divergence_reason": _text(evaluation.get("selection_divergence_reason"), fallback="no_meaningful_branching"),
+        "meaningful_topk_branching_possible": meaningful_topk_branching_possible,
+        "topk_branching_block_reason": topk_branching_block_reason,
     }
-    if top5_status == "fail" or top10_status == "fail" or monthly_status == "fail" or zero_pass_status == "fail" or worst_regime_status == "fail" or dd_status == "fail" or turnover_status == "fail" or liquidity_status == "fail":
+    if bool(evaluation.get("insufficient_samples")):
+        return [
+            {
+                "code": "insufficient_samples",
+                "status": "hold",
+                "detail": {
+                    "sample_count": int(evaluation.get("sample_count") or 0),
+                    "selection_divergence_reason": comparison["selection_divergence_reason"],
+                },
+            }
+        ], comparison, "hold"
+    if not meaningful_topk_branching_possible:
+        decision = "hold"
+    elif top5_status == "fail" or top10_status == "fail" or monthly_status == "fail" or zero_pass_status == "fail" or worst_regime_status == "fail" or dd_status == "fail" or turnover_status == "fail" or liquidity_status == "fail":
         decision = "drop"
     else:
         decision = "hold"
-    if bool(evaluation.get("promote_ready")):
+    if bool(evaluation.get("promote_ready")) and meaningful_topk_branching_possible:
         decision = "keep"
     return decision_reasons, comparison, decision
 
@@ -1121,6 +1327,12 @@ def _build_candidate_leaderboard_row(family_result: dict[str, Any], candidate_re
         "regime_tag": _text(evaluation.get("regime_tag")),
         "artifact_detail_level": _text(evaluation.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE),
         "fallback_status": _text(evaluation.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE),
+        "insufficient_samples": bool(evaluation.get("insufficient_samples")),
+        "effective_universe_count": int(comparison.get("effective_universe_count") or evaluation.get("effective_universe_count") or 0),
+        "top_k": int(comparison.get("top_k") or evaluation.get("top_k") or 0),
+        "topk_boundary_exists": bool(comparison.get("topk_boundary_exists") if "topk_boundary_exists" in comparison else evaluation.get("topk_boundary_exists")),
+        "meaningful_topk_branching_possible": bool(comparison.get("meaningful_topk_branching_possible") if "meaningful_topk_branching_possible" in comparison else evaluation.get("meaningful_topk_branching_possible")),
+        "topk_branching_block_reason": _text(comparison.get("topk_branching_block_reason"), fallback=_text(evaluation.get("topk_branching_block_reason"), fallback="")),
         "victory_metrics": evaluation.get("victory_metrics") if isinstance(evaluation.get("victory_metrics"), dict) else {},
         "long_horizon_regime_score": tradex._float(evaluation.get("long_horizon_regime_score")) or 0.0,
         "recent_adaptation_score": tradex._float(evaluation.get("recent_adaptation_score")) or 0.0,
@@ -1146,6 +1358,12 @@ def _build_candidate_leaderboard_row(family_result: dict[str, Any], candidate_re
         "candidate_removed_by_scope_boundary_count": int((challenger_candidate_scope_gap_coverage or champion_candidate_scope_gap_coverage).get("candidate_removed_by_scope_boundary_count") or 0),
         "scope_filter_applied_stage": _text((challenger_candidate_scope_gap_coverage or champion_candidate_scope_gap_coverage).get("scope_filter_applied_stage"), fallback="unknown"),
         "key_normalization_mode": _text((challenger_candidate_scope_gap_coverage or champion_candidate_scope_gap_coverage).get("key_normalization_mode"), fallback="unknown"),
+        "changed_top5_members_count": int(comparison.get("changed_top5_members_count") or 0),
+        "changed_top10_members_count": int(comparison.get("changed_top10_members_count") or 0),
+        "changed_rank_count": int(comparison.get("changed_rank_count") or 0),
+        "top5_boundary_score_gap": float(comparison.get("top5_boundary_score_gap") or 0.0),
+        "top10_boundary_score_gap": float(comparison.get("top10_boundary_score_gap") or 0.0),
+        "selection_divergence_reason": _text(comparison.get("selection_divergence_reason"), fallback="no_meaningful_branching"),
         "comparison": comparison,
     }
     return row
@@ -1206,6 +1424,10 @@ def _build_family_leaderboard(session_state: dict[str, Any]) -> dict[str, Any]:
                 "best_candidate_method_thesis": _text(best_candidate.get("method_thesis")) if isinstance(best_candidate, dict) else None,
                 "best_candidate_decision": _text(best_candidate.get("decision")) if isinstance(best_candidate, dict) else None,
                 "best_candidate_feature_family": _text(best_candidate.get("feature_family")) if isinstance(best_candidate, dict) else None,
+                "effective_universe_count": int(best_candidate.get("effective_universe_count") or 0) if isinstance(best_candidate, dict) else 0,
+                "top_k": int(best_candidate.get("top_k") or 0) if isinstance(best_candidate, dict) else 0,
+                "meaningful_topk_branching_possible": bool(best_candidate.get("meaningful_topk_branching_possible")) if isinstance(best_candidate, dict) else False,
+                "topk_branching_block_reason": _text(best_candidate.get("topk_branching_block_reason")) if isinstance(best_candidate, dict) else "",
             }
         )
     family_rows = sorted(family_rows, key=lambda row: (_text(row.get("method_family")), _text(row.get("family_id"))))
@@ -1871,6 +2093,8 @@ def _leaderboard_average(total: float, count: int) -> float:
 
 
 def _leaderboard_family_decision(candidate_rows: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    if candidate_rows and all(bool(row.get("insufficient_samples")) for row in candidate_rows):
+        return "hold", [{"code": "insufficient_samples_only", "candidate_count": len(candidate_rows)}]
     keep_count = sum(1 for row in candidate_rows if _text(row.get("decision")) == "keep")
     hold_count = sum(1 for row in candidate_rows if _text(row.get("decision")) == "hold")
     drop_count = sum(1 for row in candidate_rows if _text(row.get("decision")) == "drop")
@@ -1982,6 +2206,11 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                     "avg_dd_delta_total": 0.0,
                     "avg_turnover_delta_total": 0.0,
                     "avg_liquidity_fail_delta_total": 0.0,
+                    "avg_changed_top5_members_count_total": 0.0,
+                    "avg_changed_top10_members_count_total": 0.0,
+                    "avg_changed_rank_count_total": 0.0,
+                    "avg_top5_boundary_score_gap_total": 0.0,
+                    "avg_top10_boundary_score_gap_total": 0.0,
                     "row_count": 0,
                     "latest_sort_key": ("", ""),
                     "latest_session_id": "",
@@ -1990,6 +2219,7 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                     "latest_eval_window_mode_reason": "unknown",
                     "latest_decision": "",
                     "latest_decision_reasons": [],
+                    "latest_selection_divergence_reason": "",
                     "insufficient_samples": False,
                 },
             )
@@ -2039,6 +2269,11 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                 comparison.get("champion_liquidity_fail_rate"),
                 comparison.get("challenger_liquidity_fail_rate"),
             ) or 0.0
+            candidate_entry["avg_changed_top5_members_count_total"] += float(row.get("changed_top5_members_count") or 0.0)
+            candidate_entry["avg_changed_top10_members_count_total"] += float(row.get("changed_top10_members_count") or 0.0)
+            candidate_entry["avg_changed_rank_count_total"] += float(row.get("changed_rank_count") or 0.0)
+            candidate_entry["avg_top5_boundary_score_gap_total"] += float(row.get("top5_boundary_score_gap") or 0.0)
+            candidate_entry["avg_top10_boundary_score_gap_total"] += float(row.get("top10_boundary_score_gap") or 0.0)
             sort_key = (_text(session_entry.get("generated_at")), session_id)
             if sort_key >= candidate_entry["latest_sort_key"]:
                 candidate_entry["latest_sort_key"] = sort_key
@@ -2048,6 +2283,7 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                 candidate_entry["latest_eval_window_mode_reason"] = _text(session_entry.get("eval_window_mode_reason"), fallback="unknown")
                 candidate_entry["latest_decision"] = decision
                 candidate_entry["latest_decision_reasons"] = row.get("decision_reasons") if isinstance(row.get("decision_reasons"), list) else []
+                candidate_entry["latest_selection_divergence_reason"] = _text(row.get("selection_divergence_reason"), fallback="no_meaningful_branching")
             if bool(session_entry.get("insufficient_samples")):
                 candidate_entry["insufficient_samples"] = True
 
@@ -2074,6 +2310,11 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                 "avg_dd_delta": _leaderboard_average(float(entry.get("avg_dd_delta_total") or 0.0), row_count),
                 "avg_turnover_delta": _leaderboard_average(float(entry.get("avg_turnover_delta_total") or 0.0), row_count),
                 "avg_liquidity_fail_delta": _leaderboard_average(float(entry.get("avg_liquidity_fail_delta_total") or 0.0), row_count),
+                "avg_changed_top5_members_count": _leaderboard_average(float(entry.get("avg_changed_top5_members_count_total") or 0.0), row_count),
+                "avg_changed_top10_members_count": _leaderboard_average(float(entry.get("avg_changed_top10_members_count_total") or 0.0), row_count),
+                "avg_changed_rank_count": _leaderboard_average(float(entry.get("avg_changed_rank_count_total") or 0.0), row_count),
+                "avg_top5_boundary_score_gap": _leaderboard_average(float(entry.get("avg_top5_boundary_score_gap_total") or 0.0), row_count),
+                "avg_top10_boundary_score_gap": _leaderboard_average(float(entry.get("avg_top10_boundary_score_gap_total") or 0.0), row_count),
                 "latest_session_id": _text(entry.get("latest_session_id")),
                 "latest_generated_at": _text(entry.get("latest_generated_at")),
                 "latest_eval_window_mode": _text(entry.get("latest_eval_window_mode"), fallback="unknown"),
@@ -2081,6 +2322,7 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                 "latest_decision": _text(entry.get("latest_decision")),
                 "candidate_local_decision": _text(entry.get("latest_decision")),
                 "session_aggregate_decision": _text(entry.get("latest_decision")),
+                "selection_divergence_reason": _text(entry.get("latest_selection_divergence_reason"), fallback="no_meaningful_branching"),
                 "decision_reasons": _json_ready(entry.get("latest_decision_reasons") or []),
                 "latest_decision_reasons": _json_ready(entry.get("latest_decision_reasons") or []),
                 "artifact_detail_level": _text(entry.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE),
@@ -2115,6 +2357,10 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                 "authoritative_rollup_decision": "",
                 "latest_decision_reasons": [],
                 "insufficient_samples": False,
+                "effective_universe_count": 0,
+                "top_k": 0,
+                "meaningful_topk_branching_possible": False,
+                "topk_branching_block_reason": "",
             },
         )
         family_entry["candidate_count"] += 1
@@ -2133,6 +2379,10 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
             family_entry["session_aggregate_decision"] = _text(row.get("session_aggregate_decision"), fallback=_text(row.get("latest_decision")))
             family_entry["authoritative_rollup_decision"] = _text(row.get("authoritative_rollup_decision"), fallback=_text(row.get("latest_decision")))
             family_entry["latest_decision_reasons"] = row.get("latest_decision_reasons") if isinstance(row.get("latest_decision_reasons"), list) else []
+            family_entry["effective_universe_count"] = int(row.get("effective_universe_count") or 0)
+            family_entry["top_k"] = int(row.get("top_k") or 0)
+            family_entry["meaningful_topk_branching_possible"] = bool(row.get("meaningful_topk_branching_possible"))
+            family_entry["topk_branching_block_reason"] = _text(row.get("topk_branching_block_reason"))
         if bool(row.get("insufficient_samples")):
             family_entry["insufficient_samples"] = True
 
@@ -2160,6 +2410,10 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
                 "latest_decision": _text(family_entry.get("latest_decision")),
                 "latest_decision_reasons": _json_ready(family_entry.get("latest_decision_reasons") or []),
                 "insufficient_samples": bool(family_entry.get("insufficient_samples")),
+                "effective_universe_count": int(family_entry.get("effective_universe_count") or 0),
+                "top_k": int(family_entry.get("top_k") or 0),
+                "meaningful_topk_branching_possible": bool(family_entry.get("meaningful_topk_branching_possible")),
+                "topk_branching_block_reason": _text(family_entry.get("topk_branching_block_reason")),
             }
         )
 
@@ -3638,7 +3892,10 @@ def _build_run_manifest(
         "cost_model": dict(TRADEX_DEFAULT_COST_MODEL),
     }
     input_artifacts = [
-        {"kind": "confirmed_universe", "path": "daily_bars distinct codes"},
+        {
+            "kind": "confirmed_universe",
+            "path": _text(runtime_meta.get("confirmed_universe_source"), fallback="daily_bars distinct codes"),
+        },
         {"kind": "evaluation_regime_rows", "path": "tradex evaluation windows"},
         {"kind": "ret20_source_mode", "path": ret20_source_mode},
     ]
@@ -3675,7 +3932,7 @@ def run_tradex_research_session(
     ret20_source_mode: str = tradex.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED,
 ) -> dict[str, Any]:
     family_specs = _build_family_specs()
-    max_candidates_per_family = max(1, min(int(max_candidates_per_family), 2))
+    max_candidates_per_family = max(1, min(int(max_candidates_per_family), 3))
     _require_legacy_analysis_enabled(context="tradex research session")
     scope_id = _text(session_scope_id, fallback=session_id)
     ret20_mode = _text(ret20_source_mode, fallback=tradex.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED)
@@ -3706,8 +3963,40 @@ def run_tradex_research_session(
             except Exception as exc:
                 db_diagnostics["db_probe_error"] = f"{exc.__class__.__name__}:{exc}"
         raise RuntimeError(f"confirmed universe is empty: {json.dumps(_json_ready(db_diagnostics), ensure_ascii=False, sort_keys=True)}")
-    universe = _choose_universe(codes, session_id=scope_id, random_seed=random_seed, universe_size=int(universe_size))
     period_segments, period_mode_meta = _build_period_segments_with_mode()
+    if scope_id == FEATURE_SNAPSHOT_SCOPE_ID:
+        eligible_codes, universe_meta = _scope_feature_snapshot_eligible_codes(
+            repo,
+            codes=codes,
+            period_segments=period_segments,
+        )
+    else:
+        eligible_codes, universe_meta = _scope_analysis_eligible_codes(
+            repo,
+            codes=codes,
+            period_segments=period_segments,
+        )
+    if not eligible_codes:
+        raise RuntimeError(
+            "confirmed universe is empty after scope analysis coverage filter: "
+            + json.dumps(_json_ready(universe_meta), ensure_ascii=False, sort_keys=True)
+        )
+    selected_universe_size = min(int(universe_size), len(eligible_codes))
+    universe = _choose_universe(
+        eligible_codes,
+        session_id=scope_id,
+        random_seed=random_seed,
+        universe_size=selected_universe_size,
+    )
+    session_top_k = max(
+        (
+            max(1, tradex._int(candidate.plan_overrides.get("top_k")) or 0)
+            for family_spec in family_specs
+            for candidate in family_spec.candidates
+        ),
+        default=0,
+    )
+    meaningful_topk_branching_possible = len(universe) > session_top_k
     runtime_meta = {
         "eval_window_mode": _text(period_mode_meta.get("mode"), fallback="fallback"),
         "eval_window_mode_reason": _text(period_mode_meta.get("mode_reason"), fallback="unknown"),
@@ -3719,6 +4008,17 @@ def run_tradex_research_session(
         "session_scope_id": scope_id,
         "ret20_source_mode": ret20_mode,
         "ret20_source_mode_reason": "explicit_session_mode",
+        "confirmed_universe_source": _text(universe_meta.get("source_path"), fallback="daily_bars distinct codes"),
+        "confirmed_universe_selection_mode": _text(universe_meta.get("selection_mode"), fallback="unfiltered_daily_bars"),
+        "confirmed_universe_requested_count": int(universe_meta.get("requested_code_count") or len(codes)),
+        "confirmed_universe_eligible_count": int(universe_meta.get("eligible_code_count") or 0),
+        "confirmed_universe_selected_count": len(universe),
+        "confirmed_universe_clamped": len(universe) < int(universe_size),
+        "confirmed_universe_segment_coverage_counts": dict(universe_meta.get("segment_coverage_counts") or {}),
+        "effective_universe_count": len(universe),
+        "top_k": session_top_k,
+        "meaningful_topk_branching_possible": meaningful_topk_branching_possible,
+        "topk_branching_block_reason": "" if meaningful_topk_branching_possible else "effective_universe_too_small_for_topk",
     }
     manifest = _build_manifest(
         session_id,
@@ -3918,6 +4218,7 @@ def run_tradex_research_session(
                 "minimum_ready_rate": tradex._float(candidate_spec.plan_overrides.get("minimum_ready_rate")),
                 "signal_bias": _text(candidate_spec.plan_overrides.get("signal_bias"), fallback="balanced"),
                 "top_k": max(1, tradex._int(candidate_spec.plan_overrides.get("top_k")) or 0),
+                "bad_pick_penalty_scale": tradex._float(candidate_spec.plan_overrides.get("bad_pick_penalty_scale")) or 0.0,
                 "playbook_up_score_bonus": tradex._float(candidate_spec.plan_overrides.get("playbook_up_score_bonus")) or 0.0,
                 "playbook_down_score_bonus": tradex._float(candidate_spec.plan_overrides.get("playbook_down_score_bonus")) or 0.0,
             }

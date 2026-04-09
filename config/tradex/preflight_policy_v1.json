@@ -1,0 +1,34 @@
+{
+  "schema_version": "tradex_research_preflight_policy_v1",
+  "preflight_policy_version": "v1",
+  "runner": "tradex_research_session",
+  "check_order": [
+    "hypothesis_validation",
+    "runner_check",
+    "legacy_analysis_requirement",
+    "required_inputs_and_artifacts",
+    "evaluation_windows_availability",
+    "regime_rows_existence",
+    "minimum_window_count",
+    "artifact_shape_recognition"
+  ],
+  "minimum_evaluation_window_count": 3,
+  "required_execution_fields": [
+    "session_id",
+    "session_scope_id",
+    "random_seed",
+    "universe_size",
+    "max_candidates_per_family",
+    "ret20_source_mode",
+    "target_method_family"
+  ],
+  "failure_codes": [
+    "preflight_failed",
+    "legacy_analysis_disabled",
+    "evaluation_windows_unavailable",
+    "regime_rows_empty",
+    "insufficient_evaluation_windows",
+    "missing_required_inputs",
+    "artifact_shape_unrecognized"
+  ]
+}

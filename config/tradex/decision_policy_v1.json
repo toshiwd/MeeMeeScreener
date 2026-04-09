@@ -1,0 +1,29 @@
+{
+  "schema_version": "tradex_research_decision_policy_v1",
+  "decision_policy_version": "v1",
+  "decision_order": [
+    "hard_blocker_drop",
+    "insufficient_sample_hold",
+    "no_branching_hold",
+    "affirmative_family_compare_keep",
+    "negative_family_compare_drop",
+    "weak_or_unclear_evaluation_hold",
+    "missing_or_ambiguous_metrics_hold"
+  ],
+  "signals": {
+    "hard_blocker_reason_codes": [
+      "family_compare_missing",
+      "family_compare_ambiguous",
+      "invalid_lineage",
+      "missing_authoritative_fields",
+      "effective_universe_too_small_for_topk"
+    ],
+    "branching_positive_changed_count_min": 1,
+    "affirmative_family_compare_decisions": [
+      "keep"
+    ],
+    "negative_family_compare_decisions": [
+      "drop"
+    ]
+  }
+}

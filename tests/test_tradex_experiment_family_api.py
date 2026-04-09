@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import duckdb
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
@@ -712,21 +713,169 @@ def test_tradex_research_runner_family_specs_are_named_and_ordered() -> None:
     assert [spec.method_family for spec in specs] == [
         "existing-score rescaled",
         "penalty-first",
+        "bad-pick-prune",
         "readiness-aware",
         "liquidity-aware",
         "regime-aware",
     ]
-    assert len(specs) == 5
+    assert len(specs) == 6
     for spec in specs:
         assert spec.family_title
         assert spec.family_thesis
-        assert len(spec.candidates) == 2
+        expected_candidate_count = 3 if spec.method_family == "bad-pick-prune" else 2
+        assert len(spec.candidates) == expected_candidate_count
         for candidate in spec.candidates:
             assert candidate.method_family == spec.method_family
             assert candidate.method_id
             assert candidate.method_title
             assert candidate.method_thesis
             assert candidate.plan_overrides["top_k"] == 5
+
+
+def test_tradex_bad_pick_prune_family_only_changes_penalty_scale() -> None:
+    spec = next(item for item in research_runner._build_family_specs() if item.method_family == "bad-pick-prune")
+    assert [candidate.method_id for candidate in spec.candidates] == [
+        "bad_pick_prune_v1",
+        "bad_pick_prune_v2",
+        "bad_pick_prune_v3",
+    ]
+    assert [candidate.plan_overrides["bad_pick_penalty_scale"] for candidate in spec.candidates] == [2.0, 3.0, 4.0]
+    for candidate in spec.candidates:
+        assert candidate.plan_overrides["minimum_confidence"] == 0.60
+        assert candidate.plan_overrides["minimum_ready_rate"] == 0.50
+        assert candidate.plan_overrides["signal_bias"] == "balanced"
+        assert candidate.plan_overrides["top_k"] == 5
+        assert candidate.plan_overrides["playbook_up_score_bonus"] == 0.0
+        assert candidate.plan_overrides["playbook_down_score_bonus"] == 0.0
+
+
+def test_tradex_selection_challenger_score_scales_bad_pick_penalties_only() -> None:
+    row = {
+        "analysis_ev_net": {"mean": 0.20},
+        "ret_20": {"mean": 0.10},
+        "ret_10": {"mean": 0.05},
+        "signal_rate": 0.80,
+        "publish_ready_rate": 0.75,
+        "liquidity20d": {"mean": service.TRADEX_LIQUIDITY20D_MIN},
+        "regime_stability": 0.60,
+        "missing_feature_rate": 0.40,
+        "environment_unresolved_rate": 0.30,
+        "liquidity_fail_rate": 0.20,
+        "zero_pass_rate": 0.10,
+    }
+
+    default_score = service._selection_challenger_score(row)
+    scaled_score = service._selection_challenger_score(row, bad_pick_penalty_scale=2.0)
+
+    expected_penalty_bucket = 0.10 * 0.40 + 0.08 * 0.30 + 0.05 * 0.20 + 0.05 * 0.10
+    assert scaled_score == pytest.approx(default_score - expected_penalty_bucket)
+
+
+def test_tradex_selection_comparison_summary_reports_branching_metrics() -> None:
+    champion = _make_summary(
+        top5_mean=0.10,
+        top5_median=0.09,
+        top10_mean=0.08,
+        top10_median=0.07,
+        monthly_mean=0.20,
+        monthly_median=0.20,
+        zero_pass_months=1,
+        turnover=0.30,
+        dd=0.10,
+        liquidity_mean=1_000_000.0,
+        regime_means=[0.03, 0.04, 0.05],
+        monthly_model_means=[0.10, 0.12, 0.11],
+    )
+    challenger = _make_summary(
+        top5_mean=0.11,
+        top5_median=0.10,
+        top10_mean=0.09,
+        top10_median=0.08,
+        monthly_mean=0.22,
+        monthly_median=0.22,
+        zero_pass_months=1,
+        turnover=0.29,
+        dd=0.09,
+        liquidity_mean=1_000_000.0,
+        regime_means=[0.04, 0.05, 0.06],
+        monthly_model_means=[0.11, 0.13, 0.12],
+    )
+    champion["code_rankings"] = [
+        {"code": "A", "ranking_score": 0.90},
+        {"code": "B", "ranking_score": 0.80},
+        {"code": "C", "ranking_score": 0.70},
+        {"code": "D", "ranking_score": 0.60},
+        {"code": "E", "ranking_score": 0.50},
+        {"code": "F", "ranking_score": 0.40},
+        {"code": "G", "ranking_score": 0.30},
+        {"code": "H", "ranking_score": 0.20},
+        {"code": "I", "ranking_score": 0.10},
+        {"code": "J", "ranking_score": 0.05},
+        {"code": "K", "ranking_score": 0.01},
+    ]
+    challenger["code_rankings"] = [
+        {"code": "A", "ranking_score": 0.95},
+        {"code": "B", "ranking_score": 0.84},
+        {"code": "C", "ranking_score": 0.73},
+        {"code": "D", "ranking_score": 0.62},
+        {"code": "F", "ranking_score": 0.56},
+        {"code": "E", "ranking_score": 0.54},
+        {"code": "G", "ranking_score": 0.32},
+        {"code": "H", "ranking_score": 0.22},
+        {"code": "I", "ranking_score": 0.12},
+        {"code": "L", "ranking_score": 0.06},
+        {"code": "J", "ranking_score": 0.03},
+    ]
+
+    summary = service._selection_comparison_summary(champion, challenger)
+
+    assert summary["changed_top5_members_count"] == 2
+    assert summary["changed_top10_members_count"] == 2
+    assert summary["changed_rank_count"] == 4
+    assert summary["top5_boundary_score_gap"] == pytest.approx((0.56 - 0.54) - (0.50 - 0.40))
+    assert summary["top10_boundary_score_gap"] == pytest.approx((0.06 - 0.03) - (0.05 - 0.01))
+    assert summary["selection_divergence_reason"] == "top5_member_replacement"
+
+
+def test_tradex_topk_branching_contract_state_blocks_when_universe_too_small() -> None:
+    state = service._topk_branching_contract_state(
+        family={"universe": ["1001", "1002", "1003", "1004"]},
+        champion_summary={"code_rankings": [{"code": "1001"}, {"code": "1002"}, {"code": "1003"}, {"code": "1004"}]},
+        challenger_summary={"code_rankings": [{"code": "1001"}, {"code": "1002"}, {"code": "1003"}, {"code": "1004"}]},
+        top_k=5,
+    )
+
+    assert state["effective_universe_count"] == 4
+    assert state["top_k"] == 5
+    assert state["topk_boundary_exists"] is False
+    assert state["meaningful_topk_branching_possible"] is False
+    assert state["topk_branching_block_reason"] == "effective_universe_too_small_for_topk"
+
+
+def test_tradex_leaderboard_candidate_reasons_hold_on_insufficient_samples() -> None:
+    decision_reasons, comparison, decision = research_runner._leaderboard_candidate_reasons(
+        {
+            "sample_count": 0,
+            "insufficient_samples": True,
+            "selection_divergence_reason": "insufficient_samples",
+        }
+    )
+
+    assert decision == "hold"
+    assert decision_reasons[0]["code"] == "insufficient_samples"
+    assert comparison["selection_divergence_reason"] == "insufficient_samples"
+
+
+def test_tradex_leaderboard_family_decision_holds_when_only_insufficient_rows_exist() -> None:
+    decision, reasons = research_runner._leaderboard_family_decision(
+        [
+            {"decision": "hold", "insufficient_samples": True},
+            {"decision": "hold", "insufficient_samples": True},
+        ]
+    )
+
+    assert decision == "hold"
+    assert reasons[0]["code"] == "insufficient_samples_only"
 
 
 def test_tradex_research_runner_session_resume_and_artifacts(monkeypatch, tmp_path) -> None:
@@ -1772,6 +1921,159 @@ def test_tradex_research_runner_derived_ret20_source_mode_recovers_samples(monke
     assert result["coverage_waterfall"]["future_ret20_passed_count"] > 0
     assert result["coverage_waterfall"]["future_ret20_failure_reason_counts"].get("ret20_source_missing", 0) == 0
     assert result["coverage_waterfall"]["sample_count"] > 0
+
+
+def test_tradex_research_runner_filters_confirmed_universe_by_scope_analysis_coverage(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
+    monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
+
+    class _ScopeAwareRepo:
+        _db_path = str(tmp_path / "scope-aware.duckdb")
+
+        def get_all_codes(self):
+            return ["1001", "1002", "1003", "1004", "9999", "9998"]
+
+        def get_analysis_timeline(self, code: str, asof_dt: int | None, limit: int = 400):
+            del asof_dt, limit
+            if code not in {"1001", "1002", "1003", "1004"}:
+                return []
+            return [
+                {
+                    "dt": 20120117,
+                    "pUp": 0.75,
+                    "pDown": 0.25,
+                    "pTurnUp": 0.2,
+                    "pTurnDown": 0.1,
+                    "ev20Net": 0.1,
+                    "sellPDown": 0.25,
+                    "sellPTurnDown": 0.1,
+                    "trendDown": False,
+                    "trendDownStrict": False,
+                    "shortRet5": 0.01,
+                    "shortRet10": 0.02,
+                    "shortRet20": 0.03,
+                    "shortWin5": True,
+                    "shortWin10": True,
+                    "shortWin20": True,
+                },
+                {
+                    "dt": 20081030,
+                    "pUp": 0.35,
+                    "pDown": 0.65,
+                    "pTurnUp": 0.1,
+                    "pTurnDown": 0.2,
+                    "ev20Net": -0.04,
+                    "sellPDown": 0.65,
+                    "sellPTurnDown": 0.2,
+                    "trendDown": True,
+                    "trendDownStrict": False,
+                    "shortRet5": -0.01,
+                    "shortRet10": -0.02,
+                    "shortRet20": -0.03,
+                    "shortWin5": False,
+                    "shortWin10": False,
+                    "shortWin20": False,
+                },
+            ]
+
+        def get_daily_bars(self, code: str, limit: int = 400, asof_dt: int | None = None):
+            del code, asof_dt
+            rows = []
+            current = date(2008, 1, 1)
+            while len(rows) < 6000:
+                if current.weekday() < 5:
+                    idx = len(rows)
+                    dt = int(current.strftime("%Y%m%d"))
+                    close = 100.0 + idx * 0.1
+                    rows.append((dt, close - 1.0, close + 1.0, close - 2.0, close, 1_000_000.0))
+                current += timedelta(days=1)
+            return rows[-max(1, min(limit, len(rows))):]
+
+    monkeypatch.setattr(
+        research_runner,
+        "_build_period_segments_with_mode",
+        lambda: (
+            [
+                {"label": "up:test", "start_date": "2012-01-17", "end_date": "2012-04-02"},
+                {"label": "down:test", "start_date": "2008-10-30", "end_date": "2008-12-19"},
+                {"label": "flat:test", "start_date": "1999-10-29", "end_date": "2000-01-05"},
+            ],
+            {
+                "mode": "fallback",
+                "mode_reason": "fallback_required_standard_windows_unavailable",
+                "standard_window_count": 0,
+                "fallback_window_count": 3,
+                "standard_issues": ["windows<3"],
+                "fallback_issues": [],
+            },
+        ),
+    )
+    dependencies._stock_repo = _ScopeAwareRepo()
+    dependencies._config_repo = object()
+
+    family_specs = research_runner._build_family_specs()[:1]
+    monkeypatch.setattr(research_runner, "_build_family_specs", lambda: family_specs)
+    monkeypatch.setattr(research_runner, "_train_phase4_ranker", lambda *args, **kwargs: {"status": "skipped"})
+
+    result = research_runner.run_tradex_research_session(
+        session_id="sacu1",
+        random_seed=7,
+        universe_size=30,
+        max_candidates_per_family=1,
+        session_scope_id="rr_confirmed_20260323_fix5",
+        ret20_source_mode=service.TRADEX_RET20_SOURCE_MODE_DERIVED,
+    )
+
+    assert sorted(result["manifest"]["universe"]) == ["1001", "1002", "1003", "1004"]
+    assert result["runtime_meta"]["confirmed_universe_selection_mode"] == "scope_analysis_eligible"
+    assert result["runtime_meta"]["confirmed_universe_clamped"] is True
+    assert result["runtime_meta"]["confirmed_universe_eligible_count"] == 4
+    assert result["runtime_meta"]["confirmed_universe_selected_count"] == 4
+    assert result["runtime_meta"]["effective_universe_count"] == 4
+    assert result["runtime_meta"]["top_k"] == 5
+    assert result["runtime_meta"]["meaningful_topk_branching_possible"] is False
+    assert result["runtime_meta"]["topk_branching_block_reason"] == "effective_universe_too_small_for_topk"
+    assert result["run_manifest"]["input_artifacts"][0]["path"] == "analysis timeline codes intersecting selected evaluation segments"
+    assert result["coverage_waterfall"]["sample_count"] > 0
+
+
+def test_tradex_research_runner_feature_snapshot_scope_candidates_exceed_topk(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
+    monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
+
+    db_path = tmp_path / "feature-snapshot-scope.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute("CREATE TABLE feature_snapshot_daily(code VARCHAR, dt INTEGER)")
+        rows = []
+        for code in ["1001", "1002", "1003", "1004", "1005", "1006"]:
+            rows.extend(
+                [
+                    (code, 20081030),
+                    (code, 20081031),
+                    (code, 20120117),
+                ]
+            )
+        conn.executemany("INSERT INTO feature_snapshot_daily VALUES (?, ?)", rows)
+
+    class _FeatureSnapshotRepo:
+        def _get_read_conn(self):
+            return duckdb.connect(str(db_path), read_only=True)
+
+    eligible_codes, universe_meta = research_runner._scope_feature_snapshot_eligible_codes(
+        _FeatureSnapshotRepo(),
+        codes=["1001", "1002", "1003", "1004", "1005", "1006", "9999"],
+        period_segments=[
+            {"start_date": "2012-01-17", "end_date": "2012-04-02"},
+            {"start_date": "2008-10-30", "end_date": "2008-12-19"},
+            {"start_date": "1999-10-29", "end_date": "2000-01-05"},
+        ],
+    )
+
+    assert len(eligible_codes) == 6
+    assert universe_meta["selection_mode"] == "feature_snapshot_eligible"
+    assert universe_meta["eligible_code_count"] == 6
+    assert universe_meta["source_path"] == "feature_snapshot_daily codes intersecting selected evaluation segments"
 
 
 def test_tradex_session_coverage_rejects_mixed_ret20_source_mode() -> None:

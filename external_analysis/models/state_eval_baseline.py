@@ -175,6 +175,7 @@ def _reason_texts(
     side: str,
     row: dict[str, Any],
     tags: list[str],
+    candle_context: dict[str, Any] | None = None,
     similarity_evidence: dict[str, float] | None = None,
     tag_prior_summary: dict[str, float | str | None] | None = None,
 ) -> list[str]:
@@ -206,6 +207,10 @@ def _reason_texts(
         "three_bar_bear_reversal": "3-bar bear reversal",
     }
     primary = label_by_tag.get(tags[0], tags[0].replace("_", " ")) if tags else "Setup"
+    if candle_context:
+        setup_label = str(candle_context.get("setup_label") or "").strip()
+        if setup_label:
+            primary = setup_label
     if side == "long":
         similar = _build_similarity_reason(side=side, evidence=similarity_evidence)
         risk = "Adverse risk capped" if _safe_float(row.get("atr_ratio")) < 0.06 else "Adverse risk elevated"
@@ -228,6 +233,320 @@ def _reason_texts(
         texts.append(similar)
     texts.append(risk)
     return texts[:3]
+
+
+def _build_buy_judgement_payload(
+    *,
+    side: str,
+    row: dict[str, Any],
+    strategy_tags: list[str],
+    teacher: dict[str, float],
+    similarity_evidence: dict[str, float] | None,
+    strict: bool,
+) -> dict[str, Any]:
+    direction = 1.0 if side == "long" else -1.0
+    open_price = _safe_float(row.get("open_price"))
+    high_price = _safe_float(row.get("high_price"), open_price)
+    low_price = _safe_float(row.get("low_price"), open_price)
+    close_price = _safe_float(row.get("close_price"), open_price)
+    ma20 = _safe_float(row.get("ma20"), close_price)
+    prev_close = _safe_float(row.get("prev_close"), open_price)
+    prev_high = _safe_float(row.get("prev_high"), high_price)
+    prev_low = _safe_float(row.get("prev_low"), low_price)
+    rolling_high_5 = max(_safe_float(row.get("rolling_high_5"), high_price), high_price, prev_high)
+    rolling_low_5 = min(_safe_float(row.get("rolling_low_5"), low_price), low_price, prev_low)
+    rolling_high_10 = max(_safe_float(row.get("rolling_high_10"), rolling_high_5), rolling_high_5)
+    rolling_low_10 = min(_safe_float(row.get("rolling_low_10"), rolling_low_5), rolling_low_5)
+    candle_range = max(high_price - low_price, 1e-9)
+    body_size = abs(close_price - open_price)
+    upper_wick_size = max(0.0, high_price - max(open_price, close_price))
+    lower_wick_size = max(0.0, min(open_price, close_price) - low_price)
+    body_to_range_ratio = _clamp01(body_size / candle_range)
+    upper_wick_ratio = _clamp01(upper_wick_size / candle_range)
+    lower_wick_ratio = _clamp01(lower_wick_size / candle_range)
+    close_to_high_ratio = _clamp01((high_price - close_price) / candle_range)
+    close_to_low_ratio = _clamp01((close_price - low_price) / candle_range)
+    volume_ratio = _safe_float(row.get("volume_ratio"), 1.0)
+    close_vs_ma20 = _safe_float(row.get("close_vs_ma20"))
+    ret_5 = _safe_float(row.get("ret_5_past"))
+    ret_20 = _safe_float(row.get("ret_20_past"))
+    atr_ratio = _safe_float(row.get("atr_ratio"))
+    box_state = str(row.get("box_state") or "").lower()
+    ppp_state = str(row.get("ppp_state") or "").lower()
+    abc_state = str(row.get("abc_state") or "").lower()
+    candle_flags = _parse_candle_flags(row.get("candle_flags"))
+    prev_candle_flags = _parse_candle_flags(row.get("prev_candle_flags"))
+    prev2_candle_flags = _parse_candle_flags(row.get("prev2_candle_flags"))
+    teacher_signal = _safe_float(teacher.get("effective_signal"), 0.5)
+    similarity_signal = _safe_float(teacher.get("similarity_signal"), 0.5)
+    tag_prior_signal = _safe_float(teacher.get("tag_prior_signal"), 0.5)
+    combo_prior_signal = _safe_float(teacher.get("combo_prior_signal"), 0.5)
+
+    state_support_raw = 0.0
+    for state_text in (box_state, ppp_state, abc_state):
+        if not state_text:
+            continue
+        if direction > 0:
+            if any(token in state_text for token in ("break", "up", "bull", "support", "base")):
+                state_support_raw += 1.0
+            if any(token in state_text for token in ("down", "bear", "breakdown", "weak", "risk")):
+                state_support_raw -= 1.0
+        else:
+            if any(token in state_text for token in ("break", "down", "bear", "support", "base")):
+                state_support_raw += 1.0
+            if any(token in state_text for token in ("up", "bull", "breakout", "weak", "risk")):
+                state_support_raw -= 1.0
+    state_support_score = _clamp01(0.5 + (state_support_raw * 0.12))
+
+    ma_alignment_score = _normalize_signal(direction * close_vs_ma20, -0.08, 0.12)
+    momentum_score = _normalize_signal(direction * ret_20, -0.10, 0.22)
+    short_term_score = _normalize_signal(direction * ret_5, -0.05, 0.10)
+    environment_score = _clamp01(
+        (0.38 * state_support_score)
+        + (0.32 * teacher_signal)
+        + (0.15 * similarity_signal)
+        + (0.15 * tag_prior_signal)
+    )
+    trend_score = _clamp01(
+        (0.45 * ma_alignment_score)
+        + (0.35 * momentum_score)
+        + (0.20 * short_term_score)
+    )
+
+    breakout_up = direction > 0 and close_price >= (rolling_high_5 * 0.998) and close_price >= open_price
+    breakout_down = direction < 0 and close_price <= (rolling_low_5 * 1.002) and close_price <= open_price
+    failed_breakout = direction > 0 and high_price >= rolling_high_5 and close_price < (rolling_high_5 * 0.995) and upper_wick_ratio >= 0.35
+    failed_breakdown = direction < 0 and low_price <= rolling_low_5 and close_price > (rolling_low_5 * 1.005) and lower_wick_ratio >= 0.35
+    gap_up = open_price >= (prev_close * 1.002)
+    gap_down = open_price <= (prev_close * 0.998)
+    close_near_high = close_to_high_ratio <= 0.20
+    close_near_low = close_to_low_ratio <= 0.20
+
+    bullish_tags = {
+        "bullish_engulfing",
+        "hammer_reversal",
+        "inside_break_bull",
+        "bullish_follow_through",
+        "bullish_engulfing_after_inside",
+        "hammer_after_bear",
+        "three_bar_bull_reversal",
+        "box_breakout",
+        "ma20_reclaim",
+        "higher_high_break",
+        "pullback_rebound",
+        "volume_surge",
+        "big_bear_full_reclaim",
+    }
+    bearish_tags = {
+        "bearish_engulfing",
+        "shooting_star_reversal",
+        "inside_break_bear",
+        "bearish_follow_through",
+        "bearish_engulfing_after_inside",
+        "shooting_star_after_bull",
+        "three_bar_bear_reversal",
+        "extension_fade",
+        "rebound_failure",
+        "big_bear_retrace_short",
+        "prev_low_break",
+        "volume_exhaustion_fade",
+    }
+    if direction > 0:
+        pattern_score = 0.86 if any(tag in strategy_tags for tag in {"bullish_engulfing", "hammer_reversal", "bullish_engulfing_after_inside", "hammer_after_bear", "three_bar_bull_reversal"}) else 0.74 if any(tag in strategy_tags for tag in {"inside_break_bull", "bullish_follow_through", "pullback_rebound", "ma20_reclaim"}) else 0.60 if any(tag in strategy_tags for tag in {"box_breakout", "volume_surge", "big_bear_full_reclaim", "higher_high_break"}) else 0.42
+        breakout_score = 1.0 if breakout_up else 0.78 if any(tag in strategy_tags for tag in {"box_breakout", "higher_high_break", "inside_break_bull"}) else 0.50
+        volume_score = _normalize_signal(volume_ratio, 0.80, 1.80)
+        trigger_score = _clamp01(
+            (0.26 * _clamp01(body_to_range_ratio / 0.75))
+            + (0.22 * (1.0 - upper_wick_ratio))
+            + (0.24 * breakout_score)
+            + (0.14 * volume_score)
+            + (0.14 * pattern_score)
+        )
+        risk_score = _clamp01(
+            (0.28 * upper_wick_ratio)
+            + (0.18 * (1.0 - body_to_range_ratio))
+            + (0.18 * (_clamp01(1.0 if failed_breakout else 0.0)))
+            + (0.12 * (_clamp01(1.0 if gap_up and close_price < prev_close else 0.0)))
+            + (0.12 * (_clamp01(1.0 if close_price <= rolling_low_5 else 0.0)))
+            + (0.12 * (_clamp01(1.0 if close_price <= rolling_low_10 else 0.0)))
+        )
+        invalidation_reason_code = "pullback_low_break"
+        if failed_breakout:
+            invalidation_reason_code = "breakout_failure"
+        elif close_price <= rolling_low_10:
+            invalidation_reason_code = "range_low_break"
+        elif close_price <= rolling_low_5:
+            invalidation_reason_code = "daily_swing_low_break"
+        elif close_price < ma20:
+            invalidation_reason_code = "ma_reclaim_failure"
+        elif gap_up and close_price < prev_close:
+            invalidation_reason_code = "gap_failure"
+        invalidation_candidates = [value for value in (rolling_low_5, rolling_low_10, prev_low, low_price, ma20 * 0.995 if ma20 > 0 else None) if value and value > 0]
+        invalidation_price = min(invalidation_candidates) if invalidation_candidates else None
+        setup_label = (
+            "Breakout confirmation"
+            if breakout_up
+            else "Failed breakout"
+            if failed_breakout
+            else "Pullback reclaim"
+            if any(tag in strategy_tags for tag in {"pullback_rebound", "ma20_reclaim"})
+            else "Bullish engulfing"
+            if any(tag in strategy_tags for tag in {"bullish_engulfing", "bullish_engulfing_after_inside"})
+            else "Hammer reversal"
+            if any(tag in strategy_tags for tag in {"hammer_reversal", "hammer_after_bear"})
+            else "Inside break bull"
+            if any(tag in strategy_tags for tag in {"inside_break_bull", "bullish_follow_through", "three_bar_bull_reversal"})
+            else "Setup"
+        )
+        if failed_breakout:
+            pattern_reason = "FAILED_BREAKOUT"
+        elif breakout_up:
+            pattern_reason = "BREAKOUT_CONFIRMED"
+        elif any(tag in strategy_tags for tag in {"pullback_rebound", "ma20_reclaim"}):
+            pattern_reason = "PULLBACK_RECLAIM"
+        elif any(tag in strategy_tags for tag in {"bullish_engulfing", "hammer_reversal", "inside_break_bull"}):
+            pattern_reason = "CANDLE_TRIGGER"
+        else:
+            pattern_reason = "SETUP_CANDLE_AWARE"
+        candle_reason_codes = [
+            "CANDLE_BODY_STRONG" if body_to_range_ratio >= 0.55 else "CANDLE_BODY_WEAK" if body_to_range_ratio <= 0.25 else "CANDLE_BODY_MID",
+            "CANDLE_CLOSE_NEAR_HIGH" if close_near_high else "CANDLE_CLOSE_NEAR_LOW" if close_near_low else "CANDLE_CLOSE_MID",
+            "VOLUME_EXPANSION" if volume_ratio >= 1.20 else "VOLUME_CONTRACTION" if volume_ratio <= 0.85 else "VOLUME_NORMAL",
+            "GAP_UP" if gap_up else "GAP_DOWN" if gap_down else "NO_GAP",
+            "MA20_SUPPORT" if close_vs_ma20 >= 0.0 else "MA20_BREAKDOWN",
+            pattern_reason,
+            invalidation_reason_code.upper(),
+        ]
+    else:
+        pattern_score = 0.86 if any(tag in strategy_tags for tag in {"bearish_engulfing", "shooting_star_reversal", "bearish_engulfing_after_inside", "shooting_star_after_bull", "three_bar_bear_reversal"}) else 0.74 if any(tag in strategy_tags for tag in {"inside_break_bear", "bearish_follow_through", "extension_fade", "rebound_failure"}) else 0.60 if any(tag in strategy_tags for tag in {"prev_low_break", "volume_exhaustion_fade", "big_bear_retrace_short"}) else 0.42
+        breakout_score = 1.0 if breakout_down else 0.78 if any(tag in strategy_tags for tag in {"inside_break_bear", "prev_low_break"}) else 0.50
+        volume_score = _normalize_signal(volume_ratio, 0.80, 1.80)
+        trigger_score = _clamp01(
+            (0.26 * _clamp01(body_to_range_ratio / 0.75))
+            + (0.22 * (1.0 - lower_wick_ratio))
+            + (0.24 * breakout_score)
+            + (0.14 * volume_score)
+            + (0.14 * pattern_score)
+        )
+        risk_score = _clamp01(
+            (0.28 * lower_wick_ratio)
+            + (0.18 * (1.0 - body_to_range_ratio))
+            + (0.18 * (_clamp01(1.0 if failed_breakdown else 0.0)))
+            + (0.12 * (_clamp01(1.0 if gap_down and close_price > prev_close else 0.0)))
+            + (0.12 * (_clamp01(1.0 if close_price >= rolling_high_5 else 0.0)))
+            + (0.12 * (_clamp01(1.0 if close_price >= rolling_high_10 else 0.0)))
+        )
+        invalidation_reason_code = "pullback_high_break"
+        if failed_breakdown:
+            invalidation_reason_code = "breakout_failure"
+        elif close_price >= rolling_high_10:
+            invalidation_reason_code = "range_high_break"
+        elif close_price >= rolling_high_5:
+            invalidation_reason_code = "daily_swing_high_break"
+        elif close_price > ma20:
+            invalidation_reason_code = "ma_reclaim_failure"
+        elif gap_down and close_price > prev_close:
+            invalidation_reason_code = "gap_failure"
+        invalidation_candidates = [value for value in (rolling_high_5, rolling_high_10, prev_high, high_price, ma20 * 1.005 if ma20 > 0 else None) if value and value > 0]
+        invalidation_price = max(invalidation_candidates) if invalidation_candidates else None
+        setup_label = (
+            "Breakdown confirmation"
+            if breakout_down
+            else "Failed breakdown"
+            if failed_breakdown
+            else "Pullback fade"
+            if any(tag in strategy_tags for tag in {"extension_fade", "rebound_failure"})
+            else "Bearish engulfing"
+            if any(tag in strategy_tags for tag in {"bearish_engulfing", "bearish_engulfing_after_inside"})
+            else "Shooting star"
+            if any(tag in strategy_tags for tag in {"shooting_star_reversal", "shooting_star_after_bull"})
+            else "Inside break bear"
+            if any(tag in strategy_tags for tag in {"inside_break_bear", "bearish_follow_through", "three_bar_bear_reversal"})
+            else "Setup"
+        )
+        if failed_breakdown:
+            pattern_reason = "FAILED_BREAKDOWN"
+        elif breakout_down:
+            pattern_reason = "BREAKDOWN_CONFIRMED"
+        elif any(tag in strategy_tags for tag in {"extension_fade", "rebound_failure"}):
+            pattern_reason = "PULLBACK_FADE"
+        elif any(tag in strategy_tags for tag in {"bearish_engulfing", "shooting_star_reversal", "inside_break_bear"}):
+            pattern_reason = "CANDLE_TRIGGER"
+        else:
+            pattern_reason = "SETUP_CANDLE_AWARE"
+        candle_reason_codes = [
+            "CANDLE_BODY_STRONG" if body_to_range_ratio >= 0.55 else "CANDLE_BODY_WEAK" if body_to_range_ratio <= 0.25 else "CANDLE_BODY_MID",
+            "CANDLE_CLOSE_NEAR_LOW" if close_near_low else "CANDLE_CLOSE_NEAR_HIGH" if close_near_high else "CANDLE_CLOSE_MID",
+            "VOLUME_EXPANSION" if volume_ratio >= 1.20 else "VOLUME_CONTRACTION" if volume_ratio <= 0.85 else "VOLUME_NORMAL",
+            "GAP_DOWN" if gap_down else "GAP_UP" if gap_up else "NO_GAP",
+            "MA20_SUPPORT" if close_vs_ma20 <= 0.0 else "MA20_BREAKUP",
+            pattern_reason,
+            invalidation_reason_code.upper(),
+        ]
+
+    buy_score = _clamp01(
+        (0.32 * environment_score)
+        + (0.28 * trend_score)
+        + (0.25 * trigger_score)
+        + (0.15 * (1.0 - risk_score))
+    )
+    if strict:
+        buy_score = _clamp01(buy_score - 0.045)
+    machine_action_state = _decision_from_score(buy_score, strict=strict)
+    human_readable_judgement = {
+        DECISION_ENTER: "buy",
+        DECISION_WAIT: "hold",
+        DECISION_SKIP: "reject",
+    }[machine_action_state]
+    reason_codes = list(
+        dict.fromkeys(
+            [
+                *strategy_tags,
+                "ENVIRONMENT_BUY_SUPPORT" if environment_score >= 0.60 else "ENVIRONMENT_WEAK",
+                "TREND_BUY_ALIGNED" if trend_score >= 0.60 else "TREND_BUY_WEAK",
+                "TRIGGER_CANDLE_STRONG" if trigger_score >= 0.60 else "TRIGGER_CANDLE_MIXED",
+                "RISK_CONTROLLED" if risk_score <= 0.40 else "RISK_ELEVATED",
+                *candle_reason_codes,
+                invalidation_reason_code.upper(),
+            ]
+        )
+    )
+    if direction > 0 and gap_up:
+        reason_codes.append("GAP_UP_SETUP")
+    if direction < 0 and gap_down:
+        reason_codes.append("GAP_DOWN_SETUP")
+    if direction > 0 and breakout_up:
+        reason_codes.append("BREAKOUT_UP_CONFIRMED")
+    if direction < 0 and breakout_down:
+        reason_codes.append("BREAKDOWN_DOWN_CONFIRMED")
+    reason_codes = list(dict.fromkeys(reason_codes))
+    reason_text_top3 = _reason_texts(
+        side=side,
+        row=row,
+        tags=strategy_tags,
+        candle_context={"setup_label": setup_label},
+        similarity_evidence=similarity_evidence,
+        tag_prior_summary=teacher,
+    )
+    return {
+        "machine_action_state": machine_action_state,
+        "human_readable_judgement": human_readable_judgement,
+        "buy_score": float(round(buy_score, 6)),
+        "environment_score": float(round(environment_score, 6)),
+        "trend_score": float(round(trend_score, 6)),
+        "trigger_score": float(round(trigger_score, 6)),
+        "risk_score": float(round(risk_score, 6)),
+        "invalidation_price": None if invalidation_price is None else float(round(invalidation_price, 6)),
+        "invalidation_reason_code": invalidation_reason_code,
+        "reason_codes": _build_reason_codes(*reason_codes),
+        "reason_text_top3": _build_reason_text_top3(*reason_text_top3),
+        "body_size": float(round(body_size, 6)),
+        "upper_wick_size": float(round(upper_wick_size, 6)),
+        "lower_wick_size": float(round(lower_wick_size, 6)),
+        "body_to_range_ratio": float(round(body_to_range_ratio, 6)),
+        "gap_state": "gap_up" if gap_up else "gap_down" if gap_down else "no_gap",
+        "breakout_state": "breakout_up" if breakout_up else "breakout_down" if breakout_down else "failed_breakout" if failed_breakout else "failed_breakdown" if failed_breakdown else "inside",
+    }
 
 
 def _parse_json_array(value: Any) -> list[Any]:
@@ -1297,93 +1616,55 @@ def _persist_trade_teacher_profile(
 
 
 def _champion_long_score(row: dict[str, Any], teacher: dict[str, float]) -> tuple[float, list[str]]:
-    trend_signal = _normalize_signal(_safe_float(row["ranking_score_long"]), -5.0, 12.0)
-    momentum_signal = _normalize_signal(_safe_float(row["ret_20_past"]), -0.10, 0.25)
-    ma_signal = _normalize_signal(_safe_float(row["close_vs_ma20"]), -0.08, 0.12)
-    teacher_signal = _safe_float(teacher.get("effective_signal"), 0.5)
-    similarity_signal = _safe_float(teacher.get("similarity_signal"), 0.5)
-    tag_prior_signal = _safe_float(teacher.get("tag_prior_signal"), 0.5)
-    combo_prior_signal = _safe_float(teacher.get("combo_prior_signal"), 0.5)
-    risk_penalty = _normalize_signal(_safe_float(row["atr_ratio"]), 0.02, 0.08)
-    score = (
-        (0.23 * trend_signal)
-        + (0.20 * momentum_signal)
-        + (0.13 * ma_signal)
-        + (0.18 * teacher_signal)
-        + (0.10 * similarity_signal)
-        + (0.10 * tag_prior_signal)
-        + (0.08 * combo_prior_signal)
-        - (0.18 * risk_penalty)
+    strategy_tags = _derive_strategy_tags("long", row)
+    payload = _build_buy_judgement_payload(
+        side="long",
+        row=row,
+        strategy_tags=strategy_tags,
+        teacher=teacher,
+        similarity_evidence=None,
+        strict=False,
     )
-    return score, ["BUY_TREND", "MA20_SUPPORT", "SIMILARITY_SUPPORT", "TAG_PRIOR_SUPPORT", "COMBO_PRIOR_SUPPORT"]
+    return float(payload["buy_score"]), _parse_json_array(payload["reason_codes"])
 
 
 def _challenger_long_score(row: dict[str, Any], teacher: dict[str, float]) -> tuple[float, list[str]]:
-    trend_signal = _normalize_signal(_safe_float(row["ranking_score_long"]), -3.0, 10.0)
-    momentum_signal = _normalize_signal(_safe_float(row["ret_20_past"]), -0.06, 0.20)
-    ma_signal = _normalize_signal(_safe_float(row["close_vs_ma20"]), -0.05, 0.10)
-    risk_penalty = _normalize_signal(_safe_float(row["atr_ratio"]), 0.02, 0.08)
-    teacher_signal = _safe_float(teacher.get("effective_signal"), 0.5)
-    similarity_signal = _safe_float(teacher.get("similarity_signal"), 0.5)
-    tag_prior_signal = _safe_float(teacher.get("tag_prior_signal"), 0.5)
-    combo_prior_signal = _safe_float(teacher.get("combo_prior_signal"), 0.5)
-    score = (
-        (0.20 * trend_signal)
-        + (0.18 * momentum_signal)
-        + (0.12 * ma_signal)
-        + (0.22 * teacher_signal)
-        + (0.14 * similarity_signal)
-        + (0.10 * tag_prior_signal)
-        + (0.10 * combo_prior_signal)
-        - (0.24 * risk_penalty)
+    strategy_tags = _derive_strategy_tags("long", row)
+    payload = _build_buy_judgement_payload(
+        side="long",
+        row=row,
+        strategy_tags=strategy_tags,
+        teacher=teacher,
+        similarity_evidence=None,
+        strict=True,
     )
-    return score, ["BUY_TREND_STRICT", "FALSE_BREAKOUT_FILTER", "SIMILARITY_STRICT", "TAG_PRIOR_STRICT", "COMBO_PRIOR_STRICT"]
+    return float(payload["buy_score"]), _parse_json_array(payload["reason_codes"])
 
 
 def _champion_short_score(row: dict[str, Any], teacher: dict[str, float]) -> tuple[float, list[str]]:
-    rebound_signal = _normalize_signal(_safe_float(row["ret_5_past"]), -0.03, 0.12)
-    extension_signal = _normalize_signal(_safe_float(row["close_vs_ma20"]), -0.02, 0.10)
-    volume_signal = _normalize_signal(_safe_float(row["volume_ratio"]), 0.8, 2.2)
-    teacher_signal = _safe_float(teacher.get("effective_signal"), 0.5)
-    similarity_signal = _safe_float(teacher.get("similarity_signal"), 0.5)
-    tag_prior_signal = _safe_float(teacher.get("tag_prior_signal"), 0.5)
-    combo_prior_signal = _safe_float(teacher.get("combo_prior_signal"), 0.5)
-    squeeze_penalty = _normalize_signal(_safe_float(row["close_vs_ma20"]), 0.02, 0.10)
-    score = (
-        (0.20 * rebound_signal)
-        + (0.20 * extension_signal)
-        + (0.08 * volume_signal)
-        + (0.20 * teacher_signal)
-        + (0.12 * similarity_signal)
-        + (0.12 * tag_prior_signal)
-        + (0.10 * combo_prior_signal)
-        - (0.18 * squeeze_penalty)
+    strategy_tags = _derive_strategy_tags("short", row)
+    payload = _build_buy_judgement_payload(
+        side="short",
+        row=row,
+        strategy_tags=strategy_tags,
+        teacher=teacher,
+        similarity_evidence=None,
+        strict=False,
     )
-    return score, ["SELL_COUNTERTREND", "EXTENDED_ABOVE_MA20", "SIMILARITY_SUPPORT", "TAG_PRIOR_SUPPORT", "COMBO_PRIOR_SUPPORT"]
+    return float(payload["buy_score"]), _parse_json_array(payload["reason_codes"])
 
 
 def _challenger_short_score(row: dict[str, Any], teacher: dict[str, float]) -> tuple[float, list[str]]:
-    rebound_signal = _normalize_signal(_safe_float(row["ret_5_past"]), -0.01, 0.10)
-    extension_signal = _normalize_signal(_safe_float(row["close_vs_ma20"]), 0.0, 0.08)
-    volume_signal = _normalize_signal(_safe_float(row["volume_ratio"]), 1.0, 2.0)
-    risk_penalty = _normalize_signal(_safe_float(row["atr_ratio"]), 0.02, 0.08)
-    teacher_signal = _safe_float(teacher.get("effective_signal"), 0.5)
-    similarity_signal = _safe_float(teacher.get("similarity_signal"), 0.5)
-    tag_prior_signal = _safe_float(teacher.get("tag_prior_signal"), 0.5)
-    combo_prior_signal = _safe_float(teacher.get("combo_prior_signal"), 0.5)
-    squeeze_penalty = _normalize_signal(_safe_float(row["close_vs_ma20"]), 0.02, 0.10)
-    score = (
-        (0.17 * rebound_signal)
-        + (0.18 * extension_signal)
-        + (0.06 * volume_signal)
-        + (0.22 * teacher_signal)
-        + (0.14 * similarity_signal)
-        + (0.11 * tag_prior_signal)
-        + (0.10 * combo_prior_signal)
-        - (0.18 * risk_penalty)
-        - (0.18 * squeeze_penalty)
+    strategy_tags = _derive_strategy_tags("short", row)
+    payload = _build_buy_judgement_payload(
+        side="short",
+        row=row,
+        strategy_tags=strategy_tags,
+        teacher=teacher,
+        similarity_evidence=None,
+        strict=True,
     )
-    return score, ["SELL_COUNTERTREND_STRICT", "SQUEEZE_FILTER", "SIMILARITY_STRICT", "TAG_PRIOR_STRICT", "COMBO_PRIOR_STRICT"]
+    return float(payload["buy_score"]), _parse_json_array(payload["reason_codes"])
 
 
 def _decision_from_score(score: float, *, strict: bool) -> str:
@@ -1464,21 +1745,24 @@ def build_state_eval_rows(
                 tag_priors=tag_prior_support,
             )
         )
-        if side == "long":
-            champion_score, champion_reasons = _champion_long_score(scored_row, teacher)
-            challenger_score, challenger_reasons = _challenger_long_score(scored_row, teacher)
-        else:
-            champion_score, champion_reasons = _champion_short_score(scored_row, teacher)
-            challenger_score, challenger_reasons = _challenger_short_score(scored_row, teacher)
-        reason_text_top3 = _reason_texts(
+        champion_payload = _build_buy_judgement_payload(
             side=side,
             row=scored_row,
-            tags=strategy_tags,
+            strategy_tags=strategy_tags,
+            teacher=teacher,
             similarity_evidence=similarity_support.get(code),
-            tag_prior_summary=teacher,
+            strict=False,
         )
-        champion_decision = _decision_from_score(champion_score, strict=False)
-        challenger_decision = _decision_from_score(challenger_score, strict=True)
+        challenger_payload = _build_buy_judgement_payload(
+            side=side,
+            row=scored_row,
+            strategy_tags=strategy_tags,
+            teacher=teacher,
+            similarity_evidence=similarity_support.get(code),
+            strict=True,
+        )
+        champion_decision = str(champion_payload["machine_action_state"])
+        challenger_decision = str(challenger_payload["machine_action_state"])
         champion_rows.append(
             {
                 "publish_id": publish_id,
@@ -1489,9 +1773,18 @@ def build_state_eval_rows(
                 "holding_band": holding_band,
                 "strategy_tags": json.dumps(strategy_tags, ensure_ascii=False),
                 "decision_3way": champion_decision,
-                "confidence": float(round(champion_score, 6)),
-                "reason_codes": _build_reason_codes(*champion_reasons),
-                "reason_text_top3": _build_reason_text_top3(*reason_text_top3),
+                "confidence": float(champion_payload["buy_score"]),
+                "machine_action_state": champion_payload["machine_action_state"],
+                "human_readable_judgement": champion_payload["human_readable_judgement"],
+                "buy_score": float(champion_payload["buy_score"]),
+                "environment_score": float(champion_payload["environment_score"]),
+                "trend_score": float(champion_payload["trend_score"]),
+                "trigger_score": float(champion_payload["trigger_score"]),
+                "risk_score": float(champion_payload["risk_score"]),
+                "invalidation_price": champion_payload["invalidation_price"],
+                "invalidation_reason_code": champion_payload["invalidation_reason_code"],
+                "reason_codes": champion_payload["reason_codes"],
+                "reason_text_top3": champion_payload["reason_text_top3"],
                 "freshness_state": freshness_state,
             }
         )
@@ -1504,9 +1797,18 @@ def build_state_eval_rows(
                 "holding_band": holding_band,
                 "strategy_tags": json.dumps(strategy_tags, ensure_ascii=False),
                 "decision_3way": challenger_decision,
-                "confidence": float(round(challenger_score, 6)),
-                "reason_codes": _build_reason_codes(*challenger_reasons),
-                "reason_text_top3": _build_reason_text_top3(*reason_text_top3),
+                "confidence": float(challenger_payload["buy_score"]),
+                "machine_action_state": challenger_payload["machine_action_state"],
+                "human_readable_judgement": challenger_payload["human_readable_judgement"],
+                "buy_score": float(challenger_payload["buy_score"]),
+                "environment_score": float(challenger_payload["environment_score"]),
+                "trend_score": float(challenger_payload["trend_score"]),
+                "trigger_score": float(challenger_payload["trigger_score"]),
+                "risk_score": float(challenger_payload["risk_score"]),
+                "invalidation_price": challenger_payload["invalidation_price"],
+                "invalidation_reason_code": challenger_payload["invalidation_reason_code"],
+                "reason_codes": challenger_payload["reason_codes"],
+                "reason_text_top3": challenger_payload["reason_text_top3"],
             }
         )
     return {

@@ -204,9 +204,52 @@ def _mean(values: list[float]) -> float:
     return sum(values) / float(len(values)) if values else 0.0
 
 
+def _bad_pick_penalty_scale(plan: dict[str, Any] | None) -> float:
+    scale = _float((plan or {}).get("bad_pick_penalty_scale"))
+    return max(0.0, scale) if scale is not None else 1.0
+
+
+def _selection_rank_score(
+    row: dict[str, Any],
+    *,
+    variant: str,
+    bad_pick_penalty_scale: float = 1.0,
+) -> float:
+    analysis_ev_net = _float((row.get("analysis_ev_net") or {}).get("mean")) or 0.0
+    ret_20 = _float((row.get("ret_20") or {}).get("mean")) or 0.0
+    if variant != TRADEX_CHALLENGER_SELECTION_VARIANT:
+        return analysis_ev_net
+    ret_10 = _float((row.get("ret_10") or {}).get("mean")) or 0.0
+    signal_rate = _float(row.get("signal_rate")) or 0.0
+    publish_ready_rate = _float(row.get("publish_ready_rate")) or 0.0
+    liquidity20d = _float((row.get("liquidity20d") or {}).get("mean")) or 0.0
+    liquidity_quality = min(1.0, liquidity20d / TRADEX_LIQUIDITY20D_MIN) if liquidity20d > 0.0 else 0.0
+    regime_stability = _float(row.get("regime_stability")) or 0.0
+    missing_feature_rate = _float(row.get("missing_feature_rate")) or 0.0
+    environment_unresolved_rate = _float(row.get("environment_unresolved_rate")) or 0.0
+    liquidity_fail_rate = _float(row.get("liquidity_fail_rate")) or 0.0
+    zero_pass_rate = _float(row.get("zero_pass_rate")) or max(0.0, 1.0 - signal_rate)
+    penalty_bucket = (
+        0.10 * missing_feature_rate
+        + 0.08 * environment_unresolved_rate
+        + 0.05 * liquidity_fail_rate
+        + 0.05 * zero_pass_rate
+    )
+    return float(
+        0.45 * analysis_ev_net
+        + 0.30 * ret_20
+        + 0.10 * ret_10
+        + 0.05 * signal_rate
+        + 0.05 * publish_ready_rate
+        + 0.05 * liquidity_quality
+        + 0.05 * regime_stability
+        - bad_pick_penalty_scale * penalty_bucket
+    )
+
+
 def _selection_rank_key(row: dict[str, Any]) -> tuple[float, float, str]:
     return (
-        -float((row.get("analysis_ev_net") or {}).get("mean") or 0.0),
+        -_selection_rank_score(row, variant="champion"),
         -float((row.get("ret_20") or {}).get("mean") or 0.0),
         _text(row.get("code")),
     )
@@ -228,38 +271,17 @@ def _selection_period_label(date_text: str, segments: list[dict[str, Any]] | Non
     return ""
 
 
-def _selection_challenger_score(row: dict[str, Any]) -> float:
-    analysis_ev_net = _float((row.get("analysis_ev_net") or {}).get("mean")) or 0.0
-    ret_20 = _float((row.get("ret_20") or {}).get("mean")) or 0.0
-    ret_10 = _float((row.get("ret_10") or {}).get("mean")) or 0.0
-    signal_rate = _float(row.get("signal_rate")) or 0.0
-    publish_ready_rate = _float(row.get("publish_ready_rate")) or 0.0
-    liquidity20d = _float((row.get("liquidity20d") or {}).get("mean")) or 0.0
-    liquidity_quality = min(1.0, liquidity20d / TRADEX_LIQUIDITY20D_MIN) if liquidity20d > 0.0 else 0.0
-    regime_stability = _float(row.get("regime_stability")) or 0.0
-    missing_feature_rate = _float(row.get("missing_feature_rate")) or 0.0
-    environment_unresolved_rate = _float(row.get("environment_unresolved_rate")) or 0.0
-    liquidity_fail_rate = _float(row.get("liquidity_fail_rate")) or 0.0
-    zero_pass_rate = _float(row.get("zero_pass_rate")) or max(0.0, 1.0 - signal_rate)
-    score = (
-        0.45 * analysis_ev_net
-        + 0.30 * ret_20
-        + 0.10 * ret_10
-        + 0.05 * signal_rate
-        + 0.05 * publish_ready_rate
-        + 0.05 * liquidity_quality
-        + 0.05 * regime_stability
-        - 0.10 * missing_feature_rate
-        - 0.08 * environment_unresolved_rate
-        - 0.05 * liquidity_fail_rate
-        - 0.05 * zero_pass_rate
+def _selection_challenger_score(row: dict[str, Any], *, bad_pick_penalty_scale: float = 1.0) -> float:
+    return _selection_rank_score(
+        row,
+        variant=TRADEX_CHALLENGER_SELECTION_VARIANT,
+        bad_pick_penalty_scale=bad_pick_penalty_scale,
     )
-    return float(score)
 
 
-def _challenger_rank_key(row: dict[str, Any]) -> tuple[float, float, str]:
+def _challenger_rank_key(row: dict[str, Any], *, bad_pick_penalty_scale: float = 1.0) -> tuple[float, float, str]:
     return (
-        -_selection_challenger_score(row),
+        -_selection_challenger_score(row, bad_pick_penalty_scale=bad_pick_penalty_scale),
         -float((row.get("ret_20") or {}).get("mean") or 0.0),
         _text(row.get("code")),
     )
@@ -537,19 +559,124 @@ def _selection_group_summary(code_summaries: list[dict[str, Any]]) -> dict[str, 
     }
 
 
+def _selection_code_position_map(summary: dict[str, Any], *, limit: int) -> dict[str, int]:
+    rankings = summary.get("code_rankings") if isinstance(summary.get("code_rankings"), list) else []
+    out: dict[str, int] = {}
+    for index, row in enumerate(rankings[:limit], start=1):
+        if not isinstance(row, dict):
+            continue
+        code = _text(row.get("code"))
+        if code:
+            out[code] = index
+    return out
+
+
+def _selection_boundary_score(summary: dict[str, Any], *, boundary_rank: int) -> float:
+    rankings = summary.get("code_rankings") if isinstance(summary.get("code_rankings"), list) else []
+    if len(rankings) <= boundary_rank:
+        return 0.0
+    current = rankings[boundary_rank - 1] if boundary_rank - 1 < len(rankings) else {}
+    following = rankings[boundary_rank] if boundary_rank < len(rankings) else {}
+    return (_float(current.get("ranking_score")) or 0.0) - (_float(following.get("ranking_score")) or 0.0)
+
+
+def _selection_divergence_metrics(champion: dict[str, Any], challenger: dict[str, Any]) -> dict[str, Any]:
+    champion_top5 = set(_selection_code_position_map(champion, limit=5))
+    challenger_top5 = set(_selection_code_position_map(challenger, limit=5))
+    champion_top10_map = _selection_code_position_map(champion, limit=10)
+    challenger_top10_map = _selection_code_position_map(challenger, limit=10)
+    changed_top5_members_count = len(champion_top5 ^ challenger_top5)
+    changed_top10_members_count = len(set(champion_top10_map) ^ set(challenger_top10_map))
+    changed_rank_count = sum(
+        1
+        for code in sorted(set(champion_top10_map) | set(challenger_top10_map))
+        if champion_top10_map.get(code) != challenger_top10_map.get(code)
+    )
+    top5_boundary_score_gap = _selection_boundary_score(challenger, boundary_rank=5) - _selection_boundary_score(champion, boundary_rank=5)
+    top10_boundary_score_gap = _selection_boundary_score(challenger, boundary_rank=10) - _selection_boundary_score(champion, boundary_rank=10)
+    insufficient_samples = max(_selection_sample_count(champion), _selection_sample_count(challenger)) <= 0
+    if insufficient_samples:
+        selection_divergence_reason = "insufficient_samples"
+    elif changed_top5_members_count > 0:
+        selection_divergence_reason = "top5_member_replacement"
+    elif changed_top10_members_count > 0:
+        selection_divergence_reason = "top10_member_replacement"
+    elif changed_rank_count > 0:
+        selection_divergence_reason = "rank_shuffle_only"
+    else:
+        selection_divergence_reason = "no_meaningful_branching"
+    return {
+        "changed_top5_members_count": changed_top5_members_count,
+        "changed_top10_members_count": changed_top10_members_count,
+        "changed_rank_count": changed_rank_count,
+        "top5_boundary_score_gap": top5_boundary_score_gap,
+        "top10_boundary_score_gap": top10_boundary_score_gap,
+        "selection_divergence_reason": selection_divergence_reason,
+    }
+
+
+def _topk_branching_contract_state(
+    *,
+    family: dict[str, Any],
+    champion_summary: dict[str, Any],
+    challenger_summary: dict[str, Any],
+    top_k: int,
+) -> dict[str, Any]:
+    effective_universe_count = len([item for item in (family.get("universe") or []) if _text(item)])
+    champion_rankings = champion_summary.get("code_rankings") if isinstance(champion_summary.get("code_rankings"), list) else []
+    challenger_rankings = challenger_summary.get("code_rankings") if isinstance(challenger_summary.get("code_rankings"), list) else []
+    topk_boundary_exists = max(len(champion_rankings), len(challenger_rankings)) > top_k
+    if effective_universe_count <= top_k:
+        block_reason = "effective_universe_too_small_for_topk"
+    elif not topk_boundary_exists:
+        block_reason = "topk_boundary_absent"
+    else:
+        block_reason = ""
+    return {
+        "effective_universe_count": effective_universe_count,
+        "top_k": top_k,
+        "topk_boundary_exists": topk_boundary_exists,
+        "meaningful_topk_branching_possible": bool(not block_reason),
+        "topk_branching_block_reason": block_reason,
+    }
+
+
+def _ranked_selection_code_summary(
+    code: str,
+    code_samples: list[dict[str, Any]],
+    *,
+    segments: list[dict[str, Any]] | None,
+    variant: str,
+    bad_pick_penalty_scale: float,
+) -> dict[str, Any]:
+    summary = _selection_code_summary(code, code_samples, segments=segments)
+    summary["ranking_score"] = _selection_rank_score(
+        summary,
+        variant=variant,
+        bad_pick_penalty_scale=bad_pick_penalty_scale,
+    )
+    return summary
+
+
 def _selection_summary(
     samples: list[dict[str, Any]],
     *,
     segments: list[dict[str, Any]] | None = None,
     variant: str = "champion",
+    plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    rank_key = _selection_rank_key if variant != TRADEX_CHALLENGER_SELECTION_VARIANT else _challenger_rank_key
+    bad_pick_penalty_scale = _bad_pick_penalty_scale(plan)
+    if variant != TRADEX_CHALLENGER_SELECTION_VARIANT:
+        rank_key = _selection_rank_key
+    else:
+        rank_key = lambda row: _challenger_rank_key(row, bad_pick_penalty_scale=bad_pick_penalty_scale)
     if not samples:
         return {
             "kind": "proxy",
             "source": "timeline_metrics",
             "diagnostics_schema_version": TRADEX_DIAGNOSTICS_SCHEMA_VERSION,
             "selection_variant": variant,
+            "bad_pick_penalty_scale": bad_pick_penalty_scale,
             "selection_formula": "analysis_ev_net -> short_ret_20 -> code"
             if variant != TRADEX_CHALLENGER_SELECTION_VARIANT
             else TRADEX_CHALLENGER_SELECTION_FORMULA,
@@ -600,7 +727,16 @@ def _selection_summary(
         by_date.setdefault(date_text, {}).setdefault(code, []).append(sample)
 
     code_rankings = sorted(
-        (_selection_code_summary(code, code_samples, segments=segments) for code, code_samples in by_code.items()),
+        (
+            _ranked_selection_code_summary(
+                code,
+                code_samples,
+                segments=segments,
+                variant=variant,
+                bad_pick_penalty_scale=bad_pick_penalty_scale,
+            )
+            for code, code_samples in by_code.items()
+        ),
         key=rank_key,
     )
     code_summary_map = {_text(row.get("code")): row for row in code_rankings}
@@ -635,7 +771,16 @@ def _selection_summary(
         model_union: set[str] = set()
         for date_text, code_samples_map in sorted(date_map.items()):
             day_rankings = sorted(
-                (_selection_code_summary(code, code_samples, segments=segments) for code, code_samples in code_samples_map.items()),
+                (
+                    _ranked_selection_code_summary(
+                        code,
+                        code_samples,
+                        segments=segments,
+                        variant=variant,
+                        bad_pick_penalty_scale=bad_pick_penalty_scale,
+                    )
+                    for code, code_samples in code_samples_map.items()
+                ),
                 key=rank_key,
             )
             if not day_rankings:
@@ -719,13 +864,14 @@ def _selection_summary(
         "source": "timeline_metrics",
         "diagnostics_schema_version": TRADEX_DIAGNOSTICS_SCHEMA_VERSION,
         "selection_variant": variant,
+        "bad_pick_penalty_scale": bad_pick_penalty_scale,
         "sample_count": len(samples),
         "selection_formula": "analysis_ev_net -> short_ret_20 -> code"
         if variant != TRADEX_CHALLENGER_SELECTION_VARIANT
         else TRADEX_CHALLENGER_SELECTION_FORMULA,
         "rank_metric": "analysis_ev_net",
         "outcome_metric": "short_ret_20",
-        "code_rankings": code_rankings[:10],
+        "code_rankings": code_rankings[:11],
         "groups": {
             "top5": top5_group,
             "top10": top10_group,
@@ -1027,9 +1173,17 @@ def _evaluation_window_summary(
     champion_samples: list[dict[str, Any]],
     challenger_samples: list[dict[str, Any]],
     window: dict[str, Any],
+    *,
+    champion_plan: dict[str, Any] | None = None,
+    challenger_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    champion_summary = _selection_summary(champion_samples, segments=[window], variant="champion")
-    challenger_summary = _selection_summary(challenger_samples, segments=[window], variant=TRADEX_CHALLENGER_SELECTION_VARIANT)
+    champion_summary = _selection_summary(champion_samples, segments=[window], variant="champion", plan=champion_plan)
+    challenger_summary = _selection_summary(
+        challenger_samples,
+        segments=[window],
+        variant=TRADEX_CHALLENGER_SELECTION_VARIANT,
+        plan=challenger_plan,
+    )
     window_compare = _selection_comparison_summary(champion_summary, challenger_summary)
     return {
         "evaluation_window_id": _text(window.get("evaluation_window_id")),
@@ -1127,6 +1281,9 @@ def _evaluation_overview_summary(
         promote_reasons.append("zero_pass_months_not_improved")
     if challenger_liquidity_fail_rate > champion_liquidity_fail_rate + thresholds["top5_liquidity_min_delta"]:
         promote_reasons.append("liquidity_fail_rate_too_high")
+    insufficient_samples = max(_selection_sample_count(champion_summary), _selection_sample_count(challenger_summary)) <= 0
+    if insufficient_samples:
+        promote_reasons.append("insufficient_evidence_zero_samples")
     return {
         "diagnostics_schema_version": TRADEX_DIAGNOSTICS_SCHEMA_VERSION,
         "thresholds": thresholds,
@@ -1158,9 +1315,12 @@ def _evaluation_overview_summary(
             window_summaries
             and len(window_summaries) >= 3
             and not promote_reasons
+            and not insufficient_samples
         ),
         "promote_reasons": promote_reasons if window_summaries else ["evaluation_windows_unavailable"],
-        "status": "ready" if window_summaries else "incomplete",
+        "insufficient_samples": insufficient_samples,
+        "sample_count": max(_selection_sample_count(champion_summary), _selection_sample_count(challenger_summary)),
+        "status": "ready" if window_summaries and not insufficient_samples else "incomplete",
     }
 
 
@@ -1358,15 +1518,30 @@ def _build_champion_challenger_evaluation(
     candidate_samples = candidate.get("metrics", {}).get("samples") if isinstance(candidate.get("metrics"), dict) else []
     baseline_samples = [sample for sample in baseline_samples if isinstance(sample, dict)]
     candidate_samples = [sample for sample in candidate_samples if isinstance(sample, dict)]
+    baseline_plan = baseline.get("plan") if isinstance(baseline.get("plan"), dict) else {}
+    candidate_plan = candidate.get("plan") if isinstance(candidate.get("plan"), dict) else {}
     regime_rows, regime_issues = _load_evaluation_regime_rows()
     windows, window_issues = _select_evaluation_windows(regime_rows)
     window_summaries = []
     for window in windows:
         champion_window_samples = _window_filter_samples(baseline_samples, window)
         challenger_window_samples = _window_filter_samples(candidate_samples, window)
-        window_summaries.append(_evaluation_window_summary(champion_window_samples, challenger_window_samples, window))
-    champion_summary = _selection_summary(baseline_samples, segments=windows, variant="champion")
-    challenger_summary = _selection_summary(candidate_samples, segments=windows, variant=TRADEX_CHALLENGER_SELECTION_VARIANT)
+        window_summaries.append(
+            _evaluation_window_summary(
+                champion_window_samples,
+                challenger_window_samples,
+                window,
+                champion_plan=baseline_plan,
+                challenger_plan=candidate_plan,
+            )
+        )
+    champion_summary = _selection_summary(baseline_samples, segments=windows, variant="champion", plan=baseline_plan)
+    challenger_summary = _selection_summary(
+        candidate_samples,
+        segments=windows,
+        variant=TRADEX_CHALLENGER_SELECTION_VARIANT,
+        plan=candidate_plan,
+    )
     champion_summary["regime_summary"] = list(window_summaries)
     challenger_summary["regime_summary"] = list(window_summaries)
     baseline_summary = baseline.get("summary") if isinstance(baseline.get("summary"), dict) else {}
@@ -1381,6 +1556,32 @@ def _build_champion_challenger_evaluation(
     challenger_ret20_join_gap_coverage = candidate.get("future_ret20_join_gap_coverage") if isinstance(candidate.get("future_ret20_join_gap_coverage"), dict) else candidate_summary.get("future_ret20_join_gap_coverage") if isinstance(candidate_summary.get("future_ret20_join_gap_coverage"), dict) else {}
     champion_ret20_source_mode = _text(baseline.get("ret20_source_mode"), fallback=_text((baseline_summary.get("future_ret20_source_coverage") or {}).get("ret20_source_mode"), fallback="unknown"))
     challenger_ret20_source_mode = _text(candidate.get("ret20_source_mode"), fallback=_text((candidate_summary.get("future_ret20_source_coverage") or {}).get("ret20_source_mode"), fallback="unknown"))
+    family_top_k_values = [
+        _int(family_plan.get("top_k"))
+        for family_plan in ([family.get("baseline_plan")] if isinstance(family.get("baseline_plan"), dict) else [])
+        + ([item for item in family.get("candidate_plans") if isinstance(item, dict)] if isinstance(family.get("candidate_plans"), list) else [])
+        if _int(family_plan.get("top_k")) is not None
+    ]
+    top_k = max(
+        [1]
+        + [
+            value
+            for value in [
+                _int((candidate_plan.get("top_k") if isinstance(candidate_plan, dict) else None)),
+                _int((baseline_plan.get("top_k") if isinstance(baseline_plan, dict) else None)),
+                *family_top_k_values,
+            ]
+            if value is not None and int(value) > 0
+        ]
+    )
+    branching_contract_state = _topk_branching_contract_state(
+        family=family,
+        champion_summary=champion_summary,
+        challenger_summary=challenger_summary,
+        top_k=top_k,
+    )
+    selection_compare = _selection_comparison_summary(champion_summary, challenger_summary)
+    selection_compare.update(branching_contract_state)
     overview = _evaluation_overview_summary(champion_summary, challenger_summary, window_summaries)
     long_horizon_regime_score = _mean([float(window.get("challenger_top5_ret20_mean") or 0.0) for window in window_summaries]) if window_summaries else 0.0
     recent_adaptation_score = 0.0
@@ -1451,8 +1652,25 @@ def _build_champion_challenger_evaluation(
             "ret20_source_mode_mixed": champion_ret20_source_mode != challenger_ret20_source_mode,
             "windows": window_summaries,
             "status_reasons": status_reasons,
+            "changed_top5_members_count": selection_compare["changed_top5_members_count"],
+            "changed_top10_members_count": selection_compare["changed_top10_members_count"],
+            "changed_rank_count": selection_compare["changed_rank_count"],
+            "top5_boundary_score_gap": selection_compare["top5_boundary_score_gap"],
+            "top10_boundary_score_gap": selection_compare["top10_boundary_score_gap"],
+            "selection_divergence_reason": selection_compare["selection_divergence_reason"],
+            "effective_universe_count": branching_contract_state["effective_universe_count"],
+            "top_k": branching_contract_state["top_k"],
+            "topk_boundary_exists": branching_contract_state["topk_boundary_exists"],
+            "meaningful_topk_branching_possible": branching_contract_state["meaningful_topk_branching_possible"],
+            "topk_branching_block_reason": branching_contract_state["topk_branching_block_reason"],
         }
     )
+    if bool(overview.get("insufficient_samples")):
+        status_reasons.append("insufficient_evidence_zero_samples")
+    if not bool(overview.get("meaningful_topk_branching_possible")):
+        block_reason = _text(overview.get("topk_branching_block_reason"), fallback="topk_boundary_absent")
+        if block_reason:
+            status_reasons.append(block_reason)
     if status_reasons:
         overview["promote_reasons"] = sorted(set([*(overview.get("promote_reasons") or []), *status_reasons]))
         overview["promote_ready"] = bool(overview.get("promote_ready")) and not status_reasons
@@ -1513,6 +1731,7 @@ def _selection_comparison_summary(champion: dict[str, Any], challenger: dict[str
     challenger_sample_count = _selection_sample_count(challenger)
     evaluation_row_count = max(champion_sample_count, challenger_sample_count)
     insufficient_samples = evaluation_row_count <= 0
+    divergence = _selection_divergence_metrics(champion, challenger)
     thresholds = _promotion_thresholds()
     promote_checks = [
         challenger_top5_ret20_mean >= champion_top5_ret20_mean + thresholds["top5_mean_min_delta"],
@@ -1546,6 +1765,8 @@ def _selection_comparison_summary(champion: dict[str, Any], challenger: dict[str
         promote_reasons.append("zero_pass_months_not_improved")
     if challenger_top5_liquidity_mean < champion_top5_liquidity_mean + thresholds["top5_liquidity_min_delta"]:
         promote_reasons.append("liquidity_quality_not_improved")
+    if insufficient_samples:
+        promote_reasons.append("insufficient_evidence_zero_samples")
     return {
         "diagnostics_schema_version": TRADEX_DIAGNOSTICS_SCHEMA_VERSION,
         "thresholds": thresholds,
@@ -1579,6 +1800,7 @@ def _selection_comparison_summary(champion: dict[str, Any], challenger: dict[str
         "insufficient_samples": insufficient_samples,
         "promote_ready": bool(promote_checks and all(promote_checks) and not insufficient_samples),
         "promote_reasons": promote_reasons,
+        **divergence,
     }
 
 
@@ -1655,6 +1877,7 @@ def _plan_effective_parameters(plan: dict[str, Any]) -> dict[str, Any]:
         "minimum_ready_rate": _float(plan.get("minimum_ready_rate")),
         "signal_bias": _text(plan.get("signal_bias"), fallback="balanced"),
         "top_k": max(1, _int(plan.get("top_k")) or 3),
+        "bad_pick_penalty_scale": _bad_pick_penalty_scale(plan),
         "playbook_up_score_bonus": _float(plan.get("playbook_up_score_bonus")) or 0.0,
         "playbook_down_score_bonus": _float(plan.get("playbook_down_score_bonus")) or 0.0,
         "ret20_source_mode": _ret20_source_mode(plan.get("ret20_source_mode")),
@@ -1849,6 +2072,7 @@ def _normalize_plan(plan: dict[str, Any], *, default_plan_id: str) -> dict[str, 
         "minimum_ready_rate": _float(plan.get("minimum_ready_rate")),
         "signal_bias": signal_bias,
         "top_k": max(1, _int(plan.get("top_k")) or 3),
+        "bad_pick_penalty_scale": _bad_pick_penalty_scale(plan),
         "ret20_source_mode": _ret20_source_mode(plan.get("ret20_source_mode")),
         "playbook_up_score_bonus": _float(plan.get("playbook_up_score_bonus")) or 0.0,
         "playbook_down_score_bonus": _float(plan.get("playbook_down_score_bonus")) or 0.0,
@@ -3479,8 +3703,13 @@ def _build_run_result(family: dict[str, Any], run: dict[str, Any]) -> dict[str, 
     }
     readiness_summary = _readiness_summary(all_samples, plan)
     waterfall_summary = _waterfall_summary(all_samples)
-    selection_summary = _selection_summary(all_samples, segments=segments, variant="champion")
-    challenger_selection_summary = _selection_summary(all_samples, segments=segments, variant=TRADEX_CHALLENGER_SELECTION_VARIANT)
+    selection_summary = _selection_summary(all_samples, segments=segments, variant="champion", plan=plan)
+    challenger_selection_summary = _selection_summary(
+        all_samples,
+        segments=segments,
+        variant=TRADEX_CHALLENGER_SELECTION_VARIANT,
+        plan=plan,
+    )
     selection_summary["regime_summary"] = list(by_period)
     challenger_selection_summary["regime_summary"] = list(by_period)
     engine_probe = all_samples[0] if all_samples else {}
@@ -3623,8 +3852,8 @@ def create_family(body: dict[str, Any]) -> dict[str, Any]:
     if body.get("confirmed_only") is not None and not _bool(body.get("confirmed_only"), True):
         raise ValueError("confirmed_only must be true")
     universe = _safe_list(body.get("universe"))
-    if not 20 <= len(universe) <= 50:
-        raise ValueError("universe must contain 20 to 50 symbols")
+    if not 1 <= len(universe) <= 50:
+        raise ValueError("universe must contain 1 to 50 symbols")
     segments = _normalize_segments(body.get("period", {}).get("segments") if isinstance(body.get("period"), dict) else None)
     if len(segments) < 2:
         raise ValueError("period must contain at least 2 segments")
@@ -3753,6 +3982,8 @@ def _compare_payload(
     candidate_method = _plan_method_metadata(candidate)
     baseline_parameters = baseline_effective_config.get("effective_parameters") if isinstance(baseline_effective_config.get("effective_parameters"), dict) else {}
     candidate_parameters = candidate_effective_config.get("effective_parameters") if isinstance(candidate_effective_config.get("effective_parameters"), dict) else {}
+    effective_universe_count = len([item for item in (family.get("universe") or []) if _text(item)])
+    top_k = max(1, _int(candidate_parameters.get("top_k")) or _int(baseline_parameters.get("top_k")) or 0)
     baseline_readiness = baseline.get("readiness_summary") if isinstance(baseline.get("readiness_summary"), dict) else {}
     candidate_readiness = candidate.get("readiness_summary") if isinstance(candidate.get("readiness_summary"), dict) else {}
     baseline_waterfall = baseline.get("waterfall_summary") if isinstance(baseline.get("waterfall_summary"), dict) else {}
@@ -3811,6 +4042,14 @@ def _compare_payload(
         },
     ]
     selection_compare = _selection_comparison_summary(baseline_selection, candidate_challenger_selection)
+    selection_compare.update(
+        _topk_branching_contract_state(
+            family=family,
+            champion_summary=baseline_selection,
+            challenger_summary=candidate_challenger_selection,
+            top_k=top_k,
+        )
+    )
     evaluation_summary = _build_champion_challenger_evaluation(
         family=family,
         baseline=baseline,
@@ -3847,7 +4086,16 @@ def _compare_payload(
             + json.dumps({"baseline": baseline_condition, "candidate": candidate_condition}, ensure_ascii=False, sort_keys=True)
         )
     probe_row_comparisons = _probe_row_comparisons(baseline, candidate, family)
-    candidate_local_decision = "keep" if bool(evaluation_summary.get("promote_ready")) else "drop" if bool(evaluation_summary.get("status_reasons")) else "hold"
+    if not bool(evaluation_summary.get("meaningful_topk_branching_possible")):
+        candidate_local_decision = "hold"
+    elif bool(evaluation_summary.get("promote_ready")):
+        candidate_local_decision = "keep"
+    elif bool(evaluation_summary.get("insufficient_samples")):
+        candidate_local_decision = "hold"
+    elif bool(evaluation_summary.get("status_reasons")):
+        candidate_local_decision = "drop"
+    else:
+        candidate_local_decision = "hold"
     decision_reasons = [str(item) for item in (evaluation_summary.get("promote_reasons") or evaluation_summary.get("status_reasons") or []) if str(item).strip()]
     if not decision_reasons:
         decision_reasons = [f"decision:{candidate_local_decision}"]
@@ -3863,6 +4111,11 @@ def _compare_payload(
         "feature_family": candidate_method.get("feature_family"),
         "artifact_detail_level": _text(evaluation_summary.get("artifact_detail_level"), fallback=TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE),
         "fallback_status": _text(evaluation_summary.get("fallback_status"), fallback=TRADEX_FALLBACK_STATUS_AUTHORITATIVE),
+        "effective_universe_count": effective_universe_count,
+        "top_k": top_k,
+        "topk_boundary_exists": bool(selection_compare.get("topk_boundary_exists")),
+        "meaningful_topk_branching_possible": bool(selection_compare.get("meaningful_topk_branching_possible")),
+        "topk_branching_block_reason": _text(selection_compare.get("topk_branching_block_reason"), fallback=""),
         "victory_metrics": evaluation_summary.get("victory_metrics") if isinstance(evaluation_summary.get("victory_metrics"), dict) else {},
         "long_horizon_regime_score": _float(evaluation_summary.get("long_horizon_regime_score")) or 0.0,
         "recent_adaptation_score": _float(evaluation_summary.get("recent_adaptation_score")) or 0.0,

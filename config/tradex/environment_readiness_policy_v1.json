@@ -1,0 +1,53 @@
+{
+  "schema_version": "tradex_research_environment_readiness_v1",
+  "environment_readiness_version": "v1",
+  "runner": "tradex_research_session",
+  "check_order": [
+    "legacy_analysis_enablement",
+    "database_path_presence",
+    "required_table_presence",
+    "required_table_schema",
+    "required_table_rows",
+    "label_version_rows",
+    "evaluation_window_probe"
+  ],
+  "minimum_window_count": 3,
+  "required_tables": [
+    {
+      "table_name": "market_regime_daily",
+      "expected_label_version": "v1",
+      "minimum_row_count": 1,
+      "minimum_window_count": 3,
+      "expected_columns": [
+        "dt",
+        "regime_id",
+        "breadth_above_ma20",
+        "breadth_above_ma60",
+        "advancers_ratio",
+        "index_close_vs_ma20",
+        "index_close_vs_ma60",
+        "market_atr_pct",
+        "sector_dispersion",
+        "regime_score",
+        "label_version",
+        "created_at"
+      ]
+    }
+  ],
+  "failure_classes": [
+    "environment_not_ready",
+    "database_dependency_missing",
+    "required_table_missing",
+    "required_table_empty",
+    "schema_mismatch",
+    "genuine_data_unavailable"
+  ],
+  "remediation_hints": {
+    "environment_not_ready": "enable legacy analysis and prepare the local TRADEX environment before running unshimmed execution",
+    "database_dependency_missing": "confirm the configured DuckDB file exists and is readable",
+    "required_table_missing": "build or restore the market_regime_daily table",
+    "required_table_empty": "populate market_regime_daily with regime rows",
+    "schema_mismatch": "rebuild market_regime_daily with the expected TRADEX schema",
+    "genuine_data_unavailable": "add enough regime coverage to produce the required up/down/flat evaluation windows"
+  }
+}

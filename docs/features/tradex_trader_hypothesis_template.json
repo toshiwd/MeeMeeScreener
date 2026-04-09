@@ -1,0 +1,56 @@
+{
+  "schema_version": "tradex_research_os_hypothesis_v1",
+  "hypothesis_id": "replace-with-hypothesis-id",
+  "hypothesis_type": "candidate-family-comparison",
+  "changed_axis": "trader_judgement_adapter",
+  "fixed_contracts": [
+    "same_condition",
+    "authoritative_compare",
+    "single_session"
+  ],
+  "expected_effect": "replace-with-expected-effect",
+  "metrics_to_watch": [
+    "changed_top5_members_count",
+    "changed_rank_count",
+    "hold_end_return_20d"
+  ],
+  "acceptance_gate": {
+    "mode": "authoritative",
+    "criteria": [
+      "artifact_generation_complete"
+    ]
+  },
+  "rejection_gate": {
+    "mode": "authoritative",
+    "criteria": [
+      "preflight_failed",
+      "missing_family_compare"
+    ]
+  },
+  "notes": "replace-with-notes",
+  "status": "ready",
+  "target_method_family": "regime-aware",
+  "execution": {
+    "runner": "tradex_research_session",
+    "session_id": "replace-with-session-id",
+    "random_seed": 7,
+    "session_scope_id": "scope-a",
+    "universe_size": 30,
+    "max_candidates_per_family": 2,
+    "ret20_source_mode": "derived_from_daily_bars"
+  },
+  "strategy_target": {
+    "code": "replace-with-code",
+    "as_of_date": 20250131,
+    "side": "long",
+    "judgement_type": "close_based_daily_buy_v1"
+  },
+  "strategy_judgement": {
+    "primary_adapter_id": "numeric_baseline_v1",
+    "adapter_ids": [
+      "numeric_baseline_v1"
+    ],
+    "observation_lookback_bars": 120,
+    "teacher_horizon_bars": 20
+  }
+}
