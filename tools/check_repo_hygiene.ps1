@@ -10,6 +10,16 @@ if (-not $RepoRoot) {
 
 Set-Location $RepoRoot
 
+function Get-RelativeRepoPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FullPath
+    )
+
+    $relative = $FullPath.Substring($RepoRoot.Length).TrimStart('\', '/')
+    return $relative -replace '\\', '/'
+}
+
 $scratchNames = @(
     ".pytest-bt",
     ".pytest_cache",
@@ -42,6 +52,49 @@ $scratchHits = foreach ($name in $scratchNames) {
 if ($scratchHits) {
     Write-Host "Repo hygiene check failed: repo-root scratch/cache trees found." -ForegroundColor Red
     $scratchHits | Sort-Object Name | Format-Table -AutoSize | Out-Host
+    exit 1
+}
+
+$residentArtifactViolations = @()
+
+$buildRoot = Join-Path $RepoRoot "build"
+if (Test-Path -LiteralPath $buildRoot) {
+    $allowedBuildFiles = @(
+        "build/pyinstaller/MeeMeeScreener.spec"
+    )
+    $unexpectedBuildFiles = @(Get-ChildItem -LiteralPath $buildRoot -Force -File -Recurse -ErrorAction SilentlyContinue | Where-Object {
+        (Get-RelativeRepoPath $_.FullName) -notin $allowedBuildFiles
+    })
+    if ($unexpectedBuildFiles.Count -gt 0) {
+        $residentArtifactViolations += [pscustomobject]@{
+            Kind = "build"
+            Path = "build"
+            Files = $unexpectedBuildFiles.Count
+            SizeMB = [math]::Round((($unexpectedBuildFiles | Measure-Object Length -Sum).Sum / 1MB), 2)
+            Detail = "Build artifacts must not stay resident in the repo."
+        }
+    }
+}
+
+$releaseRoot = Join-Path $RepoRoot "release"
+if (Test-Path -LiteralPath $releaseRoot) {
+    $unexpectedReleaseFiles = @(Get-ChildItem -LiteralPath $releaseRoot -Force -File -Recurse -ErrorAction SilentlyContinue | Where-Object {
+        (Get-RelativeRepoPath $_.FullName) -notmatch '^release/[^/]+\.zip$'
+    })
+    if ($unexpectedReleaseFiles.Count -gt 0) {
+        $residentArtifactViolations += [pscustomobject]@{
+            Kind = "release"
+            Path = "release"
+            Files = $unexpectedReleaseFiles.Count
+            SizeMB = [math]::Round((($unexpectedReleaseFiles | Measure-Object Length -Sum).Sum / 1MB), 2)
+            Detail = "Only portable zip artifacts may remain under release/."
+        }
+    }
+}
+
+if ($residentArtifactViolations) {
+    Write-Host "Repo hygiene check failed: resident build/release artifacts found." -ForegroundColor Red
+    $residentArtifactViolations | Sort-Object Kind, Path | Format-Table -AutoSize | Out-Host
     exit 1
 }
 

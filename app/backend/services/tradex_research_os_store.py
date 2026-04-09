@@ -97,6 +97,24 @@ def memory_file(hypothesis_id: str) -> Path:
     return memory_root() / f"{str(hypothesis_id).strip()}.json"
 
 
+def trader_benchmark_root(version: str = "v1") -> Path:
+    root = research_os_root() / "trader_benchmark" / str(version).strip()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def trader_benchmark_manifest_file(version: str = "v1") -> Path:
+    return trader_benchmark_root(version) / "trader_benchmark_manifest.json"
+
+
+def trader_benchmark_rows_file(version: str = "v1") -> Path:
+    return trader_benchmark_root(version) / "trader_benchmark_rows.jsonl"
+
+
+def trader_adapter_scoreboard_file(version: str = "v1") -> Path:
+    return trader_benchmark_root(version) / "trader_adapter_scoreboard.json"
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None

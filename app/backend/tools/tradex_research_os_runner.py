@@ -12,6 +12,7 @@ from typing import Any
 from app.backend.services import tradex_research_contracts as tradex_contracts
 from app.backend.services import tradex_research_decision_policy as decision_policy
 from app.backend.services import tradex_research_preflight as preflight_service
+from app.backend.services import tradex_research_trader_benchmark as trader_benchmark
 from app.backend.services import tradex_research_trader_foundation as trader_foundation
 from app.backend.services import tradex_research_os_contracts as os_contracts
 from app.backend.services import tradex_research_os_store as os_store
@@ -848,6 +849,8 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser = sub.add_parser("run-hypothesis", help="Run a hypothesis through the existing TRADEX session path.")
     run_parser.add_argument("--hypothesis-path", required=True)
 
+    sub.add_parser("rebuild-trader-benchmark", help="Rebuild canonical trader benchmark artifacts from experiment outputs.")
+
     return parser
 
 
@@ -860,6 +863,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == "run-hypothesis":
             result = run_hypothesis(Path(args.hypothesis_path))
+            print(json.dumps(_json_ready(result), ensure_ascii=False, indent=2, sort_keys=True))
+            return 0
+        if args.cmd == "rebuild-trader-benchmark":
+            result = trader_benchmark.rebuild_trader_benchmark()
             print(json.dumps(_json_ready(result), ensure_ascii=False, indent=2, sort_keys=True))
             return 0
         raise RuntimeError(f"unknown command: {args.cmd}")

@@ -1,38 +1,34 @@
 # TRADEX Trader Live Verify
 
 ## 目的
-prepared runtime profile 上で、unshimmed single-session の TRADEX Research Foundation を end-to-end で確認する。
+prepared runtime profile 上で、unshimmed single-session の TRADEX Trader Foundation を end-to-end で確認する。
 
 この verify で確認するもの:
 
-- preflight が pass すること
-- existing single-session runner path がそのまま動くこと
-- `observation_snapshot.json`
-- `strategy_judgement.json`
-- `teacher_evaluation_row.json`
-- `judge_input.json`
-- `judge_decision.json`
-- `authoritative_decision.json`
-- `research_memory.json`
+- preflight が pass する
+- existing single-session runner path がそのまま動く
+- 次の artifact が生成される
+  - `observation_snapshot.json`
+  - `strategy_judgement.json`
+  - `teacher_evaluation_row.json`
+  - `judge_input.json`
+  - `judge_decision.json`
+  - `authoritative_decision.json`
+  - `research_memory.json`
 
-この verify では compare truth と decision policy を変えない。
+この verify は compare truth と decision policy を変更しない。
 
-## 公式 runtime profile
+## official runtime profile
 
 - artifact root: `G:\Tradex`
-- prepared data DB: `STOCKS_DB_PATH` で明示
+- prepared data DB: `STOCKS_DB_PATH` で明示する
 
-既定候補:
-
-- `G:\Tradex\db\stocks.duckdb`
-- `%LOCALAPPDATA%\MeeMeeScreener-dev\data\stocks.duckdb`
-- `%LOCALAPPDATA%\MeeMeeScreener\data\stocks.duckdb`
-
-現状の運用前提:
+v1 の前提:
 
 - `G:\Tradex` は artifact root として使う
-- prepared DuckDB は `STOCKS_DB_PATH` override で指定してよい
-- Research OS 側は DB を自動生成・自動修復しない
+- prepared DuckDB は `STOCKS_DB_PATH` override で与える
+- Research OS は DB を自動生成しない
+- `G:\Tradex\db\stocks.duckdb` を official prepared DB とみなす作業は upstream task とする
 
 ## live verify lane
 
@@ -41,27 +37,30 @@ prepared runtime profile 上で、unshimmed single-session の TRADEX Research F
 - 通常回帰:
   - `python -m pytest -q ...`
 - live verify:
-  - `tests/test_tradex_research_live_acceptance.py` を単体で実行
-  - もしくは `tools/verify_tradex_trader_foundation.ps1` を使う
+  - `tests/test_tradex_research_live_acceptance.py` を単体実行
+  - または `tools/verify_tradex_trader_foundation.ps1`
 
 理由:
 
-- Windows 上の DuckDB file lock を通常 suite failure と誤認しないため
-- prepared DB を使う verify を別 Python process に分離するため
+- Windows 上では DuckDB file lock が通常 suite failure と混ざりやすい
+- prepared DB を使う verify は別 Python process で実行した方が安定する
 
-## 事前条件
+live hypothesis の `session_id` は既定で短く固定する。
+
+- numeric-only: `tradex-live-num`
+- LLM: `tradex-live-llm`
+
+## prerequisites
 
 - `MEEMEE_DISABLE_LEGACY_ANALYSIS=0`
 - runtime root が存在する
 - prepared DuckDB が存在する
-- prepared DuckDB が少なくとも以下を持つ
+- prepared DuckDB に次がある
   - `daily_bars`
   - `market_regime_daily`
-- hypothesis target の `code` / `as_of_date` が `daily_bars` に存在する
+- hypothesis target の `code` / `as_of_date` が実データと一致する
 
 ## numeric-only live verify
-
-推奨コマンド:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/verify_tradex_trader_foundation.ps1 `
@@ -88,14 +87,21 @@ python -m pytest -q tests/test_tradex_research_live_acceptance.py -k single_sess
 
 numeric-only verify の後に実行する。
 
-必須 env:
+必要 env:
 
 - `TRADEX_TRADER_LLM_ENDPOINT_URL`
 - `TRADEX_TRADER_LLM_MODEL`
 - `TRADEX_TRADER_LLM_API_KEY`
 - `TRADEX_TRADER_LLM_TIMEOUT_SEC` は任意
 
-推奨コマンド:
+2026-04-09 の確認済み構成:
+
+- endpoint: `https://api.ai.sakura.ad.jp/v1/chat/completions`
+- working model: `Qwen3-Coder-30B-A3B-Instruct`
+
+確認済みの失敗:
+
+- `preview/Kimi-K2.5` は `400 This model is not available.`
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/verify_tradex_trader_foundation.ps1 `
@@ -104,8 +110,8 @@ powershell -ExecutionPolicy Bypass -File tools/verify_tradex_trader_foundation.p
   -StocksDbPath C:\Users\enish\AppData\Local\MeeMeeScreener-dev\data\stocks.duckdb `
   -Code 6963 `
   -AsOfDate 20260403 `
-  -LlmEndpointUrl https://example.invalid/v1 `
-  -LlmModel gpt-4.1-mini `
+  -LlmEndpointUrl https://api.ai.sakura.ad.jp/v1/chat/completions `
+  -LlmModel Qwen3-Coder-30B-A3B-Instruct `
   -LlmApiKey <secret>
 ```
 
@@ -119,22 +125,36 @@ $env:MEEMEE_TRADEX_ROOT='G:\Tradex'
 $env:STOCKS_DB_PATH='C:\Users\enish\AppData\Local\MeeMeeScreener-dev\data\stocks.duckdb'
 $env:TRADEX_LIVE_HYPOTHESIS_CODE='6963'
 $env:TRADEX_LIVE_HYPOTHESIS_DATE='20260403'
-$env:TRADEX_TRADER_LLM_ENDPOINT_URL='https://example.invalid/v1'
-$env:TRADEX_TRADER_LLM_MODEL='gpt-4.1-mini'
+$env:TRADEX_TRADER_LLM_ENDPOINT_URL='https://api.ai.sakura.ad.jp/v1/chat/completions'
+$env:TRADEX_TRADER_LLM_MODEL='Qwen3-Coder-30B-A3B-Instruct'
 $env:TRADEX_TRADER_LLM_API_KEY='<secret>'
 python -m pytest -q tests/test_tradex_research_live_acceptance.py -k llm_adapter
 ```
 
-## 失敗時の読み方
+## failure triage
 
 - preflight failure:
-  - runtime / DB / readiness の不足
+  - runtime / DB / readiness の問題
 - runner failure:
-  - upstream artifact shape か current TRADEX execution path の失敗
+  - upstream artifact shape または current TRADEX execution path の問題
 - LLM failure:
   - env 未設定
-  - provider timeout
+  - provider timeout / HTTP error
   - invalid JSON output
   - schema validation failure
 
 どの failure でも compare truth と decision policy は変えない。
+
+## next step after foundation verify
+
+foundation verify が通ったら、次は benchmark rebuild を実行する。
+
+```powershell
+python -m app.backend.tools.tradex_research_os_cli rebuild-trader-benchmark
+```
+
+この後の運用手順は次を参照する。
+
+- `docs/architecture/TRADEX_TRADER_BENCHMARK.md`
+- `docs/architecture/TRADEX_TRADER_LABEL_POLICY.md`
+- `docs/architecture/TRADEX_TRADER_RESEARCH_LOOP.md`
