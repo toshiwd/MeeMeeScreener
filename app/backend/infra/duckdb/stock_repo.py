@@ -18,6 +18,8 @@ from app.backend.core.bar_segments import (
     trim_to_latest_continuous_segment,
 )
 from app.backend.core.yahoo_history_rows import get_historical_daily_rows_from_chart
+from app.backend.services.data.bar_aggregation import merge_monthly_rows_with_daily
+from app.backend.services.data.yahoo_provisional import apply_split_gap_adjustment
 from app.db.session import get_conn_for_path
 
 logger = logging.getLogger(__name__)
@@ -508,19 +510,35 @@ class StockRepository:
                     updated_at = excluded.updated_at
             """, data)
 
-    def get_scores(self) -> Dict[str, Dict]:
+    def get_scores(self, codes: List[str] | None = None) -> Dict[str, Dict]:
         with self._get_read_conn() as conn:
             if not self._table_exists(conn, "stock_scores"):
                 return {}
-            rows = conn.execute("SELECT code, score_a, score_b, reasons, badges FROM stock_scores").fetchall()
-        
+            if codes is None:
+                rows = conn.execute(
+                    "SELECT code, score_a, score_b, reasons, badges FROM stock_scores"
+                ).fetchall()
+            else:
+                unique_codes = [code for code in dict.fromkeys(str(code).strip() for code in codes) if code]
+                if not unique_codes:
+                    return {}
+                placeholders = ",".join(["?"] * len(unique_codes))
+                rows = conn.execute(
+                    f"""
+                    SELECT code, score_a, score_b, reasons, badges
+                    FROM stock_scores
+                    WHERE code IN ({placeholders})
+                    """,
+                    unique_codes,
+                ).fetchall()
+
         result = {}
         for r in rows:
             result[r[0]] = {
                 "score_a": r[1],
                 "score_b": r[2],
-                "reasons": json.loads(r[3]),
-                "badges": json.loads(r[4])
+                "reasons": json.loads(r[3]) if r[3] else [],
+                "badges": json.loads(r[4]) if r[4] else [],
             }
         return result
 
@@ -653,161 +671,45 @@ class StockRepository:
                 continue
         return None
 
-    def get_ml_analysis_pred(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
-        with self._get_read_conn() as conn:
-            if not self._table_exists(conn, "ml_pred_20d"):
-                return None
-            names = self._get_schema_columns(conn, "ml_pred_20d")
-            if "code" not in names or "dt" not in names:
-                return None
+    @staticmethod
+    def _analysis_timeline_ml_select_parts(names: frozenset[str]) -> list[str]:
+        return [
+            "dt",
+            "p_up" if "p_up" in names else "NULL::DOUBLE AS p_up",
+            "p_down" if "p_down" in names else "NULL::DOUBLE AS p_down",
+            "p_turn_up" if "p_turn_up" in names else "NULL::DOUBLE AS p_turn_up",
+            "p_turn_down" if "p_turn_down" in names else "NULL::DOUBLE AS p_turn_down",
+            "ev20_net" if "ev20_net" in names else "NULL::DOUBLE AS ev20_net",
+        ]
 
-            dt_type = self._column_type(conn, "ml_pred_20d", "dt")
-            select_parts = [
-                "dt",
-                "p_up" if "p_up" in names else "NULL::DOUBLE AS p_up",
-                "p_down" if "p_down" in names else "NULL::DOUBLE AS p_down",
-                "p_up_5" if "p_up_5" in names else "NULL::DOUBLE AS p_up_5",
-                "p_up_10" if "p_up_10" in names else "NULL::DOUBLE AS p_up_10",
-                "p_turn_up" if "p_turn_up" in names else "NULL::DOUBLE AS p_turn_up",
-                "p_turn_down" if "p_turn_down" in names else "NULL::DOUBLE AS p_turn_down",
-                "p_turn_down_5" if "p_turn_down_5" in names else "NULL::DOUBLE AS p_turn_down_5",
-                "p_turn_down_10" if "p_turn_down_10" in names else "NULL::DOUBLE AS p_turn_down_10",
-                "p_turn_down_20" if "p_turn_down_20" in names else "NULL::DOUBLE AS p_turn_down_20",
-                "ret_pred5" if "ret_pred5" in names else "NULL::DOUBLE AS ret_pred5",
-                "ret_pred10" if "ret_pred10" in names else "NULL::DOUBLE AS ret_pred10",
-                "ret_pred20" if "ret_pred20" in names else "NULL::DOUBLE AS ret_pred20",
-                "ev20" if "ev20" in names else "NULL::DOUBLE AS ev20",
-                "ev20_net" if "ev20_net" in names else "NULL::DOUBLE AS ev20_net",
-                "ev5_net" if "ev5_net" in names else "NULL::DOUBLE AS ev5_net",
-                "ev10_net" if "ev10_net" in names else "NULL::DOUBLE AS ev10_net",
-                "model_version" if "model_version" in names else "NULL::VARCHAR AS model_version",
-            ]
-            query = f"""
-                SELECT {", ".join(select_parts)}
-                FROM ml_pred_20d
-                WHERE code = ?
-            """
-            params: List[Any] = [code]
-            if asof_dt is not None:
-                normalized_type = str(dt_type or "").upper()
-                if any(
-                    token in normalized_type
-                    for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
-                ):
-                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
-                    query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
-                    params.extend([asof_dt, asof_ymd])
-                elif normalized_type:
-                    asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
-                    query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
-                    params.append(asof_date)
-                else:
-                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
-                    query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
-                    params.extend([asof_dt, asof_ymd])
-            query += " ORDER BY dt DESC LIMIT 1"
-            row = conn.execute(query, params).fetchone()
-        return row
+    @staticmethod
+    def _analysis_timeline_sell_select_parts(names: frozenset[str]) -> list[str]:
+        return [
+            "dt",
+            "p_down" if "p_down" in names else "NULL::DOUBLE AS p_down",
+            "p_turn_down" if "p_turn_down" in names else "NULL::DOUBLE AS p_turn_down",
+            "trend_down" if "trend_down" in names else "NULL::BOOLEAN AS trend_down",
+            "trend_down_strict" if "trend_down_strict" in names else "NULL::BOOLEAN AS trend_down_strict",
+            "short_ret_5" if "short_ret_5" in names else "NULL::DOUBLE AS short_ret_5",
+            "short_ret_10" if "short_ret_10" in names else "NULL::DOUBLE AS short_ret_10",
+            "short_ret_20" if "short_ret_20" in names else "NULL::DOUBLE AS short_ret_20",
+            "short_win_5" if "short_win_5" in names else "NULL::BOOLEAN AS short_win_5",
+            "short_win_10" if "short_win_10" in names else "NULL::BOOLEAN AS short_win_10",
+            "short_win_20" if "short_win_20" in names else "NULL::BOOLEAN AS short_win_20",
+        ]
 
-    def get_analysis_timeline(
+    def _build_analysis_timeline_payload(
         self,
-        code: str,
-        asof_dt: int | None,
+        ml_rows_desc: List[Tuple[Any, ...]],
+        sell_rows_desc: List[Tuple[Any, ...]],
         *,
-        limit: int = 400,
+        limit: int,
     ) -> List[Dict[str, Any]]:
-        resolved_limit = max(1, min(2000, int(limit)))
-
         def _to_float_or_none(value: Any) -> float | None:
             if not isinstance(value, (int, float)):
                 return None
             fv = float(value)
             return fv if math.isfinite(fv) else None
-
-        ml_rows_desc: List[Tuple[Any, ...]] = []
-        sell_rows_desc: List[Tuple[Any, ...]] = []
-        with self._get_read_conn() as conn:
-            ml_names: frozenset[str] = frozenset()
-            if self._table_exists(conn, "ml_pred_20d"):
-                ml_names = self._get_schema_columns(conn, "ml_pred_20d")
-            if "code" in ml_names and "dt" in ml_names:
-                dt_type = self._column_type(conn, "ml_pred_20d", "dt")
-                query = f"""
-                    SELECT
-                        dt,
-                        {"p_up" if "p_up" in ml_names else "NULL::DOUBLE AS p_up"},
-                        {"p_down" if "p_down" in ml_names else "NULL::DOUBLE AS p_down"},
-                        {"p_turn_up" if "p_turn_up" in ml_names else "NULL::DOUBLE AS p_turn_up"},
-                        {"p_turn_down" if "p_turn_down" in ml_names else "NULL::DOUBLE AS p_turn_down"},
-                        {"ev20_net" if "ev20_net" in ml_names else "NULL::DOUBLE AS ev20_net"}
-                    FROM ml_pred_20d
-                    WHERE code = ?
-                """
-                params: List[Any] = [code]
-                if asof_dt is not None:
-                    normalized_type = str(dt_type or "").upper()
-                    if any(
-                        token in normalized_type
-                        for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
-                    ):
-                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
-                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
-                        params.extend([asof_dt, asof_ymd])
-                    elif normalized_type:
-                        asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
-                        query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
-                        params.append(asof_date)
-                    else:
-                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
-                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
-                        params.extend([asof_dt, asof_ymd])
-                query += " ORDER BY dt DESC LIMIT ?"
-                params.append(resolved_limit)
-                ml_rows_desc = conn.execute(query, params).fetchall()
-
-            sell_names: frozenset[str] = frozenset()
-            if self._table_exists(conn, "sell_analysis_daily"):
-                sell_names = self._get_schema_columns(conn, "sell_analysis_daily")
-            if "code" in sell_names and "dt" in sell_names:
-                sell_dt_type = self._column_type(conn, "sell_analysis_daily", "dt")
-
-                query = f"""
-                    SELECT
-                        dt,
-                        {"p_down" if "p_down" in sell_names else "NULL::DOUBLE AS p_down"},
-                        {"p_turn_down" if "p_turn_down" in sell_names else "NULL::DOUBLE AS p_turn_down"},
-                        {"trend_down" if "trend_down" in sell_names else "NULL::BOOLEAN AS trend_down"},
-                        {"trend_down_strict" if "trend_down_strict" in sell_names else "NULL::BOOLEAN AS trend_down_strict"},
-                        {"short_ret_5" if "short_ret_5" in sell_names else "NULL::DOUBLE AS short_ret_5"},
-                        {"short_ret_10" if "short_ret_10" in sell_names else "NULL::DOUBLE AS short_ret_10"},
-                        {"short_ret_20" if "short_ret_20" in sell_names else "NULL::DOUBLE AS short_ret_20"},
-                        {"short_win_5" if "short_win_5" in sell_names else "NULL::BOOLEAN AS short_win_5"},
-                        {"short_win_10" if "short_win_10" in sell_names else "NULL::BOOLEAN AS short_win_10"},
-                        {"short_win_20" if "short_win_20" in sell_names else "NULL::BOOLEAN AS short_win_20"}
-                    FROM sell_analysis_daily
-                    WHERE code = ?
-                """
-                params = [code]
-                if asof_dt is not None:
-                    normalized_type = str(sell_dt_type or "").upper()
-                    if any(
-                        token in normalized_type
-                        for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
-                    ):
-                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
-                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
-                        params.extend([asof_dt, asof_ymd])
-                    elif normalized_type:
-                        asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
-                        query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
-                        params.append(asof_date)
-                    else:
-                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
-                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
-                        params.extend([asof_dt, asof_ymd])
-                query += " ORDER BY dt DESC LIMIT ?"
-                params.append(max(resolved_limit * 2, resolved_limit))
-                sell_rows_desc = conn.execute(query, params).fetchall()
 
         if not ml_rows_desc and not sell_rows_desc:
             return []
@@ -875,9 +777,262 @@ class StockRepository:
             point["shortWin20"] = bool(row[10]) if len(row) > 10 and row[10] is not None else None
 
         keys = sorted(timeline_by_key.keys())
-        if len(keys) > resolved_limit:
-            keys = keys[-resolved_limit:]
+        if len(keys) > limit:
+            keys = keys[-limit:]
         return [timeline_by_key[key] for key in keys]
+
+    def get_ml_analysis_pred(self, code: str, asof_dt: int | None) -> Optional[Tuple]:
+        with self._get_read_conn() as conn:
+            if not self._table_exists(conn, "ml_pred_20d"):
+                return None
+            names = self._get_schema_columns(conn, "ml_pred_20d")
+            if "code" not in names or "dt" not in names:
+                return None
+
+            dt_type = self._column_type(conn, "ml_pred_20d", "dt")
+            select_parts = [
+                "dt",
+                "p_up" if "p_up" in names else "NULL::DOUBLE AS p_up",
+                "p_down" if "p_down" in names else "NULL::DOUBLE AS p_down",
+                "p_up_5" if "p_up_5" in names else "NULL::DOUBLE AS p_up_5",
+                "p_up_10" if "p_up_10" in names else "NULL::DOUBLE AS p_up_10",
+                "p_turn_up" if "p_turn_up" in names else "NULL::DOUBLE AS p_turn_up",
+                "p_turn_down" if "p_turn_down" in names else "NULL::DOUBLE AS p_turn_down",
+                "p_turn_down_5" if "p_turn_down_5" in names else "NULL::DOUBLE AS p_turn_down_5",
+                "p_turn_down_10" if "p_turn_down_10" in names else "NULL::DOUBLE AS p_turn_down_10",
+                "p_turn_down_20" if "p_turn_down_20" in names else "NULL::DOUBLE AS p_turn_down_20",
+                "ret_pred5" if "ret_pred5" in names else "NULL::DOUBLE AS ret_pred5",
+                "ret_pred10" if "ret_pred10" in names else "NULL::DOUBLE AS ret_pred10",
+                "ret_pred20" if "ret_pred20" in names else "NULL::DOUBLE AS ret_pred20",
+                "ev20" if "ev20" in names else "NULL::DOUBLE AS ev20",
+                "ev20_net" if "ev20_net" in names else "NULL::DOUBLE AS ev20_net",
+                "ev5_net" if "ev5_net" in names else "NULL::DOUBLE AS ev5_net",
+                "ev10_net" if "ev10_net" in names else "NULL::DOUBLE AS ev10_net",
+                "model_version" if "model_version" in names else "NULL::VARCHAR AS model_version",
+            ]
+            query = f"""
+                SELECT {", ".join(select_parts)}
+                FROM ml_pred_20d
+                WHERE code = ?
+            """
+            params: List[Any] = [code]
+            if asof_dt is not None:
+                normalized_type = str(dt_type or "").upper()
+                if any(
+                    token in normalized_type
+                    for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
+                ):
+                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                    query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                    params.extend([asof_dt, asof_ymd])
+                elif normalized_type:
+                    asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
+                    query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
+                    params.append(asof_date)
+                else:
+                    asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                    query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                    params.extend([asof_dt, asof_ymd])
+            query += " ORDER BY dt DESC LIMIT 1"
+            row = conn.execute(query, params).fetchone()
+        return row
+
+    def get_analysis_timeline(
+        self,
+        code: str,
+        asof_dt: int | None,
+        *,
+        limit: int = 400,
+    ) -> List[Dict[str, Any]]:
+        resolved_limit = max(1, min(2000, int(limit)))
+
+        ml_rows_desc: List[Tuple[Any, ...]] = []
+        sell_rows_desc: List[Tuple[Any, ...]] = []
+        with self._get_read_conn() as conn:
+            ml_names: frozenset[str] = frozenset()
+            if self._table_exists(conn, "ml_pred_20d"):
+                ml_names = self._get_schema_columns(conn, "ml_pred_20d")
+            if "code" in ml_names and "dt" in ml_names:
+                dt_type = self._column_type(conn, "ml_pred_20d", "dt")
+                query = f"""
+                    SELECT
+                        {", ".join(self._analysis_timeline_ml_select_parts(ml_names))}
+                    FROM ml_pred_20d
+                    WHERE code = ?
+                """
+                params: List[Any] = [code]
+                if asof_dt is not None:
+                    normalized_type = str(dt_type or "").upper()
+                    if any(
+                        token in normalized_type
+                        for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
+                    ):
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
+                    elif normalized_type:
+                        asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
+                        query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
+                        params.append(asof_date)
+                    else:
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
+                query += " ORDER BY dt DESC LIMIT ?"
+                params.append(resolved_limit)
+                ml_rows_desc = conn.execute(query, params).fetchall()
+
+            sell_names: frozenset[str] = frozenset()
+            if self._table_exists(conn, "sell_analysis_daily"):
+                sell_names = self._get_schema_columns(conn, "sell_analysis_daily")
+            if "code" in sell_names and "dt" in sell_names:
+                sell_dt_type = self._column_type(conn, "sell_analysis_daily", "dt")
+
+                query = f"""
+                    SELECT
+                        {", ".join(self._analysis_timeline_sell_select_parts(sell_names))}
+                    FROM sell_analysis_daily
+                    WHERE code = ?
+                """
+                params = [code]
+                if asof_dt is not None:
+                    normalized_type = str(sell_dt_type or "").upper()
+                    if any(
+                        token in normalized_type
+                        for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
+                    ):
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
+                    elif normalized_type:
+                        asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
+                        query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
+                        params.append(asof_date)
+                    else:
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
+                query += " ORDER BY dt DESC LIMIT ?"
+                params.append(max(resolved_limit * 2, resolved_limit))
+                sell_rows_desc = conn.execute(query, params).fetchall()
+
+        return self._build_analysis_timeline_payload(
+            ml_rows_desc,
+            sell_rows_desc,
+            limit=resolved_limit,
+        )
+
+    def get_analysis_timeline_batch(
+        self,
+        codes: List[str],
+        asof_dt: int | None,
+        *,
+        limit: int = 400,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        unique_codes = [code for code in dict.fromkeys(str(code).strip() for code in codes) if code]
+        if not unique_codes:
+            return {}
+
+        resolved_limit = max(1, min(2000, int(limit)))
+        placeholders = ",".join(["?"] * len(unique_codes))
+        ml_rows_by_code: Dict[str, List[Tuple[Any, ...]]] = {code: [] for code in unique_codes}
+        sell_rows_by_code: Dict[str, List[Tuple[Any, ...]]] = {code: [] for code in unique_codes}
+
+        with self._get_read_conn() as conn:
+            ml_names: frozenset[str] = frozenset()
+            if self._table_exists(conn, "ml_pred_20d"):
+                ml_names = self._get_schema_columns(conn, "ml_pred_20d")
+            if {"code", "dt"}.issubset(ml_names):
+                dt_type = self._column_type(conn, "ml_pred_20d", "dt")
+                query = f"""
+                    SELECT code, dt, p_up, p_down, p_turn_up, p_turn_down, ev20_net
+                    FROM (
+                        SELECT
+                            code,
+                            {", ".join(self._analysis_timeline_ml_select_parts(ml_names))},
+                            ROW_NUMBER() OVER (PARTITION BY code ORDER BY dt DESC) AS rn
+                        FROM ml_pred_20d
+                        WHERE code IN ({placeholders})
+                """
+                params: List[Any] = list(unique_codes)
+                if asof_dt is not None:
+                    normalized_type = str(dt_type or "").upper()
+                    if any(
+                        token in normalized_type
+                        for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
+                    ):
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
+                    elif normalized_type:
+                        asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
+                        query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
+                        params.append(asof_date)
+                    else:
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
+                query += """
+                    )
+                    WHERE rn <= ?
+                    ORDER BY code, dt DESC
+                """
+                params.append(resolved_limit)
+                for row in conn.execute(query, params).fetchall():
+                    code = str(row[0])
+                    ml_rows_by_code.setdefault(code, []).append(tuple(row[1:]))
+
+            sell_names: frozenset[str] = frozenset()
+            if self._table_exists(conn, "sell_analysis_daily"):
+                sell_names = self._get_schema_columns(conn, "sell_analysis_daily")
+            if {"code", "dt"}.issubset(sell_names):
+                sell_dt_type = self._column_type(conn, "sell_analysis_daily", "dt")
+                query = f"""
+                    SELECT code, dt, p_down, p_turn_down, trend_down, trend_down_strict, short_ret_5, short_ret_10, short_ret_20, short_win_5, short_win_10, short_win_20
+                    FROM (
+                        SELECT
+                            code,
+                            {", ".join(self._analysis_timeline_sell_select_parts(sell_names))},
+                            ROW_NUMBER() OVER (PARTITION BY code ORDER BY dt DESC) AS rn
+                        FROM sell_analysis_daily
+                        WHERE code IN ({placeholders})
+                """
+                params = list(unique_codes)
+                if asof_dt is not None:
+                    normalized_type = str(sell_dt_type or "").upper()
+                    if any(
+                        token in normalized_type
+                        for token in ("INT", "DECIMAL", "NUMERIC", "DOUBLE", "REAL", "FLOAT")
+                    ):
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
+                    elif normalized_type:
+                        asof_date = datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y-%m-%d")
+                        query += " AND CAST(dt AS DATE) <= CAST(? AS DATE)"
+                        params.append(asof_date)
+                    else:
+                        asof_ymd = int(datetime.fromtimestamp(asof_dt, tz=timezone.utc).strftime("%Y%m%d"))
+                        query += " AND dt <= CASE WHEN dt >= 1000000000 THEN ? ELSE ? END"
+                        params.extend([asof_dt, asof_ymd])
+                query += """
+                    )
+                    WHERE rn <= ?
+                    ORDER BY code, dt DESC
+                """
+                params.append(max(resolved_limit * 2, resolved_limit))
+                for row in conn.execute(query, params).fetchall():
+                    code = str(row[0])
+                    sell_rows_by_code.setdefault(code, []).append(tuple(row[1:]))
+
+        out: Dict[str, List[Dict[str, Any]]] = {}
+        for code in unique_codes:
+            out[code] = self._build_analysis_timeline_payload(
+                ml_rows_by_code.get(code, []),
+                sell_rows_by_code.get(code, []),
+                limit=resolved_limit,
+            )
+        return out
 
     def get_buy_stage_precision(
         self,

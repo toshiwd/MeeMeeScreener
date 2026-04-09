@@ -297,13 +297,20 @@ def _queue_txt_followup(
     source_job_id: str,
     payload: dict[str, Any],
 ) -> str | None:
-    followup_job_id = job_manager.submit(_TXT_FOLLOWUP_JOB_TYPE, payload, unique=False)
+    followup_job_id = job_manager.submit(
+        _TXT_FOLLOWUP_JOB_TYPE,
+        payload,
+        unique=False,
+        lane="maintenance",
+        dedupe_key=f"{_TXT_FOLLOWUP_JOB_TYPE}:{str(source_job_id).strip() or 'latest'}",
+    )
     if followup_job_id:
         _record_followup_enqueued(
             state,
             source_job_id=str(source_job_id),
             followup_job_id=str(followup_job_id),
         )
+        state["last_followup_lane_stats"] = job_manager.get_lane_stats()
     return followup_job_id
 
 
@@ -588,6 +595,29 @@ def _classify_retry_exception(exc: Exception) -> str:
     return "other"
 
 
+def _classify_pan_import_error_text(error_text: str) -> str:
+    lowered = str(error_text or "").strip().lower()
+    if not lowered:
+        return "none"
+    if "libstock database is in use" in lowered or "database is in use" in lowered:
+        return "db_lock"
+    if "already running" in lowered and "pan data manager" in lowered:
+        return "already_running"
+    if "blocked by pan-side error dialog" in lowered:
+        return "pan_dialog"
+    if "timeout" in lowered:
+        return "timeout"
+    return "other"
+
+
+def _classify_pan_import_exception(exc: Exception) -> str:
+    return _classify_pan_import_error_text(str(exc))
+
+
+def _is_transient_pan_import_error(exc: Exception) -> bool:
+    return _classify_pan_import_exception(exc) in {"db_lock", "already_running"}
+
+
 def _compute_retry_sleep_seconds(base_sleep_seconds: float, attempt: int) -> float:
     base = max(0.1, float(base_sleep_seconds))
     exponent = max(0, int(attempt) - 1)
@@ -693,6 +723,83 @@ def _run_phase_with_retry(
     if ok:
         return int(value)
     raise RuntimeError(error_text or "phase update failed")
+
+
+def _run_pan_import_with_retry(
+    *,
+    run_pan_import_once: Callable[[], bool],
+    max_attempts: int,
+    sleep_seconds: float,
+    state: dict | None = None,
+    job_id: str | None = None,
+) -> tuple[bool, int, str, str | None]:
+    attempt = 0
+    while attempt < max_attempts:
+        attempt += 1
+        try:
+            ok = bool(run_pan_import_once())
+            if ok:
+                if state is not None:
+                    _set_retry_summary(
+                        state,
+                        stage="pan_import",
+                        operation="pan_import",
+                        attempts=attempt,
+                        status="success",
+                        kind="none",
+                    )
+                    _save_update_state(state)
+                return True, attempt, "none", None
+            error_text = "Pan import returned False"
+            error_kind = _classify_pan_import_error_text(error_text)
+        except Exception as exc:
+            error_text = str(exc)
+            error_kind = _classify_pan_import_exception(exc)
+
+        will_retry = attempt < max_attempts and _is_transient_pan_import_error(RuntimeError(error_text))
+        sleep_for = _compute_retry_sleep_seconds(sleep_seconds, attempt) if will_retry else None
+        if state is not None:
+            _append_retry_trace(
+                state,
+                stage="pan_import",
+                operation="pan_import",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                kind=error_kind,
+                error=error_text,
+                will_retry=will_retry,
+                sleep_seconds=sleep_for,
+            )
+            _set_retry_summary(
+                state,
+                stage="pan_import",
+                operation="pan_import",
+                attempts=attempt,
+                status="retrying" if will_retry else "failed",
+                kind=error_kind,
+                error=error_text,
+            )
+            _save_update_state(state)
+        logger.warning("Pan import error (attempt %s/%s, kind=%s): %s", attempt, max_attempts, error_kind, error_text)
+        if not will_retry:
+            return False, attempt, error_kind, error_text
+        if job_id:
+            wait_sec = max(0.1, float(sleep_for or 0.1))
+            if error_kind == "db_lock":
+                wait_msg = f"PAN DB lock detected. Waiting {wait_sec:.1f}s before retry {attempt}/{max_attempts}..."
+            else:
+                wait_msg = (
+                    f"PAN process is still active. Waiting {wait_sec:.1f}s before retry {attempt}/{max_attempts}..."
+                )
+            job_manager._update_db(
+                job_id,
+                "txt_update",
+                "running",
+                message=wait_msg,
+                progress=min(4, 1 + attempt),
+            )
+        time.sleep(max(0.1, float(sleep_for or 0.1)))
+    return False, attempt, "other", "retry_exhausted"
 
 
 def _run_ingest_with_retry(
@@ -1149,30 +1256,22 @@ def handle_txt_update(job_id: str, payload: dict) -> None:
         )
         return
 
-    pan_import_ok = False
-    pan_import_error: str | None = None
-    for attempt in range(1, pan_retry + 1):
-        if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled during Pan import"):
-            return
-        try:
-            pan_dt_path = getattr(config, "PAN_DTMGR_PATH", None)
-            pan_import_ok = run_pan_import(str(pan_dt_path) if pan_dt_path else None)
-            if pan_import_ok:
-                break
-            pan_import_error = "Pan import returned False"
-        except Exception as exc:
-            pan_import_error = str(exc)
-            logger.warning("Pan import error (attempt %s/%s): %s", attempt, pan_retry, exc)
+    if _exit_if_canceled(job_id, state, stage="pan_import", message="Canceled during Pan import"):
+        return
 
-        if attempt < pan_retry:
-            job_manager._update_db(
-                job_id,
-                "txt_update",
-                "running",
-                message=f"Retrying Pan import ({attempt}/{pan_retry})...",
-                progress=min(4, 1 + attempt),
-            )
-            time.sleep(float(pan_retry_sleep))
+    pan_dt_path = getattr(config, "PAN_DTMGR_PATH", None)
+    pan_import_ok, pan_import_attempts, pan_import_error_kind, pan_import_error = _run_pan_import_with_retry(
+        run_pan_import_once=lambda: run_pan_import(str(pan_dt_path) if pan_dt_path else None),
+        max_attempts=pan_retry,
+        sleep_seconds=pan_retry_sleep,
+        state=state,
+        job_id=job_id,
+    )
+    state["last_pan_import_attempts"] = int(pan_import_attempts)
+    state["last_pan_import_error_kind"] = pan_import_error_kind
+    if pan_import_ok:
+        state.pop("last_pan_import_warning", None)
+        _save_update_state(state)
 
     if not pan_import_ok:
         error_msg = f"Pan import failed: {pan_import_error or 'unknown error'}"

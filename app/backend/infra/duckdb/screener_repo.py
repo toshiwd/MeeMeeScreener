@@ -42,6 +42,7 @@ class ScreenerRepository:
         earnings_end: date,
         rights_min_date: date,
         monthly_limit: int = 120,
+        code_limit: int | None = None,
     ) -> Tuple[List[str], List[Tuple], List[Tuple], List[Tuple], List[Tuple], List[Tuple]]:
         """
         Fetch all necessary data for screener generation in one go (or efficient batching).
@@ -49,13 +50,27 @@ class ScreenerRepository:
             (codes, meta_rows, daily_rows, monthly_rows, earnings_rows, rights_rows)
         """
         with self._get_read_conn() as conn:
-            # 1. Get all codes
-            codes_rows = conn.execute("SELECT DISTINCT code FROM daily_bars ORDER BY code").fetchall()
+            resolved_code_limit = max(1, int(code_limit)) if code_limit is not None else None
+            code_query = "SELECT DISTINCT code FROM daily_bars ORDER BY code"
+            code_params: list[Any] = []
+            if resolved_code_limit is not None:
+                code_query += " LIMIT ?"
+                code_params.append(resolved_code_limit)
+            codes_rows = conn.execute(code_query, code_params).fetchall()
             codes = [row[0] for row in codes_rows]
+            if not codes:
+                return [], [], [], [], [], []
+
+            placeholders = ",".join(["?"] * len(codes))
 
             # 2. Get Meta
             meta_rows_raw = conn.execute(
-                "SELECT code, name, stage, score, reason, score_status, missing_reasons_json, score_breakdown_json FROM stock_meta"
+                f"""
+                SELECT code, name, stage, score, reason, score_status, missing_reasons_json, score_breakdown_json
+                FROM stock_meta
+                WHERE code IN ({placeholders})
+                """,
+                codes,
             ).fetchall()
             meta_rows = [
                 (
@@ -73,7 +88,7 @@ class ScreenerRepository:
 
             # 3. Get Daily Bars (Windowed)
             daily_rows = conn.execute(
-                """
+                f"""
                 SELECT code, date, o, h, l, c, v
                 FROM (
                     SELECT
@@ -86,16 +101,17 @@ class ScreenerRepository:
                         v,
                         ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
                     FROM daily_bars
+                    WHERE code IN ({placeholders})
                 )
                 WHERE rn <= ?
                 ORDER BY code, date
                 """,
-                [daily_limit]
+                [*codes, daily_limit]
             ).fetchall()
 
             # 4. Get Monthly Bars (Windowed)
             monthly_rows = conn.execute(
-                """
+                f"""
                 SELECT code, month, o, h, l, c
                 FROM (
                     SELECT
@@ -107,32 +123,35 @@ class ScreenerRepository:
                         c,
                         ROW_NUMBER() OVER (PARTITION BY code ORDER BY month DESC) AS rn
                     FROM monthly_bars
+                    WHERE code IN ({placeholders})
                 )
                 WHERE rn <= ?
                 ORDER BY code, month
                 """,
-                [monthly_limit],
+                [*codes, monthly_limit],
             ).fetchall()
 
             # 5. Earnings (prefer upcoming; fallback to recent past)
             past_start = earnings_start - timedelta(days=180)
             future_rows = conn.execute(
-                """
+                f"""
                 SELECT code, MIN(planned_date) AS planned_date
                 FROM earnings_planned
-                WHERE planned_date BETWEEN ? AND ?
+                WHERE code IN ({placeholders})
+                  AND planned_date BETWEEN ? AND ?
                 GROUP BY code
                 """,
-                [earnings_start, earnings_end],
+                [*codes, earnings_start, earnings_end],
             ).fetchall()
             past_rows = conn.execute(
-                """
+                f"""
                 SELECT code, MAX(planned_date) AS planned_date
                 FROM earnings_planned
-                WHERE planned_date BETWEEN ? AND ?
+                WHERE code IN ({placeholders})
+                  AND planned_date BETWEEN ? AND ?
                 GROUP BY code
                 """,
-                [past_start, earnings_start],
+                [*codes, past_start, earnings_start],
             ).fetchall()
             future_map = {row[0]: row[1] for row in future_rows}
             past_map = {row[0]: row[1] for row in past_rows}
@@ -144,13 +163,14 @@ class ScreenerRepository:
 
             # 6. Rights
             rights_rows = conn.execute(
-                """
+                f"""
                 SELECT code, MIN(COALESCE(last_rights_date, ex_date)) AS rights_date
                 FROM ex_rights
-                WHERE COALESCE(last_rights_date, ex_date) >= ?
+                WHERE code IN ({placeholders})
+                  AND COALESCE(last_rights_date, ex_date) >= ?
                 GROUP BY code
                 """,
-                [rights_min_date]
+                [*codes, rights_min_date]
             ).fetchall()
 
             daily_grouped: Dict[str, List[Tuple]] = {}

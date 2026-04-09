@@ -1132,7 +1132,11 @@ export const useStore = create<StoreState>((set, get) => ({
               ...missingCodes.reduce((acc, code) => {
                 if (!hasCurrentBarsLoadingToken(timeframe, code, requestToken)) return acc;
                 const cached = prev.barsCache[timeframe][code];
-                acc[code] = cached ? (cached.bars.length ? "success" : "empty") : "error";
+                if (cached) {
+                  acc[code] = cached.bars.length ? "success" : "empty";
+                } else {
+                  acc[code] = isAbort ? "idle" : "error";
+                }
                 return acc;
               }, {} as Record<string, "idle" | "loading" | "success" | "empty" | "error">)
             }

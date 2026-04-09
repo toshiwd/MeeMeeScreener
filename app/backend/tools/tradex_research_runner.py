@@ -788,6 +788,41 @@ def _build_period_segments() -> list[dict[str, Any]]:
     return segments
 
 
+def _configure_research_execution_context(
+    *,
+    repo,
+    codes: list[str],
+    period_segments: list[dict[str, Any]],
+    preload_timelines: bool,
+) -> tradex.ResearchExecutionContext | None:
+    context = tradex.get_research_execution_context()
+    if context is None:
+        return None
+    start_dates = [_text(segment.get("start_date")) for segment in period_segments if _text(segment.get("start_date"))]
+    end_dates = [_text(segment.get("end_date")) for segment in period_segments if _text(segment.get("end_date"))]
+    if start_dates and end_dates:
+        context.configure_scope_window(
+            start_date=min(start_dates),
+            end_date=max(end_dates),
+            limit=1000,
+        )
+    if preload_timelines and codes:
+        context.preload_scope_timelines(repo, codes)
+    return context
+
+
+def _preload_research_universe_context(
+    *,
+    repo,
+    universe: list[str],
+) -> None:
+    context = tradex.get_research_execution_context()
+    if context is None or not universe:
+        return
+    context.preload_scope_timelines(repo, universe)
+    context.preload_daily_rows(repo, universe, limit=10000)
+
+
 def _require_legacy_analysis_enabled(*, context: str) -> None:
     if is_legacy_analysis_disabled():
         raise RuntimeError(
@@ -3497,25 +3532,28 @@ def run_tradex_stability_sweep(
     scope_id = _text(session_scope_id, fallback=session_id)
     session_rows: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
-    for seed in seed_values:
-        seed_session_id = f"{_slug(session_id)}-seed-{int(seed)}"
-        try:
-            run_tradex_research_session(
-                session_id=seed_session_id,
-                random_seed=int(seed),
-                universe_size=int(universe_size),
-                max_candidates_per_family=int(max_candidates_per_family),
-                session_scope_id=scope_id,
-                ret20_source_mode=ret20_source_mode,
-            )
-            session_state = _load_session_state(seed_session_id)
-            if not isinstance(session_state, dict):
-                raise RuntimeError(f"missing session state after completed run: {seed_session_id}")
-            session_rows.append(_stability_session_row(session_state))
-        except Exception as exc:
-            failure_row = _build_stability_failure_row(session_id=seed_session_id, random_seed=int(seed), error=exc)
-            session_rows.append(failure_row)
-            failures.append(failure_row)
+    with tradex.use_research_execution_context(tradex.ResearchExecutionContext()):
+        for seed in seed_values:
+            seed_session_id = f"{_slug(session_id)}-seed-{int(seed)}"
+            try:
+                run_tradex_research_session(
+                    session_id=seed_session_id,
+                    random_seed=int(seed),
+                    universe_size=int(universe_size),
+                    max_candidates_per_family=int(max_candidates_per_family),
+                    session_scope_id=scope_id,
+                    ret20_source_mode=ret20_source_mode,
+                    finalize_shared_rollups=False,
+                )
+                session_state = _load_session_state(seed_session_id)
+                if not isinstance(session_state, dict):
+                    raise RuntimeError(f"missing session state after completed run: {seed_session_id}")
+                session_rows.append(_stability_session_row(session_state))
+            except Exception as exc:
+                failure_row = _build_stability_failure_row(session_id=seed_session_id, random_seed=int(seed), error=exc)
+                session_rows.append(failure_row)
+                failures.append(failure_row)
+    _write_session_leaderboard_rollup_artifacts()
     rollup_path, report_path, rollup = _write_stability_rollup_artifacts(session_rows)
     rollup["rollup_path"] = str(rollup_path)
     rollup["report_path"] = str(report_path)
@@ -3634,31 +3672,34 @@ def run_tradex_scope_stability_sweep(
         scope_values = [_text(session_id, fallback="session")]
     session_rows: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
-    for scope_id in scope_values:
-        for seed in seed_values:
-            seed_session_id = _scope_session_id(session_id, scope_id, int(seed))
-            try:
-                run_tradex_research_session(
-                    session_id=seed_session_id,
-                    random_seed=int(seed),
-                    universe_size=int(universe_size),
-                    max_candidates_per_family=int(max_candidates_per_family),
-                    session_scope_id=scope_id,
-                    ret20_source_mode=ret20_source_mode,
-                )
-                session_state = _load_session_state(seed_session_id)
-                if not isinstance(session_state, dict):
-                    raise RuntimeError(f"missing session state after completed run: {seed_session_id}")
-                session_rows.append(_stability_session_row(session_state))
-            except Exception as exc:
-                failure_row = _build_scope_stability_failure_row(
-                    session_id=seed_session_id,
-                    session_scope_id=scope_id,
-                    random_seed=int(seed),
-                    error=exc,
-                )
-                session_rows.append(failure_row)
-                failures.append(failure_row)
+    with tradex.use_research_execution_context(tradex.ResearchExecutionContext()):
+        for scope_id in scope_values:
+            for seed in seed_values:
+                seed_session_id = _scope_session_id(session_id, scope_id, int(seed))
+                try:
+                    run_tradex_research_session(
+                        session_id=seed_session_id,
+                        random_seed=int(seed),
+                        universe_size=int(universe_size),
+                        max_candidates_per_family=int(max_candidates_per_family),
+                        session_scope_id=scope_id,
+                        ret20_source_mode=ret20_source_mode,
+                        finalize_shared_rollups=False,
+                    )
+                    session_state = _load_session_state(seed_session_id)
+                    if not isinstance(session_state, dict):
+                        raise RuntimeError(f"missing session state after completed run: {seed_session_id}")
+                    session_rows.append(_stability_session_row(session_state))
+                except Exception as exc:
+                    failure_row = _build_scope_stability_failure_row(
+                        session_id=seed_session_id,
+                        session_scope_id=scope_id,
+                        random_seed=int(seed),
+                        error=exc,
+                    )
+                    session_rows.append(failure_row)
+                    failures.append(failure_row)
+    _write_session_leaderboard_rollup_artifacts()
     rollup_path, report_path, rollup = _write_scope_stability_rollup_artifacts(session_rows)
     rollup["rollup_path"] = str(rollup_path)
     rollup["report_path"] = str(report_path)
@@ -3930,7 +3971,19 @@ def run_tradex_research_session(
     max_candidates_per_family: int = DEFAULT_MAX_CANDIDATES_PER_FAMILY,
     session_scope_id: str | None = None,
     ret20_source_mode: str = tradex.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED,
+    finalize_shared_rollups: bool = True,
 ) -> dict[str, Any]:
+    if tradex.get_research_execution_context() is None:
+        with tradex.use_research_execution_context(tradex.ResearchExecutionContext()):
+            return run_tradex_research_session(
+                session_id=session_id,
+                random_seed=random_seed,
+                universe_size=universe_size,
+                max_candidates_per_family=max_candidates_per_family,
+                session_scope_id=session_scope_id,
+                ret20_source_mode=ret20_source_mode,
+                finalize_shared_rollups=finalize_shared_rollups,
+            )
     family_specs = _build_family_specs()
     max_candidates_per_family = max(1, min(int(max_candidates_per_family), 3))
     _require_legacy_analysis_enabled(context="tradex research session")
@@ -3964,6 +4017,12 @@ def run_tradex_research_session(
                 db_diagnostics["db_probe_error"] = f"{exc.__class__.__name__}:{exc}"
         raise RuntimeError(f"confirmed universe is empty: {json.dumps(_json_ready(db_diagnostics), ensure_ascii=False, sort_keys=True)}")
     period_segments, period_mode_meta = _build_period_segments_with_mode()
+    _configure_research_execution_context(
+        repo=repo,
+        codes=codes,
+        period_segments=period_segments,
+        preload_timelines=scope_id != FEATURE_SNAPSHOT_SCOPE_ID,
+    )
     if scope_id == FEATURE_SNAPSHOT_SCOPE_ID:
         eligible_codes, universe_meta = _scope_feature_snapshot_eligible_codes(
             repo,
@@ -3988,6 +4047,7 @@ def run_tradex_research_session(
         random_seed=random_seed,
         universe_size=selected_universe_size,
     )
+    _preload_research_universe_context(repo=repo, universe=universe)
     session_top_k = max(
         (
             max(1, tradex._int(candidate.plan_overrides.get("top_k")) or 0)
@@ -4076,7 +4136,8 @@ def run_tradex_research_session(
 
     if _text(state.get("status")) == "complete" and _text(state.get("manifest_hash")) == manifest_hash:
         _write_family_leaderboard_artifacts(state)
-        _write_session_leaderboard_rollup_artifacts()
+        if finalize_shared_rollups:
+            _write_session_leaderboard_rollup_artifacts()
         _write_run_manifest(session_id, run_manifest)
         return state
 
@@ -4313,7 +4374,8 @@ def run_tradex_research_session(
     state["report_path"] = str(report_path)
     _write_session_state(session_id, state)
     _write_family_leaderboard_artifacts(state)
-    _write_session_leaderboard_rollup_artifacts()
+    if finalize_shared_rollups:
+        _write_session_leaderboard_rollup_artifacts()
     return state
 
 

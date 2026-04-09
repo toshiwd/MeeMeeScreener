@@ -7,7 +7,11 @@ from datetime import datetime
 
 from app.backend.core.jobs import job_manager
 from app.backend.services.operator_mutation_lock import OperatorMutationBusyError, operator_mutation_scope
-from app.backend.services.screener_snapshot_service import inspect_screener_snapshot, refresh_screener_snapshot
+from app.backend.services.screener_snapshot_service import (
+    inspect_screener_snapshot,
+    mark_screener_snapshot_refresh_completed,
+    refresh_screener_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 SCREENER_SNAPSHOT_JOB_TYPE = "screener_snapshot_refresh"
@@ -58,6 +62,8 @@ def schedule_screener_snapshot_refresh(*, source: str, force: bool = False) -> s
         unique=True,
         message="Waiting in queue...",
         progress=0,
+        lane="maintenance",
+        dedupe_key=f"{SCREENER_SNAPSHOT_JOB_TYPE}:{int(payload['limit'])}",
     )
 
 
@@ -114,6 +120,8 @@ def handle_screener_snapshot_refresh(job_id: str, payload: dict) -> None:
             exc.holder_since,
         )
         return
+    finally:
+        mark_screener_snapshot_refresh_completed(limit)
 
 
 def _scheduler_loop() -> None:

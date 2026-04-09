@@ -50,7 +50,7 @@ describe("store.loadBarsBatch", () => {
     vi.unstubAllGlobals();
   });
 
-  it("clears loading and marks the tile as error when a batch request is aborted", async () => {
+  it("clears loading and returns the tile to idle when a batch request is aborted", async () => {
     apiPost.mockImplementation((_url: string, _payload: unknown, options?: { signal?: AbortSignal }) => {
       return new Promise<{ status: number; data?: BatchBarsV3Response }>((_resolve, reject) => {
         options?.signal?.addEventListener("abort", () => {
@@ -70,6 +70,6 @@ describe("store.loadBarsBatch", () => {
 
     const state = useStore.getState();
     expect(state.barsLoading.daily["1001"]).toBeUndefined();
-    expect(state.barsStatus.daily["1001"]).toBe("error");
+    expect(state.barsStatus.daily["1001"]).toBe("idle");
   });
 });

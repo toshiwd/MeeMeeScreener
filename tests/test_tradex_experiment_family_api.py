@@ -86,6 +86,60 @@ def _enable_legacy_analysis_for_tradex_research(monkeypatch) -> None:
     monkeypatch.setenv(LEGACY_ANALYSIS_DISABLE_ENV, "0")
 
 
+def test_research_execution_context_reuses_preloaded_analysis_inputs() -> None:
+    class _CountingRepo(_FakeRepo):
+        def __init__(self) -> None:
+            self.timeline_batch_calls = 0
+            self.timeline_single_calls = 0
+            self.daily_batch_calls = 0
+            self.daily_single_calls = 0
+
+        def _timeline_rows(self, code: str, asof_dt: int | None, limit: int = 400):
+            return _FakeRepo.get_analysis_timeline(self, code, asof_dt, limit=limit)
+
+        def _daily_rows(self, code: str, limit: int = 400, asof_dt: int | None = None):
+            return _FakeRepo.get_daily_bars(self, code, limit=limit, asof_dt=asof_dt)
+
+        def get_analysis_timeline_batch(self, codes, asof_dt, limit=400):
+            self.timeline_batch_calls += 1
+            return {code: self._timeline_rows(code, asof_dt, limit=limit) for code in codes}
+
+        def get_analysis_timeline(self, code: str, asof_dt: int | None, limit: int = 400):
+            self.timeline_single_calls += 1
+            return self._timeline_rows(code, asof_dt, limit=limit)
+
+        def get_daily_bars_batch(self, codes, limit=400, asof_dt=None):
+            self.daily_batch_calls += 1
+            return {code: self._daily_rows(code, limit=limit, asof_dt=asof_dt) for code in codes}
+
+        def get_daily_bars(self, code: str, limit: int = 400, asof_dt: int | None = None):
+            self.daily_single_calls += 1
+            return self._daily_rows(code, limit=limit, asof_dt=asof_dt)
+
+    repo = _CountingRepo()
+    context = service.ResearchExecutionContext()
+
+    with service.use_research_execution_context(context):
+        context.configure_scope_window(start_date="2025-01-01", end_date="2025-02-28", limit=1000)
+        context.preload_scope_timelines(repo, ["1001"])
+        context.preload_daily_rows(repo, ["1001"], limit=10000)
+
+        points_first = service._analysis_points(repo, "1001", "2025-01-01", "2025-01-31")
+        points_second = service._analysis_points(repo, "1001", "2025-01-01", "2025-01-31")
+        trade_first = service._analysis_trade_sequence(repo, "1001")
+        trade_second = service._analysis_trade_sequence(repo, "1001")
+        liquidity_first = service._analysis_liquidity20d(repo, "1001", 20250215)
+        liquidity_second = service._analysis_liquidity20d(repo, "1001", 20250215)
+
+    assert points_first == points_second
+    assert trade_first == trade_second
+    assert liquidity_first == liquidity_second
+    assert repo.timeline_batch_calls == 1
+    assert repo.timeline_single_calls == 0
+    assert repo.daily_batch_calls == 1
+    assert repo.daily_single_calls == 0
+
+
 def _make_summary(
     *,
     top5_mean: float,
@@ -2038,6 +2092,62 @@ def test_tradex_research_runner_filters_confirmed_universe_by_scope_analysis_cov
     assert result["coverage_waterfall"]["sample_count"] > 0
 
 
+def test_tradex_research_runner_uses_batch_preload_for_research_session(monkeypatch, tmp_path) -> None:
+    class _CountingBatchRepo(_FakeRepo):
+        def __init__(self) -> None:
+            self.timeline_batch_calls = 0
+            self.timeline_single_calls = 0
+            self.daily_batch_calls = 0
+            self.daily_single_calls = 0
+
+        def _timeline_rows(self, code: str, asof_dt: int | None, limit: int = 400):
+            return _FakeRepo.get_analysis_timeline(self, code, asof_dt, limit=limit)
+
+        def _daily_rows(self, code: str, limit: int = 400, asof_dt: int | None = None):
+            return _FakeRepo.get_daily_bars(self, code, limit=limit, asof_dt=asof_dt)
+
+        def get_analysis_timeline_batch(self, codes, asof_dt, limit=400):
+            self.timeline_batch_calls += 1
+            return {code: self._timeline_rows(code, asof_dt, limit=limit) for code in codes}
+
+        def get_analysis_timeline(self, code: str, asof_dt: int | None, limit: int = 400):
+            self.timeline_single_calls += 1
+            return self._timeline_rows(code, asof_dt, limit=limit)
+
+        def get_daily_bars_batch(self, codes, limit=400, asof_dt=None):
+            self.daily_batch_calls += 1
+            return {code: self._daily_rows(code, limit=limit, asof_dt=asof_dt) for code in codes}
+
+        def get_daily_bars(self, code: str, limit: int = 400, asof_dt: int | None = None):
+            self.daily_single_calls += 1
+            return self._daily_rows(code, limit=limit, asof_dt=asof_dt)
+
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
+    monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
+    monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
+    dependencies._stock_repo = _CountingBatchRepo()
+    dependencies._config_repo = object()
+
+    family_specs = research_runner._build_family_specs()[:1]
+    monkeypatch.setattr(research_runner, "_build_family_specs", lambda: family_specs)
+    monkeypatch.setattr(research_runner, "_train_phase4_ranker", lambda *args, **kwargs: {"status": "skipped", "reason": "test"})
+
+    result = research_runner.run_tradex_research_session(
+        session_id="bp1",
+        random_seed=7,
+        universe_size=20,
+        max_candidates_per_family=1,
+    )
+
+    repo = dependencies._stock_repo
+    assert result["status"] == "complete"
+    assert repo.timeline_batch_calls >= 1
+    assert repo.daily_batch_calls >= 1
+    assert repo.timeline_single_calls == 0
+    assert repo.daily_single_calls == 0
+
+
 def test_tradex_research_runner_feature_snapshot_scope_candidates_exceed_topk(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
@@ -2245,6 +2355,8 @@ def test_tradex_research_runner_stability_sweep_generates_rollup(monkeypatch, tm
     family_specs = research_runner._build_family_specs()[:2]
     monkeypatch.setattr(research_runner, "_build_family_specs", lambda: family_specs)
     monkeypatch.setattr(research_runner, "_train_phase4_ranker", lambda *args, **kwargs: {"status": "skipped", "reason": "test"})
+    finalize_requests: list[bool] = []
+    rollup_write_calls: list[str] = []
 
     def _fake_research_session(
         *,
@@ -2254,8 +2366,10 @@ def test_tradex_research_runner_stability_sweep_generates_rollup(monkeypatch, tm
         max_candidates_per_family: int,
         session_scope_id: str | None = None,
         ret20_source_mode: str = service.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED,
+        finalize_shared_rollups: bool = True,
     ) -> dict[str, object]:
         del universe_size, max_candidates_per_family, session_scope_id, ret20_source_mode
+        finalize_requests.append(finalize_shared_rollups)
         sample_count = 10 + (random_seed % 5)
         eval_window_mode = "fallback" if random_seed % 2 else "standard"
         state = {
@@ -2367,6 +2481,11 @@ def test_tradex_research_runner_stability_sweep_generates_rollup(monkeypatch, tm
         return state
 
     monkeypatch.setattr(research_runner, "run_tradex_research_session", _fake_research_session)
+    monkeypatch.setattr(
+        research_runner,
+        "_write_session_leaderboard_rollup_artifacts",
+        lambda: rollup_write_calls.append("called") or (Path("rollup.json"), Path("rollup.md"), {}),
+    )
 
     rollup = research_runner.run_tradex_stability_sweep(
         session_id="stability",
@@ -2381,6 +2500,8 @@ def test_tradex_research_runner_stability_sweep_generates_rollup(monkeypatch, tm
     assert rollup["session_rows"]
     assert all(int(row["sample_count"]) > 0 for row in rollup["session_rows"])
     assert all(row["eval_window_mode"] in {"standard", "fallback"} for row in rollup["session_rows"])
+    assert finalize_requests == [False, False]
+    assert rollup_write_calls == ["called"]
 
     rollup_path = research_runner._stability_rollup_file()
     rollup_report_path = research_runner._stability_rollup_report_file()
@@ -2405,6 +2526,8 @@ def test_tradex_research_runner_scope_stability_sweep_generates_rollup(monkeypat
     family_specs = research_runner._build_family_specs()[:1]
     monkeypatch.setattr(research_runner, "_build_family_specs", lambda: family_specs)
     monkeypatch.setattr(research_runner, "_train_phase4_ranker", lambda *args, **kwargs: {"status": "skipped", "reason": "test"})
+    finalize_requests: list[bool] = []
+    rollup_write_calls: list[str] = []
 
     def _fake_research_session(
         *,
@@ -2414,8 +2537,10 @@ def test_tradex_research_runner_scope_stability_sweep_generates_rollup(monkeypat
         max_candidates_per_family: int,
         session_scope_id: str | None = None,
         ret20_source_mode: str = service.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED,
+        finalize_shared_rollups: bool = True,
     ) -> dict[str, object]:
         del universe_size, max_candidates_per_family, ret20_source_mode
+        finalize_requests.append(finalize_shared_rollups)
         scope_id = session_scope_id or "scope-default"
         good_scope = scope_id.endswith("good")
         mixed_scope = scope_id.endswith("mixed")
@@ -2556,6 +2681,11 @@ def test_tradex_research_runner_scope_stability_sweep_generates_rollup(monkeypat
         return state
 
     monkeypatch.setattr(research_runner, "run_tradex_research_session", _fake_research_session)
+    monkeypatch.setattr(
+        research_runner,
+        "_write_session_leaderboard_rollup_artifacts",
+        lambda: rollup_write_calls.append("called") or (Path("rollup.json"), Path("rollup.md"), {}),
+    )
 
     rollup = research_runner.run_tradex_scope_stability_sweep(
         session_id="scope-stability",
@@ -2574,6 +2704,8 @@ def test_tradex_research_runner_scope_stability_sweep_generates_rollup(monkeypat
     assert any(row["first_zero_stage"] == "eligibility_passed" for row in rollup["session_rows"])
     assert all("session_scope_id" in row for row in rollup["session_rows"])
     assert {row["decision"] for row in rollup["scope_summary"]} == {"usable", "unstable", "unusable"}
+    assert finalize_requests == [False, False, False, False, False, False]
+    assert rollup_write_calls == ["called"]
 
     rollup_path = research_runner._scope_stability_rollup_file()
     rollup_report_path = research_runner._scope_stability_rollup_report_file()

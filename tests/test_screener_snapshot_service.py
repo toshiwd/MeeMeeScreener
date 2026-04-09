@@ -115,3 +115,64 @@ def test_get_response_reuses_persisted_stale_metadata(tmp_path, monkeypatch: pyt
     assert cached["lastError"] == "refresh_retry_failed"
     assert cached["updatedAt"] is not None
     assert cached["generation"] == seeded["generation"]
+
+
+def test_refresh_caps_snapshot_items_to_requested_limit(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "stocks.duckdb"
+    service.invalidate_screener_snapshot_cache()
+
+    monkeypatch.setattr(
+        service,
+        "_compute_snapshot_items",
+        lambda limit, screener_repo, stock_repo: [
+            {"code": f"{1000 + idx}", "name": f"Name{idx}", "asOf": "2026-03-13"}
+            for idx in range(80)
+        ],
+    )
+
+    payload = service.refresh_screener_snapshot(limit=50, source="limit-test", db_path=str(db_path))
+
+    assert len(payload["items"]) == 50
+    assert payload["rowCount"] == 80
+    assert payload["items"][0]["code"] == "1000"
+    assert payload["items"][-1]["code"] == "1049"
+
+
+def test_get_response_serves_stale_snapshot_and_enqueues_single_refresh(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_path = tmp_path / "stocks.duckdb"
+    service.invalidate_screener_snapshot_cache()
+
+    monkeypatch.setattr(
+        service,
+        "_compute_snapshot_items",
+        lambda limit, screener_repo, stock_repo: [{"code": "7203", "name": "Toyota", "asOf": "2026-03-13"}],
+    )
+    service.refresh_screener_snapshot(limit=260, source="seed", db_path=str(db_path))
+    service.invalidate_screener_snapshot_cache()
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("stale_retry")
+
+    monkeypatch.setattr(service, "_compute_snapshot_items", _raise)
+    stale_payload = service.refresh_screener_snapshot(limit=260, source="retry", db_path=str(db_path))
+    assert stale_payload["stale"] is True
+
+    from app.backend.core import screener_snapshot_job
+
+    scheduled: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        screener_snapshot_job,
+        "schedule_screener_snapshot_refresh",
+        lambda *, source, force=False: scheduled.append((source, force)) or "job-1",
+    )
+
+    service.invalidate_screener_snapshot_cache()
+    payload_a = service.get_screener_snapshot_response(limit=260, db_path=str(db_path))
+    payload_b = service.get_screener_snapshot_response(limit=260, db_path=str(db_path))
+
+    assert payload_a["stale"] is True
+    assert payload_b["stale"] is True
+    assert len(scheduled) == 1

@@ -123,6 +123,7 @@ def _to_int(value: object | None) -> int | None:
 
 
 def handle_yf_daily_ingest(job_id: str, payload: dict) -> None:
+    started_at = datetime.now()
     dry_run = bool(payload.get("dry_run", False))
     asof_dt = _to_int(payload.get("asof_dt"))
     max_codes = _to_int(payload.get("max_codes"))
@@ -150,11 +151,13 @@ def handle_yf_daily_ingest(job_id: str, payload: dict) -> None:
         message="Fetching Yahoo provisional daily bars...",
     )
 
+    authoritative_started = datetime.now()
     report = ingest_latest_provisional_daily_rows(
         max_codes=max_codes,
         asof_dt=asof_dt,
         dry_run=dry_run,
     )
+    authoritative_elapsed_ms = int((datetime.now() - authoritative_started).total_seconds() * 1000)
     inserted = int(report.get("inserted") or 0)
     updated = int(report.get("updated") or 0)
     target_codes = int(report.get("target_codes") or 0)
@@ -163,31 +166,53 @@ def handle_yf_daily_ingest(job_id: str, payload: dict) -> None:
     target_date = coverage.get("target_date") if coverage else None
     message = (
         f"Yahoo daily ingest completed (inserted={inserted}, updated={updated}, target_codes={target_codes}, "
-        f"covered={covered_codes}, target_date={target_date}, fetched_at_jst={jst_now().strftime('%Y-%m-%d %H:%M')})"
+        f"covered={covered_codes}, target_date={target_date}, fetched_at_jst={jst_now().strftime('%Y-%m-%d %H:%M')}, "
+        f"authoritative_ms={authoritative_elapsed_ms})"
     )
 
+    maintenance_events: list[str] = []
     if (inserted > 0 or updated > 0) and not dry_run:
+        maintenance_started = datetime.now()
         try:
             from app.backend.services import rankings_cache
 
             rankings_cache.refresh_cache()
+            maintenance_events.append("rankings_cache=ok")
         except Exception as exc:
             logger.warning("Rankings cache refresh after Yahoo ingest failed: %s", exc)
+            maintenance_events.append(f"rankings_cache=failed({exc})")
         try:
-            schedule_analysis_prewarm_if_needed(source=f"yf_daily_ingest:{job_id}")
+            analysis_job_id = schedule_analysis_prewarm_if_needed(source=f"yf_daily_ingest:{job_id}")
+            maintenance_events.append(f"analysis_prewarm={analysis_job_id or 'skip'}")
         except Exception as exc:
             logger.warning("Analysis prewarm submission after Yahoo ingest failed: %s", exc)
+            maintenance_events.append(f"analysis_prewarm=failed({exc})")
         try:
-            schedule_screener_snapshot_refresh(source=f"yf_daily_ingest:{job_id}")
+            snapshot_job_id = schedule_screener_snapshot_refresh(source=f"yf_daily_ingest:{job_id}")
+            maintenance_events.append(f"screener_snapshot={snapshot_job_id or 'skip'}")
         except Exception as exc:
             logger.warning("Screener snapshot submission after Yahoo ingest failed: %s", exc)
+            maintenance_events.append(f"screener_snapshot=failed({exc})")
         try:
-            schedule_external_analysis_publish_latest(
+            publish_job_id = schedule_external_analysis_publish_latest(
                 source=f"yf_daily_ingest:{job_id}",
                 as_of=_to_int(target_date),
             )
+            maintenance_events.append(f"external_publish={publish_job_id or 'skip'}")
         except Exception as exc:
             logger.warning("External analysis publish submission after Yahoo ingest failed: %s", exc)
+            maintenance_events.append(f"external_publish=failed({exc})")
+        maintenance_elapsed_ms = int((datetime.now() - maintenance_started).total_seconds() * 1000)
+    else:
+        maintenance_elapsed_ms = 0
+
+    lane_stats = job_manager.get_lane_stats()
+    total_elapsed_ms = int((datetime.now() - started_at).total_seconds() * 1000)
+    message = (
+        f"{message}; maintenance_ms={maintenance_elapsed_ms}; total_ms={total_elapsed_ms}; "
+        f"maintenance={' / '.join(maintenance_events) if maintenance_events else 'none'}; "
+        f"maintenance_queue={lane_stats.get('maintenance', {})}"
+    )
 
     job_manager._update_db(
         job_id,

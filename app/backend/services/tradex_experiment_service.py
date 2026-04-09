@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 import hashlib
 import json
 import math
@@ -85,6 +88,218 @@ PROMOTE_MAX_LIQUIDITY_FAIL_DEGRADE_RATIO = 0.0
 TRADEX_ANALYSIS_ENGINE_VERSION = ANALYSIS_OUTPUT_SCHEMA_VERSION
 DEFAULT_GATE_FILENAME = "adopt_gate.json"
 REPO_ROOT = Path(__file__).resolve().parents[3]
+_RESEARCH_EXECUTION_CONTEXT: ContextVar["ResearchExecutionContext | None"] = ContextVar(
+    "tradex_research_execution_context",
+    default=None,
+)
+
+
+@dataclass
+class ResearchExecutionContext:
+    scope_start_date: str = ""
+    scope_end_date: str = ""
+    scope_limit: int = 1000
+    analysis_timeline_cache: dict[tuple[str, int | None, int], list[dict[str, Any]]] = field(default_factory=dict)
+    scope_points_cache: dict[tuple[str, str, str], list[dict[str, Any]]] = field(default_factory=dict)
+    daily_bars_cache: dict[tuple[str, int | None, int], list[tuple[Any, ...]]] = field(default_factory=dict)
+    trade_sequence_cache: dict[tuple[str, int], dict[str, Any]] = field(default_factory=dict)
+    liquidity20d_cache: dict[tuple[str, int], float | None] = field(default_factory=dict)
+
+    def configure_scope_window(self, *, start_date: str, end_date: str, limit: int = 1000) -> None:
+        normalized_start = _text(start_date)
+        normalized_end = _text(end_date)
+        if not normalized_start or not normalized_end:
+            return
+        if (
+            normalized_start == self.scope_start_date
+            and normalized_end == self.scope_end_date
+            and int(limit) == int(self.scope_limit)
+        ):
+            return
+        self.scope_start_date = normalized_start
+        self.scope_end_date = normalized_end
+        self.scope_limit = max(1, int(limit))
+        self.scope_points_cache.clear()
+
+    def _scope_timeline_key(self, code: str) -> tuple[str, int | None, int] | None:
+        if not self.scope_start_date or not self.scope_end_date:
+            return None
+        return (_text(code), _epoch_from_date(self.scope_end_date), int(self.scope_limit))
+
+    def preload_scope_timelines(self, repo: StockRepository, codes: list[str]) -> None:
+        timeline_key_codes: list[str] = []
+        for raw_code in codes:
+            code = _text(raw_code)
+            key = self._scope_timeline_key(code)
+            if not code or key is None or key in self.analysis_timeline_cache:
+                continue
+            timeline_key_codes.append(code)
+        if not timeline_key_codes:
+            return
+        asof_dt = _epoch_from_date(self.scope_end_date)
+        if hasattr(repo, "get_analysis_timeline_batch"):
+            grouped = repo.get_analysis_timeline_batch(timeline_key_codes, asof_dt, limit=int(self.scope_limit))
+        else:
+            grouped = {}
+        for code in timeline_key_codes:
+            key = self._scope_timeline_key(code)
+            if key is None:
+                continue
+            timeline = grouped.get(code)
+            if timeline is None:
+                timeline = repo.get_analysis_timeline(code, asof_dt, limit=int(self.scope_limit))
+            self.analysis_timeline_cache[key] = [
+                row for row in timeline if isinstance(row, dict)
+            ]
+
+    def _load_timeline(
+        self,
+        repo: StockRepository,
+        *,
+        code: str,
+        asof_dt: int | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        cache_key = (_text(code), asof_dt, int(limit))
+        cached = self.analysis_timeline_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        timeline = repo.get_analysis_timeline(code, asof_dt, limit=int(limit))
+        normalized = [row for row in timeline if isinstance(row, dict)]
+        self.analysis_timeline_cache[cache_key] = normalized
+        return normalized
+
+    def get_analysis_points(self, repo: StockRepository, *, code: str, start_date: str, end_date: str) -> list[dict[str, Any]]:
+        normalized_code = _text(code)
+        normalized_start = _text(start_date)
+        normalized_end = _text(end_date)
+        if not normalized_code or not normalized_start or not normalized_end:
+            return []
+        range_key = (normalized_code, normalized_start, normalized_end)
+        cached_points = self.scope_points_cache.get(range_key)
+        if cached_points is not None:
+            return list(cached_points)
+        scope_key = self._scope_timeline_key(normalized_code)
+        if (
+            scope_key is not None
+            and self.scope_start_date <= normalized_start <= self.scope_end_date
+            and self.scope_start_date <= normalized_end <= self.scope_end_date
+        ):
+            timeline = self.analysis_timeline_cache.get(scope_key)
+            if timeline is None:
+                self.preload_scope_timelines(repo, [normalized_code])
+                timeline = self.analysis_timeline_cache.get(scope_key, [])
+        else:
+            timeline = self._load_timeline(
+                repo,
+                code=normalized_code,
+                asof_dt=_epoch_from_date(normalized_end),
+                limit=max(1000, int(self.scope_limit)),
+            )
+        out: list[dict[str, Any]] = []
+        for row in timeline:
+            dt_iso = _iso_date(row.get("dt")) if isinstance(row, dict) else None
+            if not dt_iso or dt_iso < normalized_start or dt_iso > normalized_end:
+                continue
+            out.append(row)
+        self.scope_points_cache[range_key] = list(out)
+        return out
+
+    def preload_daily_rows(self, repo: StockRepository, codes: list[str], *, limit: int = 10000) -> None:
+        missing_codes: list[str] = []
+        for raw_code in codes:
+            code = _text(raw_code)
+            key = (code, None, int(limit))
+            if not code or key in self.daily_bars_cache:
+                continue
+            missing_codes.append(code)
+        if not missing_codes:
+            return
+        if hasattr(repo, "get_daily_bars_batch"):
+            grouped = repo.get_daily_bars_batch(missing_codes, limit=int(limit))
+        else:
+            grouped = {}
+        for code in missing_codes:
+            key = (code, None, int(limit))
+            rows = grouped.get(code)
+            if rows is None:
+                rows = repo.get_daily_bars(code, limit=int(limit))
+            self.daily_bars_cache[key] = [tuple(row) for row in rows if isinstance(row, (tuple, list))]
+
+    def get_daily_rows(
+        self,
+        repo: StockRepository,
+        *,
+        code: str,
+        limit: int = 10000,
+        asof_dt: int | None = None,
+    ) -> list[tuple[Any, ...]]:
+        cache_key = (_text(code), asof_dt, int(limit))
+        cached = self.daily_bars_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        rows = repo.get_daily_bars(code, limit=int(limit), asof_dt=asof_dt)
+        normalized = [tuple(row) for row in rows if isinstance(row, (tuple, list))]
+        self.daily_bars_cache[cache_key] = normalized
+        return normalized
+
+    def get_trade_sequence(self, repo: StockRepository, *, code: str, limit: int = 10000) -> dict[str, Any]:
+        cache_key = (_text(code), int(limit))
+        cached = self.trade_sequence_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        daily_rows = self.get_daily_rows(repo, code=code, limit=int(limit))
+        dates: list[str] = []
+        closes: list[float] = []
+        for row in daily_rows:
+            if len(row) < 5:
+                continue
+            dt_iso = _format_ymd_int(row[0])
+            close = _float(row[4])
+            if not dt_iso or close is None or close <= 0.0:
+                continue
+            dates.append(dt_iso)
+            closes.append(close)
+        payload = {
+            "dates": dates,
+            "closes": closes,
+            "date_index": {dt: idx for idx, dt in enumerate(dates)},
+            "last_date": dates[-1] if dates else None,
+        }
+        self.trade_sequence_cache[cache_key] = payload
+        return payload
+
+    def get_liquidity20d(self, repo: StockRepository, *, code: str, dt_key: int) -> float | None:
+        cache_key = (_text(code), int(dt_key))
+        cached = self.liquidity20d_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        asof_iso = _iso_date(dt_key)
+        if not asof_iso:
+            self.liquidity20d_cache[cache_key] = None
+            return None
+        daily_rows = self.get_daily_rows(repo, code=code, limit=10000)
+        filtered = [
+            row
+            for row in daily_rows
+            if len(row) >= 1 and (_format_ymd_int(row[0]) or "") <= asof_iso
+        ]
+        _, liquidity20d = swing_expectancy_service.compute_atr_pct_and_liquidity20d(filtered[-20:])
+        self.liquidity20d_cache[cache_key] = liquidity20d
+        return liquidity20d
+
+
+def get_research_execution_context() -> ResearchExecutionContext | None:
+    return _RESEARCH_EXECUTION_CONTEXT.get()
+
+
+@contextmanager
+def use_research_execution_context(context: ResearchExecutionContext):
+    token = _RESEARCH_EXECUTION_CONTEXT.set(context)
+    try:
+        yield context
+    finally:
+        _RESEARCH_EXECUTION_CONTEXT.reset(token)
 
 
 def _text(value: Any, fallback: str = "") -> str:
@@ -2197,6 +2412,14 @@ def _period_segments(family: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _analysis_points(repo: StockRepository, code: str, start_date: str, end_date: str) -> list[dict[str, Any]]:
+    context = get_research_execution_context()
+    if context is not None:
+        return context.get_analysis_points(
+            repo,
+            code=code,
+            start_date=start_date,
+            end_date=end_date,
+        )
     timeline = repo.get_analysis_timeline(code, _epoch_from_date(end_date), limit=1000)
     out: list[dict[str, Any]] = []
     start_key = start_date
@@ -2214,6 +2437,12 @@ def _analysis_points(repo: StockRepository, code: str, start_date: str, end_date
 
 
 def _analysis_liquidity20d(repo: StockRepository, code: str, dt_key: int) -> float | None:
+    context = get_research_execution_context()
+    if context is not None:
+        try:
+            return context.get_liquidity20d(repo, code=code, dt_key=dt_key)
+        except Exception:
+            return None
     asof_dt = _epoch_from_date(_iso_date(dt_key))
     try:
         daily_rows = repo.get_daily_bars(code, limit=20, asof_dt=asof_dt)
@@ -2224,6 +2453,17 @@ def _analysis_liquidity20d(repo: StockRepository, code: str, dt_key: int) -> flo
 
 
 def _analysis_trade_sequence(repo: StockRepository, code: str, *, limit: int = 10000) -> dict[str, Any]:
+    context = get_research_execution_context()
+    if context is not None:
+        try:
+            return context.get_trade_sequence(repo, code=code, limit=limit)
+        except Exception:
+            return {
+                "dates": [],
+                "closes": [],
+                "date_index": {},
+                "last_date": None,
+            }
     try:
         daily_rows = repo.get_daily_bars(code, limit=limit)
     except Exception:

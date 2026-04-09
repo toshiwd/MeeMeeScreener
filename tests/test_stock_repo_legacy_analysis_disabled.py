@@ -206,3 +206,17 @@ def test_stock_repo_legacy_analysis_reads_work_when_disabled(monkeypatch, tmp_pa
     assert sell_snapshot[0] == 20260321
     assert "1301" in latest_ml_map
     assert latest_ml_map["1301"]["model_version"] == "v2"
+
+
+def test_stock_repo_analysis_timeline_batch_matches_single(monkeypatch, tmp_path):
+    monkeypatch.setenv("MEEMEE_DISABLE_LEGACY_ANALYSIS", "1")
+
+    db_path = tmp_path / "stock.duckdb"
+    _seed_readonly_analysis_db(str(db_path))
+
+    repo = StockRepository(str(db_path))
+
+    single = repo.get_analysis_timeline("1301", None, limit=400)
+    batch = repo.get_analysis_timeline_batch(["1301"], None, limit=400)
+
+    assert batch["1301"] == single
