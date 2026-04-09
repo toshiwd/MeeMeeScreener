@@ -135,6 +135,7 @@ def _live_hypothesis_payload(*, adapter_ids: list[str] | None = None, primary_ad
     code, as_of_date = _discover_live_target(db_path)
     active_adapter_ids = list(adapter_ids or ["numeric_baseline_v1"])
     active_primary_adapter = str(primary_adapter_id or active_adapter_ids[0]).strip()
+    default_session_id = "tradex-live-llm" if active_primary_adapter == "structured_reasoner_v1" else "tradex-live-num"
     return {
         "schema_version": "tradex_research_os_hypothesis_v1",
         "hypothesis_id": f"live-trader-foundation-{code}-{as_of_date}-{active_primary_adapter}",
@@ -150,7 +151,7 @@ def _live_hypothesis_payload(*, adapter_ids: list[str] | None = None, primary_ad
         "target_method_family": _env("TRADEX_LIVE_TARGET_METHOD_FAMILY") or "regime-aware",
         "execution": {
             "runner": "tradex_research_session",
-            "session_id": _env("TRADEX_LIVE_SESSION_ID") or f"tradex-live-foundation-{active_primary_adapter}",
+            "session_id": _env("TRADEX_LIVE_SESSION_ID") or default_session_id,
             "random_seed": int(_env("TRADEX_LIVE_RANDOM_SEED") or "7"),
             "session_scope_id": _env("TRADEX_LIVE_SESSION_SCOPE_ID") or "scope-a",
             "universe_size": int(_env("TRADEX_LIVE_UNIVERSE_SIZE") or "30"),

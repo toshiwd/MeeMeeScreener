@@ -1,0 +1,21 @@
+{
+  "schema_version": "tradex_trader_label_policy_v1",
+  "label_policy_version": "v1",
+  "description": "Per-decision raw-outcome trader label policy for benchmark loop v1.",
+  "horizon": {
+    "teacher_horizon_bars": 20,
+    "required_future_bar_count": 20
+  },
+  "thresholds": {
+    "close_positive_min_return": 0.0,
+    "next_open_positive_min_return": 0.0,
+    "mfe_ge_threshold": 0.1,
+    "mae_worse_than_threshold": -0.07
+  },
+  "outcome_classes": {
+    "good": "good",
+    "mixed": "mixed",
+    "bad": "bad",
+    "incomplete": "incomplete"
+  }
+}

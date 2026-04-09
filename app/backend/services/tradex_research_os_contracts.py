@@ -16,10 +16,14 @@ TRADEX_RESEARCH_OS_STRATEGY_JUDGEMENT_SCHEMA_VERSION: Final[str] = "tradex_resea
 TRADEX_RESEARCH_OS_TEACHER_EVALUATION_ROW_SCHEMA_VERSION: Final[str] = "tradex_research_os_teacher_evaluation_row_v1"
 TRADEX_RESEARCH_OS_PREFLIGHT_REPORT_SCHEMA_VERSION: Final[str] = "tradex_research_os_preflight_report_v1"
 TRADEX_RESEARCH_OS_MEMORY_SCHEMA_VERSION: Final[str] = "tradex_research_os_memory_v1"
+TRADEX_RESEARCH_OS_TRADER_BENCHMARK_ROW_SCHEMA_VERSION: Final[str] = "tradex_research_os_trader_benchmark_row_v1"
+TRADEX_RESEARCH_OS_TRADER_ADAPTER_SCOREBOARD_SCHEMA_VERSION: Final[str] = "tradex_research_os_trader_adapter_scoreboard_v1"
+TRADEX_RESEARCH_OS_TRADER_BENCHMARK_MANIFEST_SCHEMA_VERSION: Final[str] = "tradex_research_os_trader_benchmark_manifest_v1"
 TRADEX_RESEARCH_OS_DECISIONS: Final[tuple[str, ...]] = ("keep", "drop", "hold")
 TRADEX_RESEARCH_OS_RUNNER_VERSION: Final[str] = "tradex_research_os_runner_v1"
 TRADEX_TRADER_MACHINE_ACTION_STATES: Final[tuple[str, ...]] = ("enter", "wait", "skip")
 TRADEX_TRADER_HUMAN_JUDGEMENTS: Final[tuple[str, ...]] = ("buy", "hold", "reject")
+TRADEX_TRADER_JUDGEMENT_OUTCOME_CLASSES: Final[tuple[str, ...]] = ("good", "mixed", "bad", "incomplete")
 
 
 def now_utc_iso() -> str:
@@ -727,4 +731,293 @@ def build_research_memory(
     }
     payload["research_memory_hash"] = _stable_hash(payload)
     validate_research_memory(payload)
+    return payload
+
+
+def validate_trader_benchmark_row(payload: dict[str, Any]) -> None:
+    _require_fields(
+        payload,
+        required_fields=(
+            "schema_version",
+            "benchmark_version",
+            "experiment_id",
+            "hypothesis_id",
+            "family_id",
+            "method_family",
+            "as_of_date",
+            "code",
+            "adapter_id",
+            "machine_action_state",
+            "human_readable_judgement",
+            "buy_score",
+            "environment_score",
+            "trend_score",
+            "trigger_score",
+            "risk_score",
+            "invalidation_price",
+            "invalidation_reason_code",
+            "reason_codes",
+            "confidence",
+            "is_primary_adapter",
+            "teacher_horizon_bars",
+            "future_bar_count",
+            "complete_horizon",
+            "anchor_close_price",
+            "next_open_price",
+            "final_close_price",
+            "return_close_basis",
+            "return_next_open_basis",
+            "max_favorable_excursion_close_basis",
+            "max_adverse_excursion_close_basis",
+            "close_positive_20",
+            "next_open_positive_20",
+            "mfe_ge_10pct_20",
+            "mae_worse_than_7pct_20",
+            "judgement_outcome_class",
+            "label_policy_version",
+            "observation_snapshot_hash",
+            "strategy_judgement_hash",
+            "teacher_evaluation_row_hash",
+        ),
+        artifact_name="trader benchmark row",
+    )
+    _require(
+        _text(payload.get("schema_version")) == TRADEX_RESEARCH_OS_TRADER_BENCHMARK_ROW_SCHEMA_VERSION,
+        "trader benchmark row schema_version mismatch",
+    )
+    _require(_text(payload.get("benchmark_version")) == "v1", "trader benchmark row benchmark_version mismatch")
+    for field in (
+        "experiment_id",
+        "hypothesis_id",
+        "family_id",
+        "method_family",
+        "adapter_id",
+        "invalidation_reason_code",
+        "observation_snapshot_hash",
+        "strategy_judgement_hash",
+        "teacher_evaluation_row_hash",
+    ):
+        _require_non_empty_text(payload, field)
+    _require(isinstance(payload.get("as_of_date"), int), "as_of_date must be an integer")
+    _require_non_empty_text(payload, "code")
+    _require(_text(payload.get("machine_action_state")) in TRADEX_TRADER_MACHINE_ACTION_STATES, "machine_action_state must be enter, wait, or skip")
+    _require(_text(payload.get("human_readable_judgement")) in TRADEX_TRADER_HUMAN_JUDGEMENTS, "human_readable_judgement must be buy, hold, or reject")
+    for field in (
+        "buy_score",
+        "environment_score",
+        "trend_score",
+        "trigger_score",
+        "risk_score",
+        "invalidation_price",
+        "confidence",
+        "anchor_close_price",
+    ):
+        _require(isinstance(payload.get(field), (int, float)), f"{field} must be numeric")
+    for field in ("teacher_horizon_bars", "future_bar_count"):
+        _require(isinstance(payload.get(field), int), f"{field} must be an integer")
+    for field in ("is_primary_adapter", "complete_horizon"):
+        _require(isinstance(payload.get(field), bool), f"{field} must be a boolean")
+    for field in ("next_open_price", "final_close_price", "return_close_basis", "return_next_open_basis", "max_favorable_excursion_close_basis", "max_adverse_excursion_close_basis"):
+        _require(payload.get(field) is None or isinstance(payload.get(field), (int, float)), f"{field} must be numeric or null")
+    for field in ("close_positive_20", "next_open_positive_20", "mfe_ge_10pct_20", "mae_worse_than_7pct_20"):
+        _require(payload.get(field) is None or isinstance(payload.get(field), bool), f"{field} must be boolean or null")
+    _require(_text(payload.get("judgement_outcome_class")) in TRADEX_TRADER_JUDGEMENT_OUTCOME_CLASSES, "judgement_outcome_class is invalid")
+    _require_non_empty_text(payload, "label_policy_version")
+    _require(isinstance(payload.get("reason_codes"), list), "reason_codes must be a list")
+
+
+def build_trader_benchmark_row(
+    *,
+    experiment_id: str,
+    hypothesis_id: str,
+    family_id: str,
+    method_family: str,
+    as_of_date: int,
+    code: str,
+    adapter_id: str,
+    machine_action_state: str,
+    human_readable_judgement: str,
+    buy_score: float,
+    environment_score: float,
+    trend_score: float,
+    trigger_score: float,
+    risk_score: float,
+    invalidation_price: float,
+    invalidation_reason_code: str,
+    reason_codes: list[str],
+    confidence: float,
+    is_primary_adapter: bool,
+    teacher_horizon_bars: int,
+    future_bar_count: int,
+    complete_horizon: bool,
+    anchor_close_price: float,
+    next_open_price: float | None,
+    final_close_price: float | None,
+    return_close_basis: float | None,
+    return_next_open_basis: float | None,
+    max_favorable_excursion_close_basis: float | None,
+    max_adverse_excursion_close_basis: float | None,
+    close_positive_20: bool | None,
+    next_open_positive_20: bool | None,
+    mfe_ge_10pct_20: bool | None,
+    mae_worse_than_7pct_20: bool | None,
+    judgement_outcome_class: str,
+    label_policy_version: str,
+    observation_snapshot_hash: str,
+    strategy_judgement_hash: str,
+    teacher_evaluation_row_hash: str,
+) -> dict[str, Any]:
+    payload = {
+        "schema_version": TRADEX_RESEARCH_OS_TRADER_BENCHMARK_ROW_SCHEMA_VERSION,
+        "benchmark_version": "v1",
+        "experiment_id": _text(experiment_id),
+        "hypothesis_id": _text(hypothesis_id),
+        "family_id": _text(family_id),
+        "method_family": _text(method_family),
+        "as_of_date": int(as_of_date),
+        "code": _text(code),
+        "adapter_id": _text(adapter_id),
+        "machine_action_state": _text(machine_action_state),
+        "human_readable_judgement": _text(human_readable_judgement),
+        "buy_score": float(buy_score),
+        "environment_score": float(environment_score),
+        "trend_score": float(trend_score),
+        "trigger_score": float(trigger_score),
+        "risk_score": float(risk_score),
+        "invalidation_price": float(invalidation_price),
+        "invalidation_reason_code": _text(invalidation_reason_code),
+        "reason_codes": [_text(item) for item in reason_codes if _text(item)],
+        "confidence": float(confidence),
+        "is_primary_adapter": bool(is_primary_adapter),
+        "teacher_horizon_bars": int(teacher_horizon_bars),
+        "future_bar_count": int(future_bar_count),
+        "complete_horizon": bool(complete_horizon),
+        "anchor_close_price": float(anchor_close_price),
+        "next_open_price": None if next_open_price is None else float(next_open_price),
+        "final_close_price": None if final_close_price is None else float(final_close_price),
+        "return_close_basis": None if return_close_basis is None else float(return_close_basis),
+        "return_next_open_basis": None if return_next_open_basis is None else float(return_next_open_basis),
+        "max_favorable_excursion_close_basis": None if max_favorable_excursion_close_basis is None else float(max_favorable_excursion_close_basis),
+        "max_adverse_excursion_close_basis": None if max_adverse_excursion_close_basis is None else float(max_adverse_excursion_close_basis),
+        "close_positive_20": None if close_positive_20 is None else bool(close_positive_20),
+        "next_open_positive_20": None if next_open_positive_20 is None else bool(next_open_positive_20),
+        "mfe_ge_10pct_20": None if mfe_ge_10pct_20 is None else bool(mfe_ge_10pct_20),
+        "mae_worse_than_7pct_20": None if mae_worse_than_7pct_20 is None else bool(mae_worse_than_7pct_20),
+        "judgement_outcome_class": _text(judgement_outcome_class),
+        "label_policy_version": _text(label_policy_version),
+        "observation_snapshot_hash": _text(observation_snapshot_hash),
+        "strategy_judgement_hash": _text(strategy_judgement_hash),
+        "teacher_evaluation_row_hash": _text(teacher_evaluation_row_hash),
+    }
+    payload["trader_benchmark_row_hash"] = _stable_hash(payload)
+    validate_trader_benchmark_row(payload)
+    return payload
+
+
+def validate_trader_adapter_scoreboard(payload: dict[str, Any]) -> None:
+    _require_fields(
+        payload,
+        required_fields=("schema_version", "benchmark_version", "generated_at", "adapters"),
+        artifact_name="trader adapter scoreboard",
+    )
+    _require(
+        _text(payload.get("schema_version")) == TRADEX_RESEARCH_OS_TRADER_ADAPTER_SCOREBOARD_SCHEMA_VERSION,
+        "trader adapter scoreboard schema_version mismatch",
+    )
+    _require(_text(payload.get("benchmark_version")) == "v1", "trader adapter scoreboard benchmark_version mismatch")
+    _require_non_empty_text(payload, "generated_at")
+    _require(isinstance(payload.get("adapters"), list), "adapters must be a list")
+    for row in payload.get("adapters") or []:
+        _require(isinstance(row, dict), "adapters entries must be objects")
+        _require_non_empty_text(row, "adapter_id")
+        for field in (
+            "sample_count",
+            "complete_horizon_count",
+            "labeled_sample_count",
+            "primary_count",
+            "enter_count",
+            "wait_count",
+            "skip_count",
+        ):
+            _require(isinstance(row.get(field), int), f"{field} must be an integer")
+        for field in (
+            "avg_buy_score",
+            "avg_confidence",
+            "avg_return_close_basis_all",
+            "avg_return_close_basis_enter",
+            "median_return_close_basis_enter",
+            "avg_return_next_open_basis_enter",
+            "avg_mfe_enter",
+            "avg_mae_enter",
+            "close_positive_rate_all",
+            "close_positive_rate_enter",
+            "next_open_positive_rate_enter",
+            "mfe_ge_10pct_rate_enter",
+            "mae_worse_than_7pct_rate_enter",
+            "good_outcome_rate_enter",
+            "bad_outcome_rate_enter",
+        ):
+            _require(row.get(field) is None or isinstance(row.get(field), (int, float)), f"{field} must be numeric or null")
+
+
+def build_trader_adapter_scoreboard(*, generated_at: str, adapters: list[dict[str, Any]]) -> dict[str, Any]:
+    payload = {
+        "schema_version": TRADEX_RESEARCH_OS_TRADER_ADAPTER_SCOREBOARD_SCHEMA_VERSION,
+        "benchmark_version": "v1",
+        "generated_at": _text(generated_at),
+        "adapters": [dict(item) for item in adapters if isinstance(item, dict)],
+    }
+    payload["trader_adapter_scoreboard_hash"] = _stable_hash(payload)
+    validate_trader_adapter_scoreboard(payload)
+    return payload
+
+
+def validate_trader_benchmark_manifest(payload: dict[str, Any]) -> None:
+    _require_fields(
+        payload,
+        required_fields=(
+            "schema_version",
+            "benchmark_version",
+            "generated_at",
+            "source_experiment_count",
+            "materialized_row_count",
+            "scoreboard_adapter_count",
+            "skipped_experiments",
+            "output_files",
+        ),
+        artifact_name="trader benchmark manifest",
+    )
+    _require(
+        _text(payload.get("schema_version")) == TRADEX_RESEARCH_OS_TRADER_BENCHMARK_MANIFEST_SCHEMA_VERSION,
+        "trader benchmark manifest schema_version mismatch",
+    )
+    _require(_text(payload.get("benchmark_version")) == "v1", "trader benchmark manifest benchmark_version mismatch")
+    _require_non_empty_text(payload, "generated_at")
+    for field in ("source_experiment_count", "materialized_row_count", "scoreboard_adapter_count"):
+        _require(isinstance(payload.get(field), int), f"{field} must be an integer")
+    _require(isinstance(payload.get("skipped_experiments"), list), "skipped_experiments must be a list")
+    _require(isinstance(payload.get("output_files"), dict), "output_files must be an object")
+
+
+def build_trader_benchmark_manifest(
+    *,
+    generated_at: str,
+    source_experiment_count: int,
+    materialized_row_count: int,
+    scoreboard_adapter_count: int,
+    skipped_experiments: list[dict[str, Any]],
+    output_files: dict[str, Any],
+) -> dict[str, Any]:
+    payload = {
+        "schema_version": TRADEX_RESEARCH_OS_TRADER_BENCHMARK_MANIFEST_SCHEMA_VERSION,
+        "benchmark_version": "v1",
+        "generated_at": _text(generated_at),
+        "source_experiment_count": int(source_experiment_count),
+        "materialized_row_count": int(materialized_row_count),
+        "scoreboard_adapter_count": int(scoreboard_adapter_count),
+        "skipped_experiments": [dict(item) for item in skipped_experiments if isinstance(item, dict)],
+        "output_files": dict(output_files),
+    }
+    payload["trader_benchmark_manifest_hash"] = _stable_hash(payload)
+    validate_trader_benchmark_manifest(payload)
     return payload
