@@ -1,10 +1,12 @@
 ﻿import { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { shallow } from "zustand/shallow";
 import { useBackendReadyState } from "../backendReady";
 import { api } from "../api";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import ChartListCard from "../components/ChartListCard";
 import Toast from "../components/Toast";
+import VirtualizedCardGrid from "../components/VirtualizedCardGrid";
 import { useStore } from "../store";
 import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
 import { IconRefresh, IconUpload } from "@tabler/icons-react";
@@ -14,6 +16,7 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { downloadChartScreenshots } from "../utils/chartScreenshot";
+import { useVisibleCodesPrefetch } from "./list/useVisibleCodesPrefetch";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 
 type HeldItem = {
@@ -81,24 +84,39 @@ export default function PositionsView() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Store access
-  const ensureBarsForVisible = useStore((state) => state.ensureBarsForVisible);
-  const barsCache = useStore((state) => state.barsCache);
-  const barsStatus = useStore((state) => state.barsStatus);
-  const boxesCache = useStore((state) => state.boxesCache);
-  const maSettings = useStore((state) => state.maSettings);
-  const tickers = useStore((state) => state.tickers);
-  const ensureListLoaded = useStore((state) => state.ensureListLoaded);
-
-  // Settings
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
-  const listRangeBars = useStore((state) => state.settings.listRangeBars);
-  const columns = useStore((state) => state.settings.columns);
-  const rows = useStore((state) => state.settings.rows);
-  const setListTimeframe = useStore((state) => state.setListTimeframe);
-  const setListRangeBars = useStore((state) => state.setListRangeBars);
-  const setColumns = useStore((state) => state.setColumns);
-  const setRows = useStore((state) => state.setRows);
+  const {
+    ensureBarsForVisible,
+    barsCache,
+    barsStatus,
+    maSettings,
+    tickers,
+    ensureListLoaded,
+    listRangeBars,
+    columns,
+    rows,
+    setListTimeframe,
+    setListRangeBars,
+    setColumns,
+    setRows,
+  } = useStore(
+    (state) => ({
+      ensureBarsForVisible: state.ensureBarsForVisible,
+      barsCache: state.barsCache[listTimeframe],
+      barsStatus: state.barsStatus[listTimeframe],
+      maSettings: state.maSettings[listTimeframe],
+      tickers: state.tickers,
+      ensureListLoaded: state.ensureListLoaded,
+      listRangeBars: state.settings.listRangeBars,
+      columns: state.settings.columns,
+      rows: state.settings.rows,
+      setListTimeframe: state.setListTimeframe,
+      setListRangeBars: state.setListRangeBars,
+      setColumns: state.setColumns,
+      setRows: state.setRows,
+    }),
+    shallow
+  );
 
   const [tab, setTab] = useState<"held" | "history">("held");
   const [sortKey, setSortKey] = useState<PositionSortKey>("code");
@@ -234,13 +252,12 @@ export default function PositionsView() {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>>();
     heldItems.forEach((item) => {
       if (!item?.symbol) return;
-      const timeline = barsCache[listTimeframe];
-      const payload = timeline ? timeline[item.symbol] : null;
+      const payload = barsCache[item.symbol] ?? null;
       if (!payload?.bars?.length) return;
       map.set(item.symbol, computeSignalMetrics(payload.bars, 4));
     });
     return map;
-  }, [heldItems, barsCache, listTimeframe]);
+  }, [heldItems, barsCache]);
 
   const signalMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
@@ -258,8 +275,7 @@ export default function PositionsView() {
     if (!filterSignalsOnly && !filterDataOnly && !hasDirectionalFilter) return heldItems;
     return heldItems.filter((item) => {
       if (!item?.symbol) return false;
-      const timeline = barsCache[listTimeframe];
-      const payload = timeline ? timeline[item.symbol] : null;
+      const payload = barsCache[item.symbol] ?? null;
       const hasData = Boolean(payload?.bars?.length);
       const metrics = signalMetricsMap.get(item.symbol);
       const summary = metrics ? getSignalDirectionSummary(metrics) : null;
@@ -280,7 +296,6 @@ export default function PositionsView() {
     filterBuySignalsOnly,
     filterSellSignalsOnly,
     barsCache,
-    listTimeframe,
     signalMap,
     signalMetricsMap
   ]);
@@ -289,8 +304,7 @@ export default function PositionsView() {
     const map = new Map<string, { change: number; score: number }>();
     filteredHeldItems.forEach((item) => {
       if (!item?.symbol) return;
-      const timeline = barsCache[listTimeframe];
-      const payload = timeline ? timeline[item.symbol] : null;
+      const payload = barsCache[item.symbol] ?? null;
       const bars = payload?.bars ?? [];
       if (!bars.length) {
         map.set(item.symbol, { change: 0, score: 0 });
@@ -312,7 +326,7 @@ export default function PositionsView() {
       map.set(item.symbol, { change, score });
     });
     return map;
-  }, [filteredHeldItems, barsCache, listTimeframe]);
+  }, [filteredHeldItems, barsCache]);
 
   const sortedHeldItems = useMemo(() => {
     const next = [...filteredHeldItems];
@@ -421,14 +435,12 @@ export default function PositionsView() {
     [backendReady, listCodes, location.pathname, navigate]
   );
 
-  const handleEnsureVisibleItem = useCallback(
-    (code: string) => {
-      if (!backendReady) return;
-      const reason = tab === "held" ? "positions-held-visible" : "positions-visible";
-      void ensureBarsForVisible(listTimeframe, [code], reason);
-    },
-    [backendReady, ensureBarsForVisible, listTimeframe, tab]
-  );
+  const { handleVisibleItemsChange } = useVisibleCodesPrefetch<{ code: string }>({
+    backendReady,
+    timeframe: listTimeframe,
+    reason: tab === "held" ? "positions-held-visible" : "positions-visible",
+    ensureBarsForVisible,
+  });
 
 
   useEffect(() => {
@@ -450,11 +462,12 @@ export default function PositionsView() {
       } catch {
         // Use available cache even if fetch fails.
       }
+      const storeState = useStore.getState();
       const itemsForPack = consultTargets.map((code) => {
         const held = heldItems.find((item) => item.symbol === code);
         const ticker = tickerMap.get(code);
-        const payload = barsCache[consultTimeframe]?.[code];
-        const boxes = boxesCache[consultTimeframe][code] ?? [];
+        const payload = storeState.barsCache[consultTimeframe]?.[code];
+        const boxes = storeState.boxesCache[consultTimeframe][code] ?? [];
         return {
           code,
           name: held?.name ?? ticker?.name ?? null,
@@ -494,8 +507,6 @@ export default function PositionsView() {
     consultTimeframe,
     consultBarsCount,
     heldItems,
-    barsCache,
-    boxesCache,
     consultSort,
     tickerMap
   ]);
@@ -529,9 +540,9 @@ export default function PositionsView() {
       }
       const itemsForShots = targets.map((code) => ({
         code,
-        payload: (barsCache[listTimeframe] && barsCache[listTimeframe][code]) ?? null,
+        payload: barsCache[code] ?? null,
         boxes: [],
-        maSettings: maSettings[listTimeframe] ?? []
+        maSettings
       }));
       const result = await downloadChartScreenshots(itemsForShots, {
         rangeBars: listRangeBars,
@@ -632,10 +643,8 @@ export default function PositionsView() {
     const code = item.symbol;
     if (!code) return null;
 
-    const timeline = barsCache[listTimeframe];
-    const statusMap = barsStatus[listTimeframe];
-    const payload = timeline ? timeline[code] ?? null : null;
-    const status = statusMap ? statusMap[code] : undefined;
+    const payload = barsCache[code] ?? null;
+    const status = barsStatus[code];
     const signals = "buy_qty" in item ? (signalMap.get(code) ?? []) : [];
     const ticker = tickerMap.get(code);
     const displayName = ticker?.name || item.name || code;
@@ -659,15 +668,13 @@ export default function PositionsView() {
         name={`${displayName}${extraInfo}`}
         payload={payload}
         status={status}
-        maSettings={maSettings[listTimeframe]}
+        maSettings={maSettings}
         rangeBars={listRangeBars}
         eventEarningsDate={ticker?.eventEarningsDate ?? null}
         eventRightsDate={ticker?.eventRightsDate ?? null}
         densityKey={densityKey}
         signals={signals}
         onOpenDetail={handleOpenDetail}
-        deferUntilInView
-        onEnterView={handleEnsureVisibleItem}
         phaseBody={ticker?.bodyScore ?? null}
         phaseEarly={ticker?.earlyScore ?? null}
         phaseLate={ticker?.lateScore ?? null}
@@ -840,9 +847,19 @@ export default function PositionsView() {
           </div>
         )}
 
-        <div className="rank-grid">
-          {activeItems.map((item) => renderItem(item))}
-        </div>
+        <VirtualizedCardGrid
+          items={activeItems}
+          columns={columns}
+          itemKey={(item, index) => ("round_id" in item ? item.round_id : item.symbol) || `${index}`}
+          onVisibleItemsChange={(items) =>
+            handleVisibleItemsChange(
+              items
+                .map((item) => ({ code: item.symbol }))
+                .filter((item) => item.code)
+            )
+          }
+          renderItem={(item) => renderItem(item) ?? null}
+        />
       </div>
 
       <div

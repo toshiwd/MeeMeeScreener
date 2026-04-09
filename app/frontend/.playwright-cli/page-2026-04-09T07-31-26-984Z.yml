@@ -1,0 +1,73 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e574]:
+    - banner [ref=e575]:
+      - generic [ref=e576]:
+        - generic [ref=e577]:
+          - generic [ref=e578]:
+            - generic [ref=e579]:
+              - generic [ref=e580]: MeeMee
+              - generic [ref=e581]: Screener
+            - navigation [ref=e582]:
+              - link "一覧" [ref=e583] [cursor=pointer]:
+                - /url: /
+              - link "ランキング" [ref=e584] [cursor=pointer]:
+                - /url: /ranking
+              - link "市場" [ref=e585] [cursor=pointer]:
+                - /url: /market
+              - link "建玉" [ref=e586] [cursor=pointer]:
+                - /url: /positions
+              - link "お気に入り" [ref=e587] [cursor=pointer]:
+                - /url: /favorites
+              - link "候補" [ref=e588] [cursor=pointer]:
+                - /url: /candidates
+            - generic [ref=e589]:
+              - button "診断OFF" [ref=e590] [cursor=pointer]
+              - button "診断保存" [ref=e591] [cursor=pointer]
+              - button "保存先" [ref=e592] [cursor=pointer]
+              - button "消去" [ref=e593] [cursor=pointer]
+            - generic [ref=e595]:
+              - button "買い" [ref=e596] [cursor=pointer]
+              - button "売り" [ref=e597] [cursor=pointer]
+          - button "メニュー" [ref=e600] [cursor=pointer]: …
+        - generic [ref=e601]:
+          - generic [ref=e602]:
+            - button "月" [ref=e603] [cursor=pointer]
+            - button "週" [ref=e604] [cursor=pointer]
+            - button "日" [ref=e605] [cursor=pointer]
+          - generic [ref=e606]:
+            - button "60本" [ref=e607] [cursor=pointer]
+            - button "120本" [ref=e608] [cursor=pointer]
+            - button "240本" [ref=e609] [cursor=pointer]
+            - button "360本" [ref=e610] [cursor=pointer]
+          - textbox "コード/銘柄名で検索" [ref=e612]
+          - generic [ref=e613]:
+            - generic [ref=e614]: "状態: 待機中"
+            - generic [ref=e615]: "イベント最終更新: 2026/04/09"
+            - generic [ref=e616]: "権利データ範囲: ～2026/04/21"
+    - generic [ref=e617]:
+      - generic [ref=e618]: 今日の優位性 見送り / 差 0.00%
+      - generic [ref=e619]: 買い 0件 / 平均期待 -- / 的中 --
+      - generic [ref=e620]: 売り 0件 / 平均期待 -- / 的中 --
+      - link "判定追跡を開く" [ref=e621] [cursor=pointer]:
+        - /url: /ranking/tracking?view=ranking&dir=up&ranking_logic_version=latest
+    - generic [ref=e623]: 該当する銘柄がありません。
+    - generic:
+      - button "相談バーを展開する"
+      - generic:
+        - generic:
+          - generic: 選択 0件
+        - generic:
+          - button "相談作成" [disabled]
+          - button "スクショ作成" [disabled]
+          - button "コピー" [disabled]
+          - button "フォルダ" [disabled]
+          - button "閉じる"

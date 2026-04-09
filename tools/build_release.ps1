@@ -13,6 +13,7 @@ $backendStatic = Join-Path $repoRoot "app/backend/static"
 $releaseDir = Join-Path $repoRoot "release"
 $releaseZip = Join-Path $releaseDir "MeeMeeScreener-portable.zip"
 $iconPath = Join-Path $repoRoot "resources/icons/app_icon.ico"
+$buildRoot = Join-Path $repoRoot "build"
 $artifactsDir = Join-Path $repoRoot "build/release_artifacts"
 $desktopDir = [Environment]::GetFolderPath("Desktop")
 if ([string]::IsNullOrWhiteSpace($desktopDir)) {
@@ -121,6 +122,31 @@ function Stop-LockProcesses {
     Stop-Process -Name MeeMeeScreener -Force -ErrorAction SilentlyContinue
     Stop-Process -Name msedgewebview2 -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
+}
+
+function Remove-RepoBuildArtifacts {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+    if (-not $resolvedPath.StartsWith($repoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Cleanup target escaped repo root: $resolvedPath"
+    }
+
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $resolvedPath -Recurse -Force
+            return
+        } catch {
+            if ($attempt -eq 3) {
+                throw "Failed to clean repo build artifacts: $resolvedPath`n$($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 2
+        }
+    }
 }
 
 function Test-ViteAvailable {
@@ -274,6 +300,8 @@ if ($LogPath) {
     }
     Start-Transcript -Path $LogPath -Force | Out-Null
 }
+
+$buildSucceeded = $false
 
 try {
     if (-not (Test-Path $iconPath)) {
@@ -527,6 +555,7 @@ print(json.dumps(missing))
         Invoke-SmokeRun -ExePath (Join-Path $releasePackage "MeeMeeScreener.exe")
     }
 
+    $buildSucceeded = $true
     Write-Host "Done."
     Write-Host ""
     Write-Host "Onedir package created: $releasePackage"
@@ -534,6 +563,9 @@ print(json.dumps(missing))
         Write-Host "Portable package created: $releaseZip"
     }
 } finally {
+    if ($buildSucceeded) {
+        Remove-RepoBuildArtifacts -Path $buildRoot
+    }
     if ($LogPath) {
         Stop-Transcript | Out-Null
     }
