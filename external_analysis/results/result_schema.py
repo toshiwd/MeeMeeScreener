@@ -298,6 +298,15 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
             strategy_tags JSON,
             decision_3way TEXT,
             confidence DOUBLE,
+            machine_action_state TEXT,
+            human_readable_judgement TEXT,
+            buy_score DOUBLE,
+            environment_score DOUBLE,
+            trend_score DOUBLE,
+            trigger_score DOUBLE,
+            risk_score DOUBLE,
+            invalidation_price DOUBLE,
+            invalidation_reason_code TEXT,
             reason_codes JSON,
             reason_text_top3 JSON,
             freshness_state TEXT
@@ -308,6 +317,15 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS holding_band TEXT")
     conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS strategy_tags JSON")
     conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS decision_3way TEXT")
+    conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS machine_action_state TEXT")
+    conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS human_readable_judgement TEXT")
+    conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS buy_score DOUBLE")
+    conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS environment_score DOUBLE")
+    conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS trend_score DOUBLE")
+    conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS trigger_score DOUBLE")
+    conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS risk_score DOUBLE")
+    conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS invalidation_price DOUBLE")
+    conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS invalidation_reason_code TEXT")
     conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS reason_codes JSON")
     conn.execute("ALTER TABLE state_eval_daily ADD COLUMN IF NOT EXISTS reason_text_top3 JSON")
     conn.execute(

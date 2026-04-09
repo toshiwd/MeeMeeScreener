@@ -88,6 +88,29 @@ def load_candidate_input_frame(
                     COALESCE(i.candle_flags, '') AS candle_flags,
                     COALESCE(LAG(i.candle_flags, 1) OVER (PARTITION BY b.code ORDER BY b.trade_date), '') AS prev_candle_flags,
                     COALESCE(LAG(i.candle_flags, 2) OVER (PARTITION BY b.code ORDER BY b.trade_date), '') AS prev2_candle_flags,
+                    CAST(LAG(b.c, 1) OVER (PARTITION BY b.code ORDER BY b.trade_date) AS DOUBLE) AS prev_close,
+                    CAST(LAG(b.h, 1) OVER (PARTITION BY b.code ORDER BY b.trade_date) AS DOUBLE) AS prev_high,
+                    CAST(LAG(b.l, 1) OVER (PARTITION BY b.code ORDER BY b.trade_date) AS DOUBLE) AS prev_low,
+                    CAST(MAX(b.h) OVER (
+                        PARTITION BY b.code
+                        ORDER BY b.trade_date
+                        ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+                    ) AS DOUBLE) AS rolling_high_5,
+                    CAST(MIN(b.l) OVER (
+                        PARTITION BY b.code
+                        ORDER BY b.trade_date
+                        ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+                    ) AS DOUBLE) AS rolling_low_5,
+                    CAST(MAX(b.h) OVER (
+                        PARTITION BY b.code
+                        ORDER BY b.trade_date
+                        ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
+                    ) AS DOUBLE) AS rolling_high_10,
+                    CAST(MIN(b.l) OVER (
+                        PARTITION BY b.code
+                        ORDER BY b.trade_date
+                        ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
+                    ) AS DOUBLE) AS rolling_low_10,
                     CAST(LAG(b.c, 5) OVER (PARTITION BY b.code ORDER BY b.trade_date) AS DOUBLE) AS close_5d_ago,
                     CAST(LAG(b.c, 20) OVER (PARTITION BY b.code ORDER BY b.trade_date) AS DOUBLE) AS close_20d_ago,
                     CAST(AVG(b.v) OVER (
@@ -129,6 +152,13 @@ def load_candidate_input_frame(
             "candle_flags",
             "prev_candle_flags",
             "prev2_candle_flags",
+            "prev_close",
+            "prev_high",
+            "prev_low",
+            "rolling_high_5",
+            "rolling_low_5",
+            "rolling_high_10",
+            "rolling_low_10",
             "close_5d_ago",
             "close_20d_ago",
             "avg_volume_prev_5",
@@ -182,6 +212,13 @@ def _score_frame(frame: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dic
                 "close_vs_ma20": close_vs_ma20,
                 "volume_ratio": volume_ratio,
                 "atr_ratio": atr_ratio,
+                "prev_close": row["prev_close"],
+                "prev_high": row["prev_high"],
+                "prev_low": row["prev_low"],
+                "rolling_high_5": row["rolling_high_5"],
+                "rolling_low_5": row["rolling_low_5"],
+                "rolling_high_10": row["rolling_high_10"],
+                "rolling_low_10": row["rolling_low_10"],
                 "retrieval_score_long": long_score,
                 "retrieval_score_short": short_score,
                 "ranking_score_long": long_score - risk_penalty,

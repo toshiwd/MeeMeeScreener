@@ -423,7 +423,9 @@ def get_state_eval_rows(
             params.append(str(code))
         rows = conn.execute(
             f"""
-            SELECT publish_id, as_of_date, code, side, holding_band, strategy_tags, state_action, decision_3way, confidence, reason_codes, reason_text_top3, freshness_state
+            SELECT publish_id, as_of_date, code, side, holding_band, strategy_tags, state_action, decision_3way, confidence,
+                   machine_action_state, human_readable_judgement, buy_score, environment_score, trend_score, trigger_score, risk_score,
+                   invalidation_price, invalidation_reason_code, reason_codes, reason_text_top3, freshness_state
             FROM state_eval_daily
             {where_sql}
             ORDER BY side ASC, confidence DESC, code ASC

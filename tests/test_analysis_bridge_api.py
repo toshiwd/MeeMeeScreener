@@ -342,10 +342,14 @@ def test_analysis_bridge_state_eval_returns_short_reason_payload(monkeypatch, tm
             """
             INSERT INTO state_eval_daily (
                 publish_id, as_of_date, code, state_action, side, holding_band, strategy_tags,
-                decision_3way, confidence, reason_codes, reason_text_top3, freshness_state
+                decision_3way, confidence, machine_action_state, human_readable_judgement, buy_score,
+                environment_score, trend_score, trigger_score, risk_score, invalidation_price,
+                invalidation_reason_code, reason_codes, reason_text_top3, freshness_state
             ) VALUES (
                 'pub_2026-03-12_20260312T232000Z_01', DATE '2026-03-12', '1301', 'enter', 'long', 'buy_21_60',
-                '["box_breakout","volume_surge"]', 'enter', 0.81, '["BUY_TREND","ADVERSE_RISK_CONTROL"]',
+                '["box_breakout","volume_surge"]', 'enter', 0.81, 'enter', 'buy', 0.81,
+                0.74, 0.68, 0.79, 0.22, 123.45,
+                'breakout_failure', '["BUY_TREND","ADVERSE_RISK_CONTROL"]',
                 '["Box breakout","Similar wins lead","Adverse risk capped"]', 'fresh'
             )
             """
@@ -388,6 +392,15 @@ def test_analysis_bridge_state_eval_returns_short_reason_payload(monkeypatch, tm
     row = payload["rows"][0]
     assert row["holding_band"] == "buy_21_60"
     assert row["strategy_tags"] == '["box_breakout","volume_surge"]'
+    assert row["machine_action_state"] == "enter"
+    assert row["human_readable_judgement"] == "buy"
+    assert row["buy_score"] == pytest.approx(0.81)
+    assert row["environment_score"] == pytest.approx(0.74)
+    assert row["trend_score"] == pytest.approx(0.68)
+    assert row["trigger_score"] == pytest.approx(0.79)
+    assert row["risk_score"] == pytest.approx(0.22)
+    assert row["invalidation_price"] == pytest.approx(123.45)
+    assert row["invalidation_reason_code"] == "breakout_failure"
     assert row["reason_text_top3"] == '["Box breakout","Similar wins lead","Adverse risk capped"]'
 
 
