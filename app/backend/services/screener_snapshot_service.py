@@ -17,6 +17,8 @@ from app.db.session import get_conn_for_path
 logger = logging.getLogger(__name__)
 _CACHE_LOCK = threading.Lock()
 _SNAPSHOT_CACHE: dict[str, dict[str, Any]] = {}
+_STALE_REFRESH_LOCK = threading.Lock()
+_STALE_REFRESH_PENDING: set[str] = set()
 
 
 def _slot_for_limit(limit: int) -> str:
@@ -42,8 +44,12 @@ def invalidate_screener_snapshot_cache(limit: int | None = None) -> None:
     with _CACHE_LOCK:
         if limit is None:
             _SNAPSHOT_CACHE.clear()
+            with _STALE_REFRESH_LOCK:
+                _STALE_REFRESH_PENDING.clear()
             return
         _SNAPSHOT_CACHE.pop(_slot_for_limit(limit), None)
+    with _STALE_REFRESH_LOCK:
+        _STALE_REFRESH_PENDING.discard(_slot_for_limit(limit))
 
 
 def _ensure_table(conn: duckdb.DuckDBPyConnection) -> None:
@@ -139,6 +145,19 @@ def _decode_snapshot_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_snapshot_payload_limit(payload: dict[str, Any], limit: int) -> dict[str, Any]:
+    resolved_limit = max(1, int(limit or 260))
+    normalized = dict(payload)
+    items = normalized.get("items")
+    if isinstance(items, list):
+        normalized["rowCount"] = int(normalized.get("rowCount") or len(items))
+        normalized["items"] = [dict(item) for item in items[:resolved_limit] if isinstance(item, dict)]
+    else:
+        normalized["items"] = []
+        normalized["rowCount"] = int(normalized.get("rowCount") or 0)
+    return normalized
+
+
 def _cache_put(slot: str, payload: dict[str, Any]) -> None:
     with _CACHE_LOCK:
         _SNAPSHOT_CACHE[slot] = dict(payload)
@@ -179,6 +198,26 @@ def _compute_snapshot_items(limit: int, screener_repo: Any, stock_repo: Any) -> 
     from app.backend.api.routers.grid import _compute_live_screener_rows
 
     return _compute_live_screener_rows(limit=limit, screener_repo=screener_repo, stock_repo=stock_repo)
+
+
+def _schedule_stale_refresh_once(*, slot: str, limit: int, source: str) -> None:
+    with _STALE_REFRESH_LOCK:
+        if slot in _STALE_REFRESH_PENDING:
+            return
+        _STALE_REFRESH_PENDING.add(slot)
+    try:
+        from app.backend.core.screener_snapshot_job import schedule_screener_snapshot_refresh
+
+        schedule_screener_snapshot_refresh(source=source, force=False)
+    except Exception as exc:
+        logger.warning("Failed to schedule stale screener snapshot refresh slot=%s: %s", slot, exc)
+        with _STALE_REFRESH_LOCK:
+            _STALE_REFRESH_PENDING.discard(slot)
+
+
+def mark_screener_snapshot_refresh_completed(limit: int) -> None:
+    with _STALE_REFRESH_LOCK:
+        _STALE_REFRESH_PENDING.discard(_slot_for_limit(limit))
 
 
 def inspect_screener_snapshot(limit: int = 260, *, db_path: str | None = None) -> dict[str, Any]:
@@ -246,9 +285,10 @@ def refresh_screener_snapshot(
             )
             row = _load_row(conn, slot)
         assert row is not None
-        payload = _decode_snapshot_row(row)
+        payload = _normalize_snapshot_payload_limit(_decode_snapshot_row(row), resolved_limit)
         payload["buildFailed"] = False
         _cache_put(slot, payload)
+        mark_screener_snapshot_refresh_completed(resolved_limit)
         return payload
     except Exception as exc:
         build_ms = int((time.perf_counter() - build_started) * 1000)
@@ -282,6 +322,7 @@ def refresh_screener_snapshot(
             payload["lastError"] = str(exc)
             if payload.get("items"):
                 payload["stale"] = True
+                payload = _normalize_snapshot_payload_limit(payload, resolved_limit)
                 _cache_put(slot, payload)
                 return payload
         raise
@@ -300,6 +341,12 @@ def get_screener_snapshot_response(
     if not force_refresh:
         cached = _cache_get(slot)
         if cached:
+            if bool(cached.get("stale")) and cached.get("items"):
+                _schedule_stale_refresh_once(
+                    slot=slot,
+                    limit=resolved_limit,
+                    source=f"stale_snapshot_cache:{slot}",
+                )
             return cached
 
     resolved_db_path = _resolve_db_path(db_path=db_path, screener_repo=screener_repo, stock_repo=stock_repo)
@@ -307,9 +354,15 @@ def get_screener_snapshot_response(
         _ensure_table(conn)
         row = _load_row(conn, slot)
     if row and not force_refresh:
-        payload = _decode_snapshot_row(row)
+        payload = _normalize_snapshot_payload_limit(_decode_snapshot_row(row), resolved_limit)
         if payload.get("items"):
             _cache_put(slot, payload)
+            if bool(payload.get("stale")):
+                _schedule_stale_refresh_once(
+                    slot=slot,
+                    limit=resolved_limit,
+                    source=f"stale_snapshot_db:{slot}",
+                )
             return payload
     payload = refresh_screener_snapshot(
         limit=resolved_limit,

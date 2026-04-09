@@ -42,6 +42,8 @@ def schedule_external_analysis_publish_latest(
         unique=True,
         message="Waiting in queue...",
         progress=0,
+        lane="maintenance",
+        dedupe_key=f"{EXTERNAL_ANALYSIS_PUBLISH_JOB_TYPE}:{payload.get('as_of') or 'latest'}",
     )
     if job_id:
         logger.info(

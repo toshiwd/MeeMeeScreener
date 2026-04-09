@@ -19,6 +19,7 @@ except ModuleNotFoundError:  # pragma: no cover - legacy tooling may import from
 logger = logging.getLogger(__name__)
 STALE_JOB_HOURS = 2
 PROCESS_BOOT_AT = datetime.now()
+_JOB_LANES = ("authoritative", "maintenance")
 
 def cleanup_stale_jobs() -> None:
     try:
@@ -62,15 +63,17 @@ class JobManager:
         return cls._instance
 
     def _init(self):
-        self._queue = queue.Queue()
+        self._queues = {lane: queue.Queue() for lane in _JOB_LANES}
         self._handlers: dict[str, Callable] = {}
         self._stop_event = threading.Event()
-        self._worker_thread = None
-        self._active_job_id = None
+        self._worker_threads: dict[str, threading.Thread | None] = {lane: None for lane in _JOB_LANES}
+        self._active_job_ids: dict[str, str | None] = {lane: None for lane in _JOB_LANES}
         self._cancel_lock = threading.Lock()
         self._cancel_requested_ids: set[str] = set()
         self._status_cache_lock = threading.Lock()
         self._status_cache: dict[str, dict[str, Any]] = {}
+        self._dedupe_lock = threading.Lock()
+        self._active_dedupe_keys: set[str] = set()
         
         # Start worker
         self._start_worker()
@@ -100,6 +103,8 @@ class JobManager:
         progress: Any = None,
         message: Any = None,
         error: Any = None,
+        lane: str | None = None,
+        dedupe_key: str | None = None,
     ) -> None:
         if not job_id:
             return
@@ -124,6 +129,10 @@ class JobManager:
                 current["message"] = message
             if error is not None:
                 current["error"] = error
+            if lane is not None:
+                current["lane"] = lane
+            if dedupe_key is not None:
+                current["dedupe_key"] = dedupe_key
             self._status_cache[job_id] = current
             if len(self._status_cache) > 5000:
                 oldest = min(
@@ -176,6 +185,8 @@ class JobManager:
         progress: Any = None,
         message: Any = None,
         error: Any = None,
+        lane: str | None = None,
+        dedupe_key: str | None = None,
     ) -> None:
         self._update_status_cache(
             job_id=job_id,
@@ -187,6 +198,8 @@ class JobManager:
             progress=progress,
             message=message,
             error=error,
+            lane=lane,
+            dedupe_key=dedupe_key,
         )
 
     def _mark_cancel_requested(self, job_id: str) -> None:
@@ -209,17 +222,46 @@ class JobManager:
             return False
         return status.get("status") in ("cancel_requested", "canceled")
 
-    def _start_worker(self):
-        if self._worker_thread and self._worker_thread.is_alive():
-            return
-        self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True, name="JobWorker")
-        self._worker_thread.start()
+    def _start_worker(self, lane: str | None = None):
+        lanes = (lane,) if lane else _JOB_LANES
+        for resolved_lane in lanes:
+            worker = self._worker_threads.get(resolved_lane)
+            if worker and worker.is_alive():
+                continue
+            worker = threading.Thread(
+                target=self._worker_loop,
+                args=(resolved_lane,),
+                daemon=True,
+                name=f"JobWorker-{resolved_lane}",
+            )
+            self._worker_threads[resolved_lane] = worker
+            worker.start()
 
-    def _ensure_worker(self) -> None:
-        if self._worker_thread and self._worker_thread.is_alive():
+    def _ensure_worker(self, lane: str) -> None:
+        worker = self._worker_threads.get(lane)
+        if worker and worker.is_alive():
             return
-        print("[JobManager] Worker thread was not alive. Restarting...")
-        self._start_worker()
+        print(f"[JobManager] Worker thread for lane={lane} was not alive. Restarting...")
+        self._start_worker(lane)
+
+    def _normalize_lane(self, lane: str | None) -> str:
+        text = str(lane or "authoritative").strip().lower()
+        return text if text in _JOB_LANES else "authoritative"
+
+    def _reserve_dedupe_key(self, dedupe_key: str | None) -> bool:
+        if not dedupe_key:
+            return True
+        with self._dedupe_lock:
+            if dedupe_key in self._active_dedupe_keys:
+                return False
+            self._active_dedupe_keys.add(dedupe_key)
+            return True
+
+    def _release_dedupe_key(self, dedupe_key: str | None) -> None:
+        if not dedupe_key:
+            return
+        with self._dedupe_lock:
+            self._active_dedupe_keys.discard(dedupe_key)
 
     def register_handler(self, job_type: str, handler: Callable[[str, dict], None]):
         """
@@ -247,13 +289,16 @@ class JobManager:
         *,
         message: str = "Waiting in queue...",
         progress: int | None = 0,
+        lane: str = "authoritative",
+        dedupe_key: str | None = None,
     ) -> str | None:
         """
         Submit a job.
         If unique=True and the job type is already active, returns None.
         """
-        self._ensure_worker()
-        print(f"[JobManager] submit called: type={job_type}, unique={unique}")
+        resolved_lane = self._normalize_lane(lane)
+        self._ensure_worker(resolved_lane)
+        print(f"[JobManager] submit called: type={job_type}, unique={unique}, lane={resolved_lane}")
         print(f"[JobManager] registered handlers: {list(self._handlers.keys())}")
         
         # check basic handler existence (optional, but good for fast fail)
@@ -264,6 +309,9 @@ class JobManager:
         if unique and self.is_active(job_type):
             logger.warning(f"Job type {job_type} is already active. Skipping submission.")
             print(f"[JobManager] Job {job_type} already active, skipping")
+            return None
+        if not self._reserve_dedupe_key(dedupe_key):
+            logger.info("Job dedupe skipped type=%s lane=%s dedupe_key=%s", job_type, resolved_lane, dedupe_key)
             return None
 
         job_id = str(uuid.uuid4())
@@ -277,16 +325,23 @@ class JobManager:
             progress=progress or 0,
             message=message,
             error=None,
+            lane=resolved_lane,
+            dedupe_key=dedupe_key,
         )
         # Persist initial status
         self._update_db(job_id, job_type, "queued", progress=progress, message=message)
         
-        self._queue.put({
+        self._queues[resolved_lane].put({
             "id": job_id,
             "type": job_type,
-            "payload": payload
+            "payload": payload,
+            "lane": resolved_lane,
+            "dedupe_key": dedupe_key,
         })
-        print(f"[JobManager] Job {job_id} queued, queue size: {self._queue.qsize()}")
+        print(
+            f"[JobManager] Job {job_id} queued lane={resolved_lane}, "
+            f"queue size: {self._queues[resolved_lane].qsize()}"
+        )
         return job_id
 
     def cancel(self, job_id: str) -> bool:
@@ -394,15 +449,41 @@ class JobManager:
             logger.error(f"Error fetching history: {e}")
             return self.get_cached_history(limit=limit)
 
-    def _worker_loop(self):
-        logger.info("JobManager Worker Started")
-        print("[JobManager] Worker thread started")
+    def get_lane_stats(self) -> dict[str, dict[str, Any]]:
+        stats: dict[str, dict[str, Any]] = {}
+        now = datetime.now().timestamp()
+        with self._status_cache_lock:
+            rows = [dict(value) for value in self._status_cache.values()]
+        for lane in _JOB_LANES:
+            oldest_age_sec: float | None = None
+            queued = [
+                row
+                for row in rows
+                if row.get("lane", "authoritative") == lane and row.get("status") == "queued"
+            ]
+            for row in queued:
+                created_ts = self._to_sort_ts(row.get("created_at"))
+                if created_ts <= 0:
+                    continue
+                age = max(0.0, now - created_ts)
+                if oldest_age_sec is None or age > oldest_age_sec:
+                    oldest_age_sec = age
+            stats[lane] = {
+                "queue_size": self._queues[lane].qsize(),
+                "active_job_id": self._active_job_ids.get(lane),
+                "oldest_queued_age_sec": oldest_age_sec,
+            }
+        return stats
+
+    def _worker_loop(self, lane: str):
+        logger.info("JobManager Worker Started lane=%s", lane)
+        print(f"[JobManager] Worker thread started lane={lane}")
         while not self._stop_event.is_set():
             try:
-                item = self._queue.get(timeout=1.0) # Check stop event every sec
-                print(f"[JobManager] Worker got item: {item.get('type')} / {item.get('id')}")
+                item = self._queues[lane].get(timeout=1.0) # Check stop event every sec
+                print(f"[JobManager] Worker got item lane={lane}: {item.get('type')} / {item.get('id')}")
                 self._process_item(item)
-                self._queue.task_done()
+                self._queues[lane].task_done()
             except queue.Empty:
                 continue
             except Exception as e:
@@ -415,8 +496,10 @@ class JobManager:
         job_id = item["id"]
         job_type = item["type"]
         payload = item["payload"]
-        self._active_job_id = job_id
-        print(f"[JobManager] Processing job: {job_type} / {job_id}")
+        lane = self._normalize_lane(item.get("lane"))
+        dedupe_key = str(item.get("dedupe_key") or "").strip() or None
+        self._active_job_ids[lane] = job_id
+        print(f"[JobManager] Processing job lane={lane}: {job_type} / {job_id}")
 
         status = self.get_status(job_id)
         if self._is_cancel_requested(job_id) or (status and status["status"] == "canceled"):
@@ -429,13 +512,16 @@ class JobManager:
                 error="canceled",
             )
             self._clear_cancel_requested(job_id)
-            self._active_job_id = None
+            self._active_job_ids[lane] = None
+            self._release_dedupe_key(dedupe_key)
             return
         
         handler = self._handlers.get(job_type)
         if not handler:
             print(f"[JobManager] ERROR: No handler for {job_type}")
             self._update_db(job_id, job_type, "failed", error=f"No handler for type {job_type}")
+            self._active_job_ids[lane] = None
+            self._release_dedupe_key(dedupe_key)
             return
 
         try:
@@ -483,7 +569,8 @@ class JobManager:
                 self._update_db(job_id, job_type, "failed", finished_at=datetime.now(), error=str(e), message="Internal Error")
         finally:
             self._clear_cancel_requested(job_id)
-            self._active_job_id = None
+            self._active_job_ids[lane] = None
+            self._release_dedupe_key(dedupe_key)
 
     def _update_db(self, job_id, job_type, status, created_at=None, started_at=None, finished_at=None, progress=None, message=None, error=None):
         self._update_status_cache(

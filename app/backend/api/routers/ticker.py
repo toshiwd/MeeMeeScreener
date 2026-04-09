@@ -11,7 +11,8 @@ from threading import Lock
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 
 from app.backend.api.dependencies import get_stock_repo
 from app.backend.core.edinet_auto_start_job import get_active_edinet_bootstrap_state
@@ -59,6 +60,43 @@ _EDINET_SUMMARY_CACHE: dict[tuple[str, int | None], tuple[float, Dict[str, Any] 
 _EDINET_SUMMARY_CACHE_LOCK = Lock()
 _EDINET_FINANCIALS_CACHE: dict[str, tuple[float, Dict[str, Any] | None]] = {}
 _EDINET_FINANCIALS_CACHE_LOCK = Lock()
+_ANALYSIS_SERIES_CACHE: dict[tuple[str, int | None, int, int], tuple[float, tuple[List[tuple], List[tuple]]]] = {}
+_ANALYSIS_SERIES_CACHE_LOCK = Lock()
+_TIMELINE_RANKING_CACHE: dict[tuple[str, int | None], tuple[float, float | None]] = {}
+_TIMELINE_RANKING_CACHE_LOCK = Lock()
+_DETAIL_REQUEST_STATS_LOCK = Lock()
+_DETAIL_REQUEST_STATS: dict[str, Any] = {
+    "request_count": 0,
+    "cancelled_count": 0,
+    "exception_count": 0,
+    "inflight_request_count": 0,
+    "max_inflight_request_count": 0,
+    "same_code_repeated_request_count": 0,
+    "near_code_repeated_request_count": 0,
+    "disconnect_query_count": 0,
+    "disconnect_transform_count": 0,
+    "rss_bytes": None,
+    "rss_peak_bytes": None,
+    "recent_requests": [],
+}
+_SWING_EXPECTANCY_REFRESH_LOCK = Lock()
+_LAST_SWING_EXPECTANCY_REFRESH_TS = 0.0
+try:
+    _DETAIL_CACHE_TTL_SEC = max(5.0, float(os.getenv("MEEMEE_DETAIL_CACHE_TTL_SEC", "20")))
+except (TypeError, ValueError):
+    _DETAIL_CACHE_TTL_SEC = 20.0
+try:
+    _SWING_EXPECTANCY_REFRESH_TTL_SEC = max(
+        30.0,
+        float(os.getenv("MEEMEE_SWING_EXPECTANCY_REFRESH_TTL_SEC", "300")),
+    )
+except (TypeError, ValueError):
+    _SWING_EXPECTANCY_REFRESH_TTL_SEC = 300.0
+try:
+    import psutil as _psutil
+except Exception:  # pragma: no cover - optional dependency
+    _psutil = None
+_PROCESS = _psutil.Process(os.getpid()) if _psutil is not None else None
 _TDNET_REPO: TdnetdbRepository | None = None
 try:
     _EDINET_SUMMARY_CACHE_TTL_SEC = max(
@@ -74,6 +112,254 @@ def _get_tdnet_repo() -> TdnetdbRepository:
     if _TDNET_REPO is None:
         _TDNET_REPO = TdnetdbRepository(app_config.DB_PATH)
     return _TDNET_REPO
+
+
+def _sample_rss_bytes() -> int | None:
+    if _PROCESS is None:
+        return None
+    try:
+        return int(_PROCESS.memory_info().rss)
+    except Exception:
+        return None
+
+
+def inspect_detail_request_stats(*, reset: bool = False) -> dict[str, Any]:
+    with _DETAIL_REQUEST_STATS_LOCK:
+        recent = list(_DETAIL_REQUEST_STATS.get("recent_requests") or [])
+        payload = {
+            key: value
+            for key, value in _DETAIL_REQUEST_STATS.items()
+            if key != "recent_requests"
+        }
+        payload["recent_requests"] = recent
+        if reset:
+            _DETAIL_REQUEST_STATS.update(
+                {
+                    "request_count": 0,
+                    "cancelled_count": 0,
+                    "exception_count": 0,
+                    "inflight_request_count": 0,
+                    "max_inflight_request_count": 0,
+                    "same_code_repeated_request_count": 0,
+                    "near_code_repeated_request_count": 0,
+                    "disconnect_query_count": 0,
+                    "disconnect_transform_count": 0,
+                    "rss_bytes": None,
+                    "rss_peak_bytes": None,
+                    "recent_requests": [],
+                }
+            )
+    return payload
+
+
+def _begin_detail_request(endpoint: str, code: str) -> dict[str, Any]:
+    now = time.time()
+    rss_bytes = _sample_rss_bytes()
+    token = {
+        "endpoint": endpoint,
+        "code": str(code or "").strip(),
+        "query_steps": 0,
+        "transform_steps": 0,
+    }
+    with _DETAIL_REQUEST_STATS_LOCK:
+        recent = [
+            item
+            for item in list(_DETAIL_REQUEST_STATS.get("recent_requests") or [])
+            if now - float(item.get("ts") or 0.0) <= 30.0
+        ]
+        code_text = token["code"]
+        for item in recent:
+            if item.get("endpoint") != endpoint:
+                continue
+            prev_code = str(item.get("code") or "")
+            if prev_code == code_text:
+                _DETAIL_REQUEST_STATS["same_code_repeated_request_count"] += 1
+            elif prev_code.isdigit() and code_text.isdigit() and abs(int(prev_code) - int(code_text)) <= 5:
+                _DETAIL_REQUEST_STATS["near_code_repeated_request_count"] += 1
+        recent.append({"ts": now, "endpoint": endpoint, "code": code_text})
+        _DETAIL_REQUEST_STATS["recent_requests"] = recent[-200:]
+        _DETAIL_REQUEST_STATS["request_count"] += 1
+        _DETAIL_REQUEST_STATS["inflight_request_count"] += 1
+        _DETAIL_REQUEST_STATS["max_inflight_request_count"] = max(
+            int(_DETAIL_REQUEST_STATS["max_inflight_request_count"]),
+            int(_DETAIL_REQUEST_STATS["inflight_request_count"]),
+        )
+        _DETAIL_REQUEST_STATS["rss_bytes"] = rss_bytes
+        if rss_bytes is not None:
+            peak = _DETAIL_REQUEST_STATS.get("rss_peak_bytes")
+            _DETAIL_REQUEST_STATS["rss_peak_bytes"] = max(int(peak or 0), int(rss_bytes))
+    return token
+
+
+def _finish_detail_request(token: dict[str, Any], exc: Exception | None = None) -> None:
+    rss_bytes = _sample_rss_bytes()
+    with _DETAIL_REQUEST_STATS_LOCK:
+        _DETAIL_REQUEST_STATS["inflight_request_count"] = max(
+            0,
+            int(_DETAIL_REQUEST_STATS["inflight_request_count"]) - 1,
+        )
+        _DETAIL_REQUEST_STATS["rss_bytes"] = rss_bytes
+        if rss_bytes is not None:
+            peak = _DETAIL_REQUEST_STATS.get("rss_peak_bytes")
+            _DETAIL_REQUEST_STATS["rss_peak_bytes"] = max(int(peak or 0), int(rss_bytes))
+        if exc is not None and not (isinstance(exc, HTTPException) and int(exc.status_code) == 499):
+            _DETAIL_REQUEST_STATS["exception_count"] += 1
+
+
+def _record_detail_query_step(token: dict[str, Any], count: int = 1) -> None:
+    token["query_steps"] = int(token.get("query_steps") or 0) + int(count)
+
+
+def _record_detail_transform_step(token: dict[str, Any], count: int = 1) -> None:
+    token["transform_steps"] = int(token.get("transform_steps") or 0) + int(count)
+
+
+async def _raise_if_client_disconnected(
+    request: Request | None,
+    token: dict[str, Any],
+    *,
+    phase: str,
+) -> None:
+    if request is None:
+        return
+    try:
+        disconnected = await request.is_disconnected()
+    except Exception:
+        return
+    if not disconnected:
+        return
+    with _DETAIL_REQUEST_STATS_LOCK:
+        _DETAIL_REQUEST_STATS["cancelled_count"] += 1
+        if phase == "query":
+            _DETAIL_REQUEST_STATS["disconnect_query_count"] += int(token.get("query_steps") or 0)
+        else:
+            _DETAIL_REQUEST_STATS["disconnect_transform_count"] += int(token.get("transform_steps") or 0)
+    raise HTTPException(status_code=499, detail="client_closed")
+
+
+def _get_cached_analysis_series(
+    code: str,
+    *,
+    asof_dt: int | None,
+    daily_limit: int,
+    monthly_limit: int,
+) -> tuple[List[tuple], List[tuple]] | None:
+    key = (str(code), asof_dt, int(daily_limit), int(monthly_limit))
+    now = time.monotonic()
+    with _ANALYSIS_SERIES_CACHE_LOCK:
+        cached = _ANALYSIS_SERIES_CACHE.get(key)
+        if not cached or now - float(cached[0]) > _DETAIL_CACHE_TTL_SEC:
+            if cached:
+                _ANALYSIS_SERIES_CACHE.pop(key, None)
+            return None
+        return cached[1]
+
+
+def _put_cached_analysis_series(
+    code: str,
+    *,
+    asof_dt: int | None,
+    daily_limit: int,
+    monthly_limit: int,
+    daily_rows: List[tuple],
+    monthly_rows: List[tuple],
+) -> None:
+    key = (str(code), asof_dt, int(daily_limit), int(monthly_limit))
+    with _ANALYSIS_SERIES_CACHE_LOCK:
+        _ANALYSIS_SERIES_CACHE[key] = (
+            time.monotonic(),
+            (list(daily_rows), list(monthly_rows)),
+        )
+        if len(_ANALYSIS_SERIES_CACHE) > 256:
+            oldest_key = min(_ANALYSIS_SERIES_CACHE, key=lambda item: _ANALYSIS_SERIES_CACHE[item][0])
+            _ANALYSIS_SERIES_CACHE.pop(oldest_key, None)
+
+
+def _load_analysis_series(
+    repo: StockRepository,
+    code: str,
+    *,
+    asof_dt: int | None,
+    daily_limit: int,
+    monthly_limit: int,
+) -> tuple[List[tuple], List[tuple]]:
+    cached = _get_cached_analysis_series(
+        code,
+        asof_dt=asof_dt,
+        daily_limit=daily_limit,
+        monthly_limit=monthly_limit,
+    )
+    if cached is not None:
+        return cached
+    daily_rows = repo.get_daily_bars(code, limit=daily_limit, asof_dt=asof_dt)
+    monthly_rows = repo.get_monthly_bars(
+        code,
+        limit=monthly_limit,
+        asof_dt=asof_dt,
+        recent_daily_rows=daily_rows,
+    )
+    _put_cached_analysis_series(
+        code,
+        asof_dt=asof_dt,
+        daily_limit=daily_limit,
+        monthly_limit=monthly_limit,
+        daily_rows=daily_rows,
+        monthly_rows=monthly_rows,
+    )
+    return daily_rows, monthly_rows
+
+
+def _get_cached_timeline_ranking_score(code: str, asof_dt: int | None) -> float | None | object:
+    key = (str(code), asof_dt)
+    now = time.monotonic()
+    with _TIMELINE_RANKING_CACHE_LOCK:
+        cached = _TIMELINE_RANKING_CACHE.get(key)
+        if not cached or now - float(cached[0]) > _DETAIL_CACHE_TTL_SEC:
+            if cached:
+                _TIMELINE_RANKING_CACHE.pop(key, None)
+            return Ellipsis
+        return cached[1]
+
+
+def _put_cached_timeline_ranking_score(code: str, asof_dt: int | None, score: float | None) -> None:
+    key = (str(code), asof_dt)
+    with _TIMELINE_RANKING_CACHE_LOCK:
+        _TIMELINE_RANKING_CACHE[key] = (time.monotonic(), score)
+        if len(_TIMELINE_RANKING_CACHE) > 256:
+            oldest_key = min(_TIMELINE_RANKING_CACHE, key=lambda item: _TIMELINE_RANKING_CACHE[item][0])
+            _TIMELINE_RANKING_CACHE.pop(oldest_key, None)
+
+
+def _get_timeline_ranking_score(repo: StockRepository, code: str, asof_dt: int | None) -> float | None:
+    cached = _get_cached_timeline_ranking_score(code, asof_dt)
+    if cached is not Ellipsis:
+        return cached
+    daily_rows = repo.get_daily_bars(code, limit=500, asof_dt=asof_dt)
+    if not daily_rows:
+        _put_cached_timeline_ranking_score(code, asof_dt, None)
+        return None
+    daily_rows_asc = list(reversed(daily_rows))
+    config = {
+        "common": {"min_daily_bars": 80},
+        "weekly": {
+            "weights": {"ma_alignment": 10},
+            "thresholds": {"volume_ratio": 1.5},
+        },
+    }
+    up, _, _ = ranking.score_weekly_candidate(code, "", daily_rows_asc, config, None)
+    latest_score = _to_float_or_none((up or {}).get("total_score")) if up else None
+    _put_cached_timeline_ranking_score(code, asof_dt, latest_score)
+    return latest_score
+
+
+def _ensure_latest_swing_setup_stats_once() -> None:
+    global _LAST_SWING_EXPECTANCY_REFRESH_TS
+    now = time.monotonic()
+    with _SWING_EXPECTANCY_REFRESH_LOCK:
+        if now - _LAST_SWING_EXPECTANCY_REFRESH_TS < _SWING_EXPECTANCY_REFRESH_TTL_SEC:
+            return
+        _LAST_SWING_EXPECTANCY_REFRESH_TS = now
+    swing_expectancy_service.ensure_latest_swing_setup_stats()
 
 
 def _normalize_rows(rows: Iterable[Sequence], *, fill_volume: bool) -> List[List[float]]:
@@ -275,8 +561,8 @@ def _load_monthly_rows_with_provisional(
     limit: int,
     asof_dt: int | None,
 ) -> tuple[List[tuple], int | None, int | None]:
-    rows = repo.get_monthly_bars(code, limit, asof_dt)
     patch_daily_rows = repo.get_daily_bars(code, 62, asof_dt)
+    rows = repo.get_monthly_bars(code, limit, asof_dt, recent_daily_rows=patch_daily_rows)
     intraday_provisional_key: int | None = None
     provisional_fetched_at_ts: int | None = None
     if asof_dt is None:
@@ -329,28 +615,46 @@ def get_daily_bars(
 
 
 @router.get("/monthly", response_model=None)
-def get_monthly_bars(
+async def get_monthly_bars(
     code: str,
     limit: int = 120,
     asof: str | int | None = None,
     repo: StockRepository = Depends(get_stock_repo),
+    *,
+    request: Request,
 ) -> Dict[str, Any]:
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
+    token = _begin_detail_request("ticker.monthly", code)
     asof_dt = _parse_dt(asof)
-    rows, intraday_provisional_key, provisional_fetched_at_ts = _load_monthly_rows_with_provisional(
-        repo,
-        code,
-        limit=limit,
-        asof_dt=asof_dt,
-    )
-    meta = _load_market_data_meta(
-        code,
-        intraday_provisional_key=intraday_provisional_key,
-        provisional_fetched_at_ts=provisional_fetched_at_ts,
-        asof_dt=asof_dt,
-    )
-    return {"data": _normalize_rows(rows, fill_volume=True), "errors": [], "meta": meta}
+    error: Exception | None = None
+    try:
+        rows, intraday_provisional_key, provisional_fetched_at_ts = await run_in_threadpool(
+            _load_monthly_rows_with_provisional,
+            repo,
+            code,
+            limit=limit,
+            asof_dt=asof_dt,
+        )
+        _record_detail_query_step(token, 2)
+        await _raise_if_client_disconnected(request, token, phase="query")
+        meta = await run_in_threadpool(
+            _load_market_data_meta,
+            code,
+            intraday_provisional_key=intraday_provisional_key,
+            provisional_fetched_at_ts=provisional_fetched_at_ts,
+            asof_dt=asof_dt,
+        )
+        _record_detail_query_step(token, 1)
+        payload = {"data": _normalize_rows(rows, fill_volume=True), "errors": [], "meta": meta}
+        _record_detail_transform_step(token, 1)
+        await _raise_if_client_disconnected(request, token, phase="transform")
+        return payload
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        _finish_detail_request(token, error)
 
 
 @router.get("/boxes", response_model=None)
@@ -2067,167 +2371,196 @@ def get_phase_pred(
 
 
 @router.get("/analysis", response_model=None)
-def get_analysis_pred(
+async def get_analysis_pred(
     code: str,
     asof: str | int | None = None,
     risk_mode: str = Query("balanced"),
     repo: StockRepository = Depends(get_stock_repo),
+    *,
+    request: Request,
 ) -> Dict[str, Any]:
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
+    token = _begin_detail_request("ticker.analysis", code)
     resolved_risk_mode = _normalize_risk_mode(risk_mode)
     asof_dt = _parse_dt(asof)
-    row = repo.get_ml_analysis_pred(code, asof_dt)
-    if not row:
-        return {"item": None}
-    p_up = _to_float_or_none(row[1])
-    p_down = _to_float_or_none(row[2]) if len(row) > 2 else None
-    if p_down is None and p_up is not None:
-        p_down = 1.0 - p_up
-    p_up_5 = _to_float_or_none(row[3]) if len(row) > 3 else None
-    p_up_10 = _to_float_or_none(row[4]) if len(row) > 4 else None
-    p_turn_up = _to_float_or_none(row[5]) if len(row) > 5 else None
-    p_turn_down = _to_float_or_none(row[6]) if len(row) > 6 else None
-    p_turn_down_5 = _to_float_or_none(row[7]) if len(row) > 7 else None
-    p_turn_down_10 = _to_float_or_none(row[8]) if len(row) > 8 else None
-    p_turn_down_20 = _to_float_or_none(row[9]) if len(row) > 9 else None
-    ret_pred20 = _to_float_or_none(row[12]) if len(row) > 12 else None
-    ev20 = _to_float_or_none(row[13]) if len(row) > 13 else None
-    ev20_net_raw = _to_float_or_none(row[14]) if len(row) > 14 else None
-    ev5_net = _to_float_or_none(row[15]) if len(row) > 15 else None
-    ev10_net = _to_float_or_none(row[16]) if len(row) > 16 else None
-    ev20_net = ev20_net_raw if ev20_net_raw is not None else (ev20 - 0.002 if ev20 is not None else None)
-    horizon_analysis = _build_horizon_analysis(
-        p_up,
-        ev20_net,
-        p_turn_down_10 if p_turn_down_10 is not None else p_turn_down,
-        p_up_5d=p_up_5,
-        p_up_10d=p_up_10,
-        ev_net_5d=ev5_net,
-        ev_net_10d=ev10_net,
-        p_turn_down_5d=p_turn_down_5,
-        p_turn_down_20d=p_turn_down_20,
-    )
-    model_version = row[17] if len(row) > 17 else None
-    additive_signals = None
-    buy_stage_precision = None
-    entry_policy = None
-    daily_rows: list[tuple] = []
-    monthly_rows: list[tuple] = []
+    error: Exception | None = None
     try:
-        daily_rows = repo.get_daily_bars(code, limit=1260, asof_dt=asof_dt)
-        monthly_rows = repo.get_monthly_bars(code, limit=60, asof_dt=asof_dt)
-        additive_signals = _build_additive_signal_summary(daily_rows, monthly_rows)
-        entry_policy = _build_entry_policy_summary(
-            daily_rows=daily_rows,
-            monthly_rows=monthly_rows,
-            risk_mode=resolved_risk_mode,
+        row = await run_in_threadpool(repo.get_ml_analysis_pred, code, asof_dt)
+        _record_detail_query_step(token, 1)
+        if not row:
+            return {"item": None}
+        await _raise_if_client_disconnected(request, token, phase="query")
+        p_up = _to_float_or_none(row[1])
+        p_down = _to_float_or_none(row[2]) if len(row) > 2 else None
+        if p_down is None and p_up is not None:
+            p_down = 1.0 - p_up
+        p_up_5 = _to_float_or_none(row[3]) if len(row) > 3 else None
+        p_up_10 = _to_float_or_none(row[4]) if len(row) > 4 else None
+        p_turn_up = _to_float_or_none(row[5]) if len(row) > 5 else None
+        p_turn_down = _to_float_or_none(row[6]) if len(row) > 6 else None
+        p_turn_down_5 = _to_float_or_none(row[7]) if len(row) > 7 else None
+        p_turn_down_10 = _to_float_or_none(row[8]) if len(row) > 8 else None
+        p_turn_down_20 = _to_float_or_none(row[9]) if len(row) > 9 else None
+        ret_pred20 = _to_float_or_none(row[12]) if len(row) > 12 else None
+        ev20 = _to_float_or_none(row[13]) if len(row) > 13 else None
+        ev20_net_raw = _to_float_or_none(row[14]) if len(row) > 14 else None
+        ev5_net = _to_float_or_none(row[15]) if len(row) > 15 else None
+        ev10_net = _to_float_or_none(row[16]) if len(row) > 16 else None
+        ev20_net = ev20_net_raw if ev20_net_raw is not None else (ev20 - 0.002 if ev20 is not None else None)
+        horizon_analysis = _build_horizon_analysis(
+            p_up,
+            ev20_net,
+            p_turn_down_10 if p_turn_down_10 is not None else p_turn_down,
+            p_up_5d=p_up_5,
+            p_up_10d=p_up_10,
+            ev_net_5d=ev5_net,
+            ev_net_10d=ev10_net,
+            p_turn_down_5d=p_turn_down_5,
+            p_turn_down_20d=p_turn_down_20,
         )
-    except Exception:
+        model_version = row[17] if len(row) > 17 else None
         additive_signals = None
-        entry_policy = None
-    try:
-        buy_stage_precision = repo.get_buy_stage_precision(code, asof_dt, lookback_bars=360, horizon=20)
-    except Exception:
         buy_stage_precision = None
-    research_prior = _build_research_prior_summary(code)
-    edinet_summary = _build_edinet_summary(code, asof_dt)
-    sell_context = None
-    try:
-        sell_context = _build_sell_context_from_row(repo.get_sell_analysis_snapshot(code, asof_dt))
-    except Exception:
+        entry_policy = None
+        daily_rows: list[tuple] = []
+        monthly_rows: list[tuple] = []
+        try:
+            daily_rows, monthly_rows = await run_in_threadpool(
+                _load_analysis_series,
+                repo,
+                code,
+                asof_dt=asof_dt,
+                daily_limit=1260,
+                monthly_limit=60,
+            )
+            _record_detail_query_step(token, 2)
+            await _raise_if_client_disconnected(request, token, phase="query")
+            additive_signals = _build_additive_signal_summary(daily_rows, monthly_rows)
+            entry_policy = _build_entry_policy_summary(
+                daily_rows=daily_rows,
+                monthly_rows=monthly_rows,
+                risk_mode=resolved_risk_mode,
+            )
+        except Exception:
+            additive_signals = None
+            entry_policy = None
+        try:
+            buy_stage_precision = await run_in_threadpool(
+                repo.get_buy_stage_precision,
+                code,
+                asof_dt,
+                360,
+                20,
+            )
+            _record_detail_query_step(token, 1)
+        except Exception:
+            buy_stage_precision = None
+        research_prior = _build_research_prior_summary(code)
+        edinet_summary = _build_edinet_summary(code, asof_dt)
         sell_context = None
-    atr_pct, liquidity20d = swing_expectancy_service.compute_atr_pct_and_liquidity20d(daily_rows)
-    as_of_ymd = _asof_dt_to_ymd(asof_dt)
-    if as_of_ymd is None:
-        as_of_ymd = _to_int_or_none(row[0])
-    try:
-        # Expectancy statistics are shared across days; keep one latest snapshot warm.
-        swing_expectancy_service.ensure_latest_swing_setup_stats()
-    except Exception:
-        # Keep analysis endpoint resilient when expectancy refresh fails.
-        pass
-    decision = build_analysis_decision(
-        analysis_p_up=p_up,
-        analysis_p_down=p_down,
-        analysis_p_turn_up=p_turn_up,
-        analysis_p_turn_down=p_turn_down,
-        analysis_ev_net=ev20_net,
-        playbook_up_score_bonus=_to_float_or_none((entry_policy or {}).get("up", {}).get("playbookScoreBonus"))
-        if isinstance(entry_policy, dict)
-        else None,
-        playbook_down_score_bonus=_to_float_or_none((entry_policy or {}).get("down", {}).get("playbookScoreBonus"))
-        if isinstance(entry_policy, dict)
-        else None,
-        additive_signals=additive_signals if isinstance(additive_signals, dict) else None,
-        sell_analysis=sell_context if isinstance(sell_context, dict) else None,
-    )
-    swing_eval = swing_plan_service.build_swing_plan(
-        code=code,
-        # Avoid per-cursor-day recompute; swing expectancy uses latest maintained snapshot.
-        as_of_ymd=None,
-        close=_to_float_or_none(daily_rows[-1][4]) if daily_rows else None,
-        p_up=p_up,
-        p_down=p_down,
-        p_turn_up=p_turn_up,
-        p_turn_down=p_turn_down,
-        ev20_net=ev20_net,
-        long_setup_type=(entry_policy or {}).get("up", {}).get("setupType")
-        if isinstance(entry_policy, dict)
-        else None,
-        short_setup_type=(entry_policy or {}).get("down", {}).get("setupType")
-        if isinstance(entry_policy, dict)
-        else None,
-        playbook_bonus_long=_to_float_or_none((entry_policy or {}).get("up", {}).get("playbookScoreBonus"))
-        if isinstance(entry_policy, dict)
-        else None,
-        playbook_bonus_short=_to_float_or_none((entry_policy or {}).get("down", {}).get("playbookScoreBonus"))
-        if isinstance(entry_policy, dict)
-        else None,
-        short_score=_to_float_or_none((sell_context or {}).get("shortScore"))
-        if isinstance(sell_context, dict)
-        else None,
-        atr_pct=atr_pct,
-        liquidity20d=liquidity20d,
-        decision_tone=str(decision.get("tone")) if isinstance(decision, dict) else None,
-        hold_days_long=_to_int_or_none((entry_policy or {}).get("up", {}).get("recommendedHoldDays"))
-        if isinstance(entry_policy, dict)
-        else None,
-        hold_days_short=_to_int_or_none((entry_policy or {}).get("down", {}).get("recommendedHoldDays"))
-        if isinstance(entry_policy, dict)
-        else None,
-    )
-    item = {
-        "dt": row[0],
-        "pUp": p_up,
-        "pDown": p_down,
-        "pTurnUp": p_turn_up,
-        "pTurnDown": p_turn_down,
-        "pTurnDownHorizon": 10,
-        "retPred20": ret_pred20,
-        "ev20": ev20,
-        "ev20Net": ev20_net,
-        "horizonAnalysis": horizon_analysis,
-        "additiveSignals": additive_signals,
-        "entryPolicy": entry_policy,
-        "riskMode": resolved_risk_mode,
-        "buyStagePrecision": buy_stage_precision,
-        "researchPrior": research_prior,
-        "edinetSummary": edinet_summary,
-        "modelVersion": str(model_version) if model_version is not None else None,
-        "source": decision.get("source") if isinstance(decision, dict) else DETAIL_ANALYSIS_SOURCE,
-        "logic_family": decision.get("logic_family") if isinstance(decision, dict) else DETAIL_ANALYSIS_LOGIC_FAMILY,
-        "display_label": decision.get("display_label") if isinstance(decision, dict) else DETAIL_ANALYSIS_DISPLAY_LABEL,
-        "decision": decision,
-        "swingPlan": swing_eval.get("plan") if isinstance(swing_eval, dict) else None,
-        "swingDiagnostics": swing_eval.get("diagnostics") if isinstance(swing_eval, dict) else None,
-    }
-    return {
-        "item": item,
-        "source": item["source"],
-        "logic_family": item["logic_family"],
-        "display_label": item["display_label"],
-    }
+        try:
+            sell_row = await run_in_threadpool(repo.get_sell_analysis_snapshot, code, asof_dt)
+            _record_detail_query_step(token, 1)
+            sell_context = _build_sell_context_from_row(sell_row)
+        except Exception:
+            sell_context = None
+        atr_pct, liquidity20d = swing_expectancy_service.compute_atr_pct_and_liquidity20d(daily_rows)
+        as_of_ymd = _asof_dt_to_ymd(asof_dt)
+        if as_of_ymd is None:
+            as_of_ymd = _to_int_or_none(row[0])
+        try:
+            await run_in_threadpool(_ensure_latest_swing_setup_stats_once)
+        except Exception:
+            pass
+        decision = build_analysis_decision(
+            analysis_p_up=p_up,
+            analysis_p_down=p_down,
+            analysis_p_turn_up=p_turn_up,
+            analysis_p_turn_down=p_turn_down,
+            analysis_ev_net=ev20_net,
+            playbook_up_score_bonus=_to_float_or_none((entry_policy or {}).get("up", {}).get("playbookScoreBonus"))
+            if isinstance(entry_policy, dict)
+            else None,
+            playbook_down_score_bonus=_to_float_or_none((entry_policy or {}).get("down", {}).get("playbookScoreBonus"))
+            if isinstance(entry_policy, dict)
+            else None,
+            additive_signals=additive_signals if isinstance(additive_signals, dict) else None,
+            sell_analysis=sell_context if isinstance(sell_context, dict) else None,
+        )
+        swing_eval = swing_plan_service.build_swing_plan(
+            code=code,
+            as_of_ymd=None,
+            close=_to_float_or_none(daily_rows[-1][4]) if daily_rows else None,
+            p_up=p_up,
+            p_down=p_down,
+            p_turn_up=p_turn_up,
+            p_turn_down=p_turn_down,
+            ev20_net=ev20_net,
+            long_setup_type=(entry_policy or {}).get("up", {}).get("setupType")
+            if isinstance(entry_policy, dict)
+            else None,
+            short_setup_type=(entry_policy or {}).get("down", {}).get("setupType")
+            if isinstance(entry_policy, dict)
+            else None,
+            playbook_bonus_long=_to_float_or_none((entry_policy or {}).get("up", {}).get("playbookScoreBonus"))
+            if isinstance(entry_policy, dict)
+            else None,
+            playbook_bonus_short=_to_float_or_none((entry_policy or {}).get("down", {}).get("playbookScoreBonus"))
+            if isinstance(entry_policy, dict)
+            else None,
+            short_score=_to_float_or_none((sell_context or {}).get("shortScore"))
+            if isinstance(sell_context, dict)
+            else None,
+            atr_pct=atr_pct,
+            liquidity20d=liquidity20d,
+            decision_tone=str(decision.get("tone")) if isinstance(decision, dict) else None,
+            hold_days_long=_to_int_or_none((entry_policy or {}).get("up", {}).get("recommendedHoldDays"))
+            if isinstance(entry_policy, dict)
+            else None,
+            hold_days_short=_to_int_or_none((entry_policy or {}).get("down", {}).get("recommendedHoldDays"))
+            if isinstance(entry_policy, dict)
+            else None,
+        )
+        item = {
+            "dt": row[0],
+            "pUp": p_up,
+            "pDown": p_down,
+            "pTurnUp": p_turn_up,
+            "pTurnDown": p_turn_down,
+            "pTurnDownHorizon": 10,
+            "retPred20": ret_pred20,
+            "ev20": ev20,
+            "ev20Net": ev20_net,
+            "horizonAnalysis": horizon_analysis,
+            "additiveSignals": additive_signals,
+            "entryPolicy": entry_policy,
+            "riskMode": resolved_risk_mode,
+            "buyStagePrecision": buy_stage_precision,
+            "researchPrior": research_prior,
+            "edinetSummary": edinet_summary,
+            "modelVersion": str(model_version) if model_version is not None else None,
+            "source": decision.get("source") if isinstance(decision, dict) else DETAIL_ANALYSIS_SOURCE,
+            "logic_family": decision.get("logic_family") if isinstance(decision, dict) else DETAIL_ANALYSIS_LOGIC_FAMILY,
+            "display_label": decision.get("display_label") if isinstance(decision, dict) else DETAIL_ANALYSIS_DISPLAY_LABEL,
+            "decision": decision,
+            "swingPlan": swing_eval.get("plan") if isinstance(swing_eval, dict) else None,
+            "swingDiagnostics": swing_eval.get("diagnostics") if isinstance(swing_eval, dict) else None,
+        }
+        _record_detail_transform_step(token, 1)
+        await _raise_if_client_disconnected(request, token, phase="transform")
+        succeeded = True
+        return {
+            "item": item,
+            "source": item["source"],
+            "logic_family": item["logic_family"],
+            "display_label": item["display_label"],
+        }
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        _finish_detail_request(token, error)
 
 
 @router.get("/tradex/analysis", response_model=None)
@@ -2314,40 +2647,41 @@ def import_tdnet_disclosures(
 
 
 @router.get("/analysis/timeline", response_model=None)
-def get_analysis_timeline(
+async def get_analysis_timeline(
     code: str,
     limit: int = Query(400, ge=1, le=2000),
     asof: str | int | None = None,
     repo: StockRepository = Depends(get_stock_repo),
+    *,
+    request: Request,
 ) -> Dict[str, Any]:
     if not code:
         raise HTTPException(status_code=400, detail="code is required")
+    token = _begin_detail_request("ticker.analysis_timeline", code)
     asof_dt = _parse_dt(asof)
-    items = repo.get_analysis_timeline(code, asof_dt, limit=limit)
+    error: Exception | None = None
+    try:
+        items = await run_in_threadpool(repo.get_analysis_timeline, code, asof_dt, limit=limit)
+        _record_detail_query_step(token, 1)
+        await _raise_if_client_disconnected(request, token, phase="query")
 
-    if items:
-        try:
-            # Compute ranking score once for the latest date only (O(1) instead of O(N))
-            daily_rows = repo.get_daily_bars(code, limit=500, asof_dt=asof_dt)
-            if daily_rows:
-                daily_rows_asc = list(reversed(daily_rows))
-                config = {
-                    "common": {"min_daily_bars": 80},
-                    "weekly": {
-                        "weights": {"ma_alignment": 10},
-                        "thresholds": {"volume_ratio": 1.5}
-                    }
-                }
-                up, _, _ = ranking.score_weekly_candidate(code, "", daily_rows_asc, config, None)
-                if up:
-                    latest_score = up.get("total_score")
-                    if latest_score is not None:
-                        for item in items:
-                            item["rankingScore"] = latest_score
-        except Exception as exc:
-            logger.warning("timeline ranking score attach failed code=%s reason=%s", code, exc)
-
-    return {"items": items}
+        if items:
+            try:
+                latest_score = await run_in_threadpool(_get_timeline_ranking_score, repo, code, asof_dt)
+                _record_detail_query_step(token, 1)
+                if latest_score is not None:
+                    for item in items:
+                        item["rankingScore"] = latest_score
+                    _record_detail_transform_step(token, 1)
+            except Exception as exc:
+                logger.warning("timeline ranking score attach failed code=%s reason=%s", code, exc)
+        await _raise_if_client_disconnected(request, token, phase="transform")
+        return {"items": items}
+    except Exception as exc:
+        error = exc
+        raise
+    finally:
+        _finish_detail_request(token, error)
 
 
 @router.get("/analysis/decisions", response_model=None)

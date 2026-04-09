@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 
@@ -53,6 +54,11 @@ class _StubRepo:
         return None
 
 
+class _RequestStub:
+    async def is_disconnected(self) -> bool:
+        return False
+
+
 def test_ticker_analysis_includes_swing_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         ticker.swing_expectancy_service,
@@ -101,7 +107,14 @@ def test_ticker_analysis_includes_swing_payload(monkeypatch) -> None:
         },
     )
 
-    out = ticker.get_analysis_pred(code="1301", risk_mode="balanced", repo=_StubRepo())
+    out = asyncio.run(
+        ticker.get_analysis_pred(
+            code="1301",
+            risk_mode="balanced",
+            repo=_StubRepo(),
+            request=_RequestStub(),
+        )
+    )
     item = out.get("item") or {}
     assert out["source"] == "legacy_detail_view"
     assert out["logic_family"] == "daily_decision"

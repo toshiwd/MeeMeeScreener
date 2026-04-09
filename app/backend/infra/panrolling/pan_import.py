@@ -32,6 +32,9 @@ WINDOW_TITLE_RE = r"Pan.*"  # window title is locale/encoding dependent; keep ma
 IMPORT_TIMEOUT = _env_int("MEEMEE_PAN_IMPORT_TIMEOUT", 240, minimum=60)
 WINDOW_CONNECT_TIMEOUT = _env_int("MEEMEE_PAN_WINDOW_CONNECT_TIMEOUT", 15, minimum=5)
 SETTLE_WAIT_SECONDS = _env_int("MEEMEE_PAN_IMPORT_SETTLE_SECONDS", 5, minimum=2)
+PRESTART_WAIT_SECONDS = _env_int("MEEMEE_PAN_PRESTART_WAIT_SECONDS", 20, minimum=3)
+POST_CLOSE_WAIT_SECONDS = _env_int("MEEMEE_PAN_POST_CLOSE_WAIT_SECONDS", 15, minimum=3)
+PROCESS_EXIT_POLL_MILLIS = _env_int("MEEMEE_PAN_PROCESS_EXIT_POLL_MILLIS", 500, minimum=100)
 # If an import-like dialog is still open near timeout, nudge it once with Enter.
 DIALOG_NUDGE_BEFORE_TIMEOUT = _env_int("MEEMEE_PAN_DIALOG_NUDGE_BEFORE_TIMEOUT", 90, minimum=20)
 UNKNOWN_DIALOG_START_POLLS = _env_int("MEEMEE_PAN_UNKNOWN_DIALOG_START_POLLS", 3, minimum=1)
@@ -105,10 +108,10 @@ def run_pan_import(
         logger.error("pandtmgr.exe not found: %s", path)
         return False
 
-    running_pids = _list_running_pandtmgr_pids()
+    running_pids = _wait_for_no_running_pandtmgr(PRESTART_WAIT_SECONDS)
     if running_pids:
         raise PanImportError(
-            "Pan Data Manager is already running. Close PAN before daily update "
+            "Pan Data Manager is already running or did not exit cleanly. Close PAN before daily update "
             f"(pandtmgr.exe pids={','.join(str(pid) for pid in running_pids)})."
         )
 
@@ -164,6 +167,15 @@ def run_pan_import(
             if not completed:
                 logger.warning("Pan import completion was not confirmed before timeout")
                 return False
+
+            _close_app_safely(app)
+            app = None
+            lingering_pids = _wait_for_no_running_pandtmgr(POST_CLOSE_WAIT_SECONDS)
+            if lingering_pids:
+                raise PanImportError(
+                    "Pan Data Manager did not exit cleanly after import "
+                    f"(pandtmgr.exe pids={','.join(str(pid) for pid in lingering_pids)})."
+                )
 
             logger.info("Pan Rolling import completed successfully")
             return True
@@ -497,6 +509,20 @@ def _list_running_pandtmgr_pids() -> list[int]:
         except Exception:
             continue
     return pids
+
+
+def _wait_for_no_running_pandtmgr(timeout_seconds: float) -> list[int]:
+    """pandtmgr.exe の残留を待ってから import を始める。"""
+    deadline = time.monotonic() + max(0.1, float(timeout_seconds))
+    poll_seconds = max(0.1, float(PROCESS_EXIT_POLL_MILLIS) / 1000.0)
+    last_seen: list[int] = []
+    while True:
+        last_seen = _list_running_pandtmgr_pids()
+        if not last_seen:
+            return []
+        if time.monotonic() >= deadline:
+            return last_seen
+        time.sleep(poll_seconds)
 
 
 def _find_blocking_error_dialog(dialogs: list[object]) -> object | None:

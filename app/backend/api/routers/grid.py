@@ -670,6 +670,7 @@ def _compute_live_screener_rows(
     screener_repo: ScreenerRepository = Depends(get_screener_repo),
     stock_repo: StockRepository = Depends(get_stock_repo),
 ):
+    started_at = time.perf_counter()
     today = jst_now().date()
     window_end = today + timedelta(days=30)
     (
@@ -685,6 +686,7 @@ def _compute_live_screener_rows(
         earnings_end=window_end,
         rights_min_date=today,
         monthly_limit=120,
+        code_limit=limit,
     )
 
     meta_map = {row[0]: row for row in meta_rows}
@@ -693,7 +695,7 @@ def _compute_live_screener_rows(
     monthly_map = _group_rows_by_code(monthly_rows)
     earnings_map = {row[0]: row[1] for row in earnings_rows}
     rights_map = {row[0]: row[1] for row in rights_rows}
-    short_score_map = stock_repo.get_scores()
+    short_score_map = stock_repo.get_scores(codes)
     ml_map = stock_repo.get_latest_ml_pred_map(codes)
 
     asof_map: dict[str, int | None] = {}
@@ -757,6 +759,13 @@ def _compute_live_screener_rows(
     _apply_entry_priority_metrics(response_results)
     _apply_swing_metrics(response_results)
     _maybe_trigger_missing_data_repair(codes)
+    logger.info(
+        "grid_screener_live_rows limit=%s items=%s codes=%s elapsed_ms=%s",
+        limit,
+        len(response_results),
+        len(codes),
+        int((time.perf_counter() - started_at) * 1000),
+    )
     return response_results
 
 

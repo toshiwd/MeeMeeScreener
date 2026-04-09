@@ -100,6 +100,8 @@ def _submit_if_needed(*, source: str) -> str | None:
         unique=True,
         message="Waiting in queue...",
         progress=0,
+        lane="maintenance",
+        dedupe_key=ANALYSIS_PREWARM_JOB_TYPE,
     )
     if job_id:
         logger.info(
