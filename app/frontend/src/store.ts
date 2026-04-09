@@ -258,7 +258,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   setLastApiError: (info) => set({ lastApiError: info }),
   loadFavorites: async () => {
-    if (get().favoritesLoading) return;
+    if (get().favoritesLoading || get().favoritesLoaded) return;
     set({ favoritesLoading: true });
     try {
       const res = await api.get("/favorites");

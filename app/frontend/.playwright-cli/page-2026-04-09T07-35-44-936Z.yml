@@ -1,0 +1,247 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: M
+        - generic: MeeMee Screener
+      - generic:
+        - generic: Loading…
+  - generic [ref=e2]:
+    - generic [ref=e3]:
+      - banner [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e6]:
+            - generic [ref=e7]:
+              - generic [ref=e8]:
+                - generic [ref=e9]: MeeMee
+                - generic [ref=e10]: Screener
+              - navigation [ref=e11]:
+                - link "一覧" [ref=e12] [cursor=pointer]:
+                  - /url: /
+                - link "ランキング" [ref=e13] [cursor=pointer]:
+                  - /url: /ranking
+                - link "市場" [ref=e14] [cursor=pointer]:
+                  - /url: /market
+                - link "建玉" [ref=e15] [cursor=pointer]:
+                  - /url: /positions
+                - link "お気に入り" [ref=e16] [cursor=pointer]:
+                  - /url: /favorites
+                - link "候補" [ref=e17] [cursor=pointer]:
+                  - /url: /candidates
+              - generic [ref=e18]:
+                - button "診断OFF" [ref=e19] [cursor=pointer]
+                - button "診断保存" [ref=e20] [cursor=pointer]
+                - button "保存先" [ref=e21] [cursor=pointer]
+                - button "消去" [ref=e22] [cursor=pointer]
+            - generic [ref=e24]:
+              - button "並び替えメニューを開く" [ref=e26] [cursor=pointer]:
+                - generic [ref=e27]: "並び: コード順"
+              - button "表示密度メニューを開く" [ref=e29] [cursor=pointer]:
+                - generic [ref=e30]: 表示密度
+              - button "フィルタ" [ref=e32] [cursor=pointer]:
+                - generic [ref=e33]: フィルタ
+              - button "日次更新" [ref=e35] [cursor=pointer]:
+                - generic [ref=e36]: 日次更新
+              - button "設定メニューを開く" [ref=e38] [cursor=pointer]:
+                - img [ref=e40]
+          - generic [ref=e43]:
+            - generic [ref=e44]:
+              - button "月足" [ref=e45] [cursor=pointer]
+              - button "週足" [ref=e46] [cursor=pointer]
+              - button "日足" [ref=e47] [cursor=pointer]
+            - generic "グリッド表示本数" [ref=e48]:
+              - generic [ref=e49]: 3x3
+              - generic [ref=e50]: 60本
+            - button "業種" [ref=e52] [cursor=pointer]:
+              - generic [ref=e53]: 業種
+            - searchbox "コード / 銘柄名で検索" [ref=e55]
+            - generic [ref=e56]:
+              - generic [ref=e57]: "状態: 待機中"
+              - generic [ref=e58]: "イベント最終更新: --"
+      - generic [ref=e62]:
+        - button "1001 日経225 お気に入り追加 候補に追加 除外 詳細を開く" [ref=e64] [cursor=pointer]:
+          - generic [ref=e65]:
+            - generic [ref=e66]:
+              - generic [ref=e67]: "1001"
+              - generic [ref=e68]: 日経225
+            - generic [ref=e70]:
+              - button "お気に入り追加" [ref=e71]:
+                - img [ref=e72]
+              - button "候補に追加" [ref=e74]: +
+              - button "除外" [ref=e75]: x
+              - button "詳細を開く" [ref=e76]: ">"
+        - button "1306 NEXT TOPIX ETF お気に入り追加 候補に追加 除外 詳細を開く" [ref=e81] [cursor=pointer]:
+          - generic [ref=e82]:
+            - generic [ref=e83]:
+              - generic [ref=e84]: "1306"
+              - generic [ref=e85]: NEXT TOPIX ETF
+            - generic [ref=e87]:
+              - button "お気に入り追加" [ref=e88]:
+                - img [ref=e89]
+              - button "候補に追加" [ref=e91]: +
+              - button "除外" [ref=e92]: x
+              - button "詳細を開く" [ref=e93]: ">"
+        - button "1308 日興TOPIX ETF お気に入り追加 候補に追加 除外 詳細を開く" [ref=e98] [cursor=pointer]:
+          - generic [ref=e99]:
+            - generic [ref=e100]:
+              - generic [ref=e101]: "1308"
+              - generic [ref=e102]: 日興TOPIX ETF
+            - generic [ref=e104]:
+              - button "お気に入り追加" [ref=e105]:
+                - img [ref=e106]
+              - button "候補に追加" [ref=e108]: +
+              - button "除外" [ref=e109]: x
+              - button "詳細を開く" [ref=e110]: ">"
+        - button "1332 ニッスイ(日本水産) お気に入り追加 候補に追加 除外 詳細を開く" [ref=e115] [cursor=pointer]:
+          - generic [ref=e116]:
+            - generic [ref=e117]:
+              - generic [ref=e118]: "1332"
+              - generic [ref=e119]: ニッスイ(日本水産)
+            - generic [ref=e121]:
+              - button "お気に入り追加" [ref=e122]:
+                - img [ref=e123]
+              - button "候補に追加" [ref=e125]: +
+              - button "除外" [ref=e126]: x
+              - button "詳細を開く" [ref=e127]: ">"
+        - button "1357 NEXT日経ダブルインバETF お気に入り追加 候補に追加 除外 詳細を開く" [ref=e132] [cursor=pointer]:
+          - generic [ref=e133]:
+            - generic [ref=e134]:
+              - generic [ref=e135]: "1357"
+              - generic [ref=e136]: NEXT日経ダブルインバETF
+            - generic [ref=e138]:
+              - button "お気に入り追加" [ref=e139]:
+                - img [ref=e140]
+              - button "候補に追加" [ref=e142]: +
+              - button "除外" [ref=e143]: x
+              - button "詳細を開く" [ref=e144]: ">"
+        - button "1375 ユキグニ(雪国まいたけ) お気に入り追加 候補に追加 除外 詳細を開く" [ref=e149] [cursor=pointer]:
+          - generic [ref=e150]:
+            - generic [ref=e151]:
+              - generic [ref=e152]: "1375"
+              - generic [ref=e153]: ユキグニ(雪国まいたけ)
+            - generic [ref=e155]:
+              - button "お気に入り追加" [ref=e156]:
+                - img [ref=e157]
+              - button "候補に追加" [ref=e159]: +
+              - button "除外" [ref=e160]: x
+              - button "詳細を開く" [ref=e161]: ">"
+        - button "1414 ショーボンドHD お気に入り追加 候補に追加 除外 詳細を開く" [ref=e166] [cursor=pointer]:
+          - generic [ref=e167]:
+            - generic [ref=e168]:
+              - generic [ref=e169]: "1414"
+              - generic [ref=e170]: ショーボンドHD
+            - generic [ref=e172]:
+              - button "お気に入り追加" [ref=e173]:
+                - img [ref=e174]
+              - button "候補に追加" [ref=e176]: +
+              - button "除外" [ref=e177]: x
+              - button "詳細を開く" [ref=e178]: ">"
+        - button "1417 ミライト・ワン お気に入り追加 候補に追加 除外 詳細を開く" [ref=e183] [cursor=pointer]:
+          - generic [ref=e184]:
+            - generic [ref=e185]:
+              - generic [ref=e186]: "1417"
+              - generic [ref=e187]: ミライト・ワン
+            - generic [ref=e189]:
+              - button "お気に入り追加" [ref=e190]:
+                - img [ref=e191]
+              - button "候補に追加" [ref=e193]: +
+              - button "除外" [ref=e194]: x
+              - button "詳細を開く" [ref=e195]: ">"
+        - button "1419 タマホーム お気に入り追加 候補に追加 除外 詳細を開く" [ref=e200] [cursor=pointer]:
+          - generic [ref=e201]:
+            - generic [ref=e202]:
+              - generic [ref=e203]: "1419"
+              - generic [ref=e204]: タマホーム
+            - generic [ref=e206]:
+              - button "お気に入り追加" [ref=e207]:
+                - img [ref=e208]
+              - button "候補に追加" [ref=e210]: +
+              - button "除外" [ref=e211]: x
+              - button "詳細を開く" [ref=e212]: ">"
+        - button "1478 iシェア高配当ETF お気に入り追加 候補に追加 除外 詳細を開く" [ref=e217] [cursor=pointer]:
+          - generic [ref=e218]:
+            - generic [ref=e219]:
+              - generic [ref=e220]: "1478"
+              - generic [ref=e221]: iシェア高配当ETF
+            - generic [ref=e223]:
+              - button "お気に入り追加" [ref=e224]:
+                - img [ref=e225]
+              - button "候補に追加" [ref=e227]: +
+              - button "除外" [ref=e228]: x
+              - button "詳細を開く" [ref=e229]: ">"
+        - button "1489 NEXT日経平均高配当50ETF お気に入り追加 候補に追加 除外 詳細を開く" [ref=e234] [cursor=pointer]:
+          - generic [ref=e235]:
+            - generic [ref=e236]:
+              - generic [ref=e237]: "1489"
+              - generic [ref=e238]: NEXT日経平均高配当50ETF
+            - generic [ref=e240]:
+              - button "お気に入り追加" [ref=e241]:
+                - img [ref=e242]
+              - button "候補に追加" [ref=e244]: +
+              - button "除外" [ref=e245]: x
+              - button "詳細を開く" [ref=e246]: ">"
+        - button "1514 住石HD お気に入り追加 候補に追加 除外 詳細を開く" [ref=e251] [cursor=pointer]:
+          - generic [ref=e252]:
+            - generic [ref=e253]:
+              - generic [ref=e254]: "1514"
+              - generic [ref=e255]: 住石HD
+            - generic [ref=e257]:
+              - button "お気に入り追加" [ref=e258]:
+                - img [ref=e259]
+              - button "候補に追加" [ref=e261]: +
+              - button "除外" [ref=e262]: x
+              - button "詳細を開く" [ref=e263]: ">"
+        - button "1518 三井松島HD お気に入り追加 候補に追加 除外 詳細を開く" [ref=e268] [cursor=pointer]:
+          - generic [ref=e269]:
+            - generic [ref=e270]:
+              - generic [ref=e271]: "1518"
+              - generic [ref=e272]: 三井松島HD
+            - generic [ref=e274]:
+              - button "お気に入り追加" [ref=e275]:
+                - img [ref=e276]
+              - button "候補に追加" [ref=e278]: +
+              - button "除外" [ref=e279]: x
+              - button "詳細を開く" [ref=e280]: ">"
+        - button "1540 純金ETF お気に入り追加 候補に追加 除外 詳細を開く" [ref=e285] [cursor=pointer]:
+          - generic [ref=e286]:
+            - generic [ref=e287]:
+              - generic [ref=e288]: "1540"
+              - generic [ref=e289]: 純金ETF
+            - generic [ref=e291]:
+              - button "お気に入り追加" [ref=e292]:
+                - img [ref=e293]
+              - button "候補に追加" [ref=e295]: +
+              - button "除外" [ref=e296]: x
+              - button "詳細を開く" [ref=e297]: ">"
+        - button "1545 NEXT NASDAQ-100 ETF お気に入り追加 候補に追加 除外 詳細を開く" [ref=e302] [cursor=pointer]:
+          - generic [ref=e303]:
+            - generic [ref=e304]:
+              - generic [ref=e305]: "1545"
+              - generic [ref=e306]: NEXT NASDAQ-100 ETF
+            - generic [ref=e308]:
+              - button "お気に入り追加" [ref=e309]:
+                - img [ref=e310]
+              - button "候補に追加" [ref=e312]: +
+              - button "除外" [ref=e313]: x
+              - button "詳細を開く" [ref=e314]: ">"
+      - generic:
+        - button "相談バーを展開する"
+        - generic:
+          - generic:
+            - generic: 候補 0件
+          - generic:
+            - button "相談作成" [disabled]
+            - button "コピー" [disabled]
+            - button "閉じる"
+    - generic:
+      - status:
+        - generic:
+          - generic:
+            - generic:
+              - generic: M
+          - generic: MeeMee Screener
+        - generic:
+          - generic: 準備完了
+          - generic: 試行 1 回 経過 0s

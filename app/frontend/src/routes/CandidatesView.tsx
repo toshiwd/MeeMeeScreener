@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { shallow } from "zustand/shallow";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import ChartListCard from "../components/ChartListCard";
 import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
+import VirtualizedCardGrid from "../components/VirtualizedCardGrid";
 import { useStore } from "../store";
 import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
 import {
@@ -14,6 +16,7 @@ import {
   ConsultationTimeframe
 } from "../utils/consultation";
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
+import { useVisibleCodesPrefetch } from "./list/useVisibleCodesPrefetch";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 
 type CandidateItem = {
@@ -95,24 +98,45 @@ export default function CandidatesView() {
   const location = useLocation();
   const navigate = useNavigate();
   const { ready: backendReady } = useBackendReadyState();
-  const keepList = useStore((state) => state.keepList);
-  const removeKeep = useStore((state) => state.removeKeep);
-  const tickers = useStore((state) => state.tickers);
-  const ensureListLoaded = useStore((state) => state.ensureListLoaded);
-  const loadingList = useStore((state) => state.loadingList);
-  const ensureBarsForVisible = useStore((state) => state.ensureBarsForVisible);
-  const barsCache = useStore((state) => state.barsCache);
-  const barsStatus = useStore((state) => state.barsStatus);
-  const boxesCache = useStore((state) => state.boxesCache);
-  const maSettings = useStore((state) => state.maSettings);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
-  const listRangeBars = useStore((state) => state.settings.listRangeBars);
-  const columns = useStore((state) => state.settings.columns);
-  const rows = useStore((state) => state.settings.rows);
-  const setListTimeframe = useStore((state) => state.setListTimeframe);
-  const setListRangeBars = useStore((state) => state.setListRangeBars);
-  const setColumns = useStore((state) => state.setColumns);
-  const setRows = useStore((state) => state.setRows);
+  const {
+    keepList,
+    removeKeep,
+    tickers,
+    ensureListLoaded,
+    loadingList,
+    ensureBarsForVisible,
+    barsCache,
+    barsStatus,
+    maSettings,
+    listRangeBars,
+    columns,
+    rows,
+    setListTimeframe,
+    setListRangeBars,
+    setColumns,
+    setRows,
+  } = useStore(
+    (state) => ({
+      keepList: state.keepList,
+      removeKeep: state.removeKeep,
+      tickers: state.tickers,
+      ensureListLoaded: state.ensureListLoaded,
+      loadingList: state.loadingList,
+      ensureBarsForVisible: state.ensureBarsForVisible,
+      barsCache: state.barsCache[listTimeframe],
+      barsStatus: state.barsStatus[listTimeframe],
+      maSettings: state.maSettings[listTimeframe],
+      listRangeBars: state.settings.listRangeBars,
+      columns: state.settings.columns,
+      rows: state.settings.rows,
+      setListTimeframe: state.setListTimeframe,
+      setListRangeBars: state.setListRangeBars,
+      setColumns: state.setColumns,
+      setRows: state.setRows,
+    }),
+    shallow
+  );
 
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<CandidateSortKey>("code");
@@ -307,12 +331,12 @@ export default function CandidatesView() {
   const signalMetricsMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>>();
     searchResults.forEach((item) => {
-      const payload = barsCache[listTimeframe]?.[item.code];
+      const payload = barsCache[item.code];
       if (!payload?.bars?.length) return;
       map.set(item.code, computeSignalMetrics(payload.bars, 4));
     });
     return map;
-  }, [searchResults, barsCache, listTimeframe]);
+  }, [searchResults, barsCache]);
   const stateEvalMap = useMemo(
     () => new Map(stateEvalRows.map((row) => [row.code, row])),
     [stateEvalRows]
@@ -346,7 +370,7 @@ export default function CandidatesView() {
     const hasDirectionalFilter = filterBuySignalsOnly || filterSellSignalsOnly;
     if (!filterSignalsOnly && !filterDataOnly && !hasDirectionalFilter) return searchResults;
     return searchResults.filter((item) => {
-      const payload = barsCache[listTimeframe]?.[item.code];
+      const payload = barsCache[item.code];
       const hasData = Boolean(payload?.bars?.length);
       const metrics = signalMetricsMap.get(item.code);
       const summary = metrics ? getSignalDirectionSummary(metrics) : null;
@@ -366,7 +390,6 @@ export default function CandidatesView() {
     filterBuySignalsOnly,
     filterSellSignalsOnly,
     barsCache,
-    listTimeframe,
     signalMap,
     signalMetricsMap
   ]);
@@ -374,7 +397,7 @@ export default function CandidatesView() {
   const metricsMap = useMemo(() => {
     const map = new Map<string, { change: number; score: number }>();
     filteredItems.forEach((item) => {
-      const payload = barsCache[listTimeframe]?.[item.code];
+      const payload = barsCache[item.code];
       const bars = payload?.bars ?? [];
       if (!bars.length) {
         map.set(item.code, { change: 0, score: 0 });
@@ -396,7 +419,7 @@ export default function CandidatesView() {
       map.set(item.code, { change, score });
     });
     return map;
-  }, [filteredItems, barsCache, listTimeframe]);
+  }, [filteredItems, barsCache]);
 
   const sortedItems = useMemo(() => {
     const next = [...filteredItems];
@@ -444,11 +467,12 @@ export default function CandidatesView() {
       } catch {
         // Use available cache even if fetch fails.
       }
+      const storeState = useStore.getState();
       const itemsForPack = consultTargets.map((code) => {
         const candidate = items.find((item) => item.code === code);
         const ticker = tickerMap.get(code);
-        const payload = barsCache[consultTimeframe]?.[code];
-        const boxes = boxesCache[consultTimeframe][code] ?? [];
+        const payload = storeState.barsCache[consultTimeframe]?.[code];
+        const boxes = storeState.boxesCache[consultTimeframe][code] ?? [];
         return {
           code,
           name: candidate?.name ?? ticker?.name ?? null,
@@ -487,19 +511,16 @@ export default function CandidatesView() {
     ensureBarsForVisible,
     consultTimeframe,
     items,
-    barsCache,
-    boxesCache,
     consultSort,
     tickerMap
   ]);
 
-  const handleEnsureVisibleItem = useCallback(
-    (code: string) => {
-      if (!backendReady) return;
-      void ensureBarsForVisible(listTimeframe, [code], "candidates-visible");
-    },
-    [backendReady, ensureBarsForVisible, listTimeframe]
-  );
+  const { handleVisibleItemsChange } = useVisibleCodesPrefetch<CandidateItem>({
+    backendReady,
+    timeframe: listTimeframe,
+    reason: "candidates-visible",
+    ensureBarsForVisible,
+  });
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
@@ -569,6 +590,85 @@ export default function CandidatesView() {
     return { visible, extra };
   }, [consultTargets]);
 
+  const renderCard = useCallback(
+    (item: CandidateItem) => {
+      const payload = barsCache[item.code] ?? null;
+      const status = barsStatus[item.code];
+      const ticker = tickerMap.get(item.code);
+      const stateEval = stateEvalMap.get(item.code);
+      const trendTag = parseStrategyTags(stateEval?.strategy_tags).map((tag) => trendTagMap.get(tag)).find(Boolean);
+      const displayReasons = [...parseReasonTexts(stateEval?.reason_text_top3).slice(0, 2)];
+      const trendReason = buildTrendReason(trendTag);
+      const priorReason = displayReasons.map(classifyPriorReason).find(Boolean) ?? null;
+      if (trendReason && !displayReasons.includes(trendReason)) {
+        displayReasons.push(trendReason);
+      }
+      return (
+        <ChartListCard
+          key={item.code}
+          code={item.code}
+          name={item.name ?? item.code}
+          payload={payload}
+          status={status}
+          maSettings={maSettings}
+          rangeBars={listRangeBars}
+          eventEarningsDate={ticker?.eventEarningsDate ?? null}
+          eventRightsDate={ticker?.eventRightsDate ?? null}
+          densityKey={densityKey}
+          signals={signalMap.get(item.code) ?? []}
+          annotation={
+            stateEval ? (
+              <div className="candidate-ai-annotation">
+                <span className={`candidate-ai-badge is-${String(stateEval.decision_3way || "wait")}`}>
+                  {String(stateEval.decision_3way || "wait").toUpperCase()}
+                </span>
+                <span className="candidate-ai-confidence">
+                  AI {typeof stateEval.confidence === "number" ? `${Math.round(stateEval.confidence * 100)}%` : "--"}
+                </span>
+                {priorReason ? (
+                  <span className={`candidate-ai-prior-badge is-${priorReason.tone}`}>
+                    {priorReason.tone === "combo" ? "COMBO" : priorReason.tone === "prior-caution" ? "CAUTION" : "PRIOR"} {priorReason.label}
+                  </span>
+                ) : null}
+                <div className="candidate-ai-reasons">
+                  {displayReasons.map((reason) => (
+                    <span key={`${item.code}:${reason}`} className="candidate-ai-reason">
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null
+          }
+          onOpenDetail={handleOpenDetail}
+          phaseBody={ticker?.bodyScore ?? null}
+          phaseEarly={ticker?.earlyScore ?? null}
+          phaseLate={ticker?.lateScore ?? null}
+          phaseN={ticker?.phaseN ?? null}
+          action={{
+            label: "\u2713",
+            ariaLabel: "蛟呵｣懊°繧牙､悶☆",
+            className: "candidate-toggle active",
+            onClick: () => removeKeep(item.code)
+          }}
+        />
+      );
+    },
+    [
+      barsCache,
+      barsStatus,
+      densityKey,
+      handleOpenDetail,
+      listRangeBars,
+      maSettings,
+      removeKeep,
+      signalMap,
+      stateEvalMap,
+      tickerMap,
+      trendTagMap,
+    ]
+  );
+
   return (
     <div className="app-shell list-view">
       <UnifiedListHeader
@@ -599,10 +699,18 @@ export default function CandidatesView() {
       >
         {loadingList && <div className="rank-status">読み込み中...</div>}
         {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
+        <VirtualizedCardGrid
+          items={sortedItems}
+          columns={columns}
+          itemKey={(item) => item.code}
+          onVisibleItemsChange={handleVisibleItemsChange}
+          renderItem={renderCard}
+        />
+        {false && (
         <div className="rank-grid">
           {sortedItems.map((item) => {
-            const payload = barsCache[listTimeframe]?.[item.code] ?? null;
-            const status = barsStatus[listTimeframe][item.code];
+            const payload = barsCache[item.code] ?? null;
+            const status = barsStatus[item.code];
             const ticker = tickerMap.get(item.code);
             const stateEval = stateEvalMap.get(item.code);
             const trendTag = parseStrategyTags(stateEval?.strategy_tags).map((tag) => trendTagMap.get(tag)).find(Boolean);
@@ -619,7 +727,7 @@ export default function CandidatesView() {
                 name={item.name ?? item.code}
                 payload={payload}
                 status={status}
-                maSettings={maSettings[listTimeframe]}
+                maSettings={maSettings}
                 rangeBars={listRangeBars}
                 eventEarningsDate={ticker?.eventEarningsDate ?? null}
                 eventRightsDate={ticker?.eventRightsDate ?? null}
@@ -651,7 +759,7 @@ export default function CandidatesView() {
                 }
                 onOpenDetail={handleOpenDetail}
                 deferUntilInView
-                onEnterView={handleEnsureVisibleItem}
+                onEnterView={undefined}
                 phaseBody={ticker?.bodyScore ?? null}
                 phaseEarly={ticker?.earlyScore ?? null}
                 phaseLate={ticker?.lateScore ?? null}
@@ -667,6 +775,7 @@ export default function CandidatesView() {
           })}
 
         </div>
+        )}
       </div>
       <div
         className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"

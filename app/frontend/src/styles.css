@@ -2130,6 +2130,20 @@ body {
   overflow-y: auto;
 }
 
+.virtualized-card-grid {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.virtualized-card-grid-scroller {
+  overflow-x: hidden !important;
+}
+
+.virtualized-card-grid-cell {
+  box-sizing: border-box;
+}
+
 .list-shell.is-single {
   --list-card-height: calc(100vh - var(--list-header-height) - 32px);
   --list-chart-height: clamp(320px, calc(var(--list-card-height) - 110px), var(--list-chart-max));

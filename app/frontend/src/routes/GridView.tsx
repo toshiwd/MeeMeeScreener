@@ -118,6 +118,7 @@ export default function GridView() {
   }, [location.search]);
   const { ref, size } = useResizeObserver();
   const { ready: backendReady } = useBackendReadyState();
+  const [nonCriticalReady, setNonCriticalReady] = useState(false);
   const tickers = useStore((state) => state.tickers);
   const loadList = useStore((state) => state.loadList);
   const ensureListLoaded = useStore((state) => state.ensureListLoaded);
@@ -163,6 +164,33 @@ export default function GridView() {
     (state) => state.eventsMeta?.dataCoverage?.rightsMaxDate ?? null
   );
   const refreshEvents = useStore((state) => state.refreshEvents);
+
+  useEffect(() => {
+    if (!backendReady) {
+      setNonCriticalReady(false);
+      return;
+    }
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    if (typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(() => {
+        if (!cancelled) setNonCriticalReady(true);
+      }, { timeout: 1500 });
+      return () => {
+        cancelled = true;
+        window.cancelIdleCallback?.(idleId);
+      };
+    }
+    timeoutId = window.setTimeout(() => {
+      if (!cancelled) setNonCriticalReady(true);
+    }, 350);
+    return () => {
+      cancelled = true;
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [backendReady]);
 
   const eventsAttemptLabel = useMemo(
     () => formatEventDateYmd(eventsLastAttemptAt),
@@ -530,7 +558,7 @@ export default function GridView() {
   }, [hasMeaningfulSectorOptions, setSortDir, setSortKey, sortDir, sortKey]);
 
   useEffect(() => {
-    if (!backendReady) return;
+    if (!backendReady || !nonCriticalReady) return;
     let canceled = false;
     const loadHealth = async () => {
       try {
@@ -558,10 +586,10 @@ export default function GridView() {
     return () => {
       canceled = true;
     };
-  }, [backendReady]);
+  }, [backendReady, nonCriticalReady]);
 
   useEffect(() => {
-    if (!backendReady) return;
+    if (!backendReady || !nonCriticalReady) return;
     setDataDirLoading(true);
     api
       .get("/system/data-dir")
@@ -574,7 +602,7 @@ export default function GridView() {
       })
       .catch(() => undefined)
       .finally(() => setDataDirLoading(false));
-  }, [backendReady]);
+  }, [backendReady, nonCriticalReady]);
 
   useEffect(() => {
     if (!sortOpen && !displayOpen && !settingsOpen && !sectorSortOpen) return;
@@ -1788,7 +1816,7 @@ export default function GridView() {
   }, [eventsRefreshing, loadList, refreshEvents, showToast, resetBarsCache]);
 
   useEffect(() => {
-    if (!backendReady) return;
+    if (!backendReady || !nonCriticalReady) return;
     let disposed = false;
     const loadCurrentTxtJob = async () => {
       try {
@@ -1805,7 +1833,7 @@ export default function GridView() {
     return () => {
       disposed = true;
     };
-  }, [backendReady, applyTxtUpdateStatus]);
+  }, [backendReady, nonCriticalReady, applyTxtUpdateStatus]);
 
   useEffect(() => {
     if (!txtUpdatePolling || !txtUpdateJob?.id) return;
@@ -2081,9 +2109,9 @@ export default function GridView() {
   }, [backendReady, showToast]);
 
   useEffect(() => {
-    if (!backendReady) return;
+    if (!backendReady || !nonCriticalReady) return;
     void fetchLatestWalkforward(true);
-  }, [backendReady, fetchLatestWalkforward]);
+  }, [backendReady, nonCriticalReady, fetchLatestWalkforward]);
 
   const applyWalkforwardTenYearPreset = useCallback(() => {
     setWalkforwardParams((prev) => ({
@@ -2487,7 +2515,7 @@ export default function GridView() {
     showToast(`${label}が失敗しました。(${detail ?? "詳細不明"})`, action);
   }, [fetchLatestWalkforward, formatJobTypeLabel, handleAnalysisBatchPrewarm, handlePhaseRebuild, handleRunWalkforward, loadList, resetBarsCache, showToast]);
   useEffect(() => {
-    if (!backendReady || GRID_REFACTOR_ENABLED) return;
+    if (!backendReady || !nonCriticalReady || GRID_REFACTOR_ENABLED) return;
     let disposed = false;
     let timer: number | null = null;
     const scheduleNext = (delayMs: number) => {
@@ -2541,8 +2569,8 @@ export default function GridView() {
         window.clearTimeout(timer);
       }
     };
-  }, [backendReady, notifyTerminalJob]);
-  useTerminalJobPolling({ enabled: backendReady && GRID_REFACTOR_ENABLED, onTerminalJob: notifyTerminalJob });
+  }, [backendReady, nonCriticalReady, notifyTerminalJob]);
+  useTerminalJobPolling({ enabled: backendReady && nonCriticalReady && GRID_REFACTOR_ENABLED, onTerminalJob: notifyTerminalJob });
 
 
   return (

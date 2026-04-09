@@ -459,6 +459,7 @@ export default function ThumbnailCanvas({
   const rafRef = useRef<number | null>(null);
   const resizeRafRef = useRef<number | null>(null);
   const scrollIdleTimerRef = useRef<number | null>(null);
+  const snapshotTimerRef = useRef<number | null>(null);
   const lastSnapshotRef = useRef<string>("");
   const lastDrawFingerprintRef = useRef<string>("");
   const committedSizeRef = useRef<string>("");
@@ -531,16 +532,23 @@ export default function ThumbnailCanvas({
       const snapshotKey = buildThumbnailSnapshotCacheKey(cacheKey, renderKey, sizeKey);
       if (lastSnapshotRef.current !== snapshotKey) {
         lastSnapshotRef.current = snapshotKey;
-        try {
-          const dataUrl = canvas.toDataURL("image/png");
-          if (snapshotCacheKey) {
-            setThumbnailCache(snapshotCacheKey, dataUrl);
-          }
-          setThumbnailCache(cacheKey, dataUrl);
-          setCachedSnapshot(dataUrl);
-        } catch {
-          // ignore snapshot failures
+        if (snapshotTimerRef.current !== null) {
+          window.clearTimeout(snapshotTimerRef.current);
         }
+        snapshotTimerRef.current = window.setTimeout(() => {
+          snapshotTimerRef.current = null;
+          if (lastSnapshotRef.current !== snapshotKey || !canvasRef.current) return;
+          try {
+            const dataUrl = canvasRef.current.toDataURL("image/png");
+            if (snapshotCacheKey) {
+              setThumbnailCache(snapshotCacheKey, dataUrl);
+            }
+            setThumbnailCache(cacheKey, dataUrl);
+            setCachedSnapshot(dataUrl);
+          } catch {
+            // ignore snapshot failures
+          }
+        }, isScrollingRef.current ? SCROLL_IDLE_MS + 80 : 120);
       }
     }
     return true;
@@ -620,6 +628,10 @@ export default function ThumbnailCanvas({
       if (hoverRafRef.current !== null) {
         window.cancelAnimationFrame(hoverRafRef.current);
         hoverRafRef.current = null;
+      }
+      if (snapshotTimerRef.current !== null) {
+        window.clearTimeout(snapshotTimerRef.current);
+        snapshotTimerRef.current = null;
       }
     };
   }, [scheduleDraw, scheduleResizeCommit]);

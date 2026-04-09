@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AxiosError } from "axios";
@@ -11,6 +11,7 @@ import ChartListCard from "../components/ChartListCard";
 import TradexListSummary from "../components/TradexListSummary";
 import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
+import VirtualizedCardGrid from "../components/VirtualizedCardGrid";
 import AiExplainDock from "../features/aiExplain/AiExplainDock";
 import { buildAiExplainImages } from "../features/aiExplain/aiExplainImages";
 import { MaSetting, useStore } from "../store";
@@ -27,6 +28,7 @@ import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
 import { ResearchPatternBadges } from "./list/ResearchPatternBadges";
 import { recordPerfEvent } from "../perfDiagnostics";
+import { useVisibleCodesPrefetch } from "./list/useVisibleCodesPrefetch";
 
 type RankItem = {
   code: string;
@@ -201,9 +203,9 @@ const RANK_FETCH_CACHE_PREFIX = "rankingFetchCache";
 const RANK_LIMIT = 50;
 const RANK_FETCH_TIMEOUT_MS = 60000;
 const TIMEFRAME_LABELS: Record<RankTimeframe, string> = {
-  D: "日足",
-  W: "週足",
-  M: "月足"
+  D: "譌･雜ｳ",
+  W: "騾ｱ雜ｳ",
+  M: "譛郁ｶｳ"
 };
 const rankingFetchMemoryCache = new Map<string, RankingFetchCacheEntry>();
 
@@ -272,15 +274,15 @@ const MTF_STRICT_GATE_BASE = 0.66;
 const MTF_STRICT_GATE_FLOOR = 0.58;
 const MTF_STRICT_GATE_CEIL = 0.78;
 const MTF_STRICT_PROFILES: Record<MtfStrictnessResolved, { gateBias: number; minQualified: number; label: string }> = {
-  loose: { gateBias: -0.04, minQualified: 1, label: "緩" },
+  loose: { gateBias: -0.04, minQualified: 1, label: "邱ｩ" },
   normal: { gateBias: 0, minQualified: 2, label: "標準" },
-  tight: { gateBias: 0.04, minQualified: 2, label: "強" }
+  tight: { gateBias: 0.04, minQualified: 2, label: "蠑ｷ" }
 };
 const MTF_STRICTNESS_LABEL: Record<MtfStrictness, string> = {
   auto: "自動",
-  loose: "緩",
+  loose: "邱ｩ",
   normal: "標準",
-  tight: "強"
+  tight: "蠑ｷ"
 };
 const MTF_STRICT_ORDER: MtfStrictnessResolved[] = ["normal", "tight", "loose"];
 
@@ -402,8 +404,8 @@ const extractRankingFailureReason = (error: unknown) => {
 
 const buildRankingFallbackMessage = (reason: string | null) =>
   reason
-    ? `ランキングの取得に失敗しました。簡易データを表示しています。理由: ${reason}`
-    : "ランキングの取得に失敗しました。簡易データを表示しています。";
+    ? `ランキングの取得に失敗したため、前回データを表示しています。理由: ${reason}`
+    : "ランキングの取得に失敗したため、前回データを表示しています。";
 
 const isUsableRankingFetchCache = (entry: RankingFetchCacheEntry | null): entry is RankingFetchCacheEntry =>
   Boolean(entry && !entry.useFallback && entry.items.length > 0);
@@ -551,7 +553,7 @@ const mergeMultiTimeframeRankings = (
         const item = slot[tf];
         if (!item) return `${tf}:--`;
         if (item.entryQualified === true) return `${tf}:OK`;
-        if (item.entryQualifiedByFallback === true) return `${tf}:補`;
+        if (item.entryQualifiedByFallback === true) return `${tf}:FB`;
         return `${tf}:--`;
       })
       .join(" ");
@@ -674,6 +676,7 @@ export default function RankingView() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
+  const [aiExplainReady, setAiExplainReady] = useState(false);
   const [consultVisible, setConsultVisible] = useState(false);
   const [consultExpanded, setConsultExpanded] = useState(false);
   const [consultTab, setConsultTab] = useState<"selection" | "position">("selection");
@@ -757,9 +760,9 @@ export default function RankingView() {
   /*
   const timeframeButtons = useMemo(
     () => [
-      { key: "D" as RankTimeframe, label: "日足" },
-      { key: "W" as RankTimeframe, label: "週足" },
-      { key: "M" as RankTimeframe, label: "月足" }
+      { key: "D" as RankTimeframe, label: "譌･雜ｳ" },
+      { key: "W" as RankTimeframe, label: "騾ｱ雜ｳ" },
+      { key: "M" as RankTimeframe, label: "譛郁ｶｳ" }
     ],
     []
   );
@@ -1038,25 +1041,76 @@ export default function RankingView() {
       })),
     [itemByCode, selectedCodes]
   );
+  useEffect(() => {
+    setAiExplainReady(false);
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    const schedule = () => {
+      if (cancelled) return;
+      setAiExplainReady(true);
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(() => {
+        schedule();
+      }, { timeout: 1200 });
+      return () => {
+        cancelled = true;
+        window.cancelIdleCallback?.(idleId);
+      };
+    }
+    timeoutId = window.setTimeout(schedule, 250);
+    return () => {
+      cancelled = true;
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [dir, listRangeBars, listTimeframe, selectedCodes.length, sortedItems]);
   const aiExplainImages = useMemo(
     () =>
-      buildAiExplainImages(
-        sortedItems
-          .slice(0, 3)
-          .map((item) => ({
-            code: item.code,
-            payload: barsCache[item.code] ?? null,
-            boxes: boxesCache[item.code] ?? [],
-            maSettings: resolvedMaSettings,
-            rangeBars: listRangeBars,
-            timeframeLabel: listTimeframe,
-            maxBars: listRangeBars
-          })),
-        3
-      ),
-    [barsCache, boxesCache, listRangeBars, listTimeframe, resolvedMaSettings, sortedItems]
+      aiExplainReady
+        ? buildAiExplainImages(
+            sortedItems
+              .slice(0, 3)
+              .map((item) => ({
+                code: item.code,
+                payload: barsCache[item.code] ?? null,
+                boxes: boxesCache[item.code] ?? [],
+                maSettings: resolvedMaSettings,
+                rangeBars: listRangeBars,
+                timeframeLabel: listTimeframe,
+                maxBars: listRangeBars
+              })),
+            3
+          )
+        : [],
+    [aiExplainReady, barsCache, boxesCache, listRangeBars, listTimeframe, resolvedMaSettings, sortedItems]
   );
   const aiExplainSnapshot = useMemo(() => {
+    if (!aiExplainReady) {
+      return {
+        mode: "explain",
+        screenType: "ranking",
+        asOfDate: null,
+        userQuestion: "",
+        selectedSymbols: selectedCodes,
+        compareSymbols: [],
+        visibleTimeframe: {
+          listTimeframe,
+          listRangeBars
+        },
+        marketContext: {
+          rankWhich,
+          rankMode,
+          riskMode,
+          dir,
+          fallback: useFallback
+        },
+        visibleItems: [],
+        selectedCount: selectedCodes.length,
+        visibleCount: sortedItems.length
+      };
+    }
     const topItems = sortedItems.slice(0, 10).map((item, index) => buildRankExplainSnapshotItem(item, index + 1));
     return {
       mode: "explain",
@@ -1081,6 +1135,7 @@ export default function RankingView() {
       visibleCount: sortedItems.length
     };
   }, [
+    aiExplainReady,
     dir,
     listRangeBars,
     listTimeframe,
@@ -1166,7 +1221,7 @@ export default function RankingView() {
                 const weeklyItems = Array.isArray(itemsByTf.W) ? itemsByTf.W : [];
                 const monthlyItems = Array.isArray(itemsByTf.M) ? itemsByTf.M : [];
                 if (!dailyItems.length && !weeklyItems.length && !monthlyItems.length) {
-                  throw new Error(backendErrors ?? "ランキング計算結果が空でした。");
+                  throw new Error(backendErrors ?? "ランキングの取得結果が空でした。");
                 }
                 const merged = mergeMultiTimeframeRankings(
                   {
@@ -1200,7 +1255,7 @@ export default function RankingView() {
         if (cancelled) return;
         if (rankMode === "trade") {
           setUseFallback(false);
-          setErrorMessage(extractRankingFailureReason(error) ?? "厳選ランキングの取得に失敗しました。");
+          setErrorMessage(extractRankingFailureReason(error) ?? "当日のランキング取得に失敗しました。");
           recordPerfEvent("ranking_fetch_failed", {
             cacheKey: rankingCacheKey,
             retainedCount: itemsRef.current.length,
@@ -1322,13 +1377,12 @@ export default function RankingView() {
     [backendReady, listCodes, location.pathname, navigate]
   );
 
-  const handleEnsureVisibleItem = useCallback(
-    (code: string) => {
-      if (!backendReady) return;
-      void ensureBarsForVisible(listTimeframe, [code], "ranking-visible");
-    },
-    [backendReady, ensureBarsForVisible, listTimeframe]
-  );
+  const { handleVisibleItemsChange } = useVisibleCodesPrefetch<RankItem>({
+    backendReady,
+    timeframe: listTimeframe,
+    reason: "ranking-visible",
+    ensureBarsForVisible,
+  });
 
   const handleToggleFavorite = useCallback(
     async (code: string, isFavorite: boolean) => {
@@ -1382,18 +1436,18 @@ export default function RankingView() {
           : (Number.isFinite(rankItem?.mlPDownBig ?? NaN) ? ((rankItem?.mlPDownBig ?? 0) * 100) : null);
         const reasonChunks = [
           `setup=${formatSetupType(rankItem?.setupType)}`,
-          `1M±20=${formatPct(rankItem?.mlP20Side1M)}`,
-          `${dir === "up" ? "1M上昇" : "1M下落"}=${formatPct(dir === "up" ? rankItem?.mlPUpBig : rankItem?.mlPDownBig)}`,
-          `1M変動=${formatPct(rankItem?.mlPAbsBig)}`
+          `1Mﾂｱ20=${formatPct(rankItem?.mlP20Side1M)}`,
+          `${dir === "up" ? "1M荳頑・" : "1M荳玖誠"}=${formatPct(dir === "up" ? rankItem?.mlPUpBig : rankItem?.mlPDownBig)}`,
+          `1M螟牙虚=${formatPct(rankItem?.mlPAbsBig)}`
         ];
-        reasonChunks.push(`勝ちやすさ=${formatPct(rankItem?.winNowScore)}`);
+        reasonChunks.push(`蜍昴■繧・☆縺・${formatPct(rankItem?.winNowScore)}`);
         if (rankItem?.mtfStrictResolved) {
-          reasonChunks.push(`厳選=${MTF_STRICTNESS_LABEL[rankItem.mtfStrictResolved]}`);
+          reasonChunks.push(`蜴ｳ驕ｸ=${MTF_STRICTNESS_LABEL[rankItem.mtfStrictResolved]}`);
         }
-        reasonChunks.push(`目標=${mtfStrictTarget}件`);
-        reasonChunks.push(`ゲート=${(mtfStrictGateApplied * 100).toFixed(1)}%`);
+        reasonChunks.push(`逶ｮ讓・${mtfStrictTarget}莉ｶ`);
+        reasonChunks.push(`繧ｲ繝ｼ繝・${(mtfStrictGateApplied * 100).toFixed(1)}%`);
         if (Number.isFinite(rankItem?.mtfLiquidity20d ?? NaN)) {
-          reasonChunks.push(`流動=${(rankItem?.mtfLiquidity20d ?? 0).toFixed(0)}`);
+          reasonChunks.push(`豬∝虚=${(rankItem?.mtfLiquidity20d ?? 0).toFixed(0)}`);
         }
         if (rankItem?.mtfSignalBits) {
           reasonChunks.push(`MTF=${rankItem.mtfSignalBits}`);
@@ -1448,19 +1502,19 @@ export default function RankingView() {
 
   const handleCreateScreenshots = useCallback(async () => {
     if (selectedCodes.length === 0) {
-      setToastMessage("スクショ対象がありません。");
+      setToastMessage("スクリーンショット対象がありません。");
       return;
     }
 
     // Check setting for Consult mode (Use new method)
     // The user requirement says "Replace" so we just use the new one.
 
-    setToastMessage("スクショ生成を開始します...");
+    setToastMessage("スクリーンショットを生成しています…");
 
     const result = await generateScreenshots(selectedCodes);
 
     if (result.success) {
-      setToastMessage(`${result.count}件のスクショを保存しました`);
+      setToastMessage(`${result.count}件のスクリーンショットを保存しました`);
       if (result.success && window.pywebview?.api?.open_screenshot_dir) {
         setToastAction({
           label: "フォルダを開く",
@@ -1470,18 +1524,18 @@ export default function RankingView() {
         });
       }
     } else {
-      setToastMessage(`保存失敗: ${result.error || "不明なエラー"}`);
+      setToastMessage(`保存に失敗: ${result.error || "不明なエラー"}`);
     }
   }, [selectedCodes, generateScreenshots]);
 
   const handleCopyConsult = useCallback(async () => {
     if (!consultText) {
-      setToastMessage("相談パックがまだありません。");
+      setToastMessage("コピー対象のテキストがありません。");
       return;
     }
     try {
       await navigator.clipboard.writeText(consultText);
-      setToastMessage("相談パックをコピーしました。");
+      setToastMessage("テキストをコピーしました。");
     } catch {
       setToastMessage("コピーに失敗しました。");
     }
@@ -1494,6 +1548,131 @@ export default function RankingView() {
     return { visible, extra };
   }, [selectedCodes]);
 
+  const renderRankCard = useCallback(
+    (item: RankItem, index: number) => {
+      const payload = barsCache[item.code] ?? null;
+      const status = barsStatus[item.code];
+      const series = payload && payload.bars?.length ? payload.bars : item.series ?? [];
+      const ticker = tickerMap.get(item.code);
+      const earningsLabel = formatEventBadgeDate(ticker?.eventEarningsDate);
+      const rightsLabel = formatEventBadgeDate(ticker?.eventRightsDate);
+      const tradexSummaryKey = buildTradexListSummaryKey(item.code, item.asOf ?? null);
+      return (
+        <TradexListSummaryMount
+          backendReady={backendReady}
+          enabled={selectedSet.has(item.code)}
+          scope={`ranking-selected:${item.code}`}
+          items={[{ code: item.code, asof: item.asOf ?? null }]}
+        >
+          {(tradexListSummaryState) => {
+            const tradexSummary = tradexListSummaryState.itemsByKey[tradexSummaryKey] ?? null;
+            return (
+              <ChartListCard
+                key={item.code}
+                code={item.code}
+                name={item.name ?? item.code}
+                payload={payload}
+                fallbackSeries={series}
+                status={status}
+                maSettings={resolvedMaSettings}
+                rangeBars={listRangeBars}
+                densityKey={densityKey}
+                onOpenDetail={handleOpenDetail}
+                tileClassName={selectedSet.has(item.code) ? "is-selected" : ""}
+                maxDate={item.asOf}
+                phaseBody={ticker?.bodyScore ?? null}
+                phaseEarly={ticker?.earlyScore ?? null}
+                phaseLate={ticker?.lateScore ?? null}
+                phaseN={ticker?.phaseN ?? null}
+                annotation={
+                  selectedSet.has(item.code) ? (
+                    <TradexListSummary
+                      summary={tradexSummary}
+                      loading={tradexListSummaryState.loading && !tradexSummary}
+                    />
+                  ) : null
+                }
+                headerLeft={
+                  <div className="rank-header-main">
+                    <span className="rank-badge">{index + 1}</span>
+                    <label
+                      className="tile-select-toggle rank-select-toggle"
+                      onClick={(event) => event.stopPropagation()}
+                      onDoubleClick={(event) => event.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSet.has(item.code)}
+                        onChange={() => toggleSelect(item.code)}
+                        aria-label={`${item.code} を選択`}
+                      />
+                      <span className="tile-code rank-tile-code">{item.code}</span>
+                    </label>
+                    <span className="tile-name rank-tile-name">{item.name ?? item.code}</span>
+                  </div>
+                }
+                headerRight={
+                  <div className="rank-header-meta">
+                    {(rightsLabel || earningsLabel) && (
+                      <span className="event-badges rank-header-event-badges">
+                        {rightsLabel && (
+                          <span className="event-badge event-rights">讓ｩ蛻ｩ {rightsLabel}</span>
+                        )}
+                        {earningsLabel && (
+                          <span className="event-badge event-earnings">
+                            豎ｺ邂・{earningsLabel}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    <ResearchPatternBadges
+                      researchPatternTag={item.researchPatternTag}
+                      researchPriorBonus={item.researchPriorBonus}
+                      formatPct={formatPct}
+                    />
+                    <Link
+                      className="rank-tracking-link"
+                      to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest&q=${encodeURIComponent(item.code)}`}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      霑ｽ霍｡
+                    </Link>
+                    <button
+                      type="button"
+                      className={item.is_favorite ? "favorite-toggle active" : "favorite-toggle"}
+                      aria-label={item.is_favorite ? "縺頑ｰ励↓蜈･繧願ｧ｣髯､" : "縺頑ｰ励↓蜈･繧願ｿｽ蜉"}
+                      aria-pressed={Boolean(item.is_favorite)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleToggleFavorite(item.code, Boolean(item.is_favorite));
+                      }}
+                    >
+                      {item.is_favorite ? <IconHeartFilled size={16} /> : <IconHeart size={16} />}
+                    </button>
+                  </div>
+                }
+              />
+            );
+          }}
+        </TradexListSummaryMount>
+      );
+    },
+    [
+      backendReady,
+      barsCache,
+      barsStatus,
+      densityKey,
+      dir,
+      handleOpenDetail,
+      handleToggleFavorite,
+      listRangeBars,
+      resolvedMaSettings,
+      selectedSet,
+      tickerMap,
+      toggleSelect,
+    ]
+  );
+
   const showSkeleton = backendReady && loading && items.length === 0;
   const emptyLabel =
     !loading && backendReady && sortedItems.length === 0 && !errorMessage
@@ -1504,9 +1683,9 @@ export default function RankingView() {
         filterSellSignalsOnly ||
         filterQualifiedOnly ||
         filterMtfStrictOnly
-        ? "該当する銘柄がありません。"
+        ? "条件に一致する結果がありません。"
         : rankMode === "trade"
-          ? "厳選条件に合う銘柄がありません。"
+          ? "当日の上位銘柄がありません。"
           : "ランキングがありません。"
       : null;
   const isSingleDensity = columns === 1 && rows === 1;
@@ -1519,7 +1698,7 @@ export default function RankingView() {
       ? "買い優位"
       : tradeSummary?.dominant_direction === "down"
         ? "売り優位"
-        : "見送り";
+        : "中立";
   return (
     <div className="app-shell list-view">
       <UnifiedListHeader
@@ -1554,7 +1733,7 @@ export default function RankingView() {
         onColumnsChange={setColumns}
         onRowsChange={setRows}
         filterItems={filterItems}
-        helpLabel="相談"
+        helpLabel="選択"
         onHelpClick={() => {
           setConsultVisible(true);
           setConsultExpanded(false);
@@ -1575,12 +1754,12 @@ export default function RankingView() {
         >
           {qualificationFilterRelaxed && (
             <div className="rank-top-summary is-warn">
-              適格銘柄が0件のため、条件未達を含む候補を表示しています。
+              驕ｩ譬ｼ驫俶氛縺・莉ｶ縺ｮ縺溘ａ縲∵擅莉ｶ譛ｪ驕斐ｒ蜷ｫ繧蛟呵｣懊ｒ陦ｨ遉ｺ縺励※縺・∪縺吶・
             </div>
           )}
           {mtfStrictFilterRelaxed && (
             <div className="rank-top-summary is-warn">
-              統合厳選(合意{mtfStrictRule.minQualified}/3+ または 勝ちやすさ{(mtfStrictGateApplied * 100).toFixed(1)}%以上)で0件のため、候補を自動緩和しています。
+              {`統一条件(一致${mtfStrictRule.minQualified}/3+ かつ 勝率${(mtfStrictGateApplied * 100).toFixed(1)}%以上)では0件のため、条件を自動緩和しています。`}
             </div>
           )}
         </div>
@@ -1598,19 +1777,19 @@ export default function RankingView() {
           }}
         >
           <div className="rank-top-summary">
-            今日の優位性 {tradeDirectionLabel} / 差 {formatPct(tradeSummary.difference_score ?? null)}
+            莉頑律縺ｮ蜆ｪ菴肴ｧ {tradeDirectionLabel} / 蟾ｮ {formatPct(tradeSummary.difference_score ?? null)}
           </div>
           <div className="rank-top-summary">
-            買い {tradeSummary.buy?.count ?? 0}件 / 平均期待 {formatPct(tradeSummary.buy?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.buy?.avg_hit_score ?? null)}
+            雋ｷ縺・{tradeSummary.buy?.count ?? 0}莉ｶ / 蟷ｳ蝮・悄蠕・{formatPct(tradeSummary.buy?.avg_profit_expectancy ?? null)} / 逧・ｸｭ {formatPct(tradeSummary.buy?.avg_hit_score ?? null)}
           </div>
           <div className="rank-top-summary">
-            売り {tradeSummary.sell?.count ?? 0}件 / 平均期待 {formatPct(tradeSummary.sell?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.sell?.avg_hit_score ?? null)}
+            螢ｲ繧・{tradeSummary.sell?.count ?? 0}莉ｶ / 蟷ｳ蝮・悄蠕・{formatPct(tradeSummary.sell?.avg_profit_expectancy ?? null)} / 逧・ｸｭ {formatPct(tradeSummary.sell?.avg_hit_score ?? null)}
           </div>
           <Link
             className="rank-top-tracking-link"
             to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest`}
           >
-            判定追跡を開く
+            蛻､螳夊ｿｽ霍｡繧帝幕縺・
           </Link>
         </div>
       )}
@@ -1640,108 +1819,14 @@ export default function RankingView() {
               <>
                 {errorMessage && <div className="rank-status">{errorMessage}</div>}
                 {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
-                <div className="rank-grid">
-                  {sortedItems.map((item, index) => {
-                    const payload = barsCache[item.code] ?? null;
-                    const status = barsStatus[item.code];
-                    const series =
-                      payload && payload.bars?.length ? payload.bars : item.series ?? [];
-                    const ticker = tickerMap.get(item.code);
-                    const earningsLabel = formatEventBadgeDate(ticker?.eventEarningsDate);
-                    const rightsLabel = formatEventBadgeDate(ticker?.eventRightsDate);
-                    const tradexSummaryKey = buildTradexListSummaryKey(item.code, item.asOf ?? null);
-                    const tradexSummary = tradexListSummaryState.itemsByKey[tradexSummaryKey] ?? null;
-                    return (
-                      <ChartListCard
-                        key={item.code}
-                        code={item.code}
-                        name={item.name ?? item.code}
-                        payload={payload}
-                        fallbackSeries={series}
-                        status={status}
-                        maSettings={resolvedMaSettings}
-                        rangeBars={listRangeBars}
-                        densityKey={densityKey}
-                        onOpenDetail={handleOpenDetail}
-                        tileClassName={selectedSet.has(item.code) ? "is-selected" : ""}
-                        deferUntilInView
-                        onEnterView={handleEnsureVisibleItem}
-                        maxDate={item.asOf}
-                        phaseBody={ticker?.bodyScore ?? null}
-                        phaseEarly={ticker?.earlyScore ?? null}
-                        phaseLate={ticker?.lateScore ?? null}
-                        phaseN={ticker?.phaseN ?? null}
-                        annotation={
-                          selectedSet.has(item.code) ? (
-                            <TradexListSummary
-                              summary={tradexSummary}
-                              loading={tradexListSummaryState.loading && !tradexSummary}
-                            />
-                          ) : null
-                        }
-                        headerLeft={
-                          <div className="rank-header-main">
-                            <span className="rank-badge">{index + 1}</span>
-                            <label
-                              className="tile-select-toggle rank-select-toggle"
-                              onClick={(event) => event.stopPropagation()}
-                              onDoubleClick={(event) => event.stopPropagation()}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedSet.has(item.code)}
-                                onChange={() => toggleSelect(item.code)}
-                                aria-label={`${item.code} を選択`}
-                              />
-                              <span className="tile-code rank-tile-code">{item.code}</span>
-                            </label>
-                            <span className="tile-name rank-tile-name">{item.name ?? item.code}</span>
-                          </div>
-                        }
-                        headerRight={
-                          <div className="rank-header-meta">
-                            {(rightsLabel || earningsLabel) && (
-                              <span className="event-badges rank-header-event-badges">
-                                {rightsLabel && (
-                                  <span className="event-badge event-rights">権利 {rightsLabel}</span>
-                                )}
-                                {earningsLabel && (
-                                  <span className="event-badge event-earnings">
-                                    決算 {earningsLabel}
-                                  </span>
-                                )}
-                              </span>
-                            )}
-                            <ResearchPatternBadges
-                              researchPatternTag={item.researchPatternTag}
-                              researchPriorBonus={item.researchPriorBonus}
-                              formatPct={formatPct}
-                            />
-                            <Link
-                              className="rank-tracking-link"
-                              to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest&q=${encodeURIComponent(item.code)}`}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              追跡
-                            </Link>
-                            <button
-                              type="button"
-                              className={item.is_favorite ? "favorite-toggle active" : "favorite-toggle"}
-                              aria-label={item.is_favorite ? "お気に入り解除" : "お気に入り追加"}
-                              aria-pressed={Boolean(item.is_favorite)}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleToggleFavorite(item.code, Boolean(item.is_favorite));
-                              }}
-                            >
-                              {item.is_favorite ? <IconHeartFilled size={16} /> : <IconHeart size={16} />}
-                            </button>
-                          </div>
-                        }
-                      />
-                    );
-                  })}
-                </div>
+                <VirtualizedCardGrid
+                  items={sortedItems}
+                  columns={columns}
+                  itemKey={(item) => item.code}
+                  onVisibleItemsChange={handleVisibleItemsChange}
+                  renderItem={renderRankCard}
+                />
+
               </>
             )}
           </TradexListSummaryMount>
@@ -1758,12 +1843,12 @@ export default function RankingView() {
             if (!consultVisible) return;
             setConsultExpanded((prev) => !prev);
           }}
-          aria-label={consultExpanded ? "相談バーを折りたたむ" : "相談バーを展開する"}
+          aria-label={consultExpanded ? "逶ｸ隲・ヰ繝ｼ繧呈釜繧翫◆縺溘・" : "逶ｸ隲・ヰ繝ｼ繧貞ｱ暮幕縺吶ｋ"}
         />
         {!consultExpanded && (
           <div className="consult-mini">
             <div className="consult-mini-left">
-              <div className="consult-mini-count">選択 {selectedCodes.length}件</div>
+              <div className="consult-mini-count">驕ｸ謚・{selectedCodes.length}莉ｶ</div>
               <div className="consult-chips">
                 {selectedChips.visible.map((code) => (
                   <span key={code} className="consult-chip">
@@ -1782,27 +1867,27 @@ export default function RankingView() {
                 onClick={buildConsultation}
                 disabled={!selectedCodes.length || consultBusy}
               >
-                {consultBusy ? "作成中..." : "相談作成"}
+                {consultBusy ? "菴懈・荳ｭ..." : "逶ｸ隲・ｽ懈・"}
               </button>
               <button
                 type="button"
                 onClick={handleCreateScreenshots}
                 disabled={!selectedCodes.length || screenshotBusy}
               >
-                {screenshotBusy ? "作成中..." : "スクショ作成"}
+                {screenshotBusy ? "菴懈・荳ｭ..." : "繧ｹ繧ｯ繧ｷ繝ｧ菴懈・"}
               </button>
               <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
-                コピー
+                繧ｳ繝斐・
               </button>
               <button
                 type="button"
                 onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
                 disabled={!window.pywebview?.api?.open_screenshot_dir}
               >
-                フォルダ
+                繝輔か繝ｫ繝
               </button>
               <button type="button" onClick={() => setConsultVisible(false)}>
-                閉じる
+                髢峨§繧・
               </button>
             </div>
           </div>
@@ -1816,14 +1901,14 @@ export default function RankingView() {
                   className={consultTab === "selection" ? "active" : ""}
                   onClick={() => setConsultTab("selection")}
                 >
-                  選定相談
+                  驕ｸ螳夂嶌隲・
                 </button>
                 <button
                   type="button"
                   className={consultTab === "position" ? "active" : ""}
                   onClick={() => setConsultTab("position")}
                 >
-                  建玉相談
+                  蟒ｺ邇臥嶌隲・
                 </button>
               </div>
               <div className="consult-expanded-actions">
@@ -1833,37 +1918,37 @@ export default function RankingView() {
                   onClick={buildConsultation}
                   disabled={!selectedCodes.length || consultBusy}
                 >
-                  {consultBusy ? "作成中..." : "相談作成"}
+                  {consultBusy ? "菴懈・荳ｭ..." : "逶ｸ隲・ｽ懈・"}
                 </button>
                 <button
                   type="button"
                   onClick={handleCreateScreenshots}
                   disabled={!selectedCodes.length || screenshotBusy}
                 >
-                  {screenshotBusy ? "作成中..." : "スクショ作成"}
+                  {screenshotBusy ? "菴懈・荳ｭ..." : "繧ｹ繧ｯ繧ｷ繝ｧ菴懈・"}
                 </button>
                 <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
-                  コピー
+                  繧ｳ繝斐・
                 </button>
                 <button
                   type="button"
                   onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
                   disabled={!window.pywebview?.api?.open_screenshot_dir}
                 >
-                  フォルダ
+                  繝輔か繝ｫ繝
                 </button>
                 <button type="button" onClick={() => setConsultVisible(false)}>
-                  閉じる
+                  髢峨§繧・
                 </button>
               </div>
             </div>
             <div className="consult-expanded-body">
               <div className="consult-expanded-meta-row">
                 <div className="consult-expanded-meta">
-                  選択 {selectedCodes.length}件
+                  驕ｸ謚・{selectedCodes.length}莉ｶ
                   {consultMeta.omitted
-                    ? ` / 表示外 ${consultMeta.omitted}件`
-                    : " / 最大10件まで表示"}
+                    ? ` / 陦ｨ遉ｺ螟・${consultMeta.omitted}莉ｶ`
+                    : " / 譛螟ｧ10莉ｶ縺ｾ縺ｧ陦ｨ遉ｺ"}
                 </div>
                 <div className="consult-sort">
                   <span>並び順</span>
@@ -1883,7 +1968,7 @@ export default function RankingView() {
               {consultTab === "selection" ? (
                 <textarea className="consult-drawer-body" value={consultText} readOnly />
               ) : (
-                <div className="consult-placeholder">建玉相談は準備中です。</div>
+                <div className="consult-placeholder">チャート画像の生成中です。</div>
               )}
             </div>
           </div>
@@ -1891,7 +1976,7 @@ export default function RankingView() {
       </div>
       <AiExplainDock
         screenType="ranking"
-        targetLabel="ランキング上位"
+        targetLabel="ランキング一覧"
         snapshot={aiExplainSnapshot}
         images={aiExplainImages}
         bottomOffsetPx={consultVisible ? (consultExpanded ? 324 : 124) : 18}
@@ -1907,3 +1992,5 @@ export default function RankingView() {
     </div>
   );
 }
+
+

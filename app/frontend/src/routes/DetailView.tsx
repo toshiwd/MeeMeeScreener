@@ -730,6 +730,7 @@ export default function DetailView() {
   const [persistedSignalEvents, setPersistedSignalEvents] = useState<any[]>([]);
   const [persistedRankingAppearances, setPersistedRankingAppearances] = useState<any[]>([]);
   const [persistedMarkersLoading, setPersistedMarkersLoading] = useState(false);
+  const [secondaryChartsReady, setSecondaryChartsReady] = useState(false);
   const earningsLabel = useMemo(
     () => formatEventBadgeDate(activeTicker?.eventEarningsDate),
     [activeTicker?.eventEarningsDate]
@@ -761,6 +762,19 @@ export default function DetailView() {
   );
 
   useEffect(() => {
+    setSecondaryChartsReady(false);
+    if (!code || mainChartPendingSwap || analysisPrefetchCandles.length === 0) {
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      setSecondaryChartsReady(true);
+    }, 220);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [analysisPrefetchCandles.length, code, mainChartPendingSwap]);
+
+  useEffect(() => {
     setAnalysisNeighborPrefetchReady(false);
     if (!analysisNetworkReady || !analysisFetchEnabled) return;
     const timerId = window.setTimeout(() => {
@@ -772,7 +786,7 @@ export default function DetailView() {
   }, [analysisAsOfTime, analysisFetchEnabled, analysisNetworkReady, code]);
 
   useEffect(() => {
-    if (!backendReady || !code || !secondaryFetchStableReady || mainChartPendingSwap) {
+    if (!backendReady || !code || !secondaryFetchStableReady || mainChartPendingSwap || !analysisFetchEnabled) {
       setQualificationTrace(null);
       return;
     }
@@ -801,7 +815,7 @@ export default function DetailView() {
       cancelled = true;
       window.clearTimeout(timerId);
     };
-  }, [backendReady, code, analysisRiskMode, mainChartPendingSwap, secondaryFetchStableReady]);
+  }, [analysisFetchEnabled, backendReady, code, analysisRiskMode, mainChartPendingSwap, secondaryFetchStableReady]);
 
   useEffect(() => {
     setAnalysisBackfillJob(null);
@@ -1043,7 +1057,7 @@ export default function DetailView() {
   }, [backendReady, code, financialBackgroundJobReady, headerMode, secondaryJobReady, taisyakuFetchedOnce, taisyakuLoading, taisyakuSnapshot]);
 
   useEffect(() => {
-    if (!backendReady || !code || !secondaryFetchStableReady) return;
+    if (!backendReady || !code || !secondaryFetchStableReady || headerMode !== "financial") return;
     let cancelled = false;
     const controller = new AbortController();
     setTdnetLoading(true);
@@ -1074,7 +1088,7 @@ export default function DetailView() {
       cancelled = true;
       controller.abort();
     };
-  }, [backendReady, code, secondaryFetchStableReady, tdnetRefreshToken]);
+  }, [backendReady, code, headerMode, secondaryFetchStableReady, tdnetRefreshToken]);
 
   useEffect(() => {
     if (!backendReady || !code || !secondaryJobReady || !financialBackgroundJobReady || headerMode !== "financial") return;
@@ -2539,7 +2553,7 @@ export default function DetailView() {
     };
   }, [dailyCandles]);
   useEffect(() => {
-    if (!backendReady || !code || !detailMarkerRange || !secondaryFetchStableReady || mainChartPendingSwap) {
+    if (!backendReady || !code || !detailMarkerRange || !secondaryFetchStableReady || mainChartPendingSwap || !analysisFetchEnabled) {
       setPersistedSignalEvents([]);
       setPersistedRankingAppearances([]);
       setPersistedMarkersLoading(false);
@@ -2586,7 +2600,7 @@ export default function DetailView() {
       window.clearTimeout(timerId);
       setPersistedMarkersLoading(false);
     };
-  }, [backendReady, code, detailMarkerRange, mainChartPendingSwap, secondaryFetchStableReady]);
+  }, [analysisFetchEnabled, backendReady, code, detailMarkerRange, mainChartPendingSwap, secondaryFetchStableReady]);
   const monthlyCandles = useMemo(
     () => filterCandlesByAsOf(monthlyParse.candles, mainAsOfTime),
     [monthlyParse.candles, mainAsOfTime]
@@ -3129,7 +3143,7 @@ export default function DetailView() {
   };
 
   useEffect(() => {
-    if (!backendReady) return;
+    if (!backendReady || headerMode === "chart") return;
     let cancelled = false;
     api
       .get("/jobs/ml/status", { timeout: 10000 })
@@ -3150,7 +3164,7 @@ export default function DetailView() {
     return () => {
       cancelled = true;
     };
-  }, [backendReady]);
+  }, [backendReady, headerMode]);
 
   const submitUniverseAnalysisPublish = async () => {
     if (!backendReady || analysisRecalcSubmitting != null) {
@@ -5885,44 +5899,48 @@ export default function DetailView() {
                     className="detail-chart detail-chart-focusable"
                     onDoubleClick={() => toggleFocus("weekly")}
                   >
-                    <DetailChart
-                      ref={weeklyChartRef}
-                      candles={weeklyCandles}
-                      volume={weeklyVolume}
-                      maLines={weeklyChartMaLines}
-                      showVolume={false}
-                      boxes={boxes}
-                      showBoxes={showBoxes}
-                      gapBands={gapBandsOverride}
-                      drawingEnabled={activeDrawTool != null}
-                      timeZones={weeklyDrawings.timeZones}
-                      priceBands={weeklyDrawings.priceBands}
-                      drawBoxes={weeklyDrawings.drawBoxes}
-                      horizontalLines={weeklyDrawings.horizontalLines}
-                      showPriceBands
-                      activeTool={activeDrawTool}
-                      activeDrawColor={activeDrawColor}
-                      activeLineOpacity={activeLineOpacity}
-                      activeLineWidth={activeLineWidth}
-                      onSelectShape={setSelectedDrawing}
-                      onAddTimeZone={addTimeZone(weeklyDrawingKey)}
-                      onUpdateTimeZone={updateTimeZone(weeklyDrawingKey)}
-                      onDeleteTimeZone={deleteTimeZone(weeklyDrawingKey)}
-                      onAddPriceBand={addPriceBand(weeklyDrawingKey)}
-                      onUpdatePriceBand={updatePriceBand(weeklyDrawingKey)}
-                      onDeletePriceBand={deletePriceBand(weeklyDrawingKey)}
-                      onAddDrawBox={addDrawBox(weeklyDrawingKey)}
-                      onUpdateDrawBox={updateDrawBox(weeklyDrawingKey)}
-                      onDeleteDrawBox={deleteDrawBox(weeklyDrawingKey)}
-                      onAddHorizontalLine={addHorizontalLine(weeklyDrawingKey)}
-                      onUpdateHorizontalLine={updateHorizontalLine(weeklyDrawingKey)}
-                      onDeleteHorizontalLine={deleteHorizontalLine(weeklyDrawingKey)}
-                      partialTimes={weeklyMonthBoundaries}
-                      visibleRange={resolvedWeeklyVisibleRange}
-                      cursorTime={resolvedCursorAsOfTime}
-                      onCrosshairMove={handleWeeklyCrosshair}
-                      onVisibleRangeChange={handleWeeklyVisibleRangeChange}
-                    />
+                    {secondaryChartsReady ? (
+                      <DetailChart
+                        ref={weeklyChartRef}
+                        candles={weeklyCandles}
+                        volume={weeklyVolume}
+                        maLines={weeklyChartMaLines}
+                        showVolume={false}
+                        boxes={boxes}
+                        showBoxes={showBoxes}
+                        gapBands={gapBandsOverride}
+                        drawingEnabled={activeDrawTool != null}
+                        timeZones={weeklyDrawings.timeZones}
+                        priceBands={weeklyDrawings.priceBands}
+                        drawBoxes={weeklyDrawings.drawBoxes}
+                        horizontalLines={weeklyDrawings.horizontalLines}
+                        showPriceBands
+                        activeTool={activeDrawTool}
+                        activeDrawColor={activeDrawColor}
+                        activeLineOpacity={activeLineOpacity}
+                        activeLineWidth={activeLineWidth}
+                        onSelectShape={setSelectedDrawing}
+                        onAddTimeZone={addTimeZone(weeklyDrawingKey)}
+                        onUpdateTimeZone={updateTimeZone(weeklyDrawingKey)}
+                        onDeleteTimeZone={deleteTimeZone(weeklyDrawingKey)}
+                        onAddPriceBand={addPriceBand(weeklyDrawingKey)}
+                        onUpdatePriceBand={updatePriceBand(weeklyDrawingKey)}
+                        onDeletePriceBand={deletePriceBand(weeklyDrawingKey)}
+                        onAddDrawBox={addDrawBox(weeklyDrawingKey)}
+                        onUpdateDrawBox={updateDrawBox(weeklyDrawingKey)}
+                        onDeleteDrawBox={deleteDrawBox(weeklyDrawingKey)}
+                        onAddHorizontalLine={addHorizontalLine(weeklyDrawingKey)}
+                        onUpdateHorizontalLine={updateHorizontalLine(weeklyDrawingKey)}
+                        onDeleteHorizontalLine={deleteHorizontalLine(weeklyDrawingKey)}
+                        partialTimes={weeklyMonthBoundaries}
+                        visibleRange={resolvedWeeklyVisibleRange}
+                        cursorTime={resolvedCursorAsOfTime}
+                        onCrosshairMove={handleWeeklyCrosshair}
+                        onVisibleRangeChange={handleWeeklyVisibleRangeChange}
+                      />
+                    ) : (
+                      <div className="detail-chart-empty">Weekly: 準備中...</div>
+                    )}
                     {weeklyEmptyMessage && (
                       <div className="detail-chart-empty">Weekly: {weeklyEmptyMessage}</div>
                     )}
@@ -5939,44 +5957,48 @@ export default function DetailView() {
                     className="detail-chart detail-chart-focusable"
                     onDoubleClick={() => toggleFocus("monthly")}
                   >
-                    <DetailChart
-                      ref={monthlyChartRef}
-                      candles={monthlyCandles}
-                      volume={monthlyVolume}
-                      maLines={monthlyChartMaLines}
-                      showVolume={false}
-                      boxes={boxes}
-                      showBoxes={showBoxes}
-                      gapBands={gapBandsOverride}
-                      drawingEnabled={activeDrawTool != null}
-                      timeZones={monthlyDrawings.timeZones}
-                      priceBands={monthlyDrawings.priceBands}
-                      drawBoxes={monthlyDrawings.drawBoxes}
-                      horizontalLines={monthlyDrawings.horizontalLines}
-                      showPriceBands
-                      activeTool={activeDrawTool}
-                      activeDrawColor={activeDrawColor}
-                      activeLineOpacity={activeLineOpacity}
-                      activeLineWidth={activeLineWidth}
-                      onSelectShape={setSelectedDrawing}
-                      onAddTimeZone={addTimeZone(monthlyDrawingKey)}
-                      onUpdateTimeZone={updateTimeZone(monthlyDrawingKey)}
-                      onDeleteTimeZone={deleteTimeZone(monthlyDrawingKey)}
-                      onAddPriceBand={addPriceBand(monthlyDrawingKey)}
-                      onUpdatePriceBand={updatePriceBand(monthlyDrawingKey)}
-                      onDeletePriceBand={deletePriceBand(monthlyDrawingKey)}
-                      onAddDrawBox={addDrawBox(monthlyDrawingKey)}
-                      onUpdateDrawBox={updateDrawBox(monthlyDrawingKey)}
-                      onDeleteDrawBox={deleteDrawBox(monthlyDrawingKey)}
-                      onAddHorizontalLine={addHorizontalLine(monthlyDrawingKey)}
-                      onUpdateHorizontalLine={updateHorizontalLine(monthlyDrawingKey)}
-                      onDeleteHorizontalLine={deleteHorizontalLine(monthlyDrawingKey)}
-                      partialTimes={monthlyYearBoundaries}
-                      visibleRange={resolvedMonthlyVisibleRange}
-                      cursorTime={resolvedCursorAsOfTime}
-                      onCrosshairMove={handleMonthlyCrosshair}
-                      onVisibleRangeChange={handleMonthlyVisibleRangeChange}
-                    />
+                    {secondaryChartsReady ? (
+                      <DetailChart
+                        ref={monthlyChartRef}
+                        candles={monthlyCandles}
+                        volume={monthlyVolume}
+                        maLines={monthlyChartMaLines}
+                        showVolume={false}
+                        boxes={boxes}
+                        showBoxes={showBoxes}
+                        gapBands={gapBandsOverride}
+                        drawingEnabled={activeDrawTool != null}
+                        timeZones={monthlyDrawings.timeZones}
+                        priceBands={monthlyDrawings.priceBands}
+                        drawBoxes={monthlyDrawings.drawBoxes}
+                        horizontalLines={monthlyDrawings.horizontalLines}
+                        showPriceBands
+                        activeTool={activeDrawTool}
+                        activeDrawColor={activeDrawColor}
+                        activeLineOpacity={activeLineOpacity}
+                        activeLineWidth={activeLineWidth}
+                        onSelectShape={setSelectedDrawing}
+                        onAddTimeZone={addTimeZone(monthlyDrawingKey)}
+                        onUpdateTimeZone={updateTimeZone(monthlyDrawingKey)}
+                        onDeleteTimeZone={deleteTimeZone(monthlyDrawingKey)}
+                        onAddPriceBand={addPriceBand(monthlyDrawingKey)}
+                        onUpdatePriceBand={updatePriceBand(monthlyDrawingKey)}
+                        onDeletePriceBand={deletePriceBand(monthlyDrawingKey)}
+                        onAddDrawBox={addDrawBox(monthlyDrawingKey)}
+                        onUpdateDrawBox={updateDrawBox(monthlyDrawingKey)}
+                        onDeleteDrawBox={deleteDrawBox(monthlyDrawingKey)}
+                        onAddHorizontalLine={addHorizontalLine(monthlyDrawingKey)}
+                        onUpdateHorizontalLine={updateHorizontalLine(monthlyDrawingKey)}
+                        onDeleteHorizontalLine={deleteHorizontalLine(monthlyDrawingKey)}
+                        partialTimes={monthlyYearBoundaries}
+                        visibleRange={resolvedMonthlyVisibleRange}
+                        cursorTime={resolvedCursorAsOfTime}
+                        onCrosshairMove={handleMonthlyCrosshair}
+                        onVisibleRangeChange={handleMonthlyVisibleRangeChange}
+                      />
+                    ) : (
+                      <div className="detail-chart-empty">Monthly: 準備中...</div>
+                    )}
                     {monthlyEmptyMessage && (
                       <div className="detail-chart-empty">Monthly: {monthlyEmptyMessage}</div>
                     )}

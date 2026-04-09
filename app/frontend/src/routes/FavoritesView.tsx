@@ -1,13 +1,14 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRef } from "react";
 import type { CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { shallow } from "zustand/shallow";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import ChartListCard from "../components/ChartListCard";
 import TradexListSummary from "../components/TradexListSummary";
 import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
+import VirtualizedCardGrid from "../components/VirtualizedCardGrid";
 import { IconHeartFilled } from "@tabler/icons-react";
 import { useStore } from "../store";
 import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
@@ -19,17 +20,13 @@ import {
 import { useConsultScreenshot } from "../hooks/useConsultScreenshot";
 import { buildTradexListSummaryKey } from "./list/tradexSummary";
 import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
+import { useVisibleCodesPrefetch } from "./list/useVisibleCodesPrefetch";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import { recordPerfEvent } from "../perfDiagnostics";
 
 type FavoriteItem = {
   code: string;
   name?: string;
-};
-
-type FavoritesResponse = {
-  items?: FavoriteItem[];
-  errors?: string[];
 };
 
 type FavoriteSortKey = "code" | "change" | "scoreUp" | "scoreDown";
@@ -80,28 +77,62 @@ export default function FavoritesView() {
   const navigate = useNavigate();
   const initialCachedItems = useMemo(() => readFavoritesViewCache() ?? [], []);
   const { ready: backendReady } = useBackendReadyState();
-  const setFavoriteLocal = useStore((state) => state.setFavoriteLocal);
-  const replaceFavorites = useStore((state) => state.replaceFavorites);
-  const ensureBarsForVisible = useStore((state) => state.ensureBarsForVisible);
-  const barsCache = useStore((state) => state.barsCache);
-  const barsStatus = useStore((state) => state.barsStatus);
-  const boxesCache = useStore((state) => state.boxesCache);
-  const maSettings = useStore((state) => state.maSettings);
-  const tickers = useStore((state) => state.tickers);
-  const ensureListLoaded = useStore((state) => state.ensureListLoaded);
   const listTimeframe = useStore((state) => state.settings.listTimeframe);
-  const listRangeBars = useStore((state) => state.settings.listRangeBars);
-  const columns = useStore((state) => state.settings.columns);
-  const rows = useStore((state) => state.settings.rows);
-  const setListTimeframe = useStore((state) => state.setListTimeframe);
-  const setListRangeBars = useStore((state) => state.setListRangeBars);
-  const setColumns = useStore((state) => state.setColumns);
-  const setRows = useStore((state) => state.setRows);
+  const {
+    setFavoriteLocal,
+    replaceFavorites,
+    loadFavorites,
+    favoritesLoaded,
+    favoritesLoading,
+    favoriteCodes,
+    ensureBarsForVisible,
+    barsCache,
+    barsStatus,
+    boxesCache,
+    maSettings,
+    tickers,
+    ensureListLoaded,
+    listRangeBars,
+    columns,
+    rows,
+    setListTimeframe,
+    setListRangeBars,
+    setColumns,
+    setRows,
+  } = useStore(
+    (state) => ({
+      setFavoriteLocal: state.setFavoriteLocal,
+      replaceFavorites: state.replaceFavorites,
+      loadFavorites: state.loadFavorites,
+      favoritesLoaded: state.favoritesLoaded,
+      favoritesLoading: state.favoritesLoading,
+      favoriteCodes: state.favorites,
+      ensureBarsForVisible: state.ensureBarsForVisible,
+      barsCache: state.barsCache[listTimeframe],
+      barsStatus: state.barsStatus[listTimeframe],
+      boxesCache: state.boxesCache[listTimeframe],
+      maSettings: state.maSettings[listTimeframe],
+      tickers: state.tickers,
+      ensureListLoaded: state.ensureListLoaded,
+      listRangeBars: state.settings.listRangeBars,
+      columns: state.settings.columns,
+      rows: state.settings.rows,
+      setListTimeframe: state.setListTimeframe,
+      setListRangeBars: state.setListRangeBars,
+      setColumns: state.setColumns,
+      setRows: state.setRows,
+    }),
+    shallow
+  );
 
-  const [items, setItems] = useState<FavoriteItem[]>(() => initialCachedItems);
+  const [cachedNames, setCachedNames] = useState<Record<string, string | undefined>>(() =>
+    initialCachedItems.reduce<Record<string, string | undefined>>((acc, item) => {
+      acc[item.code] = item.name;
+      return acc;
+    }, {})
+  );
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<FavoriteSortKey>("code");
-  const [loading, setLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastAction, setToastAction] = useState<{ label: string; onClick: () => void } | null>(null);
   const [filterSignalsOnly, setFilterSignalsOnly] = useState(false);
@@ -115,7 +146,6 @@ export default function FavoritesView() {
   const [consultSort, setConsultSort] = useState<ConsultationSort>("score");
   const [consultBusy, setConsultBusy] = useState(false);
   const [consultMeta, setConsultMeta] = useState<{ omitted: number }>({ omitted: 0 });
-  const itemsRef = useRef<FavoriteItem[]>(initialCachedItems);
   const consultTimeframe: ConsultationTimeframe = "monthly";
   const consultBarsCount = 60;
   const consultPaddingClass = consultVisible
@@ -130,10 +160,6 @@ export default function FavoritesView() {
       route: location.pathname,
     });
   }, [initialCachedItems.length, location.pathname]);
-
-  useEffect(() => {
-    itemsRef.current = items;
-  }, [items]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -195,11 +221,12 @@ export default function FavoritesView() {
 
   useEffect(() => {
     if (!initialCachedItems.length) return;
+    if (favoritesLoaded || favoriteCodes.length > 0) return;
     replaceFavorites(initialCachedItems.map((item) => item.code));
     recordPerfEvent("favorites_cache_hydrated", {
       count: initialCachedItems.length,
     });
-  }, [initialCachedItems, replaceFavorites]);
+  }, [favoriteCodes.length, favoritesLoaded, initialCachedItems, replaceFavorites]);
 
   const listStyles = useMemo(
     () =>
@@ -252,79 +279,71 @@ export default function FavoritesView() {
   );
 
   useEffect(() => {
-    if (!backendReady) return;
-    const cachedItems = readFavoritesViewCache() ?? initialCachedItems;
-    const controller = new AbortController();
-    let cancelled = false;
-    setLoading(cachedItems.length === 0);
+    if (!backendReady || favoritesLoaded) return;
     recordPerfEvent("favorites_fetch_start", {
-      cachedCount: cachedItems.length,
+      cachedCount: initialCachedItems.length,
     });
-    api
-      .get("/favorites", { signal: controller.signal })
-      .then((res) => {
-        if (cancelled) return;
-        const payload = res.data as FavoritesResponse & { codes?: string[] };
-        let list = Array.isArray(payload.items) ? payload.items : [];
-        if (!list.length && Array.isArray(payload.codes)) {
-          list = payload.codes.map((code) => ({ code }));
-        }
-        setItems(list);
-        replaceFavorites(list.map((item) => item.code));
-        writeFavoritesViewCache(list);
-        recordPerfEvent("favorites_fetch_end", {
-          count: list.length,
-        });
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        const err = error as {
-          message?: string;
-          response?: { status?: number; data?: unknown };
-        };
-        if (controller.signal.aborted) return;
-        console.error("[favorites] load failed (view)", {
-          status: err?.response?.status ?? null,
-          data: err?.response?.data ?? null,
-          message: err?.message ?? null
-        });
-        recordPerfEvent("favorites_fetch_failed", {
-          status: err?.response?.status ?? null,
-          message: err?.message ?? null,
-          retainedCount: cachedItems.length || itemsRef.current.length,
-        });
-        setToastMessage("お気に入りの取得に失敗しました。");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [replaceFavorites, backendReady, initialCachedItems]);
+    void loadFavorites();
+  }, [backendReady, favoritesLoaded, initialCachedItems.length, loadFavorites]);
 
   useEffect(() => {
     if (!backendReady) return;
+    if (favoriteCodes.length === 0 && initialCachedItems.length === 0) return;
     if (tickers.length) return;
     ensureListLoaded().catch(() => { });
-  }, [backendReady, ensureListLoaded, tickers.length]);
+  }, [backendReady, ensureListLoaded, favoriteCodes.length, initialCachedItems.length, tickers.length]);
 
   useEffect(() => {
     recordPerfEvent("favorites_items_state", {
-      count: items.length,
-      loading,
+      count: favoriteCodes.length,
+      loading: favoritesLoading,
     });
-  }, [items.length, loading]);
+  }, [favoriteCodes.length, favoritesLoading]);
 
   const tickerMap = useMemo(() => {
     return new Map(tickers.map((ticker) => [ticker.code, ticker]));
   }, [tickers]);
 
+  const effectiveFavoriteCodes = useMemo(() => {
+    if (favoriteCodes.length > 0) return favoriteCodes;
+    if (favoritesLoaded) return [];
+    return initialCachedItems.map((item) => item.code);
+  }, [favoriteCodes, favoritesLoaded, initialCachedItems]);
+
   const resolveName = useCallback(
-    (item: FavoriteItem) => item.name ?? tickerMap.get(item.code)?.name ?? item.code,
-    [tickerMap]
+    (item: FavoriteItem) => tickerMap.get(item.code)?.name ?? item.name ?? cachedNames[item.code] ?? item.code,
+    [cachedNames, tickerMap]
   );
+
+  const items = useMemo(
+    () => effectiveFavoriteCodes.map((code) => ({ code, name: cachedNames[code] })),
+    [cachedNames, effectiveFavoriteCodes]
+  );
+
+  useEffect(() => {
+    if (effectiveFavoriteCodes.length === 0) return;
+    setCachedNames((current) => {
+      let changed = false;
+      const next = { ...current };
+      effectiveFavoriteCodes.forEach((code) => {
+        const tickerName = tickerMap.get(code)?.name;
+        if (!tickerName || next[code] === tickerName) return;
+        next[code] = tickerName;
+        changed = true;
+      });
+      return changed ? next : current;
+    });
+  }, [effectiveFavoriteCodes, tickerMap]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    writeFavoritesViewCache(
+      items.map((item) => ({
+        code: item.code,
+        name: resolveName(item),
+      }))
+    );
+  }, [items, resolveName]);
 
   const searchResults = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -339,12 +358,12 @@ export default function FavoritesView() {
   const signalMetricsMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>>();
     searchResults.forEach((item) => {
-      const payload = barsCache[listTimeframe]?.[item.code];
+      const payload = barsCache[item.code];
       if (!payload?.bars?.length) return;
       map.set(item.code, computeSignalMetrics(payload.bars, 4));
     });
     return map;
-  }, [searchResults, barsCache, listTimeframe]);
+  }, [searchResults, barsCache]);
 
   const signalMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeSignalMetrics>["signals"]>();
@@ -360,7 +379,7 @@ export default function FavoritesView() {
     const hasDirectionalFilter = filterBuySignalsOnly || filterSellSignalsOnly;
     if (!filterSignalsOnly && !filterDataOnly && !hasDirectionalFilter) return searchResults;
     return searchResults.filter((item) => {
-      const payload = barsCache[listTimeframe]?.[item.code];
+      const payload = barsCache[item.code];
       const hasData = Boolean(payload?.bars?.length);
       const metrics = signalMetricsMap.get(item.code);
       const summary = metrics ? getSignalDirectionSummary(metrics) : null;
@@ -380,7 +399,6 @@ export default function FavoritesView() {
     filterBuySignalsOnly,
     filterSellSignalsOnly,
     barsCache,
-    listTimeframe,
     signalMap,
     signalMetricsMap
   ]);
@@ -388,7 +406,7 @@ export default function FavoritesView() {
   const metricsMap = useMemo(() => {
     const map = new Map<string, { change: number; score: number }>();
     filteredItems.forEach((item) => {
-      const payload = barsCache[listTimeframe]?.[item.code];
+      const payload = barsCache[item.code];
       const bars = payload?.bars ?? [];
       if (!bars.length) {
         map.set(item.code, { change: 0, score: 0 });
@@ -410,7 +428,7 @@ export default function FavoritesView() {
       map.set(item.code, { change, score });
     });
     return map;
-  }, [filteredItems, barsCache, listTimeframe]);
+  }, [filteredItems, barsCache]);
 
   const sortedItems = useMemo(() => {
     const next = [...filteredItems];
@@ -438,10 +456,6 @@ export default function FavoritesView() {
   const listCodes = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
 
   const consultTargets = useMemo(() => sortedItems.map((item) => item.code), [sortedItems]);
-  const tradexListSummaryItems = useMemo(
-    () => sortedItems.map((item) => ({ code: item.code, asof: null })),
-    [sortedItems]
-  );
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -454,13 +468,10 @@ export default function FavoritesView() {
   }, [consultVisible]);
 
   const handleRemoveFavorite = async (code: string) => {
-    const prevItems = items;
-    setItems((current) => current.filter((item) => item.code !== code));
     setFavoriteLocal(code, false);
     try {
       await api.delete(`/favorites/${encodeURIComponent(code)}`);
     } catch {
-      setItems(prevItems);
       setFavoriteLocal(code, true);
       setToastMessage("お気に入りの削除に失敗しました。");
     }
@@ -483,13 +494,12 @@ export default function FavoritesView() {
     [backendReady, listCodes, location.pathname, navigate]
   );
 
-  const handleEnsureVisibleItem = useCallback(
-    (code: string) => {
-      if (!backendReady) return;
-      void ensureBarsForVisible(listTimeframe, [code], "favorites-visible");
-    },
-    [backendReady, ensureBarsForVisible, listTimeframe]
-  );
+  const { handleVisibleItemsChange } = useVisibleCodesPrefetch<FavoriteItem>({
+    backendReady,
+    timeframe: listTimeframe,
+    reason: "favorites-visible",
+    ensureBarsForVisible,
+  });
 
   const buildConsultation = useCallback(async () => {
     if (!consultTargets.length) return;
@@ -500,11 +510,12 @@ export default function FavoritesView() {
       } catch {
         // Use available cache even if fetch fails.
       }
+      const storeState = useStore.getState();
       const itemsForPack = consultTargets.map((code) => {
         const favorite = items.find((item) => item.code === code);
         const ticker = tickerMap.get(code);
-        const payload = barsCache[consultTimeframe]?.[code];
-        const boxes = boxesCache[consultTimeframe][code] ?? [];
+        const payload = storeState.barsCache[consultTimeframe]?.[code];
+        const boxes = storeState.boxesCache[consultTimeframe][code] ?? [];
         return {
           code,
           name: favorite ? resolveName(favorite) : ticker?.name ?? null,
@@ -543,8 +554,6 @@ export default function FavoritesView() {
     ensureBarsForVisible,
     consultTimeframe,
     items,
-    barsCache,
-    boxesCache,
     consultSort,
     tickerMap,
     resolveName
@@ -593,7 +602,7 @@ export default function FavoritesView() {
   ]);
 
   const emptyLabel =
-    !loading && backendReady && sortedItems.length === 0
+    !favoritesLoading && backendReady && sortedItems.length === 0
       ? search.trim() || filterSignalsOnly || filterDataOnly || filterBuySignalsOnly || filterSellSignalsOnly
         ? "該当する銘柄がありません。"
         : "お気に入りがありません。"
@@ -606,6 +615,69 @@ export default function FavoritesView() {
     const extra = Math.max(0, consultTargets.length - visible.length);
     return { visible, extra };
   }, [consultTargets]);
+
+  const renderCard = useCallback(
+    (item: FavoriteItem) => (
+      <TradexListSummaryMount
+        backendReady={backendReady}
+        enabled={true}
+        scope={`favorites-visible:${item.code}`}
+        items={[{ code: item.code, asof: null }]}
+      >
+        {(tradexListSummaryState) => {
+          const payload = barsCache[item.code] ?? null;
+          const status = barsStatus[item.code];
+          const ticker = tickerMap.get(item.code);
+          const tradexSummaryKey = buildTradexListSummaryKey(item.code, null);
+          const tradexSummary = tradexListSummaryState.itemsByKey[tradexSummaryKey] ?? null;
+          return (
+            <ChartListCard
+              key={item.code}
+              code={item.code}
+              name={resolveName(item)}
+              payload={payload}
+              status={status}
+              maSettings={maSettings}
+              rangeBars={listRangeBars}
+              eventEarningsDate={ticker?.eventEarningsDate ?? null}
+              eventRightsDate={ticker?.eventRightsDate ?? null}
+              densityKey={densityKey}
+              signals={signalMap.get(item.code) ?? []}
+              onOpenDetail={handleOpenDetail}
+              phaseBody={ticker?.bodyScore ?? null}
+              phaseEarly={ticker?.earlyScore ?? null}
+              phaseLate={ticker?.lateScore ?? null}
+              phaseN={ticker?.phaseN ?? null}
+              annotation={
+                <TradexListSummary
+                  summary={tradexSummary}
+                  loading={tradexListSummaryState.loading && !tradexSummary}
+                />
+              }
+              action={{
+                label: <IconHeartFilled size={20} />,
+                ariaLabel: "お気に入り解除",
+                className: "favorite-toggle active",
+                onClick: () => handleRemoveFavorite(item.code)
+              }}
+            />
+          );
+        }}
+      </TradexListSummaryMount>
+    ),
+    [
+      backendReady,
+      barsCache,
+      barsStatus,
+      densityKey,
+      handleOpenDetail,
+      listRangeBars,
+      maSettings,
+      resolveName,
+      signalMap,
+      tickerMap,
+    ]
+  );
 
   return (
     <div className="app-shell list-view">
@@ -635,62 +707,15 @@ export default function FavoritesView() {
         className={`rank-shell list-shell${isSingleDensity ? " is-single" : ""} ${consultPaddingClass}`}
         style={listStyles}
       >
-        <TradexListSummaryMount
-          backendReady={backendReady}
-          enabled={true}
-          scope="favorites-visible"
-          items={tradexListSummaryItems}
-        >
-          {(tradexListSummaryState) => (
-            <>
-              {loading && <div className="rank-status">読み込み中...</div>}
-              {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
-              <div className="rank-grid">
-                {sortedItems.map((item) => {
-            const payload = barsCache[listTimeframe]?.[item.code] ?? null;
-            const status = barsStatus[listTimeframe][item.code];
-            const ticker = tickerMap.get(item.code);
-            const tradexSummaryKey = buildTradexListSummaryKey(item.code, null);
-            const tradexSummary = tradexListSummaryState.itemsByKey[tradexSummaryKey] ?? null;
-            return (
-              <ChartListCard
-                key={item.code}
-                code={item.code}
-                name={resolveName(item)}
-                payload={payload}
-                status={status}
-                maSettings={maSettings[listTimeframe]}
-                rangeBars={listRangeBars}
-                eventEarningsDate={ticker?.eventEarningsDate ?? null}
-                eventRightsDate={ticker?.eventRightsDate ?? null}
-                densityKey={densityKey}
-                signals={signalMap.get(item.code) ?? []}
-                onOpenDetail={handleOpenDetail}
-                deferUntilInView
-                onEnterView={handleEnsureVisibleItem}
-                phaseBody={ticker?.bodyScore ?? null}
-                phaseEarly={ticker?.earlyScore ?? null}
-                phaseLate={ticker?.lateScore ?? null}
-                phaseN={ticker?.phaseN ?? null}
-                annotation={
-                  <TradexListSummary
-                    summary={tradexSummary}
-                    loading={tradexListSummaryState.loading && !tradexSummary}
-                  />
-                }
-                action={{
-                  label: <IconHeartFilled size={20} />,
-                  ariaLabel: "お気に入り解除",
-                  className: "favorite-toggle active",
-                  onClick: () => handleRemoveFavorite(item.code)
-                }}
-              />
-            );
-                })}
-              </div>
-            </>
-          )}
-        </TradexListSummaryMount>
+        {favoritesLoading && effectiveFavoriteCodes.length === 0 && <div className="rank-status">読み込み中...</div>}
+        {emptyLabel && <div className="rank-status">{emptyLabel}</div>}
+        <VirtualizedCardGrid
+          items={sortedItems}
+          columns={columns}
+          itemKey={(item) => item.code}
+          onVisibleItemsChange={handleVisibleItemsChange}
+          renderItem={renderCard}
+        />
       </div>
       <div
         className={`consult-sheet ${consultVisible ? "is-visible" : "is-hidden"} ${consultExpanded ? "is-expanded" : "is-mini"

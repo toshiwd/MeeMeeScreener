@@ -95,6 +95,25 @@ describe("store.loadList", () => {
     expect(useStore.getState().favoritesLoaded).toBe(true);
   });
 
+  it("skips /favorites request when favorites are already loaded or loading", async () => {
+    const { useStore } = await import("./store");
+    useStore.setState({
+      favorites: ["1001"],
+      favoritesLoaded: true,
+      favoritesLoading: false,
+    });
+
+    await useStore.getState().loadFavorites();
+    expect(apiGet).not.toHaveBeenCalledWith("/favorites");
+
+    useStore.setState({
+      favoritesLoaded: false,
+      favoritesLoading: true,
+    });
+    await useStore.getState().loadFavorites();
+    expect(apiGet).not.toHaveBeenCalledWith("/favorites");
+  });
+
   it("loads screener snapshot without legacy /list fallback", async () => {
     apiGet.mockImplementation((url: string) => {
       if (url === "/grid/screener") {
