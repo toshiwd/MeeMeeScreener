@@ -11,10 +11,15 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $frontendDir = Join-Path $repoRoot "app/frontend"
 $backendStatic = Join-Path $repoRoot "app/backend/static"
 $releaseDir = Join-Path $repoRoot "release"
-$releasePackage = Join-Path $releaseDir "MeeMeeScreener"
 $releaseZip = Join-Path $releaseDir "MeeMeeScreener-portable.zip"
 $iconPath = Join-Path $repoRoot "resources/icons/app_icon.ico"
 $artifactsDir = Join-Path $repoRoot "build/release_artifacts"
+$desktopDir = [Environment]::GetFolderPath("Desktop")
+if ([string]::IsNullOrWhiteSpace($desktopDir)) {
+    throw "Desktop path is not available."
+}
+$releasePackageRoot = Resolve-Path $desktopDir
+$releasePackage = Join-Path $releasePackageRoot "MeeMeeScreener"
 
 function Save-FileTail {
     param(
@@ -401,7 +406,7 @@ print(json.dumps(missing))
         "--noconsole",
         "--name", "MeeMeeScreener",
         "--icon", "$iconPath",
-        "--distpath", "$releaseDir",
+        "--distpath", "$releasePackageRoot",
         "--workpath", "$buildWork",
         "--specpath", "$buildWork",
         "--hidden-import", "uvicorn",
