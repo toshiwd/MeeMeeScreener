@@ -452,7 +452,7 @@ def _acquire_lock() -> tuple[object | None, Any]:
                     except RuntimeError:
                         raise  # Propagate the "already running" error
                     except Exception:
-                        pass  # tasklist unavailable or failed 驕ｯ・ｶ郢晢ｽｻallow startup
+                        pass  # tasklist unavailable or failed; allow startup
                 lock_path.unlink(missing_ok=True)
             except RuntimeError:
                 raise

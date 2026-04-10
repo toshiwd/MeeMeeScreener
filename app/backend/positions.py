@@ -153,7 +153,7 @@ def _find_rakuten_header_index(rows: list[list[str]]) -> int | None:
 
 def _find_sbi_header_index(rows: list[list[str]]) -> int | None:
     # SBI は日付と銘柄コードの列が見つかった行を見出しとみなす。
-    return _find_header_index_by_tokens(rows, ["邏・ｮ壽律", "驫俶氛繧ｳ繝ｼ繝・"], minimum_matches=2)
+    return _find_header_index_by_tokens(rows, ["約定日", "銘柄コード"], minimum_matches=2)
 
 
 def _parse_trade_rows_with_header_recovery(
