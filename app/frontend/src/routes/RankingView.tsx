@@ -203,9 +203,9 @@ const RANK_FETCH_CACHE_PREFIX = "rankingFetchCache";
 const RANK_LIMIT = 50;
 const RANK_FETCH_TIMEOUT_MS = 60000;
 const TIMEFRAME_LABELS: Record<RankTimeframe, string> = {
-  D: "譌･雜ｳ",
-  W: "騾ｱ雜ｳ",
-  M: "譛郁ｶｳ"
+  D: "日足",
+  W: "週足",
+  M: "月足"
 };
 const rankingFetchMemoryCache = new Map<string, RankingFetchCacheEntry>();
 
@@ -274,15 +274,15 @@ const MTF_STRICT_GATE_BASE = 0.66;
 const MTF_STRICT_GATE_FLOOR = 0.58;
 const MTF_STRICT_GATE_CEIL = 0.78;
 const MTF_STRICT_PROFILES: Record<MtfStrictnessResolved, { gateBias: number; minQualified: number; label: string }> = {
-  loose: { gateBias: -0.04, minQualified: 1, label: "邱ｩ" },
+  loose: { gateBias: -0.04, minQualified: 1, label: "緩め" },
   normal: { gateBias: 0, minQualified: 2, label: "標準" },
-  tight: { gateBias: 0.04, minQualified: 2, label: "蠑ｷ" }
+  tight: { gateBias: 0.04, minQualified: 2, label: "厳しめ" }
 };
 const MTF_STRICTNESS_LABEL: Record<MtfStrictness, string> = {
   auto: "自動",
-  loose: "邱ｩ",
+  loose: "緩め",
   normal: "標準",
-  tight: "蠑ｷ"
+  tight: "厳しめ"
 };
 const MTF_STRICT_ORDER: MtfStrictnessResolved[] = ["normal", "tight", "loose"];
 
@@ -760,9 +760,9 @@ export default function RankingView() {
   /*
   const timeframeButtons = useMemo(
     () => [
-      { key: "D" as RankTimeframe, label: "譌･雜ｳ" },
-      { key: "W" as RankTimeframe, label: "騾ｱ雜ｳ" },
-      { key: "M" as RankTimeframe, label: "譛郁ｶｳ" }
+      { key: "D" as RankTimeframe, label: "日足" },
+      { key: "W" as RankTimeframe, label: "週足" },
+      { key: "M" as RankTimeframe, label: "月足" }
     ],
     []
   );
@@ -1436,18 +1436,18 @@ export default function RankingView() {
           : (Number.isFinite(rankItem?.mlPDownBig ?? NaN) ? ((rankItem?.mlPDownBig ?? 0) * 100) : null);
         const reasonChunks = [
           `setup=${formatSetupType(rankItem?.setupType)}`,
-          `1Mﾂｱ20=${formatPct(rankItem?.mlP20Side1M)}`,
-          `${dir === "up" ? "1M荳頑・" : "1M荳玖誠"}=${formatPct(dir === "up" ? rankItem?.mlPUpBig : rankItem?.mlPDownBig)}`,
-          `1M螟牙虚=${formatPct(rankItem?.mlPAbsBig)}`
+          `1M20D=${formatPct(rankItem?.mlP20Side1M)}`,
+          `${dir === "up" ? "1M上側" : "1M下側"}=${formatPct(dir === "up" ? rankItem?.mlPUpBig : rankItem?.mlPDownBig)}`,
+          `1M絶対=${formatPct(rankItem?.mlPAbsBig)}`
         ];
-        reasonChunks.push(`蜍昴■繧・☆縺・${formatPct(rankItem?.winNowScore)}`);
+        reasonChunks.push(`勝率=${formatPct(rankItem?.winNowScore)}`);
         if (rankItem?.mtfStrictResolved) {
-          reasonChunks.push(`蜴ｳ驕ｸ=${MTF_STRICTNESS_LABEL[rankItem.mtfStrictResolved]}`);
+          reasonChunks.push(`統一=${MTF_STRICTNESS_LABEL[rankItem.mtfStrictResolved]}`);
         }
-        reasonChunks.push(`逶ｮ讓・${mtfStrictTarget}莉ｶ`);
-        reasonChunks.push(`繧ｲ繝ｼ繝・${(mtfStrictGateApplied * 100).toFixed(1)}%`);
+        reasonChunks.push(`目標=${mtfStrictTarget}件`);
+        reasonChunks.push(`ゲート=${(mtfStrictGateApplied * 100).toFixed(1)}%`);
         if (Number.isFinite(rankItem?.mtfLiquidity20d ?? NaN)) {
-          reasonChunks.push(`豬∝虚=${(rankItem?.mtfLiquidity20d ?? 0).toFixed(0)}`);
+          reasonChunks.push(`流動性=${(rankItem?.mtfLiquidity20d ?? 0).toFixed(0)}`);
         }
         if (rankItem?.mtfSignalBits) {
           reasonChunks.push(`MTF=${rankItem.mtfSignalBits}`);
@@ -1616,11 +1616,11 @@ export default function RankingView() {
                     {(rightsLabel || earningsLabel) && (
                       <span className="event-badges rank-header-event-badges">
                         {rightsLabel && (
-                          <span className="event-badge event-rights">讓ｩ蛻ｩ {rightsLabel}</span>
+                          <span className="event-badge event-rights">権利 {rightsLabel}</span>
                         )}
                         {earningsLabel && (
                           <span className="event-badge event-earnings">
-                            豎ｺ邂・{earningsLabel}
+                            決算 {earningsLabel}
                           </span>
                         )}
                       </span>
@@ -1635,12 +1635,12 @@ export default function RankingView() {
                       to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest&q=${encodeURIComponent(item.code)}`}
                       onClick={(event) => event.stopPropagation()}
                     >
-                      霑ｽ霍｡
+                      追跡
                     </Link>
                     <button
                       type="button"
                       className={item.is_favorite ? "favorite-toggle active" : "favorite-toggle"}
-                      aria-label={item.is_favorite ? "縺頑ｰ励↓蜈･繧願ｧ｣髯､" : "縺頑ｰ励↓蜈･繧願ｿｽ蜉"}
+                      aria-label={item.is_favorite ? "お気に入り解除" : "お気に入り追加"}
                       aria-pressed={Boolean(item.is_favorite)}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -1754,7 +1754,7 @@ export default function RankingView() {
         >
           {qualificationFilterRelaxed && (
             <div className="rank-top-summary is-warn">
-              驕ｩ譬ｼ驫俶氛縺・莉ｶ縺ｮ縺溘ａ縲∵擅莉ｶ譛ｪ驕斐ｒ蜷ｫ繧蛟呵｣懊ｒ陦ｨ遉ｺ縺励※縺・∪縺吶・
+              厳選通過が0件のため、未通過を含む候補を表示しています。
             </div>
           )}
           {mtfStrictFilterRelaxed && (
@@ -1777,19 +1777,19 @@ export default function RankingView() {
           }}
         >
           <div className="rank-top-summary">
-            莉頑律縺ｮ蜆ｪ菴肴ｧ {tradeDirectionLabel} / 蟾ｮ {formatPct(tradeSummary.difference_score ?? null)}
+            売買優勢 {tradeDirectionLabel} / 差分 {formatPct(tradeSummary.difference_score ?? null)}
           </div>
           <div className="rank-top-summary">
-            雋ｷ縺・{tradeSummary.buy?.count ?? 0}莉ｶ / 蟷ｳ蝮・悄蠕・{formatPct(tradeSummary.buy?.avg_profit_expectancy ?? null)} / 逧・ｸｭ {formatPct(tradeSummary.buy?.avg_hit_score ?? null)}
+            買い {tradeSummary.buy?.count ?? 0}件 / 期待値 {formatPct(tradeSummary.buy?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.buy?.avg_hit_score ?? null)}
           </div>
           <div className="rank-top-summary">
-            螢ｲ繧・{tradeSummary.sell?.count ?? 0}莉ｶ / 蟷ｳ蝮・悄蠕・{formatPct(tradeSummary.sell?.avg_profit_expectancy ?? null)} / 逧・ｸｭ {formatPct(tradeSummary.sell?.avg_hit_score ?? null)}
+            売り {tradeSummary.sell?.count ?? 0}件 / 期待値 {formatPct(tradeSummary.sell?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.sell?.avg_hit_score ?? null)}
           </div>
           <Link
             className="rank-top-tracking-link"
             to={`/ranking/tracking?view=ranking&dir=${dir === "down" ? "down" : "up"}&ranking_logic_version=latest`}
           >
-            蛻､螳夊ｿｽ霍｡繧帝幕縺・
+            追跡を開く
           </Link>
         </div>
       )}
@@ -1843,12 +1843,12 @@ export default function RankingView() {
             if (!consultVisible) return;
             setConsultExpanded((prev) => !prev);
           }}
-          aria-label={consultExpanded ? "逶ｸ隲・ヰ繝ｼ繧呈釜繧翫◆縺溘・" : "逶ｸ隲・ヰ繝ｼ繧貞ｱ暮幕縺吶ｋ"}
+          aria-label={consultExpanded ? "相談バーを折りたたむ" : "相談バーを展開する"}
         />
         {!consultExpanded && (
           <div className="consult-mini">
             <div className="consult-mini-left">
-              <div className="consult-mini-count">驕ｸ謚・{selectedCodes.length}莉ｶ</div>
+              <div className="consult-mini-count">選択 {selectedCodes.length}件</div>
               <div className="consult-chips">
                 {selectedChips.visible.map((code) => (
                   <span key={code} className="consult-chip">
@@ -1867,27 +1867,27 @@ export default function RankingView() {
                 onClick={buildConsultation}
                 disabled={!selectedCodes.length || consultBusy}
               >
-                {consultBusy ? "菴懈・荳ｭ..." : "逶ｸ隲・ｽ懈・"}
+                {consultBusy ? "作成中..." : "相談作成"}
               </button>
               <button
                 type="button"
                 onClick={handleCreateScreenshots}
                 disabled={!selectedCodes.length || screenshotBusy}
               >
-                {screenshotBusy ? "菴懈・荳ｭ..." : "繧ｹ繧ｯ繧ｷ繝ｧ菴懈・"}
+                {screenshotBusy ? "作成中..." : "スクショ作成"}
               </button>
               <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
-                繧ｳ繝斐・
+                コピー
               </button>
               <button
                 type="button"
                 onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
                 disabled={!window.pywebview?.api?.open_screenshot_dir}
               >
-                繝輔か繝ｫ繝
+                フォルダ
               </button>
               <button type="button" onClick={() => setConsultVisible(false)}>
-                髢峨§繧・
+                閉じる
               </button>
             </div>
           </div>
@@ -1901,14 +1901,14 @@ export default function RankingView() {
                   className={consultTab === "selection" ? "active" : ""}
                   onClick={() => setConsultTab("selection")}
                 >
-                  驕ｸ螳夂嶌隲・
+                  選定相談
                 </button>
                 <button
                   type="button"
                   className={consultTab === "position" ? "active" : ""}
                   onClick={() => setConsultTab("position")}
                 >
-                  蟒ｺ邇臥嶌隲・
+                  建玉相談
                 </button>
               </div>
               <div className="consult-expanded-actions">
@@ -1918,37 +1918,37 @@ export default function RankingView() {
                   onClick={buildConsultation}
                   disabled={!selectedCodes.length || consultBusy}
                 >
-                  {consultBusy ? "菴懈・荳ｭ..." : "逶ｸ隲・ｽ懈・"}
+                  {consultBusy ? "作成中..." : "相談作成"}
                 </button>
                 <button
                   type="button"
                   onClick={handleCreateScreenshots}
                   disabled={!selectedCodes.length || screenshotBusy}
                 >
-                  {screenshotBusy ? "菴懈・荳ｭ..." : "繧ｹ繧ｯ繧ｷ繝ｧ菴懈・"}
+                  {screenshotBusy ? "作成中..." : "スクショ作成"}
                 </button>
                 <button type="button" onClick={handleCopyConsult} disabled={!consultText}>
-                  繧ｳ繝斐・
+                  コピー
                 </button>
                 <button
                   type="button"
                   onClick={() => window.pywebview?.api?.open_screenshot_dir?.()}
                   disabled={!window.pywebview?.api?.open_screenshot_dir}
                 >
-                  繝輔か繝ｫ繝
+                  フォルダ
                 </button>
                 <button type="button" onClick={() => setConsultVisible(false)}>
-                  髢峨§繧・
+                  閉じる
                 </button>
               </div>
             </div>
             <div className="consult-expanded-body">
               <div className="consult-expanded-meta-row">
                 <div className="consult-expanded-meta">
-                  驕ｸ謚・{selectedCodes.length}莉ｶ
+                  選択 {selectedCodes.length}件
                   {consultMeta.omitted
-                    ? ` / 陦ｨ遉ｺ螟・${consultMeta.omitted}莉ｶ`
-                    : " / 譛螟ｧ10莉ｶ縺ｾ縺ｧ陦ｨ遉ｺ"}
+                    ? ` / 表示外 ${consultMeta.omitted}件`
+                    : " / 最大10件まで表示"}
                 </div>
                 <div className="consult-sort">
                   <span>並び順</span>
