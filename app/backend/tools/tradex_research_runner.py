@@ -509,6 +509,14 @@ def _write_run_manifest(session_id: str, payload: dict[str, Any]) -> None:
     _write_json(run_manifest_file(session_id), payload)
 
 
+def _ensure_run_manifest(session_id: str, payload: dict[str, Any], *, force: bool = False) -> Path:
+    path = run_manifest_file(session_id)
+    if not force and path.exists():
+        return path
+    _write_run_manifest(session_id, payload)
+    return path
+
+
 def _build_manifest(
     session_id: str,
     random_seed: int,
@@ -2121,6 +2129,40 @@ def _write_family_leaderboard_artifacts(session_state: dict[str, Any]) -> tuple[
     return leaderboard_path, report_path, leaderboard
 
 
+def _ensure_session_report(session_state: dict[str, Any], *, force: bool = False) -> Path:
+    session_id = _text(session_state.get("session_id"))
+    if not session_id:
+        raise RuntimeError("session_id is required for session report generation")
+    report_path = _session_report_file(session_id)
+    if not force and report_path.exists():
+        return report_path
+    report_path.write_text(_render_session_report(session_state), encoding="utf-8")
+    return report_path
+
+
+def _ensure_family_leaderboard_artifacts(
+    session_state: dict[str, Any],
+    *,
+    force: bool = False,
+) -> tuple[Path, Path, dict[str, Any]]:
+    session_id = _text(session_state.get("session_id"))
+    if not session_id:
+        raise RuntimeError("session_id is required for leaderboard generation")
+    leaderboard_path = _session_family_leaderboard_file(session_id)
+    report_path = _session_family_leaderboard_report_file(session_id)
+    if not force and leaderboard_path.exists() and report_path.exists():
+        return leaderboard_path, report_path, {}
+    existing_payload = _read_json_file(leaderboard_path) if leaderboard_path.exists() else None
+
+    leaderboard = existing_payload if isinstance(existing_payload, dict) else _build_family_leaderboard(session_state)
+    validate_family_leaderboard_artifact(leaderboard)
+    if force or existing_payload is None:
+        _write_json(leaderboard_path, leaderboard)
+    if force or not report_path.exists():
+        report_path.write_text(_format_family_leaderboard_markdown(leaderboard), encoding="utf-8")
+    return leaderboard_path, report_path, leaderboard
+
+
 def _leaderboard_average(total: float, count: int) -> float:
     if count <= 0:
         return 0.0
@@ -2611,6 +2653,26 @@ def _write_session_leaderboard_rollup_artifacts() -> tuple[Path, Path, dict[str,
     _write_json(rollup_path, rollup)
     _verify_json_roundtrip(rollup_path, rollup, artifact_name="session_leaderboard_rollup")
     report_path.write_text(_format_session_leaderboard_rollup_markdown(rollup), encoding="utf-8")
+    return rollup_path, report_path, rollup
+
+
+def _ensure_session_leaderboard_rollup_artifacts(*, force: bool = False) -> tuple[Path, Path, dict[str, Any]]:
+    rollup_path = _session_leaderboard_rollup_file()
+    report_path = _session_leaderboard_rollup_report_file()
+    if not force and rollup_path.exists() and report_path.exists():
+        return rollup_path, report_path, {}
+    existing_payload = _read_json_file(rollup_path) if rollup_path.exists() else None
+
+    rollup = existing_payload if isinstance(existing_payload, dict) else _build_session_leaderboard_rollup()
+    if not isinstance(existing_payload, dict):
+        rollup["rollup_path"] = str(rollup_path)
+        rollup["report_path"] = str(report_path)
+        validate_session_rollup_artifact(rollup)
+    if force or existing_payload is None:
+        _write_json(rollup_path, rollup)
+        _verify_json_roundtrip(rollup_path, rollup, artifact_name="session_leaderboard_rollup")
+    if force or not report_path.exists():
+        report_path.write_text(_format_session_leaderboard_rollup_markdown(rollup), encoding="utf-8")
     return rollup_path, report_path, rollup
 
 
@@ -3409,6 +3471,29 @@ def _write_scope_stability_rollup_artifacts(session_rows: list[dict[str, Any]]) 
     return rollup_path, report_path, rollup
 
 
+def _ensure_scope_stability_rollup_artifacts(
+    session_rows: list[dict[str, Any]],
+    *,
+    force: bool = False,
+) -> tuple[Path, Path, dict[str, Any]]:
+    rollup_path = _scope_stability_rollup_file()
+    report_path = _scope_stability_rollup_report_file()
+    existing_payload = _read_json_file(rollup_path) if rollup_path.exists() else None
+    if not force and existing_payload is not None and report_path.exists():
+        return rollup_path, report_path, existing_payload
+    rollup = existing_payload if isinstance(existing_payload, dict) else _build_scope_stability_rollup(session_rows)
+    if not isinstance(existing_payload, dict):
+        rollup["rollup_path"] = str(rollup_path)
+        rollup["report_path"] = str(report_path)
+        validate_scope_rollup_artifact(rollup)
+    if force or existing_payload is None:
+        _write_json(rollup_path, rollup)
+        _verify_json_roundtrip(rollup_path, rollup, artifact_name="scope_stability_rollup")
+    if force or not report_path.exists():
+        report_path.write_text(_format_scope_stability_rollup_markdown(rollup), encoding="utf-8")
+    return rollup_path, report_path, rollup
+
+
 def _write_stability_rollup_artifacts(session_rows: list[dict[str, Any]]) -> tuple[Path, Path, dict[str, Any]]:
     rollup = _build_stability_rollup(session_rows)
     rollup_path = _stability_rollup_file()
@@ -3418,6 +3503,27 @@ def _write_stability_rollup_artifacts(session_rows: list[dict[str, Any]]) -> tup
     _write_json(rollup_path, rollup)
     _verify_json_roundtrip(rollup_path, rollup, artifact_name="stability_rollup")
     report_path.write_text(_format_stability_rollup_markdown(rollup), encoding="utf-8")
+    return rollup_path, report_path, rollup
+
+
+def _ensure_stability_rollup_artifacts(
+    session_rows: list[dict[str, Any]],
+    *,
+    force: bool = False,
+) -> tuple[Path, Path, dict[str, Any]]:
+    rollup_path = _stability_rollup_file()
+    report_path = _stability_rollup_report_file()
+    existing_payload = _read_json_file(rollup_path) if rollup_path.exists() else None
+    if not force and existing_payload is not None and report_path.exists():
+        return rollup_path, report_path, existing_payload
+    rollup = existing_payload if isinstance(existing_payload, dict) else _build_stability_rollup(session_rows)
+    if force or existing_payload is None:
+        rollup["rollup_path"] = str(rollup_path)
+        rollup["report_path"] = str(report_path)
+        _write_json(rollup_path, rollup)
+        _verify_json_roundtrip(rollup_path, rollup, artifact_name="stability_rollup")
+    if force or not report_path.exists():
+        report_path.write_text(_format_stability_rollup_markdown(rollup), encoding="utf-8")
     return rollup_path, report_path, rollup
 
 
@@ -3553,8 +3659,8 @@ def run_tradex_stability_sweep(
                 failure_row = _build_stability_failure_row(session_id=seed_session_id, random_seed=int(seed), error=exc)
                 session_rows.append(failure_row)
                 failures.append(failure_row)
-    _write_session_leaderboard_rollup_artifacts()
-    rollup_path, report_path, rollup = _write_stability_rollup_artifacts(session_rows)
+    _ensure_session_leaderboard_rollup_artifacts()
+    rollup_path, report_path, rollup = _ensure_stability_rollup_artifacts(session_rows)
     rollup["rollup_path"] = str(rollup_path)
     rollup["report_path"] = str(report_path)
     _write_json(rollup_path, rollup)
@@ -3699,8 +3805,8 @@ def run_tradex_scope_stability_sweep(
                     )
                     session_rows.append(failure_row)
                     failures.append(failure_row)
-    _write_session_leaderboard_rollup_artifacts()
-    rollup_path, report_path, rollup = _write_scope_stability_rollup_artifacts(session_rows)
+    _ensure_session_leaderboard_rollup_artifacts()
+    rollup_path, report_path, rollup = _ensure_scope_stability_rollup_artifacts(session_rows)
     rollup["rollup_path"] = str(rollup_path)
     rollup["report_path"] = str(report_path)
     if failures:
@@ -4135,10 +4241,11 @@ def run_tradex_research_session(
     state["run_manifest"] = run_manifest
 
     if _text(state.get("status")) == "complete" and _text(state.get("manifest_hash")) == manifest_hash:
-        _write_family_leaderboard_artifacts(state)
+        _ensure_session_report(state)
+        _ensure_family_leaderboard_artifacts(state)
         if finalize_shared_rollups:
-            _write_session_leaderboard_rollup_artifacts()
-        _write_run_manifest(session_id, run_manifest)
+            _ensure_session_leaderboard_rollup_artifacts()
+        _ensure_run_manifest(session_id, run_manifest)
         return state
 
     completed_family_results: dict[str, dict[str, Any]] = {}

@@ -1057,6 +1057,167 @@ def test_tradex_research_runner_session_resume_and_artifacts(monkeypatch, tmp_pa
     assert not phase4_calls
 
 
+def test_tradex_research_runner_complete_rerun_is_noop_for_existing_artifacts(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
+    monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
+    monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
+    dependencies._stock_repo = _FakeRepo()
+    dependencies._config_repo = object()
+
+    family_specs = research_runner._build_family_specs()[:1]
+    monkeypatch.setattr(research_runner, "_build_family_specs", lambda: family_specs)
+    monkeypatch.setattr(research_runner, "_train_phase4_ranker", lambda *args, **kwargs: {"status": "skipped", "reason": "test"})
+
+    session_id = "noop1"
+    seed = 7
+    result1 = research_runner.run_tradex_research_session(
+        session_id=session_id,
+        random_seed=seed,
+        universe_size=20,
+        max_candidates_per_family=1,
+    )
+
+    report_path = research_runner._session_report_file(session_id)
+    leaderboard_path = research_runner._session_family_leaderboard_file(session_id)
+    leaderboard_report_path = research_runner._session_family_leaderboard_report_file(session_id)
+    run_manifest_path = research_runner.run_manifest_file(session_id)
+    shared_rollup_path = research_runner._session_leaderboard_rollup_file()
+    shared_rollup_report_path = research_runner._session_leaderboard_rollup_report_file()
+    mtimes_before = {
+        "report": report_path.stat().st_mtime_ns,
+        "leaderboard": leaderboard_path.stat().st_mtime_ns,
+        "leaderboard_report": leaderboard_report_path.stat().st_mtime_ns,
+        "run_manifest": run_manifest_path.stat().st_mtime_ns,
+        "shared_rollup": shared_rollup_path.stat().st_mtime_ns,
+        "shared_rollup_report": shared_rollup_report_path.stat().st_mtime_ns,
+    }
+
+    result2 = research_runner.run_tradex_research_session(
+        session_id=session_id,
+        random_seed=seed,
+        universe_size=20,
+        max_candidates_per_family=1,
+    )
+
+    mtimes_after = {
+        "report": report_path.stat().st_mtime_ns,
+        "leaderboard": leaderboard_path.stat().st_mtime_ns,
+        "leaderboard_report": leaderboard_report_path.stat().st_mtime_ns,
+        "run_manifest": run_manifest_path.stat().st_mtime_ns,
+        "shared_rollup": shared_rollup_path.stat().st_mtime_ns,
+        "shared_rollup_report": shared_rollup_report_path.stat().st_mtime_ns,
+    }
+
+    assert result2 == result1
+    assert mtimes_after == mtimes_before
+
+
+def test_tradex_research_runner_complete_rerun_repairs_only_missing_artifacts(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
+    monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
+    monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
+    dependencies._stock_repo = _FakeRepo()
+    dependencies._config_repo = object()
+
+    family_specs = research_runner._build_family_specs()[:1]
+    monkeypatch.setattr(research_runner, "_build_family_specs", lambda: family_specs)
+    monkeypatch.setattr(research_runner, "_train_phase4_ranker", lambda *args, **kwargs: {"status": "skipped", "reason": "test"})
+
+    session_id = "repair1"
+    seed = 7
+    research_runner.run_tradex_research_session(
+        session_id=session_id,
+        random_seed=seed,
+        universe_size=20,
+        max_candidates_per_family=1,
+    )
+
+    session_state_path = research_runner._session_state_file(session_id)
+    compare_path = research_runner._session_compare_file(session_id)
+    report_path = research_runner._session_report_file(session_id)
+    leaderboard_path = research_runner._session_family_leaderboard_file(session_id)
+    leaderboard_report_path = research_runner._session_family_leaderboard_report_file(session_id)
+    run_manifest_path = research_runner.run_manifest_file(session_id)
+    shared_rollup_path = research_runner._session_leaderboard_rollup_file()
+    shared_rollup_report_path = research_runner._session_leaderboard_rollup_report_file()
+
+    baseline_mtimes = {
+        "session": session_state_path.stat().st_mtime_ns,
+        "compare": compare_path.stat().st_mtime_ns,
+        "report": report_path.stat().st_mtime_ns,
+        "leaderboard": leaderboard_path.stat().st_mtime_ns,
+        "leaderboard_report": leaderboard_report_path.stat().st_mtime_ns,
+        "run_manifest": run_manifest_path.stat().st_mtime_ns,
+        "shared_rollup": shared_rollup_path.stat().st_mtime_ns,
+        "shared_rollup_report": shared_rollup_report_path.stat().st_mtime_ns,
+    }
+
+    leaderboard_path.unlink()
+    leaderboard_report_path.unlink()
+    shared_rollup_path.unlink()
+    shared_rollup_report_path.unlink()
+
+    research_runner.run_tradex_research_session(
+        session_id=session_id,
+        random_seed=seed,
+        universe_size=20,
+        max_candidates_per_family=1,
+    )
+
+    assert leaderboard_path.exists()
+    assert leaderboard_report_path.exists()
+    assert shared_rollup_path.exists()
+    assert shared_rollup_report_path.exists()
+    assert session_state_path.stat().st_mtime_ns == baseline_mtimes["session"]
+    assert compare_path.stat().st_mtime_ns == baseline_mtimes["compare"]
+    assert report_path.stat().st_mtime_ns == baseline_mtimes["report"]
+    assert run_manifest_path.stat().st_mtime_ns == baseline_mtimes["run_manifest"]
+    assert leaderboard_path.stat().st_mtime_ns != baseline_mtimes["leaderboard"]
+    assert leaderboard_report_path.stat().st_mtime_ns != baseline_mtimes["leaderboard_report"]
+    assert shared_rollup_path.stat().st_mtime_ns != baseline_mtimes["shared_rollup"]
+    assert shared_rollup_report_path.stat().st_mtime_ns != baseline_mtimes["shared_rollup_report"]
+
+
+def test_tradex_research_runner_complete_rerun_skips_shared_rollup_when_finalize_false(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
+    monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(service, "_load_evaluation_regime_rows", lambda *args, **kwargs: (_fake_regime_rows(), []))
+    monkeypatch.setattr(service, "run_tradex_analysis", _fake_run_tradex_analysis)
+    dependencies._stock_repo = _FakeRepo()
+    dependencies._config_repo = object()
+
+    family_specs = research_runner._build_family_specs()[:1]
+    monkeypatch.setattr(research_runner, "_build_family_specs", lambda: family_specs)
+    monkeypatch.setattr(research_runner, "_train_phase4_ranker", lambda *args, **kwargs: {"status": "skipped", "reason": "test"})
+
+    session_id = "repair2"
+    seed = 7
+    research_runner.run_tradex_research_session(
+        session_id=session_id,
+        random_seed=seed,
+        universe_size=20,
+        max_candidates_per_family=1,
+    )
+
+    shared_rollup_path = research_runner._session_leaderboard_rollup_file()
+    shared_rollup_report_path = research_runner._session_leaderboard_rollup_report_file()
+    shared_rollup_path.unlink()
+    shared_rollup_report_path.unlink()
+
+    research_runner.run_tradex_research_session(
+        session_id=session_id,
+        random_seed=seed,
+        universe_size=20,
+        max_candidates_per_family=1,
+        finalize_shared_rollups=False,
+    )
+
+    assert not shared_rollup_path.exists()
+    assert not shared_rollup_report_path.exists()
+
+
 def test_tradex_research_runner_rejects_duplicate_method_family_thesis(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("MEEMEE_TRADEX_ROOT", str(_short_tradex_root(tmp_path)))
     monkeypatch.setattr(service, "REPO_ROOT", tmp_path)
@@ -2483,7 +2644,7 @@ def test_tradex_research_runner_stability_sweep_generates_rollup(monkeypatch, tm
     monkeypatch.setattr(research_runner, "run_tradex_research_session", _fake_research_session)
     monkeypatch.setattr(
         research_runner,
-        "_write_session_leaderboard_rollup_artifacts",
+        "_ensure_session_leaderboard_rollup_artifacts",
         lambda: rollup_write_calls.append("called") or (Path("rollup.json"), Path("rollup.md"), {}),
     )
 
@@ -2683,7 +2844,7 @@ def test_tradex_research_runner_scope_stability_sweep_generates_rollup(monkeypat
     monkeypatch.setattr(research_runner, "run_tradex_research_session", _fake_research_session)
     monkeypatch.setattr(
         research_runner,
-        "_write_session_leaderboard_rollup_artifacts",
+        "_ensure_session_leaderboard_rollup_artifacts",
         lambda: rollup_write_calls.append("called") or (Path("rollup.json"), Path("rollup.md"), {}),
     )
 

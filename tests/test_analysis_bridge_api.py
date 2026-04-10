@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import duckdb
 import json
@@ -466,6 +466,80 @@ def test_analysis_bridge_state_eval_supports_code_filter(monkeypatch, tmp_path) 
     assert payload["rows"][0]["code"] == "1302"
 
 
+def test_analysis_bridge_public_endpoints_ignore_ops_db_failures(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "result.duckdb"
+    monkeypatch.setenv("MEEMEE_RESULT_DB_PATH", str(db_path))
+    ensure_result_db(str(db_path))
+    conn = duckdb.connect(str(db_path), read_only=False)
+    try:
+        conn.execute(
+            """
+            INSERT INTO candidate_daily (
+                publish_id, as_of_date, code, side, rank_position, candidate_score, expected_horizon_days,
+                primary_reason_codes, regime_tag, freshness_state
+            ) VALUES
+                ('pub_2026-03-12_20260312T232200Z_01', DATE '2026-03-12', '1301', 'long', 1, 12.5, 20, '["LONG_BASELINE"]', 'risk_on', 'fresh')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO regime_daily (
+                publish_id, as_of_date, regime_tag, regime_score, breadth_score, volatility_state
+            ) VALUES
+                ('pub_2026-03-12_20260312T232200Z_01', DATE '2026-03-12', 'risk_on', 0.8, 0.6, 'normal')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO state_eval_daily (
+                publish_id, as_of_date, code, state_action, side, holding_band, strategy_tags,
+                decision_3way, confidence, reason_codes, reason_text_top3, freshness_state
+            ) VALUES
+                ('pub_2026-03-12_20260312T232200Z_01', DATE '2026-03-12', '1301', 'enter', 'long', 'buy_21_60',
+                 '["box_breakout"]', 'enter', 0.81, '["BUY_TREND"]', '["Box breakout"]', 'fresh')
+            """
+        )
+    finally:
+        conn.close()
+    publish_result(
+        db_path=str(db_path),
+        publish_id="pub_2026-03-12_20260312T232200Z_01",
+        as_of_date="2026-03-12",
+        freshness_state="fresh",
+        table_row_counts={
+            "candidate_daily": 1,
+            "regime_daily": 1,
+            "state_eval_daily": 1,
+            "similar_cases_daily": 0,
+            "similar_case_paths": 0,
+        },
+    )
+
+    import app.main as main_module
+    import app.backend.services.tradex_research_bridge_service as research_bridge_service
+
+    monkeypatch.setattr(main_module, "init_resources", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main_module, "cleanup_stale_jobs", lambda: None)
+    monkeypatch.setattr(main_module, "start_yf_daily_ingest_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_yf_daily_ingest_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module, "start_ranking_analysis_quality_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_ranking_analysis_quality_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module, "start_analysis_prewarm_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_analysis_prewarm_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
+    monkeypatch.setattr(
+        research_bridge_service,
+        "connect_ops_db",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("ops db should stay unused")),
+    )
+
+    client = TestClient(main_module.create_app())
+
+    assert client.get("/api/analysis-bridge/candidates").status_code == 200
+    assert client.get("/api/analysis-bridge/regime").status_code == 200
+    assert client.get("/api/analysis-bridge/state-eval").status_code == 200
+
+
 def test_analysis_bridge_internal_state_eval_tags_reads_ops_rollups(monkeypatch, tmp_path) -> None:
     result_db = tmp_path / "result.duckdb"
     data_dir = tmp_path / "data"
@@ -573,7 +647,7 @@ def test_analysis_bridge_internal_state_eval_tags_reads_ops_rollups(monkeypatch,
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-tags?side=long")
+    response = client.get("/api/tradex/research/state-eval-tags?side=long")
 
     assert response.status_code == 200
     payload = response.json()
@@ -585,6 +659,105 @@ def test_analysis_bridge_internal_state_eval_tags_reads_ops_rollups(monkeypatch,
     assert row["holding_band"] == "buy_21_60"
     assert row["readiness_hint"] == "needs_samples"
     assert row["latest_failure_examples"] == '[{"code":"1301"}]'
+
+
+def test_analysis_bridge_internal_alias_keeps_forwarding_to_tradex_research(monkeypatch, tmp_path) -> None:
+    result_db = tmp_path / "result.duckdb"
+    data_dir = tmp_path / "data"
+    ops_db = data_dir / "external_analysis" / "ops.duckdb"
+    monkeypatch.setenv("MEEMEE_RESULT_DB_PATH", str(result_db))
+    (data_dir / "external_analysis").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(core_config, "DATA_DIR", data_dir)
+    ensure_result_db(str(result_db))
+    publish_result(
+        db_path=str(result_db),
+        publish_id="pub_2026-03-12_20260312T233500Z_01",
+        as_of_date="2026-03-12",
+        freshness_state="fresh",
+        table_row_counts={
+            "candidate_daily": 0,
+            "regime_daily": 0,
+            "state_eval_daily": 0,
+            "similar_cases_daily": 0,
+            "similar_case_paths": 0,
+        },
+    )
+    ops_conn = duckdb.connect(str(ops_db), read_only=False)
+    try:
+        ops_conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS external_state_eval_tag_rollups (
+                rollup_id TEXT PRIMARY KEY,
+                publish_id TEXT NOT NULL,
+                as_of_date DATE NOT NULL,
+                side TEXT NOT NULL,
+                holding_band TEXT NOT NULL,
+                strategy_tag TEXT NOT NULL,
+                observation_count INTEGER NOT NULL,
+                labeled_count INTEGER NOT NULL,
+                enter_count INTEGER NOT NULL,
+                wait_count INTEGER NOT NULL,
+                skip_count INTEGER NOT NULL,
+                expectancy_mean DOUBLE,
+                adverse_mean DOUBLE,
+                large_loss_rate DOUBLE,
+                win_rate DOUBLE,
+                teacher_alignment_mean DOUBLE,
+                failure_count INTEGER NOT NULL,
+                readiness_hint TEXT NOT NULL,
+                latest_failure_examples JSON NOT NULL,
+                worst_failure_examples JSON NOT NULL,
+                summary_json JSON NOT NULL,
+                created_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+        ops_conn.execute(
+            """
+            INSERT INTO external_state_eval_tag_rollups (
+                rollup_id, publish_id, as_of_date, side, holding_band, strategy_tag,
+                observation_count, labeled_count, enter_count, wait_count, skip_count,
+                expectancy_mean, adverse_mean, large_loss_rate, win_rate, teacher_alignment_mean,
+                failure_count, readiness_hint, latest_failure_examples, worst_failure_examples, summary_json, created_at
+            ) VALUES (
+                'pub_2026-03-12_20260312T233500Z_01:long:buy_21_60:box_breakout',
+                'pub_2026-03-12_20260312T233500Z_01',
+                DATE '2026-03-12',
+                'long',
+                'buy_21_60',
+                'box_breakout',
+                12, 12, 7, 3, 2,
+                0.051, 0.032, 0.08, 0.58, 0.67,
+                3, 'needs_samples',
+                '[{\"code\":\"1301\"}]',
+                '[{\"code\":\"1302\"}]',
+                '{\"failure_count\":3}',
+                TIMESTAMP '2026-03-12 23:35:00'
+            )
+            """
+        )
+    finally:
+        ops_conn.close()
+
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "init_resources", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main_module, "cleanup_stale_jobs", lambda: None)
+    monkeypatch.setattr(main_module, "start_yf_daily_ingest_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_yf_daily_ingest_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module, "start_ranking_analysis_quality_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_ranking_analysis_quality_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module, "start_analysis_prewarm_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_analysis_prewarm_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
+
+    client = TestClient(main_module.create_app())
+    alias_response = client.get("/api/analysis-bridge/internal/state-eval-tags?side=long")
+    research_response = client.get("/api/tradex/research/state-eval-tags?side=long")
+
+    assert alias_response.status_code == 200
+    assert research_response.status_code == 200
+    assert alias_response.json() == research_response.json()
 
 
 def test_analysis_bridge_internal_state_eval_tags_csv_exports_rows(monkeypatch, tmp_path) -> None:
@@ -678,7 +851,7 @@ def test_analysis_bridge_internal_state_eval_tags_csv_exports_rows(monkeypatch, 
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-tags.csv?side=short")
+    response = client.get("/api/tradex/research/state-eval-tags.csv?side=short")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
@@ -778,7 +951,7 @@ def test_analysis_bridge_internal_state_eval_tags_summary_groups_rows(monkeypatc
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-tags/summary")
+    response = client.get("/api/tradex/research/state-eval-tags/summary")
 
     assert response.status_code == 200
     payload = response.json()
@@ -873,7 +1046,7 @@ def test_analysis_bridge_internal_state_eval_candles_summary_filters_candle_tags
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-candles/summary")
+    response = client.get("/api/tradex/research/state-eval-candles/summary")
 
     assert response.status_code == 200
     payload = response.json()
@@ -968,7 +1141,7 @@ def test_analysis_bridge_internal_state_eval_candle_combos_summary_filters_combo
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-candle-combos/summary")
+    response = client.get("/api/tradex/research/state-eval-candle-combos/summary")
 
     assert response.status_code == 200
     payload = response.json()
@@ -1094,7 +1267,7 @@ def test_analysis_bridge_internal_state_eval_daily_summary_combines_views(monkey
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-daily-summary")
+    response = client.get("/api/tradex/research/state-eval-daily-summary")
 
     assert response.status_code == 200
     payload = response.json()
@@ -1242,7 +1415,7 @@ def test_analysis_bridge_internal_state_eval_daily_summary_history_reads_persist
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-daily-summary/history?limit=10")
+    response = client.get("/api/tradex/research/state-eval-daily-summary/history?limit=10")
 
     assert response.status_code == 200
     payload = response.json()
@@ -1415,7 +1588,7 @@ def test_analysis_bridge_internal_state_eval_action_queue_returns_ranked_actions
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-action-queue")
+    response = client.get("/api/tradex/research/state-eval-action-queue")
 
     assert response.status_code == 200
     payload = response.json()
@@ -1510,7 +1683,7 @@ def test_analysis_bridge_internal_state_eval_daily_summary_csv_exports_history(m
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-daily-summary.csv")
+    response = client.get("/api/tradex/research/state-eval-daily-summary.csv")
 
     assert response.status_code == 200
     assert "text/csv" in response.headers["content-type"]
@@ -1598,7 +1771,7 @@ def test_analysis_bridge_internal_state_eval_trends_summarizes_recent_rollups(mo
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-trends?lookback=10&limit=3")
+    response = client.get("/api/tradex/research/state-eval-trends?lookback=10&limit=3")
 
     assert response.status_code == 200
     payload = response.json()
@@ -1685,7 +1858,7 @@ def test_analysis_bridge_internal_state_eval_candle_combo_trends_filters_combo_t
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-candle-combo-trends?lookback=10&limit=3")
+    response = client.get("/api/tradex/research/state-eval-candle-combo-trends?lookback=10&limit=3")
 
     assert response.status_code == 200
     payload = response.json()
@@ -1809,7 +1982,7 @@ def test_analysis_bridge_internal_state_eval_promotion_review_returns_readiness(
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/state-eval-promotion-review")
+    response = client.get("/api/tradex/research/state-eval-promotion-review")
 
     assert response.status_code == 200
     payload = response.json()
@@ -1923,7 +2096,7 @@ def test_analysis_bridge_internal_state_eval_promotion_decision_persists_latest_
 
     client = TestClient(main_module.create_app())
     response = client.post(
-        "/api/analysis-bridge/internal/state-eval-promotion-decision",
+        "/api/tradex/research/state-eval-promotion-decision",
         json={"decision": "approved", "note": "looks stable", "actor": "test_user"},
     )
 
@@ -2055,7 +2228,7 @@ def test_analysis_bridge_internal_replay_progress_returns_current_run(monkeypatc
     monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
 
     client = TestClient(main_module.create_app())
-    response = client.get("/api/analysis-bridge/internal/replay-progress")
+    response = client.get("/api/tradex/research/replay-progress")
 
     assert response.status_code == 200
     payload = response.json()
@@ -2070,3 +2243,4 @@ def test_analysis_bridge_internal_replay_progress_returns_current_run(monkeypatc
     assert payload["current_run"]["current_publish_id"] == "pub3"
     assert "eta_seconds" in payload["current_run"]
     assert "eta_at" in payload["current_run"]
+

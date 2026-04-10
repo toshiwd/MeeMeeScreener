@@ -9,6 +9,7 @@ import Toast from "../components/Toast";
 import UnifiedListHeader from "../components/UnifiedListHeader";
 import VirtualizedCardGrid from "../components/VirtualizedCardGrid";
 import { useStore } from "../store";
+import { TRADEX_RESEARCH_ENDPOINTS, tradexResearchRoute } from "../tradex/researchRoutes";
 import { computeSignalMetrics, getSignalDirectionSummary } from "../utils/signals";
 import {
   buildConsultationPack,
@@ -287,7 +288,9 @@ export default function CandidatesView() {
       try {
         const [stateEvalResponse, trendResponse] = await Promise.all([
           api.get<{ rows?: StateEvalRow[] }>("/analysis-bridge/state-eval", { params: { limit: 200 } }),
-          api.get<TrendSummaryResponse>("/analysis-bridge/internal/state-eval-trends", { params: { lookback: 14, limit: 20 } })
+          api.get<TrendSummaryResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalTrends), {
+            params: { lookback: 14, limit: 20 }
+          })
         ]);
         if (!active) return;
         setStateEvalRows(Array.isArray(stateEvalResponse.data?.rows) ? stateEvalResponse.data.rows : []);

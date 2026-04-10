@@ -49,6 +49,23 @@ $scratchHits = foreach ($name in $scratchNames) {
     }
 }
 
+$scratchHits += Get-ChildItem -Force -Directory -ErrorAction SilentlyContinue | Where-Object {
+    $_.Name -like "pytest-cache-files-*"
+} | ForEach-Object {
+    $fileCount = 0
+    try {
+        $fileCount = (Get-ChildItem -LiteralPath $_.FullName -Force -File -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
+    } catch {
+        $fileCount = 0
+    }
+    if ($fileCount -gt 0) {
+        [pscustomobject]@{
+            Name = $_.Name
+            Files = $fileCount
+        }
+    }
+}
+
 if ($scratchHits) {
     Write-Host "Repo hygiene check failed: repo-root scratch/cache trees found." -ForegroundColor Red
     $scratchHits | Sort-Object Name | Format-Table -AutoSize | Out-Host

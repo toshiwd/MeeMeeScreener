@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.backend.services.analysis_bridge.reader import (
+from app.backend.services.tradex_research_bridge_service import (
     get_internal_state_eval_promotion_review,
     save_internal_state_eval_promotion_decision,
 )

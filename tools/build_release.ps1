@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $frontendDir = Join-Path $repoRoot "app/frontend"
 $backendStatic = Join-Path $repoRoot "app/backend/static"
+$frontendRouteVerifier = Join-Path $repoRoot "tools/verify_frontend_research_routes.ps1"
 $releaseDir = Join-Path $repoRoot "release"
 $releaseZip = Join-Path $releaseDir "MeeMeeScreener-portable.zip"
 $iconPath = Join-Path $repoRoot "resources/icons/app_icon.ico"
@@ -361,11 +362,20 @@ print(json.dumps(missing))
         throw "Frontend build output not found (dist or build)."
     }
 
+    & powershell -ExecutionPolicy Bypass -File $frontendRouteVerifier -TargetPaths @($frontendOut)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Frontend route verification failed for build output."
+    }
+
     if (Test-Path $backendStatic) {
         Remove-Item -Recurse -Force $backendStatic
     }
     New-Item -ItemType Directory -Force $backendStatic | Out-Null
     Copy-Item -Recurse -Force (Join-Path $frontendOut "*") $backendStatic
+    & powershell -ExecutionPolicy Bypass -File $frontendRouteVerifier -TargetPaths @($backendStatic)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Frontend route verification failed for backend static assets."
+    }
 
     if (-not (Test-Path $releaseDir)) {
         New-Item -ItemType Directory -Force $releaseDir | Out-Null

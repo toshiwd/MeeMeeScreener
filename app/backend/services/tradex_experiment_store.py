@@ -8,7 +8,12 @@ import time
 from pathlib import Path
 from typing import Any, Iterator
 
-from shared.tradex_storage import tradex_keep_path, tradex_research_families_root, tradex_research_sessions_root
+from shared.tradex_storage import (
+    resolve_tradex_root as shared_resolve_tradex_root,
+    tradex_keep_path,
+    tradex_research_families_root,
+    tradex_research_sessions_root,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -20,6 +25,10 @@ def resolve_tradex_config_root() -> Path:
     if raw:
         return Path(raw).expanduser().resolve()
     return DEFAULT_CONFIG_ROOT.resolve()
+
+
+def resolve_tradex_root() -> Path:
+    return shared_resolve_tradex_root()
 
 
 def tradex_reports_root() -> Path:
