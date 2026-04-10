@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import duckdb
 
-from app.backend.services.analysis_bridge.reader import (
+from app.backend.services.tradex_research_bridge_service import (
     get_internal_state_eval_action_queue,
     get_internal_state_eval_candle_combo_trend_summary,
     get_internal_state_eval_daily_summary,
@@ -441,19 +441,25 @@ def _temporary_analysis_reader_paths(
                 lambda: duckdb.connect(str(result_snapshot_path), read_only=True),
             )
             if ops_snapshot_path is not None:
+                ops_path_patch = patch(
+                    "app.backend.services.tradex_research_bridge_service.resolve_ops_db_path",
+                    lambda _db_path=None: Path(str(ops_snapshot_path)),
+                )
                 ops_patch = patch(
-                    "app.backend.services.analysis_bridge.reader.connect_ops_db",
+                    "app.backend.services.tradex_research_bridge_service.connect_ops_db",
                     lambda _db_path=None: duckdb.connect(str(ops_snapshot_path), read_only=False),
                 )
             else:
+                ops_path_patch = None
                 ops_patch = None
             with result_path_patch:
                 with read_only_patch:
-                    if ops_patch is None:
+                    if ops_patch is None or ops_path_patch is None:
                         yield
                     else:
-                        with ops_patch:
-                            yield
+                        with ops_path_patch:
+                            with ops_patch:
+                                yield
 
 
 def build_daily_research_report(

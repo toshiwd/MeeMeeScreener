@@ -9,22 +9,24 @@ from fastapi.responses import Response
 from app.backend.services.analysis_bridge.reader import (
     get_analysis_bridge_snapshot,
     get_candidate_daily_rows,
+    get_regime_daily_rows,
+    get_similar_case_paths_rows,
+    get_similar_cases_rows,
+    get_state_eval_rows,
+)
+from app.backend.services.tradex_research_bridge_service import (
     get_internal_replay_progress,
-    get_internal_state_eval_promotion_review,
-    save_internal_state_eval_promotion_decision,
-    get_internal_state_eval_candle_summary,
+    get_internal_state_eval_action_queue,
     get_internal_state_eval_candle_combo_summary,
     get_internal_state_eval_candle_combo_trend_summary,
-    get_internal_state_eval_action_queue,
+    get_internal_state_eval_candle_summary,
     get_internal_state_eval_daily_summary,
     get_internal_state_eval_daily_summary_history,
-    get_internal_state_eval_trend_summary,
+    get_internal_state_eval_promotion_review,
     get_internal_state_eval_tag_rows,
     get_internal_state_eval_tag_summary,
-    get_regime_daily_rows,
-    get_state_eval_rows,
-    get_similar_cases_rows,
-    get_similar_case_paths_rows,
+    get_internal_state_eval_trend_summary,
+    save_internal_state_eval_promotion_decision,
 )
 
 router = APIRouter(prefix="/api/analysis-bridge", tags=["analysis-bridge"])

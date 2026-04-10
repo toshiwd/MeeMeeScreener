@@ -1,4 +1,5 @@
 import { tradexFetchJson, tradexFetchJsonWithRetry } from "./http";
+import { TRADEX_RESEARCH_ENDPOINTS, tradexResearchRoute } from "./researchRoutes";
 import type {
   TradexAnomalyReport,
   TradexBaseline,
@@ -359,14 +360,14 @@ const loadTradexBootstrapFromBackend = async (): Promise<TradexBootstrapData> =>
   };
 };
 
-const loadTradexBootstrapFromLegacySources = async (): Promise<TradexBootstrapData> => {
+export const loadTradexBootstrapFromLegacySources = async (): Promise<TradexBootstrapData> => {
   const [analysisStatus, runtimeSelection, publishState, publishQueue, replayProgress, actionQueue, candidateCatalog] = await Promise.all([
     tradexFetchJson<AnalysisBridgeStatus>("/analysis-bridge/status"),
     tradexFetchJsonWithRetry<RuntimeSelectionSnapshot>("/system/runtime-selection"),
     tradexFetchJsonWithRetry<PublishStateSnapshot>("/system/publish/state"),
     tradexFetchJsonWithRetry<Record<string, unknown>>("/system/publish/queue"),
-    tradexFetchJson<ReplayProgressResponse>("/analysis-bridge/internal/replay-progress"),
-    tradexFetchJson<ActionQueueResponse>("/analysis-bridge/internal/state-eval-action-queue"),
+    tradexFetchJson<ReplayProgressResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.replayProgress)),
+    tradexFetchJson<ActionQueueResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalActionQueue)),
     tradexFetchJsonWithRetry<CandidateCatalogResponse>("/system/publish/candidates")
   ]);
   const baseline = buildBaseline(analysisStatus, runtimeSelection, publishState);

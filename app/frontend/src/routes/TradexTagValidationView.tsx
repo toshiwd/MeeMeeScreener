@@ -3,6 +3,11 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import TopNav from "../components/TopNav";
+import {
+  buildTradexResearchCsvHref,
+  TRADEX_RESEARCH_ENDPOINTS,
+  tradexResearchRoute
+} from "../tradex/researchRoutes";
 
 type TagRollupRow = {
   publish_id: string;
@@ -442,17 +447,23 @@ export default function TradexTagValidationView() {
       try {
         const params = side === "all" ? {} : { side };
         const [summaryRes, detailRes, reviewRes, candleRes, comboRes, dailyRes, historyRes, trendRes, comboTrendRes, actionQueueRes, replayProgressRes] = await Promise.all([
-          api.get<TagSummaryResponse>("/analysis-bridge/internal/state-eval-tags/summary", { params }),
-          api.get<TagRowsResponse>("/analysis-bridge/internal/state-eval-tags", { params: { ...params, limit: 80 } }),
-          api.get<PromotionReviewResponse>("/analysis-bridge/internal/state-eval-promotion-review"),
-          api.get<TagSummaryResponse>("/analysis-bridge/internal/state-eval-candles/summary", { params }),
-          api.get<TagSummaryResponse>("/analysis-bridge/internal/state-eval-candle-combos/summary", { params }),
-          api.get<DailySummaryResponse>("/analysis-bridge/internal/state-eval-daily-summary", { params }),
-          api.get<DailySummaryHistoryResponse>("/analysis-bridge/internal/state-eval-daily-summary/history", { params: { ...params, limit: 14 } }),
-          api.get<TrendSummaryResponse>("/analysis-bridge/internal/state-eval-trends", { params: { ...params, lookback: 14, limit: 4 } }),
-          api.get<TrendSummaryResponse>("/analysis-bridge/internal/state-eval-candle-combo-trends", { params: { ...params, lookback: 14, limit: 4 } }),
-          api.get<ActionQueueResponse>("/analysis-bridge/internal/state-eval-action-queue", { params }),
-          api.get<ReplayProgressResponse>("/analysis-bridge/internal/replay-progress")
+          api.get<TagSummaryResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalTagsSummary), { params }),
+          api.get<TagRowsResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalTags), { params: { ...params, limit: 80 } }),
+          api.get<PromotionReviewResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalPromotionReview)),
+          api.get<TagSummaryResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalCandlesSummary), { params }),
+          api.get<TagSummaryResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalCandleCombosSummary), { params }),
+          api.get<DailySummaryResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalDailySummary), { params }),
+          api.get<DailySummaryHistoryResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalDailySummaryHistory), {
+            params: { ...params, limit: 14 }
+          }),
+          api.get<TrendSummaryResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalTrends), {
+            params: { ...params, lookback: 14, limit: 4 }
+          }),
+          api.get<TrendSummaryResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalCandleComboTrends), {
+            params: { ...params, lookback: 14, limit: 4 }
+          }),
+          api.get<ActionQueueResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalActionQueue), { params }),
+          api.get<ReplayProgressResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.replayProgress))
         ]);
         if (!active) return;
         setSummary(summaryRes.data);
@@ -490,15 +501,13 @@ export default function TradexTagValidationView() {
     const params = new URLSearchParams();
     if (side !== "all") params.set("side", side);
     params.set("limit", "200");
-    const base = window.MEEMEE_API_BASE || "/api";
-    return `${base}/analysis-bridge/internal/state-eval-tags.csv?${params.toString()}`;
+    return buildTradexResearchCsvHref(TRADEX_RESEARCH_ENDPOINTS.stateEvalTagsCsv, params);
   }, [side]);
   const dailyCsvHref = useMemo(() => {
     const params = new URLSearchParams();
     if (side !== "all") params.set("side", side);
     params.set("limit", "60");
-    const base = window.MEEMEE_API_BASE || "/api";
-    return `${base}/analysis-bridge/internal/state-eval-daily-summary.csv?${params.toString()}`;
+    return buildTradexResearchCsvHref(TRADEX_RESEARCH_ENDPOINTS.stateEvalDailySummaryCsv, params);
   }, [side]);
 
   const publishedAt = detail?.as_of_date ?? summary?.as_of_date ?? "--";
