@@ -20,6 +20,7 @@ const EMPTY_STATE: UseTradexDetailAnalysisState = {
   available: false,
   reason: null,
   analysis: null,
+  forecastSurface: null,
   loading: false,
 };
 
@@ -81,6 +82,7 @@ export function useTradexDetailAnalysis({
           available: false,
           reason: extractReason(error),
           analysis: null,
+          forecastSurface: null,
           loading: false,
         });
       });

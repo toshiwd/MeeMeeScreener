@@ -31,3 +31,19 @@ def test_load_control_runtime_budget_throttles_candidate_and_similarity_limits()
     budget = resolve_research_runtime_budget({"mode": "throttled"})
     assert budget["candidate_limit_per_side"] == 8
     assert budget["similarity_top_k"] == 3
+
+
+def test_load_control_runtime_budget_allows_explicit_overrides() -> None:
+    budget = resolve_research_runtime_budget(
+        {
+            "mode": "throttled",
+            "candidate_limit_per_side": 4,
+            "similarity_top_k": 2,
+            "challenger_query_case_limit": 16,
+            "challenger_candidate_pool_limit": 64,
+        }
+    )
+    assert budget["candidate_limit_per_side"] == 4
+    assert budget["similarity_top_k"] == 2
+    assert budget["challenger_query_case_limit"] == 16
+    assert budget["challenger_candidate_pool_limit"] == 64

@@ -115,18 +115,36 @@ def load_decision_payload(decision: ResearchLoadDecision) -> dict[str, Any]:
     }
 
 
+def _resolve_budget_override(load_control: dict[str, Any] | None, key: str, default: int) -> int:
+    value = (load_control or {}).get(key)
+    if value in (None, ""):
+        return int(default)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return int(default)
+    return parsed if parsed > 0 else int(default)
+
+
 def resolve_research_runtime_budget(load_control: dict[str, Any] | None = None) -> dict[str, int]:
     mode = str((load_control or {}).get("mode") or "full").strip().lower()
     if mode == "throttled":
-        return {
+        budget = {
             "candidate_limit_per_side": THROTTLED_CANDIDATE_LIMIT_PER_SIDE,
             "similarity_top_k": THROTTLED_SIMILARITY_TOP_K,
             "challenger_query_case_limit": THROTTLED_CHALLENGER_QUERY_CASE_LIMIT,
             "challenger_candidate_pool_limit": THROTTLED_CHALLENGER_CANDIDATE_POOL_LIMIT,
         }
+    else:
+        budget = {
+            "candidate_limit_per_side": FULL_CANDIDATE_LIMIT_PER_SIDE,
+            "similarity_top_k": FULL_SIMILARITY_TOP_K,
+            "challenger_query_case_limit": FULL_CHALLENGER_QUERY_CASE_LIMIT,
+            "challenger_candidate_pool_limit": FULL_CHALLENGER_CANDIDATE_POOL_LIMIT,
+        }
     return {
-        "candidate_limit_per_side": FULL_CANDIDATE_LIMIT_PER_SIDE,
-        "similarity_top_k": FULL_SIMILARITY_TOP_K,
-        "challenger_query_case_limit": FULL_CHALLENGER_QUERY_CASE_LIMIT,
-        "challenger_candidate_pool_limit": FULL_CHALLENGER_CANDIDATE_POOL_LIMIT,
+        "candidate_limit_per_side": _resolve_budget_override(load_control, "candidate_limit_per_side", budget["candidate_limit_per_side"]),
+        "similarity_top_k": _resolve_budget_override(load_control, "similarity_top_k", budget["similarity_top_k"]),
+        "challenger_query_case_limit": _resolve_budget_override(load_control, "challenger_query_case_limit", budget["challenger_query_case_limit"]),
+        "challenger_candidate_pool_limit": _resolve_budget_override(load_control, "challenger_candidate_pool_limit", budget["challenger_candidate_pool_limit"]),
     }

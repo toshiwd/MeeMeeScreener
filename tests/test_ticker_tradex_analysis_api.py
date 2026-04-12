@@ -77,8 +77,46 @@ def test_tradex_detail_analysis_endpoint_returns_snapshot(monkeypatch) -> None:
                 "candidate_comparisons": [],
                 "publish_readiness": {"ready": False, "status": "not_evaluated", "reasons": []},
                 "override_state": {"present": False, "source": None, "logic_key": None, "logic_version": None, "reason": None},
+                "promotion_review": {
+                    "as_of_date": "2026-03-19",
+                    "champion_version": "champion-v1",
+                    "challenger_version": "challenger-v1",
+                    "sample_count": 25,
+                    "expectancy_delta": 0.018,
+                    "improved_expectancy": True,
+                    "mae_non_worse": True,
+                    "adverse_move_non_worse": True,
+                    "stable_window": True,
+                    "alignment_ok": True,
+                    "readiness_pass": True,
+                    "reason_codes": ["readiness_pass"],
+                    "approval_decision": {
+                        "decision_id": "pub:approved:1",
+                        "decision": "approved",
+                        "note": "ready_for_authoritative_cutover",
+                        "actor": "codex",
+                        "created_at": "2026-03-19T09:00:00Z",
+                    },
+                },
                 "source": "tradex_analysis",
                 "schema_version": "tradex_analysis_output_v1",
+            },
+            "forecast_surface": {
+                "available": True,
+                "as_of_date": "2026-03-19",
+                "rows": [
+                    {
+                        "code": kwargs["code"],
+                        "side": "long",
+                        "action_state": "enter",
+                        "direction_prob": 0.71,
+                        "expected_upside": 0.08,
+                        "expected_downside": 0.03,
+                        "invalidation_price": 1234.5,
+                        "reason_codes": ["signal_buy_qualified"],
+                        "setup_tags": ["breakout"],
+                    }
+                ],
             },
         },
     )
@@ -93,4 +131,7 @@ def test_tradex_detail_analysis_endpoint_returns_snapshot(monkeypatch) -> None:
         assert payload["display_label"] == "TRADEX解析"
         assert payload["analysis"]["source"] == "tradex_analysis"
         assert payload["analysis"]["display_label"] == "TRADEX解析"
+        assert payload["analysis"]["promotion_review"]["approval_decision"]["decision"] == "approved"
+        assert payload["forecast_surface"]["available"] is True
+        assert payload["forecast_surface"]["rows"][0]["action_state"] == "enter"
 

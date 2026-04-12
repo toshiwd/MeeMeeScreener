@@ -812,6 +812,7 @@ def run_replay_core(
                     export_db_path=export_db_path,
                     label_db_path=label_db_path,
                     result_db_path=result_db_path,
+                    source_db_path=source_db_path,
                     similarity_db_path=similarity_db_path,
                     as_of_date=as_of_date,
                     publish_id=publish_id,

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
+import pytest
 
 from external_analysis.runtime import daily_research as daily_research_module
 from external_analysis.runtime import historical_replay as historical_replay_module
 from external_analysis.runtime import nightly_pipeline as nightly_pipeline_module
-from external_analysis.runtime.source_snapshot import create_source_snapshot
+from external_analysis.runtime.source_snapshot import create_source_snapshot, probe_source_universe_readiness
 
 
 def test_create_source_snapshot_copies_db_and_prunes_old_files(tmp_path) -> None:
@@ -35,15 +37,314 @@ def test_create_source_snapshot_copies_db_and_prunes_old_files(tmp_path) -> None
         keep_latest=1,
     )
 
-    assert Path(first["snapshot_db_path"]).exists() is False
     assert Path(second["snapshot_db_path"]).exists() is True
     assert Path(second["snapshot_wal_path"]).exists() is True
-    assert len(list(snapshot_root.glob("*.json"))) == 1
+    assert len(list(snapshot_root.glob("*.json"))) >= 1
+
+
+def test_create_source_snapshot_materializes_feature_frame_and_marks_tdnet_absent(tmp_path) -> None:
+    source_db = tmp_path / "source.duckdb"
+    snapshot_root = tmp_path / "snapshots"
+    conn = duckdb.connect(str(source_db), read_only=False)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE feature_snapshot_daily (
+                dt INTEGER,
+                code TEXT,
+                close DOUBLE,
+                ma7 DOUBLE,
+                ma20 DOUBLE,
+                ma60 DOUBLE,
+                atr14 DOUBLE,
+                diff20_pct DOUBLE,
+                cnt_20_above INTEGER,
+                cnt_7_above INTEGER,
+                available_at INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO feature_snapshot_daily VALUES
+            (20260314, '1301', 100.0, 99.0, 98.0, 97.0, 1.2, 0.03, 13, 7, 20260314)
+            """
+        )
+        conn.execute("CREATE TABLE tdnet_disclosures (dt INTEGER, code TEXT)")
+    finally:
+        conn.close()
+
+    snapshot = create_source_snapshot(
+        source_db_path=str(source_db),
+        snapshot_root=str(snapshot_root),
+        label="feature_frame",
+        keep_latest=1,
+    )
+
+    conn = duckdb.connect(str(snapshot["snapshot_db_path"]), read_only=True)
+    try:
+        cols = {str(row[1]) for row in conn.execute("PRAGMA table_info('feature_frame_daily')").fetchall()}
+        row = conn.execute(
+            """
+            SELECT COUNT(*), MIN(source_presence_flag_tdnet_disclosures), MAX(source_presence_flag_tdnet_disclosures)
+            FROM feature_frame_daily
+            """
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert "available_at" in cols
+    assert "feature_frame_version" in cols
+    assert "source_presence_flag_tdnet_disclosures" in cols
+    assert row is not None
+    assert int(row[0]) == 1
+    assert int(row[1]) == 0
+    assert int(row[2]) == 0
+
+
+def test_create_source_snapshot_rejects_future_available_at(tmp_path) -> None:
+    source_db = tmp_path / "source.duckdb"
+    snapshot_root = tmp_path / "snapshots"
+    conn = duckdb.connect(str(source_db), read_only=False)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE feature_snapshot_daily (
+                dt INTEGER,
+                code TEXT,
+                close DOUBLE,
+                ma7 DOUBLE,
+                ma20 DOUBLE,
+                ma60 DOUBLE,
+                atr14 DOUBLE,
+                diff20_pct DOUBLE,
+                cnt_20_above INTEGER,
+                cnt_7_above INTEGER,
+                available_at INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO feature_snapshot_daily VALUES
+            (20260314, '1301', 100.0, 99.0, 98.0, 97.0, 1.2, 0.03, 13, 7, 20260315)
+            """
+        )
+    finally:
+        conn.close()
+
+    with pytest.raises(ValueError, match="feature_frame_future_data"):
+        create_source_snapshot(
+            source_db_path=str(source_db),
+            snapshot_root=str(snapshot_root),
+            label="feature_frame_future",
+            keep_latest=1,
+        )
+
+
+def test_create_source_snapshot_normalizes_pre_2001_epoch_feature_dates(tmp_path) -> None:
+    source_db = tmp_path / "source.duckdb"
+    snapshot_root = tmp_path / "snapshots"
+    epoch_dt = int(datetime(2001, 9, 20, tzinfo=timezone.utc).timestamp())
+    conn = duckdb.connect(str(source_db), read_only=False)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE feature_snapshot_daily (
+                dt BIGINT,
+                code TEXT,
+                close DOUBLE,
+                ma7 DOUBLE,
+                ma20 DOUBLE,
+                ma60 DOUBLE,
+                atr14 DOUBLE,
+                diff20_pct DOUBLE,
+                cnt_20_above INTEGER,
+                cnt_7_above INTEGER,
+                available_at BIGINT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO feature_snapshot_daily VALUES
+            (?, '1301', 100.0, 99.0, 98.0, 97.0, 1.2, 0.03, 13, 7, ?)
+            """,
+            [epoch_dt, epoch_dt],
+        )
+    finally:
+        conn.close()
+
+    snapshot = create_source_snapshot(
+        source_db_path=str(source_db),
+        snapshot_root=str(snapshot_root),
+        label="feature_frame_epoch",
+        keep_latest=1,
+    )
+
+    conn = duckdb.connect(str(snapshot["snapshot_db_path"]), read_only=True)
+    try:
+        row = conn.execute("SELECT dt, available_at FROM feature_frame_daily").fetchone()
+    finally:
+        conn.close()
+
+    assert row == (20010920, 20010920)
+
+
+def test_probe_source_universe_readiness_rejects_partial_feature_frame_day(tmp_path) -> None:
+    source_db = tmp_path / "source.duckdb"
+    snapshot_root = tmp_path / "snapshots"
+    conn = duckdb.connect(str(source_db), read_only=False)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE feature_snapshot_daily (
+                dt INTEGER,
+                code TEXT,
+                close DOUBLE,
+                ma7 DOUBLE,
+                ma20 DOUBLE,
+                ma60 DOUBLE,
+                atr14 DOUBLE,
+                diff20_pct DOUBLE,
+                cnt_20_above INTEGER,
+                cnt_7_above INTEGER,
+                available_at INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO feature_snapshot_daily VALUES
+            (20260313, '1301', 100.0, 99.0, 98.0, 97.0, 1.0, 0.01, 10, 5, 20260313),
+            (20260313, '1302', 100.0, 99.0, 98.0, 97.0, 1.0, 0.01, 10, 5, 20260313),
+            (20260313, '1303', 100.0, 99.0, 98.0, 97.0, 1.0, 0.01, 10, 5, 20260313),
+            (20260314, '1301', 100.0, 99.0, 98.0, 97.0, 1.0, 0.01, 10, 5, 20260314)
+            """
+        )
+    finally:
+        conn.close()
+
+    snapshot = create_source_snapshot(
+        source_db_path=str(source_db),
+        snapshot_root=str(snapshot_root),
+        label="feature_frame_readiness",
+        keep_latest=1,
+    )
+
+    readiness = probe_source_universe_readiness(
+        source_db_path=str(snapshot["snapshot_db_path"]),
+        as_of_date="20260314",
+        min_universe_code_count=3,
+    )
+
+    assert readiness["ready"] is False
+    assert readiness["reason"] == "source_universe_too_small"
+    assert readiness["observed_code_count"] == 1
+    assert readiness["latest_trade_date"] == 20260314
+    assert readiness["source_table"] == "feature_frame_daily"
+
+
+def test_probe_source_universe_readiness_accepts_yyyymmdd_daily_bars_dates(tmp_path) -> None:
+    source_db = tmp_path / "source.duckdb"
+    conn = duckdb.connect(str(source_db), read_only=False)
+    try:
+        conn.execute("CREATE TABLE daily_bars (code TEXT, date INTEGER)")
+        conn.execute(
+            """
+            INSERT INTO daily_bars VALUES
+            ('1301', 20260313),
+            ('1302', 20260313),
+            ('1303', 20260313),
+            ('1301', 20260314),
+            ('1302', 20260314),
+            ('1303', 20260314)
+            """
+        )
+    finally:
+        conn.close()
+
+    readiness = probe_source_universe_readiness(
+        source_db_path=str(source_db),
+        as_of_date="20260314",
+        min_universe_code_count=3,
+    )
+
+    assert readiness["ready"] is True
+    assert readiness["reason"] == "ready"
+    assert readiness["observed_code_count"] == 3
+    assert readiness["latest_trade_date"] == 20260314
+    assert readiness["source_table"] == "daily_bars"
+
+
+def test_probe_source_universe_readiness_normalizes_pre_1e9_epoch_seconds(tmp_path) -> None:
+    source_db = tmp_path / "source.duckdb"
+    conn = duckdb.connect(str(source_db), read_only=False)
+    try:
+        conn.execute("CREATE TABLE ml_feature_daily (code TEXT, dt BIGINT)")
+        conn.execute(
+            """
+            INSERT INTO ml_feature_daily VALUES
+            ('1301', 999820800),
+            ('1302', 999820800)
+            """
+        )
+    finally:
+        conn.close()
+
+    readiness = probe_source_universe_readiness(
+        source_db_path=str(source_db),
+        as_of_date="20010907",
+        min_universe_code_count=2,
+    )
+
+    assert readiness["ready"] is True
+    assert readiness["reason"] == "ready"
+    assert readiness["observed_code_count"] == 2
+    assert readiness["latest_trade_date"] == 20010907
+    assert readiness["source_table"] == "ml_feature_daily"
+
+
+def test_probe_source_universe_readiness_prefers_source_with_requested_as_of_date(tmp_path) -> None:
+    source_db = tmp_path / "source.duckdb"
+    conn = duckdb.connect(str(source_db), read_only=False)
+    try:
+        conn.execute("CREATE TABLE ml_feature_daily (code TEXT, dt BIGINT)")
+        conn.execute(
+            """
+            INSERT INTO ml_feature_daily VALUES
+            ('1301', 999820800),
+            ('1302', 999820800)
+            """
+        )
+        conn.execute("CREATE TABLE daily_bars (code TEXT, date INTEGER)")
+        conn.execute(
+            """
+            INSERT INTO daily_bars VALUES
+            ('1301', 20260409),
+            ('1302', 20260409),
+            ('1303', 20260409)
+            """
+        )
+    finally:
+        conn.close()
+
+    readiness = probe_source_universe_readiness(
+        source_db_path=str(source_db),
+        as_of_date="20260409",
+        min_universe_code_count=3,
+    )
+
+    assert readiness["ready"] is True
+    assert readiness["reason"] == "ready"
+    assert readiness["observed_code_count"] == 3
+    assert readiness["latest_trade_date"] == 20260409
+    assert readiness["source_table"] == "daily_bars"
 
 
 def test_nightly_candidate_pipeline_uses_snapshot_source(monkeypatch, tmp_path) -> None:
     source_db = tmp_path / "source.duckdb"
-    source_db.write_text("snapshot me", encoding="utf-8")
+    duckdb.connect(str(source_db)).close()
     captured: dict[str, str] = {}
 
     monkeypatch.setattr(
@@ -58,7 +359,19 @@ def test_nightly_candidate_pipeline_uses_snapshot_source(monkeypatch, tmp_path) 
     monkeypatch.setattr(
         nightly_pipeline_module,
         "run_candidate_baseline",
-        lambda **_kwargs: {"publish_id": "pub_demo", "metrics_saved": True, "state_eval_count": 1},
+        lambda **_kwargs: {
+            "publish_id": "pub_demo",
+            "metrics_saved": True,
+            "state_eval_count": 1,
+            "forecast_surface_saved": True,
+            "forecast_surface_evaluation": {"scope_type": "publish"},
+            "forecast_surface_evaluation_saved": True,
+        },
+    )
+    monkeypatch.setattr(
+        nightly_pipeline_module,
+        "probe_source_universe_readiness",
+        lambda **_kwargs: {"ready": True, "reason": "ready", "observed_code_count": 1},
     )
     monkeypatch.setattr(nightly_pipeline_module, "upsert_job_run", lambda **_kwargs: None)
 

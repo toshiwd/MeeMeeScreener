@@ -60,7 +60,7 @@ def load_candidate_input_frame(
     if as_of_date is None:
         raise ValueError("as_of_date is required")
     as_of_date_int = _normalize_as_of_date(as_of_date)
-    conn = connect_export_db(export_db_path)
+    conn = connect_export_db(export_db_path, read_only=True)
     try:
         code_filter_sql = ""
         params: list[Any] = [as_of_date_int]
@@ -364,7 +364,7 @@ def _evaluate_nightly_metrics(
     }
     if not long_codes:
         return metrics
-    conn = connect_label_db(label_db_path)
+    conn = connect_label_db(label_db_path, read_only=True)
     try:
         placeholders = ", ".join(["?"] * len(long_codes))
         rows = conn.execute(
@@ -460,6 +460,7 @@ def run_candidate_baseline(
     export_db_path: str | None = None,
     label_db_path: str | None = None,
     result_db_path: str | None = None,
+    source_db_path: str | None = None,
     as_of_date: str | int | None = None,
     publish_id: str | None = None,
     freshness_state: str = "fresh",
@@ -578,11 +579,40 @@ def run_candidate_baseline(
         tag_prior_support=state_eval_payload["tag_prior_support"],
         label_db_path=label_db_path,
     )
-    candidate_bundle_result = build_publish_candidate_bundle(
-        db_path=result_db_path,
-        publish_id=actual_publish_id,
-        readiness=shadow_result,
+    candidate_bundle_result = (
+        build_publish_candidate_bundle(
+            db_path=result_db_path,
+            publish_id=actual_publish_id,
+            readiness=shadow_result,
+        )
+        if publish_public
+        else {"ok": False, "reason": "publish_public_disabled", "bundle": None}
     )
+    forecast_surface_result: dict[str, Any] | None = None
+    forecast_surface_evaluation_result: dict[str, Any] | None = None
+    if source_db_path:
+        from external_analysis.models.forecast_surface import persist_forecast_surface_daily
+
+        forecast_surface_result = persist_forecast_surface_daily(
+            result_db_path=result_db_path,
+            export_db_path=export_db_path,
+            source_db_path=source_db_path,
+            label_db_path=label_db_path,
+            as_of_date=as_of_date_int,
+            publish_id=actual_publish_id,
+            freshness_state=freshness_state,
+            codes=codes,
+        )
+        if label_db_path:
+            from external_analysis.models.forecast_surface_evaluation import evaluate_forecast_surface
+
+            forecast_surface_evaluation_result = evaluate_forecast_surface(
+                result_db_path=result_db_path,
+                label_db_path=label_db_path,
+                source_db_path=source_db_path,
+                publish_id=actual_publish_id,
+                persist=True,
+            )
     return {
         "ok": True,
         "publish": publish_payload,
@@ -607,4 +637,20 @@ def run_candidate_baseline(
         "state_eval_shadow_summary": shadow_result.get("summary"),
         "candidate_bundle_saved": bool(candidate_bundle_result.get("ok")),
         "candidate_bundle": candidate_bundle_result.get("bundle"),
+        "forecast_surface_saved": bool(forecast_surface_result.get("saved")) if forecast_surface_result else False,
+        "forecast_surface": forecast_surface_result,
+        "forecast_surface_row_count": int(forecast_surface_result.get("row_count") or 0) if forecast_surface_result else 0,
+        "forecast_surface_side_counts": forecast_surface_result.get("side_counts") if forecast_surface_result else None,
+        "forecast_surface_action_counts": forecast_surface_result.get("action_counts") if forecast_surface_result else None,
+        "forecast_surface_source_context_presence": forecast_surface_result.get("source_context_presence")
+        if forecast_surface_result
+        else None,
+        "forecast_surface_evaluation_saved": bool((forecast_surface_evaluation_result or {}).get("ok")),
+        "forecast_surface_evaluation": forecast_surface_evaluation_result,
+        "forecast_surface_evaluation_readiness_pass": bool(
+            (forecast_surface_evaluation_result or {}).get("readiness_pass")
+        )
+        if forecast_surface_evaluation_result
+        else False,
+        "forecast_surface_evaluation_gate_reason": (forecast_surface_evaluation_result or {}).get("gate_reason"),
     }

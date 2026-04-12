@@ -483,6 +483,7 @@ print(json.dumps(missing))
         "--add-data", "$(Join-Path $repoRoot "app/backend/update_state.json");app/backend",
         "--add-data", "$(Join-Path $repoRoot "app/backend/favorites.sqlite");app/backend",
         "--add-data", "$(Join-Path $repoRoot "app/backend/practice.sqlite");app/backend",
+        "--add-data", "$(Join-Path $repoRoot "toredex_config.json");.",
         "--add-data", "$stagedDbPath;app/backend",
         "--add-data", "$(Join-Path $repoRoot "fixtures");fixtures",
         "app/desktop/launcher.py"

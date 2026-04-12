@@ -99,6 +99,8 @@ def test_daily_research_cycle_runs_end_to_end_and_writes_reports(monkeypatch, tm
     assert payload["challenger"]["status"] == "success"
     assert payload["report"]["publish"]["publish_id"] == "pub_2026-03-12_20260312T235930Z_01"
     assert len(payload["report"]["action_queue"]) >= 1
+    assert payload["report"]["forecast_surface_projection"] is not None
+    assert float((payload["report"]["forecast_surface_projection"]["summary"] or {}).get("coverage_ratio") or 0.0) > 0.0
     assert payload["report"]["codex_next_step"]["kind"] == "promotion_decision_pending"
     assert "promotion-decision-run" in str(payload["report"]["codex_next_step"]["suggested_command"])
     assert payload["report"]["pending_carryover"] == []
@@ -106,6 +108,9 @@ def test_daily_research_cycle_runs_end_to_end_and_writes_reports(monkeypatch, tm
     assert saved_json["publish_id"] == "pub_2026-03-12_20260312T235930Z_01"
     assert saved_json["report"]["approval_decision"] is None
     assert "Tradex Daily Research" in saved_text
+    assert "forecast_surface_ready:" in saved_text
+    assert "forecast_surface_coverage:" in saved_text
+    assert "forecast_surface_projection_counts:" in saved_text
     assert "today_queue:" in saved_text
     assert "codex_command:" in saved_text
     assert saved_progress["status"] == "complete"
@@ -337,9 +342,9 @@ def test_format_daily_research_text_report_includes_summary_fields() -> None:
     text = format_daily_research_text_report(
         {
             "as_of_date": "20260314",
-            "candidate": {"status": "success"},
-            "similarity": {"status": "success"},
-            "challenger": {"status": "hold"},
+            "candidate": {"status": "success", "quarantine_reason": None},
+            "similarity": {"status": "success", "quarantine_reason": None},
+            "challenger": {"status": "hold", "quarantine_reason": "waiting_for_similarity"},
             "report": {
                 "publish": {"publish_id": "pub_demo"},
                 "daily_summary": {
@@ -349,6 +354,41 @@ def test_format_daily_research_text_report_includes_summary_fields() -> None:
                     "sample_watch": {"strategy_tag": "three_bar_bull_reversal"},
                 },
                 "promotion_review": {"readiness_pass": True, "expectancy_delta": 0.12},
+                "forecast_surface_review": {
+                    "readiness_pass": True,
+                    "gate_reason": "pass",
+                    "top_k_uplift": 0.03,
+                    "alerts": ["gate_pass"],
+                    "gate_failures": [],
+                    "regime_breakdown": {
+                        "risk_on": {
+                            "combined_mean_ret20_net": 0.07,
+                            "sample_count": 12,
+                        }
+                    },
+                },
+                "forecast_surface_projection": {
+                    "summary": {
+                        "actual_row_count": 8,
+                        "expected_row_count": 8,
+                        "coverage_ratio": 1.0,
+                        "alerts": ["source_absent:tdnet_disclosures"],
+                    },
+                    "long_rank": [{"code": "1301"}],
+                    "short_rank": [{"code": "1303"}],
+                    "high_risk_avoid": [{"code": "1302"}],
+                    "watchlist_promotions": [{"code": "1301"}],
+                },
+                "forecast_surface_shadow_status": {
+                    "acceptance_pass": True,
+                    "primary_reason": "gate_passed",
+                    "observed_days": 20,
+                    "required_days": 20,
+                    "coverage_pass_count": 20,
+                    "universe_pass_count": 20,
+                    "gate_pass_count": 20,
+                    "failures": [],
+                },
                 "approval_decision": {"decision": "approved", "actor": "codex_cli"},
                 "pending_carryover": [
                     {
@@ -393,9 +433,22 @@ def test_format_daily_research_text_report_includes_summary_fields() -> None:
 
     assert "Tradex Daily Research" in text
     assert "publish_id: pub_demo" in text
+    assert "candidate_quarantine_reason: --" in text
+    assert "challenger_quarantine_reason: waiting_for_similarity" in text
     assert "top_strategy: box_breakout" in text
     assert "approval_decision: approved" in text
     assert "codex_next_step: Promotion decision already recorded" in text
+    assert "forecast_surface_ready: yes" in text
+    assert "forecast_surface_gate_reason: pass" in text
+    assert "forecast_surface_baseline_delta: 0.03" in text
+    assert "forecast_surface_coverage: 8/8 (1.0)" in text
+    assert "forecast_surface_shadow_acceptance: yes" in text
+    assert "forecast_surface_shadow_days: 20/20" in text
+    assert "forecast_surface_projection_counts: long_rank=1 | short_rank=1 | high_risk_avoid=1 | watchlist_promotions=1" in text
+    assert "forecast_surface_regimes:" in text
+    assert "risk_on | combined_mean_ret20_net=0.07 | sample_count=12" in text
+    assert "forecast_surface_alerts:" in text
+    assert "source_absent:tdnet_disclosures" in text
     assert "pending_carryover_count: 1" in text
     assert "history_compare_target: pub_old" in text
     assert "codex_brief_pending: 1" in text
@@ -403,6 +456,204 @@ def test_format_daily_research_text_report_includes_summary_fields() -> None:
     assert "history_changes:" in text
     assert "pending_carryover:" in text
     assert "[Review] Promote challenger review" in text
+
+
+def test_format_daily_research_text_report_surfaces_shadow_run_alerts_when_surface_missing() -> None:
+    text = format_daily_research_text_report(
+        {
+            "as_of_date": "20260314",
+            "candidate": {"status": "success", "quarantine_reason": None},
+            "similarity": {"status": "success", "quarantine_reason": None},
+            "challenger": {"status": "success", "quarantine_reason": None},
+            "report": {
+                "publish": {"publish_id": "pub_demo"},
+                "daily_summary": {},
+                "promotion_review": {"readiness_pass": False, "expectancy_delta": 0.0},
+                "forecast_surface_review": {
+                    "readiness_pass": False,
+                    "gate_reason": "forecast_surface_missing",
+                    "primary_gate_reason": "forecast_surface_missing",
+                    "top_k_uplift": None,
+                    "alerts": [],
+                    "gate_failures": ["forecast_surface_missing"],
+                    "regime_breakdown": {},
+                },
+                "forecast_surface_projection": {
+                    "summary": {
+                        "actual_row_count": 0,
+                        "expected_row_count": 8,
+                        "coverage_ratio": 0.0,
+                        "alerts": [],
+                    },
+                    "long_rank": [],
+                    "short_rank": [],
+                    "high_risk_avoid": [],
+                    "watchlist_promotions": [],
+                },
+                "forecast_surface_shadow_status": {
+                    "acceptance_pass": False,
+                    "primary_reason": "insufficient_days",
+                    "observed_days": 3,
+                    "required_days": 20,
+                    "coverage_pass_count": 3,
+                    "universe_pass_count": 2,
+                    "gate_pass_count": 1,
+                    "failures": [
+                        {"reason": "insufficient_days"},
+                        {"reason": "universe_too_small", "as_of_date": "2026-03-12", "publish_id": "shadow20_20260312"},
+                    ],
+                },
+                "forecast_surface_alerts": ["forecast_surface_missing", "shadow_run_not_ready:forecast_surface_missing", "shadow_run_coverage_shortfall:0/8"],
+                "approval_decision": None,
+                "pending_carryover": [],
+                "history_comparison": None,
+                "codex_brief": {"pending": [], "improving": [], "risk": []},
+                "codex_next_step": {"title": "No immediate Codex action", "status": "idle", "suggested_command": None},
+                "action_queue": [],
+            },
+        }
+    )
+
+    assert "forecast_surface_ready: no" in text
+    assert "forecast_surface_gate_reason: forecast_surface_missing" in text
+    assert "forecast_surface_shadow_acceptance: no" in text
+    assert "forecast_surface_shadow_reason: insufficient_days" in text
+    assert "forecast_surface_shadow_days: 3/20" in text
+    assert "forecast_surface_shadow_coverage_pass_count: 3" in text
+    assert "forecast_surface_shadow_universe_pass_count: 2" in text
+    assert "forecast_surface_shadow_gate_pass_count: 1" in text
+    assert "forecast_surface_alert_count: 3" in text
+    assert "forecast_surface_alerts:" in text
+    assert "shadow_run_not_ready:forecast_surface_missing" in text
+    assert "shadow_run_coverage_shortfall:0/8" in text
+    assert "forecast_surface_shadow_failures:" in text
+    assert "universe_too_small | date=2026-03-12 | publish_id=shadow20_20260312" in text
+
+
+def test_daily_research_cycle_skips_similarity_when_candidate_preflight_fails(monkeypatch, tmp_path) -> None:
+    calls = {"similarity": 0, "challenger": 0}
+
+    monkeypatch.setattr(
+        daily_research_module,
+        "run_nightly_candidate_pipeline",
+        lambda **_kwargs: {
+            "ok": False,
+            "run_id": "candidate_run",
+            "status": "preflight_failed",
+            "quarantine_reason": "source_universe_too_small",
+            "baseline": None,
+        },
+    )
+    monkeypatch.setattr(
+        daily_research_module,
+        "run_nightly_similarity_pipeline",
+        lambda **_kwargs: (calls.__setitem__("similarity", calls["similarity"] + 1), {"ok": True})[1],
+    )
+    monkeypatch.setattr(
+        daily_research_module,
+        "run_nightly_similarity_challenger_pipeline",
+        lambda **_kwargs: (calls.__setitem__("challenger", calls["challenger"] + 1), {"ok": True})[1],
+    )
+    monkeypatch.setattr(
+        daily_research_module,
+        "build_daily_research_report",
+        lambda **_kwargs: {"promotion_review": {"readiness_pass": False}, "publish": {"publish_id": None}},
+    )
+    monkeypatch.setattr(daily_research_module, "persist_review_artifact", lambda **_kwargs: None)
+
+    payload = run_daily_research_cycle(
+        source_db_path=str(tmp_path / "source.duckdb"),
+        export_db_path=str(tmp_path / "export.duckdb"),
+        label_db_path=str(tmp_path / "label.duckdb"),
+        result_db_path=str(tmp_path / "result.duckdb"),
+        similarity_db_path=str(tmp_path / "similarity.duckdb"),
+        ops_db_path=str(tmp_path / "ops.duckdb"),
+        as_of_date="20260319",
+        snapshot_source=False,
+    )
+
+    assert payload["ok"] is False
+    assert payload["candidate"]["status"] == "preflight_failed"
+    assert payload["candidate"]["quarantine_reason"] == "source_universe_too_small"
+    assert payload["similarity"]["status"] == "skipped"
+    assert payload["similarity"]["quarantine_reason"] == "source_universe_too_small"
+    assert payload["challenger"]["status"] == "skipped"
+    assert payload["challenger"]["quarantine_reason"] == "source_universe_too_small"
+    assert calls == {"similarity": 0, "challenger": 0}
+
+
+def test_build_daily_research_report_includes_forecast_surface_shadow_status_independent_of_latest_pointer(monkeypatch, tmp_path) -> None:
+    result_db = tmp_path / "result.duckdb"
+    ops_db = tmp_path / "ops.duckdb"
+    ensure_result_db(str(result_db))
+    ensure_ops_db(str(ops_db))
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        daily_research_module,
+        "get_internal_state_eval_daily_summary",
+        lambda side=None: {"publish": {"publish_id": "latest_pub"}, "as_of_date": "2026-03-12", "freshness_state": "fresh", "daily_summary": {}},
+    )
+    monkeypatch.setattr(
+        daily_research_module,
+        "get_internal_state_eval_daily_summary_history",
+        lambda side=None, limit=7: {"rows": []},
+    )
+    monkeypatch.setattr(daily_research_module, "get_internal_state_eval_action_queue", lambda side=None: {"actions": []})
+    monkeypatch.setattr(
+        daily_research_module,
+        "get_internal_forecast_surface_review",
+        lambda: {"review": {"readiness_pass": True, "gate_reason": "gate_passed", "alerts": [], "gate_failures": []}},
+    )
+    monkeypatch.setattr(
+        daily_research_module,
+        "get_internal_forecast_surface_projection",
+        lambda: {
+            "projection": {
+                "summary": {"actual_row_count": 8, "expected_row_count": 8, "coverage_ratio": 1.0, "alerts": []},
+                "long_rank": [],
+                "short_rank": [],
+                "high_risk_avoid": [],
+                "watchlist_promotions": [],
+            }
+        },
+    )
+    monkeypatch.setattr(
+        daily_research_module,
+        "get_internal_state_eval_promotion_review",
+        lambda: {"review": {"approval_decision": None, "readiness_pass": False}},
+    )
+    monkeypatch.setattr(daily_research_module, "get_internal_state_eval_trend_summary", lambda side=None, lookback=14, limit=5: {"trends": []})
+    monkeypatch.setattr(daily_research_module, "get_internal_state_eval_candle_combo_trend_summary", lambda side=None, lookback=14, limit=5: {"trends": []})
+
+    def _fake_shadow_status(**kwargs):
+        captured.update(kwargs)
+        return {
+            "ok": True,
+            "acceptance_pass": False,
+            "primary_reason": "insufficient_days",
+            "observed_days": 3,
+            "required_days": 20,
+            "coverage_pass_count": 3,
+            "universe_pass_count": 2,
+            "gate_pass_count": 1,
+            "failures": [{"reason": "insufficient_days"}],
+            "rows": [],
+        }
+
+    monkeypatch.setattr(daily_research_module, "summarize_forecast_surface_shadow_run", _fake_shadow_status)
+
+    report = daily_research_module.build_daily_research_report(
+        result_db_path=str(result_db),
+        ops_db_path=str(ops_db),
+    )
+
+    assert captured["result_db_path"] == str(result_db)
+    assert captured["publish_id_prefix"] == "shadow20_"
+    assert captured["min_days"] == 20
+    assert captured["min_universe_code_count"] == 650
+    assert report["forecast_surface_shadow_status"]["primary_reason"] == "insufficient_days"
+    assert "shadow_acceptance_not_ready:insufficient_days" in report["forecast_surface_alerts"]
 
 
 def test_format_daily_research_history_text_report_includes_rows() -> None:
@@ -1059,9 +1310,10 @@ def test_daily_research_loop_returns_prepare_required_without_prepared_env(monke
     assert saved_progress["stop_reason"] == "prepare_required"
 
 
-def test_daily_research_loop_uses_export_dates_and_prepared_cycle(monkeypatch, tmp_path) -> None:
+def test_daily_research_loop_uses_label_dates_and_prepared_cycle(monkeypatch, tmp_path) -> None:
     progress_path = tmp_path / "loop.progress.json"
     attempted: list[tuple[str, bool]] = []
+    captured: dict[str, Any] = {}
 
     monkeypatch.setattr(
         daily_research_module,
@@ -1070,17 +1322,18 @@ def test_daily_research_loop_uses_export_dates_and_prepared_cycle(monkeypatch, t
     )
     monkeypatch.setattr(
         daily_research_module,
-        "resolve_recent_daily_research_as_of_dates_from_export",
+        "resolve_recent_daily_research_as_of_dates_from_label",
         lambda **_kwargs: ["20260319", "20260318"],
     )
     monkeypatch.setattr(
         daily_research_module,
-        "resolve_recent_daily_research_as_of_dates",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("source dates should not be used")),
+        "resolve_recent_daily_research_as_of_dates_from_export",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("export dates should not be used when labels exist")),
     )
 
     def _fake_cycle(**kwargs):
         attempted.append((str(kwargs["as_of_date"]), bool(kwargs["require_prepared_environment"])))
+        captured["load_control"] = kwargs.get("load_control")
         return {
             "ok": True,
             "as_of_date": str(kwargs["as_of_date"]),
@@ -1111,10 +1364,81 @@ def test_daily_research_loop_uses_export_dates_and_prepared_cycle(monkeypatch, t
         similarity_db_path=str(tmp_path / "similarity.duckdb"),
         ops_db_path=str(tmp_path / "ops.duckdb"),
         progress_path=str(progress_path),
+        load_control={"mode": "throttled"},
     )
 
     assert payload["selected_as_of_date"] == "20260318"
     assert attempted == [("20260319", True), ("20260318", True)]
+    assert captured["load_control"] == {"mode": "throttled"}
+
+
+def test_daily_research_loop_stops_on_surface_gate_when_promotion_is_not_ready(monkeypatch, tmp_path) -> None:
+    progress_path = tmp_path / "loop.progress.json"
+    attempted: list[str] = []
+
+    monkeypatch.setattr(
+        daily_research_module,
+        "probe_daily_research_prepared_environment",
+        lambda **_kwargs: {"prepared": True, "reason_code": "prepared_complete", "latest_trade_date": "20260319"},
+    )
+    monkeypatch.setattr(
+        daily_research_module,
+        "resolve_recent_daily_research_as_of_dates_from_label",
+        lambda **_kwargs: ["20260319", "20260318"],
+    )
+    monkeypatch.setattr(
+        daily_research_module,
+        "resolve_recent_daily_research_as_of_dates_from_export",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("export dates should not be used when labels exist")),
+    )
+
+    def _fake_cycle(**kwargs):
+        as_of_date = str(kwargs["as_of_date"])
+        attempted.append(as_of_date)
+        return {
+            "ok": True,
+            "as_of_date": as_of_date,
+            "publish_id": f"pub_{as_of_date}",
+            "candidate": {"status": "success"},
+            "similarity": {"status": "success"},
+            "challenger": {"status": "success"},
+            "report": {
+                "promotion_review": {"readiness_pass": False},
+                "forecast_surface_review": {
+                    "readiness_pass": True,
+                    "walk_forward_gate_pass": True,
+                    "walk_forward": {"fold_count": 20, "readiness_pass": True},
+                },
+                "daily_summary": {},
+                "codex_next_step": {"kind": "promotion_decision_pending"},
+            },
+        }
+
+    monkeypatch.setattr(daily_research_module, "run_daily_research_cycle", _fake_cycle)
+    monkeypatch.setattr(
+        daily_research_module,
+        "_load_daily_research_long_candidates",
+        lambda **kwargs: [{"side": "long", "rank_position": 1, "code": "1301"}],
+    )
+    monkeypatch.setattr(daily_research_module, "_load_stale_running_job_observations", lambda **_kwargs: [])
+
+    payload = run_daily_research_loop(
+        source_db_path=str(tmp_path / "source.duckdb"),
+        export_db_path=str(tmp_path / "export.duckdb"),
+        label_db_path=str(tmp_path / "label.duckdb"),
+        result_db_path=str(tmp_path / "result.duckdb"),
+        similarity_db_path=str(tmp_path / "similarity.duckdb"),
+        ops_db_path=str(tmp_path / "ops.duckdb"),
+        progress_path=str(progress_path),
+        load_control={"mode": "throttled"},
+    )
+
+    assert payload["ok"] is True
+    assert attempted == ["20260319"]
+    assert payload["selected_as_of_date"] == "20260319"
+    assert payload["stop_reason"] == "forecast_surface_ready_with_long_candidates"
+    assert payload["promotion_ready"] is False
+    assert payload["forecast_surface_ready"] is True
 
 
 def test_daily_research_cycle_prepared_mode_skips_export_and_labels(monkeypatch, tmp_path) -> None:
@@ -1161,11 +1485,13 @@ def test_daily_research_cycle_prepared_mode_skips_export_and_labels(monkeypatch,
         as_of_date="20260319",
         require_prepared_environment=True,
         snapshot_source=False,
+        load_control={"mode": "throttled"},
     )
 
     assert payload["publish_id"] == "pub_prepared"
     assert captured["candidate_kwargs"]["require_prepared_environment"] is True
     assert captured["candidate_kwargs"]["snapshot_source"] is False
+    assert captured["candidate_kwargs"]["load_control"] == {"mode": "throttled"}
 
 
 def test_daily_research_prepare_path_matches_direct_path_outputs(monkeypatch, tmp_path) -> None:

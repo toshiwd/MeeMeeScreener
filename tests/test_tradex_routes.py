@@ -66,6 +66,20 @@ def test_tradex_bootstrap_returns_structured_candidates(monkeypatch) -> None:
     )
     monkeypatch.setattr(tradex_router, "get_internal_replay_progress", lambda: {"current_run": {"status": "running", "current_phase": "review"}})
     monkeypatch.setattr(tradex_router, "get_internal_state_eval_action_queue", lambda: {"actions": [{}, {}]})
+    monkeypatch.setattr(
+        tradex_router,
+        "get_internal_forecast_surface_projection",
+        lambda limit_per_side=20: {
+            "projection": {
+                "summary": {"coverage_ratio": 1.0},
+                "long_rank": [{"code": "1301"}],
+                "short_rank": [],
+                "high_risk_avoid": [],
+                "watchlist_promotions": [],
+            },
+            "limit_per_side": limit_per_side,
+        },
+    )
     monkeypatch.setattr(tradex_router, "list_publish_candidate_bundles", lambda **_kwargs: [bundle])
 
     client = _build_client()
@@ -76,6 +90,8 @@ def test_tradex_bootstrap_returns_structured_candidates(monkeypatch) -> None:
     assert payload["baseline"]["logic_id"] == "logic-a"
     assert payload["summary"]["attention_count"] == 2
     assert payload["summary"]["candidate_count"] == 1
+    assert payload["forecast_surface_projection"]["projection"]["summary"]["coverage_ratio"] == 1.0
+    assert payload["forecast_surface_projection"]["limit_per_side"] == 8
     candidate = payload["candidates"][0]
     assert candidate["comparison_snapshot"]["metric_deltas"]["total_score_delta"] == 0.31
     assert candidate["comparison_snapshot"]["comparison_snapshot_id"]
@@ -164,3 +180,30 @@ def test_tradex_adopt_accepts_matching_contract(monkeypatch) -> None:
     assert payload["comparison_snapshot_id"] == comparison["comparison_snapshot_id"]
     assert called["logic_key"] == "logic-a:v1"
     assert called["source"] == "api.tradex.adopt"
+
+
+def test_tradex_research_forecast_surface_endpoints_return_internal_payloads(monkeypatch) -> None:
+    monkeypatch.setattr(
+        tradex_router,
+        "get_internal_forecast_surface_review",
+        lambda: {"ok": True, "review": {"primary_gate_reason": "gate_passed", "ready_streak": 4}},
+    )
+    monkeypatch.setattr(
+        tradex_router,
+        "get_internal_forecast_surface_projection",
+        lambda limit_per_side=20: {
+            "ok": True,
+            "projection": {"summary": {"coverage_ratio": 1.0}, "long_rank": [{"code": "1301"}]},
+            "limit_per_side": limit_per_side,
+        },
+    )
+
+    client = _build_client()
+    review_response = client.get("/api/tradex/research/forecast-surface-review")
+    projection_response = client.get("/api/tradex/research/forecast-surface-projection?limit_per_side=9")
+
+    assert review_response.status_code == 200
+    assert review_response.json()["review"]["ready_streak"] == 4
+    assert projection_response.status_code == 200
+    assert projection_response.json()["projection"]["summary"]["coverage_ratio"] == 1.0
+    assert projection_response.json()["limit_per_side"] == 9

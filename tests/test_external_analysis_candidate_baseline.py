@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
 
 import duckdb
@@ -8,7 +9,9 @@ from app.backend.services.analysis_bridge.reader import get_analysis_bridge_snap
 from external_analysis.exporter.export_schema import ensure_export_db
 from external_analysis.labels.rolling_labels import build_rolling_labels
 from external_analysis.labels.store import ensure_label_db
+from external_analysis.models import forecast_surface as forecast_surface_module
 from external_analysis.models.candidate_baseline import BASELINE_VERSION, run_candidate_baseline
+from external_analysis.models.state_eval_baseline import DECISION_ENTER, DECISION_SKIP, DECISION_WAIT, _decision_from_score
 from external_analysis.ops.ops_schema import ensure_ops_db
 from external_analysis.results.result_schema import ensure_result_db
 
@@ -393,3 +396,237 @@ def test_run_candidate_baseline_publishes_candidates_regime_and_metrics(monkeypa
     assert snapshot["public_table_counts"]["state_eval_daily"] == payload["state_eval_count"]
     assert "candidate_component_scores" not in snapshot["public_table_counts"]
     assert "nightly_candidate_metrics" not in snapshot["public_table_counts"]
+
+
+def test_run_candidate_baseline_persists_forecast_surface_with_source_db(monkeypatch, tmp_path) -> None:
+    export_db = tmp_path / "export.duckdb"
+    label_db = tmp_path / "label.duckdb"
+    result_db = tmp_path / "result.duckdb"
+    ops_db = tmp_path / "ops.duckdb"
+    similarity_db = tmp_path / "similarity.duckdb"
+    source_db = tmp_path / "source.duckdb"
+    dates = _seed_candidate_export_db(str(export_db))
+    ensure_label_db(str(label_db))
+    ensure_result_db(str(result_db))
+    _seed_historical_tag_rollups(str(ops_db), dates[45])
+    build_rolling_labels(str(export_db), str(label_db))
+    _seed_forecast_surface_source_db(str(source_db), dates[45])
+    monkeypatch.setenv("MEEMEE_RESULT_DB_PATH", str(result_db))
+
+    payload = run_candidate_baseline(
+        export_db_path=str(export_db),
+        label_db_path=str(label_db),
+        result_db_path=str(result_db),
+        source_db_path=str(source_db),
+        similarity_db_path=str(similarity_db),
+        as_of_date=dates[45],
+        publish_id="pub_2026-03-12_20260312T180000Z_02",
+        freshness_state="fresh",
+        ops_db_path=str(ops_db),
+    )
+
+    assert payload["ok"] is True
+    assert payload["forecast_surface_saved"] is True
+    assert payload["forecast_surface"] is not None
+    assert int(payload["forecast_surface"]["row_count"]) > 0
+    assert int(payload["forecast_surface"]["universe_code_count"]) > 0
+    assert int(payload["forecast_surface"]["expected_row_count"]) == int(payload["forecast_surface"]["actual_row_count"])
+    assert int(payload["forecast_surface"]["missing_row_count"]) == 0
+    assert float(payload["forecast_surface"]["coverage_ratio"]) == 1.0
+    assert set(payload["forecast_surface"]["side_counts"]) == {"long", "short"}
+    assert int(payload["forecast_surface"]["side_counts"]["long"]) > 0
+    assert int(payload["forecast_surface"]["side_counts"]["short"]) > 0
+    assert isinstance(payload["forecast_surface"]["alerts"], list)
+    assert payload["forecast_surface_evaluation_saved"] is True
+    assert payload["forecast_surface_evaluation"] is not None
+    assert payload["forecast_surface_evaluation"]["scope_type"] == "publish"
+
+    conn = duckdb.connect(str(result_db), read_only=True)
+    try:
+        surface_rows = conn.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT side) FROM forecast_surface_daily WHERE publish_id = ?",
+            [payload["publish_id"]],
+        ).fetchone()
+        evaluation_rows = conn.execute(
+            "SELECT COUNT(*) FROM forecast_surface_evaluation_runs WHERE publish_id = ?",
+            [payload["publish_id"]],
+        ).fetchone()
+        run_row = conn.execute(
+            """
+            SELECT
+                universe_code_count,
+                expected_row_count,
+                actual_row_count,
+                missing_row_count,
+                coverage_ratio,
+                feature_frame_version,
+                market_opportunity_score_enabled,
+                personal_fit_score_enabled,
+                side_counts_json,
+                action_counts_json,
+                source_context_presence_json,
+                alerts_json
+            FROM forecast_surface_runs
+            WHERE publish_id = ?
+            """,
+            [payload["publish_id"]],
+        ).fetchone()
+        sample_row = conn.execute(
+            """
+            SELECT action_state, direction_prob, expected_ret_20, setup_tags, reason_codes, market_opportunity_score, personal_fit_score
+            FROM forecast_surface_daily
+            WHERE publish_id = ?
+            ORDER BY code, side
+            LIMIT 1
+            """,
+            [payload["publish_id"]],
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert surface_rows is not None
+    assert int(surface_rows[0]) == int(payload["forecast_surface"]["row_count"])
+    assert int(surface_rows[1]) == 2
+    assert int(evaluation_rows[0]) == 1
+    assert run_row is not None
+    assert int(run_row[0]) == int(payload["forecast_surface"]["universe_code_count"])
+    assert int(run_row[1]) == int(payload["forecast_surface"]["expected_row_count"])
+    assert int(run_row[2]) == int(payload["forecast_surface"]["actual_row_count"])
+    assert int(run_row[3]) == int(payload["forecast_surface"]["missing_row_count"])
+    assert float(run_row[4]) == float(payload["forecast_surface"]["coverage_ratio"])
+    assert run_row[5] is None or isinstance(run_row[5], str)
+    assert bool(run_row[6]) is True
+    assert bool(run_row[7]) is True
+    assert '"long"' in str(run_row[8])
+    assert '"enter"' in str(run_row[9])
+    assert '"signal_decision_daily"' in str(run_row[10])
+    assert str(run_row[11]).startswith("[")
+    assert sample_row is not None
+    assert sample_row[0] in {"enter", "wait", "skip"}
+    assert float(sample_row[1]) >= 0.0
+    assert str(sample_row[3]).startswith("[")
+    assert str(sample_row[4]).startswith("[")
+    assert float(sample_row[5]) >= 0.0
+    assert 0.0 <= float(sample_row[6]) <= 1.0
+    assert payload["forecast_surface_source_context_presence"]["signal_decision_daily"] is True
+    assert payload["forecast_surface_source_context_presence"]["market_regime_daily"] is True
+
+
+def test_forecast_surface_opportunity_score_rejects_unfavorable_signed_expected_move() -> None:
+    source_context = forecast_surface_module._SourceContext(
+        signal={},
+        trade={},
+        borrow={},
+        events={},
+        edinet={},
+        market={},
+        presence={},
+    )
+    row = {
+        "as_of_date": 20260312,
+        "code": "1301",
+        "ranking_score_long": 250.0,
+        "ranking_score_short": 250.0,
+        "close_price": 100.0,
+        "close_vs_ma20": 0.08,
+        "ret_20_past": 0.04,
+        "atr_ratio": 0.01,
+        "volume_ratio": 1.0,
+        "box_state": "box_breakout",
+        "ppp_state": "none",
+        "abc_state": "none",
+    }
+
+    long_row = forecast_surface_module._build_surface_row(
+        row,
+        side="long",
+        source_context=source_context,
+        market_context={},
+        publish_id="pub_test",
+        freshness_state="fresh",
+        learned_prediction={"direction_prob": 0.95, "expected_ret_20": -0.40},
+    )
+    short_row = forecast_surface_module._build_surface_row(
+        row,
+        side="short",
+        source_context=source_context,
+        market_context={},
+        publish_id="pub_test",
+        freshness_state="fresh",
+        learned_prediction={"direction_prob": 0.95, "expected_ret_20": -0.40},
+    )
+
+    assert float(long_row["expected_ret_20"]) < 0.0
+    assert float(short_row["expected_ret_20"]) > 0.0
+    assert float(long_row["market_opportunity_score"]) == 0.0
+    assert float(short_row["market_opportunity_score"]) == 0.0
+    assert float(long_row["opportunity_score"]) == 0.0
+    assert float(short_row["opportunity_score"]) == 0.0
+
+
+def _seed_forecast_surface_source_db(source_db: str, as_of_date: int) -> None:
+    conn = duckdb.connect(source_db, read_only=False)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE signal_decision_daily (
+                dt INTEGER,
+                code TEXT,
+                side TEXT,
+                entry_qualified BOOLEAN,
+                setup_type TEXT,
+                reason_snapshot_json TEXT,
+                score_snapshot_json TEXT,
+                rank_snapshot_json TEXT,
+                forward_return_5 DOUBLE,
+                forward_return_20 DOUBLE,
+                forward_return_30 DOUBLE,
+                forward_return_60 DOUBLE,
+                max_favorable_30 DOUBLE,
+                max_adverse_30 DOUBLE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE market_regime_daily (
+                dt INTEGER,
+                regime_id TEXT,
+                breadth_above_ma20 DOUBLE,
+                breadth_above_ma60 DOUBLE,
+                advancers_ratio DOUBLE,
+                index_close_vs_ma20 DOUBLE,
+                index_close_vs_ma60 DOUBLE,
+                market_atr_pct DOUBLE,
+                sector_dispersion DOUBLE,
+                regime_score DOUBLE,
+                label_version TEXT,
+                created_at TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO signal_decision_daily VALUES
+            (?, '1301', 'buy', TRUE, 'breakout', '{"a":1}', '{"b":2}', '{"c":3}', 0.02, 0.08, 0.10, 0.12, 0.14, -0.05)
+            """,
+            [as_of_date],
+        )
+        conn.execute(
+            """
+            INSERT INTO market_regime_daily VALUES
+            (?, 'risk_on', 0.68, 0.64, 0.55, 0.03, 0.04, 0.18, 0.11, 0.42, 'test', TIMESTAMP '2026-03-12 09:00:00')
+            """,
+            [as_of_date],
+        )
+    finally:
+        conn.close()
+
+
+def test_state_eval_decision_thresholds_are_shared_between_champion_and_challenger() -> None:
+    assert _decision_from_score(0.63, strict=False) == DECISION_WAIT
+    assert _decision_from_score(0.63, strict=True) == DECISION_WAIT
+    assert _decision_from_score(0.65, strict=False) == DECISION_ENTER
+    assert _decision_from_score(0.65, strict=True) == DECISION_ENTER
+    assert _decision_from_score(0.44, strict=False) == DECISION_SKIP
+    assert _decision_from_score(0.44, strict=True) == DECISION_SKIP

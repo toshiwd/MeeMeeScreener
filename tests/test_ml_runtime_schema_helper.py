@@ -22,8 +22,12 @@ def test_ensure_ml_runtime_schema_creates_legacy_daily_tables_when_enabled():
         legacy = conn.execute(
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'ml_feature_daily'"
         ).fetchone()
+        feature_frame = conn.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'feature_frame_daily'"
+        ).fetchone()
         audit = conn.execute(
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'ml_training_audit'"
         ).fetchone()
     assert int(legacy[0]) == 1
+    assert int(feature_frame[0]) == 1
     assert int(audit[0]) == 1

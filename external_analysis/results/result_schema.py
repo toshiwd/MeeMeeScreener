@@ -27,6 +27,10 @@ PUBLIC_RESULT_TABLES: tuple[str, ...] = ALLOWED_PUBLIC_TABLES
 INTERNAL_RESULT_TABLES: tuple[str, ...] = (
     "publish_runs",
     "candidate_component_scores",
+    "forecast_surface_daily",
+    "forecast_surface_runs",
+    "forecast_surface_evaluation_runs",
+    "forecast_surface_evaluation_folds",
     "nightly_candidate_metrics",
     "publish_registry_state",
     "publish_registry_audit",
@@ -260,6 +264,137 @@ def ensure_result_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS forecast_surface_daily (
+            publish_id TEXT NOT NULL,
+            as_of_date DATE NOT NULL,
+            code TEXT NOT NULL,
+            side TEXT NOT NULL,
+            action_state TEXT NOT NULL,
+            direction_prob DOUBLE,
+            expected_ret_5 DOUBLE,
+            expected_ret_10 DOUBLE,
+            expected_ret_20 DOUBLE,
+            expected_mfe_20 DOUBLE,
+            expected_mae_20 DOUBLE,
+            invalidation_price DOUBLE,
+            setup_tags JSON,
+            reason_codes JSON,
+            market_opportunity_score DOUBLE,
+            personal_fit_score DOUBLE,
+            opportunity_score DOUBLE,
+            freshness_state TEXT,
+            created_at TIMESTAMP NOT NULL
+        )
+        """
+    )
+    conn.execute("ALTER TABLE forecast_surface_daily ADD COLUMN IF NOT EXISTS market_opportunity_score DOUBLE")
+    conn.execute("ALTER TABLE forecast_surface_daily ADD COLUMN IF NOT EXISTS personal_fit_score DOUBLE")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS forecast_surface_runs (
+            publish_id TEXT PRIMARY KEY,
+            as_of_date DATE NOT NULL,
+            model_version TEXT NOT NULL,
+            universe_code_count INTEGER NOT NULL,
+            expected_row_count INTEGER NOT NULL,
+            actual_row_count INTEGER NOT NULL,
+            missing_row_count INTEGER NOT NULL,
+            coverage_ratio DOUBLE NOT NULL,
+            feature_frame_version TEXT,
+            market_opportunity_score_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            personal_fit_score_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            side_counts_json JSON NOT NULL,
+            action_counts_json JSON NOT NULL,
+            source_context_presence_json JSON NOT NULL,
+            alerts_json JSON NOT NULL,
+            created_at TIMESTAMP NOT NULL
+        )
+        """
+    )
+    conn.execute("ALTER TABLE forecast_surface_runs ADD COLUMN IF NOT EXISTS feature_frame_version TEXT")
+    conn.execute("ALTER TABLE forecast_surface_runs ADD COLUMN IF NOT EXISTS market_opportunity_score_enabled BOOLEAN DEFAULT FALSE")
+    conn.execute("ALTER TABLE forecast_surface_runs ADD COLUMN IF NOT EXISTS personal_fit_score_enabled BOOLEAN DEFAULT FALSE")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS forecast_surface_evaluation_runs (
+            run_id TEXT PRIMARY KEY,
+            scope_type TEXT NOT NULL,
+            publish_id TEXT,
+            as_of_date DATE,
+            model_version TEXT NOT NULL,
+            top_k INTEGER NOT NULL,
+            fold_count INTEGER NOT NULL,
+            daily_count INTEGER NOT NULL,
+            horizon_count INTEGER NOT NULL,
+            top_long_mean_ret20_net DOUBLE,
+            top_short_mean_ret20_net DOUBLE,
+            top_combined_mean_ret20_net DOUBLE,
+            candidate_long_mean_ret20_net DOUBLE,
+            candidate_short_mean_ret20_net DOUBLE,
+            candidate_combined_mean_ret20_net DOUBLE,
+            signal_long_mean_ret20_net DOUBLE,
+            signal_short_mean_ret20_net DOUBLE,
+            direction_brier_long DOUBLE,
+            direction_brier_short DOUBLE,
+            calibration_gap_long DOUBLE,
+            calibration_gap_short DOUBLE,
+            top_k_uplift DOUBLE,
+            worst_regime_combined_mean_ret20_net DOUBLE,
+            min_folds INTEGER,
+            min_daily_count INTEGER,
+            primary_gate_reason TEXT,
+            gate_failures_json JSON,
+            calibration_method_long TEXT,
+            calibration_method_short TEXT,
+            ready_streak INTEGER DEFAULT 0,
+            recent_ready_count_20 INTEGER DEFAULT 0,
+            regime_breakdown_json JSON NOT NULL,
+            fold_metrics_json JSON NOT NULL,
+            readiness_pass BOOLEAN NOT NULL,
+            gate_reason TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL
+        )
+        """
+    )
+    conn.execute("ALTER TABLE forecast_surface_evaluation_runs ADD COLUMN IF NOT EXISTS worst_regime_combined_mean_ret20_net DOUBLE")
+    conn.execute("ALTER TABLE forecast_surface_evaluation_runs ADD COLUMN IF NOT EXISTS primary_gate_reason TEXT")
+    conn.execute("ALTER TABLE forecast_surface_evaluation_runs ADD COLUMN IF NOT EXISTS gate_failures_json JSON")
+    conn.execute("ALTER TABLE forecast_surface_evaluation_runs ADD COLUMN IF NOT EXISTS calibration_method_long TEXT")
+    conn.execute("ALTER TABLE forecast_surface_evaluation_runs ADD COLUMN IF NOT EXISTS calibration_method_short TEXT")
+    conn.execute("ALTER TABLE forecast_surface_evaluation_runs ADD COLUMN IF NOT EXISTS ready_streak INTEGER DEFAULT 0")
+    conn.execute("ALTER TABLE forecast_surface_evaluation_runs ADD COLUMN IF NOT EXISTS recent_ready_count_20 INTEGER DEFAULT 0")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS forecast_surface_evaluation_folds (
+            run_id TEXT NOT NULL,
+            scope_type TEXT NOT NULL,
+            publish_id TEXT,
+            as_of_date DATE NOT NULL,
+            regime_tag TEXT,
+            side TEXT NOT NULL,
+            horizon_days INTEGER NOT NULL,
+            top_k INTEGER NOT NULL,
+            sample_count INTEGER NOT NULL,
+            top_mean_ret_net DOUBLE,
+            top_mean_mfe_net DOUBLE,
+            top_mean_mae_net DOUBLE,
+            top_win_rate DOUBLE,
+            top_mean_prob DOUBLE,
+            top_positive_rate DOUBLE,
+            top_brier DOUBLE,
+            top_calibration_gap DOUBLE,
+            candidate_mean_ret_net DOUBLE,
+            candidate_win_rate DOUBLE,
+            signal_mean_ret_net DOUBLE,
+            signal_sample_count INTEGER,
+            created_at TIMESTAMP NOT NULL
+        )
+        """
+    )
+    conn.execute("ALTER TABLE forecast_surface_evaluation_folds ADD COLUMN IF NOT EXISTS top_mean_prob DOUBLE")
+    conn.execute("ALTER TABLE forecast_surface_evaluation_folds ADD COLUMN IF NOT EXISTS top_positive_rate DOUBLE")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS nightly_candidate_metrics (

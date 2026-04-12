@@ -165,8 +165,8 @@ def _load_daily_case_candidates(
     selected_codes = None if codes is None else [str(code) for code in codes]
     if selected_codes is not None and not selected_codes:
         return []
-    export_conn = connect_export_db(export_db_path)
-    label_conn = connect_label_db(label_db_path)
+    export_conn = connect_export_db(export_db_path, read_only=True)
+    label_conn = connect_label_db(label_db_path, read_only=True)
     try:
         code_filter_sql = ""
         label_code_filter_sql = ""
@@ -432,7 +432,7 @@ def _load_export_codes(
 ) -> list[str]:
     if codes is not None:
         return sorted({str(code) for code in codes})
-    export_conn = connect_export_db(export_db_path)
+    export_conn = connect_export_db(export_db_path, read_only=True)
     try:
         rows = export_conn.execute("SELECT DISTINCT code FROM bars_daily_export WHERE code IS NOT NULL ORDER BY code").fetchall()
     finally:
@@ -718,7 +718,7 @@ def _load_query_vectors(export_db_path: str | None, as_of_date: int, *, codes: l
     selected_codes = None if codes is None else [str(code) for code in codes]
     if selected_codes is not None and not selected_codes:
         return []
-    export_conn = connect_export_db(export_db_path)
+    export_conn = connect_export_db(export_db_path, read_only=True)
     try:
         base_where_sql = ""
         params: list[Any] = []

@@ -554,6 +554,12 @@ def test_toredex_config_override_parses_cost_and_constraints() -> None:
     assert cfg.portfolio_constraints["minLiquidity20d"] == 100000000.0
 
 
+def test_toredex_config_reads_repo_root_buy_only_policy() -> None:
+    cfg = load_toredex_config()
+    assert cfg.sides["longEnabled"] is True
+    assert cfg.sides["shortEnabled"] is False
+
+
 def test_toredex_policy_blocks_entry_when_net_exposure_limit_is_zero() -> None:
     config = ToredexConfig(
         data={

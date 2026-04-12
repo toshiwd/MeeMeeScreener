@@ -1,6 +1,10 @@
 import { Link } from "react-router-dom";
 import TradexTrackingSummaryCard from "../components/TradexTrackingSummaryCard";
 import { tradexCandidateStatusLabel, tradexFreshnessLabel } from "../labels";
+import type {
+  TradexForecastSurfaceProjection,
+  TradexForecastSurfaceProjectionRow
+} from "../contracts";
 import { readTradexLocal, tradexStorageKeys, writeTradexLocal } from "../storage";
 import { useTradexBootstrap } from "../useTradexBootstrap";
 
@@ -60,14 +64,81 @@ function CandidateCard({
   );
 }
 
+function renderProjectionRow(row: TradexForecastSurfaceProjectionRow) {
+  return (
+    <div key={`${row.side}:${row.code}:${row.action_state}`} className="tradex-projection-row">
+      <strong>{row.code}</strong>
+      <span className="tradex-pill is-muted">{row.side}</span>
+      <span className="tradex-pill">{row.action_state}</span>
+      <span className="tradex-pill is-muted">p {formatNumber(row.direction_prob, 2)}</span>
+      <span className="tradex-pill is-muted">up {formatNumber(row.expected_upside, 2)}</span>
+      <span className="tradex-pill is-muted">down {formatNumber(row.expected_downside, 2)}</span>
+    </div>
+  );
+}
+
+function ForecastSurfacePreview({ projection }: { projection: TradexForecastSurfaceProjection | null }) {
+  if (!projection) return null;
+
+  const summary = projection.summary;
+  const coverage = typeof summary.coverage_ratio === "number" ? `${(summary.coverage_ratio * 100).toFixed(1)}%` : "--";
+  const alerts = summary.alerts.length > 0 ? summary.alerts.join(" / ") : "none";
+  const topLong = projection.long_rank.slice(0, 4);
+  const topShort = projection.short_rank.slice(0, 4);
+  const promotions = projection.watchlist_promotions.slice(0, 4);
+
+  return (
+    <section className="tradex-panel">
+      <div className="tradex-panel-head">
+        <div>
+          <div className="tradex-panel-title">Forecast surface preview</div>
+          <div className="tradex-panel-caption">Current TRADEX ranking surface, surfaced read-only for release review.</div>
+        </div>
+      </div>
+      <div className="tradex-flow-grid">
+        <article className="tradex-flow-card">
+          <div className="tradex-flow-title">Surface summary</div>
+          <div className="tradex-flow-text">
+            <div>as_of: {summary.as_of_date ?? "--"}</div>
+            <div>model: {summary.model_version ?? "--"}</div>
+            <div>coverage: {coverage}</div>
+            <div>
+              rows: {summary.actual_row_count ?? 0} / {summary.expected_row_count ?? 0}
+            </div>
+            <div>alerts: {alerts}</div>
+          </div>
+        </article>
+        <article className="tradex-flow-card">
+          <div className="tradex-flow-title">Top long</div>
+          <div className="tradex-flow-text">{topLong.length > 0 ? topLong.map(renderProjectionRow) : <div>--</div>}</div>
+        </article>
+        <article className="tradex-flow-card">
+          <div className="tradex-flow-title">Top short</div>
+          <div className="tradex-flow-text">{topShort.length > 0 ? topShort.map(renderProjectionRow) : <div>--</div>}</div>
+        </article>
+        <article className="tradex-flow-card">
+          <div className="tradex-flow-title">Watchlist promotions</div>
+          <div className="tradex-flow-text">{promotions.length > 0 ? promotions.map(renderProjectionRow) : <div>--</div>}</div>
+        </article>
+      </div>
+    </section>
+  );
+}
+
 export default function TradexHomePage() {
   const { data, loading, error } = useTradexBootstrap();
   const candidates = data?.candidates ?? [];
   const topCandidates = [...candidates]
-    .sort((a, b) => (Number(b.readiness_pass) - Number(a.readiness_pass)) || (b.sample_count ?? 0) - (a.sample_count ?? 0))
+    .sort(
+      (a, b) =>
+        Number(b.readiness_pass) - Number(a.readiness_pass) ||
+        (b.expectancy_delta ?? Number.NEGATIVE_INFINITY) - (a.expectancy_delta ?? Number.NEGATIVE_INFINITY) ||
+        (b.sample_count ?? 0) - (a.sample_count ?? 0)
+    )
     .slice(0, 6);
   const focusCandidateId = readTradexLocal<string>(tradexStorageKeys.homeFocus, "");
   const summary = data?.summary;
+  const forecastSurfaceProjection = data?.forecast_surface_projection?.projection ?? null;
 
   return (
     <div className="tradex-page tradex-home-page">
@@ -83,6 +154,10 @@ export default function TradexHomePage() {
           <div className="tradex-hero-chip">基準日 {summary?.as_of_date ?? (loading ? "読み込み中" : "--")}</div>
           <div className="tradex-hero-chip">鮮度 {tradexFreshnessLabel(summary?.freshness_state)}</div>
           <div className="tradex-hero-chip">要確認 {summary?.attention_count?.toLocaleString("ja-JP") ?? "0"}</div>
+          <div className="tradex-hero-chip">
+            authoritative {summary?.authoritative_state ?? "unknown"}
+            {summary?.authoritative_decision ? ` / ${summary.authoritative_decision}` : ""}
+          </div>
         </div>
       </section>
 
@@ -165,6 +240,7 @@ export default function TradexHomePage() {
       </section>
 
       <TradexTrackingSummaryCard />
+      <ForecastSurfacePreview projection={forecastSurfaceProjection} />
 
       {focusCandidateId ? <div className="tradex-inline-note">前回注目していた候補: {focusCandidateId}</div> : null}
     </div>

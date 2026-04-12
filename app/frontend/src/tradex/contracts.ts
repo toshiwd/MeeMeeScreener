@@ -1,3 +1,56 @@
+export type TradexForecastSurfaceProjectionRow = {
+  as_of_date: string | null;
+  code: string;
+  side: "long" | "short" | string;
+  action_state: string;
+  direction_prob: number | null;
+  expected_ret_20: number | null;
+  expected_upside: number;
+  expected_downside: number;
+  invalidation_price: number | null;
+  setup_tags: string[];
+  reason_codes: string[];
+  opportunity_score: number | null;
+  freshness_state: string;
+};
+
+export type TradexForecastSurfaceProjectionSummary = {
+  as_of_date: string | null;
+  model_version: string | null;
+  universe_code_count: number | null;
+  expected_row_count: number | null;
+  actual_row_count: number | null;
+  missing_row_count: number | null;
+  coverage_ratio: number | null;
+  feature_frame_version: string | null;
+  market_opportunity_score_enabled: boolean;
+  personal_fit_score_enabled: boolean;
+  side_counts: Record<string, number>;
+  action_counts: Record<string, number>;
+  source_context_presence: Record<string, unknown>;
+  alerts: string[];
+  created_at: string | null;
+};
+
+export type TradexForecastSurfaceProjection = {
+  summary: TradexForecastSurfaceProjectionSummary;
+  long_rank: TradexForecastSurfaceProjectionRow[];
+  short_rank: TradexForecastSurfaceProjectionRow[];
+  high_risk_avoid: TradexForecastSurfaceProjectionRow[];
+  watchlist_promotions: TradexForecastSurfaceProjectionRow[];
+};
+
+export type TradexForecastSurfaceProjectionEnvelope = {
+  publish?: Record<string, unknown> | null;
+  manifest?: Record<string, unknown> | null;
+  projection: TradexForecastSurfaceProjection | null;
+  degraded?: boolean;
+  reason?: string | null;
+  publish_id?: string | null;
+  as_of_date?: string | null;
+  freshness_state?: string | null;
+};
+
 export type TradexBaseline = {
   logic_id: string | null;
   version: string | null;
@@ -91,12 +144,16 @@ export type TradexSummaryStrip = {
   candidate_count: number;
   champion_logic_key: string | null;
   publish_id: string | null;
+  authoritative_state: string | null;
+  authoritative_decision: string | null;
+  authoritative_ready: boolean;
 };
 
 export type TradexBootstrapData = {
   baseline: TradexBaseline;
   summary: TradexSummaryStrip;
   candidates: TradexCandidate[];
+  forecast_surface_projection: TradexForecastSurfaceProjectionEnvelope | null;
   raw: {
     analysis_status: Record<string, unknown> | null;
     runtime_selection: Record<string, unknown> | null;
@@ -104,6 +161,7 @@ export type TradexBootstrapData = {
     publish_queue: Record<string, unknown> | null;
     replay_progress: Record<string, unknown> | null;
     action_queue: Record<string, unknown> | null;
+    forecast_surface_projection: Record<string, unknown> | null;
   };
 };
 

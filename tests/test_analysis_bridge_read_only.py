@@ -15,10 +15,28 @@ def test_bridge_reads_latest_successful_publish_from_pointer(monkeypatch, tmp_pa
         as_of_date="2026-03-12",
         freshness_state="fresh",
     )
+    import app.backend.services.analysis_bridge.reader as bridge_reader
+
+    monkeypatch.setattr(
+        bridge_reader,
+        "_authoritative_state_payload",
+        lambda: {
+            "status": "authoritative",
+            "decision": "approved",
+            "readiness_pass": True,
+            "sample_count": 25,
+            "reason_codes": ["readiness_pass"],
+            "publish_id": "pub_2026-03-12_20260312T120000Z_01",
+            "as_of_date": "2026-03-12",
+            "note": "ready_for_authoritative_cutover",
+        },
+    )
 
     payload = get_analysis_bridge_snapshot()
 
     assert payload["degraded"] is False
     assert payload["publish"]["publish_id"] == "pub_2026-03-12_20260312T120000Z_01"
+    assert payload["authoritative_state"]["status"] == "authoritative"
+    assert payload["authoritative_state"]["decision"] == "approved"
     assert "candidate_component_scores" not in payload["public_table_counts"]
 

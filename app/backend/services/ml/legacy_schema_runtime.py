@@ -191,6 +191,7 @@ def ensure_ml_runtime_schema(conn, *, legacy_schema_enabled: bool) -> None:
     for sql in _MONTHLY_AND_AUDIT_SCHEMA:
         conn.execute(sql)
     if not legacy_schema_enabled:
+        conn.execute("DROP VIEW IF EXISTS feature_frame_daily")
         return
     for sql in _ML_FEATURE_DAILY_MIGRATIONS:
         conn.execute(sql)
@@ -198,3 +199,22 @@ def ensure_ml_runtime_schema(conn, *, legacy_schema_enabled: bool) -> None:
         conn.execute(sql)
     for sql in _ML_PRED_DAILY_MIGRATIONS:
         conn.execute(sql)
+    conn.execute(
+        """
+        CREATE OR REPLACE VIEW feature_frame_daily AS
+        SELECT
+            dt,
+            code,
+            feature_version,
+            feature_version AS feature_frame_version,
+            computed_at,
+            CASE
+                WHEN dt >= 100000000 THEN to_timestamp(CAST(dt AS BIGINT))
+                WHEN dt BETWEEN 19000101 AND 20991231 THEN CAST(strptime(CAST(dt AS VARCHAR), '%Y%m%d') AS TIMESTAMP)
+                ELSE computed_at
+            END AS available_at,
+            '{"feature_frame_daily":"present","ml_feature_daily":"present","tdnet_disclosures":"source_absent"}' AS source_presence_flag,
+            * EXCLUDE (dt, code, feature_version, computed_at)
+        FROM ml_feature_daily
+        """
+    )

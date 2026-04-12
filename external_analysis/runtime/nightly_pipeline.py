@@ -10,10 +10,11 @@ from external_analysis.labels.rolling_labels import build_rolling_labels
 from external_analysis.models.candidate_baseline import run_candidate_baseline
 from external_analysis.ops.store import insert_quarantine_record, upsert_job_run
 from external_analysis.runtime.load_control import resolve_research_runtime_budget
-from external_analysis.runtime.source_snapshot import create_source_snapshot
+from external_analysis.runtime.source_snapshot import create_source_snapshot, probe_source_universe_readiness
 
 JOB_TYPE = "nightly_candidate_pipeline"
 MAX_ATTEMPTS = 3
+MIN_UNIVERSE_CODE_COUNT = 650
 logger = logging.getLogger(__name__)
 
 
@@ -41,6 +42,7 @@ def run_nightly_candidate_pipeline(
     snapshot_source: bool = True,
     snapshot_root: str | None = None,
     require_prepared_environment: bool = False,
+    min_universe_code_count: int = MIN_UNIVERSE_CODE_COUNT,
 ) -> dict[str, Any]:
     run_id = _run_id(str(as_of_date))
     started_at = _utcnow()
@@ -55,6 +57,15 @@ def run_nightly_candidate_pipeline(
         else None
     )
     effective_source_db_path = str((snapshot_payload or {}).get("snapshot_db_path") or source_db_path or "")
+    source_readiness = (
+        probe_source_universe_readiness(
+            source_db_path=effective_source_db_path,
+            as_of_date=as_of_date,
+            min_universe_code_count=min_universe_code_count,
+        )
+        if effective_source_db_path
+        else None
+    )
     upsert_job_run(
         job_id=run_id,
         job_type=JOB_TYPE,
@@ -67,11 +78,65 @@ def run_nightly_candidate_pipeline(
             "freshness_state": freshness_state,
             "load_control": load_control or {},
             "source_snapshot": snapshot_payload,
+            "source_readiness": source_readiness,
+            "min_universe_code_count": int(max(1, min_universe_code_count)),
             "require_prepared_environment": bool(require_prepared_environment),
         },
         ops_db_path=ops_db_path,
     )
     logger.info("nightly_candidate_pipeline start run_id=%s as_of_date=%s", run_id, as_of_date)
+    if source_readiness is not None and not bool(source_readiness.get("ready")):
+        quarantine_reason = str(source_readiness.get("reason") or "source_preflight_failed")
+        status = "preflight_failed"
+        finished_at = _utcnow()
+        insert_quarantine_record(
+            quarantine_id=f"{run_id}_preflight",
+            job_type=JOB_TYPE,
+            as_of_date=str(as_of_date),
+            publish_id=publish_id,
+            attempt_count=attempt,
+            reason=quarantine_reason,
+            payload={
+                "publish_id": publish_id,
+                "source_readiness": source_readiness,
+            },
+            ops_db_path=ops_db_path,
+        )
+        upsert_job_run(
+            job_id=run_id,
+            job_type=JOB_TYPE,
+            status=status,
+            as_of_date=str(as_of_date),
+            publish_id=publish_id,
+            attempt=attempt,
+            started_at=started_at,
+            finished_at=finished_at,
+            details={
+                "freshness_state": freshness_state,
+                "load_control": load_control or {},
+                "runtime_budget": None,
+                "quarantine_reason": quarantine_reason,
+                "source_snapshot": snapshot_payload,
+                "source_readiness": source_readiness,
+                "min_universe_code_count": int(max(1, min_universe_code_count)),
+                "require_prepared_environment": bool(require_prepared_environment),
+            },
+            ops_db_path=ops_db_path,
+        )
+        return {
+            "ok": False,
+            "run_id": run_id,
+            "job_type": JOB_TYPE,
+            "status": status,
+            "export": {"ok": False, "skipped": True, "reason": quarantine_reason},
+            "labels": {"ok": False, "skipped": True, "reason": quarantine_reason},
+            "baseline": None,
+            "load_control": load_control or {},
+            "runtime_budget": None,
+            "quarantine_reason": quarantine_reason,
+            "source_snapshot": snapshot_payload,
+            "source_readiness": source_readiness,
+        }
     runtime_budget = resolve_research_runtime_budget(load_control)
     if require_prepared_environment:
         export_payload = {"ok": True, "status": "reused", "reason": "prepared_environment_required"}
@@ -83,6 +148,7 @@ def run_nightly_candidate_pipeline(
         export_db_path=export_db_path,
         label_db_path=label_db_path,
         result_db_path=result_db_path,
+        source_db_path=effective_source_db_path or None,
         as_of_date=as_of_date,
         publish_id=publish_id,
         freshness_state=freshness_state,
@@ -92,7 +158,71 @@ def run_nightly_candidate_pipeline(
     )
     status = "success"
     quarantine_reason = None
-    if not baseline_payload.get("metrics_saved", False):
+    if not baseline_payload.get("forecast_surface_saved", False):
+        status = "published_with_surface_failure"
+        quarantine_reason = "forecast_surface_not_persisted"
+        insert_quarantine_record(
+            quarantine_id=f"{run_id}_forecast_surface",
+            job_type=JOB_TYPE,
+            as_of_date=str(as_of_date),
+            publish_id=str(baseline_payload.get("publish_id")),
+            attempt_count=int(baseline_payload.get("metrics_attempts") or max_attempts),
+            reason=quarantine_reason,
+            payload={
+                "publish_id": baseline_payload.get("publish_id"),
+                "forecast_surface_saved": baseline_payload.get("forecast_surface_saved"),
+            },
+            ops_db_path=ops_db_path,
+        )
+        logger.warning(
+            "nightly_candidate_pipeline forecast surface missing run_id=%s publish_id=%s",
+            run_id,
+            baseline_payload.get("publish_id"),
+        )
+    elif baseline_payload.get("forecast_surface_evaluation") is None:
+        status = "published_with_surface_failure"
+        quarantine_reason = "forecast_surface_evaluation_missing"
+        insert_quarantine_record(
+            quarantine_id=f"{run_id}_forecast_eval_missing",
+            job_type=JOB_TYPE,
+            as_of_date=str(as_of_date),
+            publish_id=str(baseline_payload.get("publish_id")),
+            attempt_count=int(baseline_payload.get("metrics_attempts") or max_attempts),
+            reason=quarantine_reason,
+            payload={
+                "publish_id": baseline_payload.get("publish_id"),
+                "forecast_surface_saved": baseline_payload.get("forecast_surface_saved"),
+                "forecast_surface_evaluation_present": False,
+            },
+            ops_db_path=ops_db_path,
+        )
+        logger.warning(
+            "nightly_candidate_pipeline forecast surface evaluation missing run_id=%s publish_id=%s",
+            run_id,
+            baseline_payload.get("publish_id"),
+        )
+    elif not baseline_payload.get("forecast_surface_evaluation_saved", False):
+        status = "published_with_surface_failure"
+        quarantine_reason = "forecast_surface_evaluation_not_persisted"
+        insert_quarantine_record(
+            quarantine_id=f"{run_id}_forecast_eval",
+            job_type=JOB_TYPE,
+            as_of_date=str(as_of_date),
+            publish_id=str(baseline_payload.get("publish_id")),
+            attempt_count=int(baseline_payload.get("metrics_attempts") or max_attempts),
+            reason=quarantine_reason,
+            payload={
+                "publish_id": baseline_payload.get("publish_id"),
+                "forecast_surface_evaluation_saved": baseline_payload.get("forecast_surface_evaluation_saved"),
+            },
+            ops_db_path=ops_db_path,
+        )
+        logger.warning(
+            "nightly_candidate_pipeline forecast surface evaluation missing run_id=%s publish_id=%s",
+            run_id,
+            baseline_payload.get("publish_id"),
+        )
+    elif not baseline_payload.get("metrics_saved", False):
         status = "published_with_metrics_failure"
         quarantine_reason = "nightly_metrics_persist_failed"
         insert_quarantine_record(
@@ -129,6 +259,10 @@ def run_nightly_candidate_pipeline(
             "export_run_id": export_payload.get("run_id"),
             "label_run_id": label_payload.get("run_id"),
             "publish_id": baseline_payload.get("publish_id"),
+            "forecast_surface_saved": baseline_payload.get("forecast_surface_saved"),
+            "forecast_surface_evaluation_saved": baseline_payload.get("forecast_surface_evaluation_saved"),
+            "forecast_surface_evaluation_readiness_pass": baseline_payload.get("forecast_surface_evaluation_readiness_pass"),
+            "forecast_surface_evaluation_gate_reason": baseline_payload.get("forecast_surface_evaluation_gate_reason"),
             "metrics_saved": baseline_payload.get("metrics_saved"),
             "metrics_attempts": baseline_payload.get("metrics_attempts"),
             "state_eval_count": baseline_payload.get("state_eval_count"),
@@ -138,6 +272,8 @@ def run_nightly_candidate_pipeline(
             "runtime_budget": runtime_budget,
             "quarantine_reason": quarantine_reason,
             "source_snapshot": snapshot_payload,
+            "source_readiness": source_readiness,
+            "min_universe_code_count": int(max(1, min_universe_code_count)),
             "require_prepared_environment": bool(require_prepared_environment),
         },
         ops_db_path=ops_db_path,
@@ -154,4 +290,5 @@ def run_nightly_candidate_pipeline(
         "runtime_budget": runtime_budget,
         "quarantine_reason": quarantine_reason,
         "source_snapshot": snapshot_payload,
+        "source_readiness": source_readiness,
     }
