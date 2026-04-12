@@ -13,7 +13,7 @@ SIMILARITY_RELEVANT_EXPORT_TABLES = frozenset({"bars_daily_export", "indicator_d
 
 
 def load_latest_export_run(export_db_path: str | None) -> dict[str, Any] | None:
-    conn = connect_export_db(export_db_path)
+    conn = connect_export_db(export_db_path, read_only=True)
     try:
         row = conn.execute(
             """
@@ -43,7 +43,7 @@ def _build_dirty_ranges_from_export_run(
     export_run_id: str,
     relevant_tables: frozenset[str],
 ) -> list[dict[str, Any]]:
-    conn = connect_export_db(export_db_path)
+    conn = connect_export_db(export_db_path, read_only=True)
     try:
         ranges: dict[str, dict[str, Any]] = {}
         if "bars_daily_export" in relevant_tables:

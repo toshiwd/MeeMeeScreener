@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import sys
+import json
 from datetime import date, timedelta
 
 import duckdb
 
 from app.backend.services.analysis_bridge.reader import get_analysis_bridge_snapshot
+import external_analysis.__main__ as external_analysis_main_module
 from external_analysis.__main__ import main as external_analysis_main
 
 
@@ -79,6 +81,8 @@ def test_phase2_slice_d_smoke_runs_export_labels_candidate_and_bridge(monkeypatc
             str(label_db),
             "--result-db-path",
             str(result_db),
+            "--source-db-path",
+            str(source_db),
             "--similarity-db-path",
             str(similarity_db),
             "--as-of-date",
@@ -99,6 +103,9 @@ def test_phase2_slice_d_smoke_runs_export_labels_candidate_and_bridge(monkeypatc
         candidate_count = conn.execute(
             "SELECT COUNT(*) FROM candidate_daily WHERE publish_id='pub_2026-03-12_20260312T220000Z_01'"
         ).fetchone()
+        forecast_count = conn.execute(
+            "SELECT COUNT(*) FROM forecast_surface_daily WHERE publish_id='pub_2026-03-12_20260312T220000Z_01'"
+        ).fetchone()
         regime_count = conn.execute(
             "SELECT COUNT(*) FROM regime_daily WHERE publish_id='pub_2026-03-12_20260312T220000Z_01'"
         ).fetchone()
@@ -108,8 +115,70 @@ def test_phase2_slice_d_smoke_runs_export_labels_candidate_and_bridge(monkeypatc
     snapshot = get_analysis_bridge_snapshot()
     assert pointer == ("pub_2026-03-12_20260312T220000Z_01",)
     assert int(candidate_count[0]) > 0
+    assert int(forecast_count[0]) > 0
     assert int(regime_count[0]) == 1
     assert snapshot["degraded"] is False
     assert snapshot["publish"]["publish_id"] == "pub_2026-03-12_20260312T220000Z_01"
     assert snapshot["public_table_counts"]["candidate_daily"] == int(candidate_count[0])
     assert snapshot["public_table_counts"]["regime_daily"] == 1
+
+
+def test_candidate_baseline_cli_prints_summary_payload(monkeypatch, capsys) -> None:
+    captured: dict[str, object] = {}
+
+    def _run_candidate_baseline(**kwargs):
+        captured.update(kwargs)
+        return {
+            "ok": True,
+            "publish_id": "pub_demo",
+            "forecast_surface_saved": True,
+            "forecast_surface_evaluation_saved": True,
+            "forecast_surface": {
+                "publish_id": "pub_demo",
+                "row_count": 1396,
+                "coverage_ratio": 1.0,
+                "alerts": [],
+                "rows": [{"code": "1301"}],
+            },
+            "forecast_surface_evaluation": {
+                "ok": True,
+                "scope_type": "publish",
+                "readiness_pass": False,
+                "gate_reason": "non_positive_combined_return",
+                "publish_id": "pub_demo",
+                "folds": [{"as_of_date": "2026-03-12"}],
+            },
+            "candidate_bundle": {
+                "ok": True,
+                "bundle": {
+                    "publish_id": "pub_demo",
+                    "readiness_pass": False,
+                    "rows": [{"code": "1301"}],
+                },
+            },
+        }
+
+    monkeypatch.setattr(
+        external_analysis_main_module,
+        "run_candidate_baseline",
+        _run_candidate_baseline,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "external_analysis",
+            "candidate-baseline-run",
+            "--as-of-date",
+            "20260312",
+            "--no-publish-public",
+        ],
+    )
+
+    assert external_analysis_main() == 0
+    payload = json.loads(capsys.readouterr().out.strip())
+    assert payload["publish_id"] == "pub_demo"
+    assert payload["forecast_surface"]["row_count"] == 1396
+    assert "rows" not in payload["forecast_surface"]
+    assert "folds" not in payload["forecast_surface_evaluation"]
+    assert captured["publish_public"] is False

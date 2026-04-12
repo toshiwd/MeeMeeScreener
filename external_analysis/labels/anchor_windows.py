@@ -21,7 +21,7 @@ def _run_id(kind: str) -> str:
 
 
 def _load_bars(export_db_path: str | None = None) -> tuple[list[int], dict[str, list[dict[str, Any]]]]:
-    export_conn = connect_export_db(export_db_path)
+    export_conn = connect_export_db(export_db_path, read_only=True)
     try:
         rows = export_conn.execute(
             """

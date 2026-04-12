@@ -18,6 +18,8 @@ from app.backend.services.analysis_bridge.reader import get_analysis_bridge_snap
 from app.backend.services.publish_promotion_service import build_publish_promotion_snapshot, promote_logic_key
 from app.backend.services.runtime_selection_service import build_runtime_selection_snapshot
 from app.backend.services.tradex_research_bridge_service import (
+    get_internal_forecast_surface_projection,
+    get_internal_forecast_surface_review,
     get_internal_replay_progress,
     get_internal_state_eval_action_queue,
     get_internal_state_eval_candle_combo_summary,
@@ -482,6 +484,16 @@ def get_tradex_research_replay_progress(replay_id: str | None = None, recent_lim
     return get_internal_replay_progress(replay_id=replay_id, recent_limit=recent_limit)
 
 
+@router.get("/research/forecast-surface-review", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_research_forecast_surface_review():
+    return get_internal_forecast_surface_review()
+
+
+@router.get("/research/forecast-surface-projection", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
+def get_tradex_research_forecast_surface_projection(limit_per_side: int = 20):
+    return get_internal_forecast_surface_projection(limit_per_side=limit_per_side)
+
+
 @router.get("/research/state-eval-promotion-review", dependencies=OPERATOR_CONSOLE_DEPENDENCIES)
 def get_tradex_research_state_eval_promotion_review():
     return get_internal_state_eval_promotion_review()
@@ -580,6 +592,7 @@ def get_tradex_bootstrap(
     analysis_status = get_analysis_bridge_snapshot()
     runtime_selection = build_runtime_selection_snapshot(config_repo=config, db_path=db_path)
     publish_state = build_publish_promotion_snapshot(config_repo=config, db_path=db_path, ops_db_path=ops_db_path)
+    forecast_surface_projection = get_internal_forecast_surface_projection(limit_per_side=8)
     replay_progress = get_internal_replay_progress()
     action_queue = get_internal_state_eval_action_queue()
     raw_candidates = list_publish_candidate_bundles(db_path=db_path)
@@ -592,6 +605,7 @@ def get_tradex_bootstrap(
         "baseline": baseline,
         "summary": summary,
         "candidates": candidates,
+        "forecast_surface_projection": forecast_surface_projection,
         "raw": {
             "analysis_status": analysis_status,
             "runtime_selection": runtime_selection,
@@ -599,6 +613,7 @@ def get_tradex_bootstrap(
             "publish_queue": {},
             "replay_progress": replay_progress,
             "action_queue": action_queue,
+            "forecast_surface_projection": forecast_surface_projection,
         },
     }
 

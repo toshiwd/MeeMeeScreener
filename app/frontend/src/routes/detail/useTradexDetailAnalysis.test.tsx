@@ -1,4 +1,4 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -28,8 +28,48 @@ const makeResponse = (symbol: string) => ({
     candidate_comparisons: [],
     publish_readiness: { ready: true, status: "ready", reasons: [] },
     override_state: { present: false, source: null, logic_key: null, logic_version: null, reason: null },
+    promotion_review: {
+      as_of_date: "2026-03-19",
+      champion_version: "champion-v1",
+      challenger_version: "challenger-v1",
+      sample_count: 25,
+      expectancy_delta: 0.018,
+      improved_expectancy: true,
+      mae_non_worse: true,
+      adverse_move_non_worse: true,
+      stable_window: true,
+      alignment_ok: true,
+      readiness_pass: true,
+      reason_codes: ["readiness_pass"],
+      approval_decision: {
+        decision_id: "pub:approved:1",
+        decision: "approved",
+        note: "ready_for_authoritative_cutover",
+        actor: "codex",
+        created_at: "2026-03-19T09:00:00Z",
+      },
+    },
     source: "tradex_analysis",
     schema_version: "tradex_analysis_output_v1",
+  },
+  forecast_surface: {
+    code: symbol,
+    asof: "2026-03-19",
+    rows: [
+      {
+        code: symbol,
+        side: "long",
+        action_state: "enter",
+        direction_prob: 0.71,
+        expected_upside: 0.084,
+        expected_downside: -0.031,
+        invalidation_price: 1234.5,
+        reason_codes: ["signal_buy_qualified"],
+        setup_tags: ["breakout"],
+        opportunity_score: 0.63,
+        freshness_state: "fresh",
+      },
+    ],
   },
 });
 
@@ -42,7 +82,15 @@ function Probe({ code }: { code: string }) {
     asof: null,
   });
 
-  return <div data-testid="tradex-state">{state.loading ? "loading" : state.analysis?.symbol ?? state.reason ?? "none"}</div>;
+  const forecast = state.forecastSurface?.rows[0];
+
+  return (
+    <div data-testid="tradex-state">
+      {state.loading
+        ? "loading"
+        : `${state.analysis?.symbol ?? state.reason ?? "none"}:${forecast?.actionState ?? "no-forecast"}:${forecast?.directionProb ?? "na"}:${state.analysis?.promotionReview?.approvalDecision?.decision ?? "no-decision"}`}
+    </div>
+  );
 }
 
 afterEach(() => {
@@ -96,6 +144,29 @@ describe("useTradexDetailAnalysis", () => {
 
     expect(container.textContent).toContain("6758");
     expect(container.textContent).not.toContain("7203");
+
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("normalizes forecast surface rows when present", async () => {
+    getMock.mockResolvedValueOnce({ data: makeResponse("9984") });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(<Probe code="9984" />);
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("9984");
+    expect(container.textContent).toContain("enter");
+    expect(container.textContent).toContain("0.71");
+    expect(container.textContent).toContain("approved");
 
     act(() => {
       root.unmount();

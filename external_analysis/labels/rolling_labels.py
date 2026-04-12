@@ -12,6 +12,7 @@ from external_analysis.runtime.incremental_cache import LABEL_RELEVANT_EXPORT_TA
 HORIZONS: tuple[int, ...] = (5, 10, 20, 40, 60)
 EMBARGO_BY_HORIZON: dict[int, int] = {5: 2, 10: 3, 20: 5, 40: 5, 60: 5}
 POLICY_VERSION = "purged-walk-forward-v1"
+LABEL_CODE_CHUNK_SIZE = 64
 
 
 def _utcnow() -> datetime:
@@ -23,7 +24,7 @@ def _run_id(kind: str) -> str:
 
 
 def _load_trading_dates(export_db_path: str | None = None) -> list[int]:
-    export_conn = connect_export_db(export_db_path)
+    export_conn = connect_export_db(export_db_path, read_only=True)
     try:
         rows = export_conn.execute(
             """
@@ -119,7 +120,7 @@ def _insert_horizon_labels(
         )
         """
     )
-    for code_chunk in _chunk_values(codes, 256):
+    for code_chunk in _chunk_values(codes, LABEL_CODE_CHUNK_SIZE):
         code_placeholders = ", ".join(["?"] * len(code_chunk))
         bars_code_filter_sql = f"WHERE code IN ({code_placeholders})"
         sql = f"""
@@ -334,6 +335,8 @@ def build_rolling_labels(
     export_alias = "rolling_export"
     try:
         ensure_label_schema(label_conn)
+        label_conn.execute("PRAGMA threads=1")
+        label_conn.execute("PRAGMA preserve_insertion_order=false")
         export_path_sql = str(resolve_export_db_path(export_db_path)).replace("'", "''")
         label_conn.execute(f"ATTACH '{export_path_sql}' AS {export_alias} (READ_ONLY)")
         summary = {

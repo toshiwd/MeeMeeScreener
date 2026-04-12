@@ -198,6 +198,54 @@ def _public_payload_metadata(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _authoritative_state_payload() -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "status": "unknown",
+        "decision": None,
+        "readiness_pass": None,
+        "sample_count": None,
+        "reason_codes": [],
+        "publish_id": None,
+        "as_of_date": None,
+        "note": None,
+    }
+    try:
+        from app.backend.services.tradex_research_bridge_service import get_internal_state_eval_promotion_review
+
+        payload = get_internal_state_eval_promotion_review()
+    except Exception:
+        state["note"] = "promotion_review_unavailable"
+        return state
+    review = payload.get("review") if isinstance(payload, dict) else None
+    if not isinstance(review, dict):
+        state["note"] = "promotion_review_missing"
+        return state
+    approval = review.get("approval_decision") if isinstance(review.get("approval_decision"), dict) else {}
+    decision = str(approval.get("decision") or "").strip().lower()
+    readiness_pass = bool(review.get("readiness_pass"))
+    if decision == "approved" and readiness_pass:
+        status = "authoritative"
+    elif readiness_pass:
+        status = "promotion_ready"
+    elif decision in {"hold", "rejected"}:
+        status = "shadow"
+    else:
+        status = "shadow"
+    state.update(
+        {
+            "status": status,
+            "decision": decision or None,
+            "readiness_pass": readiness_pass,
+            "sample_count": review.get("sample_count"),
+            "reason_codes": list(review.get("reason_codes") or []),
+            "publish_id": payload.get("publish_id") if isinstance(payload, dict) else None,
+            "as_of_date": review.get("as_of_date") if isinstance(review.get("as_of_date"), str) else None,
+            "note": approval.get("note") if isinstance(approval, dict) else None,
+        }
+    )
+    return state
+
+
 def get_analysis_bridge_snapshot(pointer_name: str = LATEST_POINTER_NAME) -> dict[str, Any]:
     db_path = resolve_result_db_path()
     if not db_path.exists():
@@ -312,6 +360,7 @@ def get_analysis_bridge_snapshot(pointer_name: str = LATEST_POINTER_NAME) -> dic
             "app_continues": True,
             "publish": pointer,
             "manifest": manifest,
+            "authoritative_state": _authoritative_state_payload(),
             "public_table_counts": _public_table_counts(conn, pointer["publish_id"]),
         }
     finally:

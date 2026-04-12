@@ -760,6 +760,54 @@ def test_analysis_bridge_internal_alias_keeps_forwarding_to_tradex_research(monk
     assert alias_response.json() == research_response.json()
 
 
+def test_analysis_bridge_internal_forecast_surface_endpoints_forward_payloads(monkeypatch, tmp_path) -> None:
+    result_db = tmp_path / "result.duckdb"
+    monkeypatch.setenv("MEEMEE_RESULT_DB_PATH", str(result_db))
+
+    import app.backend.api.routers.analysis_bridge as analysis_bridge_router
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "init_resources", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main_module, "cleanup_stale_jobs", lambda: None)
+    monkeypatch.setattr(main_module, "start_yf_daily_ingest_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_yf_daily_ingest_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module, "start_ranking_analysis_quality_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_ranking_analysis_quality_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module, "start_analysis_prewarm_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_analysis_prewarm_scheduler", lambda timeout_sec=1.0: None)
+    monkeypatch.setattr(main_module.threading, "Thread", _NoopThread)
+    monkeypatch.setattr(
+        analysis_bridge_router,
+        "get_internal_forecast_surface_review",
+        lambda: {"degraded": False, "review": {"primary_gate_reason": "gate_passed", "ready_streak": 5}},
+    )
+    monkeypatch.setattr(
+        analysis_bridge_router,
+        "get_internal_forecast_surface_projection",
+        lambda limit_per_side=20: {
+            "degraded": False,
+            "projection": {
+                "summary": {"coverage_ratio": 1.0},
+                "long_rank": [{"code": "1301"}],
+                "short_rank": [],
+                "high_risk_avoid": [],
+                "watchlist_promotions": [],
+            },
+            "limit_per_side": limit_per_side,
+        },
+    )
+
+    client = TestClient(main_module.create_app())
+    review_response = client.get("/api/analysis-bridge/internal/forecast-surface-review")
+    projection_response = client.get("/api/analysis-bridge/internal/forecast-surface-projection?limit_per_side=7")
+
+    assert review_response.status_code == 200
+    assert review_response.json()["review"]["primary_gate_reason"] == "gate_passed"
+    assert projection_response.status_code == 200
+    assert projection_response.json()["projection"]["summary"]["coverage_ratio"] == 1.0
+    assert projection_response.json()["limit_per_side"] == 7
+
+
 def test_analysis_bridge_internal_state_eval_tags_csv_exports_rows(monkeypatch, tmp_path) -> None:
     result_db = tmp_path / "result.duckdb"
     data_dir = tmp_path / "data"

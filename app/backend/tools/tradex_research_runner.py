@@ -55,11 +55,13 @@ SESSION_FAMILY_LEADERBOARD_SCHEMA_VERSION = "tradex_family_leaderboard_v1"
 SESSION_LEADERBOARD_ROLLUP_SCHEMA_VERSION = "tradex_session_leaderboard_rollup_v1"
 STABILITY_ROLLUP_SCHEMA_VERSION = "tradex_research_stability_rollup_v1"
 SCOPE_STABILITY_ROLLUP_SCHEMA_VERSION = "tradex_research_scope_stability_rollup_v1"
+LOGIC_SEARCH_ROLLUP_SCHEMA_VERSION = "tradex_research_logic_search_rollup_v1"
 SESSION_REPORT_NAME_PREFIX = "tradex_research_session"
 SESSION_FAMILY_LEADERBOARD_REPORT_PREFIX = "tradex_research_family_leaderboard"
 SESSION_LEADERBOARD_ROLLUP_REPORT_PREFIX = "tradex_research_session_rollup"
 STABILITY_ROLLUP_REPORT_PREFIX = "tradex_research_stability_rollup"
 SCOPE_STABILITY_ROLLUP_REPORT_PREFIX = "tradex_research_scope_stability_rollup"
+LOGIC_SEARCH_ROLLUP_REPORT_PREFIX = "tradex_research_logic_search_rollup"
 SESSION_FAMILY_LEADERBOARD_FILE = "family_leaderboard.json"
 SESSION_LEADERBOARD_ROLLUP_FILE = "session_leaderboard_rollup.json"
 STABILITY_ROLLUP_FILE = "stability_rollup.json"
@@ -68,6 +70,7 @@ DEFAULT_UNIVERSE_SIZE = 30
 DEFAULT_MAX_CANDIDATES_PER_FAMILY = 2
 STABILITY_SWEEP_DEFAULT_SEEDS = (7, 11, 19, 23, 29)
 FEATURE_SNAPSHOT_SCOPE_ID = "rr_confirmed_20260323_fix6"
+TRADEX_EXPLORATORY_EVAL_WINDOW_MIN_TRADING_DAYS = 8
 
 
 @dataclass(frozen=True)
@@ -245,6 +248,14 @@ def _scope_stability_rollup_file() -> Path:
 def _scope_stability_rollup_report_file() -> Path:
     report_dir = tradex_reports_root()
     return report_dir / f"{SCOPE_STABILITY_ROLLUP_REPORT_PREFIX}.md"
+
+
+def _logic_search_rollup_file(search_id: str) -> Path:
+    return tradex_reports_root() / f"{LOGIC_SEARCH_ROLLUP_REPORT_PREFIX}_{_slug(search_id)}.json"
+
+
+def _logic_search_rollup_report_file(search_id: str) -> Path:
+    return tradex_reports_root() / f"{LOGIC_SEARCH_ROLLUP_REPORT_PREFIX}_{_slug(search_id)}.md"
 
 
 def _session_family_id(session_id: str, method_family: str) -> str:
@@ -750,7 +761,10 @@ def _scope_feature_snapshot_eligible_codes(
     }
 
 
-def _build_period_segments_with_mode() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _build_period_segments_with_mode(
+    *,
+    exploratory_min_trading_days: int | None = TRADEX_EXPLORATORY_EVAL_WINDOW_MIN_TRADING_DAYS,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     regime_rows, issues = tradex._load_evaluation_regime_rows()
     standard_windows, standard_issues = tradex._select_evaluation_windows(
         regime_rows,
@@ -769,6 +783,16 @@ def _build_period_segments_with_mode() -> tuple[list[dict[str, Any]], dict[str, 
         selected_windows = fallback_windows
         selected_issues = [*issues, *fallback_issues]
         mode_reason = "fallback_required_standard_windows_unavailable"
+    if len(selected_windows) < 3 and exploratory_min_trading_days is not None:
+        exploratory_windows, exploratory_issues = tradex._select_evaluation_windows(
+            regime_rows,
+            min_trading_days=max(1, int(exploratory_min_trading_days)),
+        )
+        if len(exploratory_windows) >= 3:
+            mode = "exploratory"
+            selected_windows = exploratory_windows
+            selected_issues = [*issues, *exploratory_issues]
+            mode_reason = f"exploratory_required_standard_and_fallback_windows_unavailable_min_days={int(exploratory_min_trading_days)}"
     if selected_issues or len(selected_windows) < 3:
         raise RuntimeError(
             "evaluation windows unavailable: "
@@ -2534,7 +2558,8 @@ def _build_session_leaderboard_rollup() -> dict[str, Any]:
             "eval_window_mode_counts": {
                 "standard": sum(1 for item in valid_session_payloads if _text(item.get("eval_window_mode")) == "standard"),
                 "fallback": sum(1 for item in valid_session_payloads if _text(item.get("eval_window_mode")) == "fallback"),
-                "unknown": sum(1 for item in valid_session_payloads if _text(item.get("eval_window_mode")) not in {"standard", "fallback"}),
+                "exploratory": sum(1 for item in valid_session_payloads if _text(item.get("eval_window_mode")) == "exploratory"),
+                "unknown": sum(1 for item in valid_session_payloads if _text(item.get("eval_window_mode")) not in {"standard", "fallback", "exploratory"}),
             },
         },
         "source_family_leaderboard_paths": [str(_session_family_leaderboard_file(session_entry["session_id"])) for session_entry in session_payloads],
@@ -2830,7 +2855,8 @@ def _build_stability_rollup(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "eval_window_mode_counts": {
                 "standard": sum(1 for row in rows if _text(row.get("eval_window_mode")) == "standard"),
                 "fallback": sum(1 for row in rows if _text(row.get("eval_window_mode")) == "fallback"),
-                "unknown": sum(1 for row in rows if _text(row.get("eval_window_mode")) not in {"standard", "fallback"}),
+                "exploratory": sum(1 for row in rows if _text(row.get("eval_window_mode")) == "exploratory"),
+                "unknown": sum(1 for row in rows if _text(row.get("eval_window_mode")) not in {"standard", "fallback", "exploratory"}),
             },
         },
         "overview": {
@@ -2864,7 +2890,7 @@ def _format_stability_rollup_markdown(rollup: dict[str, Any]) -> str:
         lines.append(f"- status: `{_text(rollup.get('status'), fallback='invalid')}`")
     counts = session_meta.get("eval_window_mode_counts") if isinstance(session_meta.get("eval_window_mode_counts"), dict) else {}
     lines.append(
-        f"- eval_window_mode_counts: standard=`{int(counts.get('standard') or 0)}`, fallback=`{int(counts.get('fallback') or 0)}`, unknown=`{int(counts.get('unknown') or 0)}`"
+        f"- eval_window_mode_counts: standard=`{int(counts.get('standard') or 0)}`, fallback=`{int(counts.get('fallback') or 0)}`, exploratory=`{int(counts.get('exploratory') or 0)}`, unknown=`{int(counts.get('unknown') or 0)}`"
     )
     first_zero_counts = overview.get("first_zero_stage_counts") if isinstance(overview.get("first_zero_stage_counts"), dict) else {}
     if first_zero_counts:
@@ -3057,7 +3083,7 @@ def _build_scope_stability_rollup(rows: list[dict[str, Any]]) -> dict[str, Any]:
         scope_decision, scope_decision_reasons = _scope_decision_from_rows(session_rows)
         sample_counts = [int(row.get("sample_count") or 0) for row in session_rows]
         first_zero_stage_counts: dict[str, int] = {}
-        eval_window_mode_counts: dict[str, int] = {"standard": 0, "fallback": 0, "unknown": 0}
+        eval_window_mode_counts: dict[str, int] = {"standard": 0, "fallback": 0, "exploratory": 0, "unknown": 0}
         ret20_source_mode_counts: dict[str, int] = {"precomputed": 0, "derived_from_daily_bars": 0, "unknown": 0}
         future_ret20_failure_reason_counts: dict[str, int] = {}
         future_ret20_join_gap_after_scope_filter_count = 0
@@ -3074,7 +3100,7 @@ def _build_scope_stability_rollup(rows: list[dict[str, Any]]) -> dict[str, Any]:
             stage = _text(row.get("first_zero_stage"), fallback=_text(row.get("failure_stage"), fallback="passed"))
             first_zero_stage_counts[stage] = first_zero_stage_counts.get(stage, 0) + 1
             mode = _text(row.get("eval_window_mode"), fallback="unknown")
-            eval_window_mode_counts[mode if mode in {"standard", "fallback"} else "unknown"] += 1
+            eval_window_mode_counts[mode if mode in {"standard", "fallback", "exploratory"} else "unknown"] += 1
             ret20_mode = _text(row.get("ret20_source_mode"), fallback="unknown")
             ret20_source_mode_counts[ret20_mode if ret20_mode in {"precomputed", "derived_from_daily_bars"} else "unknown"] += 1
             session_failure_reason = _text(row.get("session_failure_reason"), fallback="")
@@ -3298,7 +3324,7 @@ def _format_scope_stability_rollup_markdown(rollup: dict[str, Any]) -> str:
     lines.append(f"- scope_ids: `{', '.join(scope_ids) if scope_ids else 'none'}`")
     counts = session_meta.get("eval_window_mode_counts") if isinstance(session_meta.get("eval_window_mode_counts"), dict) else {}
     lines.append(
-        f"- eval_window_mode_counts: standard=`{int(counts.get('standard') or 0)}`, fallback=`{int(counts.get('fallback') or 0)}`, unknown=`{int(counts.get('unknown') or 0)}`"
+        f"- eval_window_mode_counts: standard=`{int(counts.get('standard') or 0)}`, fallback=`{int(counts.get('fallback') or 0)}`, exploratory=`{int(counts.get('exploratory') or 0)}`, unknown=`{int(counts.get('unknown') or 0)}`"
     )
     ret20_counts = session_meta.get("ret20_source_mode_counts") if isinstance(session_meta.get("ret20_source_mode_counts"), dict) else {}
     lines.append(
@@ -4078,6 +4104,8 @@ def run_tradex_research_session(
     session_scope_id: str | None = None,
     ret20_source_mode: str = tradex.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED,
     finalize_shared_rollups: bool = True,
+    family_specs: tuple[FamilySpec, ...] | None = None,
+    exploratory_min_trading_days: int | None = TRADEX_EXPLORATORY_EVAL_WINDOW_MIN_TRADING_DAYS,
 ) -> dict[str, Any]:
     if tradex.get_research_execution_context() is None:
         with tradex.use_research_execution_context(tradex.ResearchExecutionContext()):
@@ -4089,8 +4117,10 @@ def run_tradex_research_session(
                 session_scope_id=session_scope_id,
                 ret20_source_mode=ret20_source_mode,
                 finalize_shared_rollups=finalize_shared_rollups,
+                family_specs=family_specs,
+                exploratory_min_trading_days=exploratory_min_trading_days,
             )
-    family_specs = _build_family_specs()
+    family_specs = tuple(family_specs) if family_specs is not None else _build_family_specs()
     max_candidates_per_family = max(1, min(int(max_candidates_per_family), 3))
     _require_legacy_analysis_enabled(context="tradex research session")
     scope_id = _text(session_scope_id, fallback=session_id)
@@ -4122,7 +4152,9 @@ def run_tradex_research_session(
             except Exception as exc:
                 db_diagnostics["db_probe_error"] = f"{exc.__class__.__name__}:{exc}"
         raise RuntimeError(f"confirmed universe is empty: {json.dumps(_json_ready(db_diagnostics), ensure_ascii=False, sort_keys=True)}")
-    period_segments, period_mode_meta = _build_period_segments_with_mode()
+    period_segments, period_mode_meta = _build_period_segments_with_mode(
+        exploratory_min_trading_days=exploratory_min_trading_days,
+    )
     _configure_research_execution_context(
         repo=repo,
         codes=codes,
@@ -4486,6 +4518,614 @@ def run_tradex_research_session(
     return state
 
 
+def _logic_search_float(value: Any, default: float = 0.0) -> float:
+    parsed = tradex._float(value)
+    return float(parsed) if parsed is not None else float(default)
+
+
+def _logic_search_mutation_hints(candidate_effective_config: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(candidate_effective_config, dict):
+        return []
+    hints: list[dict[str, Any]] = []
+    numeric_steps = {
+        "minimum_confidence": 0.02,
+        "minimum_ready_rate": 0.05,
+        "playbook_up_score_bonus": 0.005,
+        "playbook_down_score_bonus": 0.005,
+        "bad_pick_penalty_scale": 1.0,
+    }
+    for key, step in numeric_steps.items():
+        if key not in candidate_effective_config:
+            continue
+        value = tradex._float(candidate_effective_config.get(key))
+        if value is None:
+            continue
+        if key == "bad_pick_penalty_scale":
+            lower = max(0.0, float(value) - step)
+            upper = float(value) + step
+            candidates = [round(lower, 4), round(float(value), 4), round(upper, 4)]
+        else:
+            lower = max(0.0, float(value) - step)
+            upper = min(1.0, float(value) + step)
+            candidates = [round(lower, 4), round(float(value), 4), round(upper, 4)]
+        hints.append({"parameter": key, "candidates": sorted(set(candidates))})
+    if "top_k" in candidate_effective_config:
+        value = tradex._int(candidate_effective_config.get("top_k"))
+        if value is not None:
+            candidates = sorted({max(1, int(value) - 1), max(1, int(value)), max(1, int(value) + 1)})
+            hints.append({"parameter": "top_k", "candidates": candidates})
+    signal_bias = _text(candidate_effective_config.get("signal_bias"), fallback="")
+    if signal_bias:
+        hints.append({"parameter": "signal_bias", "candidates": sorted({signal_bias, "balanced", "buy", "sell"})})
+    return hints
+
+
+def _logic_search_candidate_score(evaluation: dict[str, Any]) -> float:
+    promote_ready = bool(evaluation.get("promote_ready"))
+    insufficient_samples = bool(evaluation.get("insufficient_samples"))
+    meaningful_topk_branching_possible = bool(evaluation.get("meaningful_topk_branching_possible"))
+    top5 = _logic_search_float(evaluation.get("challenger_topk_ret20_mean"))
+    top10 = _logic_search_float(evaluation.get("challenger_topk10_ret20_mean"))
+    monthly_capture = _logic_search_float((evaluation.get("challenger_monthly_top5_capture") or {}).get("mean"))
+    worst_regime = _logic_search_float(evaluation.get("challenger_worst_regime_ret20_mean"))
+    dd = max(0.0, _logic_search_float(evaluation.get("challenger_dd")))
+    turnover = max(0.0, _logic_search_float(evaluation.get("challenger_turnover")))
+    liquidity_fail_rate = max(0.0, _logic_search_float(evaluation.get("challenger_liquidity_fail_rate")))
+    zero_pass_months = max(0.0, _logic_search_float(evaluation.get("challenger_zero_pass_months")))
+    score = (
+        (1000.0 if promote_ready else 0.0)
+        + (500.0 * top5)
+        + (300.0 * top10)
+        + (200.0 * monthly_capture)
+        + (250.0 * worst_regime)
+        - (250.0 * dd)
+        - (120.0 * turnover)
+        - (300.0 * liquidity_fail_rate)
+        - (60.0 * zero_pass_months)
+    )
+    if insufficient_samples:
+        score -= 2000.0
+    if not meaningful_topk_branching_possible:
+        score -= 500.0
+    return float(score)
+
+
+def _logic_search_candidate_row(
+    *,
+    search_id: str,
+    session_state: dict[str, Any],
+    family_result: dict[str, Any],
+) -> dict[str, Any] | None:
+    best_candidate = family_result.get("best_candidate") if isinstance(family_result.get("best_candidate"), dict) else None
+    if not isinstance(best_candidate, dict):
+        return None
+    candidate_method = best_candidate.get("candidate_method") if isinstance(best_candidate.get("candidate_method"), dict) else {}
+    diagnostics = best_candidate.get("diagnostics") if isinstance(best_candidate.get("diagnostics"), dict) else {}
+    candidate_effective_config = diagnostics.get("candidate_effective_config") if isinstance(diagnostics.get("candidate_effective_config"), dict) else {}
+    evaluation_summary = best_candidate.get("evaluation_summary") if isinstance(best_candidate.get("evaluation_summary"), dict) else {}
+    if not evaluation_summary:
+        evaluation_summary = best_candidate if isinstance(best_candidate, dict) else {}
+    score = _logic_search_candidate_score(evaluation_summary)
+    candidate_signature_hash = _leaderboard_candidate_signature_hash(best_candidate)
+    method_id = _text(candidate_method.get("method_id"), fallback=_text(best_candidate.get("plan_id"), fallback=candidate_signature_hash))
+    method_title = _text(candidate_method.get("method_title"), fallback=method_id)
+    method_family = _text(candidate_method.get("method_family"), fallback=_text(family_result.get("method_family"), fallback="unknown"))
+    family_title = _text(family_result.get("family_title"), fallback=method_family)
+    session_id = _text(session_state.get("session_id"), fallback=search_id)
+    session_scope_id = _text(session_state.get("session_scope_id"), fallback=session_id)
+    random_seed = int(session_state.get("random_seed") or 0)
+    return {
+        "search_id": search_id,
+        "session_id": session_id,
+        "session_scope_id": session_scope_id,
+        "random_seed": random_seed,
+        "family_id": _text(family_result.get("family_id"), fallback="unknown"),
+        "family_title": family_title,
+        "method_family": method_family,
+        "method_id": method_id,
+        "method_title": method_title,
+        "candidate_signature_hash": candidate_signature_hash,
+        "score": score,
+        "promote_ready": bool(evaluation_summary.get("promote_ready")),
+        "sample_count": int(evaluation_summary.get("sample_count") or 0),
+        "top5_ret20_mean": _logic_search_float(evaluation_summary.get("challenger_topk_ret20_mean")),
+        "top10_ret20_mean": _logic_search_float(evaluation_summary.get("challenger_topk10_ret20_mean")),
+        "monthly_capture_mean": _logic_search_float((evaluation_summary.get("challenger_monthly_top5_capture") or {}).get("mean")),
+        "worst_regime_ret20_mean": _logic_search_float(evaluation_summary.get("challenger_worst_regime_ret20_mean")),
+        "dd": max(0.0, _logic_search_float(evaluation_summary.get("challenger_dd"))),
+        "turnover": max(0.0, _logic_search_float(evaluation_summary.get("challenger_turnover"))),
+        "liquidity_fail_rate": max(0.0, _logic_search_float(evaluation_summary.get("challenger_liquidity_fail_rate"))),
+        "zero_pass_months": max(0.0, _logic_search_float(evaluation_summary.get("challenger_zero_pass_months"))),
+        "candidate_effective_config": _json_ready(candidate_effective_config),
+        "mutation_hints": _logic_search_mutation_hints(candidate_effective_config),
+        "decision": _text(best_candidate.get("decision"), fallback="hold"),
+        "promote_reasons": _json_ready(best_candidate.get("promote_reasons") or []),
+        "evaluation_summary": _json_ready(evaluation_summary),
+    }
+
+
+def _logic_search_mutated_family_specs(
+    candidate_rows: list[dict[str, Any]],
+    *,
+    round_index: int,
+    max_families: int = 4,
+    max_mutations_per_family: int = 3,
+) -> tuple[FamilySpec, ...]:
+    if not candidate_rows:
+        return ()
+    seen_families: set[str] = set()
+    ranked_rows = sorted(
+        candidate_rows,
+        key=lambda row: (
+            -float(row.get("score") or 0.0),
+            -int(row.get("sample_count") or 0),
+            _text(row.get("method_family")),
+            _text(row.get("method_id")),
+        ),
+    )
+    families: list[FamilySpec] = []
+    for row in ranked_rows:
+        method_family = _text(row.get("method_family"), fallback="")
+        if not method_family or method_family in seen_families:
+            continue
+        seen_families.add(method_family)
+        candidate_effective_config = row.get("candidate_effective_config") if isinstance(row.get("candidate_effective_config"), dict) else {}
+        mutation_hints = row.get("mutation_hints") if isinstance(row.get("mutation_hints"), list) else []
+        if not mutation_hints:
+            mutation_hints = _logic_search_mutation_hints(candidate_effective_config)
+        base_method_id = _text(row.get("method_id"), fallback=method_family)
+        base_method_title = _text(row.get("method_title"), fallback=base_method_id)
+        base_method_thesis = f"Auto mutation source from {base_method_title}"
+        candidates: list[CandidateMethodSpec] = []
+        for hint in mutation_hints:
+            parameter = _text(hint.get("parameter"), fallback="")
+            if not parameter:
+                continue
+            values = hint.get("candidates") if isinstance(hint.get("candidates"), list) else []
+            for value in values:
+                if len(candidates) >= max_mutations_per_family:
+                    break
+                if value is None:
+                    continue
+                mutated_config = dict(candidate_effective_config)
+                mutated_config[parameter] = value
+                mutation_method_id = f"{base_method_id}__r{int(round_index)}__{_slug(parameter)}_{_slug(value)}"
+                mutation_method_title = f"{base_method_title} [{parameter}={value}]"
+                mutation_method_thesis = f"Auto mutation around {base_method_title}: {parameter}={value}"
+                candidates.append(
+                    CandidateMethodSpec(
+                        method_family=method_family,
+                        method_id=mutation_method_id,
+                        method_title=mutation_method_title,
+                        method_thesis=mutation_method_thesis,
+                        plan_overrides=mutated_config,
+                    )
+                )
+            if len(candidates) >= max_mutations_per_family:
+                break
+        if not candidates:
+            mutated_config = dict(candidate_effective_config)
+            candidates.append(
+                CandidateMethodSpec(
+                    method_family=method_family,
+                    method_id=f"{base_method_id}__r{int(round_index)}__fallback",
+                    method_title=f"{base_method_title} [auto-fallback]",
+                    method_thesis=base_method_thesis,
+                    plan_overrides=mutated_config,
+                )
+            )
+        families.append(
+            FamilySpec(
+                method_family=method_family,
+                family_title=f"Auto search / {method_family}",
+                family_thesis=base_method_thesis,
+                candidates=tuple(candidates[:max_mutations_per_family]),
+            )
+        )
+        if len(families) >= max_families:
+            break
+    return tuple(families)
+
+
+def _aggregate_logic_search_rows(rows: list[dict[str, Any]], *, group_key: str) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        key = _text(row.get(group_key), fallback="unknown")
+        grouped.setdefault(key, []).append(row)
+    aggregated: list[dict[str, Any]] = []
+    for key, bucket in grouped.items():
+        scores = [float(item.get("score") or 0.0) for item in bucket]
+        promote_ready_count = sum(1 for item in bucket if bool(item.get("promote_ready")))
+        best_item = max(bucket, key=lambda item: (float(item.get("score") or 0.0), int(item.get("sample_count") or 0), _text(item.get("method_id")), _text(item.get("session_id"))))
+        aggregated.append(
+            {
+                group_key: key,
+                "session_count": len(bucket),
+                "promote_ready_count": promote_ready_count,
+                "promote_ready_rate": float(promote_ready_count / len(bucket)) if bucket else 0.0,
+                "score_mean": float(sum(scores) / len(scores)) if scores else 0.0,
+                "score_min": float(min(scores)) if scores else 0.0,
+                "score_max": float(max(scores)) if scores else 0.0,
+                "sample_count_mean": float(sum(float(item.get("sample_count") or 0.0) for item in bucket) / len(bucket)) if bucket else 0.0,
+                "best_session_id": _text(best_item.get("session_id")),
+                "best_session_scope_id": _text(best_item.get("session_scope_id")),
+                "best_random_seed": int(best_item.get("random_seed") or 0),
+                "best_method_family": _text(best_item.get("method_family")),
+                "best_method_id": _text(best_item.get("method_id")),
+                "best_method_title": _text(best_item.get("method_title")),
+                "best_candidate_signature_hash": _text(best_item.get("candidate_signature_hash")),
+                "best_score": float(best_item.get("score") or 0.0),
+                "best_promote_ready": bool(best_item.get("promote_ready")),
+                "best_top5_ret20_mean": float(best_item.get("top5_ret20_mean") or 0.0),
+                "best_top10_ret20_mean": float(best_item.get("top10_ret20_mean") or 0.0),
+                "best_monthly_capture_mean": float(best_item.get("monthly_capture_mean") or 0.0),
+                "best_worst_regime_ret20_mean": float(best_item.get("worst_regime_ret20_mean") or 0.0),
+                "best_dd": float(best_item.get("dd") or 0.0),
+                "best_turnover": float(best_item.get("turnover") or 0.0),
+                "best_liquidity_fail_rate": float(best_item.get("liquidity_fail_rate") or 0.0),
+                "best_zero_pass_months": float(best_item.get("zero_pass_months") or 0.0),
+                "mutation_hints": _json_ready(best_item.get("mutation_hints") or []),
+            }
+        )
+    return sorted(aggregated, key=lambda item: (-float(item.get("score_mean") or 0.0), -float(item.get("promote_ready_rate") or 0.0), _text(item.get(group_key))))
+
+
+def _build_logic_search_rollup(
+    *,
+    search_id: str,
+    session_rows: list[dict[str, Any]],
+    candidate_rows: list[dict[str, Any]],
+    session_scope_ids: list[str],
+    random_seeds: list[int],
+) -> dict[str, Any]:
+    session_rows = sorted(
+        session_rows,
+        key=lambda row: (-float(row.get("score") or 0.0), -int(row.get("sample_count") or 0), _text(row.get("session_id"))),
+    )
+    candidate_rows = sorted(
+        candidate_rows,
+        key=lambda row: (-float(row.get("score") or 0.0), -int(row.get("sample_count") or 0), _text(row.get("method_family")), _text(row.get("method_id"))),
+    )
+    family_rows = _aggregate_logic_search_rows(candidate_rows, group_key="method_family")
+    candidate_method_rows = _aggregate_logic_search_rows(candidate_rows, group_key="candidate_signature_hash")
+    best_session = session_rows[0] if session_rows else {}
+    best_candidate = candidate_rows[0] if candidate_rows else {}
+    best_family = family_rows[0] if family_rows else {}
+    return {
+        "schema_version": LOGIC_SEARCH_ROLLUP_SCHEMA_VERSION,
+        "search_id": search_id,
+        "generated_at": _utc_now_iso(),
+        "session_scope_ids": list(session_scope_ids),
+        "random_seeds": list(random_seeds),
+        "overview": {
+            "session_count": len(session_rows),
+            "candidate_count": len(candidate_rows),
+            "candidate_method_count": len(candidate_method_rows),
+            "family_count": len(family_rows),
+            "promote_ready_session_count": sum(1 for row in session_rows if bool(row.get("promote_ready"))),
+            "promote_ready_candidate_count": sum(1 for row in candidate_rows if bool(row.get("promote_ready"))),
+            "promote_ready_family_count": sum(1 for row in family_rows if bool(row.get("promote_ready_count") or 0)),
+        },
+        "best_session": _json_ready(best_session),
+        "best_candidate": _json_ready(best_candidate),
+        "best_family": _json_ready(best_family),
+        "session_rows": _json_ready(session_rows),
+        "candidate_rows": _json_ready(candidate_rows),
+        "candidate_method_rows": _json_ready(candidate_method_rows),
+        "family_rows": _json_ready(family_rows),
+        "next_round_proposals": _json_ready(
+            [
+                {
+                    "method_family": row.get("method_family"),
+                    "method_id": row.get("method_id"),
+                    "method_title": row.get("method_title"),
+                    "score": row.get("score"),
+                    "promote_ready": row.get("promote_ready"),
+                    "mutation_hints": row.get("mutation_hints"),
+                }
+                for row in candidate_rows[: min(5, len(candidate_rows))]
+            ]
+        ),
+    }
+
+
+def _format_logic_search_rollup_markdown(rollup: dict[str, Any]) -> str:
+    overview = rollup.get("overview") if isinstance(rollup.get("overview"), dict) else {}
+    best_session = rollup.get("best_session") if isinstance(rollup.get("best_session"), dict) else {}
+    best_candidate = rollup.get("best_candidate") if isinstance(rollup.get("best_candidate"), dict) else {}
+    best_family = rollup.get("best_family") if isinstance(rollup.get("best_family"), dict) else {}
+    session_rows = rollup.get("session_rows") if isinstance(rollup.get("session_rows"), list) else []
+    candidate_rows = rollup.get("candidate_rows") if isinstance(rollup.get("candidate_rows"), list) else []
+    family_rows = rollup.get("family_rows") if isinstance(rollup.get("family_rows"), list) else []
+    lines: list[str] = []
+    lines.append("# TRADEX Logic Search Rollup")
+    lines.append("")
+    lines.append(f"- generated_at: `{_text(rollup.get('generated_at'))}`")
+    lines.append(f"- search_id: `{_text(rollup.get('search_id'))}`")
+    lines.append(f"- session_scope_ids: `{', '.join(str(item) for item in rollup.get('session_scope_ids') or [] if str(item).strip()) or 'none'}`")
+    lines.append(f"- random_seeds: `{', '.join(str(item) for item in rollup.get('random_seeds') or [] if str(item).strip()) or 'none'}`")
+    lines.append(
+        "- overview: sessions=`{sessions}`, candidates=`{candidates}`, candidate_methods=`{candidate_methods}`, families=`{families}`, ready_sessions=`{ready_sessions}`, ready_candidates=`{ready_candidates}`, ready_families=`{ready_families}`".format(
+            sessions=int(overview.get("session_count") or 0),
+            candidates=int(overview.get("candidate_count") or 0),
+            candidate_methods=int(overview.get("candidate_method_count") or 0),
+            families=int(overview.get("family_count") or 0),
+            ready_sessions=int(overview.get("promote_ready_session_count") or 0),
+            ready_candidates=int(overview.get("promote_ready_candidate_count") or 0),
+            ready_families=int(overview.get("promote_ready_family_count") or 0),
+        )
+    )
+    lines.append("")
+    if best_candidate:
+        lines.append("## Best Candidate")
+        lines.append("")
+        lines.append(
+            "- {family} / {method} / score=`{score:.4f}` / promote_ready=`{ready}` / sample_count=`{sample}`".format(
+                family=_text(best_candidate.get("method_family"), fallback="unknown"),
+                method=_text(best_candidate.get("method_title"), fallback=_text(best_candidate.get("method_id"), fallback="unknown")),
+                score=float(best_candidate.get("score") or 0.0),
+                ready="yes" if bool(best_candidate.get("promote_ready")) else "no",
+                sample=int(best_candidate.get("sample_count") or 0),
+            )
+        )
+        lines.append(f"- mutation_hints: `{json.dumps(_json_ready(best_candidate.get('mutation_hints') or []), ensure_ascii=False, sort_keys=True)}`")
+        lines.append("")
+    if best_family:
+        lines.append("## Best Family")
+        lines.append("")
+        lines.append(
+            "- {family} / best_method=`{method}` / score_mean=`{score:.4f}` / promote_ready_rate=`{rate:.2%}`".format(
+                family=_text(best_family.get("method_family"), fallback="unknown"),
+                method=_text(best_family.get("best_method_id"), fallback="unknown"),
+                score=float(best_family.get("score_mean") or 0.0),
+                rate=float(best_family.get("promote_ready_rate") or 0.0),
+            )
+        )
+        lines.append("")
+    if best_session:
+        lines.append("## Best Session")
+        lines.append("")
+        lines.append(
+            "- {session} / seed=`{seed}` / scope=`{scope}` / score=`{score:.4f}`".format(
+                session=_text(best_session.get("session_id"), fallback="unknown"),
+                seed=int(best_session.get("random_seed") or 0),
+                scope=_text(best_session.get("session_scope_id"), fallback="unknown"),
+                score=float(best_session.get("score") or 0.0),
+            )
+        )
+        lines.append("")
+    lines.append("## Session Rows")
+    lines.append("")
+    lines.append("| session | seed | scope | best_family | score | promote_ready |")
+    lines.append("| --- | ---: | --- | --- | ---: | --- |")
+    for row in session_rows:
+        lines.append(
+            "| {session} | {seed} | {scope} | {family} | {score:.4f} | {ready} |".format(
+                session=_text(row.get("session_id")),
+                seed=int(row.get("random_seed") or 0),
+                scope=_text(row.get("session_scope_id"), fallback="unknown"),
+                family=_text(row.get("method_family"), fallback=_text(row.get("best_method_family"), fallback="unknown")),
+                score=float(row.get("score") or 0.0),
+                ready="yes" if bool(row.get("promote_ready")) else "no",
+            )
+        )
+    lines.append("")
+    lines.append("## Candidate Leaderboard")
+    lines.append("")
+    lines.append("| method_family | method_id | score_mean | ready_rate | sessions | best_score |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: |")
+    for row in candidate_rows:
+        lines.append(
+            "| {family} | {method} | {score:.4f} | {rate:.2%} | {sessions} | {best:.4f} |".format(
+                family=_text(row.get("method_family"), fallback="unknown"),
+                method=_text(row.get("method_id"), fallback="unknown"),
+                score=float(row.get("score_mean") or 0.0),
+                rate=float(row.get("promote_ready_rate") or 0.0),
+                sessions=int(row.get("session_count") or 0),
+                best=float(row.get("best_score") or row.get("score_max") or 0.0),
+            )
+        )
+    lines.append("")
+    lines.append("## Family Leaderboard")
+    lines.append("")
+    lines.append("| family | best_method | score_mean | ready_rate | sessions | best_score |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: |")
+    for row in family_rows:
+        lines.append(
+            "| {family} | {method} | {score:.4f} | {rate:.2%} | {sessions} | {best:.4f} |".format(
+                family=_text(row.get("method_family"), fallback="unknown"),
+                method=_text(row.get("best_method_id"), fallback="unknown"),
+                score=float(row.get("score_mean") or 0.0),
+                rate=float(row.get("promote_ready_rate") or 0.0),
+                sessions=int(row.get("session_count") or 0),
+                best=float(row.get("best_score") or 0.0),
+            )
+        )
+    lines.append("")
+    lines.append("## Next Round Proposals")
+    lines.append("")
+    proposals = rollup.get("next_round_proposals") if isinstance(rollup.get("next_round_proposals"), list) else []
+    if proposals:
+        for proposal in proposals:
+            lines.append(
+                "- {family} / {method} / score=`{score:.4f}` / mutation_hints=`{hints}`".format(
+                    family=_text(proposal.get("method_family"), fallback="unknown"),
+                    method=_text(proposal.get("method_title"), fallback=_text(proposal.get("method_id"), fallback="unknown")),
+                    score=float(proposal.get("score") or 0.0),
+                    hints=json.dumps(_json_ready(proposal.get("mutation_hints") or []), ensure_ascii=False, sort_keys=True),
+                )
+            )
+    else:
+        lines.append("- none")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _write_logic_search_artifacts(search_id: str, rollup: dict[str, Any]) -> tuple[Path, Path]:
+    rollup_path = _logic_search_rollup_file(search_id)
+    report_path = _logic_search_rollup_report_file(search_id)
+    rollup["rollup_path"] = str(rollup_path)
+    rollup["report_path"] = str(report_path)
+    _write_json(rollup_path, rollup)
+    _verify_json_roundtrip(rollup_path, rollup, artifact_name="logic_search_rollup")
+    report_path.write_text(_format_logic_search_rollup_markdown(rollup), encoding="utf-8")
+    return rollup_path, report_path
+
+
+def run_tradex_logic_search(
+    *,
+    search_id: str,
+    random_seeds: list[int],
+    universe_size: int = DEFAULT_UNIVERSE_SIZE,
+    max_candidates_per_family: int = DEFAULT_MAX_CANDIDATES_PER_FAMILY,
+    session_scope_ids: list[str] | None = None,
+    ret20_source_mode: str = tradex.TRADEX_RET20_SOURCE_MODE_PRECOMPUTED,
+    rounds: int = 2,
+    max_mutated_families: int = 4,
+    max_mutations_per_family: int = 3,
+    finalize_shared_rollups: bool = False,
+    exploratory_min_trading_days: int | None = TRADEX_EXPLORATORY_EVAL_WINDOW_MIN_TRADING_DAYS,
+) -> dict[str, Any]:
+    search_id = _text(search_id, fallback="logic-search")
+    normalized_seeds = [int(seed) for seed in random_seeds if str(seed).strip()]
+    if not normalized_seeds:
+        raise ValueError("random_seeds must not be empty")
+    logic_rounds = max(1, int(rounds))
+    max_mutated_families = max(1, int(max_mutated_families))
+    max_mutations_per_family = max(1, int(max_mutations_per_family))
+    normalized_scope_ids = [_text(scope_id) for scope_id in (session_scope_ids or []) if _text(scope_id)]
+    if not normalized_scope_ids:
+        normalized_scope_ids = [search_id]
+    session_rows: list[dict[str, Any]] = []
+    candidate_rows: list[dict[str, Any]] = []
+    session_results: list[dict[str, Any]] = []
+    round_family_specs: tuple[FamilySpec, ...] | None = None
+    round_summaries: list[dict[str, Any]] = []
+    for round_index in range(logic_rounds):
+        if round_index == 0:
+            round_family_specs = None
+        elif candidate_rows:
+            round_family_specs = _logic_search_mutated_family_specs(
+                candidate_rows,
+                round_index=round_index,
+                max_families=max_mutated_families,
+                max_mutations_per_family=max_mutations_per_family,
+            )
+        else:
+            round_family_specs = None
+
+        round_session_rows: list[dict[str, Any]] = []
+        round_candidate_rows: list[dict[str, Any]] = []
+        round_session_results: list[dict[str, Any]] = []
+        for scope_id in normalized_scope_ids:
+            for seed in normalized_seeds:
+                session_id = _scope_session_id(f"{search_id}:r{round_index}", scope_id, seed)
+                session_state = run_tradex_research_session(
+                    session_id=session_id,
+                    random_seed=int(seed),
+                    universe_size=int(universe_size),
+                    max_candidates_per_family=int(max_candidates_per_family),
+                    session_scope_id=scope_id,
+                ret20_source_mode=ret20_source_mode,
+                finalize_shared_rollups=finalize_shared_rollups,
+                family_specs=round_family_specs,
+                exploratory_min_trading_days=exploratory_min_trading_days,
+            )
+                session_results.append(session_state)
+                round_session_results.append(session_state)
+                family_results = session_state.get("family_results") if isinstance(session_state.get("family_results"), list) else []
+                extracted_rows: list[dict[str, Any]] = []
+                for family_result in family_results:
+                    if not isinstance(family_result, dict):
+                        continue
+                    candidate_row = _logic_search_candidate_row(search_id=search_id, session_state=session_state, family_result=family_result)
+                    if candidate_row is None:
+                        continue
+                    candidate_row["round_index"] = round_index
+                    extracted_rows.append(candidate_row)
+                    round_candidate_rows.append(candidate_row)
+                    candidate_rows.append(candidate_row)
+                if extracted_rows:
+                    session_best = max(
+                        extracted_rows,
+                        key=lambda row: (float(row.get("score") or 0.0), int(row.get("sample_count") or 0), _text(row.get("method_id"))),
+                    )
+                else:
+                    session_best = {
+                        "session_id": session_state.get("session_id"),
+                        "session_scope_id": session_state.get("session_scope_id"),
+                        "random_seed": session_state.get("random_seed"),
+                        "method_family": None,
+                        "method_id": None,
+                        "method_title": None,
+                        "score": 0.0,
+                        "promote_ready": False,
+                        "sample_count": 0,
+                        "candidate_signature_hash": None,
+                        "mutation_hints": [],
+                        "round_index": round_index,
+                    }
+                session_best = dict(session_best)
+                session_best["family_count"] = len(family_results)
+                session_best["candidate_count"] = len(extracted_rows)
+                session_best["round_index"] = round_index
+                round_session_rows.append(session_best)
+                session_rows.append(session_best)
+        round_best_session = max(round_session_rows, key=lambda row: (float(row.get("score") or 0.0), int(row.get("sample_count") or 0), _text(row.get("method_id")))) if round_session_rows else {}
+        round_best_candidate = max(round_candidate_rows, key=lambda row: (float(row.get("score") or 0.0), int(row.get("sample_count") or 0), _text(row.get("method_id")))) if round_candidate_rows else {}
+        round_family_specs_payload = [
+            {
+                "method_family": spec.method_family,
+                "family_title": spec.family_title,
+                "family_thesis": spec.family_thesis,
+                "candidate_ids": [candidate.method_id for candidate in spec.candidates],
+                "candidate_titles": [candidate.method_title for candidate in spec.candidates],
+                "candidate_count": len(spec.candidates),
+            }
+            for spec in (round_family_specs or ())
+        ]
+        round_summaries.append(
+            {
+                "round_index": round_index,
+                "session_count": len(round_session_rows),
+                "candidate_count": len(round_candidate_rows),
+                "family_count": len(round_family_specs or ()),
+                "best_session": _json_ready(round_best_session),
+                "best_candidate": _json_ready(round_best_candidate),
+                "family_specs": round_family_specs_payload,
+            }
+        )
+    rollup = _build_logic_search_rollup(
+        search_id=search_id,
+        session_rows=session_rows,
+        candidate_rows=candidate_rows,
+        session_scope_ids=normalized_scope_ids,
+        random_seeds=normalized_seeds,
+    )
+    rollup["round_count"] = logic_rounds
+    rollup["round_summaries"] = round_summaries
+    rollup_path, report_path = _write_logic_search_artifacts(search_id, rollup)
+    rollup["rollup_path"] = str(rollup_path)
+    rollup["report_path"] = str(report_path)
+    return {
+        "status": "complete",
+        "schema_version": LOGIC_SEARCH_ROLLUP_SCHEMA_VERSION,
+        "search_id": search_id,
+        "session_count": len(session_rows),
+        "candidate_count": len(candidate_rows),
+        "family_count": len(rollup.get("family_rows") or []),
+        "best_session": rollup.get("best_session") or {},
+        "best_candidate": rollup.get("best_candidate") or {},
+        "best_family": rollup.get("best_family") or {},
+        "next_round_proposals": rollup.get("next_round_proposals") or [],
+        "round_count": logic_rounds,
+        "round_summaries": round_summaries,
+        "rollup_path": str(rollup_path),
+        "report_path": str(report_path),
+        "rollup": rollup,
+        "session_results": session_results,
+    }
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a single-machine TRADEX research session.")
     parser.add_argument("--session-id", required=True)
@@ -4524,11 +5164,81 @@ def _build_parser() -> argparse.ArgumentParser:
         default="",
         help="Comma-separated session_scope_id candidates for --scope-stability-sweep.",
     )
+    parser.add_argument("--logic-search", action="store_true", help="Run the repeated logic search loop instead of a single session.")
+    parser.add_argument(
+        "--logic-search-seeds",
+        default="",
+        help="Comma-separated random seeds for --logic-search. Falls back to --random-seed when omitted.",
+    )
+    parser.add_argument(
+        "--logic-search-scope-ids",
+        default="",
+        help="Comma-separated session_scope_id candidates for --logic-search. Falls back to the session id when omitted.",
+    )
+    parser.add_argument(
+        "--logic-search-universe-size",
+        type=int,
+        default=None,
+        help="Optional universe size override for --logic-search.",
+    )
+    parser.add_argument(
+        "--logic-search-max-candidates-per-family",
+        type=int,
+        default=None,
+        help="Optional max-candidates-per-family override for --logic-search.",
+    )
+    parser.add_argument(
+        "--logic-search-rounds",
+        type=int,
+        default=2,
+        help="Number of exploration rounds for --logic-search.",
+    )
+    parser.add_argument(
+        "--logic-search-max-mutated-families",
+        type=int,
+        default=4,
+        help="Upper bound on auto-generated mutated families per exploration round.",
+    )
+    parser.add_argument(
+        "--logic-search-max-mutations-per-family",
+        type=int,
+        default=3,
+        help="Upper bound on mutated candidates generated per family.",
+    )
+    parser.add_argument(
+        "--logic-search-exploratory-min-trading-days",
+        type=int,
+        default=TRADEX_EXPLORATORY_EVAL_WINDOW_MIN_TRADING_DAYS,
+        help="Fallback minimum trading days for exploratory eval windows when standard/fallback windows are insufficient. Set to 0 to disable.",
+    )
     return parser
 
 
 def main() -> int:
     args = _build_parser().parse_args()
+    if bool(args.logic_search):
+        seeds = [int(item.strip()) for item in str(args.logic_search_seeds).split(",") if item.strip()]
+        if not seeds:
+            seeds = [int(args.random_seed)]
+        scope_ids = [item.strip() for item in str(args.logic_search_scope_ids).split(",") if item.strip()]
+        result = run_tradex_logic_search(
+            search_id=str(args.session_id),
+            random_seeds=seeds,
+            universe_size=int(args.logic_search_universe_size or args.universe_size),
+            max_candidates_per_family=int(args.logic_search_max_candidates_per_family or args.max_candidates_per_family),
+            session_scope_ids=scope_ids,
+            ret20_source_mode=str(args.ret20_source_mode),
+            rounds=int(args.logic_search_rounds),
+            max_mutated_families=int(args.logic_search_max_mutated_families),
+            max_mutations_per_family=int(args.logic_search_max_mutations_per_family),
+            exploratory_min_trading_days=(
+                int(args.logic_search_exploratory_min_trading_days)
+                if int(args.logic_search_exploratory_min_trading_days) > 0
+                else None
+            ),
+        )
+        print(json.dumps(_json_ready(result), ensure_ascii=False, indent=2))
+        return 0
     if bool(args.scope_stability_sweep):
         seeds = [int(item.strip()) for item in str(args.scope_stability_seeds).split(",") if item.strip()]
         scope_ids = [item.strip() for item in str(args.scope_stability_scope_ids).split(",") if item.strip()]

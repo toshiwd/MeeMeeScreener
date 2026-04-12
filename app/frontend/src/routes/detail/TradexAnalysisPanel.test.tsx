@@ -51,6 +51,59 @@ describe('TradexAnalysisPanel', () => {
               logicVersion: 'v7',
               reason: null,
             },
+            promotionReview: {
+              asOfDate: '2026-03-19',
+              championVersion: 'champion-v1',
+              challengerVersion: 'challenger-v1',
+              sampleCount: 25,
+              expectancyDelta: 0.018,
+              improvedExpectancy: true,
+              maeNonWorse: true,
+              adverseMoveNonWorse: true,
+              stableWindow: true,
+              alignmentOk: true,
+              readinessPass: true,
+              reasonCodes: ['readiness_pass'],
+              approvalDecision: {
+                decisionId: 'pub:approved:1',
+                decision: 'approved',
+                note: 'ready_for_authoritative_cutover',
+                actor: 'codex',
+                createdAt: '2026-03-19T09:00:00Z',
+              },
+            },
+            forecastSurface: {
+              code: '7203',
+              asof: '2026-03-19',
+              rows: [
+                {
+                  code: '7203',
+                  side: 'long',
+                  actionState: 'enter',
+                  directionProb: 0.71,
+                  expectedUpside: 0.084,
+                  expectedDownside: -0.031,
+                  invalidationPrice: 1234.5,
+                  reasonCodes: ['signal_buy_qualified'],
+                  setupTags: ['breakout'],
+                  opportunityScore: 0.63,
+                  freshnessState: 'fresh',
+                },
+                {
+                  code: '7203',
+                  side: 'short',
+                  actionState: 'wait',
+                  directionProb: 0.29,
+                  expectedUpside: 0.021,
+                  expectedDownside: -0.054,
+                  invalidationPrice: 1222.1,
+                  reasonCodes: ['borrow_pressure_supports_short'],
+                  setupTags: ['risk_off'],
+                  opportunityScore: 0.22,
+                  freshnessState: 'fresh',
+                },
+              ],
+            },
           },
         }}
         formatPercentLabel={fmtPercent}
@@ -69,7 +122,13 @@ describe('TradexAnalysisPanel', () => {
     expect(markup).toContain('trend_up');
     expect(markup).toContain('v7');
     expect(markup).toContain('77.0%');
-    expect(markup).toContain('\u8cb7\u3044\u5bc4\u308a');
+    expect(markup).toContain('up');
+    expect(markup).toContain('authoritative');
+    expect(markup).toContain('decision approved');
+    expect(markup).toContain('Forecast surface');
+    expect(markup).toContain('enter');
+    expect(markup).toContain('expected_upside');
+    expect(markup).toContain('signal_buy_qualified');
   });
 
   it('renders unavailable state with reason', () => {

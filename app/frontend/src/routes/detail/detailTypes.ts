@@ -557,6 +557,50 @@ export type TradexAnalysisOverrideState = {
   reason: string | null;
 };
 
+export type TradexForecastSurfaceRow = {
+  code: string | null;
+  side: "long" | "short" | string | null;
+  actionState: string | null;
+  directionProb: number | null;
+  expectedUpside: number | null;
+  expectedDownside: number | null;
+  invalidationPrice: number | null;
+  reasonCodes: string[];
+  setupTags: string[];
+  opportunityScore: number | null;
+  freshnessState: string | null;
+};
+
+export type TradexForecastSurface = {
+  code: string | null;
+  asof: string | null;
+  rows: TradexForecastSurfaceRow[];
+};
+
+export type TradexPromotionDecision = {
+  decisionId: string | null;
+  decision: string | null;
+  note: string | null;
+  actor: string | null;
+  createdAt: string | null;
+};
+
+export type TradexPromotionReview = {
+  asOfDate: string | null;
+  championVersion: string | null;
+  challengerVersion: string | null;
+  sampleCount: number | null;
+  expectancyDelta: number | null;
+  improvedExpectancy: boolean | null;
+  maeNonWorse: boolean | null;
+  adverseMoveNonWorse: boolean | null;
+  stableWindow: boolean | null;
+  alignmentOk: boolean | null;
+  readinessPass: boolean | null;
+  reasonCodes: string[];
+  approvalDecision: TradexPromotionDecision | null;
+};
+
 export type TradexAnalysisOutput = {
   symbol: string;
   asof: string;
@@ -568,10 +612,13 @@ export type TradexAnalysisOutput = {
   candidateComparisons: TradexAnalysisCandidateComparison[];
   publishReadiness: TradexAnalysisPublishReadiness;
   overrideState: TradexAnalysisOverrideState;
+  forecastSurface: TradexForecastSurface | null;
+  promotionReview: TradexPromotionReview | null;
 };
 
 export type TradexAnalysisReadResult = {
   available: boolean;
   reason: string | null;
   analysis: TradexAnalysisOutput | null;
+  forecastSurface: TradexForecastSurface | null;
 };

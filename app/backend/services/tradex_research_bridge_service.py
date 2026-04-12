@@ -23,12 +23,14 @@ from app.backend.services.analysis_bridge.reader import (
 )
 from app.core.config import config as core_config
 from external_analysis.contracts.paths import (
+    resolve_result_db_path as external_resolve_result_db_path,
     resolve_ops_db_path as external_resolve_ops_db_path,
     resolve_source_db_path as external_resolve_source_db_path,
 )
 from external_analysis.exporter.source_reader import normalize_market_date
 from external_analysis.ops.ops_schema import connect_ops_db as external_connect_ops_db, ensure_ops_schema
 from external_analysis.ops.store import persist_promotion_decision
+from external_analysis.results.result_schema import connect_result_db
 
 
 def _legacy_ops_db_path() -> Path:
@@ -55,6 +57,42 @@ def resolve_source_db_path(db_path: str | None = None) -> Path:
     if legacy_path.exists():
         return legacy_path
     return external_resolve_source_db_path()
+
+
+def resolve_result_db_path(db_path: str | None = None) -> Path:
+    if db_path and str(db_path).strip():
+        return external_resolve_result_db_path(db_path)
+    return external_resolve_result_db_path()
+
+
+def _table_exists(conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE lower(table_schema) = 'main' AND lower(table_name) = lower(?)
+        LIMIT 1
+        """,
+        [str(table_name)],
+    ).fetchone()
+    return bool(row)
+
+
+def _json_load(value: Any, default: Any) -> Any:
+    if value is None:
+        return default
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return default
+    return parsed if parsed is not None else default
+
+
+def _safe_float(value: Any, default: float | None = None) -> float | None:
+    try:
+        return float(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
 
 
 def connect_ops_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
@@ -1163,6 +1201,325 @@ def save_internal_state_eval_promotion_decision(
     }
     payload.update({"review": review})
     return payload
+
+
+def get_internal_forecast_surface_review(pointer_name: str = LATEST_POINTER_NAME) -> dict[str, Any]:
+    snapshot = get_analysis_bridge_snapshot(pointer_name=pointer_name)
+    if snapshot.get("degraded"):
+        snapshot.update({"review": None, **_public_payload_metadata(snapshot)})
+        return snapshot
+    publish = snapshot.get("publish") or {}
+    publish_id = str(publish.get("publish_id") or "")
+    if not publish_id:
+        degraded = build_degrade_payload(DEGRADE_REASON_NO_PUBLISH)
+        degraded.update({"publish": None, "review": None, "publish_id": None, "as_of_date": None, "freshness_state": None})
+        return degraded
+    conn = connect_result_db(str(resolve_result_db_path()))
+    try:
+        if not _table_exists(conn, "forecast_surface_evaluation_runs"):
+            snapshot.update({"review": None, **_public_payload_metadata(snapshot)})
+            return snapshot
+        recent_rows = conn.execute(
+            """
+            SELECT CAST(as_of_date AS VARCHAR), readiness_pass, gate_reason
+            FROM forecast_surface_evaluation_runs
+            WHERE scope_type = 'publish'
+            ORDER BY as_of_date DESC NULLS LAST, created_at DESC, run_id DESC
+            LIMIT 20
+            """
+        ).fetchall()
+        run_row = conn.execute(
+            """
+            SELECT
+                run_id, scope_type, publish_id, CAST(as_of_date AS VARCHAR), model_version, top_k, fold_count, daily_count,
+                horizon_count, top_long_mean_ret20_net, top_short_mean_ret20_net, top_combined_mean_ret20_net,
+                candidate_long_mean_ret20_net, candidate_short_mean_ret20_net, candidate_combined_mean_ret20_net,
+                signal_long_mean_ret20_net, signal_short_mean_ret20_net, direction_brier_long, direction_brier_short,
+                calibration_gap_long, calibration_gap_short, top_k_uplift, worst_regime_combined_mean_ret20_net,
+                primary_gate_reason, gate_failures_json, calibration_method_long, calibration_method_short,
+                ready_streak, recent_ready_count_20, regime_breakdown_json, fold_metrics_json,
+                readiness_pass, gate_reason, CAST(created_at AS VARCHAR)
+            FROM forecast_surface_evaluation_runs
+            WHERE publish_id = ? AND scope_type = 'publish'
+            ORDER BY created_at DESC, run_id DESC
+            LIMIT 1
+            """,
+            [publish_id],
+        ).fetchone()
+        if not run_row:
+            fallback_row = conn.execute(
+                """
+                SELECT
+                    run_id, scope_type, publish_id, CAST(as_of_date AS VARCHAR), model_version, top_k, fold_count, daily_count,
+                    horizon_count, top_long_mean_ret20_net, top_short_mean_ret20_net, top_combined_mean_ret20_net,
+                    candidate_long_mean_ret20_net, candidate_short_mean_ret20_net, candidate_combined_mean_ret20_net,
+                    signal_long_mean_ret20_net, signal_short_mean_ret20_net, direction_brier_long, direction_brier_short,
+                    calibration_gap_long, calibration_gap_short, top_k_uplift, worst_regime_combined_mean_ret20_net,
+                    primary_gate_reason, gate_failures_json, calibration_method_long, calibration_method_short,
+                    ready_streak, recent_ready_count_20, regime_breakdown_json, fold_metrics_json,
+                    readiness_pass, gate_reason, CAST(created_at AS VARCHAR)
+                FROM forecast_surface_evaluation_runs
+                WHERE scope_type = 'walk_forward'
+                ORDER BY created_at DESC, run_id DESC
+                LIMIT 1
+                """,
+            ).fetchone()
+            run_row = fallback_row
+        if not run_row:
+            snapshot.update({"review": None, **_public_payload_metadata(snapshot)})
+            return snapshot
+        fold_rows = conn.execute(
+            """
+            SELECT
+                run_id, scope_type, publish_id, CAST(as_of_date AS VARCHAR), regime_tag, side, horizon_days, top_k,
+                sample_count, top_mean_ret_net, top_mean_mfe_net, top_mean_mae_net, top_win_rate, top_brier,
+                top_calibration_gap, candidate_mean_ret_net, candidate_win_rate, signal_mean_ret_net, signal_sample_count,
+                CAST(created_at AS VARCHAR)
+            FROM forecast_surface_evaluation_folds
+            WHERE run_id = ?
+            ORDER BY CAST(as_of_date AS VARCHAR) ASC, side ASC, horizon_days ASC
+            """,
+            [run_row[0]],
+        ).fetchall()
+    finally:
+        conn.close()
+    regime_breakdown = _json_load(run_row[29], {})
+    fold_summary = _json_load(run_row[30], [])
+    ready_streak = int(run_row[27] or 0)
+    fail_streak = 0
+    recent_ready_count = int(run_row[28] or 0)
+    on_fail_prefix = True
+    for row in recent_rows:
+        is_ready = bool(row[1])
+        if on_fail_prefix and not is_ready:
+            fail_streak += 1
+        else:
+            on_fail_prefix = False
+    alerts: list[str] = []
+    gate_failures = _json_load(run_row[24], [])
+    if not bool(run_row[31]):
+        alerts.append(f"gate_fail:{str(run_row[23] or run_row[32])}")
+    if fail_streak >= 3:
+        alerts.append("gate_fail_streak>=3")
+    if _safe_float(run_row[17]) is not None and float(run_row[17]) > 0.25:
+        alerts.append("long_calibration_degraded")
+    if _safe_float(run_row[18]) is not None and float(run_row[18]) > 0.25:
+        alerts.append("short_calibration_degraded")
+    if _safe_float(run_row[19]) is not None and float(run_row[19]) > 0.10:
+        alerts.append("long_calibration_gap_degraded")
+    if _safe_float(run_row[20]) is not None and float(run_row[20]) > 0.10:
+        alerts.append("short_calibration_gap_degraded")
+    review = {
+        "run_id": str(run_row[0]),
+        "scope_type": str(run_row[1]),
+        "publish_id": publish_id if run_row[2] is None else str(run_row[2]),
+        "as_of_date": str(run_row[3]) if run_row[3] is not None else None,
+        "model_version": str(run_row[4]),
+        "top_k": int(run_row[5]),
+        "fold_count": int(run_row[6]),
+        "daily_count": int(run_row[7]),
+        "horizon_count": int(run_row[8]),
+        "top_long_mean_ret20_net": run_row[9],
+        "top_short_mean_ret20_net": run_row[10],
+        "top_combined_mean_ret20_net": run_row[11],
+        "candidate_long_mean_ret20_net": run_row[12],
+        "candidate_short_mean_ret20_net": run_row[13],
+        "candidate_combined_mean_ret20_net": run_row[14],
+        "signal_long_mean_ret20_net": run_row[15],
+        "signal_short_mean_ret20_net": run_row[16],
+        "direction_brier_long": run_row[17],
+        "direction_brier_short": run_row[18],
+        "calibration_gap_long": run_row[19],
+        "calibration_gap_short": run_row[20],
+        "top_k_uplift": run_row[21],
+        "worst_regime_combined_mean_ret20_net": run_row[22],
+        "primary_gate_reason": str(run_row[23] or run_row[32]),
+        "gate_failures": gate_failures if isinstance(gate_failures, list) else [],
+        "calibration_method_long": None if run_row[25] is None else str(run_row[25]),
+        "calibration_method_short": None if run_row[26] is None else str(run_row[26]),
+        "regime_breakdown": regime_breakdown if isinstance(regime_breakdown, dict) else {},
+        "fold_metrics": fold_summary,
+        "readiness_pass": bool(run_row[31]),
+        "reason_codes": gate_failures if isinstance(gate_failures, list) else ([] if not str(run_row[32] or "").strip() else str(run_row[32]).split(",")),
+        "gate_reason": str(run_row[23] or run_row[32]),
+        "summary": {
+            "top_k_uplift": run_row[21],
+            "ready_streak": ready_streak,
+            "fail_streak": fail_streak,
+            "recent_ready_count_20": recent_ready_count,
+        },
+        "ready_streak": ready_streak,
+        "fail_streak": fail_streak,
+        "recent_ready_count_20": recent_ready_count,
+        "alerts": alerts,
+        "created_at": str(run_row[33]),
+    }
+    snapshot.update({"review": review, **_public_payload_metadata(snapshot)})
+    return snapshot
+
+
+def get_internal_forecast_surface_projection(
+    pointer_name: str = LATEST_POINTER_NAME,
+    *,
+    limit_per_side: int = 20,
+) -> dict[str, Any]:
+    snapshot = get_analysis_bridge_snapshot(pointer_name=pointer_name)
+    if snapshot.get("degraded"):
+        snapshot.update({"projection": None, **_public_payload_metadata(snapshot)})
+        return snapshot
+    publish = snapshot.get("publish") or {}
+    publish_id = str(publish.get("publish_id") or "")
+    if not publish_id:
+        degraded = build_degrade_payload(DEGRADE_REASON_NO_PUBLISH)
+        degraded.update({"publish": None, "projection": None, "publish_id": None, "as_of_date": None, "freshness_state": None})
+        return degraded
+    conn = connect_result_db(str(resolve_result_db_path()))
+    try:
+        if not _table_exists(conn, "forecast_surface_daily"):
+            snapshot.update({"projection": None, **_public_payload_metadata(snapshot)})
+            return snapshot
+        run_row = None
+        if _table_exists(conn, "forecast_surface_runs"):
+            run_row = conn.execute(
+                """
+                SELECT
+                    CAST(as_of_date AS VARCHAR),
+                    model_version,
+                    universe_code_count,
+                    expected_row_count,
+                    actual_row_count,
+                    missing_row_count,
+                    coverage_ratio,
+                    feature_frame_version,
+                    market_opportunity_score_enabled,
+                    personal_fit_score_enabled,
+                    side_counts_json,
+                    action_counts_json,
+                    source_context_presence_json,
+                    alerts_json,
+                    CAST(created_at AS VARCHAR)
+                FROM forecast_surface_runs
+                WHERE publish_id = ?
+                """,
+                [publish_id],
+            ).fetchone()
+        rows = conn.execute(
+            """
+            SELECT
+                CAST(as_of_date AS VARCHAR),
+                code,
+                side,
+                action_state,
+                direction_prob,
+                expected_ret_20,
+                expected_mfe_20,
+                expected_mae_20,
+                invalidation_price,
+                setup_tags,
+                reason_codes,
+                opportunity_score,
+                freshness_state
+            FROM forecast_surface_daily
+            WHERE publish_id = ?
+            ORDER BY opportunity_score DESC, direction_prob DESC, code ASC, side ASC
+            """,
+            [publish_id],
+        ).fetchall()
+    finally:
+        conn.close()
+    normalized_rows: list[dict[str, Any]] = []
+    for row in rows:
+        side = str(row[2] or "")
+        expected_mfe = _safe_float(row[6], 0.0) or 0.0
+        expected_mae = _safe_float(row[7], 0.0) or 0.0
+        if side == "long":
+            expected_upside = max(expected_mfe, 0.0)
+            expected_downside = max(-expected_mae, 0.0)
+        else:
+            expected_upside = max(expected_mae, 0.0)
+            expected_downside = max(-expected_mfe, 0.0)
+        normalized_rows.append(
+            {
+                "as_of_date": str(row[0]) if row[0] is not None else None,
+                "code": str(row[1]),
+                "side": side,
+                "action_state": str(row[3]),
+                "direction_prob": _safe_float(row[4], 0.0),
+                "expected_ret_20": _safe_float(row[5], 0.0),
+                "expected_upside": float(expected_upside),
+                "expected_downside": float(expected_downside),
+                "invalidation_price": _safe_float(row[8]),
+                "setup_tags": _json_load(row[9], []),
+                "reason_codes": _json_load(row[10], []),
+                "opportunity_score": _safe_float(row[11], 0.0),
+                "freshness_state": str(row[12] or ""),
+            }
+        )
+    effective_limit = max(1, min(int(limit_per_side), 50))
+    long_rank = [row for row in normalized_rows if row["side"] == "long" and row["action_state"] in {"enter", "wait"}][:effective_limit]
+    short_rank = [row for row in normalized_rows if row["side"] == "short" and row["action_state"] in {"enter", "wait"}][:effective_limit]
+    high_risk_avoid = sorted(
+        normalized_rows,
+        key=lambda row: (
+            float(row.get("expected_downside") or 0.0),
+            -float(row.get("direction_prob") or 0.0),
+            -float(row.get("opportunity_score") or 0.0),
+        ),
+        reverse=True,
+    )[:effective_limit]
+    watchlist_promotions = [row for row in normalized_rows if row["action_state"] == "enter"][:effective_limit]
+    if run_row:
+        summary = {
+            "as_of_date": str(run_row[0]) if run_row[0] is not None else None,
+            "model_version": str(run_row[1]),
+            "universe_code_count": int(run_row[2]),
+            "expected_row_count": int(run_row[3]),
+            "actual_row_count": int(run_row[4]),
+            "missing_row_count": int(run_row[5]),
+            "coverage_ratio": float(run_row[6]),
+            "feature_frame_version": None if run_row[7] is None else str(run_row[7]),
+            "market_opportunity_score_enabled": bool(run_row[8]),
+            "personal_fit_score_enabled": bool(run_row[9]),
+            "side_counts": _json_load(run_row[10], {}),
+            "action_counts": _json_load(run_row[11], {}),
+            "source_context_presence": _json_load(run_row[12], {}),
+            "alerts": _json_load(run_row[13], []),
+            "created_at": str(run_row[14]) if run_row[14] is not None else None,
+        }
+    else:
+        code_count = len({str(row["code"]) for row in normalized_rows})
+        expected_row_count = int(code_count * 2)
+        actual_row_count = int(len(normalized_rows))
+        summary = {
+            "as_of_date": str(normalized_rows[0]["as_of_date"]) if normalized_rows else None,
+            "model_version": None,
+            "universe_code_count": code_count,
+            "expected_row_count": expected_row_count,
+            "actual_row_count": actual_row_count,
+            "missing_row_count": max(expected_row_count - actual_row_count, 0),
+            "coverage_ratio": float(actual_row_count / max(expected_row_count, 1)),
+            "side_counts": {
+                "long": sum(1 for row in normalized_rows if row["side"] == "long"),
+                "short": sum(1 for row in normalized_rows if row["side"] == "short"),
+            },
+            "action_counts": {
+                "enter": sum(1 for row in normalized_rows if row["action_state"] == "enter"),
+                "wait": sum(1 for row in normalized_rows if row["action_state"] == "wait"),
+                "skip": sum(1 for row in normalized_rows if row["action_state"] == "skip"),
+            },
+            "source_context_presence": {},
+            "alerts": [],
+            "created_at": None,
+        }
+    projection = {
+        "summary": summary,
+        "long_rank": long_rank,
+        "short_rank": short_rank,
+        "high_risk_avoid": high_risk_avoid,
+        "watchlist_promotions": watchlist_promotions,
+    }
+    snapshot.update({"projection": projection, **_public_payload_metadata(snapshot)})
+    return snapshot
 
 
 

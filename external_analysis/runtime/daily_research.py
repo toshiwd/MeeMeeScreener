@@ -13,20 +13,24 @@ from uuid import uuid4
 import duckdb
 
 from app.backend.services.tradex_research_bridge_service import (
+    get_internal_forecast_surface_projection,
     get_internal_state_eval_action_queue,
     get_internal_state_eval_candle_combo_trend_summary,
     get_internal_state_eval_daily_summary,
     get_internal_state_eval_daily_summary_history,
+    get_internal_forecast_surface_review,
     get_internal_state_eval_promotion_review,
     get_internal_state_eval_trend_summary,
 )
 from external_analysis.contracts.paths import (
     resolve_export_db_path,
+    resolve_label_db_path,
     resolve_ops_db_path,
     resolve_result_db_path,
     resolve_source_db_path,
 )
 from external_analysis.exporter.snapshot_status import resolve_snapshot_progress_path
+from external_analysis.models.forecast_surface_evaluation import summarize_forecast_surface_shadow_run
 from external_analysis.ops.store import persist_review_artifact
 from external_analysis.runtime.daily_research_prepare import probe_daily_research_prepared_environment
 from external_analysis.runtime.nightly_pipeline import run_nightly_candidate_pipeline
@@ -110,6 +114,42 @@ def resolve_recent_daily_research_as_of_dates_from_export(
             FROM bars_daily_export
             WHERE trade_date IS NOT NULL
             ORDER BY trade_date DESC
+            LIMIT ?
+            """,
+            [effective_limit],
+        ).fetchall()
+    finally:
+        conn.close()
+    return [str(row[0]) for row in rows if row and row[0] is not None]
+
+
+def resolve_recent_daily_research_as_of_dates_from_label(
+    *,
+    label_db_path: str | None = None,
+    horizon_days: int = 20,
+    limit: int = DAILY_RESEARCH_LOOKBACK_DAYS,
+) -> list[str]:
+    effective_limit = max(1, min(int(limit), 50))
+    table_name = f"label_daily_h{max(1, int(horizon_days))}"
+    conn = duckdb.connect(str(resolve_label_db_path(label_db_path)), read_only=True)
+    try:
+        exists_row = conn.execute(
+            """
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'main' AND table_name = ?
+            LIMIT 1
+            """,
+            [table_name],
+        ).fetchone()
+        if not exists_row:
+            return []
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT CAST(as_of_date AS VARCHAR)
+            FROM {table_name}
+            WHERE as_of_date IS NOT NULL
+            ORDER BY as_of_date DESC
             LIMIT ?
             """,
             [effective_limit],
@@ -436,6 +476,10 @@ def _temporary_analysis_reader_paths(
                 "app.backend.services.analysis_bridge.reader.resolve_result_db_path",
                 lambda _db_path=None: Path(str(result_snapshot_path)),
             )
+            tradex_result_path_patch = patch(
+                "app.backend.services.tradex_research_bridge_service.resolve_result_db_path",
+                lambda _db_path=None: Path(str(result_snapshot_path)),
+            )
             read_only_patch = patch(
                 "app.backend.services.analysis_bridge.reader._connect_read_only",
                 lambda: duckdb.connect(str(result_snapshot_path), read_only=True),
@@ -453,13 +497,14 @@ def _temporary_analysis_reader_paths(
                 ops_path_patch = None
                 ops_patch = None
             with result_path_patch:
-                with read_only_patch:
-                    if ops_patch is None or ops_path_patch is None:
-                        yield
-                    else:
-                        with ops_path_patch:
-                            with ops_patch:
-                                yield
+                with tradex_result_path_patch:
+                    with read_only_patch:
+                        if ops_patch is None or ops_path_patch is None:
+                            yield
+                        else:
+                            with ops_path_patch:
+                                with ops_patch:
+                                    yield
 
 
 def build_daily_research_report(
@@ -476,9 +521,12 @@ def build_daily_research_report(
         daily_summary = get_internal_state_eval_daily_summary(side=side)
         daily_history = get_internal_state_eval_daily_summary_history(side=side, limit=7)
         action_queue = get_internal_state_eval_action_queue(side=side)
+        forecast_surface_review = get_internal_forecast_surface_review()
+        forecast_surface_projection = get_internal_forecast_surface_projection()
         promotion_review = get_internal_state_eval_promotion_review()
         trend_watch = get_internal_state_eval_trend_summary(side=side, lookback=14, limit=5)
         combo_trend_watch = get_internal_state_eval_candle_combo_trend_summary(side=side, lookback=14, limit=5)
+    forecast_surface_shadow_status = _build_forecast_surface_shadow_status(result_db_path=result_db_path)
     approval_decision = (promotion_review.get("review") or {}).get("approval_decision")
     history_rows = list(daily_history.get("rows") or [])
     pending_carryover = _collect_pending_carryover(
@@ -501,6 +549,11 @@ def build_daily_research_report(
         history_comparison=history_comparison,
         action_queue=action_queue.get("actions") or [],
     )
+    forecast_surface_alerts = _build_forecast_surface_alerts(
+        forecast_surface_review=forecast_surface_review.get("review") or {},
+        forecast_surface_projection=forecast_surface_projection.get("projection") or {},
+        forecast_surface_shadow_status=forecast_surface_shadow_status,
+    )
     return {
         "publish": daily_summary.get("publish"),
         "as_of_date": daily_summary.get("as_of_date"),
@@ -508,6 +561,10 @@ def build_daily_research_report(
         "daily_summary": daily_summary.get("daily_summary"),
         "daily_history": history_rows,
         "action_queue": action_queue.get("actions") or [],
+        "forecast_surface_review": forecast_surface_review.get("review"),
+        "forecast_surface_projection": forecast_surface_projection.get("projection"),
+        "forecast_surface_shadow_status": forecast_surface_shadow_status,
+        "forecast_surface_alerts": forecast_surface_alerts,
         "promotion_review": promotion_review.get("review"),
         "approval_decision": approval_decision,
         "pending_carryover": pending_carryover,
@@ -517,6 +574,32 @@ def build_daily_research_report(
         "trend_watch": trend_watch.get("trends"),
         "combo_trend_watch": combo_trend_watch.get("trends"),
     }
+
+
+def _build_forecast_surface_shadow_status(*, result_db_path: str | None) -> dict[str, Any]:
+    try:
+        return summarize_forecast_surface_shadow_run(
+            result_db_path=result_db_path,
+            publish_id_prefix="shadow20_",
+            min_days=20,
+            min_universe_code_count=650,
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "acceptance_pass": False,
+            "primary_reason": "shadow_status_error",
+            "error_class": exc.__class__.__name__,
+            "error_message": str(exc),
+            "observed_days": 0,
+            "required_days": 20,
+            "min_universe_code_count": 650,
+            "coverage_pass_count": 0,
+            "universe_pass_count": 0,
+            "gate_pass_count": 0,
+            "failures": [{"reason": "shadow_status_error", "error_class": exc.__class__.__name__, "error_message": str(exc)}],
+            "rows": [],
+        }
 
 
 def _collect_pending_carryover(
@@ -695,12 +778,74 @@ def _build_codex_brief(
     }
 
 
+def _build_forecast_surface_alerts(
+    *,
+    forecast_surface_review: dict[str, Any],
+    forecast_surface_projection: dict[str, Any],
+    forecast_surface_shadow_status: dict[str, Any] | None = None,
+) -> list[str]:
+    alerts: list[str] = []
+
+    def _append(value: Any) -> None:
+        normalized = str(value or "").strip()
+        if normalized and normalized not in alerts:
+            alerts.append(normalized)
+
+    for alert in list(forecast_surface_review.get("alerts") or []):
+        _append(alert)
+    for failure in list(forecast_surface_review.get("gate_failures") or []):
+        _append(failure)
+    summary = forecast_surface_projection.get("summary") or {}
+    for alert in list(summary.get("alerts") or []):
+        _append(alert)
+    if not forecast_surface_review:
+        _append("shadow_run_review_missing")
+        return alerts
+    if not bool(forecast_surface_review.get("readiness_pass")):
+        gate_reason = str(
+            forecast_surface_review.get("gate_reason")
+            or forecast_surface_review.get("primary_gate_reason")
+            or "shadow_run_not_ready"
+        ).strip()
+        _append(f"shadow_run_not_ready:{gate_reason}")
+    actual_row_count = summary.get("actual_row_count")
+    expected_row_count = summary.get("expected_row_count")
+    try:
+        if actual_row_count is not None and expected_row_count is not None and int(actual_row_count) < int(expected_row_count):
+            _append(f"shadow_run_coverage_shortfall:{int(actual_row_count)}/{int(expected_row_count)}")
+    except (TypeError, ValueError):
+        pass
+    shadow_status = forecast_surface_shadow_status or {}
+    if shadow_status and not bool(shadow_status.get("acceptance_pass")):
+        shadow_reason = str(shadow_status.get("primary_reason") or "shadow_acceptance_not_ready").strip()
+        _append(f"shadow_acceptance_not_ready:{shadow_reason}")
+        observed_days = shadow_status.get("observed_days")
+        required_days = shadow_status.get("required_days")
+        if observed_days is not None and required_days is not None:
+            _append(f"shadow_acceptance_days:{observed_days}/{required_days}")
+        coverage_pass_count = shadow_status.get("coverage_pass_count")
+        universe_pass_count = shadow_status.get("universe_pass_count")
+        gate_pass_count = shadow_status.get("gate_pass_count")
+        if required_days is not None and coverage_pass_count is not None:
+            _append(f"shadow_coverage_pass_count:{coverage_pass_count}/{required_days}")
+        if required_days is not None and universe_pass_count is not None:
+            _append(f"shadow_universe_pass_count:{universe_pass_count}/{required_days}")
+        if required_days is not None and gate_pass_count is not None:
+            _append(f"shadow_gate_pass_count:{gate_pass_count}/{required_days}")
+    return alerts
+
+
 def format_daily_research_text_report(payload: dict[str, Any]) -> str:
     report = payload.get("report") or {}
     publish = report.get("publish") or {}
     daily_summary = report.get("daily_summary") or {}
     action_queue = list(report.get("action_queue") or [])
     promotion = report.get("promotion_review") or {}
+    forecast_surface_review = report.get("forecast_surface_review") or {}
+    forecast_surface_projection = report.get("forecast_surface_projection") or {}
+    forecast_surface_summary = forecast_surface_projection.get("summary") or {}
+    forecast_surface_shadow_status = report.get("forecast_surface_shadow_status") or {}
+    forecast_surface_alerts = list(report.get("forecast_surface_alerts") or [])
     approval_decision = report.get("approval_decision") or {}
     codex_next_step = report.get("codex_next_step") or {}
     pending_carryover = list(report.get("pending_carryover") or [])
@@ -711,10 +856,24 @@ def format_daily_research_text_report(payload: dict[str, Any]) -> str:
         f"as_of_date: {payload.get('as_of_date') or report.get('as_of_date') or '--'}",
         f"publish_id: {publish.get('publish_id') or '--'}",
         f"candidate_status: {str((payload.get('candidate') or {}).get('status') or '--')}",
+        f"candidate_quarantine_reason: {str((payload.get('candidate') or {}).get('quarantine_reason') or '--')}",
         f"similarity_status: {str((payload.get('similarity') or {}).get('status') or '--')}",
+        f"similarity_quarantine_reason: {str((payload.get('similarity') or {}).get('quarantine_reason') or '--')}",
         f"challenger_status: {str((payload.get('challenger') or {}).get('status') or '--')}",
+        f"challenger_quarantine_reason: {str((payload.get('challenger') or {}).get('quarantine_reason') or '--')}",
         f"promotion_ready: {'yes' if promotion.get('readiness_pass') else 'no'}",
         f"promotion_expectancy_delta: {promotion.get('expectancy_delta') if promotion else '--'}",
+        f"forecast_surface_ready: {'yes' if forecast_surface_review.get('readiness_pass') else 'no'}",
+        f"forecast_surface_gate_reason: {forecast_surface_review.get('gate_reason') or '--'}",
+        f"forecast_surface_baseline_delta: {forecast_surface_review.get('top_k_uplift') if forecast_surface_review else '--'}",
+        f"forecast_surface_coverage: {forecast_surface_summary.get('actual_row_count') or 0}/{forecast_surface_summary.get('expected_row_count') or 0} ({forecast_surface_summary.get('coverage_ratio') if forecast_surface_summary else '--'})",
+        f"forecast_surface_shadow_acceptance: {'yes' if forecast_surface_shadow_status.get('acceptance_pass') else 'no'}",
+        f"forecast_surface_shadow_reason: {forecast_surface_shadow_status.get('primary_reason') or '--'}",
+        f"forecast_surface_shadow_days: {forecast_surface_shadow_status.get('observed_days') if forecast_surface_shadow_status else '--'}/{forecast_surface_shadow_status.get('required_days') if forecast_surface_shadow_status else '--'}",
+        f"forecast_surface_shadow_coverage_pass_count: {forecast_surface_shadow_status.get('coverage_pass_count') if forecast_surface_shadow_status else '--'}",
+        f"forecast_surface_shadow_universe_pass_count: {forecast_surface_shadow_status.get('universe_pass_count') if forecast_surface_shadow_status else '--'}",
+        f"forecast_surface_shadow_gate_pass_count: {forecast_surface_shadow_status.get('gate_pass_count') if forecast_surface_shadow_status else '--'}",
+        f"forecast_surface_alert_count: {len(forecast_surface_alerts) if forecast_surface_alerts else (len(list(forecast_surface_review.get('alerts') or [])) + len(list(forecast_surface_summary.get('alerts') or [])))}",
         f"top_strategy: {((daily_summary.get('top_strategy') or {}).get('strategy_tag')) or '--'}",
         f"top_candle: {((daily_summary.get('top_candle') or {}).get('strategy_tag')) or '--'}",
         f"risk_watch: {((daily_summary.get('risk_watch') or {}).get('strategy_tag')) or '--'}",
@@ -743,6 +902,53 @@ def format_daily_research_text_report(payload: dict[str, Any]) -> str:
     suggested_command = codex_next_step.get("suggested_command")
     if suggested_command:
         lines.append(f"codex_command: {suggested_command}")
+    regime_breakdown = forecast_surface_review.get("regime_breakdown") or {}
+    if regime_breakdown:
+        lines.append("forecast_surface_regimes:")
+        for regime_tag, values in list(regime_breakdown.items())[:5]:
+            if not isinstance(values, dict):
+                lines.append(f"  - {regime_tag}: {values}")
+                continue
+            lines.append(
+                "  - "
+                f"{regime_tag} | "
+                f"combined_mean_ret20_net={values.get('combined_mean_ret20_net')} | "
+                f"sample_count={values.get('sample_count')}"
+            )
+    forecast_alerts: list[str] = forecast_surface_alerts or _build_forecast_surface_alerts(
+        forecast_surface_review=forecast_surface_review,
+        forecast_surface_projection=forecast_surface_projection,
+    )
+    if forecast_alerts:
+        lines.append("forecast_surface_alerts:")
+        for alert in forecast_alerts[:10]:
+            lines.append(f"  - {alert}")
+    shadow_failures = list(forecast_surface_shadow_status.get("failures") or [])
+    if shadow_failures:
+        lines.append("forecast_surface_shadow_failures:")
+        for failure in shadow_failures[:10]:
+            if isinstance(failure, dict):
+                lines.append(
+                    "  - "
+                    f"{failure.get('reason') or '--'} | "
+                    f"date={failure.get('as_of_date') or '--'} | "
+                    f"publish_id={failure.get('publish_id') or '--'}"
+                )
+            else:
+                lines.append(f"  - {failure}")
+    gate_failures = list(forecast_surface_review.get("gate_failures") or [])
+    if gate_failures:
+        lines.append("forecast_surface_gate_failures:")
+        for gate_failure in gate_failures[:10]:
+            lines.append(f"  - {gate_failure}")
+    if forecast_surface_projection:
+        lines.append(
+            "forecast_surface_projection_counts: "
+            f"long_rank={len(list(forecast_surface_projection.get('long_rank') or []))} | "
+            f"short_rank={len(list(forecast_surface_projection.get('short_rank') or []))} | "
+            f"high_risk_avoid={len(list(forecast_surface_projection.get('high_risk_avoid') or []))} | "
+            f"watchlist_promotions={len(list(forecast_surface_projection.get('watchlist_promotions') or []))}"
+        )
     if pending_carryover:
         lines.append("pending_carryover:")
         for row in pending_carryover[:5]:
@@ -1284,12 +1490,17 @@ def _build_daily_research_loop_attempt_summary(
     long_candidates: list[dict[str, Any]],
 ) -> dict[str, Any]:
     report = payload.get("report") or {}
+    forecast_surface_review = report.get("forecast_surface_review") or {}
+    forecast_surface_alerts = list(report.get("forecast_surface_alerts") or [])
     promotion_review = report.get("promotion_review") or {}
     daily_summary = report.get("daily_summary") or {}
     return {
         "as_of_date": as_of_date,
         "publish_id": payload.get("publish_id"),
         "promotion_ready": bool(promotion_review.get("readiness_pass")),
+        "forecast_surface_ready": bool(forecast_surface_review.get("readiness_pass")),
+        "forecast_surface_gate_reason": forecast_surface_review.get("gate_reason"),
+        "forecast_surface_alert_count": len(forecast_surface_alerts),
         "long_candidate_count": len(long_candidates),
         "candidate_status": ((payload.get("candidate") or {}).get("status")),
         "similarity_status": ((payload.get("similarity") or {}).get("status")),
@@ -1308,6 +1519,9 @@ def format_daily_research_loop_text_report(payload: dict[str, Any]) -> str:
         f"selected_as_of_date: {payload.get('selected_as_of_date') or '--'}",
         f"selected_publish_id: {payload.get('selected_publish_id') or '--'}",
         f"promotion_ready: {'yes' if payload.get('promotion_ready') else 'no'}",
+        f"forecast_surface_ready: {'yes' if payload.get('forecast_surface_ready') else 'no'}",
+        f"forecast_surface_gate_reason: {payload.get('forecast_surface_gate_reason') or '--'}",
+        f"forecast_surface_alert_count: {payload.get('forecast_surface_alert_count') or 0}",
         f"attempted_as_of_dates: {', '.join(list(payload.get('attempted_as_of_dates') or [])) or '--'}",
         f"long_candidates: {len(list(payload.get('long_candidates') or []))}",
     ]
@@ -1364,6 +1578,7 @@ def run_daily_research_loop(
     progress_path: str | None = None,
     snapshot_root: str | None = None,
     max_trading_days: int = DAILY_RESEARCH_LOOKBACK_DAYS,
+    load_control: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolved_progress_path = _resolve_output_path(progress_path)
     loop_progress = {
@@ -1436,7 +1651,15 @@ def run_daily_research_loop(
             _write_progress(resolved_progress_path, loop_progress)
             return payload
 
-        candidate_dates = resolve_recent_daily_research_as_of_dates_from_export(export_db_path=export_db_path, limit=effective_limit)
+        candidate_dates = resolve_recent_daily_research_as_of_dates_from_label(
+            label_db_path=label_db_path,
+            horizon_days=20,
+            limit=effective_limit,
+        )
+        candidate_source = "label"
+        if not candidate_dates:
+            candidate_dates = resolve_recent_daily_research_as_of_dates_from_export(export_db_path=export_db_path, limit=effective_limit)
+            candidate_source = "export"
         source_latest_as_of = candidate_dates[0] if candidate_dates else None
         attempted_dates: list[str] = []
         attempt_summaries: list[dict[str, Any]] = []
@@ -1466,6 +1689,8 @@ def run_daily_research_loop(
                     "attempted_as_of_dates": attempted_dates,
                     "current_as_of_date": as_of_date,
                     "current_attempt_progress_path": attempt_progress_path,
+                    "load_control": load_control or {},
+                    "candidate_source": candidate_source,
                 }
             )
             _write_progress(resolved_progress_path, loop_progress)
@@ -1485,6 +1710,7 @@ def run_daily_research_loop(
                 progress_path=attempt_progress_path,
                 require_prepared_environment=True,
                 snapshot_source=False,
+                load_control=load_control,
             )
             attempt_duration_seconds = max((datetime.now(timezone.utc) - attempt_started_at).total_seconds(), 0.0)
             attempt_durations.append(attempt_duration_seconds)
@@ -1506,11 +1732,33 @@ def run_daily_research_loop(
                 mid = len(ordered) // 2
                 median_seconds = ordered[mid] if len(ordered) % 2 == 1 else (ordered[mid - 1] + ordered[mid]) / 2.0
                 loop_progress["eta_seconds"] = max(int(round(median_seconds * max(len(candidate_dates) - len(attempted_dates), 0))), 0)
-            promotion_ready = bool(((attempt_payload.get("report") or {}).get("promotion_review") or {}).get("readiness_pass"))
-            if promotion_ready and long_candidates:
+            report_payload = attempt_payload.get("report") or {}
+            forecast_surface_review = report_payload.get("forecast_surface_review") or {}
+            forecast_surface_shadow_status = report_payload.get("forecast_surface_shadow_status") or {}
+            forecast_surface_ready = bool(forecast_surface_review.get("readiness_pass"))
+            promotion_ready = bool((report_payload.get("promotion_review") or {}).get("readiness_pass"))
+            walk_forward_review = forecast_surface_review.get("walk_forward") or {}
+            walk_forward_shadow_review = forecast_surface_shadow_status.get("walk_forward") or {}
+            use_surface_gate = bool(forecast_surface_review.get("walk_forward_gate_pass")) or bool(
+                forecast_surface_shadow_status.get("walk_forward_gate_pass")
+            ) or (
+                bool(forecast_surface_review)
+                and int(walk_forward_review.get("fold_count") or 0) >= 3
+                and bool(walk_forward_review.get("readiness_pass"))
+            ) or (
+                bool(forecast_surface_shadow_status)
+                and int(walk_forward_shadow_review.get("fold_count") or 0) >= 3
+                and bool(walk_forward_shadow_review.get("readiness_pass"))
+            )
+            selected_ready = forecast_surface_ready if use_surface_gate else promotion_ready
+            if selected_ready and long_candidates:
                 selected_payload = attempt_payload
                 selected_long_candidates = long_candidates
-                stop_reason = "promotion_ready_with_long_candidates"
+                stop_reason = (
+                    "forecast_surface_ready_with_long_candidates"
+                    if use_surface_gate
+                    else "promotion_ready_with_long_candidates"
+                )
                 break
             stop_reason = "no_promotion_ready_in_window"
             loop_progress["stop_reason"] = stop_reason
@@ -1525,6 +1773,9 @@ def run_daily_research_loop(
             "selected_publish_id": None if selected_payload is None else selected_payload.get("publish_id"),
             "stop_reason": stop_reason,
             "promotion_ready": bool(((selected_payload or {}).get("report") or {}).get("promotion_review", {}).get("readiness_pass")) if selected_payload else False,
+            "forecast_surface_ready": bool(((selected_payload or {}).get("report") or {}).get("forecast_surface_review", {}).get("readiness_pass")) if selected_payload else False,
+            "forecast_surface_gate_reason": ((selected_payload or {}).get("report") or {}).get("forecast_surface_review", {}).get("gate_reason") if selected_payload else None,
+            "forecast_surface_alert_count": len(list(((selected_payload or {}).get("report") or {}).get("forecast_surface_alerts") or [])) if selected_payload else 0,
             "long_candidates": selected_long_candidates,
             "diagnostics": {
                 "attempts": attempt_summaries,
@@ -1555,6 +1806,9 @@ def run_daily_research_loop(
                 "selected_publish_id": payload["selected_publish_id"],
                 "stop_reason": stop_reason,
                 "promotion_ready": payload["promotion_ready"],
+                "forecast_surface_ready": payload["forecast_surface_ready"],
+                "forecast_surface_gate_reason": payload["forecast_surface_gate_reason"],
+                "forecast_surface_alert_count": payload["forecast_surface_alert_count"],
                 "long_candidate_count": len(selected_long_candidates),
                 "eta_seconds": 0,
             }
@@ -1592,6 +1846,7 @@ def run_daily_research_cycle(
     require_prepared_environment: bool = False,
     snapshot_source: bool = True,
     snapshot_root: str | None = None,
+    load_control: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolved_progress_path = _resolve_output_path(progress_path)
     export_progress_path = str(resolve_snapshot_progress_path(export_db_path)) if export_db_path else None
@@ -1652,6 +1907,7 @@ def run_daily_research_cycle(
             freshness_state=freshness_state,
             require_prepared_environment=require_prepared_environment,
             snapshot_source=False,
+            load_control=load_control,
         )
         effective_publish_id = str((candidate_payload.get("baseline") or {}).get("publish_id") or publish_id or "")
         cycle_progress.update(
@@ -1667,16 +1923,25 @@ def run_daily_research_cycle(
         )
         _write_progress(resolved_progress_path, cycle_progress)
 
-        similarity_payload = run_nightly_similarity_pipeline(
-            export_db_path=export_db_path,
-            label_db_path=label_db_path,
-            result_db_path=result_db_path,
-            similarity_db_path=similarity_db_path,
-            ops_db_path=ops_db_path,
-            as_of_date=resolved_as_of_date,
-            publish_id=effective_publish_id or publish_id,
-            freshness_state=freshness_state,
-        )
+        if candidate_payload.get("ok", False):
+            similarity_payload = run_nightly_similarity_pipeline(
+                export_db_path=export_db_path,
+                label_db_path=label_db_path,
+                result_db_path=result_db_path,
+                similarity_db_path=similarity_db_path,
+                ops_db_path=ops_db_path,
+                as_of_date=resolved_as_of_date,
+                publish_id=effective_publish_id or publish_id,
+                freshness_state=freshness_state,
+                load_control=load_control,
+            )
+        else:
+            similarity_payload = {
+                "ok": False,
+                "status": "skipped",
+                "reason": "candidate_failed",
+                "quarantine_reason": candidate_payload.get("quarantine_reason"),
+            }
         cycle_progress.update(
             {
                 "current_phase": "challenger" if similarity_payload.get("ok", False) else "report",
@@ -1699,12 +1964,18 @@ def run_daily_research_cycle(
                 ops_db_path=ops_db_path,
                 as_of_date=resolved_as_of_date,
                 publish_id=effective_publish_id or publish_id,
+                load_control=load_control,
             )
         else:
             challenger_payload = {
                 "ok": False,
                 "status": "skipped",
-                "reason": "similarity_failed",
+                "reason": "candidate_failed" if not candidate_payload.get("ok", False) else "similarity_failed",
+                "quarantine_reason": (
+                    candidate_payload.get("quarantine_reason")
+                    if not candidate_payload.get("ok", False)
+                    else similarity_payload.get("quarantine_reason")
+                ),
             }
         cycle_progress.update(
             {

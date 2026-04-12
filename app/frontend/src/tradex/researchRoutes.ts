@@ -11,6 +11,7 @@ export const TRADEX_RESEARCH_ENDPOINTS = {
   stateEvalCandleComboTrends: "/state-eval-candle-combo-trends",
   stateEvalActionQueue: "/state-eval-action-queue",
   replayProgress: "/replay-progress",
+  forecastSurfaceProjection: "/forecast-surface-projection",
   stateEvalPromotionReview: "/state-eval-promotion-review",
   stateEvalPromotionDecision: "/state-eval-promotion-decision",
   stateEvalTagsCsv: "/state-eval-tags.csv",

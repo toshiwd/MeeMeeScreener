@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 
 from external_analysis.event_image_dataset.cli import (
     run_event_image_dataset_adoption_cli,
@@ -40,6 +41,7 @@ from external_analysis.labels.store import ensure_label_db
 from external_analysis.image_rerank.cli import run_image_rerank_phase0_3
 from external_analysis.image_rerank.research_runner import run_image_rerank_disposition, run_image_rerank_research
 from external_analysis.models.candidate_baseline import run_candidate_baseline
+from external_analysis.models.forecast_surface_evaluation import evaluate_forecast_surface, summarize_forecast_surface_shadow_run
 from external_analysis.ops.ops_schema import ensure_ops_db
 from external_analysis.results.publish import publish_result
 from external_analysis.results.publish_candidates import (
@@ -71,6 +73,47 @@ from external_analysis.runtime.nightly_similarity_pipeline import run_nightly_si
 from external_analysis.runtime.review_build import run_review_build
 from external_analysis.similarity.baseline import run_similarity_baseline, run_similarity_challenger_shadow
 from external_analysis.similarity.store import ensure_similarity_db
+
+
+def _print_cli_payload(payload: object, *, mode: str = "full") -> None:
+    if mode == "summary" and isinstance(payload, dict):
+        summary = dict(payload)
+        if "baseline" in summary and isinstance(summary["baseline"], dict):
+            baseline = dict(summary["baseline"])
+            summary["baseline"] = {
+                "publish_id": baseline.get("publish_id"),
+                "metrics_saved": baseline.get("metrics_saved"),
+                "forecast_surface_saved": baseline.get("forecast_surface_saved"),
+                "forecast_surface_evaluation_saved": baseline.get("forecast_surface_evaluation_saved"),
+                "forecast_surface_evaluation_gate_reason": baseline.get("forecast_surface_evaluation_gate_reason"),
+            }
+        if "forecast_surface" in summary and isinstance(summary["forecast_surface"], dict):
+            forecast_surface = dict(summary["forecast_surface"])
+            summary["forecast_surface"] = {
+                "publish_id": forecast_surface.get("publish_id"),
+                "row_count": forecast_surface.get("row_count"),
+                "coverage_ratio": forecast_surface.get("coverage_ratio"),
+                "alerts": forecast_surface.get("alerts"),
+            }
+        if "forecast_surface_evaluation" in summary and isinstance(summary["forecast_surface_evaluation"], dict):
+            evaluation = dict(summary["forecast_surface_evaluation"])
+            summary["forecast_surface_evaluation"] = {
+                "ok": evaluation.get("ok"),
+                "scope_type": evaluation.get("scope_type"),
+                "readiness_pass": evaluation.get("readiness_pass"),
+                "gate_reason": evaluation.get("gate_reason"),
+                "publish_id": evaluation.get("publish_id"),
+            }
+        if "candidate_bundle" in summary and isinstance(summary["candidate_bundle"], dict):
+            bundle = dict(summary["candidate_bundle"])
+            summary["candidate_bundle"] = {
+                "publish_id": (bundle.get("bundle") or {}).get("publish_id") if isinstance(bundle.get("bundle"), dict) else bundle.get("publish_id"),
+                "ok": bundle.get("ok"),
+                "readiness_pass": (bundle.get("bundle") or {}).get("readiness_pass") if isinstance(bundle.get("bundle"), dict) else bundle.get("readiness_pass"),
+            }
+        print(json.dumps(summary, ensure_ascii=False, default=str, sort_keys=True))
+        return
+    print(payload)
 
 
 def main() -> int:
@@ -114,6 +157,28 @@ def main() -> int:
     label_build_parser.add_argument("--export-db-path", default=None)
     label_build_parser.add_argument("--label-db-path", default=None)
 
+    forecast_surface_eval_parser = sub.add_parser(
+        "forecast-surface-evaluate-run",
+        help="Evaluate forecast_surface_daily against label horizons and persist walk-forward metrics.",
+    )
+    forecast_surface_eval_parser.add_argument("--result-db-path", default=None)
+    forecast_surface_eval_parser.add_argument("--label-db-path", default=None)
+    forecast_surface_eval_parser.add_argument("--source-db-path", default=None)
+    forecast_surface_eval_parser.add_argument("--publish-id", default=None)
+    forecast_surface_eval_parser.add_argument("--publish-id-prefix", default=None)
+    forecast_surface_eval_parser.add_argument("--top-k", type=int, default=20)
+    forecast_surface_eval_parser.add_argument("--min-folds", type=int, default=3)
+    forecast_surface_eval_parser.add_argument("--min-daily-count", type=int, default=30)
+
+    forecast_surface_shadow_status_parser = sub.add_parser(
+        "forecast-surface-shadow-status-run",
+        help="Summarize forecast surface shadow-run acceptance status from persisted publish evaluations.",
+    )
+    forecast_surface_shadow_status_parser.add_argument("--result-db-path", default=None)
+    forecast_surface_shadow_status_parser.add_argument("--publish-id-prefix", default="shadow20_")
+    forecast_surface_shadow_status_parser.add_argument("--min-days", type=int, default=20)
+    forecast_surface_shadow_status_parser.add_argument("--min-universe-code-count", type=int, default=650)
+
     anchor_build_parser = sub.add_parser("anchor-window-build", help="Build anchor windows into the internal label DB.")
     anchor_build_parser.add_argument("--export-db-path", default=None)
     anchor_build_parser.add_argument("--label-db-path", default=None)
@@ -122,11 +187,13 @@ def main() -> int:
     candidate_parser.add_argument("--export-db-path", default=None)
     candidate_parser.add_argument("--label-db-path", default=None)
     candidate_parser.add_argument("--result-db-path", default=None)
+    candidate_parser.add_argument("--source-db-path", default=None)
     candidate_parser.add_argument("--similarity-db-path", default=None)
     candidate_parser.add_argument("--as-of-date", required=True)
     candidate_parser.add_argument("--publish-id", default=None)
     candidate_parser.add_argument("--freshness-state", default="fresh")
     candidate_parser.add_argument("--ops-db-path", default=None)
+    candidate_parser.add_argument("--no-publish-public", action="store_true")
 
     nightly_parser = sub.add_parser("nightly-candidate-run", help="Run export -> labels -> baseline -> publish -> metrics and record the run in ops DB.")
     nightly_parser.add_argument("--source-db-path", default=None)
@@ -140,6 +207,7 @@ def main() -> int:
     nightly_parser.add_argument("--freshness-state", default="fresh")
     nightly_parser.add_argument("--no-source-snapshot", action="store_true")
     nightly_parser.add_argument("--snapshot-root", default=None)
+    nightly_parser.add_argument("--require-prepared-environment", action="store_true")
 
     similarity_parser = sub.add_parser("similarity-baseline-run", help="Build similarity cases and publish similar_cases_daily / similar_case_paths.")
     similarity_parser.add_argument("--export-db-path", default=None)
@@ -618,25 +686,55 @@ def main() -> int:
     if args.cmd == "label-build":
         print(build_rolling_labels(export_db_path=args.export_db_path, label_db_path=args.label_db_path))
         return 0
+    if args.cmd == "forecast-surface-evaluate-run":
+        _print_cli_payload(
+            evaluate_forecast_surface(
+                result_db_path=args.result_db_path,
+                label_db_path=args.label_db_path,
+                source_db_path=args.source_db_path,
+                publish_id=args.publish_id,
+                publish_id_prefix=args.publish_id_prefix,
+                top_k=int(args.top_k),
+                min_folds=int(args.min_folds),
+                min_daily_count=int(args.min_daily_count),
+                persist=True,
+            ),
+            mode="summary",
+        )
+        return 0
+    if args.cmd == "forecast-surface-shadow-status-run":
+        _print_cli_payload(
+            summarize_forecast_surface_shadow_run(
+                result_db_path=args.result_db_path,
+                publish_id_prefix=args.publish_id_prefix,
+                min_days=int(args.min_days),
+                min_universe_code_count=int(args.min_universe_code_count),
+            ),
+            mode="summary",
+        )
+        return 0
     if args.cmd == "anchor-window-build":
         print(build_anchor_windows(export_db_path=args.export_db_path, label_db_path=args.label_db_path))
         return 0
     if args.cmd == "candidate-baseline-run":
-        print(
+        _print_cli_payload(
             run_candidate_baseline(
                 export_db_path=args.export_db_path,
                 label_db_path=args.label_db_path,
                 result_db_path=args.result_db_path,
+                source_db_path=args.source_db_path,
                 similarity_db_path=args.similarity_db_path,
                 as_of_date=args.as_of_date,
                 publish_id=args.publish_id,
                 freshness_state=args.freshness_state,
+                publish_public=not bool(getattr(args, "no_publish_public", False)),
                 ops_db_path=args.ops_db_path,
-            )
+            ),
+            mode="summary",
         )
         return 0
     if args.cmd == "nightly-candidate-run":
-        print(
+        _print_cli_payload(
             run_nightly_candidate_pipeline(
                 source_db_path=args.source_db_path,
                 export_db_path=args.export_db_path,
@@ -649,7 +747,9 @@ def main() -> int:
                 freshness_state=args.freshness_state,
                 snapshot_source=not bool(getattr(args, "no_source_snapshot", False)),
                 snapshot_root=getattr(args, "snapshot_root", None),
-            )
+                require_prepared_environment=bool(getattr(args, "require_prepared_environment", False)),
+            ),
+            mode="summary",
         )
         return 0
     if args.cmd == "similarity-baseline-run":

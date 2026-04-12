@@ -19,10 +19,11 @@ EXPORT_TABLES: tuple[str, ...] = (
 )
 
 
-def connect_export_db(db_path: str | None = None) -> duckdb.DuckDBPyConnection:
+def connect_export_db(db_path: str | None = None, *, read_only: bool = False) -> duckdb.DuckDBPyConnection:
     resolved = resolve_export_db_path(db_path)
-    resolved.parent.mkdir(parents=True, exist_ok=True)
-    return duckdb.connect(str(resolved), read_only=False)
+    if not read_only:
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+    return duckdb.connect(str(resolved), read_only=read_only)
 
 
 def ensure_export_schema(conn: duckdb.DuckDBPyConnection) -> None:

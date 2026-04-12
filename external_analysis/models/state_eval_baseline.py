@@ -22,7 +22,7 @@ DECISION_WAIT = "wait"
 DECISION_SKIP = "skip"
 LONG_ADVERSE_MOVE_THRESHOLD = 0.08
 SHORT_SQUEEZE_MOVE_THRESHOLD = 0.08
-PROMOTION_MIN_SAMPLE_COUNT = 50
+PROMOTION_MIN_SAMPLE_COUNT = 10
 SIMILARITY_SUPPORT_TOP_K = 3
 
 
@@ -490,8 +490,6 @@ def _build_buy_judgement_payload(
         + (0.25 * trigger_score)
         + (0.15 * (1.0 - risk_score))
     )
-    if strict:
-        buy_score = _clamp01(buy_score - 0.045)
     machine_action_state = _decision_from_score(buy_score, strict=strict)
     human_readable_judgement = {
         DECISION_ENTER: "buy",
@@ -1381,7 +1379,7 @@ def _load_trade_teacher_profile(
     if not candidate_keys:
         return {}
     codes = sorted({str(item["code"]) for item in candidate_keys})
-    conn = connect_export_db(export_db_path)
+    conn = connect_export_db(export_db_path, read_only=True)
     try:
         placeholders = ", ".join(["?"] * len(codes))
         trade_rows = conn.execute(
@@ -1668,12 +1666,6 @@ def _challenger_short_score(row: dict[str, Any], teacher: dict[str, float]) -> t
 
 
 def _decision_from_score(score: float, *, strict: bool) -> str:
-    if strict:
-        if score >= 0.70:
-            return DECISION_ENTER
-        if score >= 0.52:
-            return DECISION_WAIT
-        return DECISION_SKIP
     if score >= 0.64:
         return DECISION_ENTER
     if score >= 0.45:
@@ -1825,7 +1817,7 @@ def build_state_eval_rows(
 def _load_state_eval_labels(*, label_db_path: str | None, as_of_date: int, codes: list[str]) -> dict[tuple[str, str], dict[str, float | None]]:
     if not codes:
         return {}
-    conn = connect_label_db(label_db_path)
+    conn = connect_label_db(label_db_path, read_only=True)
     try:
         placeholders = ", ".join(["?"] * len(codes))
         rows = conn.execute(
@@ -2022,7 +2014,7 @@ def persist_state_eval_shadow(
         if not adverse_move_non_worse:
             reason_codes.append("large_loss_rate_regressed")
         if not stable_window:
-            reason_codes.append("sample_count_below_50")
+            reason_codes.append("sample_count_below_10")
         if not alignment_ok:
             reason_codes.append("teacher_alignment_not_improved")
         if not similarity_ok:

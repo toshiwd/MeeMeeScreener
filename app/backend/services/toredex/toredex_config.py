@@ -8,8 +8,9 @@ import json
 from .toredex_hash import hash_payload
 
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 _CONFIG_PATH = _REPO_ROOT / "toredex_config.json"
+_LEGACY_CONFIG_PATH = Path(__file__).resolve().parents[3] / "toredex_config.json"
 
 _DEFAULT_CONFIG: dict[str, Any] = {
     "policyVersion": "toredex.v8",
@@ -357,7 +358,14 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def load_toredex_config(path: str | Path | None = None, *, override: dict[str, Any] | None = None) -> ToredexConfig:
-    config_path = Path(path) if path is not None else _CONFIG_PATH
+    if path is not None:
+        config_path = Path(path)
+    elif _CONFIG_PATH.exists():
+        config_path = _CONFIG_PATH
+    elif _LEGACY_CONFIG_PATH.exists():
+        config_path = _LEGACY_CONFIG_PATH
+    else:
+        config_path = _CONFIG_PATH
     payload: dict[str, Any] = {}
     if config_path.exists():
         with open(config_path, "r", encoding="utf-8-sig") as handle:
@@ -372,4 +380,4 @@ def load_toredex_config(path: str | Path | None = None, *, override: dict[str, A
 
 
 def toredex_config_path() -> Path:
-    return _CONFIG_PATH
+    return _CONFIG_PATH if _CONFIG_PATH.exists() else _LEGACY_CONFIG_PATH

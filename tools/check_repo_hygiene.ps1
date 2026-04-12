@@ -34,20 +34,22 @@ $scratchNames = @(
     "_pytest_work"
 )
 
-$scratchHits = foreach ($name in $scratchNames) {
-    if (Test-Path -LiteralPath $name) {
-        $fileCount = 0
-        try {
-            $fileCount = (Get-ChildItem -LiteralPath $name -Force -File -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
-        } catch {
+$scratchHits = @(
+    foreach ($name in $scratchNames) {
+        if (Test-Path -LiteralPath $name) {
             $fileCount = 0
-        }
-        [pscustomobject]@{
-            Name = $name
-            Files = $fileCount
+            try {
+                $fileCount = (Get-ChildItem -LiteralPath $name -Force -File -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
+            } catch {
+                $fileCount = 0
+            }
+            [pscustomobject]@{
+                Name = $name
+                Files = $fileCount
+            }
         }
     }
-}
+)
 
 $scratchHits += Get-ChildItem -Force -Directory -ErrorAction SilentlyContinue | Where-Object {
     $_.Name -like "pytest-cache-files-*"

@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -9,7 +10,10 @@ from time import perf_counter, time
 from typing import Any
 
 from app.backend.infra.duckdb.stock_repo import StockRepository
+from app.backend.services.analysis_bridge.contracts import LATEST_POINTER_NAME
 from external_analysis.contracts.analysis_input import AnalysisInputContract
+from external_analysis.contracts.paths import resolve_result_db_path
+from external_analysis.results.result_schema import connect_result_db
 from external_analysis.runtime.orchestrator import run_tradex_analysis
 
 _logger = logging.getLogger(__name__)
@@ -84,9 +88,32 @@ def _build_sell_context_from_row(row: tuple[Any, ...] | None) -> dict[str, Any] 
     }
 
 
+def _table_exists(conn, table_name: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE lower(table_schema) = 'main' AND lower(table_name) = lower(?)
+        LIMIT 1
+        """,
+        [str(table_name)],
+    ).fetchone()
+    return bool(row)
+
+
 def _normalize_reason(reason: Any) -> str | None:
     text = str(reason or "").strip()
     return text or None
+
+
+def _json_load(value: Any, default: Any) -> Any:
+    if value is None:
+        return default
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return default
+    return parsed if parsed is not None else default
 
 
 def _get_cache_key(code: str, asof_dt: int | None) -> tuple[str, int | None]:
@@ -224,6 +251,102 @@ def _build_tradex_detail_analysis_snapshot_uncached(
     return ({"available": True, "reason": None, "analysis": output.to_dict()}, True)
 
 
+def _build_forecast_surface_detail_snapshot(
+    *,
+    code: str,
+    asof_dt: int | None,
+) -> dict[str, Any]:
+    if not str(code or "").strip():
+        return {"available": False, "reason": "code required", "rows": []}
+    db_path = resolve_result_db_path()
+    if not db_path.exists():
+        return {"available": False, "reason": "result db missing", "rows": []}
+    conn = connect_result_db(str(db_path), read_only=True)
+    try:
+        if not _table_exists(conn, "publish_pointer") or not _table_exists(conn, "forecast_surface_daily"):
+            return {"available": False, "reason": "forecast surface unavailable", "rows": []}
+        pointer_row = conn.execute(
+            """
+            SELECT publish_id, CAST(as_of_date AS VARCHAR), freshness_state
+            FROM publish_pointer
+            WHERE pointer_name = ?
+            LIMIT 1
+            """,
+            [LATEST_POINTER_NAME],
+        ).fetchone()
+        if not pointer_row:
+            return {"available": False, "reason": "forecast surface unavailable", "rows": []}
+        publish_id = str(pointer_row[0])
+        rows = conn.execute(
+            """
+            SELECT
+                publish_id, CAST(as_of_date AS VARCHAR), code, side, action_state, direction_prob,
+                expected_ret_5, expected_ret_10, expected_ret_20, expected_mfe_20, expected_mae_20,
+                invalidation_price, setup_tags, reason_codes, opportunity_score, freshness_state, CAST(created_at AS VARCHAR)
+            FROM forecast_surface_daily
+            WHERE publish_id = ? AND code = ?
+            ORDER BY CASE WHEN side = 'long' THEN 0 ELSE 1 END, side ASC
+            """,
+            [publish_id, code],
+        ).fetchall()
+    except Exception:
+        return {"available": False, "reason": "forecast surface unavailable", "rows": []}
+    finally:
+        conn.close()
+    if not rows:
+        return {"available": False, "reason": "forecast surface unavailable", "rows": []}
+    columns = (
+        "publish_id",
+        "as_of_date",
+        "code",
+        "side",
+        "action_state",
+        "direction_prob",
+        "expected_ret_5",
+        "expected_ret_10",
+        "expected_ret_20",
+        "expected_mfe_20",
+        "expected_mae_20",
+        "invalidation_price",
+        "setup_tags",
+        "reason_codes",
+        "opportunity_score",
+        "freshness_state",
+        "created_at",
+    )
+    normalized_rows: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(zip(columns, row, strict=True))
+        item["direction_prob"] = _to_float_or_none(item.get("direction_prob"))
+        item["expected_ret_5"] = _to_float_or_none(item.get("expected_ret_5"))
+        item["expected_ret_10"] = _to_float_or_none(item.get("expected_ret_10"))
+        item["expected_ret_20"] = _to_float_or_none(item.get("expected_ret_20"))
+        item["expected_mfe_20"] = _to_float_or_none(item.get("expected_mfe_20"))
+        item["expected_mae_20"] = _to_float_or_none(item.get("expected_mae_20"))
+        item["invalidation_price"] = _to_float_or_none(item.get("invalidation_price"))
+        item["setup_tags"] = _json_load(item.get("setup_tags"), [])
+        item["reason_codes"] = _json_load(item.get("reason_codes"), [])
+        item["opportunity_score"] = _to_float_or_none(item.get("opportunity_score"))
+        side = str(item.get("side") or "").strip().lower()
+        expected_mfe_20 = _to_float_or_none(item.get("expected_mfe_20"))
+        expected_mae_20 = _to_float_or_none(item.get("expected_mae_20"))
+        if side == "short":
+            item["expected_upside"] = None if expected_mae_20 is None else max(float(expected_mae_20), 0.0)
+            item["expected_downside"] = None if expected_mfe_20 is None else max(float(-expected_mfe_20), 0.0)
+        else:
+            item["expected_upside"] = None if expected_mfe_20 is None else max(float(expected_mfe_20), 0.0)
+            item["expected_downside"] = None if expected_mae_20 is None else max(float(-expected_mae_20), 0.0)
+        normalized_rows.append(item)
+    return {
+        "available": True,
+        "reason": None,
+        "publish_id": str(pointer_row[0]),
+        "as_of_date": str(pointer_row[1]) if pointer_row[1] is not None else None,
+        "freshness_state": str(pointer_row[2]) if pointer_row[2] is not None else None,
+        "rows": normalized_rows,
+    }
+
+
 def build_tradex_detail_analysis_snapshot(
     *,
     code: str,
@@ -269,6 +392,27 @@ def build_tradex_detail_analysis_snapshot(
             repo=repo,
             enabled=enabled,
         )
+        if bool(result.get("available")):
+            forecast_surface = _build_forecast_surface_detail_snapshot(code=code, asof_dt=asof_dt)
+            if not bool(forecast_surface.get("available")):
+                analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+                forecast_surface["fallback"] = {
+                    "candidate_comparisons": list(analysis.get("candidate_comparisons") or []),
+                    "publish_readiness": dict(analysis.get("publish_readiness") or {})
+                    if isinstance(analysis.get("publish_readiness"), dict)
+                    else None,
+                }
+            result["forecast_surface"] = forecast_surface
+            analysis = result.get("analysis")
+            if isinstance(analysis, dict):
+                try:
+                    from app.backend.services.tradex_research_bridge_service import get_internal_state_eval_promotion_review
+
+                    promotion_review = get_internal_state_eval_promotion_review()
+                    review = promotion_review.get("review") if isinstance(promotion_review, dict) else None
+                    analysis["promotion_review"] = review if isinstance(review, dict) else None
+                except Exception:
+                    analysis["promotion_review"] = None
     except Exception as exc:
         _logger.warning("tradex detail analysis unavailable code=%s reason=%s", code, exc)
         result = {"available": False, "reason": "analysis unavailable", "analysis": None}

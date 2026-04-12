@@ -8,6 +8,7 @@ import type {
   TradexDecisionSummary,
   TradexDiffVsCurrent,
   TradexMetricDeltas,
+  TradexForecastSurfaceProjectionEnvelope,
   TradexRankingImpact,
   TradexSummaryStrip,
   TradexValidationResult
@@ -67,10 +68,22 @@ type AnalysisBridgeStatus = {
     published_at?: string | null;
     freshness_state?: string | null;
   } | null;
+  authoritative_state?: {
+    status?: string | null;
+    decision?: string | null;
+    readiness_pass?: boolean | null;
+    sample_count?: number | null;
+    reason_codes?: string[] | null;
+    publish_id?: string | null;
+    as_of_date?: string | null;
+    note?: string | null;
+  } | null;
   public_table_counts?: Record<string, number>;
   degraded?: boolean;
   reason?: string | null;
 };
+
+type ForecastSurfaceProjectionEnvelope = TradexForecastSurfaceProjectionEnvelope;
 
 type ActionQueueItem = {
   kind: string;
@@ -301,7 +314,10 @@ const buildSummary = (
     attention_count: Array.isArray(actionQueue.actions) ? actionQueue.actions.length : 0,
     candidate_count: candidates.length,
     champion_logic_key: text(publishState.champion_logic_key ?? publishState.default_logic_pointer) || null,
-    publish_id: text(publish?.publish_id) || null
+    publish_id: text(publish?.publish_id) || null,
+    authoritative_state: text((analysisStatus.authoritative_state ?? {}).status) || null,
+    authoritative_decision: text((analysisStatus.authoritative_state ?? {}).decision) || null,
+    authoritative_ready: Boolean((analysisStatus.authoritative_state ?? {}).readiness_pass)
   };
 };
 
@@ -356,19 +372,21 @@ const loadTradexBootstrapFromBackend = async (): Promise<TradexBootstrapData> =>
     baseline: response.baseline,
     summary: response.summary,
     candidates: response.candidates,
+    forecast_surface_projection: response.forecast_surface_projection ?? null,
     raw: response.raw
   };
 };
 
 export const loadTradexBootstrapFromLegacySources = async (): Promise<TradexBootstrapData> => {
-  const [analysisStatus, runtimeSelection, publishState, publishQueue, replayProgress, actionQueue, candidateCatalog] = await Promise.all([
+  const [analysisStatus, runtimeSelection, publishState, publishQueue, replayProgress, actionQueue, candidateCatalog, forecastSurfaceProjection] = await Promise.all([
     tradexFetchJson<AnalysisBridgeStatus>("/analysis-bridge/status"),
     tradexFetchJsonWithRetry<RuntimeSelectionSnapshot>("/system/runtime-selection"),
     tradexFetchJsonWithRetry<PublishStateSnapshot>("/system/publish/state"),
     tradexFetchJsonWithRetry<Record<string, unknown>>("/system/publish/queue"),
     tradexFetchJson<ReplayProgressResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.replayProgress)),
     tradexFetchJson<ActionQueueResponse>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.stateEvalActionQueue)),
-    tradexFetchJsonWithRetry<CandidateCatalogResponse>("/system/publish/candidates")
+    tradexFetchJsonWithRetry<CandidateCatalogResponse>("/system/publish/candidates"),
+    tradexFetchJson<ForecastSurfaceProjectionEnvelope>(tradexResearchRoute(TRADEX_RESEARCH_ENDPOINTS.forecastSurfaceProjection))
   ]);
   const baseline = buildBaseline(analysisStatus, runtimeSelection, publishState);
   const baselinePublishId = baseline.publish_id ?? null;
@@ -378,13 +396,15 @@ export const loadTradexBootstrapFromLegacySources = async (): Promise<TradexBoot
     baseline,
     summary,
     candidates,
+    forecast_surface_projection: forecastSurfaceProjection,
     raw: {
       analysis_status: analysisStatus as unknown as Record<string, unknown>,
       runtime_selection: runtimeSelection as unknown as Record<string, unknown>,
       publish_state: publishState as unknown as Record<string, unknown>,
       publish_queue: publishQueue,
       replay_progress: replayProgress as unknown as Record<string, unknown>,
-      action_queue: actionQueue as unknown as Record<string, unknown>
+      action_queue: actionQueue as unknown as Record<string, unknown>,
+      forecast_surface_projection: forecastSurfaceProjection as unknown as Record<string, unknown>
     }
   };
 };

@@ -15,6 +15,8 @@ from app.backend.services.analysis_bridge.reader import (
     get_state_eval_rows,
 )
 from app.backend.services.tradex_research_bridge_service import (
+    get_internal_forecast_surface_projection,
+    get_internal_forecast_surface_review,
     get_internal_replay_progress,
     get_internal_state_eval_action_queue,
     get_internal_state_eval_candle_combo_summary,
@@ -85,6 +87,16 @@ def get_analysis_bridge_internal_state_eval_action_queue(side: str | None = None
 @router.get("/internal/replay-progress")
 def get_analysis_bridge_internal_replay_progress(replay_id: str | None = None, recent_limit: int = 5):
     return get_internal_replay_progress(replay_id=replay_id, recent_limit=recent_limit)
+
+
+@router.get("/internal/forecast-surface-review")
+def get_analysis_bridge_internal_forecast_surface_review():
+    return get_internal_forecast_surface_review()
+
+
+@router.get("/internal/forecast-surface-projection")
+def get_analysis_bridge_internal_forecast_surface_projection(limit_per_side: int = 20):
+    return get_internal_forecast_surface_projection(limit_per_side=limit_per_side)
 
 
 @router.get("/internal/state-eval-daily-summary/history")
