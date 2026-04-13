@@ -665,14 +665,22 @@ def _build_grid_rankings_fallback(limit: int) -> list[dict[str, Any]]:
                 return fallback_rows
     return fallback_rows
 
+def _resolve_screener_fetch_limits(limit: int) -> tuple[int, int | None]:
+    resolved_limit = max(0, int(limit or 0))
+    if resolved_limit <= 0:
+        return 260, None
+    return resolved_limit, resolved_limit
+
+
 def _compute_live_screener_rows(
-    limit: int = 260,
+    limit: int = 0,
     screener_repo: ScreenerRepository = Depends(get_screener_repo),
     stock_repo: StockRepository = Depends(get_stock_repo),
 ):
     started_at = time.perf_counter()
     today = jst_now().date()
     window_end = today + timedelta(days=30)
+    daily_limit, code_limit = _resolve_screener_fetch_limits(limit)
     (
         codes,
         meta_rows,
@@ -681,12 +689,12 @@ def _compute_live_screener_rows(
         earnings_rows,
         rights_rows
     ) = screener_repo.fetch_screener_batch(
-        daily_limit=limit,
+        daily_limit=daily_limit,
         earnings_start=today,
         earnings_end=window_end,
         rights_min_date=today,
         monthly_limit=120,
-        code_limit=limit,
+        code_limit=code_limit,
     )
 
     meta_map = {row[0]: row for row in meta_rows}
@@ -771,7 +779,7 @@ def _compute_live_screener_rows(
 
 @router.get("/screener", response_model=Dict[str, Any])
 def get_screener_rows(
-    limit: int = 260,
+    limit: int = 0,
     force_update: bool = False,
     screener_repo: ScreenerRepository = Depends(get_screener_repo),
     stock_repo: StockRepository = Depends(get_stock_repo),

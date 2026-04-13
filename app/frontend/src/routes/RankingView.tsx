@@ -29,6 +29,11 @@ import { TradexListSummaryMount } from "./list/TradexListSummaryMount";
 import { ResearchPatternBadges } from "./list/ResearchPatternBadges";
 import { recordPerfEvent } from "../perfDiagnostics";
 import { useVisibleCodesPrefetch } from "./list/useVisibleCodesPrefetch";
+import {
+  formatTradeStrengthCaption,
+  formatTradeStrengthPoints,
+  tradeStrengthToneClass,
+} from "../utils/tradeStrength";
 
 type RankItem = {
   code: string;
@@ -1613,6 +1618,13 @@ export default function RankingView() {
                 }
                 headerRight={
                   <div className="rank-header-meta">
+                    {resolveRankSummaryScore(item) != null ? (
+                      <span
+                        className={`rank-score-badge rank-qualification ${tradeStrengthToneClass(resolveRankSummaryScore(item))}`.trim()}
+                      >
+                        {formatTradeStrengthCaption(dir === "up" ? "買い" : "売り", resolveRankSummaryScore(item))}
+                      </span>
+                    ) : null}
                     {(rightsLabel || earningsLabel) && (
                       <span className="event-badges rank-header-event-badges">
                         {rightsLabel && (
@@ -1780,10 +1792,10 @@ export default function RankingView() {
             売買優勢 {tradeDirectionLabel} / 差分 {formatPct(tradeSummary.difference_score ?? null)}
           </div>
           <div className="rank-top-summary">
-            買い {tradeSummary.buy?.count ?? 0}件 / 期待値 {formatPct(tradeSummary.buy?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.buy?.avg_hit_score ?? null)}
+            買い {tradeSummary.buy?.count ?? 0}件 / 平均 {formatTradeStrengthPoints(tradeSummary.buy?.avg_trade_priority_score ?? null)} / 期待値 {formatPct(tradeSummary.buy?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.buy?.avg_hit_score ?? null)}
           </div>
           <div className="rank-top-summary">
-            売り {tradeSummary.sell?.count ?? 0}件 / 期待値 {formatPct(tradeSummary.sell?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.sell?.avg_hit_score ?? null)}
+            売り {tradeSummary.sell?.count ?? 0}件 / 平均 {formatTradeStrengthPoints(tradeSummary.sell?.avg_trade_priority_score ?? null)} / 期待値 {formatPct(tradeSummary.sell?.avg_profit_expectancy ?? null)} / 的中 {formatPct(tradeSummary.sell?.avg_hit_score ?? null)}
           </div>
           <Link
             className="rank-top-tracking-link"

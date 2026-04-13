@@ -27,6 +27,7 @@ from app.backend.services.tradex_research_bridge_service import (
     get_internal_state_eval_candle_summary,
     get_internal_state_eval_daily_summary,
     get_internal_state_eval_daily_summary_history,
+    get_latest_strategy_judgement_summary,
     get_internal_state_eval_promotion_review,
     get_internal_state_eval_tag_rows,
     get_internal_state_eval_tag_summary,
@@ -304,11 +305,14 @@ def _build_summary(
     replay_progress: dict[str, Any],
     publish_state: dict[str, Any],
     candidates: list[dict[str, Any]],
+    live_strategy_judgement: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     publish = analysis_status.get("publish") if isinstance(analysis_status.get("publish"), dict) else None
     manifest = analysis_status.get("manifest") if isinstance(analysis_status.get("manifest"), dict) else None
     current = replay_progress.get("current_run") if isinstance(replay_progress.get("current_run"), dict) else None
     replay_phase = _text(current.get("current_phase")) if current else ""
+    live_judgement = live_strategy_judgement if isinstance(live_strategy_judgement, dict) else {}
+    live_target = live_judgement.get("target") if isinstance(live_judgement.get("target"), dict) else {}
     return {
         "as_of_date": _text((publish or manifest or {}).get("as_of_date")) or None,
         "freshness_state": _text((publish or manifest or {}).get("freshness_state") or publish_state.get("registry_sync_state")) or None,
@@ -318,6 +322,13 @@ def _build_summary(
         "candidate_count": len(candidates),
         "champion_logic_key": _text(publish_state.get("champion_logic_key") or publish_state.get("default_logic_pointer")) or None,
         "publish_id": _text((publish or manifest or {}).get("publish_id")) or None,
+        "live_strategy_judgement_status": _text(live_judgement.get("status")) or None,
+        "live_strategy_judgement_state": _text(live_judgement.get("human_readable_judgement")) or None,
+        "live_strategy_machine_action_state": _text(live_judgement.get("machine_action_state")) or None,
+        "live_strategy_buy_score": live_judgement.get("buy_score") if isinstance(live_judgement.get("buy_score"), (int, float)) else None,
+        "live_strategy_target_code": _text(live_target.get("code")) or None,
+        "live_strategy_target_as_of_date": _text(live_target.get("as_of_date")) or None,
+        "live_strategy_is_buy_signal": bool(live_judgement.get("is_buy_signal")),
     }
 
 
@@ -595,16 +606,25 @@ def get_tradex_bootstrap(
     forecast_surface_projection = get_internal_forecast_surface_projection(limit_per_side=8)
     replay_progress = get_internal_replay_progress()
     action_queue = get_internal_state_eval_action_queue()
+    live_strategy_judgement = get_latest_strategy_judgement_summary()
     raw_candidates = list_publish_candidate_bundles(db_path=db_path)
     baseline = _build_baseline(analysis_status, runtime_selection, publish_state)
     baseline_publish_id = _resolve_baseline_publish_id(analysis_status, publish_state)
     candidates = [_build_candidate_payload(bundle, baseline_publish_id) for bundle in raw_candidates]
-    summary = _build_summary(analysis_status, action_queue, replay_progress, publish_state, candidates)
+    summary = _build_summary(
+        analysis_status,
+        action_queue,
+        replay_progress,
+        publish_state,
+        candidates,
+        live_strategy_judgement=live_strategy_judgement,
+    )
     return {
         "ok": True,
         "baseline": baseline,
         "summary": summary,
         "candidates": candidates,
+        "live_strategy_judgement": live_strategy_judgement,
         "forecast_surface_projection": forecast_surface_projection,
         "raw": {
             "analysis_status": analysis_status,
@@ -613,6 +633,7 @@ def get_tradex_bootstrap(
             "publish_queue": {},
             "replay_progress": replay_progress,
             "action_queue": action_queue,
+            "live_strategy_judgement": live_strategy_judgement,
             "forecast_surface_projection": forecast_surface_projection,
         },
     }

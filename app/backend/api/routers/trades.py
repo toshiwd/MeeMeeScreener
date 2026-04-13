@@ -35,6 +35,13 @@ def _db_retryable_response(*, error_detail: str | None = None) -> JSONResponse:
         payload["error_detail"] = error_detail
     return JSONResponse(status_code=503, content=payload, headers={"Retry-After": "1"})
 
+
+def _display_name(sym: str, raw_name: object | None) -> str:
+    candidate = str(raw_name or sym).strip()
+    if not candidate:
+        candidate = sym
+    return repair_cp932_mojibake(candidate)
+
 @router.get("/api/trades/{code}")
 def trades_by_code(code: str):
     try:
@@ -141,8 +148,9 @@ def positions_current():
                 return _db_retryable_response()
             live_rows = conn.execute(
                 """
-                SELECT symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note
-                FROM positions_live
+                SELECT p.symbol, p.buy_qty, p.sell_qty, p.opened_at, p.has_issue, p.issue_note, t.name
+                FROM positions_live p
+                JOIN tickers t ON t.code = p.symbol
                 """
             ).fetchall()
             traded_rows = conn.execute(
@@ -167,10 +175,12 @@ def positions_current():
     current_positions_by_code: dict[str, dict] = {}
     holding_codes: list[str] = []
 
-    for symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note in live_rows:
+    for symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note, raw_name in live_rows:
         buy_lots = to_lots(buy_qty)
         sell_lots = to_lots(sell_qty)
+        display_name = _display_name(str(symbol), raw_name)
         current_positions_by_code[str(symbol)] = {
+            "name": display_name,
             "buyShares": buy_lots,
             "sellShares": sell_lots,
             "opened_at": _format_event_timestamp(opened_at),
@@ -369,10 +379,11 @@ def get_held_positions():
                 return _db_retryable_response()
             rows = conn.execute(
                 """
-                SELECT symbol, buy_qty, sell_qty, opened_at, has_issue, issue_note
-                FROM positions_live
-                WHERE buy_qty > 0 OR sell_qty > 0
-                ORDER BY opened_at DESC
+                SELECT p.symbol, p.buy_qty, p.sell_qty, p.opened_at, p.has_issue, p.issue_note, t.name
+                FROM positions_live p
+                JOIN tickers t ON t.code = p.symbol
+                WHERE p.buy_qty > 0 OR p.sell_qty > 0
+                ORDER BY p.opened_at DESC
                 """
             ).fetchall()
 
@@ -386,9 +397,8 @@ def get_held_positions():
 
             result = []
             for r in rows:
-                sym = r[0]
-                name_row = conn.execute("SELECT name FROM tickers WHERE code = ?", [sym]).fetchone()
-                name = repair_cp932_mojibake(str(name_row[0] or sym)) if name_row else ""
+                sym = str(r[0])
+                name = _display_name(sym, r[6])
 
                 b_qty = to_lots(r[1])
                 s_qty = to_lots(r[2])
@@ -421,22 +431,22 @@ def get_position_history(symbol: str | None = None):
             if conn is None:
                 return _db_retryable_response()
             query = """
-                SELECT round_id, symbol, opened_at, closed_at, closed_reason, last_state_sell_buy, has_issue, issue_note
-                FROM position_rounds
+                SELECT r.round_id, r.symbol, r.opened_at, r.closed_at, r.closed_reason, r.last_state_sell_buy, r.has_issue, r.issue_note, t.name
+                FROM position_rounds r
+                LEFT JOIN tickers t ON t.code = r.symbol
             """
             params = []
             if symbol:
-                query += " WHERE symbol = ?"
+                query += " WHERE r.symbol = ?"
                 params.append(symbol)
 
-            query += " ORDER BY closed_at DESC"
+            query += " ORDER BY r.closed_at DESC"
 
             rows = conn.execute(query, params).fetchall()
             result = []
             for r in rows:
-                sym = r[1]
-                name_row = conn.execute("SELECT name FROM tickers WHERE code = ?", [sym]).fetchone()
-                name = repair_cp932_mojibake(str(name_row[0] or sym)) if name_row else ""
+                sym = str(r[1])
+                name = _display_name(sym, r[8])
 
                 result.append(
                     {

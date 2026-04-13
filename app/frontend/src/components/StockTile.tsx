@@ -6,6 +6,7 @@ import { api } from "../api";
 import { useBackendReadyState } from "../backendReady";
 import { Ticker, useStore } from "../store";
 import { formatEventBadgeDate, parseEventDateMs } from "../utils/events";
+import { formatCompactDateLabel } from "../utils/dateLabels";
 import ThumbnailCanvas from "./ThumbnailCanvas";
 import { buildThumbnailCacheKey, getThumbnailCache } from "./thumbnailCache";
 
@@ -89,31 +90,6 @@ const StockTile = memo(function StockTile({
     if (value >= 1000000000) return value * 1000;
     return null;
   })();
-  const formatBarDate = (value: number | null | undefined) => {
-    if (!Number.isFinite(value)) return "--";
-    const raw = Math.trunc(value);
-    if (raw >= 10000000 && raw < 100000000) {
-      const year = Math.floor(raw / 10000);
-      const month = String(Math.floor((raw % 10000) / 100)).padStart(2, "0");
-      const day = String(raw % 100).padStart(2, "0");
-      return `${String(year % 100).padStart(2, "0")}/${month}/${day}`;
-    }
-    if (raw >= 1000000000000) {
-      const date = new Date(raw);
-      if (Number.isNaN(date.getTime())) return "--";
-      return `${String(date.getUTCFullYear() % 100).padStart(2, "0")}/${String(
-        date.getUTCMonth() + 1
-      ).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}`;
-    }
-    if (raw >= 1000000000) {
-      const date = new Date(raw * 1000);
-      if (Number.isNaN(date.getTime())) return "--";
-      return `${String(date.getUTCFullYear() % 100).padStart(2, "0")}/${String(
-        date.getUTCMonth() + 1
-      ).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}`;
-    }
-    return "--";
-  };
   const formatChangeRate = (value: number | null | undefined) => {
     if (typeof value !== "number" || Number.isNaN(value)) return "--";
     const sign = value > 0 ? "+" : "";
@@ -126,7 +102,7 @@ const StockTile = memo(function StockTile({
     latestClose != null && prevClose != null && prevClose !== 0
       ? (latestClose - prevClose) / prevClose
       : ticker.chg1D ?? null;
-  const latestDateLabel = formatBarDate(latestBarTime);
+  const latestDateLabel = formatCompactDateLabel(latestBarTime);
   const latestCloseLabel = latestClose != null ? latestClose.toLocaleString("ja-JP") : "--";
   const dayChangeLabel = formatChangeRate(dayChange);
   const isNearEvent = (eventDate: string | null | undefined) => {

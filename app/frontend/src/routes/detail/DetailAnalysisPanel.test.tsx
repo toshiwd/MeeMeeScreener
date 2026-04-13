@@ -204,8 +204,8 @@ describe("DetailAnalysisPanel", () => {
     );
 
     expect(markup).toContain("tradePriorityScore 0.712");
-    expect(markup).toContain("2026-03-03");
-    expect(markup).toContain("2026-03-31");
+    expect(markup).toContain("2026/03/03 (火)");
+    expect(markup).toContain("2026/03/31 (火)");
     expect(markup).toContain("upper_rejection_short");
   });
 

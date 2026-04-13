@@ -1,9 +1,10 @@
-/**
- * AI相談用銘柄情報出力ユーティリティ
- * 銘柄詳細/練習モードから呼び出し、Markdown形式で出力
+﻿/**
+ * AI逶ｸ隲・畑驫俶氛諠・ｱ蜃ｺ蜉帙Θ繝ｼ繝・ぅ繝ｪ繝・ぅ
+ * 驫俶氛隧ｳ邏ｰ/邱ｴ鄙偵Δ繝ｼ繝峨°繧牙他縺ｳ蜃ｺ縺励｀arkdown蠖｢蠑上〒蜃ｺ蜉・
  */
 
 import type { Box, MaSetting } from "../store";
+import { formatLongDateLabel } from "./dateLabels";
 
 type BarData = {
     time: number;
@@ -95,6 +96,8 @@ const formatDate = (time: number): string => {
     if (!date || Number.isNaN(date.getTime())) return N_A;
     return date.toISOString().slice(0, 10);
 };
+
+const formatDateLabel = (time: number): string => formatLongDateLabel(time, "-");
 
 const formatNumber = (value: number | null | undefined, digits = 0): string => {
     if (value == null || !Number.isFinite(value)) return N_A;
@@ -387,7 +390,7 @@ const buildOHLCVCsv = (
 
 const getActiveMAList = (settings: MaSetting[]): string => {
     const active = settings.filter((ma) => ma.visible);
-    if (!active.length) return "なし";
+    if (!active.length) return N_A;
     return active.map((ma) => `MA${ma.period}`).join(", ");
 };
 
@@ -666,15 +669,15 @@ export const buildAIExport = (input: AIExportInput): AIExportResult => {
     const signalsText =
         input.signals.length > 0
             ? input.signals.map((s) => `${s.label}(${s.kind})`).join(", ")
-            : "なし";
+            : N_A;
 
     // Build boxes text  
     const boxesText = input.showBoxes && input.boxes.length
         ? input.boxes
             .slice(-3)
-            .map((b) => `${formatDate(b.startTime)}〜${formatDate(b.endTime)}: ${formatNumber(b.lower, 0)}〜${formatNumber(b.upper, 0)} (${b.breakout || "未ブレイク"})`)
+            .map((b) => `${formatDateLabel(b.startTime)} - ${formatDateLabel(b.endTime)}: ${formatNumber(b.lower, 0)} - ${formatNumber(b.upper, 0)} (${b.breakout || "N/A"})`)
             .join("\n    ")
-        : "表示OFF or なし";
+        : "Display off or N/A";
 
     // Build markdown
     const headerJson = JSON.stringify(
@@ -697,41 +700,41 @@ export const buildAIExport = (input: AIExportInput): AIExportResult => {
 ${headerJson}
 \`\`\`
 
-# AI相談用 銘柄情報エクスポート
+# AI逶ｸ隲・畑 驫俶氛諠・ｱ繧ｨ繧ｯ繧ｹ繝昴・繝・
 
-## 基本情報
-- 銘柄コード: ${input.code}
-- 銘柄名: ${input.name ?? N_A}
-- エクスポート日時: ${exportedAt}
+## 蝓ｺ譛ｬ諠・ｱ
+- 驫俶氛繧ｳ繝ｼ繝・ ${input.code}
+- 驫俶氛蜷・ ${input.name ?? N_A}
+- 繧ｨ繧ｯ繧ｹ繝昴・繝域律譎・ ${exportedAt}
 - schemaVersion: ai_export_v2
 - volumeUnit: ${VOLUME_UNIT}
 
-## 表示設定
-- 表示足: ${input.visibleTimeframe === "daily" ? "日足" : input.visibleTimeframe === "weekly" ? "週足" : "月足"}
-- 表示期間: ${input.rangeMonths ? `${input.rangeMonths}ヶ月` : "全期間"}
-- Boxes表示: ${input.showBoxes ? "ON" : "OFF"}
-- Positions表示: ${input.showPositions ? "ON" : "OFF"}
+## 陦ｨ遉ｺ險ｭ螳・
+- 陦ｨ遉ｺ雜ｳ: ${input.visibleTimeframe === "daily" ? "譌･雜ｳ" : input.visibleTimeframe === "weekly" ? "騾ｱ雜ｳ" : "譛郁ｶｳ"}
+- 陦ｨ遉ｺ譛滄俣: ${input.rangeMonths ? `${input.rangeMonths}ヶ月` : "all period"}
+- Boxes陦ｨ遉ｺ: ${input.showBoxes ? "ON" : "OFF"}
+- Positions陦ｨ遉ｺ: ${input.showPositions ? "ON" : "OFF"}
 
-## 現在値・移動平均
-- 現在値(終値): ${formatNumber(currentPrice, 2)}
-- 最終日付: ${lastDaily ? formatDate(lastDaily.time) : N_A}
+## 迴ｾ蝨ｨ蛟､繝ｻ遘ｻ蜍募ｹｳ蝮・
+- 迴ｾ蝨ｨ蛟､(邨ょ､): ${formatNumber(currentPrice, 2)}
+- Last date: ${lastDaily ? formatDateLabel(lastDaily.time) : N_A}
 
-### 日足MA設定
-- 有効MA: ${getActiveMAList(input.maSettings.daily)}
-- MA値: ${computeMAValues(input.dailyBars, input.maSettings.daily)}
+### 譌･雜ｳMA險ｭ螳・
+- 譛牙柑MA: ${getActiveMAList(input.maSettings.daily)}
+- MA蛟､: ${computeMAValues(input.dailyBars, input.maSettings.daily)}
 
-### 週足MA設定
-- 有効MA: ${getActiveMAList(input.maSettings.weekly)}
-- MA値: ${computeMAValues(input.weeklyBars, input.maSettings.weekly)}
+### 騾ｱ雜ｳMA險ｭ螳・
+- 譛牙柑MA: ${getActiveMAList(input.maSettings.weekly)}
+- MA蛟､: ${computeMAValues(input.weeklyBars, input.maSettings.weekly)}
 
-### 月足MA設定
-- 有効MA: ${getActiveMAList(input.maSettings.monthly)}
-- MA値: ${computeMAValues(input.monthlyBars, input.maSettings.monthly)}
+### 譛郁ｶｳMA險ｭ螳・
+- 譛牙柑MA: ${getActiveMAList(input.maSettings.monthly)}
+- MA蛟､: ${computeMAValues(input.monthlyBars, input.maSettings.monthly)}
 
-## シグナル/バッジ
+## 繧ｷ繧ｰ繝翫Ν/繝舌ャ繧ｸ
 ${signalsText}
 
-## Box情報
+## Box諠・ｱ
 ${boxesText}
 
 ## Positions
@@ -772,7 +775,7 @@ ${(() => {
   if (!entries.length) return "N/A";
   entries.sort((a, b) => a[0].localeCompare(b[0]));
   const tail = entries.slice(-30);
-  return tail.map(([date, memo]) => `- ${date}: ${memo || ""}`).join("\n");
+  return tail.map(([date, memo]) => `- ${formatDateLabel(Date.parse(date))}: ${memo || ""}`).join("\n");
 })()}
 
 ## Pattern Snapshot (AI Friendly)
@@ -780,19 +783,19 @@ ${(() => {
 ${patternSnapshotJson}
 \`\`\`
 
-## OHLCV データ
+## OHLCV 繝・・繧ｿ
 
-### 日足 (直近120本)
+### 譌･雜ｳ (逶ｴ霑・20譛ｬ)
 \`\`\`csv
 ${buildOHLCVCsv(input.dailyBars, 120, dailyMemos)}
 \`\`\`
 
-### 週足 (直近60本)
+### 騾ｱ雜ｳ (逶ｴ霑・0譛ｬ)
 \`\`\`csv
 ${buildOHLCVCsv(input.weeklyBars, 60)}
 \`\`\`
 
-### 月足 (直近36本)
+### 譛郁ｶｳ (逶ｴ霑・6譛ｬ)
 \`\`\`csv
 ${buildOHLCVCsv(input.monthlyBars, 36)}
 \`\`\`
@@ -978,3 +981,4 @@ export const saveAsFile = async (
     URL.revokeObjectURL(url);
     return true;
 };
+

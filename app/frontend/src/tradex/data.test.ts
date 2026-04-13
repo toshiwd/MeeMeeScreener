@@ -174,6 +174,33 @@ describe("loadTradexBootstrap", () => {
             authoritative_ready: true
           },
           candidates: [],
+          live_strategy_judgement: {
+            status: "available",
+            reason: null,
+            experiment_id: "exp_live_001",
+            hypothesis_id: "live-trader-foundation-1301-20260403-numeric_baseline_v1",
+            generated_at: "2026-04-12T11:33:51Z",
+            target: {
+              code: "1301",
+              as_of_date: "20260403",
+              side: "long",
+              judgement_type: "close_based_daily_buy_v1"
+            },
+            primary_adapter_id: "numeric_baseline_v1",
+            machine_action_state: "enter",
+            human_readable_judgement: "buy",
+            buy_score: 0.81,
+            environment_score: 0.76,
+            trend_score: 0.72,
+            trigger_score: 0.69,
+            risk_score: 0.58,
+            reason_codes: ["support_confirmed"],
+            authoritative_decision: "hold",
+            authoritative_decision_path: "G:/Tradex/keep/research_os/experiments/exp_live_001/authoritative_decision.json",
+            strategy_judgement_path: "G:/Tradex/keep/research_os/experiments/exp_live_001/strategy_judgement.json",
+            experiment_manifest_path: "G:/Tradex/keep/research_os/experiments/exp_live_001/experiment_manifest.json",
+            is_buy_signal: true
+          },
           forecast_surface_projection: {
             projection: {
               summary: {
@@ -216,5 +243,6 @@ describe("loadTradexBootstrap", () => {
     const payload = await loadTradexBootstrap();
 
     expect(payload.forecast_surface_projection?.projection?.summary.coverage_ratio).toBe(1);
+    expect(payload.live_strategy_judgement?.human_readable_judgement).toBe("buy");
   });
 });

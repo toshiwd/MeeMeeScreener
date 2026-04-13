@@ -51,7 +51,8 @@ from app.backend.services.tradex_research_contracts import (
     validate_scope_rollup_artifact,
     validate_session_rollup_artifact,
 )
-from app.db.session import get_conn
+from app.core.config import config
+from app.db.session import get_conn, get_conn_for_path
 from external_analysis.contracts.analysis_input import AnalysisInputContract
 from external_analysis.contracts.analysis_output import ANALYSIS_OUTPUT_SCHEMA_VERSION
 from external_analysis.runtime.input_normalization import normalize_tradex_analysis_input
@@ -1268,7 +1269,7 @@ def _normalize_point_join_key(point: dict[str, Any], *, code: str) -> dict[str, 
 
 def _load_evaluation_regime_rows(*, label_version: str = TRADEX_EVAL_REGIME_LABEL_VERSION) -> tuple[list[dict[str, Any]], list[str]]:
     try:
-        with get_conn() as conn:
+        with get_conn_for_path(str(config.DB_PATH), timeout_sec=2.5, read_only=True) as conn:
             rows = conn.execute(
                 """
                 SELECT dt, regime_id, regime_score, label_version
@@ -1677,8 +1678,17 @@ def _write_champion_challenger_evaluation_report(
     candidate_run_id: str,
 ) -> tuple[Path, Path]:
     report_dir = tradex_reports_root()
-    report_path = report_dir / f"tradex_champion_challenger_eval_{family_id}_{candidate_run_id}.md"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_key = _stable_hash(
+        {
+            "family_id": family_id,
+            "baseline_run_id": baseline_run_id,
+            "candidate_run_id": candidate_run_id,
+        }
+    )
+    report_path = report_dir / f"tradex_champion_challenger_eval_{report_key}.md"
     latest_report_path = report_dir / "tradex_champion_challenger_eval.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     markdown = _format_champion_challenger_evaluation_markdown(
         evaluation,
         family_id=family_id,

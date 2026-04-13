@@ -2,7 +2,8 @@ param(
     [string]$LogPath = "",
     [switch]$PackageZip,
     [switch]$SmokeRun,
-    [switch]$Clean
+    [switch]$Clean,
+    [string]$ReleaseRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,11 +17,18 @@ $releaseZip = Join-Path $releaseDir "MeeMeeScreener-portable.zip"
 $iconPath = Join-Path $repoRoot "resources/icons/app_icon.ico"
 $buildRoot = Join-Path $repoRoot "build"
 $artifactsDir = Join-Path $repoRoot "build/release_artifacts"
-$desktopDir = [Environment]::GetFolderPath("Desktop")
-if ([string]::IsNullOrWhiteSpace($desktopDir)) {
-    throw "Desktop path is not available."
+$releaseRootCandidate = $ReleaseRoot
+if ([string]::IsNullOrWhiteSpace($releaseRootCandidate)) {
+    $releaseRootCandidate = $env:MEEMEE_RELEASE_PACKAGE_ROOT
 }
-$releasePackageRoot = Resolve-Path $desktopDir
+if ([string]::IsNullOrWhiteSpace($releaseRootCandidate)) {
+    $releaseRootCandidate = [Environment]::GetFolderPath("Desktop")
+}
+if ([string]::IsNullOrWhiteSpace($releaseRootCandidate)) {
+    throw "Release package root is not available."
+}
+$releasePackageRoot = [System.IO.Path]::GetFullPath($releaseRootCandidate)
+$null = New-Item -ItemType Directory -Force $releasePackageRoot
 $releasePackage = Join-Path $releasePackageRoot "MeeMeeScreener"
 
 function Save-FileTail {
@@ -265,6 +273,32 @@ function New-PortableZip {
         }
     } finally {
         $zipStream.Dispose()
+    }
+}
+
+function Sync-ReleasePackageToDesktop {
+    param([string]$SourceDir)
+
+    $desktopRoot = [Environment]::GetFolderPath("Desktop")
+    if ([string]::IsNullOrWhiteSpace($desktopRoot)) {
+        Write-Host "Desktop path is unavailable; skipping desktop sync."
+        return
+    }
+
+    $destinationDir = Join-Path $desktopRoot "MeeMeeScreener"
+    $sourceFull = [System.IO.Path]::GetFullPath($SourceDir).TrimEnd('\')
+    $destinationFull = [System.IO.Path]::GetFullPath($destinationDir).TrimEnd('\')
+    if ($sourceFull.Equals($destinationFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        Write-Host "Desktop package already points to the release package; skipping sync."
+        return
+    }
+
+    $null = New-Item -ItemType Directory -Force $destinationDir
+    Write-Host "Syncing release package to Desktop: $destinationFull"
+    robocopy $sourceFull $destinationFull /E /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Host
+    $robocopyExit = $LASTEXITCODE
+    if ($robocopyExit -ge 8) {
+        throw "Failed to sync release package to Desktop. robocopy exit code: $robocopyExit"
     }
 }
 
@@ -565,6 +599,8 @@ print(json.dumps(missing))
     if ($SmokeRun) {
         Invoke-SmokeRun -ExePath (Join-Path $releasePackage "MeeMeeScreener.exe")
     }
+
+    Sync-ReleasePackageToDesktop -SourceDir $releasePackage
 
     $buildSucceeded = $true
     Write-Host "Done."

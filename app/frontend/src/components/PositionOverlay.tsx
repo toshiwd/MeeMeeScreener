@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IChartApi, ISeriesApi, Time } from "lightweight-charts";
 import type { CurrentPosition, DailyPosition, TradeEvent, TradeMarker } from "../utils/positions";
+import { formatCompactDateLabel } from "../utils/dateLabels";
 
 type PositionOverlayProps = {
   candleSeries: ISeriesApi<"Candlestick"> | null;
@@ -74,15 +75,6 @@ const formatPercent = (value: number) => {
 const formatLots = (value: number) => {
   if (!Number.isFinite(value)) return "0";
   return Number.isInteger(value) ? `${value}` : value.toFixed(1);
-};
-
-const formatDate = (time: number) => {
-  const date = new Date(time * 1000);
-  const year = date.getUTCFullYear();
-  const yy = String(year % 100).padStart(2, "0");
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  return `${yy}/${month}/${day}`;
 };
 
 const findClosestTime = (times: number[], time: number | null) => {
@@ -491,7 +483,7 @@ export default function PositionOverlay({
         const totalPnL = pos.realizedPnL + unrealizedPnL;
         return {
           time: lastBar.time,
-          date: formatDate(lastBar.time),
+          date: formatCompactDateLabel(lastBar.time),
           shortLots: pos.shortLots,
           longLots: pos.longLots,
           longText: formatLots(pos.longLots),
@@ -681,7 +673,7 @@ export default function PositionOverlay({
       )}
       <div className="position-overlay-panel" style={{ display: hidePanel ? 'none' : 'block' }}>
         <div className="position-overlay-header">
-          <div className="position-overlay-date">{formatDate(activeBar.time)}</div>
+          <div className="position-overlay-date">{formatCompactDateLabel(activeBar.time)}</div>
           {delta != null && percent != null && (
             <div className={`position-overlay-change ${deltaClass}`}>
               前日比{formatSignedNumber(delta)} ({formatPercent(percent)})

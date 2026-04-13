@@ -45,6 +45,12 @@ import type {
   EnvironmentComputationInput,
   BarsMeta,
 } from "./detailTypes";
+import {
+  formatIsoDateLabel,
+  formatDateTimeLabel,
+  formatLedgerDateLabel,
+  formatLongDateLabel,
+} from "../../utils/dateLabels";
 
 export const ANALYSIS_BACKFILL_ACTIVE_STATUSES = new Set(["queued", "running", "cancel_requested"]);
 export const EMPTY_EXACT_DECISION_TONE_BY_DATE = new Map<number, ExactDecisionTone>();
@@ -330,7 +336,7 @@ export const formatSignedPercentLabel = (value: number | null | undefined, digit
 
 export const formatBarDate = (time: number | null | undefined) => {
   if (time == null || !Number.isFinite(time)) return "--";
-  return new Date(time * 1000).toLocaleDateString("ja-JP");
+  return formatLongDateLabel(time);
 };
 
 export const buildTdnetReactionSummary = (
@@ -435,7 +441,7 @@ export const buildTdnetHighlights = (items: TdnetDisclosureItem[], limit = 3): T
         title: item.title ?? "--",
         publishedLabel:
           Number.isFinite(publishedMs)
-            ? new Date(publishedMs).toLocaleString("ja-JP")
+            ? formatDateTimeLabel(publishedMs)
             : "--",
         eventLabel: formatTdnetEventTypeLabel(item.eventType),
         sentimentLabel: formatTdnetSentimentLabel(item.sentiment),
@@ -569,10 +575,7 @@ export type TaisyakuHistoryRow = {
 };
 
 const formatDateKeyLabel = (value: number | null | undefined) => {
-  if (value == null || !Number.isFinite(value)) return "--";
-  const text = String(Math.trunc(value));
-  if (text.length !== 8) return text;
-  return `${text.slice(0, 4)}/${text.slice(4, 6)}/${text.slice(6, 8)}`;
+  return formatLongDateLabel(value);
 };
 
 const formatShareCountLabel = (value: number | null | undefined) => {
@@ -1179,14 +1182,7 @@ export const normalizeBuyStagePrecision = (value: unknown): BuyStagePrecisionPay
 };
 
 export const formatLedgerDate = (value: string) => {
-  const trimmed = value?.trim();
-  if (!trimmed) return "--";
-  const match = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
-  if (!match) return trimmed;
-  const year = match[1];
-  const month = match[2].padStart(2, "0");
-  const day = match[3].padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return formatLedgerDateLabel(value);
 };
 
 export const normalizeTime = (value: unknown) => {
@@ -1830,13 +1826,7 @@ export const hasSignificantRangeChange = (
 };
 
 export const formatDateLabel = (value: number | null) => {
-  if (!value) return "";
-  const date = new Date(value * 1000);
-  if (Number.isNaN(date.getTime())) return "";
-  const yyyy = date.getUTCFullYear();
-  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(date.getUTCDate()).padStart(2, "0");
-  return `${yyyy}/${mm}/${dd}`;
+  return formatIsoDateLabel(value);
 };
 
 export const resolveLatestResolvedMetaDate = (...metas: Array<BarsMeta | null | undefined>) => {

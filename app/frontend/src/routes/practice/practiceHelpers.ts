@@ -10,6 +10,7 @@ import type {
   PracticeTrade,
   VolumePoint
 } from "./practiceTypes";
+import { formatLongDateLabel } from "../../utils/dateLabels";
 
 export const PositionDonutChart = ({
   buy,
@@ -310,19 +311,11 @@ export const parseDateString = (value: string | null | undefined) => {
 };
 
 export const formatDate = (time: number) => {
-  const date = new Date(time * 1000);
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return formatLongDateLabel(time, "-");
 };
 
 export const formatDateSlash = (time: number) => {
-  const date = new Date(time * 1000);
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  return `${year}/${month}/${day}`;
+  return formatLongDateLabel(time, "/");
 };
 
 export const formatNumber = (value: number | null | undefined, digits = 0) => {

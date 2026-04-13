@@ -21,6 +21,8 @@ from app.backend.services.analysis_bridge.reader import (
     _utcnow,
     get_analysis_bridge_snapshot,
 )
+from app.backend.services import tradex_research_os_contracts as os_contracts
+from app.backend.services import tradex_research_os_store as os_store
 from app.core.config import config as core_config
 from external_analysis.contracts.paths import (
     resolve_result_db_path as external_resolve_result_db_path,
@@ -1023,6 +1025,99 @@ def get_internal_state_eval_candle_combo_trend_summary(
         }
     )
     return payload
+
+
+def _experiment_mtime(path: Path) -> float:
+    try:
+        return float(path.stat().st_mtime)
+    except OSError:
+        return 0.0
+
+
+def get_latest_strategy_judgement_summary() -> dict[str, Any]:
+    root = os_store.experiments_root()
+    if not root.exists():
+        return {
+            "status": "unavailable",
+            "reason": "experiments_root_missing",
+            "is_buy_signal": False,
+            "human_readable_judgement": None,
+            "machine_action_state": None,
+            "buy_score": None,
+            "environment_score": None,
+            "trend_score": None,
+            "trigger_score": None,
+            "risk_score": None,
+            "reason_codes": [],
+            "authoritative_decision": None,
+        }
+
+    experiment_dirs = sorted(
+        [path for path in root.iterdir() if path.is_dir()],
+        key=lambda path: (_experiment_mtime(path), path.name),
+        reverse=True,
+    )
+    for experiment_dir in experiment_dirs:
+        strategy_path = experiment_dir / "strategy_judgement.json"
+        if not strategy_path.exists():
+            continue
+        payload = os_store.read_json(strategy_path)
+        if not payload:
+            continue
+        try:
+            os_contracts.validate_strategy_judgement(payload)
+        except Exception:
+            continue
+
+        authoritative_path = experiment_dir / "authoritative_decision.json"
+        manifest_path = experiment_dir / "experiment_manifest.json"
+        authoritative_decision = os_store.read_json(authoritative_path)
+        manifest = os_store.read_json(manifest_path)
+        target = payload.get("target") if isinstance(payload.get("target"), dict) else {}
+        human_judgement = _text(payload.get("human_readable_judgement"))
+        machine_action_state = _text(payload.get("machine_action_state"))
+        return {
+            "status": "available",
+            "reason": None,
+            "experiment_id": _text(payload.get("experiment_id")) or experiment_dir.name,
+            "hypothesis_id": _text(payload.get("hypothesis_id")) or _text(manifest.get("hypothesis_id")),
+            "generated_at": _text(payload.get("generated_at")),
+            "target": {
+                "code": _text(target.get("code")) or None,
+                "as_of_date": _text(target.get("as_of_date")) or None,
+                "side": _text(target.get("side")) or None,
+                "judgement_type": _text(target.get("judgement_type")) or None,
+            },
+            "primary_adapter_id": _text(payload.get("primary_adapter_id")) or None,
+            "machine_action_state": machine_action_state or None,
+            "human_readable_judgement": human_judgement or None,
+            "buy_score": float(payload.get("buy_score")) if isinstance(payload.get("buy_score"), (int, float)) else None,
+            "environment_score": float(payload.get("environment_score")) if isinstance(payload.get("environment_score"), (int, float)) else None,
+            "trend_score": float(payload.get("trend_score")) if isinstance(payload.get("trend_score"), (int, float)) else None,
+            "trigger_score": float(payload.get("trigger_score")) if isinstance(payload.get("trigger_score"), (int, float)) else None,
+            "risk_score": float(payload.get("risk_score")) if isinstance(payload.get("risk_score"), (int, float)) else None,
+            "reason_codes": [str(item).strip() for item in payload.get("reason_codes") or [] if str(item).strip()],
+            "authoritative_decision": _text(authoritative_decision.get("decision")) or None,
+            "authoritative_decision_path": str(authoritative_path) if authoritative_path.exists() else None,
+            "strategy_judgement_path": str(strategy_path),
+            "experiment_manifest_path": str(manifest_path) if manifest_path.exists() else None,
+            "is_buy_signal": human_judgement == "buy" and machine_action_state == "enter",
+        }
+
+    return {
+        "status": "unavailable",
+        "reason": "strategy_judgement_missing",
+        "is_buy_signal": False,
+        "human_readable_judgement": None,
+        "machine_action_state": None,
+        "buy_score": None,
+        "environment_score": None,
+        "trend_score": None,
+        "trigger_score": None,
+        "risk_score": None,
+        "reason_codes": [],
+        "authoritative_decision": None,
+    }
 
 
 def get_internal_state_eval_promotion_review(pointer_name: str = LATEST_POINTER_NAME) -> dict[str, Any]:

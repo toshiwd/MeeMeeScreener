@@ -110,8 +110,8 @@ body {
   flex: 0 0 340px;
   width: 340px;
   min-height: 0;
-  max-height: none;
-  overflow: auto;
+  max-height: 100%;
+  overflow: hidden;
   padding: 14px;
   border: 1px solid var(--border-subtle);
   border-radius: 16px;
@@ -175,8 +175,12 @@ body {
 }
 
 .market-side-list {
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
   gap: 8px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .market-side-row {
@@ -2436,6 +2440,12 @@ body {
   border-color: rgba(245, 158, 11, 0.5);
   background: rgba(146, 64, 14, 0.2);
   color: #fde68a;
+}
+
+.rank-score-badge.rank-qualification.is-neutral {
+  border-color: rgba(148, 163, 184, 0.45);
+  background: rgba(100, 116, 139, 0.16);
+  color: #cbd5e1;
 }
 
 .rank-top-summary {
@@ -5766,6 +5776,12 @@ body {
   background: #fef3c7;
   color: #92400e;
   border-color: #f59e0b;
+}
+
+:root[data-theme="light"] .rank-score-badge.rank-qualification.is-neutral {
+  background: #e2e8f0;
+  color: #334155;
+  border-color: #94a3b8;
 }
 
 :root[data-theme="light"] .rank-top-summary {

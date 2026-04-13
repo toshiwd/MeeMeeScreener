@@ -286,11 +286,11 @@ export default function MarketView() {
 
   const selectedSectorFallbackItems = useMemo(() => {
     if (!selectedSectorItem) return [];
-    return selectedSectorItem.watchlistTickers.length > 0
-      ? selectedSectorItem.watchlistTickers
+    return selectedSectorMembers.length > 0
+      ? selectedSectorMembers
       : selectedSectorItem.representatives.length > 0
         ? selectedSectorItem.representatives
-        : selectedSectorMembers.slice(0, 2);
+        : selectedSectorItem.watchlistTickers;
   }, [selectedSectorItem, selectedSectorMembers]);
 
   const timelineMax = Math.max(frames.length - 1, 0);
@@ -428,11 +428,11 @@ export default function MarketView() {
                   </strong>
                 </div>
                 <div className="market-side-summary-row">
-                  <span>監視銘柄</span>
+                  <span>一覧銘柄</span>
                   <strong>{selectedSectorItem.watchlistCount}件</strong>
                 </div>
                 <div className="market-side-summary-row">
-                  <span>代表銘柄</span>
+                  <span>セクター内銘柄</span>
                   <strong>
                     {selectedSectorItem.representatives.length
                       ? selectedSectorItem.representatives
@@ -459,7 +459,7 @@ export default function MarketView() {
                 </div>
               ) : (
                 <>
-                  <div className="market-side-empty">このセクターに監視銘柄はありません。</div>
+                  <div className="market-side-empty">このセクターに一覧銘柄はありません。</div>
                   {panelItems.length > 0 ? (
                     <div className="market-side-list">
                       {panelItems.map((item) => (

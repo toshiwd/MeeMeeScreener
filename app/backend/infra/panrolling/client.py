@@ -4,6 +4,19 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _hidden_process_kwargs() -> dict[str, object]:
+    kwargs: dict[str, object] = {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+    startupinfo_factory = getattr(subprocess, "STARTUPINFO", None)
+    if startupinfo_factory is not None:
+        startupinfo = startupinfo_factory()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+        startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
+
 class PanRollingClient:
     def __init__(self, vbs_path: str):
         self.vbs_path = vbs_path
@@ -37,7 +50,8 @@ class PanRollingClient:
                 stderr=subprocess.STDOUT,
                 text=True, 
                 encoding="cp932", 
-                errors="replace"
+                errors="replace",
+                **_hidden_process_kwargs(),
             )
             print(f"[PanRolling] {result.stdout}")
             return result.returncode

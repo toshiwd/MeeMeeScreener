@@ -14,6 +14,7 @@ from .config import config
 from .jobs import job_manager
 from .screener_snapshot_job import schedule_screener_snapshot_refresh
 from .code_ops import normalize_code_txt
+from app.core.config import config as app_config
 
 try:
     from app.backend import ingest_txt
@@ -27,6 +28,19 @@ logger = logging.getLogger(__name__)
 
 PAN_CODE_TXT_PATH = config.PAN_CODE_TXT_PATH
 PAN_OUT_TXT_DIR = config.PAN_OUT_TXT_DIR
+
+
+def _hidden_process_kwargs() -> dict[str, object]:
+    kwargs: dict[str, object] = {
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
+    startupinfo_factory = getattr(subprocess, "STARTUPINFO", None)
+    if startupinfo_factory is not None:
+        startupinfo = startupinfo_factory()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+        startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
 
 
 def _vbs_script_path() -> str:
@@ -52,6 +66,7 @@ def _run_vbs_export(code_path: str, out_dir: str, timeout: int = 1800) -> tuple[
             encoding="cp932",
             errors="replace",
             bufsize=1,
+            **_hidden_process_kwargs(),
         )
     except Exception as exc:
         logger.exception("Failed to start VBS process")
@@ -227,7 +242,7 @@ def _run_post_pan_recalc() -> dict:
         from app.backend.infra.duckdb.stock_repo import StockRepository
         from app.backend.jobs.scoring_job import ScoringJob
 
-        score_repo = StockRepository()
+        score_repo = StockRepository(str(app_config.DB_PATH))
         scoring_results = ScoringJob(score_repo).run()
         summary["scoring_rows"] = int(len(scoring_results))
     except Exception as exc:

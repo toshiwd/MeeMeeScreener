@@ -131,3 +131,74 @@ def test_screener_repo_prefers_yahoo_history_for_sparse_relisted_segment(tmp_pat
     assert codes == ["8729"]
     assert [row[1] for row in daily_rows] == [row[0] for row in yahoo_rows]
     assert [row[1] for row in monthly_rows] == [_ts("2025-09-01"), _ts("2026-03-01")]
+
+
+def test_screener_repo_fetches_all_codes_when_code_limit_is_unbounded(tmp_path, monkeypatch) -> None:
+    import duckdb
+
+    db_path = str(tmp_path / "screening.duckdb")
+    con = duckdb.connect(db_path)
+    con.execute("CREATE TABLE daily_bars (code TEXT, date BIGINT, o DOUBLE, h DOUBLE, l DOUBLE, c DOUBLE, v BIGINT)")
+    con.execute("CREATE TABLE monthly_bars (code TEXT, month BIGINT, o DOUBLE, h DOUBLE, l DOUBLE, c DOUBLE, v BIGINT)")
+    con.execute(
+        "CREATE TABLE stock_meta (code TEXT, name TEXT, stage TEXT, score DOUBLE, reason TEXT, score_status TEXT, missing_reasons_json TEXT, score_breakdown_json TEXT)"
+    )
+    con.execute("CREATE TABLE earnings_planned (code TEXT, planned_date DATE)")
+    con.execute("CREATE TABLE ex_rights (code TEXT, ex_date DATE, last_rights_date DATE)")
+    rows = [
+        ("1001", "Alpha"),
+        ("9104", "Mitsui O.S.K."),
+        ("9999", "Omega"),
+    ]
+    con.executemany(
+        "INSERT INTO stock_meta VALUES (?, ?, 'C', 10, 'OK', 'OK', NULL, NULL)",
+        rows,
+    )
+    con.executemany(
+        "INSERT INTO daily_bars VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("1001", _ts("2026-03-12"), 10.0, 11.0, 9.0, 10.5, 1000),
+            ("9104", _ts("2026-03-12"), 20.0, 21.0, 19.0, 20.5, 1000),
+            ("9999", _ts("2026-03-12"), 30.0, 31.0, 29.0, 30.5, 1000),
+        ],
+    )
+    con.executemany(
+        "INSERT INTO monthly_bars VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("1001", _ts("2026-03-01"), 10.0, 11.0, 9.0, 10.5, 1000),
+            ("9104", _ts("2026-03-01"), 20.0, 21.0, 19.0, 20.5, 1000),
+            ("9999", _ts("2026-03-01"), 30.0, 31.0, 29.0, 30.5, 1000),
+        ],
+    )
+    con.close()
+
+    repo = ScreenerRepository(db_path)
+    monkeypatch.setattr(
+        "app.backend.infra.duckdb.screener_repo.get_historical_daily_rows_from_chart",
+        lambda code: [],
+    )
+
+    codes, meta_rows, daily_rows, monthly_rows, _earnings, _rights = repo.fetch_screener_batch(
+        daily_limit=260,
+        earnings_start=datetime(2026, 3, 13, tzinfo=timezone.utc).date(),
+        earnings_end=datetime(2026, 4, 30, tzinfo=timezone.utc).date(),
+        rights_min_date=datetime(2026, 3, 13, tzinfo=timezone.utc).date(),
+        monthly_limit=120,
+        code_limit=None,
+    )
+
+    assert codes == ["1001", "9104", "9999"]
+    assert [row[0] for row in meta_rows] == ["1001", "9104", "9999"]
+    assert sorted({row[0] for row in daily_rows}) == ["1001", "9104", "9999"]
+    assert sorted({row[0] for row in monthly_rows}) == ["1001", "9104", "9999"]
+
+    limited_codes, *_ = repo.fetch_screener_batch(
+        daily_limit=260,
+        earnings_start=datetime(2026, 3, 13, tzinfo=timezone.utc).date(),
+        earnings_end=datetime(2026, 4, 30, tzinfo=timezone.utc).date(),
+        rights_min_date=datetime(2026, 3, 13, tzinfo=timezone.utc).date(),
+        monthly_limit=120,
+        code_limit=2,
+    )
+
+    assert limited_codes == ["1001", "9104"]

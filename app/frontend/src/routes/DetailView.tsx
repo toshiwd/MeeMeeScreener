@@ -170,6 +170,7 @@ import {
   findNearestCandleIndex,
   findNearestCandleTime,
 } from "./detail/detailHelpers";
+import { formatDateTimeLabel } from "../utils/dateLabels";
 
 const DETAIL_DAILY_ROW_RATIO = 0.72;
 const DETAIL_DEFAULT_WEEKLY_RATIO = 0.64;
@@ -1930,7 +1931,7 @@ export default function DetailView() {
   const latestFinancialPoint = financialSeries.length > 0 ? financialSeries[financialSeries.length - 1] : null;
   const latestPrice = activeTicker?.close ?? null;
   const financialFetchedLabel = financialPanel?.fetchedAt
-    ? new Date(financialPanel.fetchedAt).toLocaleDateString("ja-JP")
+    ? formatDateTimeLabel(financialPanel.fetchedAt)
     : null;
   const financialDisplay = useMemo(
     () =>
@@ -1946,7 +1947,7 @@ export default function DetailView() {
     if (!taisyakuSnapshot?.fetchedAt) {
       return taisyakuLoading ? "貸借データ補完取得を確認中です。" : null;
     }
-    return `貸借最終取得 ${new Date(taisyakuSnapshot.fetchedAt).toLocaleString("ja-JP")}`;
+    return `貸借最終取得 ${formatDateTimeLabel(taisyakuSnapshot.fetchedAt)}`;
   }, [taisyakuLoading, taisyakuSnapshot]);
   const tdnetHighlights = useMemo(() => buildTdnetHighlights(tdnetDisclosures, 3), [tdnetDisclosures]);
   const tdnetStatusLabel = useMemo(() => {
@@ -1957,7 +1958,7 @@ export default function DetailView() {
       return tdnetLoading ? "TDNET補完取得を確認中です。" : null;
     }
     const latestFetched = Math.max(...fetchedValues);
-    return `TDNET最終取得 ${new Date(latestFetched).toLocaleString("ja-JP")}`;
+    return `TDNET最終取得 ${formatDateTimeLabel(latestFetched)}`;
   }, [tdnetDisclosures, tdnetLoading]);
   const showFinancialPanel = headerMode === "financial" && !compareCode;
   const swingPlan = analysisFallback?.swingPlan ?? null;

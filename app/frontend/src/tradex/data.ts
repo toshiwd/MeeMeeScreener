@@ -10,6 +10,7 @@ import type {
   TradexMetricDeltas,
   TradexForecastSurfaceProjectionEnvelope,
   TradexRankingImpact,
+  TradexLiveStrategyJudgement,
   TradexSummaryStrip,
   TradexValidationResult
 } from "./contracts";
@@ -372,6 +373,7 @@ const loadTradexBootstrapFromBackend = async (): Promise<TradexBootstrapData> =>
     baseline: response.baseline,
     summary: response.summary,
     candidates: response.candidates,
+    live_strategy_judgement: (response.live_strategy_judgement ?? null) as TradexLiveStrategyJudgement | null,
     forecast_surface_projection: response.forecast_surface_projection ?? null,
     raw: response.raw
   };
@@ -396,6 +398,7 @@ export const loadTradexBootstrapFromLegacySources = async (): Promise<TradexBoot
     baseline,
     summary,
     candidates,
+    live_strategy_judgement: null,
     forecast_surface_projection: forecastSurfaceProjection,
     raw: {
       analysis_status: analysisStatus as unknown as Record<string, unknown>,
@@ -404,6 +407,7 @@ export const loadTradexBootstrapFromLegacySources = async (): Promise<TradexBoot
       publish_queue: publishQueue,
       replay_progress: replayProgress as unknown as Record<string, unknown>,
       action_queue: actionQueue as unknown as Record<string, unknown>,
+      live_strategy_judgement: null,
       forecast_surface_projection: forecastSurfaceProjection as unknown as Record<string, unknown>
     }
   };

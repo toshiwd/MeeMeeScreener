@@ -9,6 +9,7 @@ import type {
   EnvironmentSummary,
 } from "./detailTypes";
 import ScreenPanel from "../../components/ScreenPanel";
+import { formatIsoDateLabel } from "../../utils/dateLabels";
 
 type AnalysisDecisionSummary = {
   tone: "up" | "down" | "neutral";
@@ -503,7 +504,7 @@ export function DetailAnalysisPanel(props: Props) {
                   {persistedSignalEvents.length > 0 ? (
                     persistedSignalEvents.map((item, index) => (
                       <div key={`${item.signalDate ?? "na"}-${item.side ?? index}`} className="detail-analysis-meta">
-                        {item.signalDate ?? "--"} / {item.side === "sell" ? "売り" : "買い"} / {item.setup_type ?? "--"} / 現在 {formatSignedPercentLabel(item.current_directional_return)} / 30日 {formatSignedPercentLabel(item.return_30d)} / {item.break_status === "broken" ? `崩れ ${item.break_reason ?? ""}` : item.break_status === "completed_clean" ? "完走" : "継続中"}
+                        {formatIsoDateLabel(item.signalDate)} / {item.side === "sell" ? "売り" : "買い"} / {item.setup_type ?? "--"} / 現在 {formatSignedPercentLabel(item.current_directional_return)} / 30日 {formatSignedPercentLabel(item.return_30d)} / {item.break_status === "broken" ? `崩れ ${item.break_reason ?? ""}` : item.break_status === "completed_clean" ? "完走" : "継続中"}
                       </div>
                     ))
                   ) : (
@@ -521,8 +522,8 @@ export function DetailAnalysisPanel(props: Props) {
                 <div className="detail-analysis-section">
                   <div className="detail-analysis-section-title">個別結果</div>
                   <div className="detail-analysis-meta">今日の判断 {formatTradeTodayState(qualificationTrace?.todayState)}</div>
-                  <div className="detail-analysis-meta">前回買い厳選通過 {qualificationTrace?.lastBuyDateIso ?? "--"}</div>
-                  <div className="detail-analysis-meta">前回売り厳選通過 {qualificationTrace?.lastSellDateIso ?? "--"}</div>
+                  <div className="detail-analysis-meta">前回買い厳選通過 {formatIsoDateLabel(qualificationTrace?.lastBuyDateIso)}</div>
+                  <div className="detail-analysis-meta">前回売り厳選通過 {formatIsoDateLabel(qualificationTrace?.lastSellDateIso)}</div>
                   <div className="detail-analysis-meta">
                     厳選通過{" "}
                     {individualResult?.entryQualified === true

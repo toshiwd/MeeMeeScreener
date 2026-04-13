@@ -51,6 +51,34 @@ export type TradexForecastSurfaceProjectionEnvelope = {
   freshness_state?: string | null;
 };
 
+export type TradexLiveStrategyJudgement = {
+  status: string | null;
+  reason: string | null;
+  experiment_id: string | null;
+  hypothesis_id: string | null;
+  generated_at: string | null;
+  target: {
+    code: string | null;
+    as_of_date: string | null;
+    side: string | null;
+    judgement_type: string | null;
+  };
+  primary_adapter_id: string | null;
+  machine_action_state: string | null;
+  human_readable_judgement: string | null;
+  buy_score: number | null;
+  environment_score: number | null;
+  trend_score: number | null;
+  trigger_score: number | null;
+  risk_score: number | null;
+  reason_codes: string[];
+  authoritative_decision: string | null;
+  authoritative_decision_path: string | null;
+  strategy_judgement_path: string | null;
+  experiment_manifest_path: string | null;
+  is_buy_signal: boolean;
+};
+
 export type TradexBaseline = {
   logic_id: string | null;
   version: string | null;
@@ -153,6 +181,7 @@ export type TradexBootstrapData = {
   baseline: TradexBaseline;
   summary: TradexSummaryStrip;
   candidates: TradexCandidate[];
+  live_strategy_judgement: TradexLiveStrategyJudgement | null;
   forecast_surface_projection: TradexForecastSurfaceProjectionEnvelope | null;
   raw: {
     analysis_status: Record<string, unknown> | null;
@@ -161,6 +190,7 @@ export type TradexBootstrapData = {
     publish_queue: Record<string, unknown> | null;
     replay_progress: Record<string, unknown> | null;
     action_queue: Record<string, unknown> | null;
+    live_strategy_judgement: Record<string, unknown> | null;
     forecast_surface_projection: Record<string, unknown> | null;
   };
 };

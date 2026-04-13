@@ -22,7 +22,8 @@ _STALE_REFRESH_PENDING: set[str] = set()
 
 
 def _slot_for_limit(limit: int) -> str:
-    return f"daily:{max(1, int(limit or 260))}"
+    resolved = int(limit or 0)
+    return "daily:all" if resolved <= 0 else f"daily:{resolved}"
 
 
 def _resolve_db_path(
@@ -146,12 +147,15 @@ def _decode_snapshot_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_snapshot_payload_limit(payload: dict[str, Any], limit: int) -> dict[str, Any]:
-    resolved_limit = max(1, int(limit or 260))
+    resolved_limit = max(0, int(limit or 0))
     normalized = dict(payload)
     items = normalized.get("items")
     if isinstance(items, list):
         normalized["rowCount"] = int(normalized.get("rowCount") or len(items))
-        normalized["items"] = [dict(item) for item in items[:resolved_limit] if isinstance(item, dict)]
+        if resolved_limit > 0:
+            normalized["items"] = [dict(item) for item in items[:resolved_limit] if isinstance(item, dict)]
+        else:
+            normalized["items"] = [dict(item) for item in items if isinstance(item, dict)]
     else:
         normalized["items"] = []
         normalized["rowCount"] = int(normalized.get("rowCount") or 0)
@@ -242,7 +246,7 @@ def refresh_screener_snapshot(
     screener_repo: Any | None = None,
     stock_repo: Any | None = None,
 ) -> dict[str, Any]:
-    resolved_limit = max(1, int(limit or 260))
+    resolved_limit = max(0, int(limit or 0))
     resolved_screener_repo = screener_repo or get_screener_repo()
     resolved_stock_repo = stock_repo or get_stock_repo()
     resolved_db_path = _resolve_db_path(
@@ -262,6 +266,7 @@ def refresh_screener_snapshot(
         completed_at = datetime.now(timezone.utc)
         with get_conn_for_path(resolved_db_path, timeout_sec=2.5, read_only=False) as conn:
             _ensure_table(conn)
+            conn.execute("DELETE FROM screener_snapshot_state WHERE slot = ?", [slot])
             conn.execute(
                 """
                 INSERT INTO screener_snapshot_state (
@@ -269,17 +274,6 @@ def refresh_screener_snapshot(
                     row_count, source, build_ms, last_status, last_error
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', NULL)
-                ON CONFLICT(slot) DO UPDATE SET
-                    generation = excluded.generation,
-                    as_of = excluded.as_of,
-                    updated_at = excluded.updated_at,
-                    last_attempt_at = excluded.last_attempt_at,
-                    payload_json = excluded.payload_json,
-                    row_count = excluded.row_count,
-                    source = excluded.source,
-                    build_ms = excluded.build_ms,
-                    last_status = 'ready',
-                    last_error = NULL
                 """,
                 [slot, generation, as_of, completed_at, completed_at, payload_json, len(items), source, build_ms],
             )
@@ -296,24 +290,41 @@ def refresh_screener_snapshot(
         logger.warning("screener snapshot refresh failed source=%s limit=%s: %s", source, resolved_limit, exc)
         with get_conn_for_path(resolved_db_path, timeout_sec=2.5, read_only=False) as conn:
             _ensure_table(conn)
+            existing_row = _load_row(conn, slot)
+            if existing_row and existing_row.get("payload_json"):
+                payload_json = existing_row["payload_json"]
+                row_count = int(existing_row.get("row_count") or 0)
+                generation = existing_row.get("generation")
+                as_of = existing_row.get("as_of")
+                updated_at = existing_row.get("updated_at")
+            else:
+                payload_json = None
+                row_count = 0
+                generation = None
+                as_of = None
+                updated_at = None
+            conn.execute("DELETE FROM screener_snapshot_state WHERE slot = ?", [slot])
             conn.execute(
                 """
                 INSERT INTO screener_snapshot_state (
                     slot, generation, as_of, updated_at, last_attempt_at, payload_json,
                     row_count, source, build_ms, last_status, last_error
                 )
-                VALUES (?, NULL, NULL, NULL, ?, NULL, 0, ?, ?, 'error', ?)
-                ON CONFLICT(slot) DO UPDATE SET
-                    last_attempt_at = excluded.last_attempt_at,
-                    source = excluded.source,
-                    build_ms = excluded.build_ms,
-                    last_status = CASE
-                        WHEN screener_snapshot_state.payload_json IS NULL OR screener_snapshot_state.payload_json = '' THEN 'error'
-                        ELSE 'stale'
-                    END,
-                    last_error = excluded.last_error
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                [slot, failed_at, source, build_ms, str(exc)],
+                [
+                    slot,
+                    generation,
+                    as_of,
+                    updated_at,
+                    failed_at,
+                    payload_json,
+                    row_count,
+                    source,
+                    build_ms,
+                    "stale" if payload_json else "error",
+                    str(exc),
+                ],
             )
             row = _load_row(conn, slot)
         if row:
@@ -336,7 +347,7 @@ def get_screener_snapshot_response(
     screener_repo: Any | None = None,
     stock_repo: Any | None = None,
 ) -> dict[str, Any]:
-    resolved_limit = max(1, int(limit or 260))
+    resolved_limit = max(0, int(limit or 0))
     slot = _slot_for_limit(resolved_limit)
     if not force_refresh:
         cached = _cache_get(slot)

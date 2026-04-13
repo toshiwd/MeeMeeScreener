@@ -2,6 +2,7 @@
 import type { Box } from "../store";
 import type { SignalMetrics } from "./signals";
 import { computeSignalMetrics } from "./signals";
+import { formatLongDateLabel } from "./dateLabels";
 
 export type ConsultationSort = "score" | "code";
 
@@ -61,26 +62,7 @@ const formatNumber = (value: number | null | undefined, digits = 0) => {
 };
 
 const formatDate = (value: number | null | undefined) => {
-  if (value == null || !Number.isFinite(value)) return N_A;
-  const raw = Number(value);
-  if (raw >= 10000000 && raw < 100000000) {
-    const year = Math.floor(raw / 10000);
-    const month = Math.floor((raw % 10000) / 100);
-    const day = raw % 100;
-    const mm = String(month).padStart(2, "0");
-    const dd = String(day).padStart(2, "0");
-    return `${year}-${mm}-${dd}`;
-  }
-  if (raw >= 100000 && raw < 1000000) {
-    const year = Math.floor(raw / 100);
-    const month = raw % 100;
-    const mm = String(month).padStart(2, "0");
-    return `${year}-${mm}-01`;
-  }
-  const date =
-    raw > 1000000000000 ? new Date(raw) : raw > 1000000000 ? new Date(raw * 1000) : null;
-  if (!date || Number.isNaN(date.getTime())) return N_A;
-  return date.toISOString().slice(0, 10);
+  return formatLongDateLabel(value, "-");
 };
 
 const parseDate = (value: number | null | undefined) => {

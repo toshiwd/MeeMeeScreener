@@ -49,10 +49,11 @@ const OPERATOR_LABELS: Record<ConditionOperator, string> = {
 
 export const formatDateYMD = (time: number, separator = "/") => {
   const date = new Date(time * 1000);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getUTCFullYear()}${separator}${pad(date.getUTCMonth() + 1)}${separator}${pad(
-    date.getUTCDate()
-  )}`;
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const weekday = ["日", "月", "火", "水", "木", "金", "土"][date.getUTCDay()] ?? "";
+  return `${year}${separator}${month}${separator}${day} (${weekday})`;
 };
 
 export const getLatestAnchorTime = (

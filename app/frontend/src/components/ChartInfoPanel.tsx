@@ -1,4 +1,5 @@
-﻿import { useMemo } from "react";
+import { useMemo } from "react";
+import { formatCompactDateLabel } from "../utils/dateLabels";
 
 type Bar = {
   time: number;
@@ -8,34 +9,6 @@ type Bar = {
 type ChartInfoPanelProps = {
   bars: Bar[];
   hoverTime: number | null;
-};
-
-const formatDate = (value: number) => {
-  if (!Number.isFinite(value)) return "--";
-  const raw = Number(value);
-  const formatParts = (year: number, month: number, day: number) => {
-    const yy = String(year % 100).padStart(2, "0");
-    const mm = String(month).padStart(2, "0");
-    const dd = String(day).padStart(2, "0");
-    return `${yy}/${mm}/${dd}`;
-  };
-  if (raw >= 10000000 && raw < 100000000) {
-    const year = Math.floor(raw / 10000);
-    const month = Math.floor((raw % 10000) / 100);
-    const day = raw % 100;
-    return formatParts(year, month, day);
-  }
-  if (raw > 1000000000000) {
-    const date = new Date(raw);
-    if (Number.isNaN(date.getTime())) return "--";
-    return formatParts(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
-  }
-  if (raw > 1000000000) {
-    const date = new Date(raw * 1000);
-    if (Number.isNaN(date.getTime())) return "--";
-    return formatParts(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
-  }
-  return "--";
 };
 
 const formatPrice = (value: number) => {
@@ -63,9 +36,7 @@ const findClosestIndex = (bars: Bar[], time: number | null) => {
   const upper = bars[upperIndex];
   if (!lower) return upperIndex ?? null;
   if (!upper) return lowerIndex ?? null;
-  return Math.abs(time - lower.time) <= Math.abs(upper.time - time)
-    ? lowerIndex
-    : upperIndex;
+  return Math.abs(time - lower.time) <= Math.abs(upper.time - time) ? lowerIndex : upperIndex;
 };
 
 export default function ChartInfoPanel({ bars, hoverTime }: ChartInfoPanelProps) {
@@ -82,7 +53,7 @@ export default function ChartInfoPanel({ bars, hoverTime }: ChartInfoPanelProps)
   return (
     <div className="chart-info-panel">
       <div className="chart-info-label">日付</div>
-      <div className="chart-info-value">{formatDate(activeBar.time)}</div>
+      <div className="chart-info-value">{formatCompactDateLabel(activeBar.time)}</div>
       <div className="chart-info-label">終値</div>
       <div className="chart-info-value">{formatPrice(activeBar.close)}</div>
     </div>

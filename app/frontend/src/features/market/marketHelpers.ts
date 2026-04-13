@@ -175,10 +175,10 @@ export const enrichMarketItems = (
       const sectorCode = typeof item.sector33_code === "string" ? item.sector33_code.trim() : "";
       if (!sectorCode) return null;
       const sectorMembers = sectorMemberIndex.get(sectorCode) ?? [];
-      const watchlistTickers = watchlistIndex.get(sectorCode) ?? [];
+      const trackedTickers = watchlistIndex.get(sectorCode) ?? [];
       const representatives =
-        watchlistTickers.length > 0
-          ? watchlistTickers.slice(0, 2)
+        sectorMembers.length > 0
+          ? sectorMembers.slice(0, 2)
           : sectorMembers.slice(0, 2);
       const label =
         item.industryName?.trim() ||
@@ -193,9 +193,9 @@ export const enrichMarketItems = (
         flow: toFinite(item.flow ?? 0),
         weight: toFinite(item.weight ?? 0),
         tickerCount: toFinite(item.tickerCount ?? 0),
-        related: watchlistTickers.length > 0,
-        watchlistCount: watchlistTickers.length,
-        watchlistTickers,
+        related: trackedTickers.length > 0,
+        watchlistCount: sectorMembers.length,
+        watchlistTickers: sectorMembers,
         representatives
       };
     })
