@@ -7,6 +7,13 @@ import ChartListCard from "./ChartListCard";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const maSettings = [] as const;
+const thumbnailCanvasMock = vi.hoisted(() => ({
+  render: vi.fn((props: Record<string, unknown>) => <div data-testid="thumbnail-canvas" />)
+}));
+
+vi.mock("./ThumbnailCanvas", () => ({
+  default: (props: Record<string, unknown>) => thumbnailCanvasMock.render(props)
+}));
 
 describe("ChartListCard", () => {
   let root: ReturnType<typeof createRoot> | null = null;
@@ -17,6 +24,7 @@ describe("ChartListCard", () => {
   beforeEach(() => {
     onEnterView.mockReset();
     onOpenDetail.mockReset();
+    thumbnailCanvasMock.render.mockReset();
 
     class IntersectionObserverMock {
       constructor(
@@ -105,5 +113,71 @@ describe("ChartListCard", () => {
 
     expect(onEnterView).toHaveBeenCalledTimes(2);
     expect(onEnterView).toHaveBeenLastCalledWith("7203");
+  });
+
+  it("keeps live payload bars even when maxDate is older", async () => {
+    await act(async () => {
+      root?.render(
+        <ChartListCard
+          code="7203"
+          name="Toyota"
+          payload={{
+            bars: [
+              [20260411, 100, 102, 98, 101, 10],
+              [20260412, 101, 111, 100, 110, 20]
+            ],
+            ma: { ma7: [], ma20: [], ma60: [] }
+          }}
+          fallbackSeries={null}
+          status="success"
+          maSettings={maSettings as unknown as never[]}
+          rangeBars={60}
+          maxDate="2026-04-11"
+          onEnterView={onEnterView}
+          onOpenDetail={onOpenDetail}
+        />
+      );
+    });
+
+    expect(thumbnailCanvasMock.render).toHaveBeenCalled();
+    const lastCall = thumbnailCanvasMock.render.mock.calls.at(-1);
+    expect(lastCall?.[0]).toMatchObject({
+      payload: {
+        bars: [
+          [20260411, 100, 102, 98, 101, 10],
+          [20260412, 101, 111, 100, 110, 20]
+        ]
+      }
+    });
+  });
+
+  it("still clips fallback series to maxDate", async () => {
+    await act(async () => {
+      root?.render(
+        <ChartListCard
+          code="7203"
+          name="Toyota"
+          payload={null}
+          fallbackSeries={[
+            [20260411, 100, 102, 98, 101, 10],
+            [20260412, 101, 111, 100, 110, 20]
+          ]}
+          status="success"
+          maSettings={maSettings as unknown as never[]}
+          rangeBars={60}
+          maxDate="2026-04-11"
+          onEnterView={onEnterView}
+          onOpenDetail={onOpenDetail}
+        />
+      );
+    });
+
+    expect(thumbnailCanvasMock.render).toHaveBeenCalled();
+    const lastCall = thumbnailCanvasMock.render.mock.calls.at(-1);
+    expect(lastCall?.[0]).toMatchObject({
+      payload: {
+        bars: [[20260411, 100, 102, 98, 101, 10]]
+      }
+    });
   });
 });

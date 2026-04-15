@@ -196,9 +196,14 @@ vi.mock("../components/DetailChart", async () => {
     __esModule: true,
     default: React.forwardRef(function MockDetailChart(props: Record<string, unknown>, _ref) {
       const candles = Array.isArray(props.candles) ? props.candles.length : 0;
+      const positionOverlay = props.positionOverlay as
+        | { dailyPositions?: Array<{ posText?: string }>; tradeMarkers?: unknown[] }
+        | undefined;
       return React.createElement("div", {
         "data-testid": "detail-chart",
         "data-candles": candles,
+        "data-trade-markers": positionOverlay?.tradeMarkers?.length ?? 0,
+        "data-position-text": positionOverlay?.dailyPositions?.[0]?.posText ?? "",
       });
     }),
     DetailChartHandle: class DetailChartHandle {},
@@ -398,6 +403,34 @@ const createBarsResponse = (code: string, seed = 1000) => ({
     },
   },
 });
+
+const createReplayBarsResponse = (code: string) => {
+  const daily = {
+    bars: [
+      [Date.UTC(2026, 0, 8) / 1000, 100, 102, 99, 100, 1000],
+      [Date.UTC(2026, 0, 20) / 1000, 108, 109, 107, 108, 1200],
+    ],
+  };
+  const weekly = {
+    bars: [
+      [Date.UTC(2026, 0, 5) / 1000, 99, 103, 98, 101, 2000],
+      [Date.UTC(2026, 0, 19) / 1000, 101, 110, 100, 108, 2200],
+    ],
+  };
+  const monthly = {
+    bars: [
+      [Date.UTC(2026, 0, 1) / 1000, 98, 110, 97, 108, 4200],
+    ],
+    boxes: [],
+  };
+  return {
+    data: {
+      items: {
+        [code]: { daily, weekly, monthly },
+      },
+    },
+  };
+};
 
 const renderDetailView = async (initialEntry = "/detail/7203"): Promise<RenderClientHandle> =>
   renderClient(
@@ -699,6 +732,149 @@ describe("DetailView", () => {
         (payload as { codes?: unknown[] }).codes?.[0] === "9302"
     );
     expect(timedOutCalls.length).toBeGreaterThanOrEqual(1);
+
+    render.cleanup();
+  });
+
+  it("loads replay mode on the detail route and renders replay markers and ledger rows", async () => {
+    mocks.backendReadyRef.value = true;
+    mocks.storeState.tickers = [
+      { code: "9999", name: "Replay Corp", close: 1000, chg1D: 0.01 },
+    ];
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url === "/tradex/replay/runs/phase2_contract_check") {
+        return Promise.resolve({
+          data: {
+            run_id: "phase2_contract_check",
+            window_summary: {
+              run_id: "phase2_contract_check",
+              policy_id: "tradex_policy_replay_v1",
+              policy_version: "v1",
+              window_start_date: "2026-01-01",
+              window_end_date: "2026-03-31",
+              portfolio_return_3m: 0.0523,
+              excess_vs_universe: 0.0184,
+              final_score: 0.421,
+              weekly_activity_pass_rate: 1,
+              weeks_with_no_trade: 0,
+              weekly_trade_count_map: { "2026-W01": 2 },
+            },
+            trade_ledger: [
+              {
+                date: "2026-01-08",
+                symbol: "9999",
+                state_from: "flat",
+                state_to: "entered_1",
+                position_notation_before: "0-0",
+                position_notation_after: "0-2",
+                action_taken: "enter_long",
+                trigger_reason_code: "entry_signal",
+                trigger_reason_text: "long entry signal",
+                units_changed: 2,
+                close_price: 100.0,
+                avg_entry_price_after: 100.0,
+                realized_pnl_delta: 0,
+                unrealized_pnl_after: 0,
+                cash_after: 9800000,
+                equity_after: 10000000,
+                position_id: "pos-1",
+                feature_state_id: "feature-1",
+                holding_days_open: 0,
+              },
+              {
+                date: "2026-01-20",
+                symbol: "9999",
+                state_from: "entered_1",
+                state_to: "full_exit",
+                position_notation_before: "0-2",
+                position_notation_after: "0-0",
+                action_taken: "full_exit",
+                trigger_reason_code: "opposite_signal",
+                trigger_reason_text: "opposite signal triggered exit",
+                units_changed: 2,
+                close_price: 108.0,
+                avg_entry_price_after: 100.0,
+                realized_pnl_delta: 1600,
+                unrealized_pnl_after: 0,
+                cash_after: 10001600,
+                equity_after: 10001600,
+                position_id: "pos-1",
+                feature_state_id: "feature-2",
+                holding_days_open: 9,
+              },
+            ],
+            positions_timeline: [
+              {
+                date: "2026-01-08",
+                symbol: "9999",
+                position_notation: "0-2",
+                long_units: 2,
+                short_units: 0,
+                avg_entry_price: 100,
+                close_price: 100,
+                market_value: 20000,
+                unrealized_pnl: 0,
+                realized_pnl_cum: 0,
+                holding_days_open: 1,
+                cash_after: 9800000,
+                equity_after: 10000000,
+                action_taken: "enter_long",
+                trigger_reason_code: "entry_signal",
+                trigger_reason_text: "long entry signal",
+                feature_state_id: "feature-1",
+              },
+              {
+                date: "2026-01-20",
+                symbol: "9999",
+                position_notation: "0-0",
+                long_units: 0,
+                short_units: 0,
+                avg_entry_price: null,
+                close_price: 108,
+                market_value: 0,
+                unrealized_pnl: 0,
+                realized_pnl_cum: 1600,
+                holding_days_open: 0,
+                cash_after: 10001600,
+                equity_after: 10001600,
+                action_taken: "full_exit",
+                trigger_reason_code: "opposite_signal",
+                trigger_reason_text: "opposite signal triggered exit",
+                feature_state_id: "feature-2",
+              },
+            ],
+          },
+        });
+      }
+      if (url.startsWith("/jobs/")) {
+        return Promise.resolve({ data: { status: "done" } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    mocks.apiPost.mockImplementation((url: string, payload?: Record<string, unknown>) => {
+      if (url === "/batch_bars_v3") {
+        const code = Array.isArray(payload?.codes) ? String(payload.codes[0]) : "";
+        if (code === "9999") {
+          return Promise.resolve(createReplayBarsResponse("9999"));
+        }
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const render = await renderDetailView("/detail/9999?replayRunId=phase2_contract_check");
+    const { container } = render;
+
+    await act(async () => {
+      await flushMicrotasks();
+      await flushMicrotasks();
+    });
+
+    const chartNode = container.querySelector("[data-testid='detail-chart']");
+    expect(chartNode).not.toBeNull();
+    expect(chartNode?.getAttribute("data-trade-markers")).toBe("2");
+    expect(chartNode?.getAttribute("data-position-text")).toContain("0-");
+    expect(container.textContent).toContain("enter_long");
+    expect(container.textContent).toContain("full_exit");
 
     render.cleanup();
   });

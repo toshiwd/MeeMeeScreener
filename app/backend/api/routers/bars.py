@@ -138,7 +138,7 @@ def _to_payload_rows(rows: List[tuple], *, boxes_enabled: bool) -> Dict[str, Any
     }
 
 
-def _build_batch_meta() -> Dict[str, str | None]:
+def _build_batch_meta(*, include_provisional: bool = False, asof_dt: int | None = None) -> Dict[str, str | None]:
     db_path = getattr(config, "DB_PATH", None)
     data_version: str | None = None
     if db_path:
@@ -147,6 +147,11 @@ def _build_batch_meta() -> Dict[str, str | None]:
             data_version = f"duckdb-mtime:{mtime:.6f}"
         except OSError:
             data_version = None
+    if include_provisional and asof_dt is None:
+        # Yahoo provisional rows can change intraday without touching DuckDB.
+        # Add a short JST minute bucket so frontend caches refresh while market data is live.
+        live_bucket = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9))).strftime("%Y%m%d%H%M")
+        data_version = f"{data_version}|yf-live:{live_bucket}" if data_version else f"yf-live:{live_bucket}"
     return {
         "data_version": data_version,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
@@ -402,10 +407,13 @@ def batch_bars_v3(
 ) -> Dict[str, Dict]:
     requested_frames = _normalize_requested_frames(payload.timeframes)
     valid_codes = _normalize_codes(payload.codes)
-    meta = _build_batch_meta()
+    asof_dt = _parse_asof(payload.asof)
+    meta = _build_batch_meta(
+        include_provisional=bool(payload.includeProvisional),
+        asof_dt=asof_dt,
+    )
     if not valid_codes:
         return {"items": {}, "meta": meta}
-    asof_dt = _parse_asof(payload.asof)
     timeframe_limits = _normalize_timeframe_limits(payload.timeframeLimits)
     cache_key = _make_batch_v3_cache_key(
         codes=valid_codes,

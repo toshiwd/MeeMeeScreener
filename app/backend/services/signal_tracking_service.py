@@ -2375,6 +2375,15 @@ def refresh_signal_tracking(
         side="all",
         db_path=db_path,
     )
+    ranking_result = rebuild_ranking_appearances(
+        from_ymd=effective_as_of,
+        to_ymd=effective_as_of,
+        ranking_logic_version=ACTIVE_RANKING_LOGIC_VERSION_ALIAS,
+        signal_logic_version=ACTIVE_LOGIC_VERSION_ALIAS,
+        basis_version=DEFAULT_BASIS_VERSION,
+        reset_scope=False,
+        db_path=db_path,
+    )
     with _REFRESH_LOCK:
         _REFRESH_STATE["as_of"] = effective_as_of
         _REFRESH_STATE["refreshed_at"] = datetime.now(timezone.utc)
@@ -2385,6 +2394,7 @@ def refresh_signal_tracking(
         "basis_rows_upserted": int(basis_result.get("rows_upserted") or 0),
         "decision_upserted": int(decision_result.get("decision_upserted") or 0),
         "campaign_count": int(campaign_result.get("campaign_count") or 0),
+        "ranking_appearance_upserted": int(ranking_result.get("appearance_upserted") or 0),
         "lookback_days": int(lookback_days or DEFAULT_LOOKBACK_DAYS),
         "limit": int(limit or DEFAULT_LIMIT),
     }
@@ -6393,9 +6403,19 @@ def backfill_signal_tracking(
         side=side,
         db_path=db_path,
     )
+    ranking_result = rebuild_ranking_appearances(
+        from_ymd=from_int,
+        to_ymd=to_int,
+        ranking_logic_version=ACTIVE_RANKING_LOGIC_VERSION_ALIAS,
+        signal_logic_version=logic_version,
+        basis_version=basis_version,
+        reset_scope=reset_scope,
+        db_path=db_path,
+    )
     return {
         "ok": True,
         "basis": basis_result,
         "decisions": decision_result,
         "campaigns": campaign_result,
+        "ranking": ranking_result,
     }

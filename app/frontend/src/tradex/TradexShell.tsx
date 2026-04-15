@@ -58,6 +58,10 @@ export default function TradexShell() {
           )}
         </nav>
 
+        <div className="tradex-legacy-link-row">
+          <NavLink to="/replay">replay</NavLink>
+        </div>
+
         <details className="tradex-legacy-links">
           <summary>移行中の旧画面</summary>
           <div className="tradex-legacy-link-row">

@@ -12,6 +12,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.backend.api.dependencies import get_config_repo
+from app.backend.api.dependencies import get_stock_repo
+from app.backend.infra.duckdb.stock_repo import StockRepository
 from app.backend.api.operator_console_gate import require_operator_console_access
 from app.backend.api.routers.system import _raise_mutation_failure, _run_operator_mutation, _set_cached_snapshot
 from app.backend.services.analysis_bridge.reader import get_analysis_bridge_snapshot
@@ -46,6 +48,7 @@ from app.backend.services.tradex_experiment_service import (
     list_families,
 )
 from app.backend.services.tradex_experiment_store import find_family_id_by_run_id
+from app.backend.services.tradex_portfolio_replay_service import load_replay_run, run_portfolio_replay
 from external_analysis.results.publish_candidates import list_publish_candidate_bundles, load_publish_candidate_bundle
 
 router = APIRouter(prefix="/api/tradex", tags=["tradex"])
@@ -106,6 +109,27 @@ class TradexCreateRunRequest(BaseModel):
     run_kind: str = Field(pattern="^(baseline|candidate)$")
     plan_id: str | None = None
     notes: str | None = None
+
+
+class TradexReplayRunRequest(BaseModel):
+    run_id: str | None = Field(default=None, min_length=1)
+    suite_id: str | None = Field(default=None, min_length=1)
+    policy_id: str | None = None
+    policy_version: str | None = None
+    window_start_date: str | None = None
+    window_start_dates: list[str] = Field(default_factory=list)
+    window_months: int = 3
+    universe: list[str] = Field(default_factory=list)
+    market_benchmark_symbol: str | None = None
+    capital: dict[str, Any] = Field(default_factory=dict)
+    scoring: dict[str, Any] = Field(default_factory=dict)
+    policy: dict[str, Any] = Field(default_factory=dict)
+    unit_scale: int | None = None
+    addon_units: list[int] = Field(default_factory=list)
+    execution_convention: str | None = None
+    weekly_activity_required: bool = True
+    short_cash_reusable: bool = False
+    selection_rule_change_log: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _text(value: Any, fallback: str = "") -> str:
@@ -734,3 +758,22 @@ def adopt_tradex_candidate(
         "comparison_snapshot_id": expected_snapshot_id,
         "result": result,
     }
+
+
+@router.post("/replay/runs")
+def create_tradex_replay_run(
+    payload: TradexReplayRunRequest,
+    repo: StockRepository = Depends(get_stock_repo),
+):
+    body = payload.model_dump()
+    if payload.run_id:
+        body["run_id"] = payload.run_id
+    if payload.suite_id:
+        body["suite_id"] = payload.suite_id
+    result = run_portfolio_replay(repo, body)
+    return result
+
+
+@router.get("/replay/runs/{run_id}")
+def get_tradex_replay_run(run_id: str):
+    return load_replay_run(run_id)

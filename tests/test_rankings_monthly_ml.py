@@ -264,3 +264,203 @@ def test_non_monthly_hybrid_uses_existing_ml_path(monkeypatch) -> None:
     assert month["items"][0]["code"] == "M1"
     assert calls["default"] == 1
     assert calls["monthly"] == 1
+
+
+def test_monthly_short_support_requires_bearish_backdrop() -> None:
+    assert not rankings_cache._has_short_monthly_support(  # type: ignore[attr-defined]
+        trend_down_strict=False,
+        monthly_breakout_down_prob=0.54,
+        monthly_range_prob=0.55,
+        monthly_range_pos=0.50,
+        monthly_box_state="box_mid",
+    )
+    assert rankings_cache._has_short_monthly_support(  # type: ignore[attr-defined]
+        trend_down_strict=True,
+        monthly_breakout_down_prob=0.54,
+        monthly_range_prob=0.55,
+        monthly_range_pos=0.50,
+        monthly_box_state="box_mid",
+    )
+    assert rankings_cache._has_short_monthly_support(  # type: ignore[attr-defined]
+        trend_down_strict=False,
+        monthly_breakout_down_prob=0.60,
+        monthly_range_prob=0.55,
+        monthly_range_pos=0.50,
+        monthly_box_state="box_mid",
+    )
+
+
+def test_monthly_short_playbook_prioritizes_stronger_patterns() -> None:
+    strong_double_top = rankings_cache._calc_playbook_entry_bonus(  # type: ignore[attr-defined]
+        direction="down",
+        shape_patterns={"d4ShortDoubleTop": True},
+    )
+    strong_head_shoulders = rankings_cache._calc_playbook_entry_bonus(  # type: ignore[attr-defined]
+        direction="down",
+        shape_patterns={"d5ShortHeadShoulders": True},
+    )
+    weak_mixed = rankings_cache._calc_playbook_entry_bonus(  # type: ignore[attr-defined]
+        direction="down",
+        shape_patterns={"d2ShortMixedFar": True},
+    )
+    weak_na_below = rankings_cache._calc_playbook_entry_bonus(  # type: ignore[attr-defined]
+        direction="down",
+        shape_patterns={"d3ShortNaBelow": True},
+    )
+
+    assert strong_double_top > weak_mixed
+    assert strong_head_shoulders > weak_na_below
+
+
+def test_combo_entry_bonus_prefers_stronger_bull_bundles() -> None:
+    core_item = {
+        "weeklyBreakoutUpProb": 0.58,
+        "trendUpStrict": True,
+        "diff20_pct": 0.04,
+    }
+    stage_item = {
+        **core_item,
+        "breakout20Up": 0.02,
+        "cnt_20_above": 12,
+    }
+    mtf_item = {
+        **core_item,
+        "monthlyBreakoutUpProb": 0.63,
+    }
+
+    core_bonus = rankings_cache._calc_combo_entry_bonus(  # type: ignore[attr-defined]
+        direction="up",
+        item=core_item,
+    )
+    stage_bonus = rankings_cache._calc_combo_entry_bonus(  # type: ignore[attr-defined]
+        direction="up",
+        item=stage_item,
+    )
+    mtf_bonus = rankings_cache._calc_combo_entry_bonus(  # type: ignore[attr-defined]
+        direction="up",
+        item=mtf_item,
+    )
+
+    assert core_bonus > 0.0
+    assert stage_bonus > core_bonus
+    assert mtf_bonus >= stage_bonus
+
+
+def test_combo_entry_bonus_prefers_stronger_bear_bundles() -> None:
+    core_item = {
+        "breakout20Down": 0.02,
+        "market_ret20": -0.03,
+        "diff20_pct": -0.04,
+    }
+    confirmed_item = {
+        **core_item,
+        "trendDownStrict": True,
+    }
+
+    core_bonus = rankings_cache._calc_combo_entry_bonus(  # type: ignore[attr-defined]
+        direction="down",
+        item=core_item,
+    )
+    confirmed_bonus = rankings_cache._calc_combo_entry_bonus(  # type: ignore[attr-defined]
+        direction="down",
+        item=confirmed_item,
+    )
+
+    assert core_bonus > 0.0
+    assert confirmed_bonus > core_bonus
+
+
+def test_monthly_entry_sort_key_prioritizes_down_combo_bonus() -> None:
+    base_item = {
+        "code": "A",
+        "entryScore": 0.80,
+        "comboScoreBonus": 0.0,
+        "probSide": 0.60,
+    }
+    combo_item = {
+        "code": "B",
+        "entryScore": 0.80,
+        "comboScoreBonus": 0.01,
+        "probSide": 0.10,
+    }
+
+    down_order = sorted(
+        [base_item, combo_item],
+        key=lambda item: rankings_cache._monthly_entry_sort_key(item, direction="down"),  # type: ignore[attr-defined]
+    )
+    up_order = sorted(
+        [base_item, combo_item],
+        key=lambda item: rankings_cache._monthly_entry_sort_key(item, direction="up"),  # type: ignore[attr-defined]
+    )
+
+    assert down_order[0]["code"] == "B"
+    assert up_order[0]["code"] == "A"
+
+
+def test_monthly_hybrid_populates_combo_score_bonus(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "monthly_rankings_combo_bonus.duckdb"
+    _prepare_monthly_pred_db(db_path, with_rows=True)
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            INSERT INTO ml_monthly_model_registry (
+                model_version, model_key, label_version, metrics_json, artifact_path,
+                n_train_abs, n_train_dir, created_at, is_active
+            )
+            VALUES (?, ?, 1, ?, '{}', 10, 10, CURRENT_TIMESTAMP, TRUE)
+            """,
+            [
+                "mtest",
+                "ml_monthly_abs_dir_1m_v1",
+                '{"ret20_lookup":{"target_abs_ret":0.2,"up":{"baseline_rate":0.03,"bins":[{"min_prob":0.0,"max_prob":1.0,"event_rate":0.2,"samples":1000}]},"down":{"baseline_rate":0.02,"bins":[]}}}',
+            ],
+        )
+    monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+    _prepare_hybrid_ml_cache(monkeypatch)
+    monkeypatch.setattr(rankings_cache, "_calc_combo_entry_bonus", lambda **kwargs: 0.017)  # type: ignore[attr-defined]
+
+    now = datetime.now(timezone.utc)
+    rankings_cache._CACHE = {  # type: ignore[attr-defined]
+        ("M", "latest", "up"): _monthly_cache_items(),
+    }
+    rankings_cache._LAST_UPDATED = now  # type: ignore[attr-defined]
+
+    result = rankings_cache.get_rankings("M", "latest", "up", 3, mode="hybrid")
+    assert all(item.get("comboScoreBonus") == 0.017 for item in result["items"])
+    assert all(item.get("entryScore") is not None for item in result["items"])
+
+
+def test_rule_entry_gate_uses_snapshot_features_for_combo_bonus(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rankings_cache,
+        "_resolve_rule_snapshot_map",
+        lambda items: {
+            "A": {
+                "trend_up_strict": True,
+                "diff20_pct": 0.05,
+                "breakout20_up": 0.02,
+                "cnt20_above": 12.0,
+                "market_ret20": -0.03,
+            }
+        },
+    )
+
+    result = rankings_cache._decorate_rule_items_with_entry_gate(  # type: ignore[attr-defined]
+        [
+            {
+                "code": "A",
+                "asOf": "2026-03-12",
+                "changePct": 0.04,
+                "weeklyBreakoutUpProb": 0.58,
+                "monthlyBreakoutUpProb": 0.63,
+                "liquidity20d": 12_000_000,
+                "monthlyBoxState": "box_mid",
+                "monthlyBoxMonths": 5,
+                "monthlyRangeProb": 0.40,
+            }
+        ],
+        direction="up",
+    )
+
+    assert result[0]["comboScoreBonus"] > 0.0
+    assert result[0]["entryScore"] >= result[0]["comboScoreBonus"]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import os
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -86,3 +88,64 @@ def test_batch_bars_v3_returns_monthly_boxes_when_include_boxes_is_true(monkeypa
     assert payload["bars"]
     assert payload["boxes"] == [{"startTime": 1, "endTime": 2}]
     assert calls == [3]
+
+
+def test_batch_bars_v3_marks_live_provisional_data_version(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "stocks.duckdb"
+    db_path.touch()
+    os.utime(db_path, (1_700_000_000, 1_700_000_000))
+    monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return datetime(2026, 4, 13, 0, 0, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(bars_module, "datetime", _FixedDatetime)
+
+    client = _build_client()
+    response = client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["daily"],
+            "limit": 24,
+            "includeProvisional": True,
+            "includeBoxes": False,
+        },
+    )
+
+    assert response.status_code == 200
+    data_version = response.json()["meta"]["data_version"]
+    assert data_version == "duckdb-mtime:1700000000.000000|yf-live:202604130900"
+
+
+def test_batch_bars_v3_omits_live_bucket_for_historical_asof(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "stocks.duckdb"
+    db_path.touch()
+    os.utime(db_path, (1_700_000_000, 1_700_000_000))
+    monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return datetime(2026, 4, 13, 0, 0, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(bars_module, "datetime", _FixedDatetime)
+
+    client = _build_client()
+    response = client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["daily"],
+            "limit": 24,
+            "includeProvisional": True,
+            "includeBoxes": False,
+            "asof": "2026-04-12",
+        },
+    )
+
+    assert response.status_code == 200
+    data_version = response.json()["meta"]["data_version"]
+    assert data_version == "duckdb-mtime:1700000000.000000"

@@ -706,6 +706,26 @@ def test_signal_events_and_ranking_appearances_are_materialized(monkeypatch) -> 
     assert ranking_analysis["by_dir"][0]["median_days_to_max_favorable_30"] is not None
 
 
+def test_refresh_signal_tracking_materializes_current_ranking_appearance(monkeypatch) -> None:
+    db_path = _make_temp_db()
+    market_days = _seed_market_data(db_path)
+    target_date = market_days[2]
+    _install_fake_pipeline(monkeypatch, [target_date])
+
+    result = service.refresh_signal_tracking(
+        as_of=target_date,
+        db_path=db_path,
+    )
+    status = service.get_tracking_runtime_status(db_path=db_path)
+
+    assert result["basis_rows_upserted"] == 2
+    assert result["decision_upserted"] == 4
+    assert result["campaign_count"] == 1
+    assert result["ranking_appearance_upserted"] == 4
+    assert status["ranking_history_generated"] is True
+    assert status["ranking_latest_date"] == target_date
+
+
 def test_ranking_appearances_support_offset_sort_and_outcome(monkeypatch) -> None:
     db_path = _make_temp_db()
     market_days = _seed_market_data(db_path)

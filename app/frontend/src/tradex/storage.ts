@@ -6,6 +6,7 @@ export const tradexStorageKeys = {
   compareCandidateId: makeKey(["compare", "candidateId"]),
   adoptCandidateId: makeKey(["adopt", "candidateId"]),
   detailCandidateId: makeKey(["detail", "candidateId"]),
+  replayRunId: makeKey(["replay", "runId"]),
   homeFocus: makeKey(["home", "focus"]),
   familyId: makeKey(["family", "familyId"]),
   runId: makeKey(["run", "runId"]),

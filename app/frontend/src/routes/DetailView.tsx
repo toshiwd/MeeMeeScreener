@@ -45,6 +45,7 @@ import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
 import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/useExactDecisionRange";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
+import { useDetailReplayRun } from "./detail/useDetailReplayRun";
 import {
   hasCompleteDetailChartPrefetch,
   loadDetailChartPrefetch,
@@ -54,6 +55,7 @@ import {
 } from "./detail/detailChartPrefetch";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
 import DetailDebugBanner from "./detail/components/DetailDebugBanner";
+import DetailReplayPanel from "./detail/DetailReplayPanel";
 import DetailPositionLedgerSheet from "./detail/components/DetailPositionLedgerSheet";
 import { useDetailDrawings } from "./detail/hooks/useDetailDrawings";
 
@@ -459,6 +461,19 @@ export default function DetailView() {
   const [selectedBarIndex, setSelectedBarIndex] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedBarData, setSelectedBarData] = useState<Candle | null>(null);
+  const replayRunId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const raw = params.get("replayRunId");
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    return trimmed || null;
+  }, [location.search]);
+  const showReplayPanel = replayRunId != null;
+  const replayRun = useDetailReplayRun({
+    runId: replayRunId,
+    symbol: code ?? null,
+    selectedDate,
+  });
   const [analysisCursorTime, setAnalysisCursorTime] = useState<number | null>(null);
   const [analysisBackfillJob, setAnalysisBackfillJob] = useState<JobStatusPayload | null>(null);
   const [analysisFetchRefreshToken, setAnalysisFetchRefreshToken] = useState(0);
@@ -553,7 +568,7 @@ export default function DetailView() {
     if (!trimmed || trimmed === code) return null;
     return trimmed;
   }, [location.search, code]);
-  const analysisAvailable = !compareCode;
+  const analysisAvailable = !compareCode && !showReplayPanel;
   const analysisFetchEnabled = analysisAvailable && headerMode === "analysis";
   const analysisNetworkReady = analysisFetchEnabled && routeReadyPhase === "analysis";
   const compareAsOf = useMemo(() => {
@@ -1960,7 +1975,7 @@ export default function DetailView() {
     const latestFetched = Math.max(...fetchedValues);
     return `TDNET最終取得 ${formatDateTimeLabel(latestFetched)}`;
   }, [tdnetDisclosures, tdnetLoading]);
-  const showFinancialPanel = headerMode === "financial" && !compareCode;
+  const showFinancialPanel = headerMode === "financial" && !compareCode && !showReplayPanel;
   const swingPlan = analysisFallback?.swingPlan ?? null;
   const swingDiagnostics = analysisFallback?.swingDiagnostics ?? null;
   const swingSetupExpectancy = swingDiagnostics?.setupExpectancy ?? null;
@@ -1987,7 +2002,9 @@ export default function DetailView() {
         : rankingDisplayScoreSource === "none"
           ? "score source 未設定"
           : "--";
-  const rightRailKind = showAnalysisPanel
+  const rightRailKind = showReplayPanel
+    ? "replay"
+    : showAnalysisPanel
     ? "analysis"
     : showFinancialPanel
       ? "financial"
@@ -2722,21 +2739,32 @@ export default function DetailView() {
     () => buildDailyPositions(dailyCandles, trades),
     [dailyCandles, trades]
   );
-  const dailyPositions = positionData.dailyPositions;
-  const tradeMarkers = positionData.tradeMarkers;
+  const replayPositionData = useMemo(
+    () => (showReplayPanel ? buildDailyPositions(dailyCandles, replayRun.tradeEvents) : null),
+    [dailyCandles, replayRun.tradeEvents, showReplayPanel]
+  );
+  const activePositionData = replayPositionData ?? positionData;
+  const dailyPositions = activePositionData.dailyPositions;
+  const tradeMarkers = activePositionData.tradeMarkers;
   const currentPositions = useMemo(
-    () => (currentPositionsFromApi !== null ? currentPositionsFromApi : buildCurrentPositions(trades)),
-    [currentPositionsFromApi, trades]
+    () =>
+      showReplayPanel
+        ? null
+        : currentPositionsFromApi !== null
+          ? currentPositionsFromApi
+          : buildCurrentPositions(trades),
+    [currentPositionsFromApi, showReplayPanel, trades]
   );
   const latestTradeTime = useMemo(() => {
-    if (trades.length === 0) return null;
-    const times = trades
+    const sourceTrades = showReplayPanel ? replayRun.tradeEvents : trades;
+    if (sourceTrades.length === 0) return null;
+    const times = sourceTrades
       .map((trade) => Date.parse(`${trade.date}T00:00:00Z`))
       .filter((value) => Number.isFinite(value))
       .map((value) => Math.floor(value / 1000));
     if (!times.length) return null;
     return Math.max(...times);
-  }, [trades]);
+  }, [showReplayPanel, replayRun.tradeEvents, trades]);
   const comparePositionData = useMemo(
     () => buildDailyPositions(compareDailyCandles, compareTrades),
     [compareDailyCandles, compareTrades]
@@ -6011,6 +6039,19 @@ export default function DetailView() {
         </div>
         {rightRailKind && (
           <aside className="detail-right-rail">
+            {rightRailKind === "replay" && (
+              <DetailReplayPanel
+                runId={replayRunId}
+                loading={replayRun.loading}
+                error={replayRun.error}
+                summary={replayRun.summary}
+                selectedDate={selectedDate}
+                selectedRow={replayRun.selectedTimelineRow}
+                ledgerRows={replayRun.ledgerRows}
+                formatNumber={formatNumber}
+                formatSignedNumber={formatSignedNumber}
+              />
+            )}
             {rightRailKind === "analysis" && (
               <>
                 <ScreenPanel title="ランキング指標" className="detail-analysis-panel">
