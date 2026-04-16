@@ -24,6 +24,7 @@ class SplitConfig:
     train_years: int = 5
     valid_months: int = 12
     test_months: int = 12
+    strict: bool = False
 
 
 @dataclass(frozen=True)
@@ -350,6 +351,7 @@ def from_dict(payload: dict[str, Any]) -> ResearchConfig:
             train_years=max(1, int(split_raw.get("train_years") or 5)),
             valid_months=max(1, int(split_raw.get("valid_months") or 12)),
             test_months=max(1, int(split_raw.get("test_months") or 12)),
+            strict=bool(split_raw.get("strict", False)),
         ),
         model=ModelConfig(
             candidate_pool=max(20, int(model_raw.get("candidate_pool") or 150)),

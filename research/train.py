@@ -1505,19 +1505,58 @@ def run_train(
     if asof_ts not in universe_asof:
         raise ValueError(f"asof not found in universe snapshot: {asof_str}")
 
-    all_asof = sorted(
+    all_asof_full = sorted(
         [
             ts
             for ts in calendar["asof_date"].drop_duplicates().tolist()
             if ts <= asof_ts and ts in universe_asof
         ]
     )
-    if not all_asof:
+    if not all_asof_full:
         raise ValueError("no month-end dates up to asof")
 
+    # Calculate required months based on split config
+    # We need: train_years * 12 + valid_months + test_months
+    months_full_str = [ymd(ts) for ts in all_asof_full]
+    
+    # 2. Calculate required months based strictly on split config
+    months_full_str = [ymd(ts) for ts in all_asof_full]
+    split = _split_months(months_full_str, config)
+    
+    # Strictly derive build list from train + valid + test phases
+    train_months = split["train"]
+    valid_months = split["valid"]
+    test_months = split["test"]
+    required_months_str = sorted(list(set(train_months + valid_months + test_months + [asof_str])))
+    
+    # --- RIGOROUS AUDIT LOGGING ---
+    print(f"  [AUDIT] Loaded SplitConfig: train_years={config.split.train_years}, valid={config.split.valid_months}, test={config.split.test_months}")
+    print(f"  [AUDIT] History Depth: {len(months_full_str)} months ({months_full_str[0]} to {months_full_str[-1]})")
+    try:
+        train_start_idx = months_full_str.index(train_months[0])
+        test_end_idx = months_full_str.index(test_months[-1])
+        print(f"  [AUDIT] Phase Indices: train_start={train_start_idx}, test_end={test_end_idx}")
+    except ValueError:
+        print(f"  [AUDIT] WARNING: Phase boundaries not found in full history.")
+
+    print(f"  [AUDIT] Train Phase: {len(train_months)} months ({train_months[0]} to {train_months[-1]})")
+    print(f"  [AUDIT] Valid Phase: {len(valid_months)} months ({valid_months[0]} to {valid_months[-1]})")
+    print(f"  [AUDIT] Test Phase:  {len(test_months)} months ({test_months[0]} to {test_months[-1]})")
+    print(f"  [AUDIT] FINAL Build Range: {len(required_months_str)} unique months ({required_months_str[0]} to {required_months_str[-1]})")
+    
+    # Safety Check for Canonical Verification
+    if config.split.strict and config.split.train_years != 5:
+         print(f"  [CRITICAL] train_years={config.split.train_years} detected in strict mode. Expected 5 for canonical run.")
+         if snapshot_id == "202604_production":
+             raise ValueError(f"CANONICAL AUDIT FAIL: train_years must be 5 under strict=True for production.")
+
+    required_asof = [ts for ts in all_asof_full if ymd(ts) in required_months_str]
+
+    print(f"  [run_train] building features/labels for {len(required_asof)} required months (split-window) ...")
     max_daily = pd.to_datetime(daily["date"], errors="coerce").dropna().max()
     calendar_asof = calendar["asof_date"].dropna().drop_duplicates().sort_values().reset_index(drop=True)
-    for dt in all_asof:
+    
+    for dt in required_asof:
         build_features_for_asof(
             paths,
             config,
@@ -1530,7 +1569,7 @@ def run_train(
         next_month_candidates = calendar_asof[calendar_asof > pd.Timestamp(dt)]
         next_month_end = pd.Timestamp(next_month_candidates.iloc[0]).normalize() if not next_month_candidates.empty else None
         if dt < asof_ts and next_month_end is not None and next_month_end <= max_daily:
-            label_result = build_labels_for_asof(
+            build_labels_for_asof(
                 paths,
                 config,
                 snapshot_id,
@@ -1539,16 +1578,6 @@ def run_train(
                 workers=workers,
                 chunk_size=chunk_size,
             )
-            if int(label_result.get("rows", 0)) == 0:
-                build_labels_for_asof(
-                    paths,
-                    config,
-                    snapshot_id,
-                    ymd(dt),
-                    force=True,
-                    workers=workers,
-                    chunk_size=chunk_size,
-                )
 
     feature_hist = load_feature_history(paths, config, snapshot_id, asof_str)
     label_hist = load_label_history(paths, config, snapshot_id, asof_str)

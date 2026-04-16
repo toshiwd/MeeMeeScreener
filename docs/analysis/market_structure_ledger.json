@@ -6547,6 +6547,317 @@
       },
       "current_read": "",
       "retest_conditions": []
+    },
+    {
+      "feature_id": "blind_month_202504_monthly_range_width_ev_rr_v5_exclude_extreme_wide_proxy",
+      "scope": "toredex_proxy",
+      "definition": {
+        "generated_at": "2026-04-15T12:32:35+09:00",
+        "source_db": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\stocks.duckdb",
+        "window": "20250401..20250531",
+        "candidate_stream": {
+          "table": "ranking_appearance_daily",
+          "filters": {
+            "dir": "up",
+            "rank": 1
+          }
+        },
+        "monthly_return_proxy": {
+          "entry_price": "ranking_appearance_daily.anchor_price_next_open",
+          "exit_price": "daily_bars.c at last trading day of month (daily_bars.date epoch -> to_timestamp)",
+          "return_pct": "(exit / entry - 1) * 100"
+        },
+        "baseline_gate": {
+          "minLiquidity20d": 500000,
+          "entryMinUpProb": 0.75,
+          "entryMinEv": 0.05,
+          "entryMaxRevRisk": 0.4,
+          "upProb_definition": "max(probSideCalib, probSide, weeklyBreakoutUpProb, monthlyBreakoutUpProb)",
+          "ev_definition": "changePct",
+          "revRisk_definition": "max(weeklyBreakoutDownProb, monthlyBreakoutDownProb)"
+        },
+        "variant_gate": {
+          "id": "monthly_range_width_ev_rr_v5_exclude_extreme_wide",
+          "monthly_range_width_source": "signal_basis_daily.basis_payload_json.monthlyRangeWidth",
+          "monthly_context_axis": {
+            "bucket_by": "monthlyRangeWidth",
+            "buckets": [
+              {
+                "label": "tight",
+                "max_inclusive": 0.28
+              },
+              {
+                "label": "normal",
+                "max_inclusive": 0.54
+              },
+              {
+                "label": "wide",
+                "max_inclusive": 0.74
+              },
+              {
+                "label": "extreme_wide",
+                "min_exclusive": 0.74
+              }
+            ],
+            "note": "Same buckets as v1/v2; v5 tests whether filtering out extreme_wide improves monthly compounding stability."
+          },
+          "monthly_context_filter": {
+            "allowed_buckets": [
+              "tight",
+              "normal",
+              "wide"
+            ],
+            "excluded_buckets": [
+              "extreme_wide",
+              "UNKNOWN"
+            ],
+            "note": "Filters out extreme_wide and null monthlyRangeWidth (UNKNOWN)."
+          },
+          "thresholds_by_bucket": {
+            "tight": {
+              "entryMinEv": 0.05,
+              "entryMaxRevRisk": 0.4
+            },
+            "normal": {
+              "entryMinEv": 0.05,
+              "entryMaxRevRisk": 0.4
+            },
+            "wide": {
+              "entryMinEv": 0.0525,
+              "entryMaxRevRisk": 0.37
+            },
+            "extreme_wide": {
+              "entryMinEv": 0.05,
+              "entryMaxRevRisk": 0.4
+            },
+            "UNKNOWN": {
+              "entryMinEv": 0.05,
+              "entryMaxRevRisk": 0.4
+            }
+          },
+          "note": "Variant changes only entryMinEv and entryMaxRevRisk plus a monthlyRangeWidth bucket filter; minLiquidity20d and entryMinUpProb stay fixed."
+        }
+      },
+      "stats": {
+        "months": {
+          "2025-04": {
+            "rank1_days": 21,
+            "monthly_state_counts": {
+              "extreme_wide": 8,
+              "tight": 6,
+              "normal": 5,
+              "wide": 2
+            },
+            "baseline": {
+              "pass_days": 13,
+              "month_end_ret_pct": {
+                "mean": -4.3737355695291145,
+                "median": -8.68079289131921,
+                "win_rate_gt_0": 0.3076923076923077,
+                "hit_rate_ge_2pct": 0.23076923076923078,
+                "min": -30.454165505711895,
+                "max": 32.49166269652215
+              }
+            },
+            "variant": {
+              "pass_days": 7,
+              "month_end_ret_pct": {
+                "mean": -5.686808385183014,
+                "median": -8.68079289131921,
+                "win_rate_gt_0": 0.2857142857142857,
+                "hit_rate_ge_2pct": 0.14285714285714285,
+                "min": -30.454165505711895,
+                "max": 28.957528957528964
+              }
+            }
+          },
+          "2025-05": {
+            "rank1_days": 20,
+            "monthly_state_counts": {
+              "normal": 9,
+              "extreme_wide": 5,
+              "tight": 3,
+              "wide": 3
+            },
+            "baseline": {
+              "pass_days": 6,
+              "month_end_ret_pct": {
+                "mean": -6.985326647301908,
+                "median": -8.018855761482675,
+                "win_rate_gt_0": 0.3333333333333333,
+                "hit_rate_ge_2pct": 0.0,
+                "min": -13.714285714285712,
+                "max": 0.7021063189568633
+              }
+            },
+            "variant": {
+              "pass_days": 4,
+              "month_end_ret_pct": {
+                "mean": -7.262472729573549,
+                "median": -8.018855761482675,
+                "win_rate_gt_0": 0.25,
+                "hit_rate_ge_2pct": 0.0,
+                "min": -13.714285714285712,
+                "max": 0.7021063189568633
+              }
+            }
+          }
+        }
+      },
+      "current_read": "",
+      "retest_conditions": []
+    },
+    {
+      "feature_id": "blind_month_202602_monthly_range_width_ev_rr_v9_tighten_tight_normal_drop_unknown_proxy",
+      "scope": "toredex_proxy",
+      "definition": {
+        "generated_at": "2026-04-16T09:29:19+09:00",
+        "source_db": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener\\data\\stocks.duckdb",
+        "window": "20260201..20260331",
+        "candidate_stream": {
+          "table": "ranking_appearance_daily",
+          "filters": {
+            "dir": "up",
+            "rank": 1
+          }
+        },
+        "monthly_return_proxy": {
+          "entry_price": "ranking_appearance_daily.anchor_price_next_open",
+          "exit_price": "daily_bars.c at last trading day of month (daily_bars.date epoch -> to_timestamp)",
+          "return_pct": "(exit / entry - 1) * 100"
+        },
+        "baseline_gate": {
+          "minLiquidity20d": 500000,
+          "entryMinUpProb": 0.75,
+          "entryMinEv": 0.05,
+          "entryMaxRevRisk": 0.4,
+          "upProb_definition": "max(probSideCalib, probSide, weeklyBreakoutUpProb, monthlyBreakoutUpProb)",
+          "ev_definition": "changePct",
+          "revRisk_definition": "max(weeklyBreakoutDownProb, monthlyBreakoutDownProb)"
+        },
+        "variant_gate": {
+          "id": "monthly_range_width_ev_rr_v9_tighten_tight_normal_drop_unknown",
+          "monthly_range_width_source": "signal_basis_daily.basis_payload_json.monthlyRangeWidth",
+          "monthly_context_axis": {
+            "bucket_by": "monthlyRangeWidth",
+            "buckets": [
+              {
+                "label": "tight",
+                "max_inclusive": 0.28
+              },
+              {
+                "label": "normal",
+                "max_inclusive": 0.54
+              },
+              {
+                "label": "wide",
+                "max_inclusive": 0.74
+              },
+              {
+                "label": "extreme_wide",
+                "min_exclusive": 0.74
+              }
+            ],
+            "note": "Same buckets as v1/v2/v4/v6/v7/v8; v9 extends tightening into the more-common tight bucket while also using strict-normal (vs v7) and keeping v8-style wide/extreme tightening, dropping null-context (UNKNOWN)."
+          },
+          "monthly_context_filter": {
+            "excluded_buckets": [
+              "UNKNOWN"
+            ],
+            "note": "Drops null monthlyRangeWidth (UNKNOWN) to avoid mixing missing-context days into the gate."
+          },
+          "thresholds_by_bucket": {
+            "tight": {
+              "entryMinEv": 0.06,
+              "entryMaxRevRisk": 0.35
+            },
+            "normal": {
+              "entryMinEv": 0.065,
+              "entryMaxRevRisk": 0.33
+            },
+            "wide": {
+              "entryMinEv": 0.06,
+              "entryMaxRevRisk": 0.34
+            },
+            "extreme_wide": {
+              "entryMinEv": 0.065,
+              "entryMaxRevRisk": 0.33
+            },
+            "UNKNOWN": {
+              "entryMinEv": 0.05,
+              "entryMaxRevRisk": 0.4
+            }
+          },
+          "note": "Variant changes only entryMinEv and entryMaxRevRisk plus an UNKNOWN drop; minLiquidity20d and entryMinUpProb stay fixed. Monthly context uses monthlyRangeWidth buckets."
+        }
+      },
+      "stats": {
+        "months": {
+          "2026-02": {
+            "rank1_days": 17,
+            "monthly_state_counts": {
+              "normal": 11,
+              "tight": 3,
+              "wide": 2,
+              "extreme_wide": 1
+            },
+            "baseline": {
+              "pass_days": 15,
+              "month_end_ret_pct": {
+                "mean": 12.644328428002128,
+                "median": 3.5411855273287163,
+                "win_rate_gt_0": 0.7333333333333333,
+                "hit_rate_ge_2pct": 0.5333333333333333,
+                "min": -36.63230240549829,
+                "max": 96.16055846422339
+              }
+            },
+            "variant": {
+              "pass_days": 15,
+              "month_end_ret_pct": {
+                "mean": 12.644328428002128,
+                "median": 3.5411855273287163,
+                "win_rate_gt_0": 0.7333333333333333,
+                "hit_rate_ge_2pct": 0.5333333333333333,
+                "min": -36.63230240549829,
+                "max": 96.16055846422339
+              }
+            }
+          },
+          "2026-03": {
+            "rank1_days": 20,
+            "monthly_state_counts": {
+              "tight": 11,
+              "normal": 7,
+              "wide": 2
+            },
+            "baseline": {
+              "pass_days": 14,
+              "month_end_ret_pct": {
+                "mean": -2.5238613169893354,
+                "median": -0.21362652386920367,
+                "win_rate_gt_0": 0.5,
+                "hit_rate_ge_2pct": 0.42857142857142855,
+                "min": -26.151560178306088,
+                "max": 17.904124860646608
+              }
+            },
+            "variant": {
+              "pass_days": 7,
+              "month_end_ret_pct": {
+                "mean": -9.998533937456788,
+                "median": -16.75041876046901,
+                "win_rate_gt_0": 0.2857142857142857,
+                "hit_rate_ge_2pct": 0.2857142857142857,
+                "min": -26.151560178306088,
+                "max": 17.904124860646608
+              }
+            }
+          }
+        }
+      },
+      "current_read": "",
+      "retest_conditions": []
     }
   ]
 }

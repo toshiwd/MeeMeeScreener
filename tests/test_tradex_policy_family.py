@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from app.backend.services.tradex_portfolio_replay_service import run_policy_family_cohort_replay, run_policy_family_replay
-from external_analysis.policy_replay.policy_family import _decision_from_metrics
+from external_analysis.policy_replay.policy_family import _calibrate_thresholds_from_rows, _decision_from_metrics
 
 
 def _business_days(start: date, count: int) -> list[date]:
@@ -208,6 +208,126 @@ def test_policy_family_decision_helper_can_hold_promising_small_sample():
     assert "sample is too small" in reason_text
 
 
+def test_policy_family_selection_calibration_produces_keep_hold_drop_band():
+    rows = [
+        {
+            "policy_variant_id": "top",
+            "excess_vs_universe_mean": -0.16031962264706623,
+            "exposure_adjusted_excess_mean": -0.6412784905882649,
+            "median_window_excess": -0.11603801046020434,
+            "worst_window_excess": -0.4149677805184344,
+            "weekly_activity_pass_rate_mean": 0.7046703296703296,
+            "avg_holding_days_mean": 16.95,
+            "pct_trades_over_20d_mean": 0.2916666666666667,
+            "turnover_mean": 0.06478252357659087,
+            "final_score_mean": -0.5362721769074699,
+        },
+        {
+            "policy_variant_id": "middle_a",
+            "excess_vs_universe_mean": -0.16035462264706624,
+            "exposure_adjusted_excess_mean": -0.641418490588265,
+            "median_window_excess": -0.11610801046020436,
+            "worst_window_excess": -0.4149677805184344,
+            "weekly_activity_pass_rate_mean": 0.7046703296703296,
+            "avg_holding_days_mean": 16.91875,
+            "pct_trades_over_20d_mean": 0.2916666666666667,
+            "turnover_mean": 0.0648899006257712,
+            "final_score_mean": -0.5494025874243549,
+        },
+        {
+            "policy_variant_id": "middle_b",
+            "excess_vs_universe_mean": -0.16035462264706624,
+            "exposure_adjusted_excess_mean": -0.641418490588265,
+            "median_window_excess": -0.11610801046020436,
+            "worst_window_excess": -0.4149677805184344,
+            "weekly_activity_pass_rate_mean": 0.7046703296703296,
+            "avg_holding_days_mean": 16.91875,
+            "pct_trades_over_20d_mean": 0.2916666666666667,
+            "turnover_mean": 0.0648899006257712,
+            "final_score_mean": -0.5817840598828036,
+        },
+        {
+            "policy_variant_id": "weak_a",
+            "excess_vs_universe_mean": -0.16779962264706624,
+            "exposure_adjusted_excess_mean": -0.671198490588265,
+            "median_window_excess": -0.11610801046020436,
+            "worst_window_excess": -0.44474778051843444,
+            "weekly_activity_pass_rate_mean": 0.6854395604395604,
+            "avg_holding_days_mean": 19.76875,
+            "pct_trades_over_20d_mean": 0.2916666666666667,
+            "turnover_mean": 0.06652280385157765,
+            "final_score_mean": -0.47372115168510676,
+        },
+        {
+            "policy_variant_id": "weak_b",
+            "excess_vs_universe_mean": -0.16779962264706624,
+            "exposure_adjusted_excess_mean": -0.671198490588265,
+            "median_window_excess": -0.11610801046020436,
+            "worst_window_excess": -0.44474778051843444,
+            "weekly_activity_pass_rate_mean": 0.6854395604395604,
+            "avg_holding_days_mean": 19.76875,
+            "pct_trades_over_20d_mean": 0.2916666666666667,
+            "turnover_mean": 0.06652280385157765,
+            "final_score_mean": -0.36281189873759095,
+        },
+    ]
+
+    thresholds = _calibrate_thresholds_from_rows(rows)["thresholds"]
+    assert thresholds["keep"]["excess_vs_universe_mean_min"] > thresholds["drop"]["excess_vs_universe_mean_max"]
+
+    keep_decision, keep_reason_codes, _ = _decision_from_metrics(
+        {
+            "window_count": 4,
+            "median_window_excess": rows[0]["median_window_excess"],
+            "excess_vs_universe_mean": rows[0]["excess_vs_universe_mean"],
+            "exposure_adjusted_excess_mean": rows[0]["exposure_adjusted_excess_mean"],
+            "worst_window_excess": rows[0]["worst_window_excess"],
+            "weekly_activity_pass_rate_mean": rows[0]["weekly_activity_pass_rate_mean"],
+            "avg_holding_days_mean": rows[0]["avg_holding_days_mean"],
+            "pct_trades_over_20d_mean": rows[0]["pct_trades_over_20d_mean"],
+            "turnover_mean": rows[0]["turnover_mean"],
+            "final_score_mean": rows[0]["final_score_mean"],
+        },
+        thresholds=thresholds,
+    )
+    hold_decision, hold_reason_codes, _ = _decision_from_metrics(
+        {
+            "window_count": 4,
+            "median_window_excess": rows[1]["median_window_excess"],
+            "excess_vs_universe_mean": rows[1]["excess_vs_universe_mean"],
+            "exposure_adjusted_excess_mean": rows[1]["exposure_adjusted_excess_mean"],
+            "worst_window_excess": rows[1]["worst_window_excess"],
+            "weekly_activity_pass_rate_mean": rows[1]["weekly_activity_pass_rate_mean"],
+            "avg_holding_days_mean": rows[1]["avg_holding_days_mean"],
+            "pct_trades_over_20d_mean": rows[1]["pct_trades_over_20d_mean"],
+            "turnover_mean": rows[1]["turnover_mean"],
+            "final_score_mean": rows[1]["final_score_mean"],
+        },
+        thresholds=thresholds,
+    )
+    drop_decision, drop_reason_codes, _ = _decision_from_metrics(
+        {
+            "window_count": 4,
+            "median_window_excess": rows[3]["median_window_excess"],
+            "excess_vs_universe_mean": rows[3]["excess_vs_universe_mean"],
+            "exposure_adjusted_excess_mean": rows[3]["exposure_adjusted_excess_mean"],
+            "worst_window_excess": rows[3]["worst_window_excess"],
+            "weekly_activity_pass_rate_mean": rows[3]["weekly_activity_pass_rate_mean"],
+            "avg_holding_days_mean": rows[3]["avg_holding_days_mean"],
+            "pct_trades_over_20d_mean": rows[3]["pct_trades_over_20d_mean"],
+            "turnover_mean": rows[3]["turnover_mean"],
+            "final_score_mean": rows[3]["final_score_mean"],
+        },
+        thresholds=thresholds,
+    )
+
+    assert keep_decision == "keep"
+    assert hold_decision == "hold"
+    assert drop_decision == "drop"
+    assert keep_reason_codes == []
+    assert "weak_relative_performance" in drop_reason_codes
+
+
 def test_policy_family_first_cohort_calibrates_thresholds_and_persists_artifacts():
     repo = CountingRepo(
         {
@@ -236,6 +356,8 @@ def test_policy_family_first_cohort_calibrates_thresholds_and_persists_artifacts
     assert cohort["cohort_manifest"]["cohort_id"] == "first-cohort-smoke"
     assert len(cohort["cohort_manifest"]["family_manifest"]) == 4
     assert len(cohort["family_results"]) == 4
+    assert len(cohort["family_quality_rows"]) == 4
+    assert cohort["cohort_family_quality_summary"]["selection_family_id"]
     assert cohort["threshold_calibration"]["schema_version"] == "tradex_policy_family_cohort_v1"
     assert set(cohort["threshold_calibration"]["cohort_thresholds"]["thresholds"]) == {"keep", "drop"}
     assert result["cohort_dir"]
@@ -249,6 +371,12 @@ def test_policy_family_first_cohort_calibrates_thresholds_and_persists_artifacts
     for family_result in cohort["family_results"]:
         family_id = family_result["family_id"]
         assert family_result["decision_thresholds"] == cohort["threshold_calibration"]["family_thresholds"][family_id]["thresholds"]
-        assert family_result["policy_keep_drop_hold"]["overview"]["candidate_count"] == 3
+        if family_result["family_edge"] == "selection_rule":
+            assert family_result["policy_keep_drop_hold"]["overview"]["candidate_count"] == 5
+        else:
+            assert family_result["policy_keep_drop_hold"]["overview"]["candidate_count"] == 1
+        assert family_result["policy_variant_manifest"]["policy_variants"][0]["hypothesis"]
+        assert family_result["policy_variant_manifest"]["policy_variants"][0]["rationale"]
 
-    assert cohort["keep_drop_hold_summary"]["keep_count"] + cohort["keep_drop_hold_summary"]["hold_count"] + cohort["keep_drop_hold_summary"]["drop_count"] == 12
+    assert cohort["cohort_family_quality_summary"]["kept_variant_overlap"]["shared_kept_variant_count"] >= 0
+    assert cohort["keep_drop_hold_summary"]["keep_count"] + cohort["keep_drop_hold_summary"]["hold_count"] + cohort["keep_drop_hold_summary"]["drop_count"] == 8

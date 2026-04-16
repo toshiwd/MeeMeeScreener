@@ -1344,6 +1344,8 @@ This is a narrow monthly blind retest of v7 on a **different month pair** where 
 - `2026-04-15`: Monthly-range-width v4 (tighten `normal` + drop `UNKNOWN`) blind test on `2026-02..2026-03` did **not bind** (`15 == 15`, `14 == 14`) with identical medians (`+3.54%`, `-0.21%`). Net: too loose/inactive on this window; no evidence of improving monthly compounding toward the `2%` target.
 - `2026-04-15`: Monthly-range-width v6 (strict `normal` + drop `UNKNOWN`) blind test on `2025-11..2025-12` bound (`13 -> 10`, `4 -> 3`); Nov median improved (`+3.23% -> +9.43%`) and hit>=2% rose (61.54% -> 70.00%), but Dec is sparse (base pass=4) with unchanged median (`+0.28%`) and still below the `2%` target. Net: helps Nov but is too strict/sparse for Dec; not stable evidence of improving monthly compounding toward `+2%`.
 - `2026-04-15`: Monthly-range-width v8 (tighten `wide`/`extreme_wide` + drop `UNKNOWN`) blind test on `2025-07..2025-08` was mostly inactive (Jul `5 == 5`) and in Aug bound slightly (`16 -> 15`) but worsened the median (`+0.19% -> +0.00%`) and hit>=`2%` (37.50% -> 33.33%). Net: v8 is too loose/inactive and does not lift sub-`2%` months toward the `+2%` target under this proxy.
+- `2026-04-15`: Monthly-range-width v5 (exclude `extreme_wide`/`UNKNOWN`) blind test on `2025-04..2025-05` bound strongly (Apr `13 -> 7`, May `6 -> 4`) but medians were unchanged (`-8.68%`, `-8.02%`) and Apr hit>=`2%` worsened (23.08% -> 14.29%). Net: v5 can remove winners without lifting weak months, so it is not a stable +`2%` compounding improvement under this proxy.
+- `2026-04-16`: Monthly-range-width v9 retest on `2026-02..2026-03` was inactive in Feb (`15 == 15`, median `+3.54%` unchanged), but bound hard in Mar (`14 -> 7`) and severely worsened Mar median (`-0.21% -> -16.75%`) and hit>=`2%` (42.86% -> 28.57%). Net: v9 remains too strict / misaligned under this proxy and does not improve month-to-month stability toward `+2%`.
 
 ### 35. Blind Month Proxy `2025-10` - Monthly-RangeWidth Gate v8 (tighten `wide`/`extreme_wide` + drop `UNKNOWN`, entryMinEv/revRisk only)
 
@@ -2285,3 +2287,102 @@ This is a narrow monthly blind test that keeps the baseline composite gate fixed
 
 - On this blind window (`2025-07..2025-08`), v8 is **not a demonstrated improvement** toward the `2%` monthly compounding target under this proxy: it is inactive in Jul and worsens Aug’s already-sub-`2%` median.
 - Net: treat v8 as **too loose/inactive** for consistent month-to-month compounding improvement; when it does bind, the effect is not reliably favorable toward `+2%`.
+
+### 54. Blind Month Proxy `2025-04` - Monthly-RangeWidth Gate v5 (retest; exclude `extreme_wide`/`UNKNOWN`, entryMinEv/revRisk only)
+
+This is a narrow monthly blind test that keeps the baseline composite gate fixed and retests whether **filtering out `extreme_wide` monthly-range-width context** (and excluding `UNKNOWN`) improves month-level compounding toward the `2%` target while changing only `entryMinEv` / `revRisk` thresholds.
+
+#### Setup
+
+- run_ts: `2026-04-15T12:32:35+09:00`
+- source_db: `C:\Users\enish\AppData\Local\MeeMeeScreener\data\stocks.duckdb`
+- window: `2025-04-01..2025-05-31`
+- candidate stream: `ranking_appearance_daily` with `dir='up'` and `rank=1`
+- monthly context axis: `signal_basis_daily.basis_payload_json.monthlyRangeWidth` bucketed into:
+  - `tight`: `<= 0.28`
+  - `normal`: `<= 0.54`
+  - `wide`: `<= 0.74`
+  - `extreme_wide`: `> 0.74`
+- monthly return proxy: `(month_end_close / next_open - 1) * 100`
+
+#### Baseline composite gate (kept fixed)
+
+- `minLiquidity20d >= 500,000`
+- `entryMinUpProb >= 0.75`
+- `entryMinEv >= 0.05`
+- `entryMaxRevRisk <= 0.40`
+
+#### Regime-aware variant v5 (exclude `extreme_wide` + drop `UNKNOWN`; entryMinEv/revRisk only)
+
+- monthly context filter: allow only `tight`/`normal`/`wide`; exclude `extreme_wide` and `UNKNOWN` (`monthlyRangeWidth IS NULL`)
+- thresholds (only `entryMinEv` / `revRisk`):
+  - `tight`: baseline thresholds
+  - `normal`: baseline thresholds
+  - `wide`: `entryMinEv >= 0.0525`, `entryMaxRevRisk <= 0.37`
+
+#### Results (month-end return distribution over passing `rank=1` days)
+
+| month | rank1 days | base pass | var pass | base median | var median | base hit>=2% | var hit>=2% |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `2025-04` | 21 | 13 | 7 | `-8.68%` | `-8.68%` | 23.08% | 14.29% |
+| `2025-05` | 20 | 6 | 4 | `-8.02%` | `-8.02%` | 0.00% | 0.00% |
+
+#### Read-through
+
+- `2025-04`: v5 bound strongly (`13 -> 7`) in a month with heavy `extreme_wide` context presence (`8/21` rank1-days). Despite removing ~half the baseline pass-days, the median stayed unchanged (`-8.68%`) and hit>=`2%` worsened (23.08% -> 14.29%). This suggests the `extreme_wide` exclusion is not selectively removing low-quality outcomes under this proxy and can remove positive-tail days without lifting the month.
+- `2025-05`: coverage is sparse at baseline (`base pass = 6`) and v5 reduced it further (`6 -> 4`) with no median lift (`-8.02%` unchanged) and 0% hit>=`2%` either way. With this sample size, any small differences would be unreliable.
+
+#### Practical conclusion
+
+- On this blind window (`2025-04..2025-05`), v5 is **not a demonstrated improvement** toward the `2%` monthly compounding target: it reduces coverage materially but does not lift medians (both months remain strongly negative) and can reduce the >=`2%` hit-rate.
+- Net: treat v5’s `extreme_wide` exclusion as **too strict / misaligned** for stability under this proxy; it does not reliably move weak months toward `+2%` and can remove winners without improving the month-level median.
+
+### 55. Blind Month Proxy `2026-02` - Monthly-RangeWidth Gate v9 (retest; tighten `tight` + strict `normal` + v8-style `wide`/`extreme_wide` + drop `UNKNOWN`, entryMinEv/revRisk only)
+
+This is a narrow monthly blind retest of v9 on a **recent mixed month pair** (Feb-Mar 2026) to check whether **tightening `tight`/`normal` in addition to `wide`/`extreme_wide`** (and excluding `UNKNOWN`) improves monthly compounding toward the `2%` target while keeping the baseline composite gate fixed.
+
+#### Setup
+
+- run_ts: `2026-04-16T09:29:19+09:00`
+- source_db: `C:\Users\enish\AppData\Local\MeeMeeScreener\data\stocks.duckdb`
+- window: `2026-02-01..2026-03-31`
+- candidate stream: `ranking_appearance_daily` with `dir='up'` and `rank=1`
+- monthly context axis: `signal_basis_daily.basis_payload_json.monthlyRangeWidth` bucketed into:
+  - `tight`: `<= 0.28`
+  - `normal`: `<= 0.54`
+  - `wide`: `<= 0.74`
+  - `extreme_wide`: `> 0.74`
+- monthly return proxy: `(month_end_close / next_open - 1) * 100`
+
+#### Baseline composite gate (kept fixed)
+
+- `minLiquidity20d >= 500,000`
+- `entryMinUpProb >= 0.75`
+- `entryMinEv >= 0.05`
+- `entryMaxRevRisk <= 0.40`
+
+#### Regime-aware variant v9 (drop `UNKNOWN` + tighten `tight`/`normal` + v8-style `wide`/`extreme_wide`; entryMinEv/revRisk only)
+
+- monthly context filter: exclude `UNKNOWN` (`monthlyRangeWidth IS NULL`)
+- thresholds (only `entryMinEv` / `revRisk`):
+  - `tight`: `entryMinEv >= 0.06`, `entryMaxRevRisk <= 0.35`
+  - `normal`: `entryMinEv >= 0.065`, `entryMaxRevRisk <= 0.33`
+  - `wide`: `entryMinEv >= 0.06`, `entryMaxRevRisk <= 0.34`
+  - `extreme_wide`: `entryMinEv >= 0.065`, `entryMaxRevRisk <= 0.33`
+
+#### Results (month-end return distribution over passing `rank=1` days)
+
+| month | rank1 days | base pass | var pass | base median | var median | base hit>=2% | var hit>=2% |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `2026-02` | 17 | 15 | 15 | `+3.54%` | `+3.54%` | 53.33% | 53.33% |
+| `2026-03` | 20 | 14 | 7 | `-0.21%` | `-16.75%` | 42.86% | 28.57% |
+
+#### Read-through
+
+- `2026-02`: v9 did **not bind** (`15 == 15`), so the month-level median and hit>=`2%` were identical. This means v9 is **inactive** here and cannot affect month-to-month stability.
+- `2026-03`: v9 bound strongly (`14 -> 7`) but the month-level median collapsed (`-0.21% -> -16.75%`) and hit>=`2%` fell (42.86% -> 28.57%). This suggests the extra tightening is **misaligned / too strict** under this proxy: it removes a large fraction of the baseline passing set but leaves a worse month-level outcome distribution.
+
+#### Practical conclusion
+
+- On this blind window (`2026-02..2026-03`), v9 is **not a demonstrated improvement** toward the `2%` monthly compounding target under this proxy: it is inactive in Feb and materially worsens Mar when it binds.
+- Net: treat v9 as **too strict / not stable across months** for month-level compounding improvement; further tightening on `tight`/`normal` should be avoided unless it can be shown to lift weak-month medians without collapsing into worse tails.

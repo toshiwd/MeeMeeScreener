@@ -130,6 +130,7 @@ def _family_variant(
     full_exit_rule: dict[str, Any] | None = None,
     sizing_rule: dict[str, Any] | None = None,
     scoring_weights: dict[str, Any] | None = None,
+    hypothesis: str = "",
     reason_code: str = "policy_variant_update",
     what_changed: str = "",
     why_it_changed: str = "",
@@ -147,6 +148,7 @@ def _family_variant(
         "sizing_rule": dict(sizing_rule or {}),
         "scoring": {"weights": dict(scoring_weights or {})},
         "rationale": {
+            "hypothesis": hypothesis,
             "what_changed": what_changed,
             "why_it_changed": why_it_changed,
             "expected_effect": expected_effect,
@@ -219,7 +221,7 @@ def _build_first_policy_family_cohort(payload: dict[str, Any]) -> list[dict[str,
         "family_id": _text(payload.get("selection_family_id"), fallback="selection-focused-family"),
         "family_name": "Selection-focused family",
         "family_edge": "selection_rule",
-        "family_thesis": "Move the selection edge by changing the scoring/selection lens while keeping entry/add/exit mechanics fixed.",
+        "family_thesis": "Move the selection edge by changing only the selection lens while keeping execution mechanics fixed.",
         "policy_variants": [
             _family_variant(
                 variant_id="selection_base",
@@ -232,69 +234,90 @@ def _build_first_policy_family_cohort(payload: dict[str, Any]) -> list[dict[str,
                 full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
                 sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
                 scoring_weights=base_weights,
-                reason_code="selection_lens",
+                hypothesis="control baseline for the current selection lens",
+                reason_code="selection_control",
                 what_changed="baseline selection lens",
-                why_it_changed="establish a stable baseline for selection-only comparison",
+                why_it_changed="establish a control point for selection-only comparison",
                 expected_effect="reference point for selection-driven ranking",
             ),
             _family_variant(
-                variant_id="selection_quality_tilt",
+                variant_id="selection_excess_focus",
                 policy_id="selection_family",
-                policy_version="quality_tilt",
-                selection_rule={"policy_id": "selection_family", "policy_version": "quality_tilt", "weights": {**base_weights, "excess_vs_universe": 0.28, "exposure_adjusted_excess": 0.20, "weekly_activity": -0.06}},
+                policy_version="excess_focus",
+                selection_rule={"policy_id": "selection_family", "policy_version": "excess_focus", "weights": {**base_weights, "excess_vs_universe": 0.34, "exposure_adjusted_excess": 0.22, "median_window_excess": 0.18, "weekly_activity": -0.05}},
                 entry_rule={"entry_threshold": base_entry_threshold},
                 add_rule={"add_threshold": base_add_threshold, "addon_units": list(shared.get("addon_units") or [2, 3, 5])},
                 partial_take_rule={"partial_take_threshold": base_partial_take_threshold},
                 full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
                 sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
-                scoring_weights={**base_weights, "excess_vs_universe": 0.28, "exposure_adjusted_excess": 0.20, "weekly_activity": -0.06},
+                scoring_weights={**base_weights, "excess_vs_universe": 0.34, "exposure_adjusted_excess": 0.22, "median_window_excess": 0.18, "weekly_activity": -0.05},
+                hypothesis="test whether the selection lens can improve excess capture when relative metrics are emphasized",
                 reason_code="selection_quality",
                 what_changed="heavier relative-performance weights",
                 why_it_changed="test whether selection can improve when relative performance is emphasized",
                 expected_effect="better excess capture with similar turnover",
             ),
             _family_variant(
-                variant_id="selection_hold_bias",
+                variant_id="selection_consistency_guard",
                 policy_id="selection_family",
-                policy_version="hold_bias",
-                selection_rule={"policy_id": "selection_family", "policy_version": "hold_bias", "weights": {**base_weights, "long_hold": 0.18, "turnover": -0.12, "premature_exit": -0.10}},
+                policy_version="consistency_guard",
+                selection_rule={"policy_id": "selection_family", "policy_version": "consistency_guard", "weights": {**base_weights, "worst_window_excess": 0.18, "max_drawdown": -0.16, "weekly_activity": -0.12, "turnover": -0.10}},
                 entry_rule={"entry_threshold": base_entry_threshold},
                 add_rule={"add_threshold": base_add_threshold, "addon_units": list(shared.get("addon_units") or [2, 3, 5])},
                 partial_take_rule={"partial_take_threshold": base_partial_take_threshold},
                 full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
                 sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
-                scoring_weights={**base_weights, "long_hold": 0.18, "turnover": -0.12, "premature_exit": -0.10},
+                scoring_weights={**base_weights, "worst_window_excess": 0.18, "max_drawdown": -0.16, "weekly_activity": -0.12, "turnover": -0.10},
+                hypothesis="test whether selection quality improves when consistency and downside stability are emphasized",
+                reason_code="selection_consistency",
+                what_changed="stability and downside weights",
+                why_it_changed="see whether selection can favor stable window behavior without changing execution rules",
+                expected_effect="lower instability across windows",
+            ),
+            _family_variant(
+                variant_id="selection_hold_bias",
+                policy_id="selection_family",
+                policy_version="hold_bias",
+                selection_rule={"policy_id": "selection_family", "policy_version": "hold_bias", "weights": {**base_weights, "long_hold": 0.22, "premature_exit": -0.14, "turnover": -0.14}},
+                entry_rule={"entry_threshold": base_entry_threshold},
+                add_rule={"add_threshold": base_add_threshold, "addon_units": list(shared.get("addon_units") or [2, 3, 5])},
+                partial_take_rule={"partial_take_threshold": base_partial_take_threshold},
+                full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
+                sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
+                scoring_weights={**base_weights, "long_hold": 0.22, "premature_exit": -0.14, "turnover": -0.14},
+                hypothesis="test whether the selection lens can improve by preferring longer holds over churn",
                 reason_code="selection_hold_bias",
                 what_changed="hold bonus and churn penalty tilt",
                 why_it_changed="see if selection can favor longer trend capture without changing execution rules",
                 expected_effect="higher average hold with less churn",
+            ),
+            _family_variant(
+                variant_id="selection_trend_balance",
+                policy_id="selection_family",
+                policy_version="trend_balance",
+                selection_rule={"policy_id": "selection_family", "policy_version": "trend_balance", "weights": {**base_weights, "excess_vs_universe": 0.32, "exposure_adjusted_excess": 0.22, "median_window_excess": 0.18, "long_hold": 0.18, "turnover": -0.12, "premature_exit": -0.10, "worst_window_excess": 0.12, "max_drawdown": -0.08}},
+                entry_rule={"entry_threshold": base_entry_threshold},
+                add_rule={"add_threshold": base_add_threshold, "addon_units": list(shared.get("addon_units") or [2, 3, 5])},
+                partial_take_rule={"partial_take_threshold": base_partial_take_threshold},
+                full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
+                sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
+                scoring_weights={**base_weights, "excess_vs_universe": 0.32, "exposure_adjusted_excess": 0.22, "median_window_excess": 0.18, "long_hold": 0.18, "turnover": -0.12, "premature_exit": -0.10, "worst_window_excess": 0.12, "max_drawdown": -0.08},
+                hypothesis="test whether a balanced selection lens can improve excess while preserving longer holds",
+                reason_code="selection_trend_balance",
+                what_changed="balanced relative-performance and hold discipline weights",
+                why_it_changed="test if a more balanced selection lens improves both excess and churn control",
+                expected_effect="better excess capture with longer holds and lower churn",
             ),
         ],
         "shared": dict(shared),
     }
 
     entry_family = {
-        "family_id": _text(payload.get("entry_family_id"), fallback="entry-timing-family"),
+        "family_id": _text(payload.get("entry_family_id"), fallback="entry-control-family"),
         "family_name": "Entry-timing family",
         "family_edge": "entry_rule",
-        "family_thesis": "Move the entry timing edge by changing only the entry threshold while keeping selection, add, and exit discipline fixed.",
+        "family_thesis": "Keep entry timing as a small control family while selection stays the main research axis.",
         "policy_variants": [
-            _family_variant(
-                variant_id="entry_early",
-                policy_id="entry_family",
-                policy_version="early",
-                selection_rule={"policy_id": "entry_family", "policy_version": "early", "weights": base_weights, "execution_convention": shared["execution_convention"], "weekly_activity_required": bool(shared["weekly_activity_required"])},
-                entry_rule={"entry_threshold": max(0.01, base_entry_threshold - 0.03)},
-                add_rule={"add_threshold": base_add_threshold, "addon_units": list(shared.get("addon_units") or [2, 3, 5])},
-                partial_take_rule={"partial_take_threshold": base_partial_take_threshold},
-                full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
-                sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
-                scoring_weights=base_weights,
-                reason_code="entry_timing",
-                what_changed="lower entry threshold",
-                why_it_changed="test earlier entry capture",
-                expected_effect="more early trend capture with higher turnover",
-            ),
             _family_variant(
                 variant_id="entry_base",
                 policy_id="entry_family",
@@ -306,53 +329,22 @@ def _build_first_policy_family_cohort(payload: dict[str, Any]) -> list[dict[str,
                 full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
                 sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
                 scoring_weights=base_weights,
+                hypothesis="entry threshold control with no selection tilt",
                 reason_code="entry_baseline",
                 what_changed="baseline entry threshold",
                 why_it_changed="reference point for entry timing",
                 expected_effect="balanced entry cadence",
-            ),
-            _family_variant(
-                variant_id="entry_late",
-                policy_id="entry_family",
-                policy_version="late",
-                selection_rule={"policy_id": "entry_family", "policy_version": "late", "weights": base_weights, "execution_convention": shared["execution_convention"], "weekly_activity_required": bool(shared["weekly_activity_required"])},
-                entry_rule={"entry_threshold": min(0.99, base_entry_threshold + 0.06)},
-                add_rule={"add_threshold": base_add_threshold, "addon_units": list(shared.get("addon_units") or [2, 3, 5])},
-                partial_take_rule={"partial_take_threshold": base_partial_take_threshold},
-                full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
-                sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
-                scoring_weights=base_weights,
-                reason_code="entry_timing",
-                what_changed="higher entry threshold",
-                why_it_changed="test delayed entry discipline",
-                expected_effect="lower turnover and later trend confirmation",
             ),
         ],
         "shared": dict(shared),
     }
 
     add_family = {
-        "family_id": _text(payload.get("add_family_id"), fallback="add-hold-extension-family"),
+        "family_id": _text(payload.get("add_family_id"), fallback="add-control-family"),
         "family_name": "Add/hold extension family",
         "family_edge": "add_rule",
-        "family_thesis": "Move the build-out/hold extension edge by changing only add-on cadence while keeping entry and exit discipline fixed.",
+        "family_thesis": "Keep add/hold extension as a small control family while selection stays the main research axis.",
         "policy_variants": [
-            _family_variant(
-                variant_id="add_fast",
-                policy_id="add_family",
-                policy_version="fast",
-                selection_rule={"policy_id": "add_family", "policy_version": "fast", "weights": base_weights, "execution_convention": shared["execution_convention"], "weekly_activity_required": bool(shared["weekly_activity_required"])},
-                entry_rule={"entry_threshold": base_entry_threshold},
-                add_rule={"add_threshold": max(0.01, base_add_threshold - 0.04), "addon_units": list(shared.get("addon_units") or [2, 3, 5])},
-                partial_take_rule={"partial_take_threshold": base_partial_take_threshold},
-                full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
-                sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
-                scoring_weights=base_weights,
-                reason_code="add_path",
-                what_changed="earlier add-on trigger",
-                why_it_changed="test whether faster build-out improves trend capture",
-                expected_effect="more aggressive extension with higher exposure",
-            ),
             _family_variant(
                 variant_id="add_base",
                 policy_id="add_family",
@@ -364,53 +356,22 @@ def _build_first_policy_family_cohort(payload: dict[str, Any]) -> list[dict[str,
                 full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
                 sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
                 scoring_weights=base_weights,
+                hypothesis="add-on cadence control with no selection tilt",
                 reason_code="add_baseline",
                 what_changed="baseline add-on cadence",
                 why_it_changed="reference point for build-out behavior",
                 expected_effect="balanced add-on extension",
-            ),
-            _family_variant(
-                variant_id="add_patient",
-                policy_id="add_family",
-                policy_version="patient",
-                selection_rule={"policy_id": "add_family", "policy_version": "patient", "weights": base_weights, "execution_convention": shared["execution_convention"], "weekly_activity_required": bool(shared["weekly_activity_required"])},
-                entry_rule={"entry_threshold": base_entry_threshold},
-                add_rule={"add_threshold": min(0.99, base_add_threshold + 0.04), "addon_units": list(shared.get("addon_units") or [2, 3, 5])},
-                partial_take_rule={"partial_take_threshold": base_partial_take_threshold},
-                full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
-                sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
-                scoring_weights=base_weights,
-                reason_code="add_path",
-                what_changed="later add-on trigger",
-                why_it_changed="test whether patient build-out improves hold quality",
-                expected_effect="slower build-out with longer runs",
             ),
         ],
         "shared": dict(shared),
     }
 
     exit_family = {
-        "family_id": _text(payload.get("exit_family_id"), fallback="exit-discipline-family"),
+        "family_id": _text(payload.get("exit_family_id"), fallback="exit-control-family"),
         "family_name": "Partial-take / exit discipline family",
         "family_edge": "partial_take_rule",
-        "family_thesis": "Move the exit-discipline edge by changing only profit-take and full-exit discipline while keeping entry and add mechanics fixed.",
+        "family_thesis": "Keep exit discipline as a small control family while selection stays the main research axis.",
         "policy_variants": [
-            _family_variant(
-                variant_id="exit_early",
-                policy_id="exit_family",
-                policy_version="early",
-                selection_rule={"policy_id": "exit_family", "policy_version": "early", "weights": base_weights, "execution_convention": shared["execution_convention"], "weekly_activity_required": bool(shared["weekly_activity_required"])},
-                entry_rule={"entry_threshold": base_entry_threshold},
-                add_rule={"add_threshold": base_add_threshold, "addon_units": list(shared.get("addon_units") or [2, 3, 5])},
-                partial_take_rule={"partial_take_threshold": max(0.01, base_partial_take_threshold - 0.03)},
-                full_exit_rule={"exit_threshold": min(-0.01, base_exit_threshold + 0.02), "stop_loss_threshold": base_stop_loss_threshold},
-                sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
-                scoring_weights=base_weights,
-                reason_code="exit_discipline",
-                what_changed="earlier profit taking",
-                why_it_changed="test tighter exit discipline",
-                expected_effect="more realized gains but higher churn",
-            ),
             _family_variant(
                 variant_id="exit_base",
                 policy_id="exit_family",
@@ -422,26 +383,11 @@ def _build_first_policy_family_cohort(payload: dict[str, Any]) -> list[dict[str,
                 full_exit_rule={"exit_threshold": base_exit_threshold, "stop_loss_threshold": base_stop_loss_threshold},
                 sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
                 scoring_weights=base_weights,
+                hypothesis="exit discipline control with no selection tilt",
                 reason_code="exit_baseline",
                 what_changed="baseline exit discipline",
                 why_it_changed="reference point for exit discipline",
                 expected_effect="balanced profit taking and loss cutting",
-            ),
-            _family_variant(
-                variant_id="exit_patient",
-                policy_id="exit_family",
-                policy_version="patient",
-                selection_rule={"policy_id": "exit_family", "policy_version": "patient", "weights": base_weights, "execution_convention": shared["execution_convention"], "weekly_activity_required": bool(shared["weekly_activity_required"])},
-                entry_rule={"entry_threshold": base_entry_threshold},
-                add_rule={"add_threshold": base_add_threshold, "addon_units": list(shared.get("addon_units") or [2, 3, 5])},
-                partial_take_rule={"partial_take_threshold": min(0.50, base_partial_take_threshold + 0.04)},
-                full_exit_rule={"exit_threshold": max(-0.50, base_exit_threshold - 0.05), "stop_loss_threshold": base_stop_loss_threshold},
-                sizing_rule={"initial_capital_jpy": base_initial_capital, "gross_exposure_cap_jpy": base_gross_cap, "unit_scale": base_unit_scale, "short_cash_reusable": bool(shared["short_cash_reusable"])},
-                scoring_weights=base_weights,
-                reason_code="exit_discipline",
-                what_changed="later profit taking",
-                why_it_changed="test patient exit discipline",
-                expected_effect="longer holds and fewer premature exits",
             ),
         ],
         "shared": dict(shared),
@@ -454,6 +400,7 @@ def _calibrate_thresholds_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any
     matrix = _metrics_matrix(
         rows,
         [
+            "excess_vs_universe_mean",
             "median_window_excess",
             "exposure_adjusted_excess_mean",
             "worst_window_excess",
@@ -472,29 +419,57 @@ def _calibrate_thresholds_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any
         }
         for field, values in matrix.items()
     }
+
+    def _spread(field: str) -> float:
+        q25 = quantiles[field]["q25"]
+        q75 = quantiles[field]["q75"]
+        if q25 is None or q75 is None:
+            return 0.0
+        return max(0.00001, abs(float(q75) - float(q25)) * 0.35)
+
+    def _nudge(field: str) -> float:
+        return min(_spread(field), 0.00001)
+
+    def _tighten_up(value: float | None, spread: float, *, lower_better: bool = False, default: float = 0.0) -> float:
+        if value is None:
+            return default
+        if lower_better:
+            return float(value) - spread
+        return float(value) + spread
+
+    def _tighten_down(value: float | None, spread: float, *, lower_better: bool = False, default: float = 0.0) -> float:
+        if value is None:
+            return default
+        if lower_better:
+            return float(value) + spread
+        return float(value) - spread
+
     keep = {
-        "median_window_excess_min": quantiles["median_window_excess"]["q75"] if quantiles["median_window_excess"]["q75"] is not None else 0.0,
-        "exposure_adjusted_excess_mean_min": quantiles["exposure_adjusted_excess_mean"]["q75"] if quantiles["exposure_adjusted_excess_mean"]["q75"] is not None else 0.0,
-        "worst_window_excess_min": quantiles["worst_window_excess"]["q50"] if quantiles["worst_window_excess"]["q50"] is not None else 0.0,
-        "weekly_activity_pass_rate_mean_min": quantiles["weekly_activity_pass_rate_mean"]["q50"] if quantiles["weekly_activity_pass_rate_mean"]["q50"] is not None else 0.0,
-        "avg_holding_days_mean_min": quantiles["avg_holding_days_mean"]["q50"] if quantiles["avg_holding_days_mean"]["q50"] is not None else 20.0,
-        "pct_trades_over_20d_mean_min": quantiles["pct_trades_over_20d_mean"]["q50"] if quantiles["pct_trades_over_20d_mean"]["q50"] is not None else 0.35,
-        "turnover_mean_max": quantiles["turnover_mean"]["q50"] if quantiles["turnover_mean"]["q50"] is not None else 1.0,
-        "final_score_mean_min": quantiles["final_score_mean"]["q75"] if quantiles["final_score_mean"]["q75"] is not None else 0.0,
+        "excess_vs_universe_mean_min": _tighten_up(quantiles["excess_vs_universe_mean"]["q75"], _nudge("excess_vs_universe_mean")),
+        "median_window_excess_min": _tighten_up(quantiles["median_window_excess"]["q75"], _nudge("median_window_excess")),
+        "exposure_adjusted_excess_mean_min": _tighten_up(quantiles["exposure_adjusted_excess_mean"]["q75"], _nudge("exposure_adjusted_excess_mean")),
+        "worst_window_excess_min": _tighten_up(quantiles["worst_window_excess"]["q75"], 0.0),
+        "weekly_activity_pass_rate_mean_min": _tighten_up(quantiles["weekly_activity_pass_rate_mean"]["q50"], 0.0),
+        "avg_holding_days_mean_min": _tighten_up(quantiles["avg_holding_days_mean"]["q50"], 0.0),
+        "pct_trades_over_20d_mean_min": _tighten_up(quantiles["pct_trades_over_20d_mean"]["q50"], 0.0),
+        "turnover_mean_max": _tighten_up(quantiles["turnover_mean"]["q75"], _nudge("turnover_mean"), lower_better=True, default=1.0),
+        "final_score_mean_min": _tighten_up(quantiles["final_score_mean"]["q50"], 0.0),
     }
     drop = {
-        "median_window_excess_max": quantiles["median_window_excess"]["q25"] if quantiles["median_window_excess"]["q25"] is not None else 0.0,
-        "exposure_adjusted_excess_mean_max": quantiles["exposure_adjusted_excess_mean"]["q25"] if quantiles["exposure_adjusted_excess_mean"]["q25"] is not None else 0.0,
-        "worst_window_excess_max": quantiles["worst_window_excess"]["q25"] if quantiles["worst_window_excess"]["q25"] is not None else -0.02,
-        "weekly_activity_pass_rate_mean_max": quantiles["weekly_activity_pass_rate_mean"]["q25"] if quantiles["weekly_activity_pass_rate_mean"]["q25"] is not None else 1.0,
-        "avg_holding_days_mean_max": quantiles["avg_holding_days_mean"]["q25"] if quantiles["avg_holding_days_mean"]["q25"] is not None else 20.0,
-        "pct_trades_over_20d_mean_max": quantiles["pct_trades_over_20d_mean"]["q25"] if quantiles["pct_trades_over_20d_mean"]["q25"] is not None else 0.35,
-        "turnover_mean_min": quantiles["turnover_mean"]["q75"] if quantiles["turnover_mean"]["q75"] is not None else 1.25,
-        "final_score_mean_max": quantiles["final_score_mean"]["q25"] if quantiles["final_score_mean"]["q25"] is not None else 0.0,
+        "excess_vs_universe_mean_max": _tighten_down(quantiles["excess_vs_universe_mean"]["q25"], 0.0),
+        "median_window_excess_max": _tighten_down(quantiles["median_window_excess"]["q25"], _nudge("median_window_excess")),
+        "exposure_adjusted_excess_mean_max": _tighten_down(quantiles["exposure_adjusted_excess_mean"]["q25"], 0.0),
+        "worst_window_excess_max": _tighten_down(quantiles["worst_window_excess"]["q25"], 0.0, default=-0.02),
+        "weekly_activity_pass_rate_mean_max": _tighten_down(quantiles["weekly_activity_pass_rate_mean"]["q25"], 0.0, default=1.0),
+        "avg_holding_days_mean_max": _tighten_down(quantiles["avg_holding_days_mean"]["q25"], _nudge("avg_holding_days_mean"), default=20.0),
+        "pct_trades_over_20d_mean_max": _tighten_down(quantiles["pct_trades_over_20d_mean"]["q25"], _nudge("pct_trades_over_20d_mean"), default=0.35),
+        "turnover_mean_min": _tighten_down(quantiles["turnover_mean"]["q75"], 0.0, lower_better=True, default=1.25),
+        "final_score_mean_max": _tighten_down(quantiles["final_score_mean"]["q25"], _nudge("final_score_mean")),
     }
     return {
         "schema_version": POLICY_FAMILY_COHORT_SCHEMA_VERSION,
         "quantiles": quantiles,
+        "spread": {field: _spread(field) for field in quantiles},
         "thresholds": {
             "keep": keep,
             "drop": drop,
@@ -623,6 +598,81 @@ def _aggregate_variant_metrics(variant_result: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _family_quality_row(family_result: dict[str, Any]) -> dict[str, Any]:
+    comparison_rows = list((family_result.get("policy_comparison_matrix") or {}).get("rows") or [])
+    decision_rows = list((family_result.get("policy_decision_log") or {}).get("rows") or [])
+    manifest_variants = list((family_result.get("policy_variant_manifest") or {}).get("policy_variants") or [])
+    manifest_by_id = { _text(item.get("policy_variant_id")): dict(item) for item in manifest_variants if isinstance(item, dict) }
+    sorted_by_relative = sorted(
+        comparison_rows,
+        key=lambda row: (
+            -float(row.get("excess_vs_universe_mean") or 0.0),
+            -float(row.get("exposure_adjusted_excess_mean") or 0.0),
+            -float(row.get("median_window_excess") or 0.0),
+            -float(row.get("final_score_mean") or 0.0),
+            _text(row.get("policy_variant_id")),
+        ),
+    )
+    best_row = sorted_by_relative[0] if sorted_by_relative else {}
+    worst_row = sorted_by_relative[-1] if sorted_by_relative else {}
+    kept_rows = [row for row in decision_rows if _text(row.get("decision")) == "keep"]
+    hold_rows = [row for row in decision_rows if _text(row.get("decision")) == "hold"]
+    drop_rows = [row for row in decision_rows if _text(row.get("decision")) == "drop"]
+    best_excess = float(best_row.get("excess_vs_universe_mean") or 0.0)
+    worst_excess = float(worst_row.get("excess_vs_universe_mean") or 0.0)
+    top_variant_manifest = manifest_by_id.get(_text(best_row.get("policy_variant_id")), {})
+    bottom_variant_manifest = manifest_by_id.get(_text(worst_row.get("policy_variant_id")), {})
+    return {
+        "family_id": _text(family_result.get("family_id")),
+        "family_name": _text(family_result.get("family_name")),
+        "family_edge": _text(family_result.get("family_edge")),
+        "family_signature": _text((family_result.get("policy_variant_manifest") or {}).get("family_signature")),
+        "variant_count": len(comparison_rows),
+        "keep_count": len(kept_rows),
+        "hold_count": len(hold_rows),
+        "drop_count": len(drop_rows),
+        "keep_ratio": len(kept_rows) / max(1, len(decision_rows)),
+        "hold_ratio": len(hold_rows) / max(1, len(decision_rows)),
+        "drop_ratio": len(drop_rows) / max(1, len(decision_rows)),
+        "best_excess_vs_universe_mean": best_excess,
+        "median_excess_vs_universe_mean": _med([float(row.get("excess_vs_universe_mean") or 0.0) for row in comparison_rows]) or 0.0,
+        "worst_excess_vs_universe_mean": worst_excess,
+        "excess_vs_universe_spread": best_excess - worst_excess,
+        "best_median_window_excess": float(best_row.get("median_window_excess") or 0.0),
+        "worst_median_window_excess": float(worst_row.get("median_window_excess") or 0.0),
+        "median_window_excess_spread": float(best_row.get("median_window_excess") or 0.0) - float(worst_row.get("median_window_excess") or 0.0),
+        "best_final_score_mean": float(best_row.get("final_score_mean") or 0.0),
+        "worst_final_score_mean": float(worst_row.get("final_score_mean") or 0.0),
+        "top_variant_id": _text(best_row.get("policy_variant_id")),
+        "top_variant_hypothesis": _text(top_variant_manifest.get("hypothesis")),
+        "top_variant_reason_text": _text((next((row for row in decision_rows if _text(row.get("policy_variant_id")) == _text(best_row.get("policy_variant_id"))), {}) or {}).get("reason_text")),
+        "bottom_variant_id": _text(worst_row.get("policy_variant_id")),
+        "bottom_variant_hypothesis": _text(bottom_variant_manifest.get("hypothesis")),
+        "bottom_variant_reason_text": _text((next((row for row in decision_rows if _text(row.get("policy_variant_id")) == _text(worst_row.get("policy_variant_id"))), {}) or {}).get("reason_text")),
+        "moved_excess_vs_universe": best_excess > _med([float(row.get("excess_vs_universe_mean") or 0.0) for row in comparison_rows]) if comparison_rows else best_excess > 0.0,
+        "moved_excess_vs_universe_absolute": best_excess > 0.0,
+        "kept_variant_ids": [_text(row.get("policy_variant_id")) for row in kept_rows],
+        "held_variant_ids": [_text(row.get("policy_variant_id")) for row in hold_rows],
+        "dropped_variant_ids": [_text(row.get("policy_variant_id")) for row in drop_rows],
+    }
+
+
+def _overlap_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    kept_sets = []
+    kept_ids_by_family = {}
+    for row in rows:
+        kept = set(_text(item) for item in row.get("kept_variant_ids") or [] if _text(item))
+        kept_ids_by_family[_text(row.get("family_id"))] = sorted(kept)
+        if kept:
+            kept_sets.append(kept)
+    shared_kept = sorted(set.intersection(*kept_sets)) if kept_sets else []
+    return {
+        "kept_variant_ids_by_family": kept_ids_by_family,
+        "shared_kept_variant_ids": shared_kept,
+        "shared_kept_variant_count": len(shared_kept),
+    }
+
+
 def _decision_from_metrics(metrics: dict[str, Any], *, thresholds: dict[str, Any] | None = None) -> tuple[str, list[str], str]:
     thresholds = dict(thresholds or {})
     keep_thresholds = dict(thresholds.get("keep") or {})
@@ -633,6 +683,7 @@ def _decision_from_metrics(metrics: dict[str, Any], *, thresholds: dict[str, Any
         reason_codes.append("promising_but_sample_small")
 
     median_window_excess = float(metrics.get("median_window_excess") or 0.0)
+    excess_vs_universe_mean = float(metrics.get("excess_vs_universe_mean") or 0.0)
     exposure_adjusted_excess_mean = float(metrics.get("exposure_adjusted_excess_mean") or 0.0)
     worst_window_excess = float(metrics.get("worst_window_excess") or 0.0)
     weekly_activity_pass_rate_mean = float(metrics.get("weekly_activity_pass_rate_mean") or 0.0)
@@ -641,7 +692,11 @@ def _decision_from_metrics(metrics: dict[str, Any], *, thresholds: dict[str, Any
     turnover_mean = float(metrics.get("turnover_mean") or 0.0)
     final_score_mean = float(metrics.get("final_score_mean") or 0.0)
 
-    if median_window_excess <= float(drop_thresholds.get("median_window_excess_max", 0.0)) or exposure_adjusted_excess_mean <= float(drop_thresholds.get("exposure_adjusted_excess_mean_max", 0.0)):
+    if (
+        excess_vs_universe_mean <= float(drop_thresholds.get("excess_vs_universe_mean_max", 0.0))
+        or median_window_excess <= float(drop_thresholds.get("median_window_excess_max", 0.0))
+        or exposure_adjusted_excess_mean <= float(drop_thresholds.get("exposure_adjusted_excess_mean_max", 0.0))
+    ):
         reason_codes.append("weak_relative_performance")
     if worst_window_excess <= float(drop_thresholds.get("worst_window_excess_max", -0.02)) and median_window_excess <= float(drop_thresholds.get("median_window_excess_max", 0.0)) + 0.01:
         reason_codes.append("unstable_across_windows")
@@ -653,6 +708,8 @@ def _decision_from_metrics(metrics: dict[str, Any], *, thresholds: dict[str, Any
         reason_codes.append("weekly_activity_failures")
 
     if (
+        excess_vs_universe_mean >= float(keep_thresholds.get("excess_vs_universe_mean_min", 0.0))
+        and
         median_window_excess >= float(keep_thresholds.get("median_window_excess_min", 0.0))
         and exposure_adjusted_excess_mean >= float(keep_thresholds.get("exposure_adjusted_excess_mean_min", 0.0))
         and worst_window_excess >= float(keep_thresholds.get("worst_window_excess_min", -0.01))
@@ -668,18 +725,10 @@ def _decision_from_metrics(metrics: dict[str, Any], *, thresholds: dict[str, Any
         decision = "hold"
     elif "weekly_activity_failures" in reason_codes or "excessive_turnover" in reason_codes:
         decision = "drop"
-    elif final_score_mean <= float(drop_thresholds.get("final_score_mean_max", float("inf"))) and reason_codes:
+    elif final_score_mean <= float(drop_thresholds.get("final_score_mean_max", float("inf"))):
         decision = "drop"
-    elif "weak_relative_performance" in reason_codes and "promising_but_sample_small" not in reason_codes:
-        decision = "hold" if final_score_mean >= float(keep_thresholds.get("final_score_mean_min", 0.0)) else "drop"
-    elif "unstable_across_windows" in reason_codes and "promising_but_sample_small" not in reason_codes:
-        decision = "hold" if final_score_mean >= float(keep_thresholds.get("final_score_mean_min", 0.0)) else "drop"
-    elif float(metrics.get("median_window_excess") or 0.0) > 0.0 and float(metrics.get("worst_window_excess") or 0.0) >= -0.01 and float(metrics.get("exposure_adjusted_excess_mean") or 0.0) > 0.0 and not reason_codes:
-        decision = "keep"
-    elif float(metrics.get("median_window_excess") or 0.0) > 0.0 and "weak_relative_performance" not in reason_codes:
-        decision = "hold"
     else:
-        decision = "drop" if reason_codes else "hold"
+        decision = "hold"
 
     reason_text = "; ".join(POLICY_DECISION_REASON_TEXT.get(code, code) for code in reason_codes) if reason_codes else "policy meets current evaluation criteria"
     return decision, list(dict.fromkeys(reason_codes)), reason_text
@@ -709,11 +758,15 @@ def _variant_result_payload(
     metrics = _aggregate_variant_metrics({"windows": windows})
     decision, reason_codes, reason_text = _decision_from_metrics(metrics, thresholds=decision_thresholds)
     policy_variant_id = _text(variant.get("policy_variant_id"), fallback=_text(variant_run_config.get("policy_version"), fallback="variant"))
+    hypothesis = _text(variant.get("hypothesis"), fallback=_text(dict(variant.get("rationale") or {}).get("hypothesis"), fallback=""))
+    rationale = _json_ready(dict(variant.get("rationale") or {}))
     result = {
         "schema_version": POLICY_FAMILY_SCHEMA_VERSION,
         "family_id": family_id,
         "policy_variant_id": policy_variant_id,
         "policy_variant_signature": _policy_variant_signature(variant_run_config, family_id=family_id, variant_id=policy_variant_id),
+        "hypothesis": hypothesis,
+        "rationale": rationale,
         "window_start_dates": window_start_dates,
         "run_config": variant_run_config,
         "windows": windows,
@@ -765,6 +818,7 @@ def _family_manifest(
                 "policy_variant_signature": _text(result["policy_variant_signature"]),
                 "policy_id": _text(variant_run_config.get("policy_id")),
                 "policy_version": _text(variant_run_config.get("policy_version")),
+                "hypothesis": _text(result.get("hypothesis")),
                 "selection_rule_signatures": dict(variant_run_config.get("selection_rule_signatures") or {}),
                 "window_start_dates": list(result.get("window_start_dates") or []),
                 "decision": dict(result.get("decision") or {}),
@@ -777,6 +831,7 @@ def _family_manifest(
                     "avg_holding_days_mean": summary.get("avg_holding_days_mean"),
                     "turnover_mean": summary.get("turnover_mean"),
                 },
+                "rationale": _json_ready(dict(result.get("rationale") or {})),
                 "change_log": list(result.get("change_log") or []),
                 "variant_result_path": _text(result.get("variant_result_path")),
             }
@@ -1169,10 +1224,10 @@ def run_policy_family_cohort(repo: StockRepository, payload: dict[str, Any]) -> 
         )
         family_results.append(family_result)
 
+    selection_family_result = next((family_result for family_result in family_results if _text(family_result.get("family_edge")) == "selection_rule"), family_results[0] if family_results else {})
     calibration_rows = [
         row
-        for family_result in family_results
-        for row in (family_result.get("policy_comparison_matrix") or {}).get("rows") or []
+        for row in (selection_family_result.get("policy_comparison_matrix") or {}).get("rows") or []
         if isinstance(row, dict)
     ]
     calibration = _calibrate_thresholds_from_rows(calibration_rows)
@@ -1181,8 +1236,17 @@ def run_policy_family_cohort(repo: StockRepository, payload: dict[str, Any]) -> 
     for family_result in family_results:
         family_id = _text(family_result.get("family_id"))
         family_rows = list((family_result.get("policy_comparison_matrix") or {}).get("rows") or [])
-        family_calibration = _calibrate_thresholds_from_rows(family_rows)
-        family_calibrations[family_id] = family_calibration
+        if _text(family_result.get("family_edge")) == "selection_rule" and len(family_rows) >= 3:
+            family_calibration = _calibrate_thresholds_from_rows(family_rows)
+            threshold_source = "family"
+        else:
+            family_calibration = calibration
+            threshold_source = "cohort"
+        family_calibrations[family_id] = {
+            **family_calibration,
+            "threshold_source": threshold_source,
+            "variant_count": len(family_rows),
+        }
         calibrated_family_results.append(apply_policy_family_thresholds(family_result, family_calibration["thresholds"]))
     for family_result in calibrated_family_results:
         family_dir = _family_dir(_text(family_result.get("family_id")))
@@ -1236,6 +1300,7 @@ def run_policy_family_cohort(repo: StockRepository, payload: dict[str, Any]) -> 
             "family_thresholds": family_calibrations,
         },
         "family_results": calibrated_family_results,
+        "family_quality_rows": [_family_quality_row(family_result) for family_result in calibrated_family_results],
         "cohort_summary_rows": cohort_summary_rows,
         "keep_drop_hold_summary": {
             "keep_count": sum(row["keep_count"] for row in cohort_summary_rows),
@@ -1243,6 +1308,17 @@ def run_policy_family_cohort(repo: StockRepository, payload: dict[str, Any]) -> 
             "drop_count": sum(row["drop_count"] for row in cohort_summary_rows),
         },
     }
+    quality_rows = list(cohort_result["family_quality_rows"])
+    cohort_result["cohort_family_quality_summary"] = {
+        "selection_family_id": _text(selection_family_result.get("family_id")),
+        "family_count": len(quality_rows),
+        "family_quality_rows": quality_rows,
+        "top_family_ids_by_excess_vs_universe": [row["family_id"] for row in sorted(quality_rows, key=lambda row: (-float(row.get("best_excess_vs_universe_mean") or 0.0), -float(row.get("best_final_score_mean") or 0.0), row["family_id"]))],
+        "bottom_family_ids_by_excess_vs_universe": [row["family_id"] for row in sorted(quality_rows, key=lambda row: (float(row.get("best_excess_vs_universe_mean") or 0.0), float(row.get("best_final_score_mean") or 0.0), row["family_id"]))],
+        "kept_variant_overlap": _overlap_summary(quality_rows),
+        "selection_family_separation": _json_ready(next((row for row in quality_rows if row["family_edge"] == "selection_rule"), {})),
+    }
+    cohort_result["cohort_summary_rows"] = quality_rows
     _write_json(cohort_dir / POLICY_FAMILY_COHORT_MANIFEST_FILE, cohort_manifest)
     _write_json(cohort_dir / POLICY_THRESHOLD_CALIBRATION_FILE, cohort_result["threshold_calibration"])
     _write_json(cohort_dir / POLICY_FAMILY_COHORT_RESULT_FILE, cohort_result)

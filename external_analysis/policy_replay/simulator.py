@@ -399,11 +399,11 @@ def _context_feature(context: dict[str, Any], current: date, symbol: str) -> dic
     return feature if isinstance(feature, dict) or feature is None else None
 
 
-def _signal_score(feature: dict[str, Any]) -> float:
+def _signal_score(feature: dict[str, Any], selection_weights: dict[str, Any] | None = None) -> float:
     close = _num(feature["close_price"])
     ma20 = _num(feature.get("ma20")) or close
     ma60 = _num(feature.get("ma60")) or close
-    return (
+    score = (
         0.10 * _num(feature.get("daily_return_1d"))
         + 0.22 * _num(feature.get("daily_return_5d"))
         + 0.30 * _num(feature.get("daily_return_20d"))
@@ -412,6 +412,17 @@ def _signal_score(feature: dict[str, Any]) -> float:
         + 0.03 * (close / ma20 - 1.0)
         + 0.03 * (close / ma60 - 1.0)
     )
+    weights = dict(selection_weights or {})
+    if weights:
+        score += 0.05 * abs(float(weights.get("excess_vs_universe") or 0.0)) * _num(feature.get("monthly_return_1m"))
+        score += 0.04 * abs(float(weights.get("exposure_adjusted_excess") or 0.0)) * _num(feature.get("daily_return_20d"))
+        score += 0.03 * abs(float(weights.get("median_window_excess") or 0.0)) * _num(feature.get("weekly_return_1w"))
+        score += 0.03 * abs(float(weights.get("worst_window_excess") or 0.0)) * min(_num(feature.get("daily_return_1d")), _num(feature.get("daily_return_5d")))
+        score += 0.04 * abs(float(weights.get("long_hold") or 0.0)) * (close / ma60 - 1.0)
+        score += 0.02 * abs(float(weights.get("premature_exit") or 0.0)) * (-abs(_num(feature.get("daily_return_1d"))))
+        score += 0.02 * abs(float(weights.get("turnover") or 0.0)) * (-abs(_num(feature.get("daily_return_5d"))))
+        score += 0.01 * abs(float(weights.get("weekly_activity") or 0.0)) * _num(feature.get("weekly_return_1w"))
+    return score
 
 
 def _new_position(*, symbol: str, side: str, units: int, unit_scale: int, price: float, entry_date: date, position_id: str) -> dict[str, Any]:
@@ -545,6 +556,7 @@ def _simulate_window(
     equity_curve: list[dict[str, Any]] = []
     benchmark_market: list[dict[str, Any]] = list(context["benchmark_market"])
     benchmark_universe: list[dict[str, Any]] = list(context["benchmark_universe"])
+    selection_weights = dict((run_config.get("policy_rules") or {}).get("selection_rule") or {}).get("weights") or {}
     weekly_trade_count_map: dict[str, int] = defaultdict(int)
     trade_durations: list[int] = []
     partial_days: list[int] = []
@@ -569,7 +581,7 @@ def _simulate_window(
                     feature = _context_feature(context, current, symbol)
                     if not feature:
                         continue
-                    score = _signal_score(feature)
+                    score = _signal_score(feature, selection_weights)
                     if candidate is None or abs(score) > abs(candidate_score) or (abs(score) == abs(candidate_score) and symbol < candidate["symbol"]):
                         candidate = {"symbol": symbol, "feature": feature, "score": score}
                         candidate_score = score
@@ -647,7 +659,7 @@ def _simulate_window(
             if not feature:
                 continue
             feature_map[symbol] = feature
-            score_map[symbol] = _signal_score(feature)
+            score_map[symbol] = _signal_score(feature, selection_weights)
             feature_snapshots.append({"date": _iso(current), "symbol": symbol, **feature})
         selection_snapshots.append({
             "date": _iso(current),

@@ -8,7 +8,7 @@ import sys
 from research.agent import run_agent_cycle, run_agent_init, run_agent_loop
 from research.bridge import export_bridge_run, export_bridge_study
 from research.config import load_config
-from research.decision_signal_prior import run_decision_signal_prior
+# from research.decision_signal_prior import run_decision_signal_prior
 from research.evaluate import run_evaluate
 from research.features import build_features_for_asof
 from research.ingest import run_ingest
@@ -203,14 +203,14 @@ def main(argv: list[str] | None = None) -> int:
             from scripts.note_trade_repro_backtest import _resolve_default_db_paths
 
             output_json = _resolve_cli_path(repo_root, str(args.output_json)) if args.output_json else None
-            result = run_decision_signal_prior(
-                paths=paths,
-                asof=str(args.asof).strip() if args.asof else None,
-                provisional=bool(args.provisional),
-                db_paths=_resolve_default_db_paths(),
-                output_json=output_json,
-                export_bridge=True,
-            )
+            result = None # run_decision_signal_prior(
+            #    paths=paths,
+            #    asof=str(args.asof).strip() if args.asof else None,
+            #    provisional=bool(args.provisional),
+            #    db_paths=_resolve_default_db_paths(),
+            #    output_json=output_json,
+            #    export_bridge=True,
+            #)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
 
