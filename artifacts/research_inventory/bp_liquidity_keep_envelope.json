@@ -1,0 +1,404 @@
+{
+  "schema_version": "tradex_liquidity_keep_envelope_v1",
+  "generated_at": "2026-04-17T12:00:00+09:00",
+  "candidate_name": "bp_liquidity_trap_penalty/v1",
+  "research_contract_status": "provisional_keep_with_soft_warning",
+  "decision_layering": {
+    "compare_engine_local_decision": "hold",
+    "compare_engine_local_reason": "turnover_too_high",
+    "authoritative_candidate_gate": "keep",
+    "authoritative_gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+    "authoritative_override_reason_code": "coverage_restored_keep_with_turnover_warning",
+    "turnover_warning_classification": "soft_warning_non_blocking",
+    "research_contract_status": "provisional_keep_with_soft_warning"
+  },
+  "stress_test_completion_status": "completed",
+  "pairwise_decomposition_state": "monolithic_keep_only",
+  "comparison_contract": {
+    "artifact_detail_level": "authoritative_full",
+    "cost_model": {
+      "fee_bps": 0.0,
+      "mode": "flat_zero_cost",
+      "schema_version": "tradex_cost_model_v1",
+      "slippage_bps": 0.0,
+      "transaction_cost_bps": 0.0
+    },
+    "fallback_status": "authoritative",
+    "period": [
+      {
+        "end_date": "2025-08-29",
+        "label": "up:up:20250626:20250829",
+        "start_date": "2025-06-26"
+      },
+      {
+        "end_date": "2025-04-09",
+        "label": "down:down:20250331:20250409",
+        "start_date": "2025-03-31"
+      },
+      {
+        "end_date": "2023-08-28",
+        "label": "flat:flat:20230803:20230828",
+        "start_date": "2023-08-03"
+      }
+    ],
+    "regime": "multi_regime",
+    "schema_version": "tradex_research_contract_v1",
+    "top_k": 5,
+    "universe": [
+      "1332",
+      "1808",
+      "1833",
+      "2282",
+      "3105",
+      "3116",
+      "3289",
+      "3481",
+      "3687",
+      "4384",
+      "4503",
+      "4544",
+      "4927",
+      "5741",
+      "5949",
+      "6306",
+      "6376",
+      "6754",
+      "6857",
+      "6958",
+      "7514",
+      "7730",
+      "8174",
+      "8334",
+      "8725",
+      "9143",
+      "9433",
+      "9503",
+      "9603",
+      "9684"
+    ]
+  },
+  "source_artifacts": {
+    "keep_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+    "keep_run": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_liquidity_trap_penalty\\runs\\tradex-research-bp-removal-20260417-r2-bp_liquidity_trap_penalty-bp_liquidity_trap_penalty_v1\\run.json",
+    "decision_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_decision_contract.json",
+    "turnover_warning_policy": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json",
+    "keep_stability": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_stability.json"
+  },
+  "turnover_bucket_breakdown": [
+    {
+      "bucket": "low_turnover",
+      "range": {
+        "min": 0.0,
+        "max": 0.2
+      },
+      "month_count": 2,
+      "months": [
+        "2023-08",
+        "2025-08"
+      ],
+      "mean_turnover": 0.09090909090909088,
+      "mean_capture_rate": 0.5189393939393939,
+      "mean_capture_count": 6.0,
+      "mean_model_union_count": 9.0,
+      "mean_target_union_count": 11.5
+    },
+    {
+      "bucket": "mid_turnover",
+      "range": {
+        "min": 0.2,
+        "max": 0.5
+      },
+      "month_count": 2,
+      "months": [
+        "2025-06",
+        "2025-07"
+      ],
+      "mean_turnover": 0.4006410256410256,
+      "mean_capture_rate": 0.5520833333333333,
+      "mean_capture_count": 5.5,
+      "mean_model_union_count": 9.5,
+      "mean_target_union_count": 11.0
+    },
+    {
+      "bucket": "high_turnover",
+      "range": {
+        "min": 0.5,
+        "max": null
+      },
+      "month_count": 2,
+      "months": [
+        "2025-03",
+        "2025-04"
+      ],
+      "mean_turnover": 0.7692307692307693,
+      "mean_capture_rate": 0.5333333333333333,
+      "mean_capture_count": 4.0,
+      "mean_model_union_count": 9.0,
+      "mean_target_union_count": 7.0
+    }
+  ],
+  "liquidity_bucket_breakdown": [
+    {
+      "bucket": "q1_low_liquidity",
+      "range": {
+        "min": null,
+        "max": 532483.53515625
+      },
+      "sample_count": 525,
+      "share_of_samples": 0.25,
+      "mean_liquidity20d": 240117.029208333,
+      "mean_confidence": 0.6473978607843845,
+      "mean_short_ret20": 0.04145853240089726,
+      "failure_reason_counts": {
+        "data_missing": 293,
+        "liquidity_fail": 232
+      },
+      "dominant_failure_reason": "data_missing"
+    },
+    {
+      "bucket": "q2_mid_low_liquidity",
+      "range": {
+        "min": 532483.53515625,
+        "max": 910812.2509429932
+      },
+      "sample_count": 525,
+      "share_of_samples": 0.25,
+      "mean_liquidity20d": 714140.5684023323,
+      "mean_confidence": 0.6679948513718524,
+      "mean_short_ret20": 0.046710464685655866,
+      "failure_reason_counts": {
+        "data_missing": 349,
+        "liquidity_fail": 176
+      },
+      "dominant_failure_reason": "data_missing"
+    },
+    {
+      "bucket": "q3_mid_high_liquidity",
+      "range": {
+        "min": 910812.2509429932,
+        "max": 2666627.6677520764
+      },
+      "sample_count": 525,
+      "share_of_samples": 0.25,
+      "mean_liquidity20d": 1643810.2438331821,
+      "mean_confidence": 0.6722406559062126,
+      "mean_short_ret20": 0.05664239061667332,
+      "failure_reason_counts": {
+        "data_missing": 292,
+        "liquidity_fail": 233
+      },
+      "dominant_failure_reason": "liquidity_fail"
+    },
+    {
+      "bucket": "q4_high_liquidity",
+      "range": {
+        "min": 2666627.6677520764,
+        "max": null
+      },
+      "sample_count": 525,
+      "share_of_samples": 0.25,
+      "mean_liquidity20d": 28015913.772745345,
+      "mean_confidence": 0.6883310161739401,
+      "mean_short_ret20": 0.05065900873030339,
+      "failure_reason_counts": {
+        "data_missing": 296,
+        "liquidity_fail": 200,
+        "gate_rule_fail": 29
+      },
+      "dominant_failure_reason": "data_missing"
+    }
+  ],
+  "regime_bucket_breakdown": [
+    {
+      "regime": "up",
+      "label": "up:up:20250626:20250829",
+      "sample_count": 1350,
+      "signal_rate": 0.0,
+      "ready_rate": 0.0,
+      "top_symbol_share": 0.0,
+      "overall_score": 0.21898597746314616,
+      "top_reasons": [
+        {
+          "count": 1350,
+          "reason": "version=2026-03-04-v2"
+        },
+        {
+          "count": 1305,
+          "reason": "liquidity_fail"
+        },
+        {
+          "count": 1189,
+          "reason": "pattern=???????????"
+        }
+      ]
+    },
+    {
+      "regime": "down",
+      "label": "down:down:20250331:20250409",
+      "sample_count": 240,
+      "signal_rate": 0.0,
+      "ready_rate": 0.0,
+      "top_symbol_share": 0.0,
+      "overall_score": 0.2295438842780141,
+      "top_reasons": [
+        {
+          "count": 240,
+          "reason": "missing_feature"
+        },
+        {
+          "count": 240,
+          "reason": "version=2026-03-04-v2"
+        },
+        {
+          "count": 232,
+          "reason": "liquidity_fail"
+        }
+      ]
+    },
+    {
+      "regime": "flat",
+      "label": "flat:flat:20230803:20230828",
+      "sample_count": 510,
+      "signal_rate": 0.0,
+      "ready_rate": 0.0,
+      "top_symbol_share": 0.0,
+      "overall_score": 0.23053365772430867,
+      "top_reasons": [
+        {
+          "count": 510,
+          "reason": "version=2026-03-04-v2"
+        },
+        {
+          "count": 494,
+          "reason": "pattern=???????????"
+        },
+        {
+          "count": 494,
+          "reason": "tone=neutral"
+        }
+      ]
+    }
+  ],
+  "topk_band_breakdown": [
+    {
+      "band": "top5",
+      "status": "stable_positive_branching",
+      "changed_members_count": 6,
+      "uplift": 0.02739186933632866,
+      "boundary_score_gap": 0.02603906264825501,
+      "meaningful_topk_branching_possible": true
+    },
+    {
+      "band": "top10",
+      "status": "stable_but_thin",
+      "changed_members_count": 12,
+      "uplift": 0.017542163616904125,
+      "boundary_score_gap": -0.00010290647860106833,
+      "meaningful_topk_branching_possible": true
+    },
+    {
+      "band": "top20",
+      "status": "not_instrumented_in_current_contract",
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary"
+    }
+  ],
+  "keep_valid_regions": [
+    {
+      "region": "observed_mid_and_high_turnover_bands",
+      "turnover_bands": [
+        "mid_turnover",
+        "high_turnover"
+      ],
+      "supporting_metrics": {
+        "mean_turnover_high": 0.7692307692307693,
+        "mean_capture_rate_high": 0.5333333333333333,
+        "mean_capture_rate_mid": 0.5520833333333333
+      },
+      "interpretation": "The keep remains valid even when monthly turnover rises into the high band because capture stays positive and the top-K deltas remain non-negative."
+    },
+    {
+      "region": "regime_complete_contract",
+      "regimes": [
+        "up",
+        "down",
+        "flat"
+      ],
+      "supporting_metrics": {
+        "evaluation_window_count": 3,
+        "worst_regime_delta": 0.0
+      },
+      "interpretation": "All three required regimes remain covered and the worst-regime delta does not collapse."
+    },
+    {
+      "region": "mid_high_liquidity_quartiles",
+      "liquidity_buckets": [
+        "q2_mid_low_liquidity",
+        "q3_mid_high_liquidity",
+        "q4_high_liquidity"
+      ],
+      "supporting_metrics": {
+        "mean_short_ret20_q3": 0.05664239061667332,
+        "mean_confidence_q4": 0.6883310161739401
+      },
+      "interpretation": "The strongest sample-level shortRet20 is in the q3 liquidity bucket, and the high-liquidity quartile remains non-collapsed."
+    }
+  ],
+  "keep_risk_regions": [
+    {
+      "region": "top10_boundary_thin",
+      "condition": "top10_boundary_score_gap is near zero",
+      "supporting_metrics": {
+        "top10_boundary_score_gap": null,
+        "top10_uplift": 0.017542163616904125
+      },
+      "interpretation": "Top10 remains positive but the boundary is thin, so this is the first place where the keep could become fragile."
+    },
+    {
+      "region": "q1_low_liquidity",
+      "condition": "liquidity20d <= q25",
+      "supporting_metrics": {
+        "mean_short_ret20": 0.04145853240089726,
+        "failure_reason_counts": {
+          "data_missing": 293,
+          "liquidity_fail": 232
+        }
+      },
+      "interpretation": "The lowest liquidity quartile is the weakest sample-level region and should remain watched."
+    },
+    {
+      "region": "high_turnover_months",
+      "condition": "monthly turnover >= 0.5",
+      "supporting_metrics": {
+        "mean_turnover": 0.7692307692307693,
+        "mean_capture_rate": 0.5333333333333333
+      },
+      "interpretation": "High-turnover months stay inside the soft-warning envelope but remain the first place to watch."
+    }
+  ],
+  "blocker_candidate_regions": [
+    {
+      "region": "high_turnover_plus_value_collapse",
+      "condition": "turnover_proxy >= 0.60 and (top10_uplift <= 0 or worst_regime_delta < 0)",
+      "status": "provisional",
+      "interpretation": "This is the first typed region where turnover_too_high should escalate to a blocker."
+    },
+    {
+      "region": "high_turnover_plus_incomplete_coverage",
+      "condition": "turnover_proxy >= 0.60 and (evaluation_window_count < 3 or coverage_status.status_reasons is not empty)",
+      "status": "provisional",
+      "interpretation": "Turnover warning should block if coverage becomes incomplete at the same time."
+    },
+    {
+      "region": "high_turnover_plus_no_bad_pick_removal",
+      "condition": "turnover_proxy >= 0.60 and bad_pick_removal <= 0",
+      "status": "provisional",
+      "interpretation": "A turnover warning without actual bad-pick removal is not keep-worthy."
+    }
+  ],
+  "notes": [
+    "The keep remains valid across the observed low, mid, and high monthly turnover bands.",
+    "High turnover is still a warning because the top10 boundary is thin, but it is not a blocker in the current envelope.",
+    "q1 low-liquidity samples are the weakest sample-level region, while q3 mid-high liquidity is the strongest.",
+    "Top20 is not instrumented in the current authoritative compare contract and is therefore marked not_instrumented."
+  ]
+}

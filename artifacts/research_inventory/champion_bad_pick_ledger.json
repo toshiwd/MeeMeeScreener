@@ -1,0 +1,835 @@
+{
+  "bad_pick_removal_status": {
+    "breakout_failure": "drop",
+    "liq_adv20_plus_followthrough_penalty_v1": "drop",
+    "liq_adv20_plus_turnover_penalty_v1": "drop",
+    "liq_adv20_quality_penalty_v1": "drop",
+    "liq_atr_turnover_penalty_v1": "drop",
+    "liq_breakout_followthrough_penalty_v1": "drop",
+    "liq_turnover_plus_followthrough_penalty_v1": "drop",
+    "liquidity_trap": "keep",
+    "ranking_no_op": "research_failure",
+    "weak_recovery": "drop"
+  },
+  "current_champion_focus": {
+    "active_deep_dive_candidate": "bp_liquidity_trap_penalty/v1",
+    "baseline_keep": "regime-aware/v2",
+    "next_core_track": "outcome_only_ranking",
+    "core_method_recentering_status": "confirmed",
+    "historical_judgment_role": "explainability_only",
+    "core_scoring_enabled": false,
+    "core_feature_family_exclusions": [
+      "historical_buy_sell_judgment"
+    ],
+    "outcome_only_core_track_plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_plan.json",
+    "liquidity_hold_resolved": true,
+    "liquidity_keep_stable": true,
+    "liquidity_minimal_structure_state": "monolithic_keep_only",
+    "liquidity_pairwise_decomposition_completed": true,
+    "liquidity_pairwise_decomposition_state": "monolithic_keep_only",
+    "pairwise_branch_compare_artifacts": [
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_turnover_plus_followthrough_penalty_v1\\run.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_followthrough_penalty_v1\\run.json"
+    ],
+    "pairwise_branch_compare_summaries": [
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_turnover_penalty_v1_compare_summary.json",
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_turnover_plus_followthrough_penalty_v1_compare_summary.json",
+      "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_followthrough_penalty_v1_compare_summary.json"
+    ],
+    "pairwise_round_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_pairwise_decomposition_round_summary.json",
+    "primary_next_axis": "boundary-aware",
+    "primary_round_axis_completed": "bad-pick-removal",
+    "research_contract_status": "provisional_keep_with_soft_warning",
+    "turnover_warning_classification": "soft_warning_non_blocking",
+    "turnover_warning_policy_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json",
+    "keep_envelope_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+    "turnover_shadow_blocker_eval_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json",
+    "stress_test_completion_status": "completed",
+    "boundary_aware_status": "backlog_not_ready",
+    "boundary_instrumentation_completion_status": "partial",
+    "boundary_instrumentation_status_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json",
+    "boundary_instrumentation_backlog_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_backlog.json",
+    "boundary_aware_readiness_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_aware_readiness_contract.json",
+    "top10_boundary_thickness_status": "thin",
+    "top20_boundary_instrumentation_status": "not_instrumented",
+    "top20_boundary_observability_state": "contract_limited_not_observable",
+    "top20_boundary_remaining_gap": [
+      "current_contract_top_k_is_5",
+      "top20_rankings_not_exposed_in_authoritative_compare_summary"
+    ],
+    "outcome_only_core_track_status": "evidence_bearing_compare_executed",
+    "outcome_only_core_track_decision": "drop",
+    "outcome_only_core_track_decision_reason": "no_meaningful_branching_no_op",
+    "outcome_only_core_track_run_summary_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_run_summary.json",
+    "outcome_only_core_track_gate_decision_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_gate_decision.json",
+    "outcome_only_core_track_compare_status": "compared",
+    "outcome_only_baseline_state": "drop/no_op_closed",
+    "outcome_only_next_candidate": "outcome_only_cutoff_margin_branch_v1",
+    "outcome_only_next_candidate_purpose": "improve_top_k_branching_near_cutoff",
+    "runtime_db_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json",
+    "outcome_only_branching_redesign_plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_branching_redesign_plan.json",
+    "outcome_only_core_track_next_step": "branching_redesign_planned",
+    "outcome_only_core_track_baseline_state": "drop/no_op_closed"
+  },
+  "decision_layering": {
+    "authoritative_candidate_gate": "keep",
+    "authoritative_gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+    "authoritative_override_reason_code": "coverage_restored_keep_with_turnover_warning",
+    "compare_engine_local_decision": "hold",
+    "compare_engine_local_reason": "turnover_too_high",
+    "research_contract_status": "provisional_keep_with_soft_warning",
+    "turnover_warning_classification": "soft_warning_non_blocking",
+    "keep_envelope_status": "completed",
+    "turnover_shadow_blocker_eval_status": "completed",
+    "boundary_aware_status": "backlog_not_ready",
+    "boundary_instrumentation_completion_status": "partial",
+    "boundary_instrumentation_status_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json",
+    "boundary_aware_readiness_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_aware_readiness_contract.json",
+    "top20_boundary_observability_state": "contract_limited_not_observable",
+    "top20_boundary_remaining_gap": [
+      "current_contract_top_k_is_5",
+      "top20_rankings_not_exposed_in_authoritative_compare_summary"
+    ]
+  },
+  "entries": [
+    {
+      "as_of_date": "2024-11-12",
+      "comparable_scope_id": "blind_month_2024_11_cycle",
+      "failure_domain": "market_failure",
+      "rank_bucket": "top10",
+      "realized_outcome_bucket": "hard_stop",
+      "supporting_metrics": {
+        "entry_score": 0.888321,
+        "exit_reason": "R_CUT_LOSS_HARD",
+        "liquidity20d": 73599.85,
+        "rev_risk": 0.432716
+      },
+      "symbol": "7806",
+      "typed_failure_reason": "liquidity_trap"
+    },
+    {
+      "as_of_date": "2022-07-06",
+      "comparable_scope_id": "blind_month_2022_07_recheck",
+      "failure_domain": "research_failure",
+      "rank_bucket": "top10",
+      "realized_outcome_bucket": "weak_trend",
+      "supporting_metrics": {
+        "base_policy_entries": 2,
+        "liquidity20d": 3754984.3,
+        "strict_variant_entries": 2
+      },
+      "symbol": "4684",
+      "typed_failure_reason": "ranking_no_op"
+    },
+    {
+      "as_of_date": "2022-07-07",
+      "comparable_scope_id": "blind_month_2022_07_recheck",
+      "failure_domain": "research_failure",
+      "rank_bucket": "top10",
+      "realized_outcome_bucket": "weak_trend",
+      "supporting_metrics": {
+        "base_policy_entries": 2,
+        "liquidity20d": 3025623.920544,
+        "strict_variant_entries": 2
+      },
+      "symbol": "2897",
+      "typed_failure_reason": "ranking_no_op"
+    },
+    {
+      "as_of_date": "2025-01-01",
+      "comparable_scope_id": "blind_month_2025_01_market_regime_v2_proxy",
+      "failure_domain": "market_failure",
+      "rank_bucket": "rank1",
+      "realized_outcome_bucket": "negative_month",
+      "supporting_metrics": {
+        "base_hit_ge_2pct": 0.3333,
+        "base_median": -3.02,
+        "variant_hit_ge_2pct": 0.375,
+        "variant_median": -8.99
+      },
+      "symbol": "multiple",
+      "typed_failure_reason": "regime_mismatch"
+    },
+    {
+      "as_of_date": "2025-05-01",
+      "comparable_scope_id": "blind_month_2025_05_monthly_box_v1_proxy",
+      "failure_domain": "market_failure",
+      "rank_bucket": "rank1",
+      "realized_outcome_bucket": "negative_month",
+      "supporting_metrics": {
+        "base_hit_ge_2pct": 0.0,
+        "base_median": -8.02,
+        "variant_hit_ge_2pct": 0.0,
+        "variant_median": -10.8
+      },
+      "symbol": "multiple",
+      "typed_failure_reason": "weak_recovery"
+    },
+    {
+      "as_of_date": "2025-07-01",
+      "comparable_scope_id": "blind_month_2025_07_monthly_box_v2_proxy",
+      "failure_domain": "research_failure",
+      "rank_bucket": "rank1",
+      "realized_outcome_bucket": "no_pass",
+      "supporting_metrics": {
+        "base_pass": 5,
+        "variant_pass": 0
+      },
+      "symbol": "multiple",
+      "typed_failure_reason": "ranking_no_op"
+    },
+    {
+      "as_of_date": "2025-09-01",
+      "comparable_scope_id": "blind_month_2025_09_monthly_rangewidth_v3_proxy",
+      "failure_domain": "market_failure",
+      "rank_bucket": "rank1",
+      "realized_outcome_bucket": "mixed",
+      "supporting_metrics": {
+        "base_hit_ge_2pct": 0.2222,
+        "base_median": -3.26,
+        "variant_hit_ge_2pct": 0.3333,
+        "variant_median": -2.08
+      },
+      "symbol": "multiple",
+      "typed_failure_reason": "breakout_failure"
+    },
+    {
+      "as_of_date": "2025-10-01",
+      "comparable_scope_id": "blind_month_2025_10_monthly_rangewidth_v8_proxy",
+      "failure_domain": "market_failure",
+      "rank_bucket": "rank1",
+      "realized_outcome_bucket": "negative_month",
+      "supporting_metrics": {
+        "base_hit_ge_2pct": 0.1667,
+        "base_median": -1.5,
+        "variant_hit_ge_2pct": 0.1818,
+        "variant_median": -1.99
+      },
+      "symbol": "multiple",
+      "typed_failure_reason": "regime_mismatch"
+    }
+  ],
+  "generated_at": "2026-04-17T13:55:30+09:00",
+  "latest_bad_pick_removal_round": {
+    "bad_pick_removal_focus_bucket": "liquidity_trap",
+    "bad_pick_removal_status": {
+      "breakout_failure": "drop",
+      "liquidity_trap": "keep",
+      "weak_recovery": "drop"
+    },
+    "candidates": [
+      {
+        "candidate_local_decision": "drop",
+        "candidate_name": "bp_liquidity_trap_penalty_v1",
+        "compare_engine_decision_reasons": [
+          "turnover_too_high"
+        ],
+        "compare_engine_local_decision": "drop",
+        "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_liquidity_trap_penalty\\compare.json",
+        "coverage_status": {
+          "evaluation_window_count": 3,
+          "evaluation_window_ids": [
+            "up:up:20250626:20250829",
+            "down:down:20250331:20250409",
+            "flat:flat:20230803:20230828"
+          ],
+          "insufficient_samples": false,
+          "status_reasons": [],
+          "window_source": "family_period_segments",
+          "window_source_reason": "explicit_family_period_segments_available"
+        },
+        "decision": "keep",
+        "decision_reason": "completed_coverage_positive_bad_pick_removal",
+        "evidence": {
+          "added_codes": [
+            "8725",
+            "9433",
+            "3289",
+            "4503",
+            "5949",
+            "3116"
+          ],
+          "bad_pick_removal": 6,
+          "changed_rank_count": 15,
+          "changed_top10_members_count": 12,
+          "changed_top5_members_count": 6,
+          "compare_status": "compared",
+          "coverage_status": {
+            "evaluation_window_count": 1,
+            "evaluation_window_ids": [
+              "up:20250626:20250829"
+            ],
+            "insufficient_samples": false,
+            "status_reasons": [
+              "missing_down_window",
+              "missing_flat_window",
+              "evaluation_window_coverage_incomplete"
+            ]
+          },
+          "overlap_vs_champion": 0.4,
+          "overlap_vs_peer_candidates": 1.0,
+          "peer_duplicate_state": "identical_top10_to_peer_candidates",
+          "removed_bucket_counts": {
+            "breakout_failure": 0,
+            "liquidity_trap": 6,
+            "other": 0,
+            "weak_recovery": 0
+          },
+          "removed_codes": [
+            "7730",
+            "6958",
+            "3687",
+            "6376",
+            "4384",
+            "6754"
+          ],
+          "same_condition_contract": {
+            "artifact_detail_level": "authoritative_full",
+            "cost_model": {
+              "fee_bps": 0.0,
+              "mode": "flat_zero_cost",
+              "schema_version": "tradex_cost_model_v1",
+              "slippage_bps": 0.0,
+              "transaction_cost_bps": 0.0
+            },
+            "fallback_status": "authoritative",
+            "period": [
+              {
+                "end_date": "2025-08-29",
+                "label": "up:up:20250626:20250829",
+                "start_date": "2025-06-26"
+              },
+              {
+                "end_date": "2025-04-09",
+                "label": "down:down:20250331:20250409",
+                "start_date": "2025-03-31"
+              },
+              {
+                "end_date": "2023-08-28",
+                "label": "flat:flat:20230803:20230828",
+                "start_date": "2023-08-03"
+              }
+            ],
+            "regime": "multi_regime",
+            "schema_version": "tradex_research_contract_v1",
+            "top_k": 5,
+            "universe": [
+              "1332",
+              "1808",
+              "1833",
+              "2282",
+              "3105",
+              "3116",
+              "3289",
+              "3481",
+              "3687",
+              "4384",
+              "4503",
+              "4544",
+              "4927",
+              "5741",
+              "5949",
+              "6306",
+              "6376",
+              "6754",
+              "6857",
+              "6958",
+              "7514",
+              "7730",
+              "8174",
+              "8334",
+              "8725",
+              "9143",
+              "9433",
+              "9503",
+              "9603",
+              "9684"
+            ]
+          },
+          "selection_divergence_reason": "top5_member_replacement",
+          "target_removed_count": 6,
+          "top10_uplift": 0.017542163616904125,
+          "top5_uplift": 0.02739186933632866,
+          "worst_regime_delta": 0.0
+        },
+        "family_name": "bp_liquidity_trap_penalty",
+        "feature_class": "bad_pick_removal",
+        "schema_version": "tradex_bad_pick_removal_candidate_compare_v1",
+        "session_id": "bp-removal-20260417-r2",
+        "summary_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+        "target_failure_bucket": "liquidity_trap"
+      },
+      {
+        "candidate_local_decision": "drop",
+        "candidate_name": "bp_weak_recovery_penalty_v1",
+        "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_weak_recovery_penalty\\compare.json",
+        "decision": "drop",
+        "decision_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+        "evidence": {
+          "added_codes": [
+            "8725",
+            "9433",
+            "3289",
+            "4503",
+            "5949",
+            "3116"
+          ],
+          "bad_pick_removal": 0,
+          "changed_rank_count": 15,
+          "changed_top10_members_count": 12,
+          "changed_top5_members_count": 6,
+          "compare_status": "compared",
+          "coverage_status": {
+            "evaluation_window_count": 1,
+            "evaluation_window_ids": [
+              "up:20250626:20250829"
+            ],
+            "insufficient_samples": false,
+            "status_reasons": [
+              "missing_down_window",
+              "missing_flat_window",
+              "evaluation_window_coverage_incomplete"
+            ]
+          },
+          "overlap_vs_champion": 0.4,
+          "overlap_vs_peer_candidates": 1.0,
+          "peer_duplicate_state": "identical_top10_to_peer_candidates",
+          "removed_bucket_counts": {
+            "breakout_failure": 0,
+            "liquidity_trap": 6,
+            "other": 0,
+            "weak_recovery": 0
+          },
+          "removed_codes": [
+            "7730",
+            "6958",
+            "3687",
+            "6376",
+            "4384",
+            "6754"
+          ],
+          "same_condition_contract": {
+            "artifact_detail_level": "authoritative_full",
+            "cost_model": {
+              "fee_bps": 0.0,
+              "mode": "flat_zero_cost",
+              "schema_version": "tradex_cost_model_v1",
+              "slippage_bps": 0.0,
+              "transaction_cost_bps": 0.0
+            },
+            "fallback_status": "authoritative",
+            "period": [
+              {
+                "end_date": "2025-08-29",
+                "label": "up:up:20250626:20250829",
+                "start_date": "2025-06-26"
+              },
+              {
+                "end_date": "2025-04-09",
+                "label": "down:down:20250331:20250409",
+                "start_date": "2025-03-31"
+              },
+              {
+                "end_date": "2023-08-28",
+                "label": "flat:flat:20230803:20230828",
+                "start_date": "2023-08-03"
+              }
+            ],
+            "regime": "multi_regime",
+            "schema_version": "tradex_research_contract_v1",
+            "top_k": 5,
+            "universe": [
+              "1332",
+              "1808",
+              "1833",
+              "2282",
+              "3105",
+              "3116",
+              "3289",
+              "3481",
+              "3687",
+              "4384",
+              "4503",
+              "4544",
+              "4927",
+              "5741",
+              "5949",
+              "6306",
+              "6376",
+              "6754",
+              "6857",
+              "6958",
+              "7514",
+              "7730",
+              "8174",
+              "8334",
+              "8725",
+              "9143",
+              "9433",
+              "9503",
+              "9603",
+              "9684"
+            ]
+          },
+          "selection_divergence_reason": "top5_member_replacement",
+          "target_removed_count": 0,
+          "top10_uplift": 0.017542163616904125,
+          "top5_uplift": 0.02739186933632866,
+          "worst_regime_delta": 0.0
+        },
+        "family_name": "bp_weak_recovery_penalty",
+        "feature_class": "bad_pick_removal",
+        "schema_version": "tradex_bad_pick_removal_candidate_compare_v1",
+        "session_id": "bp-removal-20260417-r2",
+        "summary_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_weak_recovery_penalty_v1_compare_summary.json",
+        "target_failure_bucket": "weak_recovery"
+      },
+      {
+        "candidate_local_decision": "drop",
+        "candidate_name": "bp_breakout_failure_penalty_v1",
+        "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_breakout_failure_penalty\\compare.json",
+        "decision": "drop",
+        "decision_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+        "evidence": {
+          "added_codes": [
+            "8725",
+            "9433",
+            "3289",
+            "4503",
+            "5949",
+            "3116"
+          ],
+          "bad_pick_removal": 0,
+          "changed_rank_count": 15,
+          "changed_top10_members_count": 12,
+          "changed_top5_members_count": 6,
+          "compare_status": "compared",
+          "coverage_status": {
+            "evaluation_window_count": 1,
+            "evaluation_window_ids": [
+              "up:20250626:20250829"
+            ],
+            "insufficient_samples": false,
+            "status_reasons": [
+              "missing_down_window",
+              "missing_flat_window",
+              "evaluation_window_coverage_incomplete"
+            ]
+          },
+          "overlap_vs_champion": 0.4,
+          "overlap_vs_peer_candidates": 1.0,
+          "peer_duplicate_state": "identical_top10_to_peer_candidates",
+          "removed_bucket_counts": {
+            "breakout_failure": 0,
+            "liquidity_trap": 6,
+            "other": 0,
+            "weak_recovery": 0
+          },
+          "removed_codes": [
+            "7730",
+            "6958",
+            "3687",
+            "6376",
+            "4384",
+            "6754"
+          ],
+          "same_condition_contract": {
+            "artifact_detail_level": "authoritative_full",
+            "cost_model": {
+              "fee_bps": 0.0,
+              "mode": "flat_zero_cost",
+              "schema_version": "tradex_cost_model_v1",
+              "slippage_bps": 0.0,
+              "transaction_cost_bps": 0.0
+            },
+            "fallback_status": "authoritative",
+            "period": [
+              {
+                "end_date": "2025-08-29",
+                "label": "up:up:20250626:20250829",
+                "start_date": "2025-06-26"
+              },
+              {
+                "end_date": "2025-04-09",
+                "label": "down:down:20250331:20250409",
+                "start_date": "2025-03-31"
+              },
+              {
+                "end_date": "2023-08-28",
+                "label": "flat:flat:20230803:20230828",
+                "start_date": "2023-08-03"
+              }
+            ],
+            "regime": "multi_regime",
+            "schema_version": "tradex_research_contract_v1",
+            "top_k": 5,
+            "universe": [
+              "1332",
+              "1808",
+              "1833",
+              "2282",
+              "3105",
+              "3116",
+              "3289",
+              "3481",
+              "3687",
+              "4384",
+              "4503",
+              "4544",
+              "4927",
+              "5741",
+              "5949",
+              "6306",
+              "6376",
+              "6754",
+              "6857",
+              "6958",
+              "7514",
+              "7730",
+              "8174",
+              "8334",
+              "8725",
+              "9143",
+              "9433",
+              "9503",
+              "9603",
+              "9684"
+            ]
+          },
+          "selection_divergence_reason": "top5_member_replacement",
+          "target_removed_count": 0,
+          "top10_uplift": 0.017542163616904125,
+          "top5_uplift": 0.02739186933632866,
+          "worst_regime_delta": 0.0
+        },
+        "family_name": "bp_breakout_failure_penalty",
+        "feature_class": "bad_pick_removal",
+        "schema_version": "tradex_bad_pick_removal_candidate_compare_v1",
+        "session_id": "bp-removal-20260417-r2",
+        "summary_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_breakout_failure_penalty_v1_compare_summary.json",
+        "target_failure_bucket": "breakout_failure"
+      }
+    ],
+    "compare_ready_run_artifacts": [
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_liquidity_trap_penalty\\compare.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_weak_recovery_penalty\\compare.json",
+      "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_breakout_failure_penalty\\compare.json"
+    ],
+    "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+    "derived_snapshot_path": "G:\\Tradex\\scratch\\source_snapshots\\tradex_research_snapshot_full_20230101_20260226.duckdb",
+    "keep_candidate": "bp_liquidity_trap_penalty/v1",
+    "keep_contract": {
+      "authoritative_candidate_gate": "keep",
+      "authoritative_gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+      "authoritative_override_reason_code": "coverage_restored_keep_with_turnover_warning",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "turnover_too_high",
+      "turnover_warning_classification": "soft_warning_non_blocking"
+    },
+    "liquidity_decomposition_runs": [
+      {
+        "candidate_name": "liq_adv20_quality_penalty_v1",
+        "compare_engine_local_decision": "hold",
+        "compare_engine_local_reason": "topk_boundary_absent",
+        "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-adv20-bad-pick-prune\\compare.json",
+        "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_quality_penalty_v1_compare_summary.json",
+        "decision": "drop",
+        "decision_reason": "no_meaningful_branching_no_op"
+      },
+      {
+        "candidate_name": "liq_atr_turnover_penalty_v1",
+        "compare_engine_local_decision": "hold",
+        "compare_engine_local_reason": "topk_boundary_absent",
+        "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-atr-bad-pick-prune\\compare.json",
+        "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_atr_turnover_penalty_v1_compare_summary.json",
+        "decision": "drop",
+        "decision_reason": "no_meaningful_branching_no_op"
+      },
+      {
+        "candidate_name": "liq_breakout_followthrough_penalty_v1",
+        "compare_engine_local_decision": "hold",
+        "compare_engine_local_reason": "topk_boundary_absent",
+        "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-breakout-bad-pick-prune\\compare.json",
+        "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_breakout_followthrough_penalty_v1_compare_summary.json",
+        "decision": "drop",
+        "decision_reason": "no_meaningful_branching_no_op"
+      }
+    ],
+    "new_keep_candidate_after_round": "bp_liquidity_trap_penalty_v1",
+    "no_new_keep_candidate": false,
+    "random_seed": 29,
+    "ret20_source_mode": "derived_from_daily_bars",
+    "round_decision": {
+      "drop": [
+        "bp_weak_recovery_penalty_v1",
+        "bp_breakout_failure_penalty_v1"
+      ],
+      "hold": [],
+      "keep": [
+        "bp_liquidity_trap_penalty_v1"
+      ]
+    },
+    "same_condition_contract": {
+      "confirmed_universe_clamped": false,
+      "confirmed_universe_eligible_count": 685,
+      "confirmed_universe_requested_count": 686,
+      "confirmed_universe_segment_coverage_counts": {
+        "2023-08-03..2023-08-28": 679,
+        "2025-03-31..2025-04-09": 685,
+        "2025-06-26..2025-08-29": 685
+      },
+      "confirmed_universe_selected_count": 30,
+      "confirmed_universe_selection_mode": "feature_snapshot_eligible",
+      "confirmed_universe_source": "feature_snapshot_daily codes intersecting selected evaluation segments",
+      "effective_universe_count": 30,
+      "eval_window_mode": "exploratory",
+      "eval_window_mode_reason": "exploratory_required_standard_and_fallback_windows_unavailable_min_days=8",
+      "fallback_issues": [
+        "missing_down_window",
+        "missing_flat_window"
+      ],
+      "fallback_window_count": 1,
+      "legacy_analysis_env": "0",
+      "meaningful_topk_branching_possible": true,
+      "ret20_source_mode": "derived_from_daily_bars",
+      "ret20_source_mode_reason": "explicit_session_mode",
+      "session_scope_id": "rr_confirmed_20260323_fix6",
+      "standard_issues": [
+        "missing_up_window",
+        "missing_down_window",
+        "missing_flat_window"
+      ],
+      "standard_window_count": 0,
+      "top_k": 5,
+      "topk_branching_block_reason": ""
+    },
+    "schema_version": "tradex_bad_pick_removal_round_v1",
+    "session_id": "bp-removal-20260417-r2",
+    "session_scope_id": "rr_confirmed_20260323_fix6",
+    "source_snapshot_is_read_only": true,
+    "source_snapshot_path": "G:\\Tradex\\scratch\\temp\\local_meemee_research_db\\stocks_research_20230101_20260226.duckdb"
+  },
+  "latest_liquidity_keep_stability_round": {
+    "baseline_keep_candidate": "bp_liquidity_trap_penalty/v1",
+    "next_core_track": "outcome_only_ranking",
+    "historical_judgment_role": "explainability_only",
+    "core_scoring_enabled": false,
+    "outcome_only_core_track_plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_core_track_plan.json",
+    "pairwise_branching_state": "overlap_heavy_no_op",
+    "pairwise_candidates": [
+      {
+        "candidate_name": "liq_adv20_plus_turnover_penalty_v1",
+        "compare_engine_local_decision": "hold",
+        "compare_engine_local_reason": "topk_boundary_absent",
+        "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+        "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_turnover_penalty_v1_compare_summary.json",
+        "decision": "drop",
+        "decision_reason": "no_meaningful_branching_no_op",
+        "research_contract_status": "provisional_drop_noop_branch"
+      },
+      {
+        "candidate_name": "liq_turnover_plus_followthrough_penalty_v1",
+        "compare_engine_local_decision": "hold",
+        "compare_engine_local_reason": "topk_boundary_absent",
+        "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_turnover_plus_followthrough_penalty_v1\\run.json",
+        "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_turnover_plus_followthrough_penalty_v1_compare_summary.json",
+        "decision": "drop",
+        "decision_reason": "no_meaningful_branching_no_op",
+        "research_contract_status": "provisional_drop_noop_branch"
+      },
+      {
+        "candidate_name": "liq_adv20_plus_followthrough_penalty_v1",
+        "compare_engine_local_decision": "hold",
+        "compare_engine_local_reason": "topk_boundary_absent",
+        "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_followthrough_penalty_v1\\run.json",
+        "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_followthrough_penalty_v1_compare_summary.json",
+        "decision": "drop",
+        "decision_reason": "no_meaningful_branching_no_op",
+        "research_contract_status": "provisional_drop_noop_branch"
+      }
+    ],
+    "pairwise_decomposition_state": "monolithic_keep_only",
+    "pairwise_round_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_pairwise_decomposition_round_summary.json",
+    "research_contract_status": "provisional_keep_with_soft_warning",
+    "turnover_warning_policy_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json",
+    "keep_envelope_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+    "turnover_shadow_blocker_eval_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json",
+    "stress_test_completion_status": "completed",
+    "boundary_instrumentation_completion_status": "partial",
+    "boundary_instrumentation_status_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json",
+    "boundary_aware_readiness_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_aware_readiness_contract.json"
+  },
+  "market_failure_buckets": [
+    "regime_mismatch",
+    "liquidity_trap",
+    "weak_recovery",
+    "breakout_failure"
+  ],
+  "research_failure_buckets": [
+    "ranking_no_op"
+  ],
+  "schema_version": "tradex_champion_bad_pick_ledger_v2",
+  "status": "confirmed",
+  "latest_outcome_only_core_track_round": {
+    "session_id": "outcome-only-core-20260417-r2",
+    "decision": "drop",
+    "decision_reason": "no_meaningful_branching_no_op",
+    "compare_status": "compared",
+    "compare_path": "G:\\Tradex\\scratch\\research_families\\tradex-research-outcome-only-core-20260417-r2-outcome_only_ranking\\compare.json",
+    "selection_metrics": {
+      "top5_uplift": 0.0,
+      "top10_uplift": 0.0,
+      "bad_pick_removal": 0.0,
+      "changed_top5_members_count": 0,
+      "changed_top10_members_count": 0,
+      "changed_top20_members_count": 0,
+      "changed_rank_count": 0,
+      "selection_divergence_reason": "no_meaningful_branching",
+      "boundary_score_gap_top5": 0.0,
+      "boundary_score_gap_top10": 0.0
+    },
+    "trade_metrics": {
+      "hit_rate": 1.0,
+      "expectancy_top5_delta": 0.0,
+      "expectancy_top10_delta": 0.0,
+      "drawdown_proxy_delta": 0.0,
+      "champion_top5_ret20_mean": -0.01082344090424695,
+      "challenger_top5_ret20_mean": -0.01082344090424695,
+      "champion_top10_ret20_mean": -0.01082344090424695,
+      "challenger_top10_ret20_mean": -0.01082344090424695,
+      "champion_monthly_top5_capture_mean": 1.0,
+      "challenger_monthly_top5_capture_mean": 1.0,
+      "champion_dd_proxy": 0.07576408632972864,
+      "challenger_dd_proxy": 0.07576408632972864,
+      "champion_turnover_proxy": 0.0,
+      "challenger_turnover_proxy": 0.0,
+      "champion_liquidity_fail_rate": 1.0,
+      "challenger_liquidity_fail_rate": 1.0,
+      "monthly_improvement_rate": 1.0,
+      "worst_regime_delta": 0.0
+    },
+    "same_condition_verification": {
+      "same_universe": true,
+      "same_period": true,
+      "same_top_k": true,
+      "same_regime": true,
+      "same_cost": true,
+      "same_artifact_detail_level": true,
+      "time_block_split": true,
+      "embargo": true,
+      "no_shuffle": true,
+      "historical_judgment_excluded": true,
+      "boundary_aware_compare_executed": false
+    },
+    "historical_judgment_excluded_from_core": true,
+    "baseline_state": "drop/no_op_closed",
+    "compare_engine_local_decision": "hold",
+    "compare_engine_local_reason": "topk_boundary_absent",
+    "selection_divergence_reason": "no_meaningful_branching",
+    "next_outcome_only_candidate": "outcome_only_cutoff_margin_branch_v1",
+    "next_outcome_only_candidate_purpose": "improve_top_k_branching_near_cutoff",
+    "runtime_db_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\tradex_runtime_db_contract.json",
+    "branching_redesign_plan_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\outcome_only_branching_redesign_plan.json"
+  }
+}

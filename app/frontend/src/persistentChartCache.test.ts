@@ -44,6 +44,7 @@ describe("persistentChartCache", () => {
         boxes: [],
         fetchedAt: 1,
         dataVersion: "v1",
+        provenance: null,
       }
     );
 
@@ -80,6 +81,7 @@ describe("persistentChartCache", () => {
         boxes: [],
         fetchedAt: 10,
         dataVersion: "v1",
+        provenance: null,
       }
     );
 
@@ -97,6 +99,7 @@ describe("persistentChartCache", () => {
         boxes: [],
         fetchedAt: 10,
         dataVersion: "v1",
+        provenance: null,
       }
     );
 
@@ -107,5 +110,45 @@ describe("persistentChartCache", () => {
       includeBoxes: true,
     });
     expect(cached?.bars).toEqual([[10, 11, 12, 13, 14, 15]]);
+  });
+
+  it("round-trips provenance and labels indexeddb reads", async () => {
+    await setPersistentChartFrame(
+      {
+        code: "9984",
+        timeframe: "daily",
+        limit: 120,
+        includeBoxes: false,
+        dataVersion: "v2",
+      },
+      {
+        bars: [[1, 2, 3, 4, 5, 6]],
+        boxes: [],
+        fetchedAt: 20,
+        dataVersion: "v2",
+        provenance: {
+          chart_source_provider: "runtime_stock_db.daily_bars",
+          chart_source_type: "confirmed",
+          chart_source_path_or_identifier: "C:/tmp/stocks.duckdb#daily_bars",
+          chart_requested_date: 20260416,
+          chart_last_confirmed_date: 20260403,
+          chart_last_provisional_date: null,
+          chart_date_match_status: "lagged_provisional",
+          chart_source_freshness_status: "lagged",
+          chart_data_classification: "mixed",
+          chart_aggregation_source: "direct",
+        },
+      }
+    );
+
+    const cached = await getPersistentChartFrame({
+      code: "9984",
+      timeframe: "daily",
+      limit: 120,
+      includeBoxes: false,
+      dataVersion: "v2",
+    });
+    expect(cached?.cacheSource).toBe("memory");
+    expect(cached?.provenance?.chart_source_provider).toBe("runtime_stock_db.daily_bars");
   });
 });

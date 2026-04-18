@@ -288,6 +288,42 @@ def test_insert_rows_updates_same_day_yahoo_without_overwriting_pan() -> None:
         conn.close()
 
 
+def test_cleanup_stale_yahoo_rows_removes_overlap_after_confirmed_import() -> None:
+    conn = duckdb.connect(":memory:")
+    try:
+        conn.execute(
+            """
+            CREATE TABLE daily_bars (
+                code TEXT,
+                date BIGINT,
+                o DOUBLE,
+                h DOUBLE,
+                l DOUBLE,
+                c DOUBLE,
+                v BIGINT,
+                source TEXT
+            )
+            """
+        )
+        confirmed_day = 1773628800
+        conn.execute(
+            """
+            INSERT INTO daily_bars VALUES
+            ('1301', ?, 100, 101, 99, 100, 1000, 'pan'),
+            ('1301', ?, 110, 112, 109, 111, 1500, 'yahoo')
+            """,
+            [confirmed_day, confirmed_day],
+        )
+
+        cleaned_stale = yahoo_daily_ingest._cleanup_stale_yahoo_rows(conn)
+
+        assert cleaned_stale == 1
+        assert conn.execute("SELECT COUNT(*) FROM daily_bars WHERE source = 'yahoo'").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM daily_bars WHERE source = 'pan'").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
 def test_market_data_status_message_includes_latest_fetch_time() -> None:
     session = SimpleNamespace(day_type="full_day")
 

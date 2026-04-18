@@ -1,4 +1,4 @@
-import type { Box } from "../../storeTypes";
+import type { Box, ChartDataProvenance } from "../../storeTypes";
 import {
   applyChartDataVersion,
   getPersistentChartFrame,
@@ -19,6 +19,8 @@ export type ChartPrefetchEntry = {
   boxes: Box[];
   fetchedAt: number;
   dataVersion: string | null;
+  provenance: ChartDataProvenance | null;
+  cacheSource: "memory" | "indexeddb" | null;
 };
 
 export type ChartPrefetchFrames = {
@@ -55,6 +57,7 @@ const normalizeAsof = (value?: string | null) =>
 const emptyFramePayload = (): BatchBarsFramePayload => ({
   bars: [],
   boxes: [],
+  provenance: null,
 });
 
 const buildChartPrefetchKey = (
@@ -113,6 +116,8 @@ const writeMemoryChartPrefetch = ({
   boxes,
   fetchedAt,
   dataVersion,
+  provenance,
+  cacheSource,
 }: {
   code: string;
   timeframe: BatchBarsRequestTimeframe;
@@ -122,6 +127,8 @@ const writeMemoryChartPrefetch = ({
   boxes?: Box[];
   fetchedAt?: number;
   dataVersion?: string | null;
+  provenance?: ChartDataProvenance | null;
+  cacheSource?: "memory" | "indexeddb" | null;
 }) => {
   const includeBoxes = includeBoxesForTimeframe(timeframe);
   chartPrefetchCache.set(buildChartPrefetchKey(code, timeframe, limit, includeBoxes, asof), {
@@ -129,6 +136,8 @@ const writeMemoryChartPrefetch = ({
     boxes: boxes ?? [],
     fetchedAt: fetchedAt ?? Date.now(),
     dataVersion: dataVersion ?? null,
+    provenance: provenance ?? null,
+    cacheSource: cacheSource ?? "memory",
   });
 };
 
@@ -164,6 +173,7 @@ const persistFramePayload = async ({
       boxes: Array.isArray(payload.boxes) ? payload.boxes : [],
       fetchedAt,
       dataVersion,
+      provenance: payload.provenance ?? null,
     }
   );
 };
@@ -201,8 +211,13 @@ const loadFrameFromPersistentCache = async ({
     boxes: cached.boxes,
     fetchedAt: cached.fetchedAt,
     dataVersion: cached.dataVersion,
+    provenance: cached.provenance ?? null,
+    cacheSource: "indexeddb",
   });
-  return readMemoryChartPrefetch(code, timeframe, limit, asof);
+  return {
+    ...cached,
+    cacheSource: cached.cacheSource ?? "indexeddb",
+  };
 };
 
 export const readDetailChartPrefetchSync = ({
@@ -294,6 +309,8 @@ export const extractDetailChartFrames = async ({
     boxes: [],
     fetchedAt,
     dataVersion,
+    provenance: dailyFrame.provenance ?? null,
+    cacheSource: "memory",
   });
   writeMemoryChartPrefetch({
     code,
@@ -304,6 +321,8 @@ export const extractDetailChartFrames = async ({
     boxes: [],
     fetchedAt,
     dataVersion,
+    provenance: weeklyFrame.provenance ?? null,
+    cacheSource: "memory",
   });
   writeMemoryChartPrefetch({
     code,
@@ -314,6 +333,8 @@ export const extractDetailChartFrames = async ({
     boxes: Array.isArray(monthlyFrame.boxes) ? monthlyFrame.boxes : [],
     fetchedAt,
     dataVersion,
+    provenance: monthlyFrame.provenance ?? null,
+    cacheSource: "memory",
   });
 
   await Promise.all([

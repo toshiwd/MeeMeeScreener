@@ -1,4 +1,4 @@
-import type { Box } from "./storeTypes";
+import type { Box, ChartDataProvenance } from "./storeTypes";
 import type { BatchBarsRequestTimeframe } from "./routes/detail/batchBarsRequest";
 
 const CACHE_DB_NAME = "meemee-chart-cache";
@@ -21,6 +21,7 @@ type ChartCacheRecord = {
   boxes: Box[];
   fetchedAt: number;
   touchedAt: number;
+  provenance: ChartDataProvenance | null;
 };
 
 export type PersistentChartCacheKeyParts = {
@@ -37,6 +38,8 @@ export type PersistentChartCacheEntry = {
   boxes: Box[];
   fetchedAt: number;
   dataVersion: string;
+  provenance: ChartDataProvenance | null;
+  cacheSource?: "memory" | "indexeddb" | null;
 };
 
 type VersionListener = (nextDataVersion: string, previousDataVersion: string | null) => void;
@@ -71,13 +74,18 @@ export const buildPersistentChartCacheKey = ({
 }: PersistentChartCacheKeyParts) =>
   `${buildPersistentChartCacheBaseKey(rest)}|version:${(dataVersion ?? getActiveChartDataVersion() ?? "unknown").trim() || "unknown"}`;
 
-const toEntry = (record: ChartCacheRecord | null | undefined): PersistentChartCacheEntry | null =>
+const toEntry = (
+  record: ChartCacheRecord | null | undefined,
+  cacheSource: "memory" | "indexeddb" | null = null
+): PersistentChartCacheEntry | null =>
   record
     ? {
         bars: record.bars,
         boxes: record.boxes,
         fetchedAt: record.fetchedAt,
         dataVersion: record.dataVersion,
+        provenance: record.provenance ?? null,
+        cacheSource,
       }
     : null;
 
@@ -205,6 +213,7 @@ const buildRecord = (
     boxes: entry.boxes,
     fetchedAt: entry.fetchedAt,
     touchedAt: now,
+    provenance: entry.provenance ?? null,
   };
 };
 
@@ -280,7 +289,7 @@ export const getPersistentChartFrame = async (
   const memoryMatch = findLatestMemoryRecord(baseKey, requestedVersion);
   if (memoryMatch) {
     const touched = touchMemoryRecord(memoryMatch);
-    return toEntry(touched);
+    return toEntry(touched, "memory");
   }
   if (!canUseIndexedDb()) return null;
   if (requestedVersion) {
@@ -296,7 +305,7 @@ export const getPersistentChartFrame = async (
     });
     if (directRecord) {
       const normalized = touchMemoryRecord(directRecord);
-      return toEntry(normalized);
+      return toEntry(normalized, "indexeddb");
     }
   }
   const latestRecord = await withStore("readonly", async (store) => {
@@ -312,7 +321,7 @@ export const getPersistentChartFrame = async (
   });
   if (!latestRecord) return null;
   const touched = touchMemoryRecord(latestRecord);
-  return toEntry(touched);
+  return toEntry(touched, "indexeddb");
 };
 
 export const getPersistentChartFrames = async (

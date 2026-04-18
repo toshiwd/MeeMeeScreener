@@ -1,0 +1,149 @@
+{
+  "schema_version": "tradex_liquidity_turnover_blocker_shadow_eval_v1",
+  "generated_at": "2026-04-17T12:00:00+09:00",
+  "candidate_name": "bp_liquidity_trap_penalty/v1",
+  "shadow_mode_only": true,
+  "current_classification": "soft_warning_non_blocking",
+  "current_warning_reason": "turnover_too_high",
+  "compare_engine_local_decision": "hold",
+  "authoritative_candidate_gate": "keep",
+  "authoritative_gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+  "authoritative_override_reason_code": "coverage_restored_keep_with_turnover_warning",
+  "research_contract_status": "provisional_keep_with_soft_warning",
+  "observed_metrics": {
+    "turnover_proxy": 0.5043123543123543,
+    "monthly_turnover_mean": 0.5043123543123543,
+    "monthly_turnover_median": 0.41666666666666663,
+    "bad_pick_removal": 6,
+    "top10_uplift": 0.017542163616904125,
+    "top5_uplift": 0.02739186933632866,
+    "changed_top5_members_count": 6,
+    "changed_top10_members_count": 12,
+    "worst_regime_delta": 0.0,
+    "evaluation_window_count": 3,
+    "coverage_status": {
+      "evaluation_window_count": 3,
+      "evaluation_window_ids": [
+        "up:up:20250626:20250829",
+        "down:down:20250331:20250409",
+        "flat:flat:20230803:20230828"
+      ],
+      "insufficient_samples": false,
+      "status_reasons": [],
+      "window_source": "family_period_segments",
+      "window_source_reason": "explicit_family_period_segments_available"
+    },
+    "top10_boundary_score_gap": null,
+    "top5_boundary_score_gap": null
+  },
+  "observed_turnover_bands": [
+    {
+      "bucket": "low_turnover",
+      "range": {
+        "min": 0.0,
+        "max": 0.2
+      },
+      "month_count": 2,
+      "mean_turnover": 0.09090909090909088,
+      "mean_capture_rate": 0.5189393939393939,
+      "mean_capture_count": 6.0,
+      "status": "non_blocking"
+    },
+    {
+      "bucket": "mid_turnover",
+      "range": {
+        "min": 0.2,
+        "max": 0.5
+      },
+      "month_count": 2,
+      "mean_turnover": 0.4006410256410256,
+      "mean_capture_rate": 0.5520833333333333,
+      "mean_capture_count": 5.5,
+      "status": "non_blocking"
+    },
+    {
+      "bucket": "high_turnover",
+      "range": {
+        "min": 0.5,
+        "max": null
+      },
+      "month_count": 2,
+      "mean_turnover": 0.7692307692307693,
+      "mean_capture_rate": 0.5333333333333333,
+      "mean_capture_count": 4.0,
+      "status": "soft_warning_only"
+    }
+  ],
+  "blocker_promotion_candidate_conditions": [
+    "turnover_proxy >= 0.60 and (top10_uplift <= 0 or worst_regime_delta < 0)",
+    "turnover_proxy >= 0.60 and (evaluation_window_count < 3 or coverage_status.status_reasons is not empty)",
+    "turnover_proxy >= 0.60 and bad_pick_removal <= 0",
+    "turnover_proxy >= 0.60 and top5_boundary_score_gap <= 0"
+  ],
+  "non_blocking_regions": [
+    {
+      "region": "observed_low_mid_high_turnover_bands",
+      "supporting_metrics": {
+        "low_turnover_mean_capture_rate": 0.5189393939393939,
+        "mid_turnover_mean_capture_rate": 0.5520833333333333,
+        "high_turnover_mean_capture_rate": 0.5333333333333333
+      },
+      "interpretation": "All observed turnover bands remain positive; turnover_too_high is therefore a soft warning, not a blocker."
+    },
+    {
+      "region": "completed_three_window_coverage",
+      "supporting_metrics": {
+        "evaluation_window_count": 3,
+        "status_reasons": []
+      },
+      "interpretation": "Coverage is complete, so the local turnover warning does not override the keep."
+    },
+    {
+      "region": "positive_value_carry",
+      "supporting_metrics": {
+        "bad_pick_removal": 6,
+        "top10_uplift": 0.017542163616904125,
+        "worst_regime_delta": 0.0
+      },
+      "interpretation": "The keep still carries positive bad-pick removal and non-negative uplift with no regime collapse."
+    }
+  ],
+  "ambiguous_regions": [
+    {
+      "region": "thin_top10_boundary",
+      "supporting_metrics": {
+        "top10_boundary_score_gap": null,
+        "top10_uplift": 0.017542163616904125
+      },
+      "interpretation": "Top10 remains positive but close to flat, so this is the first place to watch for future blocker promotion."
+    },
+    {
+      "region": "q1_low_liquidity_quartile",
+      "supporting_metrics": {
+        "mean_short_ret20": 0.04145853240089726,
+        "failure_reason_counts": {
+          "data_missing": 293,
+          "liquidity_fail": 232
+        }
+      },
+      "interpretation": "The weakest liquidity quartile is not a blocker today, but it is the least comfortable sample-level region."
+    },
+    {
+      "region": "high_turnover_months",
+      "supporting_metrics": {
+        "mean_turnover": 0.7692307692307693,
+        "mean_capture_rate": 0.5333333333333333
+      },
+      "interpretation": "High-turnover months stay inside the soft-warning envelope because capture remains positive."
+    }
+  ],
+  "recommendation_next_state": "provisional_keep_with_soft_warning",
+  "source_artifacts": {
+    "keep_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+    "keep_run": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-removal-20260417-r2-bp_liquidity_trap_penalty\\runs\\tradex-research-bp-removal-20260417-r2-bp_liquidity_trap_penalty-bp_liquidity_trap_penalty_v1\\run.json",
+    "decision_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_decision_contract.json",
+    "keep_envelope": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+    "turnover_warning_policy": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json",
+    "keep_stability": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_stability.json"
+  }
+}

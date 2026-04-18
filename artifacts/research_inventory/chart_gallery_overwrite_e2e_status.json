@@ -1,0 +1,64 @@
+{
+  "schema_version": "chart_gallery_overwrite_e2e_status_v1",
+  "generated_at": "2026-04-17T16:10:00+09:00",
+  "status": "verified_live",
+  "scope": "meeMee_end_to_end_chart_gallery_overwrite_contract",
+  "overwrite_contract_status": "verified_live",
+  "live_validation_status": "verified",
+  "browser_cache_validation_status": "verified",
+  "remaining_browser_cache_risk": "none",
+  "overlap_replacement_applied": true,
+  "cache_invalidation_applied": true,
+  "judgment_basis_after_import": "confirmed",
+  "remaining_cache_aliasing_risk": "present",
+  "reviewed_layers": [
+    {
+      "layer": "backend batch chart cache",
+      "status": "verified",
+      "evidence": "app/backend/api/routers/bars.py keys cache entries by runtime_db_path and data_version"
+    },
+    {
+      "layer": "frontend persistent chart cache",
+      "status": "verified",
+      "evidence": "app/frontend/src/persistentChartCache.ts invalidates on dataVersion changes and detail prefetch subscribes to version changes"
+    },
+    {
+      "layer": "derived judgment cache",
+      "status": "verified",
+      "evidence": "app/backend/api/routers/ticker.py now keys analysis series and timeline ranking caches by runtime DB fingerprint"
+    }
+  ],
+  "fixed_scenario": {
+    "symbol": "7203",
+    "overlap_date": 20260416,
+    "before_import": {
+      "overwrite_status": "provisional_only",
+      "chart_source_provider": "runtime_stock_db.daily_bars+yahoo_chart_overlay",
+      "confirmed_judgment_available": false,
+      "provisional_judgment_available": true,
+      "judgment_basis_after_import": "provisional"
+    },
+    "after_import": {
+      "overwrite_status": "provisional_replaced_by_confirmed",
+      "chart_source_provider": "runtime_stock_db.daily_bars",
+      "confirmed_judgment_available": true,
+      "provisional_judgment_available": false,
+      "judgment_basis_after_import": "confirmed"
+    }
+  },
+  "verification_artifacts": {
+    "plan": "C:\\work\\meemee-screener\\docs\\plans\\chart_gallery_overwrite_e2e.md",
+    "trace_sample": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_gallery_overwrite_trace_sample.json",
+    "overwrite_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_gallery_authoritative_overwrite_contract.json",
+    "chart_data_provenance_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_data_provenance_contract.json"
+  },
+  "non_scope": [
+    "ranking logic changes",
+    "retraining",
+    "boundary-aware compare execution",
+    "weak_recovery redesign",
+    "breakout_failure redesign",
+    "publish/promote flow changes",
+    "MeeMee-wide visual redesign"
+  ]
+}

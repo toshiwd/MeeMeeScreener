@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import time
+from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Any
 from threading import Lock
 
@@ -60,9 +61,9 @@ _EDINET_SUMMARY_CACHE: dict[tuple[str, int | None], tuple[float, Dict[str, Any] 
 _EDINET_SUMMARY_CACHE_LOCK = Lock()
 _EDINET_FINANCIALS_CACHE: dict[str, tuple[float, Dict[str, Any] | None]] = {}
 _EDINET_FINANCIALS_CACHE_LOCK = Lock()
-_ANALYSIS_SERIES_CACHE: dict[tuple[str, int | None, int, int], tuple[float, tuple[List[tuple], List[tuple]]]] = {}
+_ANALYSIS_SERIES_CACHE: dict[tuple[Any, ...], tuple[float, tuple[List[tuple], List[tuple]]]] = {}
 _ANALYSIS_SERIES_CACHE_LOCK = Lock()
-_TIMELINE_RANKING_CACHE: dict[tuple[str, int | None], tuple[float, float | None]] = {}
+_TIMELINE_RANKING_CACHE: dict[tuple[Any, ...], tuple[float, float | None]] = {}
 _TIMELINE_RANKING_CACHE_LOCK = Lock()
 _DETAIL_REQUEST_STATS_LOCK = Lock()
 _DETAIL_REQUEST_STATS: dict[str, Any] = {
@@ -237,6 +238,21 @@ async def _raise_if_client_disconnected(
     raise HTTPException(status_code=499, detail="client_closed")
 
 
+def _runtime_db_cache_marker() -> tuple[str | None, float | None]:
+    db_path = getattr(app_config, "DB_PATH", None)
+    if not db_path:
+        return None, None
+    try:
+        resolved = str(Path(str(db_path)).expanduser().resolve(strict=False))
+    except Exception:
+        resolved = str(db_path)
+    try:
+        mtime = Path(resolved).stat().st_mtime
+    except OSError:
+        mtime = None
+    return resolved, mtime
+
+
 def _get_cached_analysis_series(
     code: str,
     *,
@@ -244,7 +260,7 @@ def _get_cached_analysis_series(
     daily_limit: int,
     monthly_limit: int,
 ) -> tuple[List[tuple], List[tuple]] | None:
-    key = (str(code), asof_dt, int(daily_limit), int(monthly_limit))
+    key = (str(code), asof_dt, int(daily_limit), int(monthly_limit), _runtime_db_cache_marker())
     now = time.monotonic()
     with _ANALYSIS_SERIES_CACHE_LOCK:
         cached = _ANALYSIS_SERIES_CACHE.get(key)
@@ -264,7 +280,7 @@ def _put_cached_analysis_series(
     daily_rows: List[tuple],
     monthly_rows: List[tuple],
 ) -> None:
-    key = (str(code), asof_dt, int(daily_limit), int(monthly_limit))
+    key = (str(code), asof_dt, int(daily_limit), int(monthly_limit), _runtime_db_cache_marker())
     with _ANALYSIS_SERIES_CACHE_LOCK:
         _ANALYSIS_SERIES_CACHE[key] = (
             time.monotonic(),
@@ -310,7 +326,7 @@ def _load_analysis_series(
 
 
 def _get_cached_timeline_ranking_score(code: str, asof_dt: int | None) -> float | None | object:
-    key = (str(code), asof_dt)
+    key = (str(code), asof_dt, _runtime_db_cache_marker())
     now = time.monotonic()
     with _TIMELINE_RANKING_CACHE_LOCK:
         cached = _TIMELINE_RANKING_CACHE.get(key)
@@ -322,7 +338,7 @@ def _get_cached_timeline_ranking_score(code: str, asof_dt: int | None) -> float 
 
 
 def _put_cached_timeline_ranking_score(code: str, asof_dt: int | None, score: float | None) -> None:
-    key = (str(code), asof_dt)
+    key = (str(code), asof_dt, _runtime_db_cache_marker())
     with _TIMELINE_RANKING_CACHE_LOCK:
         _TIMELINE_RANKING_CACHE[key] = (time.monotonic(), score)
         if len(_TIMELINE_RANKING_CACHE) > 256:
@@ -422,6 +438,19 @@ def _format_jst_timestamp(ts: int | float | None) -> str | None:
         return None
 
 
+def _latest_row_date(rows: list[tuple] | None) -> int | None:
+    latest: int | None = None
+    for row in rows or []:
+        if not row:
+            continue
+        key = normalize_date_key(row[0])
+        if key is None:
+            continue
+        if latest is None or key > latest:
+            latest = key
+    return latest
+
+
 def _build_market_data_status_message(
     *,
     has_provisional: bool,
@@ -446,12 +475,29 @@ def _build_market_data_status_message(
     )
 
 
+def _should_apply_provisional_overlay(
+    *,
+    confirmed_last: int | None,
+    provisional_key: int | None,
+    asof_dt: int | None,
+) -> bool:
+    if provisional_key is None:
+        return False
+    if asof_dt is not None:
+        return False
+    if confirmed_last is None:
+        return True
+    return provisional_key > confirmed_last
+
+
 def _load_market_data_meta(
     code: str,
     *,
+    requested_date: int | None,
     intraday_provisional_key: int | None,
     provisional_fetched_at_ts: int | None,
     asof_dt: int | None,
+    provisional_applied: bool,
 ) -> dict[str, Any] | None:
     if asof_dt is not None or not code:
         return None
@@ -482,16 +528,24 @@ def _load_market_data_meta(
 
     latest_pan_date = normalize_date_key(row[0]) if row and row[0] is not None else None
     latest_yahoo_date = normalize_date_key(row[1]) if row and row[1] is not None else None
+    effective_provisional_last = intraday_provisional_key if intraday_provisional_key is not None else latest_yahoo_date
     pending_yahoo_dates = [
         value
         for value in (normalize_date_key(item[0]) for item in pending_rows)
         if value is not None and (latest_pan_date is None or value > latest_pan_date)
     ]
     latest_resolved_date = max(
-        [value for value in (latest_pan_date, latest_yahoo_date, intraday_provisional_key) if value is not None],
+        [
+            value
+            for value in (
+                latest_pan_date,
+                effective_provisional_last if provisional_applied else None,
+            )
+            if value is not None
+        ],
         default=None,
     )
-    if intraday_provisional_key is not None and (
+    if intraday_provisional_key is not None and provisional_applied and (
         latest_pan_date is None or intraday_provisional_key > latest_pan_date
     ):
         pending_yahoo_dates.append(intraday_provisional_key)
@@ -503,7 +557,7 @@ def _load_market_data_meta(
         default=None,
     )
     pan_delayed = delayed_pending_date is not None
-    has_provisional = pending_yahoo_date is not None
+    has_provisional = provisional_applied and pending_yahoo_date is not None
     message = _build_market_data_status_message(
         has_provisional=has_provisional,
         pan_delayed=pan_delayed,
@@ -525,6 +579,94 @@ def _load_market_data_meta(
         "closeTimeJst": session.close_time_jst,
         "panFinalizeAfterJst": session.pan_finalize_after_jst,
         "message": message,
+        "confirmedChartSourceProvider": "chart_gallery_confirmed_source",
+        "provisionalChartSourceProvider": "yahoo_intraday_unconfirmed_source" if effective_provisional_last is not None else None,
+        "confirmedJudgmentBasis": "chart_gallery_confirmed_source_only"
+        if latest_pan_date is not None and requested_date is not None and requested_date <= latest_pan_date
+        else None,
+        "provisionalJudgmentBasis": "yahoo_intraday_unconfirmed_source_only" if has_provisional else None,
+        "confirmedJudgmentAvailable": bool(
+            latest_pan_date is not None and requested_date is not None and requested_date <= latest_pan_date
+        ),
+        "provisionalJudgmentAvailable": bool(has_provisional),
+        "displayBasisClassification": (
+            "mixed"
+            if has_provisional and latest_pan_date is not None
+            else "provisional"
+            if has_provisional
+            else "confirmed"
+            if latest_pan_date is not None
+            else None
+        ),
+        "judgmentBasisClassification": (
+            "dual"
+            if latest_pan_date is not None
+            and requested_date is not None
+            and requested_date <= latest_pan_date
+            and has_provisional
+            else "confirmed"
+            if latest_pan_date is not None and requested_date is not None and requested_date <= latest_pan_date
+            else "provisional"
+            if has_provisional
+            else None
+        ),
+        "confirmedLastAvailableDate": latest_pan_date,
+        "provisionalLastAvailableDate": effective_provisional_last,
+        "overwriteStatus": (
+            "provisional_replaced_by_confirmed"
+            if effective_provisional_last is not None
+            and latest_pan_date is not None
+            and effective_provisional_last <= latest_pan_date
+            else "authoritative_confirmed"
+            if latest_pan_date is not None and not has_provisional
+            else "provisional_only"
+            if has_provisional
+            else None
+        ),
+        "confirmed_chart_source_provider": "chart_gallery_confirmed_source",
+        "provisional_chart_source_provider": "yahoo_intraday_unconfirmed_source" if effective_provisional_last is not None else None,
+        "confirmed_judgment_basis": "chart_gallery_confirmed_source_only"
+        if latest_pan_date is not None and requested_date is not None and requested_date <= latest_pan_date
+        else None,
+        "provisional_judgment_basis": "yahoo_intraday_unconfirmed_source_only" if has_provisional else None,
+        "confirmed_judgment_available": bool(
+            latest_pan_date is not None and requested_date is not None and requested_date <= latest_pan_date
+        ),
+        "provisional_judgment_available": bool(has_provisional),
+        "display_basis_classification": (
+            "mixed"
+            if has_provisional and latest_pan_date is not None
+            else "provisional"
+            if has_provisional
+            else "confirmed"
+            if latest_pan_date is not None
+            else None
+        ),
+        "judgment_basis_classification": (
+            "dual"
+            if latest_pan_date is not None
+            and requested_date is not None
+            and requested_date <= latest_pan_date
+            and has_provisional
+            else "confirmed"
+            if latest_pan_date is not None and requested_date is not None and requested_date <= latest_pan_date
+            else "provisional"
+            if has_provisional
+            else None
+        ),
+        "confirmed_last_available_date": latest_pan_date,
+        "provisional_last_available_date": effective_provisional_last,
+        "overwrite_status": (
+            "provisional_replaced_by_confirmed"
+            if effective_provisional_last is not None
+            and latest_pan_date is not None
+            and effective_provisional_last <= latest_pan_date
+            else "authoritative_confirmed"
+            if latest_pan_date is not None and not has_provisional
+            else "provisional_only"
+            if has_provisional
+            else None
+        ),
     }
     message: str | None = None
     delayed_date_text = _format_date_key(delayed_pending_date)
@@ -560,16 +702,23 @@ def _load_monthly_rows_with_provisional(
     *,
     limit: int,
     asof_dt: int | None,
-) -> tuple[List[tuple], int | None, int | None]:
+) -> tuple[List[tuple], int | None, int | None, bool]:
     patch_daily_rows = repo.get_daily_bars(code, 62, asof_dt)
     rows = repo.get_monthly_bars(code, limit, asof_dt, recent_daily_rows=patch_daily_rows)
     intraday_provisional_key: int | None = None
     provisional_fetched_at_ts: int | None = None
+    provisional_applied = False
     if asof_dt is None:
         try:
             provisional_row = get_provisional_daily_row_from_chart(code)
             provisional_key = normalize_date_key(provisional_row[0]) if provisional_row else None
-            if provisional_key == _today_jst_key():
+            confirmed_last = _latest_row_date(patch_daily_rows)
+            provisional_applied = _should_apply_provisional_overlay(
+                confirmed_last=confirmed_last,
+                provisional_key=provisional_key,
+                asof_dt=asof_dt,
+            )
+            if provisional_applied:
                 patch_daily_rows = merge_daily_rows_with_provisional(patch_daily_rows, provisional_row)
                 intraday_provisional_key = provisional_key
                 provisional_fetched_at_ts = int(time.time())
@@ -578,7 +727,7 @@ def _load_monthly_rows_with_provisional(
     patch_daily_rows = apply_split_gap_adjustment(patch_daily_rows)
     rows = merge_monthly_rows_with_daily(rows, patch_daily_rows)
     rows = apply_split_gap_adjustment(rows)
-    return rows, intraday_provisional_key, provisional_fetched_at_ts
+    return rows, intraday_provisional_key, provisional_fetched_at_ts, provisional_applied
 
 
 @router.get("/daily", response_model=None)
@@ -594,22 +743,31 @@ def get_daily_bars(
     rows = repo.get_daily_bars(code, limit, asof_dt)
     intraday_provisional_key: int | None = None
     provisional_fetched_at_ts: int | None = None
+    provisional_applied = False
     try:
         provisional_row = get_provisional_daily_row_from_chart(code)
-        today_key_jst = _today_jst_key()
         provisional_key = normalize_date_key(provisional_row[0]) if provisional_row else None
-        if provisional_key == today_key_jst:
+        confirmed_last = _latest_row_date(rows)
+        provisional_applied = _should_apply_provisional_overlay(
+            confirmed_last=confirmed_last,
+            provisional_key=provisional_key,
+            asof_dt=asof_dt,
+        )
+        if provisional_applied:
             rows = merge_daily_rows_with_provisional(rows, provisional_row, asof_dt=asof_dt)
             intraday_provisional_key = provisional_key
             provisional_fetched_at_ts = int(time.time())
     except Exception as exc:
         logger.debug("Yahoo provisional merge skipped for code=%s: %s", code, exc)
     rows = apply_split_gap_adjustment(rows)
+    requested_date = _latest_row_date(rows)
     meta = _load_market_data_meta(
         code,
+        requested_date=requested_date,
         intraday_provisional_key=intraday_provisional_key,
         provisional_fetched_at_ts=provisional_fetched_at_ts,
         asof_dt=asof_dt,
+        provisional_applied=provisional_applied,
     )
     return {"data": _normalize_rows(rows, fill_volume=True), "errors": [], "meta": meta}
 
@@ -629,7 +787,7 @@ async def get_monthly_bars(
     asof_dt = _parse_dt(asof)
     error: Exception | None = None
     try:
-        rows, intraday_provisional_key, provisional_fetched_at_ts = await run_in_threadpool(
+        rows, intraday_provisional_key, provisional_fetched_at_ts, provisional_applied = await run_in_threadpool(
             _load_monthly_rows_with_provisional,
             repo,
             code,
@@ -638,12 +796,15 @@ async def get_monthly_bars(
         )
         _record_detail_query_step(token, 2)
         await _raise_if_client_disconnected(request, token, phase="query")
+        requested_date = _latest_row_date(rows)
         meta = await run_in_threadpool(
             _load_market_data_meta,
             code,
+            requested_date=requested_date,
             intraday_provisional_key=intraday_provisional_key,
             provisional_fetched_at_ts=provisional_fetched_at_ts,
             asof_dt=asof_dt,
+            provisional_applied=provisional_applied,
         )
         _record_detail_query_step(token, 1)
         payload = {"data": _normalize_rows(rows, fill_volume=True), "errors": [], "meta": meta}

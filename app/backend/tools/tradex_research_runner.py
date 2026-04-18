@@ -18,6 +18,7 @@ import pandas as pd
 from app.backend.api.dependencies import get_stock_repo
 from app.backend.core.legacy_analysis_control import LEGACY_ANALYSIS_DISABLE_ENV, is_legacy_analysis_disabled
 from app.backend.services import tradex_experiment_service as tradex
+from app.backend.services import tradex_research_environment_readiness as tradex_environment_readiness
 from app.backend.services.tradex_research_contracts import (
     TRADEX_ARTIFACT_DETAIL_LEVEL_AUTHORITATIVE,
     TRADEX_ARTIFACT_DETAIL_LEVEL_RESEARCH_FALLBACK,
@@ -244,6 +245,7 @@ def _scenario_candidate_signature(spec: ScenarioSpec) -> str:
         "signal_bias": _text(plan.get("signal_bias"), fallback="balanced"),
         "top_k": max(1, tradex._int(plan.get("top_k")) or 0),
         "bad_pick_penalty_scale": tradex._float(plan.get("bad_pick_penalty_scale")) or 0.0,
+        "bad_pick_penalty_profile": _text(plan.get("bad_pick_penalty_profile"), fallback="shared"),
         "playbook_up_score_bonus": tradex._float(plan.get("playbook_up_score_bonus")) or 0.0,
         "playbook_down_score_bonus": tradex._float(plan.get("playbook_down_score_bonus")) or 0.0,
     }
@@ -274,6 +276,8 @@ def _scenario_plan_overrides(
         "signal_bias": signal_bias,
         "top_k": plan_top_k,
         "bad_pick_penalty_scale": bad_pick_penalty_scale,
+        "bad_pick_penalty_profile": _text(getattr(spec, "bad_pick_penalty_profile", ""), fallback="shared"),
+        "target_failure_bucket": _text(getattr(spec, "target_failure_bucket", "")),
         "playbook_up_score_bonus": playbook_up_score_bonus,
         "playbook_down_score_bonus": playbook_down_score_bonus,
         "scenario_definition": _scenario_definition_to_payload(spec),
@@ -5195,6 +5199,7 @@ def run_tradex_research_session(
                 "signal_bias": _text(candidate_spec.plan_overrides.get("signal_bias"), fallback="balanced"),
                 "top_k": max(1, tradex._int(candidate_spec.plan_overrides.get("top_k")) or 0),
                 "bad_pick_penalty_scale": tradex._float(candidate_spec.plan_overrides.get("bad_pick_penalty_scale")) or 0.0,
+                "bad_pick_penalty_profile": _text(candidate_spec.plan_overrides.get("bad_pick_penalty_profile"), fallback="shared"),
                 "playbook_up_score_bonus": tradex._float(candidate_spec.plan_overrides.get("playbook_up_score_bonus")) or 0.0,
                 "playbook_down_score_bonus": tradex._float(candidate_spec.plan_overrides.get("playbook_down_score_bonus")) or 0.0,
             }
@@ -7179,8 +7184,35 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _validate_runtime_db_contract() -> dict[str, Any]:
+    readiness_report = tradex_environment_readiness.evaluate_environment_readiness()
+    readiness_summary = readiness_report.get("readiness_summary") if isinstance(readiness_report.get("readiness_summary"), dict) else {}
+    contract = {
+        "schema_version": "tradex_runtime_db_contract_validation_v1",
+        "ready": bool(readiness_report.get("ready")),
+        "cause_class": _text(readiness_report.get("cause_class"), fallback="unknown"),
+        "cause_source": _text(readiness_report.get("cause_source"), fallback="unknown"),
+        "database_path": _text(readiness_summary.get("database_path")),
+        "required_table": _text(readiness_summary.get("required_table"), fallback="market_regime_daily"),
+        "table_exists": bool(readiness_summary.get("table_exists")),
+        "table_row_count": int(readiness_summary.get("table_row_count") or 0),
+        "label_version_row_count": int(readiness_summary.get("label_version_row_count") or 0),
+        "selected_window_count": int(readiness_summary.get("selected_window_count") or 0),
+        "selected_window_issues": [str(item) for item in (readiness_summary.get("selected_window_issues") or []) if str(item).strip()],
+        "checked_at": _text(readiness_report.get("checked_at")),
+        "remediation_hint": _text(readiness_report.get("remediation_hint")),
+    }
+    if not contract["ready"]:
+        raise RuntimeError(
+            "TRADEX runtime DB contract failed: "
+            + json.dumps(_json_ready(contract), ensure_ascii=False, sort_keys=True)
+        )
+    return contract
+
+
 def main() -> int:
     args = _build_parser().parse_args()
+    _validate_runtime_db_contract()
     if bool(args.scenario_search):
         result = run_tradex_scenario_search(
             search_id=str(args.session_id),

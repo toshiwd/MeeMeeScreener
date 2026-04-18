@@ -16,6 +16,7 @@ import pandas as pd
 from app.backend.services.ml import rankings_cache
 from app.core.config import config
 from app.db.session import get_conn, get_conn_for_path
+from shared.runtime_stock_db_contract import inspect_runtime_stock_db
 
 WATCH_HORIZON_BARS = 30
 COMPLETED_RETENTION_DAYS = 30
@@ -679,6 +680,67 @@ def _resolved_db_path(db_path: str | None = None) -> str:
         return str(target)
 
 
+def _runtime_stock_db_status(
+    *,
+    requested_symbol: str | None = None,
+    requested_chart_date: int | str | None = None,
+    db_path: str | None = None,
+    reference_db_path: str | None = None,
+) -> dict[str, Any]:
+    return inspect_runtime_stock_db(
+        runtime_db_path=db_path,
+        requested_symbol=requested_symbol,
+        requested_chart_date=requested_chart_date,
+        reference_db_path=reference_db_path,
+    )
+
+
+def _build_chart_basis_detail_fields(runtime_stock_db_contract: dict[str, Any]) -> dict[str, Any]:
+    requested_chart_date = runtime_stock_db_contract.get("requested_chart_date")
+    latest_available_global_date = runtime_stock_db_contract.get("latest_available_global_date")
+    date_match_status = str(runtime_stock_db_contract.get("date_match_status") or "blocked")
+    confirmed_judgment_available = date_match_status == "exact"
+    provisional_judgment_available = date_match_status == "lagged_provisional"
+    display_basis_classification = "confirmed" if confirmed_judgment_available else "provisional" if provisional_judgment_available else None
+    judgment_basis_classification = "confirmed" if confirmed_judgment_available else "provisional" if provisional_judgment_available else None
+    overwrite_status = (
+        "authoritative_confirmed"
+        if confirmed_judgment_available
+        else "provisional_only"
+        if provisional_judgment_available
+        else None
+    )
+    confirmed_last_available_date = (
+        int(latest_available_global_date)
+        if isinstance(latest_available_global_date, int)
+        else None
+    )
+    provisional_last_available_date = (
+        int(requested_chart_date)
+        if provisional_judgment_available and requested_chart_date is not None
+        else None
+    )
+    return {
+        "confirmed_chart_source_provider": "chart_gallery_confirmed_source",
+        "provisional_chart_source_provider": "yahoo_intraday_unconfirmed_source"
+        if provisional_judgment_available
+        else None,
+        "confirmed_judgment_basis": "chart_gallery_confirmed_source_only"
+        if confirmed_judgment_available
+        else None,
+        "provisional_judgment_basis": "yahoo_intraday_unconfirmed_source_only"
+        if provisional_judgment_available
+        else None,
+        "confirmed_judgment_available": confirmed_judgment_available,
+        "provisional_judgment_available": provisional_judgment_available,
+        "display_basis_classification": display_basis_classification,
+        "judgment_basis_classification": judgment_basis_classification,
+        "confirmed_last_available_date": confirmed_last_available_date,
+        "provisional_last_available_date": provisional_last_available_date,
+        "overwrite_status": overwrite_status,
+    }
+
+
 @contextmanager
 def _temporary_stocks_db_path(db_path: str | None) -> Iterator[None]:
     if not db_path:
@@ -1063,6 +1125,7 @@ def list_ranking_logic_versions(*, db_path: str | None = None) -> dict[str, Any]
 def get_tracking_runtime_status(*, db_path: str | None = None) -> dict[str, Any]:
     resolved_data_dir = str(config.DATA_DIR)
     resolved_stocks_db_path = _resolved_db_path(db_path)
+    runtime_stock_db_contract = _runtime_stock_db_status(db_path=db_path)
     with _open_conn(db_path, read_only=True) as conn:
         signal_occurrence_count = _table_count(conn, "signal_occurrence")
         signal_decision_count = _table_count(conn, "signal_decision_daily")
@@ -1073,6 +1136,7 @@ def get_tracking_runtime_status(*, db_path: str | None = None) -> dict[str, Any]
         "ok": True,
         "resolved_data_dir": resolved_data_dir,
         "resolved_stocks_db_path": resolved_stocks_db_path,
+        "runtime_stock_db_contract": runtime_stock_db_contract,
         "signal_occurrence_count": signal_occurrence_count,
         "signal_decision_count": signal_decision_count,
         "signal_latest_date": signal_latest_ymd,
@@ -5040,11 +5104,34 @@ def get_signal_event_detail(
                 anchor_exec_price=event["anchor_price_next_open"],
                 latest_market_ymd=latest_market_ymd,
             )["price_series"]
+    runtime_stock_db_contract = _runtime_stock_db_status(
+        requested_symbol=event["code"],
+        requested_chart_date=event["signal_date"],
+        db_path=db_path,
+    )
+    chart_basis_fields = _build_chart_basis_detail_fields(runtime_stock_db_contract)
+    artifact_source_last_date = runtime_stock_db_contract.get("latest_available_global_date")
+    date_match_status = str(runtime_stock_db_contract.get("date_match_status") or "blocked")
+    if date_match_status not in {"exact", "lagged_provisional", "blocked"}:
+        date_match_status = "blocked"
+    judgment_validity_status = date_match_status
     return {
         "event": event,
         "campaign": campaign["campaign"] if isinstance(campaign, dict) and "campaign" in campaign else campaign,
         "occurrences": campaign["occurrences"] if isinstance(campaign, dict) and "occurrences" in campaign else [],
         "price_series": price_series,
+        "requested_chart_date": event["signal_date"],
+        "requested_chart_date_iso": _ymd_to_iso(event["signal_date"]),
+        "artifact_source_last_date": artifact_source_last_date,
+        "artifact_source_last_date_iso": _ymd_to_iso(int(artifact_source_last_date)) if isinstance(artifact_source_last_date, int) else None,
+        "date_gap_days": runtime_stock_db_contract.get("date_gap_days"),
+        "date_match_status": date_match_status,
+        "judgment_validity_status": judgment_validity_status,
+        "runtime_db_path": runtime_stock_db_contract.get("runtime_db_path"),
+        "resolution_reason": runtime_stock_db_contract.get("resolution_reason"),
+        "source_freshness_status": runtime_stock_db_contract.get("source_freshness_status"),
+        "runtime_stock_db_contract": runtime_stock_db_contract,
+        **chart_basis_fields,
     }
 
 
@@ -5644,7 +5731,33 @@ def get_ranking_appearance_detail(
                 anchor_exec_price=appearance["anchor_price_next_open"],
                 latest_market_ymd=latest_market_ymd,
             )["price_series"]
-    return {"appearance": appearance, "price_series": price_series}
+    runtime_stock_db_contract = _runtime_stock_db_status(
+        requested_symbol=appearance["code"],
+        requested_chart_date=appearance["date"],
+        db_path=db_path,
+    )
+    chart_basis_fields = _build_chart_basis_detail_fields(runtime_stock_db_contract)
+    artifact_source_last_date = runtime_stock_db_contract.get("latest_available_global_date")
+    date_match_status = str(runtime_stock_db_contract.get("date_match_status") or "blocked")
+    if date_match_status not in {"exact", "lagged_provisional", "blocked"}:
+        date_match_status = "blocked"
+    judgment_validity_status = date_match_status
+    return {
+        "appearance": appearance,
+        "price_series": price_series,
+        "requested_chart_date": appearance["date"],
+        "requested_chart_date_iso": _ymd_to_iso(appearance["date"]),
+        "artifact_source_last_date": artifact_source_last_date,
+        "artifact_source_last_date_iso": _ymd_to_iso(int(artifact_source_last_date)) if isinstance(artifact_source_last_date, int) else None,
+        "date_gap_days": runtime_stock_db_contract.get("date_gap_days"),
+        "date_match_status": date_match_status,
+        "judgment_validity_status": judgment_validity_status,
+        "runtime_db_path": runtime_stock_db_contract.get("runtime_db_path"),
+        "resolution_reason": runtime_stock_db_contract.get("resolution_reason"),
+        "source_freshness_status": runtime_stock_db_contract.get("source_freshness_status"),
+        "runtime_stock_db_contract": runtime_stock_db_contract,
+        **chart_basis_fields,
+    }
 
 
 def get_ranking_history_summary(

@@ -27,6 +27,23 @@ class _FakeRepo:
         return {code: rows[-limit:] for code in codes}
 
 
+class _ProvenanceRepo:
+    def get_daily_bars_batch(self, codes, limit, asof_dt=None):
+        rows = [
+            (20260401, 100.0, 110.0, 95.0, 105.0, 1000.0),
+            (20260402, 106.0, 112.0, 101.0, 111.0, 1200.0),
+            (20260403, 111.0, 115.0, 109.0, 114.0, 900.0),
+        ]
+        return {code: rows[-limit:] for code in codes}
+
+    def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
+        rows = [
+            (202603, 90.0, 101.0, 88.0, 100.0, 10000.0),
+            (202604, 100.0, 115.0, 95.0, 114.0, 12000.0),
+        ]
+        return {code: rows[-limit:] for code in codes}
+
+
 def _build_client() -> TestClient:
     app = FastAPI()
     app.include_router(bars_module.router)
@@ -118,6 +135,129 @@ def test_batch_bars_v3_marks_live_provisional_data_version(monkeypatch, tmp_path
     assert response.status_code == 200
     data_version = response.json()["meta"]["data_version"]
     assert data_version == "duckdb-mtime:1700000000.000000|yf-live:202604130900"
+
+
+def test_batch_bars_v3_exposes_chart_provenance_for_provisional_overlay(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "stocks.duckdb"
+    db_path.touch()
+    os.utime(db_path, (1_700_000_000, 1_700_000_000))
+    monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return datetime(2026, 4, 16, 12, 0, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(bars_module, "datetime", _FixedDatetime)
+    monkeypatch.setattr(
+        bars_module,
+        "get_provisional_daily_rows_from_spark",
+        lambda codes, prefer_chart_ohlc=True: {code: (1776297600, 116.0, 118.0, 114.0, 117.5, 1500.0) for code in codes},
+    )
+    bars_module._batch_v3_cache.clear()
+    bars_module._batch_v3_inflight.clear()
+
+    client = FastAPI()
+    client.include_router(bars_module.router)
+    client.dependency_overrides[get_stock_repo] = lambda: _ProvenanceRepo()
+    test_client = TestClient(client)
+
+    response = test_client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["daily", "weekly", "monthly"],
+            "limit": 24,
+            "includeProvisional": True,
+            "includeBoxes": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["items"]["7203"]
+    daily = payload["daily"]
+    weekly = payload["weekly"]
+    monthly = payload["monthly"]
+
+    assert daily["provenance"]["chart_source_provider"] == "runtime_stock_db.daily_bars+yahoo_chart_overlay"
+    assert daily["provenance"]["chart_last_confirmed_date"] == 20260403
+    assert daily["provenance"]["chart_last_provisional_date"] == 20260416
+    assert daily["provenance"]["chart_date_match_status"] == "lagged_provisional"
+    assert daily["provenance"]["chart_source_freshness_status"] == "lagged"
+    assert daily["provenance"]["chart_data_classification"] == "mixed"
+    assert daily["provenance"]["confirmed_chart_source_provider"] == "chart_gallery_confirmed_source"
+    assert daily["provenance"]["provisional_chart_source_provider"] == "yahoo_intraday_unconfirmed_source"
+    assert daily["provenance"]["confirmed_judgment_available"] is False
+    assert daily["provenance"]["provisional_judgment_available"] is True
+    assert daily["provenance"]["display_basis_classification"] == "mixed"
+    assert daily["provenance"]["judgment_basis_classification"] == "provisional"
+    assert daily["provenance"]["confirmed_last_available_date"] == 20260403
+    assert daily["provenance"]["provisional_last_available_date"] == 20260416
+    assert daily["provenance"]["overwrite_status"] == "provisional_only"
+    assert weekly["provenance"]["chart_aggregation_source"] == "derived"
+    assert monthly["provenance"]["chart_source_provider"].startswith("runtime_stock_db.monthly_bars+runtime_stock_db.daily_bars")
+
+
+def test_batch_bars_v3_prefers_confirmed_overlapping_chart_gallery_data(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "stocks.duckdb"
+    db_path.touch()
+    os.utime(db_path, (1_700_000_000, 1_700_000_000))
+    monkeypatch.setenv("STOCKS_DB_PATH", str(db_path))
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return datetime(2026, 4, 16, 12, 0, 0, tzinfo=timezone.utc)
+
+    class _ConfirmedOverlapRepo:
+        def get_daily_bars_batch(self, codes, limit, asof_dt=None):
+            rows = [
+                (20260414, 100.0, 110.0, 95.0, 105.0, 1000.0),
+                (20260415, 106.0, 112.0, 101.0, 111.0, 1200.0),
+                (20260416, 111.0, 115.0, 109.0, 114.0, 900.0),
+            ]
+            return {code: rows[-limit:] for code in codes}
+
+        def get_monthly_bars_batch(self, codes, limit, asof_dt=None, recent_daily_rows_by_code=None):
+            rows = [
+                (202603, 90.0, 101.0, 88.0, 100.0, 10000.0),
+                (202604, 100.0, 115.0, 95.0, 114.0, 12000.0),
+            ]
+            return {code: rows[-limit:] for code in codes}
+
+    monkeypatch.setattr(bars_module, "datetime", _FixedDatetime)
+    monkeypatch.setattr(
+        bars_module,
+        "get_provisional_daily_rows_from_spark",
+        lambda codes, prefer_chart_ohlc=True: {code: (1776297600, 116.0, 118.0, 114.0, 117.5, 1500.0) for code in codes},
+    )
+
+    client = FastAPI()
+    client.include_router(bars_module.router)
+    client.dependency_overrides[get_stock_repo] = lambda: _ConfirmedOverlapRepo()
+    test_client = TestClient(client)
+
+    response = test_client.post(
+        "/api/batch_bars_v3",
+        json={
+            "codes": ["7203"],
+            "timeframes": ["daily", "weekly", "monthly"],
+            "limit": 24,
+            "includeProvisional": True,
+            "includeBoxes": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["items"]["7203"]
+    daily = payload["daily"]
+    assert daily["provenance"]["chart_source_provider"] == "runtime_stock_db.daily_bars"
+    assert daily["provenance"]["chart_data_classification"] == "confirmed"
+    assert daily["provenance"]["confirmed_judgment_available"] is True
+    assert daily["provenance"]["provisional_judgment_available"] is False
+    assert daily["provenance"]["display_basis_classification"] == "confirmed"
+    assert daily["provenance"]["judgment_basis_classification"] == "confirmed"
+    assert daily["provenance"]["overwrite_status"] == "provisional_replaced_by_confirmed"
 
 
 def test_batch_bars_v3_omits_live_bucket_for_historical_asof(monkeypatch, tmp_path) -> None:

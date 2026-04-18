@@ -1,0 +1,57 @@
+{
+  "affected_regimes": [
+    "up",
+    "down",
+    "flat"
+  ],
+  "affected_topk_band": "top5/top10 boundary",
+  "blocker_promotion_conditions": [
+    "turnover_proxy >= 0.60 and (top10_uplift <= 0 or worst_regime_delta < 0)",
+    "turnover_proxy >= 0.60 and (evaluation_window_count < 3 or coverage_status.status_reasons is not empty)",
+    "turnover_proxy >= 0.60 and bad_pick_removal <= 0",
+    "turnover_proxy >= 0.60 and top5_boundary_score_gap <= 0"
+  ],
+  "candidate_name": "bp_liquidity_trap_penalty/v1",
+  "current_classification": "soft_warning_non_blocking",
+  "decision_examples": [
+    {
+      "case_name": "current_keep_candidate",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "turnover_too_high",
+      "authoritative_candidate_gate": "keep",
+      "authoritative_gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+      "authoritative_override_reason_code": "coverage_restored_keep_with_turnover_warning",
+      "research_contract_status": "provisional_keep_with_soft_warning",
+      "notes": "Coverage is complete and positive bad-pick removal is preserved, so turnover remains a soft warning."
+    },
+    {
+      "case_name": "future_blocker_candidate",
+      "compare_engine_local_decision": "hold",
+      "compare_engine_local_reason": "turnover_too_high",
+      "authoritative_candidate_gate": "drop",
+      "authoritative_gate_reason": "turnover_warning_promoted_to_blocker",
+      "authoritative_override_reason_code": "turnover_warning_promoted_to_blocker",
+      "research_contract_status": "blocker_candidate",
+      "notes": "A candidate should block only if the turnover warning coincides with value collapse or incomplete coverage."
+    }
+  ],
+  "generated_at": "2026-04-17T12:00:00+09:00",
+  "non_blocking_conditions": [
+    "bad_pick_removal > 0",
+    "top10_uplift > 0",
+    "evaluation_window_count == 3",
+    "coverage_status.status_reasons is empty",
+    "worst_regime_delta >= 0",
+    "turnover_proxy < 0.60 or high-turnover months remain value-positive"
+  ],
+  "research_contract_status": "provisional_keep_with_soft_warning",
+  "schema_version": "tradex_liquidity_turnover_warning_policy_v1",
+  "source_artifacts": {
+    "decision_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_decision_contract.json",
+    "keep_stability": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_stability.json",
+    "keep_envelope": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+    "shadow_eval": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json",
+    "monolithic_keep_compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+    "pairwise_round_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_pairwise_decomposition_round_summary.json"
+  }
+}

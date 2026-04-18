@@ -21,7 +21,8 @@ const makePayload = (): BarsPayload => ({
     [20260318, 100, 102, 98, 101, 10],
     [20260319, 101, 112, 99, 110, 100]
   ],
-  ma: { ma7: [], ma20: [], ma60: [] }
+  ma: { ma7: [], ma20: [], ma60: [] },
+  provenance: null
 });
 
 const buildRenderKey = (payload: BarsPayload) => {
@@ -248,7 +249,8 @@ describe("ThumbnailCanvas", () => {
         [20260318, 100, 102, 98, 101, 10],
         [20260319, 101, 113, 99, 111, 120]
       ],
-      ma: { ma7: [], ma20: [], ma60: [] }
+      ma: { ma7: [], ma20: [], ma60: [] },
+      provenance: null
     };
 
     act(() => {

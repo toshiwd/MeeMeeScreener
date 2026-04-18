@@ -144,7 +144,8 @@ const writePersistedScreenerListCache = ({
 const createEmptyBarsPayload = (): BarsPayload => ({
   bars: [],
   ma: { ma7: [], ma20: [], ma60: [] },
-  boxes: []
+  boxes: [],
+  provenance: null,
 });
 
 const resetBarsRuntimeState = () => {
@@ -778,12 +779,19 @@ export const useStore = create<StoreState>((set, get) => ({
             missingRatio >= WATCHLIST_AUTO_REPAIR_MIN_RATIO;
 
           if (shouldAutoRepair && typeof window !== "undefined") {
-            const now = Date.now();
-            const lastAutoRepairTs = Number(window.localStorage.getItem(WATCHLIST_AUTO_REPAIR_TS_KEY) || "0");
-            if (!Number.isFinite(lastAutoRepairTs) || now - lastAutoRepairTs >= WATCHLIST_AUTO_REPAIR_COOLDOWN_MS) {
-              window.localStorage.setItem(WATCHLIST_AUTO_REPAIR_TS_KEY, String(now));
-              // Auto-repair missing watchlist coverage in the background.
-              void api.post("/jobs/force-sync").catch(() => undefined);
+            const disableAutoRepair =
+              Boolean((window as typeof window & { MEEMEE_DISABLE_WATCHLIST_AUTO_REPAIR?: boolean }).MEEMEE_DISABLE_WATCHLIST_AUTO_REPAIR) ||
+              window.location.search.includes("overwriteLiveValidation=1");
+            if (disableAutoRepair) {
+              // Live overwrite validation keeps the pre-import baseline provisional.
+            } else {
+              const now = Date.now();
+              const lastAutoRepairTs = Number(window.localStorage.getItem(WATCHLIST_AUTO_REPAIR_TS_KEY) || "0");
+              if (!Number.isFinite(lastAutoRepairTs) || now - lastAutoRepairTs >= WATCHLIST_AUTO_REPAIR_COOLDOWN_MS) {
+                window.localStorage.setItem(WATCHLIST_AUTO_REPAIR_TS_KEY, String(now));
+                // Auto-repair missing watchlist coverage in the background.
+                void api.post("/jobs/force-sync").catch(() => undefined);
+              }
             }
           }
 
@@ -906,7 +914,8 @@ export const useStore = create<StoreState>((set, get) => ({
       const payload: BarsPayload = {
         bars: entry.bars,
         ma: { ma7: [], ma20: [], ma60: [] },
-        boxes: entry.boxes
+        boxes: entry.boxes,
+        provenance: entry.provenance ?? null,
       };
       cachedItems[code] = payload;
       markFetchedLimit(timeframe, code, limit);
@@ -1093,6 +1102,7 @@ export const useStore = create<StoreState>((set, get) => ({
                 boxes: payload.boxes ?? [],
                 fetchedAt,
                 dataVersion,
+                provenance: payload.provenance ?? null,
               }
             );
           })

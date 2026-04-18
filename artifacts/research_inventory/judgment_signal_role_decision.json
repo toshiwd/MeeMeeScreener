@@ -1,0 +1,35 @@
+{
+  "schema_version": "tradex_judgment_signal_role_decision_v1",
+  "generated_at": "2026-04-17T14:00:00+09:00",
+  "status": "confirmed",
+  "role_decision": "explainability_only",
+  "decision_basis": {
+    "authoritative_trade_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_trade_value_summary.json",
+    "authoritative_definition": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\judgment_signal_definition.json",
+    "authoritative_core_method_recentered": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\core_method_recentering_decision.json"
+  },
+  "reason": "No complete-horizon, leakage-safe evidence exists in the authoritative benchmark corpus, so historical buy/sell judgments are demoted out of core scoring. This is a standing role decision, not a temporary hold. Keep them available for explanation and operator review only.",
+  "core_scoring_enabled": false,
+  "active_core_feature_family": false,
+  "feature_family_state": "demoted_from_core",
+  "decision_persistence": "standing_until_superseded_by_same_condition_evidence",
+  "replacement_model_objective": "direct_future_outcome_ranking",
+  "evidence": {
+    "complete_horizon_count": 0,
+    "labeled_sample_count": 0,
+    "selection_uplift_observed": false,
+    "trade_outcome_improvement_observed": false
+  },
+  "allowed_use": [
+    "explanation_layer",
+    "operator_review",
+    "weak_auxiliary_review"
+  ],
+  "blocked_use": [
+    "core_model_feature_family",
+    "auxiliary_scoring_feature",
+    "core_scoring",
+    "active_feature_family_competition"
+  ],
+  "research_fallback": true
+}

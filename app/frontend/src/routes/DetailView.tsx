@@ -43,6 +43,7 @@ import DailyMemoPanel from "../components/DailyMemoPanel";
 import { buildConsultCopyText, copyToClipboard as copyConsultToClipboard } from "../utils/consultCopy";
 import { useChartSync } from "../hooks/useChartSync";
 import { useDetailInfo } from "../hooks/useDetailInfo";
+import { shouldShowOperatorConsole } from "../utils/operatorConsole";
 import { useExactDecisionRange, type ExactDecisionTone } from "./detail/hooks/useExactDecisionRange";
 import { useAsOfItemFetch } from "./detail/hooks/useAsOfItemFetch";
 import { useDetailReplayRun } from "./detail/useDetailReplayRun";
@@ -51,6 +52,7 @@ import {
   loadDetailChartPrefetch,
   prefetchDetailChartFrames,
   readDetailChartPrefetchSync,
+  type ChartPrefetchEntry,
   type ChartPrefetchFrames,
 } from "./detail/detailChartPrefetch";
 import { openDetailWithPrefetch } from "./detail/openDetailWithPrefetch";
@@ -177,6 +179,69 @@ import { formatDateTimeLabel } from "../utils/dateLabels";
 const DETAIL_DAILY_ROW_RATIO = 0.72;
 const DETAIL_DEFAULT_WEEKLY_RATIO = 0.64;
 const DETAIL_TAB_CHUNK_PRELOAD_DELAY_MS = 1200;
+
+type DetailFrameOverwriteObservability = {
+  cacheSource: "memory" | "indexeddb" | null;
+  dataVersion: string | null;
+  chartSourceProvider: string | null;
+  displayBasisClassification: "confirmed" | "provisional" | "mixed" | null;
+  judgmentBasisClassification: "confirmed" | "provisional" | "dual" | null;
+  overwriteStatus: "authoritative_confirmed" | "provisional_only" | "provisional_replaced_by_confirmed" | null;
+  confirmedChartSourceProvider: string | null;
+  provisionalChartSourceProvider: string | null;
+  confirmedJudgmentBasis: string | null;
+  provisionalJudgmentBasis: string | null;
+  confirmedJudgmentAvailable: boolean | null;
+  provisionalJudgmentAvailable: boolean | null;
+  confirmedLastAvailableDate: number | null;
+  provisionalLastAvailableDate: number | null;
+};
+
+type DetailOverwriteObservability = {
+  timeframe: Timeframe;
+  mainAsOf: string | null;
+  daily: DetailFrameOverwriteObservability | null;
+  weekly: DetailFrameOverwriteObservability | null;
+  monthly: DetailFrameOverwriteObservability | null;
+};
+
+const summarizeDetailFrameOverwriteObservability = (
+  frame: ChartPrefetchEntry | null | undefined
+): DetailFrameOverwriteObservability | null => {
+  if (!frame) return null;
+  const provenance = frame.provenance ?? null;
+  return {
+    cacheSource: frame.cacheSource ?? null,
+    dataVersion: frame.dataVersion ?? null,
+    chartSourceProvider: provenance?.chart_source_provider ?? null,
+    displayBasisClassification: provenance?.display_basis_classification ?? null,
+    judgmentBasisClassification: provenance?.judgment_basis_classification ?? null,
+    overwriteStatus: provenance?.overwrite_status ?? null,
+    confirmedChartSourceProvider: provenance?.confirmed_chart_source_provider ?? null,
+    provisionalChartSourceProvider: provenance?.provisional_chart_source_provider ?? null,
+    confirmedJudgmentBasis: provenance?.confirmed_judgment_basis ?? null,
+    provisionalJudgmentBasis: provenance?.provisional_judgment_basis ?? null,
+    confirmedJudgmentAvailable: provenance?.confirmed_judgment_available ?? null,
+    provisionalJudgmentAvailable: provenance?.provisional_judgment_available ?? null,
+    confirmedLastAvailableDate: provenance?.confirmed_last_available_date ?? null,
+    provisionalLastAvailableDate: provenance?.provisional_last_available_date ?? null,
+  };
+};
+
+const summarizeDetailOverwriteObservability = (
+  frames: Partial<ChartPrefetchFrames> | null | undefined,
+  timeframe: Timeframe,
+  mainAsOf: string | null
+): DetailOverwriteObservability | null => {
+  if (!frames) return null;
+  return {
+    timeframe,
+    mainAsOf,
+    daily: summarizeDetailFrameOverwriteObservability(frames.daily),
+    weekly: summarizeDetailFrameOverwriteObservability(frames.weekly),
+    monthly: summarizeDetailFrameOverwriteObservability(frames.monthly),
+  };
+};
 
 let detailTabChunksPreloadPromise: Promise<unknown> | null = null;
 
@@ -325,6 +390,10 @@ export default function DetailView() {
   const location = useLocation();
   const navigate = useNavigate();
   const { ready: backendReady } = useBackendReadyState();
+  const overwriteLiveValidationMode = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return shouldShowOperatorConsole() && params.get("overwriteLiveValidation") === "1";
+  }, [location.search]);
   const dailyChartRef = useRef<DetailChartHandle | null>(null);
   const weeklyChartRef = useRef<DetailChartHandle | null>(null);
   const monthlyChartRef = useRef<DetailChartHandle | null>(null);
@@ -394,6 +463,8 @@ export default function DetailView() {
   const [monthlyErrors, setMonthlyErrors] = useState<string[]>([]);
   const [dailyBarsMeta, setDailyBarsMeta] = useState<BarsMeta | null>(null);
   const [monthlyBarsMeta, setMonthlyBarsMeta] = useState<BarsMeta | null>(null);
+  const [mainChartOverwriteObservability, setMainChartOverwriteObservability] =
+    useState<DetailOverwriteObservability | null>(null);
   const [dailyFetch, setDailyFetch] = useState<FetchState>({
     status: "idle",
     responseCount: 0,
@@ -546,6 +617,9 @@ export default function DetailView() {
     setLoadingMonthly(false);
     setHasMoreDaily(dailySeed ? dailySeed.rows.length >= nextDailyLimit : false);
     setHasMoreMonthly(monthlySeed ? monthlySeed.rows.length >= nextMonthlyLimit : false);
+    setMainChartOverwriteObservability(
+      summarizeDetailOverwriteObservability(seed ?? null, "daily", null)
+    );
   }, []);
   const resetCompareChartState = useCallback((seed?: Partial<ChartPrefetchFrames>) => {
     const dailySeed = seed?.daily ?? null;
@@ -2182,6 +2256,9 @@ export default function DetailView() {
         responseCount: frames.monthly.rows.length,
         errorMessage: null,
       });
+      setMainChartOverwriteObservability(
+        summarizeDetailOverwriteObservability(frames, "daily", null)
+      );
       rangeSettleRef.current = Date.now() + RANGE_SETTLE_MS;
       return true;
     };
@@ -3380,6 +3457,7 @@ export default function DetailView() {
 
   // Cursor mode functions
   const autoPanToBar = useCallback((time: number) => {
+    if (overwriteLiveValidationMode) return;
     if (!dailyChartRef.current) return;
 
     if (!resolvedDailyVisibleRange) return;
@@ -3411,7 +3489,7 @@ export default function DetailView() {
       }
       dailyChartRef.current.setVisibleRange({ from: newFrom, to: newTo });
     }
-  }, [resolvedDailyVisibleRange, dailyCandles]);
+  }, [resolvedDailyVisibleRange, dailyCandles, overwriteLiveValidationMode]);
 
   const updateSelectedBar = useCallback((index: number) => {
     if (index < 0 || index >= dailyCandles.length) return;
@@ -4554,7 +4632,7 @@ export default function DetailView() {
   const canLoadMoreCompareMonthly = compareHasMoreMonthly && monthlyLimit < MAX_MONTHLY_BATCH_BARS_LIMIT;
 
   const mainSync = useChartSync(dailyChartRef, monthlyChartRef, weeklyChartRef, {
-    enabled: syncRanges ?? true,
+    enabled: (syncRanges ?? true) && !overwriteLiveValidationMode,
     cursorEnabled: true,
     onLoadMoreDaily: () => setDailyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.daily, MAX_DAILY_BATCH_BARS_LIMIT)),
     onLoadMoreMonthly: () =>
@@ -4568,7 +4646,7 @@ export default function DetailView() {
   });
 
   const compareSync = useChartSync(compareDailyChartRef, compareMonthlyChartRef, undefined, {
-    enabled: syncRanges ?? true,
+    enabled: (syncRanges ?? true) && !overwriteLiveValidationMode,
     cursorEnabled: true,
     onLoadMoreDaily: () =>
       setCompareDailyLimit((prev) => incrementBarLimit(prev, LIMIT_STEP.daily, MAX_DAILY_BATCH_BARS_LIMIT)),
@@ -6198,6 +6276,20 @@ export default function DetailView() {
         onToggleInfoDetails={() => setShowInfoDetails((prev) => !prev)}
         onClose={() => setDebugOpen(false)}
       />
+      {shouldShowOperatorConsole() && mainChartOverwriteObservability != null && (
+        <div className="detail-debug-banner info" data-testid="detail-overwrite-observability">
+          <div className="detail-debug-panel">
+            <div className="detail-debug-header">
+              <div className="detail-debug-title">Overwrite Observability</div>
+            </div>
+            <div className="detail-debug-lines">
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+{JSON.stringify(mainChartOverwriteObservability, null, 2)}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
       {showIndicators && (
         <Suspense fallback={null}>
           <LazyDetailIndicatorOverlay

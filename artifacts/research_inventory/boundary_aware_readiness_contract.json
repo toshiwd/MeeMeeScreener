@@ -1,0 +1,157 @@
+{
+  "schema_version": "tradex_boundary_aware_readiness_contract_v1",
+  "generated_at": "2026-04-17T13:05:00+09:00",
+  "prerequisite_keep_candidate": "bp_liquidity_trap_penalty/v1",
+  "prerequisite_research_contract_status": "provisional_keep_with_soft_warning",
+  "prerequisite_turnover_warning_status": "shadow_only",
+  "prerequisite_boundary_thickness_status": "thin",
+  "prerequisite_top20_instrumentation_status": "not_instrumented",
+  "decision_layering": {
+    "compare_engine_local_decision": "drop",
+    "compare_engine_local_reason": "turnover_too_high",
+    "authoritative_candidate_gate": "keep",
+    "authoritative_gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+    "authoritative_override_reason_code": "coverage_restored_keep_with_turnover_warning",
+    "research_contract_status": "provisional_keep_with_soft_warning"
+  },
+  "measured_inputs": {
+    "top10_boundary_thickness_measure": {
+      "status": "thin",
+      "boundary_band_status": "stable_but_thin",
+      "boundary_score_gap": -0.00010290647860106833,
+      "boundary_score_gap_abs": 0.00010290647860106833,
+      "changed_top5_members_count": 6,
+      "changed_top10_members_count": 12,
+      "meaningful_topk_branching_possible": true,
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json"
+    },
+    "top10_boundary_score_gap_measure": {
+      "status": "near_zero",
+      "value": -0.00010290647860106833,
+      "absolute_value": 0.00010290647860106833,
+      "sign": "negative",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json"
+    },
+    "changed_top5_near_boundary_measure": {
+      "status": "non_zero",
+      "value": 6,
+      "boundary_score_gap": 0.02603906264825501,
+      "selection_divergence_reason": "top5_member_replacement",
+      "meaningful_topk_branching_possible": true,
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json"
+    },
+    "changed_top10_near_boundary_measure": {
+      "status": "non_zero",
+      "value": 12,
+      "boundary_score_gap": -0.00010290647860106833,
+      "selection_divergence_reason": "top5_member_replacement",
+      "meaningful_topk_branching_possible": true,
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json"
+    },
+    "top20_boundary_thickness_measure": {
+      "status": "not_instrumented",
+      "value": null,
+      "boundary_band_status": "not_instrumented_in_current_contract",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    },
+    "top20_boundary_score_gap_measure": {
+      "status": "not_instrumented",
+      "value": null,
+      "absolute_value": null,
+      "sign": "unknown",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    },
+    "changed_top20_near_boundary_measure": {
+      "status": "not_instrumented",
+      "value": null,
+      "boundary_score_gap": null,
+      "selection_divergence_reason": "not_available",
+      "meaningful_topk_branching_possible": null,
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    },
+    "top20_boundary_instrumentation_status": {
+      "status": "not_instrumented",
+      "observable_in_current_contract": false,
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    },
+    "top20_boundary_instrumentation_requirement": {
+      "status": "not_instrumented",
+      "observable_in_current_contract": false,
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary",
+      "required_fields": [
+        "top20_boundary_thickness_measure",
+        "top20_boundary_score_gap_measure",
+        "changed_top20_near_boundary_measure",
+        "top20_changed_top10_members_count"
+      ],
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    }
+  },
+  "blocking_reasons": [
+    {
+      "reason_code": "top10_boundary_thin",
+      "evidence": {
+        "top10_boundary_band_status": "stable_but_thin",
+        "top10_boundary_score_gap": -0.00010290647860106833,
+        "top10_boundary_score_gap_abs": 0.00010290647860106833
+      }
+    },
+    {
+      "reason_code": "top20_not_instrumented",
+      "evidence": {
+        "top20_boundary_instrumentation_requirement_status": "not_instrumented",
+        "current_contract_top_k": 5,
+        "observable_in_current_contract": false,
+        "observability_state": "contract_limited_not_observable",
+        "remaining_gap": [
+          "current_contract_top_k_is_5",
+          "top20_rankings_not_exposed_in_authoritative_compare_summary"
+        ]
+      }
+    }
+  ],
+  "non_blocking_conditions": [
+    "compare_engine_local_decision remains hold",
+    "authoritative_candidate_gate remains keep",
+    "turnover warning remains shadow_only",
+    "liquidity keep remains provisional_keep_with_soft_warning"
+  ],
+  "readiness_decision": "not_ready_for_execution",
+  "next_allowed_step": "complete_top20_boundary_instrumentation",
+  "source_artifacts": {
+    "boundary_instrumentation_status": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_status.json",
+    "boundary_instrumentation_backlog": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\boundary_instrumentation_backlog.json",
+    "keep_envelope": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+    "turnover_shadow_blocker_eval": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json",
+    "candidate_gate_decision": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\candidate_gate_decision.json"
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "schema_version": "tradex_weighting_ablation_v1",
+  "generated_at": "2026-04-17T09:40:00+09:00",
+  "status": "backlog",
+  "verified": false,
+  "backlog_reason": "defer_until_comparable_bad_pick_removal_run_exists",
+  "next_stage": "after_bad_pick_removal",
+  "verification_note": "No current TRADEX proxy evaluation path was verified to apply sample_weight = time_decay * regime_similarity * data_quality.",
+  "comparability_contract": {
+    "same_universe": true,
+    "same_period": true,
+    "same_top_k": true,
+    "same_regime": true,
+    "same_cost": true,
+    "same_artifact_detail_level": true,
+    "ret20_source_mode": "derived_from_daily_bars",
+    "candidate_build_order_mode": "propagate_date_before_scope_filter",
+    "artifact_detail_level": "minimal",
+    "silent_fallback_allowed": false
+  },
+  "source_artifacts": {
+    "research_inventory": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\research_inventory.json",
+    "champion_bad_pick_ledger": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\champion_bad_pick_ledger.json"
+  },
+  "proposed_formula": {
+    "sample_weight": "time_decay * regime_similarity * data_quality",
+    "time_decay": "down_weight stale samples without hiding them",
+    "regime_similarity": "keep weight high only when the sample regime matches the evaluation regime",
+    "data_quality": "down_weight ambiguous labels near the boundary"
+  },
+  "ablation_axes": [
+    {
+      "axis_name": "time_decay",
+      "status": "not_executed",
+      "expected_effect": "reduce stale-sample dominance while preserving traceability",
+      "must_not_change": [
+        "same universe",
+        "same period",
+        "same top-K",
+        "same regime",
+        "same cost"
+      ]
+    },
+    {
+      "axis_name": "regime_similarity",
+      "status": "not_executed",
+      "expected_effect": "increase alignment between training weight and evaluation regime",
+      "must_not_change": [
+        "same universe",
+        "same period",
+        "same top-K",
+        "same regime",
+        "same cost"
+      ]
+    },
+    {
+      "axis_name": "data_quality",
+      "status": "not_executed",
+      "expected_effect": "down-weight ambiguous boundary samples without silent fallback",
+      "must_not_change": [
+        "same universe",
+        "same period",
+        "same top-K",
+        "same regime",
+        "same cost"
+      ]
+    }
+  ],
+  "acceptance": [
+    "keep the comparison contract fixed",
+    "measure top10 uplift, bad-pick removal, changed_top10_count, worst-regime delta, and overlap against the champion",
+    "treat unchanged outputs as non-evidence"
+  ],
+  "related_sources": [
+    "C:\\work\\meemee-screener\\research\\study_search_space.py",
+    "C:\\work\\meemee-screener\\docs\\analysis\\market_structure_ledger.json"
+  ]
+}

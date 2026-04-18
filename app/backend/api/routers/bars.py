@@ -20,6 +20,7 @@ from app.backend.services.data.yahoo_provisional import (
     merge_daily_rows_with_provisional,
     normalize_date_key,
 )
+from shared.chart_data_provenance import build_chart_data_provenance
 from app.services.box_detector import detect_boxes
 
 
@@ -138,6 +139,164 @@ def _to_payload_rows(rows: List[tuple], *, boxes_enabled: bool) -> Dict[str, Any
     }
 
 
+def _latest_row_date(rows: List[tuple] | None) -> int | None:
+    latest: int | None = None
+    for row in rows or []:
+        if not row:
+            continue
+        key = normalize_date_key(row[0])
+        if key is None:
+            continue
+        if latest is None or key > latest:
+            latest = key
+    return latest
+
+
+def _should_apply_provisional_overlay(
+    *,
+    confirmed_last: int | None,
+    provisional_row: tuple | None,
+    asof_dt: int | None,
+) -> bool:
+    if provisional_row is None:
+        return False
+    provisional_last = normalize_date_key(provisional_row[0])
+    if provisional_last is None:
+        return False
+    if asof_dt is not None:
+        return False
+    if confirmed_last is None:
+        return True
+    return provisional_last > confirmed_last
+
+
+def _build_frame_provenance(
+    *,
+    code: str,
+    timeframe: str,
+    runtime_db_path: str | None,
+    rendered_rows: List[tuple],
+    confirmed_rows: List[tuple],
+    provisional_row: tuple | None,
+    provisional_applied: bool,
+    include_provisional: bool,
+) -> Dict[str, Any]:
+    confirmed_last = _latest_row_date(confirmed_rows)
+    provisional_last = normalize_date_key(provisional_row[0]) if provisional_row else None
+    requested_date = _latest_row_date(rendered_rows)
+    if requested_date is None:
+        requested_date = provisional_last if provisional_last is not None else confirmed_last
+
+    confirmed_judgment_available = bool(
+        requested_date is not None
+        and confirmed_last is not None
+        and requested_date <= confirmed_last
+    )
+    provisional_judgment_available = bool(provisional_applied and provisional_last is not None)
+
+    if provisional_judgment_available and not confirmed_judgment_available:
+        chart_date_match_status = "lagged_provisional"
+        chart_source_freshness_status = "lagged"
+    elif requested_date is None or confirmed_last is None:
+        chart_date_match_status = "blocked"
+        chart_source_freshness_status = "stale_blocking"
+    elif confirmed_judgment_available:
+        chart_date_match_status = "exact"
+        chart_source_freshness_status = "exact"
+    else:
+        chart_date_match_status = "blocked"
+        chart_source_freshness_status = "stale_blocking"
+
+    db_prefix = str(runtime_db_path or "runtime_stock_db").strip() or "runtime_stock_db"
+    yahoo_symbol = f"{code}.T"
+    provisional_identifier = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}?interval=1d&range=10d"
+    confirmed_chart_source_provider = "chart_gallery_confirmed_source"
+    provisional_chart_source_provider = "yahoo_intraday_unconfirmed_source" if provisional_last is not None else None
+    confirmed_judgment_basis = "chart_gallery_confirmed_source_only" if confirmed_judgment_available else None
+    provisional_judgment_basis = (
+        "yahoo_intraday_unconfirmed_source_only" if provisional_judgment_available else None
+    )
+    if provisional_applied and confirmed_last is not None and provisional_last is not None and provisional_last <= confirmed_last:
+        overwrite_status = "provisional_replaced_by_confirmed"
+    elif provisional_applied:
+        overwrite_status = "provisional_only"
+    elif provisional_last is not None and confirmed_last is not None and provisional_last <= confirmed_last:
+        overwrite_status = "provisional_replaced_by_confirmed"
+    elif confirmed_last is not None:
+        overwrite_status = "authoritative_confirmed"
+    elif provisional_last is not None:
+        overwrite_status = "provisional_only"
+    else:
+        overwrite_status = None
+
+    if provisional_applied and confirmed_last is not None:
+        display_basis_classification: str | None = "mixed"
+    elif provisional_applied:
+        display_basis_classification = "provisional"
+    elif confirmed_last is not None:
+        display_basis_classification = "confirmed"
+    else:
+        display_basis_classification = None
+
+    if confirmed_judgment_available and provisional_judgment_available:
+        judgment_basis_classification: str | None = "dual"
+    elif confirmed_judgment_available:
+        judgment_basis_classification = "confirmed"
+    elif provisional_judgment_available:
+        judgment_basis_classification = "provisional"
+    else:
+        judgment_basis_classification = None
+
+    if timeframe == "daily":
+        chart_source_provider = "runtime_stock_db.daily_bars+yahoo_chart_overlay" if provisional_applied else "runtime_stock_db.daily_bars"
+        chart_source_type = "mixed" if provisional_applied and confirmed_last is not None else ("provisional" if provisional_applied else "confirmed")
+        chart_source_path = f"{db_prefix}#daily_bars"
+        if provisional_applied:
+            chart_source_path = f"{chart_source_path} + {provisional_identifier}"
+        chart_aggregation_source = "mixed" if provisional_applied and confirmed_last is not None else "direct"
+        chart_data_classification = "mixed" if provisional_applied and confirmed_last is not None else ("provisional" if provisional_applied else "confirmed")
+    elif timeframe == "weekly":
+        chart_source_provider = "derived_from_runtime_stock_db.daily_bars+yahoo_chart_overlay" if provisional_applied else "derived_from_runtime_stock_db.daily_bars"
+        chart_source_type = "mixed" if provisional_applied and confirmed_last is not None else ("provisional" if provisional_applied else "confirmed")
+        chart_source_path = f"derived_from({db_prefix}#daily_bars)"
+        if provisional_applied:
+            chart_source_path = f"{chart_source_path} + {provisional_identifier}"
+        chart_aggregation_source = "derived"
+        chart_data_classification = "mixed" if provisional_applied and confirmed_last is not None else ("provisional" if provisional_applied else "confirmed")
+    else:
+        chart_source_provider = "runtime_stock_db.monthly_bars+runtime_stock_db.daily_bars+yahoo_chart_overlay" if provisional_applied else "runtime_stock_db.monthly_bars+runtime_stock_db.daily_bars"
+        chart_source_type = "mixed" if provisional_applied and confirmed_last is not None else ("provisional" if provisional_applied else "confirmed")
+        chart_source_path = f"{db_prefix}#monthly_bars + {db_prefix}#daily_bars"
+        if provisional_applied:
+            chart_source_path = f"{chart_source_path} + {provisional_identifier}"
+        chart_aggregation_source = "mixed"
+        chart_data_classification = "mixed" if provisional_applied and confirmed_last is not None else ("provisional" if provisional_applied else "confirmed")
+
+    return build_chart_data_provenance(
+        chart_source_provider=chart_source_provider,
+        chart_source_type=chart_source_type,  # type: ignore[arg-type]
+        chart_source_path_or_identifier=chart_source_path,
+        chart_requested_date=requested_date,
+        chart_last_confirmed_date=confirmed_last,
+        chart_last_provisional_date=provisional_last if include_provisional else None,
+        chart_date_match_status=chart_date_match_status,  # type: ignore[arg-type]
+        chart_source_freshness_status=chart_source_freshness_status,  # type: ignore[arg-type]
+        chart_data_classification=chart_data_classification,  # type: ignore[arg-type]
+        chart_aggregation_source=chart_aggregation_source,  # type: ignore[arg-type]
+        confirmed_chart_source_provider=confirmed_chart_source_provider,
+        provisional_chart_source_provider=provisional_chart_source_provider,
+        confirmed_judgment_basis=confirmed_judgment_basis,
+        provisional_judgment_basis=provisional_judgment_basis,
+        confirmed_judgment_available=confirmed_judgment_available,
+        provisional_judgment_available=provisional_judgment_available,
+        display_basis_classification=display_basis_classification,
+        judgment_basis_classification=judgment_basis_classification,
+        confirmed_last_available_date=confirmed_last,
+        provisional_last_available_date=provisional_last if include_provisional else None,
+        overwrite_status=overwrite_status,
+    )
+
+
 def _build_batch_meta(*, include_provisional: bool = False, asof_dt: int | None = None) -> Dict[str, str | None]:
     db_path = getattr(config, "DB_PATH", None)
     data_version: str | None = None
@@ -217,6 +376,7 @@ def _make_batch_v3_cache_key(
     include_provisional: bool,
     include_boxes: bool,
     asof_dt: int | None,
+    runtime_db_path: str | None,
     data_version: str | None,
 ) -> tuple[Any, ...]:
     normalized_limits = tuple(sorted((frame, int(value)) for frame, value in timeframe_limits.items()))
@@ -228,6 +388,7 @@ def _make_batch_v3_cache_key(
         bool(include_provisional),
         bool(include_boxes),
         int(asof_dt) if asof_dt is not None else None,
+        runtime_db_path,
         data_version,
     )
 
@@ -329,16 +490,38 @@ def _fetch_multi_timeframe_items(
         daily_rows_by_code = {}
         for code in codes:
             raw_rows = raw_daily.get(code, [])
+            provisional_row = provisional_map.get(code) if include_provisional else None
             raw_daily_rows_by_code[code] = raw_rows
-            merged = merge_daily_rows_with_provisional(
-                raw_rows,
-                provisional_map.get(code) if include_provisional else None,
+            provisional_applied = _should_apply_provisional_overlay(
+                confirmed_last=_latest_row_date(raw_rows),
+                provisional_row=provisional_row,
+                asof_dt=asof_dt,
+            )
+            merged = (
+                merge_daily_rows_with_provisional(
+                    raw_rows,
+                    provisional_row,
+                    asof_dt=asof_dt,
+                )
+                if provisional_applied
+                else list(raw_rows)
             )
             merged = apply_split_gap_adjustment(merged)
             daily_rows_by_code[code] = merged
             if "daily" in requested_frames:
                 daily_rows = merged[-frame_limits["daily"] :] if frame_limits["daily"] > 0 else merged
-                items[code]["daily"] = _to_payload_rows(daily_rows, boxes_enabled=False)
+                payload = _to_payload_rows(daily_rows, boxes_enabled=False)
+                payload["provenance"] = _build_frame_provenance(
+                    code=code,
+                    timeframe="daily",
+                    runtime_db_path=str(config.DB_PATH) if getattr(config, "DB_PATH", None) else None,
+                    rendered_rows=daily_rows,
+                    confirmed_rows=raw_rows,
+                    provisional_row=provisional_row,
+                    provisional_applied=provisional_applied,
+                    include_provisional=include_provisional,
+                )
+                items[code]["daily"] = payload
 
     if "weekly" in requested_frames:
         if daily_rows_by_code is None:
@@ -348,7 +531,24 @@ def _fetch_multi_timeframe_items(
             weekly_limit = frame_limits["weekly"]
             if weekly_limit > 0 and len(weekly_rows) > weekly_limit:
                 weekly_rows = weekly_rows[-weekly_limit:]
-            items[code]["weekly"] = _to_payload_rows(weekly_rows, boxes_enabled=False)
+            payload = _to_payload_rows(weekly_rows, boxes_enabled=False)
+            payload["provenance"] = _build_frame_provenance(
+                code=code,
+                timeframe="weekly",
+                runtime_db_path=str(config.DB_PATH) if getattr(config, "DB_PATH", None) else None,
+                rendered_rows=weekly_rows,
+                confirmed_rows=raw_daily_rows_by_code.get(code, []) if raw_daily_rows_by_code else [],
+                provisional_row=provisional_map.get(code) if include_provisional else None,
+                provisional_applied=_should_apply_provisional_overlay(
+                    confirmed_last=_latest_row_date(raw_daily_rows_by_code.get(code, []) if raw_daily_rows_by_code else []),
+                    provisional_row=provisional_map.get(code) if include_provisional else None,
+                    asof_dt=asof_dt,
+                )
+                if include_provisional
+                else False,
+                include_provisional=include_provisional,
+            )
+            items[code]["weekly"] = payload
 
     if "monthly" in requested_frames:
         monthly_rows_by_code = repo.get_monthly_bars_batch(
@@ -359,10 +559,28 @@ def _fetch_multi_timeframe_items(
         )
         for code in codes:
             monthly_rows = monthly_rows_by_code.get(code, [])
-            items[code]["monthly"] = _to_payload_rows(
+            confirmed_rows = raw_daily_rows_by_code.get(code, []) if raw_daily_rows_by_code else monthly_rows
+            payload = _to_payload_rows(
                 monthly_rows,
                 boxes_enabled=include_boxes,
             )
+            payload["provenance"] = _build_frame_provenance(
+                code=code,
+                timeframe="monthly",
+                runtime_db_path=str(config.DB_PATH) if getattr(config, "DB_PATH", None) else None,
+                rendered_rows=monthly_rows,
+                confirmed_rows=confirmed_rows,
+                provisional_row=provisional_map.get(code) if include_provisional else None,
+                provisional_applied=_should_apply_provisional_overlay(
+                    confirmed_last=_latest_row_date(confirmed_rows),
+                    provisional_row=provisional_map.get(code) if include_provisional else None,
+                    asof_dt=asof_dt,
+                )
+                if include_provisional
+                else False,
+                include_provisional=include_provisional,
+            )
+            items[code]["monthly"] = payload
 
     return items
 
@@ -423,6 +641,7 @@ def batch_bars_v3(
         include_provisional=bool(payload.includeProvisional),
         include_boxes=bool(payload.includeBoxes),
         asof_dt=asof_dt,
+        runtime_db_path=str(getattr(config, "DB_PATH", None)) if getattr(config, "DB_PATH", None) else None,
         data_version=meta.get("data_version"),
     )
     cached_items = _get_cached_batch_v3_items(cache_key)

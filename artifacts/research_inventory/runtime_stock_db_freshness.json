@@ -1,0 +1,39 @@
+{
+  "schema_version": "runtime_stock_db_freshness_v1",
+  "generated_at": "2026-04-17T15:30:00+09:00",
+  "status": "authoritative",
+  "runtime_db_path": "C:\\Users\\enish\\AppData\\Local\\MeeMeeScreener-dev\\data\\stocks.duckdb",
+  "resolution_source": "LOCALAPPDATA_DEV",
+  "resolution_reason": "validated_runtime_fallback",
+  "same_meemee_and_tradex_db_path": true,
+  "same_latest_dates_match": true,
+  "meemee_latest_db_date": 20260403,
+  "meemee_latest_db_date_iso": "2026-04-03",
+  "tradex_latest_db_date": 20260403,
+  "tradex_latest_db_date_iso": "2026-04-03",
+  "global_coverage": {
+    "latest_available_global_date": 20260403,
+    "latest_available_global_date_iso": "2026-04-03",
+    "daily_bars_rows": 3955444,
+    "market_regime_daily_rows": 8247
+  },
+  "requested_evaluation": {
+    "requested_symbol": "2531",
+    "requested_chart_date": 20260416,
+    "requested_chart_date_iso": "2026-04-16",
+    "requested_symbol_latest_date": 20260403,
+    "requested_symbol_latest_date_iso": "2026-04-03",
+    "date_gap_days": 13,
+    "source_freshness_status": "lagged",
+    "date_match_status": "lagged_provisional",
+    "judgment_validity_status": "lagged_provisional",
+    "freshness_blocked": true
+  },
+  "blocked_reason": "requested_chart_date_exceeds_verified_symbol_coverage",
+  "same_condition_contract_required": true,
+  "leakage_safe_out_of_sample_required": true,
+  "chart_source_alignment_status": "mixed_confirmed_provisional_display",
+  "chart_display_status": "provisional_current_day_labeled",
+  "chart_source_contract_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\chart_data_provenance_contract.json",
+  "chart_source_trace_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\2531_chart_source_trace_20260416.json"
+}

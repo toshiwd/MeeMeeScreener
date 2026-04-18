@@ -1,0 +1,163 @@
+{
+  "authoritative_candidate_gate": "drop",
+  "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+  "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+  "candidate_local_decision": "hold",
+  "candidate_name": "liq_adv20_plus_turnover_penalty_v1",
+  "compare_engine_local_decision": "hold",
+  "compare_engine_local_reason": "topk_boundary_absent",
+  "compare_family_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\compare.json",
+  "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+  "compare_status": "compared",
+  "comparison_contract": {
+    "artifact_detail_level": "authoritative_full",
+    "cost_model": {
+      "fee_bps": 0.0,
+      "mode": "flat_zero_cost",
+      "schema_version": "tradex_cost_model_v1",
+      "slippage_bps": 0.0,
+      "transaction_cost_bps": 0.0
+    },
+    "fallback_status": "authoritative",
+    "period": [
+      {
+        "end_date": "2025-08-29",
+        "label": "up:up:20250626:20250829",
+        "start_date": "2025-06-26"
+      },
+      {
+        "end_date": "2025-04-09",
+        "label": "down:down:20250331:20250409",
+        "start_date": "2025-03-31"
+      },
+      {
+        "end_date": "2023-08-28",
+        "label": "flat:flat:20230803:20230828",
+        "start_date": "2023-08-03"
+      }
+    ],
+    "regime": "multi_regime",
+    "schema_version": "tradex_research_contract_v1",
+    "top_k": 5,
+    "universe": [
+      "1332",
+      "1808",
+      "1833",
+      "2282",
+      "3105",
+      "3116",
+      "3289",
+      "3481",
+      "3687",
+      "4384",
+      "4503",
+      "4544",
+      "4927",
+      "5741",
+      "5949",
+      "6306",
+      "6376",
+      "6754",
+      "6857",
+      "6958",
+      "7514",
+      "7730",
+      "8174",
+      "8334",
+      "8725",
+      "9143",
+      "9433",
+      "9503",
+      "9603",
+      "9684"
+    ]
+  },
+  "comparison_points": {
+    "candidate_top10_codes": [
+      "1332"
+    ],
+    "candidate_top5_codes": [
+      "1332"
+    ],
+    "champion_top10_codes": [
+      "1332"
+    ],
+    "champion_top5_codes": [
+      "1332"
+    ],
+    "pairwise_top10_signature": [
+      "1332"
+    ]
+  },
+  "coverage_status": {
+    "coverage_complete": false,
+    "evaluation_window_count": 3,
+    "evaluation_window_ids": [
+      "up:up:20250626:20250829",
+      "down:down:20250331:20250409",
+      "flat:flat:20230803:20230828"
+    ],
+    "status_reasons": [
+      "topk_boundary_absent"
+    ],
+    "window_source": "family_period_segments",
+    "window_source_reason": "explicit_family_period_segments_available"
+  },
+  "decision": "drop",
+  "decision_reason": "no_meaningful_branching_no_op",
+  "decision_trace": {
+    "authoritative_candidate_gate": "drop",
+    "authoritative_gate_reason": "no_meaningful_branching_no_topk_change",
+    "authoritative_override_reason_code": "coverage_restored_drop_with_noop_branch",
+    "compare_engine_local_decision": "hold",
+    "compare_engine_local_reason": "topk_boundary_absent",
+    "research_contract_status": "provisional_drop_noop_branch"
+  },
+  "evaluation_metrics": {
+    "bad_pick_removal": 0,
+    "changed_rank_count": 0,
+    "changed_top10_members_count": 0,
+    "changed_top5_members_count": 0,
+    "overlap_vs_monolithic_keep": 1.0,
+    "overlap_vs_peer_candidates": 1.0,
+    "top10_uplift": 0.0,
+    "top5_uplift": 0.0,
+    "worst_regime_delta": 0.0
+  },
+  "family_name": "bp_liquidity_trap_penalty",
+  "feature_note": {
+    "expected_effect": "Target low ADV20 quality and turnover mismatch while preserving regime framing and the same top-K contract.",
+    "feature_class": "bad_pick_removal",
+    "must_not_change": [
+      "comparability_contract",
+      "artifact_detail_level",
+      "same_topK_definition",
+      "MeeMee read-only source boundary"
+    ],
+    "primary_elements": [
+      "adv20_quality",
+      "turnover_quality"
+    ],
+    "target_failure_bucket": "liquidity_trap"
+  },
+  "finding_state": "dropped",
+  "generated_at": "2026-04-17T11:19:40.889510+09:00",
+  "overlap_summary": {
+    "branch_overlap_state": "overlap_heavy_no_op",
+    "overlap_vs_monolithic_keep": 1.0,
+    "overlap_vs_peer_candidates": 1.0,
+    "selection_divergence_reason": "no_meaningful_branching",
+    "topk_boundary_exists": false,
+    "topk_branching_block_reason": "topk_boundary_absent"
+  },
+  "research_contract_status": "provisional_drop_noop_branch",
+  "schema_version": "tradex_liquidity_pairwise_candidate_compare_v1",
+  "source_artifacts": {
+    "baseline_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-baseline\\run.json",
+    "candidate_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+    "compare_family_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\compare.json",
+    "decision_contract": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_decision_contract.json",
+    "turnover_warning_policy": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json"
+  },
+  "status": "evaluated"
+}

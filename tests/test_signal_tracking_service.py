@@ -1027,6 +1027,79 @@ def test_tracking_runtime_status_reports_generated_history(monkeypatch) -> None:
     assert status["ranking_latest_date_iso"] == "2026-01-07"
 
 
+def test_signal_and_ranking_detail_surface_freshness_fields(monkeypatch) -> None:
+    db_path = _make_temp_db()
+    market_days = _seed_market_data(db_path)
+    target_dates = market_days[:3]
+    _install_fake_pipeline(monkeypatch, target_dates)
+
+    service.backfill_signal_basis(
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        basis_version="basis:test:v1",
+        reset_scope=True,
+        db_path=db_path,
+    )
+    service.rebuild_signal_decisions(
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        logic_version="logic:test:v1",
+        side="all",
+        basis_version="basis:test:v1",
+        reset_scope=True,
+        db_path=db_path,
+    )
+    service.rebuild_signal_campaigns(logic_version="logic:test:v1", side="all", db_path=db_path)
+    service.rebuild_ranking_appearances(
+        from_ymd=target_dates[0],
+        to_ymd=target_dates[-1],
+        ranking_logic_version="ranking:test:v1",
+        signal_logic_version="logic:test:v1",
+        basis_version="basis:test:v1",
+        reset_scope=True,
+        db_path=db_path,
+    )
+
+    monkeypatch.setattr(service, "ensure_signal_tracking_current", _no_refresh)
+    with duckdb.connect(db_path) as conn:
+        signal_row = conn.execute(
+            "SELECT occurrence_id, signal_date FROM signal_occurrence WHERE code = '1111' ORDER BY signal_date DESC LIMIT 1"
+        ).fetchone()
+        appearance_row = conn.execute(
+            "SELECT appearance_id, dt FROM ranking_appearance_daily WHERE code = '1111' ORDER BY dt DESC LIMIT 1"
+        ).fetchone()
+    signal_event_id, signal_date = signal_row
+    appearance_id, appearance_date = appearance_row
+
+    signal_detail = service.get_signal_event_detail(signal_event_id, db_path=db_path)
+    ranking_detail = service.get_ranking_appearance_detail(appearance_id, db_path=db_path)
+
+    assert signal_detail["requested_chart_date"] == signal_date
+    assert signal_detail["date_match_status"] == "exact"
+    assert signal_detail["judgment_validity_status"] == "exact"
+    assert signal_detail["source_freshness_status"] == "exact"
+    assert signal_detail["runtime_db_path"].endswith("stocks.duckdb")
+    assert signal_detail["confirmed_chart_source_provider"] == "chart_gallery_confirmed_source"
+    assert signal_detail["provisional_chart_source_provider"] is None
+    assert signal_detail["confirmed_judgment_available"] is True
+    assert signal_detail["provisional_judgment_available"] is False
+    assert signal_detail["display_basis_classification"] == "confirmed"
+    assert signal_detail["judgment_basis_classification"] == "confirmed"
+    assert signal_detail["overwrite_status"] == "authoritative_confirmed"
+    assert ranking_detail["requested_chart_date"] == appearance_date
+    assert ranking_detail["date_match_status"] == "exact"
+    assert ranking_detail["judgment_validity_status"] == "exact"
+    assert ranking_detail["source_freshness_status"] == "exact"
+    assert ranking_detail["runtime_db_path"].endswith("stocks.duckdb")
+    assert ranking_detail["confirmed_chart_source_provider"] == "chart_gallery_confirmed_source"
+    assert ranking_detail["provisional_chart_source_provider"] is None
+    assert ranking_detail["confirmed_judgment_available"] is True
+    assert ranking_detail["provisional_judgment_available"] is False
+    assert ranking_detail["display_basis_classification"] == "confirmed"
+    assert ranking_detail["judgment_basis_classification"] == "confirmed"
+    assert ranking_detail["overwrite_status"] == "authoritative_confirmed"
+
+
 def test_signal_validation_shock_analysis_separates_buy_and_sell(monkeypatch) -> None:
     db_path = _make_temp_db()
     market_days = _seed_market_data(db_path)

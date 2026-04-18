@@ -1,0 +1,335 @@
+{
+  "schema_version": "tradex_boundary_instrumentation_status_v1",
+  "generated_at": "2026-04-17T13:05:00+09:00",
+  "candidate_name": "bp_liquidity_trap_penalty/v1",
+  "instrumentation_completion_status": "partial",
+  "boundary_aware_compare_run_status": "not_executed",
+  "decision_layering": {
+    "compare_engine_local_decision": "drop",
+    "compare_engine_local_reason": "turnover_too_high",
+    "authoritative_candidate_gate": "keep",
+    "authoritative_gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+    "authoritative_override_reason_code": "coverage_restored_keep_with_turnover_warning",
+    "research_contract_status": "provisional_keep_with_soft_warning",
+    "turnover_warning_classification": "soft_warning_non_blocking"
+  },
+  "measured_fields": {
+    "top10_boundary_thickness_measure": {
+      "status": "thin",
+      "boundary_band_status": "stable_but_thin",
+      "boundary_score_gap": -0.00010290647860106833,
+      "boundary_score_gap_abs": 0.00010290647860106833,
+      "changed_top5_members_count": 6,
+      "changed_top10_members_count": 12,
+      "meaningful_topk_branching_possible": true,
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json"
+    },
+    "top10_boundary_score_gap_measure": {
+      "status": "near_zero",
+      "value": -0.00010290647860106833,
+      "absolute_value": 0.00010290647860106833,
+      "sign": "negative",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json"
+    },
+    "changed_top5_near_boundary_measure": {
+      "status": "non_zero",
+      "value": 6,
+      "boundary_score_gap": 0.02603906264825501,
+      "selection_divergence_reason": "top5_member_replacement",
+      "meaningful_topk_branching_possible": true,
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json"
+    },
+    "changed_top10_near_boundary_measure": {
+      "status": "non_zero",
+      "value": 12,
+      "boundary_score_gap": -0.00010290647860106833,
+      "selection_divergence_reason": "top5_member_replacement",
+      "meaningful_topk_branching_possible": true,
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json"
+    },
+    "top20_boundary_thickness_measure": {
+      "status": "not_instrumented",
+      "value": null,
+      "boundary_band_status": "not_instrumented_in_current_contract",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    },
+    "top20_boundary_score_gap_measure": {
+      "status": "not_instrumented",
+      "value": null,
+      "absolute_value": null,
+      "sign": "unknown",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    },
+    "changed_top20_near_boundary_measure": {
+      "status": "not_instrumented",
+      "value": null,
+      "boundary_score_gap": null,
+      "selection_divergence_reason": "not_available",
+      "meaningful_topk_branching_possible": null,
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    },
+    "top20_boundary_instrumentation_status": {
+      "status": "not_instrumented",
+      "observable_in_current_contract": false,
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary",
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    },
+    "top20_boundary_instrumentation_requirement": {
+      "status": "not_instrumented",
+      "observable_in_current_contract": false,
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary",
+      "required_fields": [
+        "top20_boundary_thickness_measure",
+        "top20_boundary_score_gap_measure",
+        "changed_top20_near_boundary_measure",
+        "top20_changed_top10_members_count"
+      ],
+      "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    }
+  },
+  "boundary_band_summary": {
+    "top5": {
+      "band": "top5",
+      "status": "stable_positive_branching",
+      "changed_members_count": 6,
+      "uplift": 0.02739186933632866,
+      "boundary_score_gap": 0.02603906264825501,
+      "meaningful_topk_branching_possible": true
+    },
+    "top10": {
+      "band": "top10",
+      "status": "stable_but_thin",
+      "changed_members_count": 12,
+      "uplift": 0.017542163616904125,
+      "boundary_score_gap": -0.00010290647860106833,
+      "meaningful_topk_branching_possible": true
+    },
+    "top20": {
+      "band": "top20",
+      "status": "not_instrumented_in_current_contract",
+      "reason": "current_contract_top_k_is_5; top20 is not directly scored in the authoritative compare summary",
+      "boundary_thickness_measure_status": "not_instrumented",
+      "boundary_score_gap_measure_status": "not_instrumented",
+      "changed_near_boundary_measure_status": "not_instrumented",
+      "instrumentation_status": "not_instrumented",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    }
+  },
+  "turnover_warning_summary": {
+    "current_classification": "soft_warning_non_blocking",
+    "current_warning_reason": "turnover_too_high",
+    "blocker_promotion_candidate_conditions": [
+      "turnover_proxy >= 0.60 and (top10_uplift <= 0 or worst_regime_delta < 0)",
+      "turnover_proxy >= 0.60 and (evaluation_window_count < 3 or coverage_status.status_reasons is not empty)",
+      "turnover_proxy >= 0.60 and bad_pick_removal <= 0",
+      "turnover_proxy >= 0.60 and top5_boundary_score_gap <= 0"
+    ],
+    "non_blocking_regions": [
+      {
+        "region": "observed_low_mid_high_turnover_bands",
+        "supporting_metrics": {
+          "low_turnover_mean_capture_rate": 0.5189393939393939,
+          "mid_turnover_mean_capture_rate": 0.5520833333333333,
+          "high_turnover_mean_capture_rate": 0.5333333333333333
+        },
+        "interpretation": "All observed turnover bands remain positive; turnover_too_high is therefore a soft warning, not a blocker."
+      },
+      {
+        "region": "completed_three_window_coverage",
+        "supporting_metrics": {
+          "evaluation_window_count": 3,
+          "status_reasons": []
+        },
+        "interpretation": "Coverage is complete, so the local turnover warning does not override the keep."
+      },
+      {
+        "region": "positive_value_carry",
+        "supporting_metrics": {
+          "bad_pick_removal": 6,
+          "top10_uplift": 0.017542163616904125,
+          "worst_regime_delta": 0.0
+        },
+        "interpretation": "The keep still carries positive bad-pick removal and non-negative uplift with no regime collapse."
+      }
+    ],
+    "ambiguous_regions": [
+      {
+        "region": "thin_top10_boundary",
+        "supporting_metrics": {
+          "top10_boundary_score_gap": null,
+          "top10_uplift": 0.017542163616904125
+        },
+        "interpretation": "Top10 remains positive but close to flat, so this is the first place to watch for future blocker promotion."
+      },
+      {
+        "region": "q1_low_liquidity_quartile",
+        "supporting_metrics": {
+          "mean_short_ret20": 0.04145853240089726,
+          "failure_reason_counts": {
+            "data_missing": 293,
+            "liquidity_fail": 232
+          }
+        },
+        "interpretation": "The weakest liquidity quartile is not a blocker today, but it is the least comfortable sample-level region."
+      },
+      {
+        "region": "high_turnover_months",
+        "supporting_metrics": {
+          "mean_turnover": 0.7692307692307693,
+          "mean_capture_rate": 0.5333333333333333
+        },
+        "interpretation": "High-turnover months stay inside the soft-warning envelope because capture remains positive."
+      }
+    ],
+    "recommendation_next_state": "provisional_keep_with_soft_warning",
+    "source_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json"
+  },
+  "topk_band_breakdown": [
+    {
+      "band": "top5",
+      "status": "stable_positive_branching",
+      "changed_members_count": 6,
+      "uplift": 0.02739186933632866,
+      "boundary_score_gap": 0.02603906264825501,
+      "meaningful_topk_branching_possible": true
+    },
+    {
+      "band": "top10",
+      "status": "stable_but_thin",
+      "changed_members_count": 12,
+      "uplift": 0.017542163616904125,
+      "boundary_score_gap": -0.00010290647860106833,
+      "meaningful_topk_branching_possible": true
+    },
+    {
+      "band": "top20",
+      "status": "not_instrumented_in_current_contract",
+      "changed_members_count": null,
+      "uplift": null,
+      "boundary_score_gap": null,
+      "meaningful_topk_branching_possible": null,
+      "boundary_thickness_measure_status": "not_instrumented",
+      "boundary_score_gap_measure_status": "not_instrumented",
+      "changed_near_boundary_measure_status": "not_instrumented",
+      "instrumentation_status": "not_instrumented",
+      "observability_state": "contract_limited_not_observable",
+      "remaining_gap": [
+        "current_contract_top_k_is_5",
+        "top20_rankings_not_exposed_in_authoritative_compare_summary"
+      ]
+    }
+  ],
+  "keep_valid_regions": [
+    {
+      "region": "observed_mid_and_high_turnover_bands",
+      "turnover_bands": [
+        "mid_turnover",
+        "high_turnover"
+      ],
+      "supporting_metrics": {
+        "mean_turnover_high": 0.7692307692307693,
+        "mean_capture_rate_high": 0.5333333333333333,
+        "mean_capture_rate_mid": 0.5520833333333333
+      },
+      "interpretation": "The keep remains valid even when monthly turnover rises into the high band because capture stays positive and the top-K deltas remain non-negative."
+    },
+    {
+      "region": "regime_complete_contract",
+      "regimes": [
+        "up",
+        "down",
+        "flat"
+      ],
+      "supporting_metrics": {
+        "evaluation_window_count": 3,
+        "worst_regime_delta": 0.0
+      },
+      "interpretation": "All three required regimes remain covered and the worst-regime delta does not collapse."
+    },
+    {
+      "region": "mid_high_liquidity_quartiles",
+      "liquidity_buckets": [
+        "q2_mid_low_liquidity",
+        "q3_mid_high_liquidity",
+        "q4_high_liquidity"
+      ],
+      "supporting_metrics": {
+        "mean_short_ret20_q3": 0.05664239061667332,
+        "mean_confidence_q4": 0.6883310161739401
+      },
+      "interpretation": "The strongest sample-level shortRet20 is in the q3 liquidity bucket, and the high-liquidity quartile remains non-collapsed."
+    }
+  ],
+  "keep_risk_regions": [
+    {
+      "region": "top10_boundary_thin",
+      "condition": "top10_boundary_score_gap is near zero",
+      "supporting_metrics": {
+        "top10_boundary_score_gap": null,
+        "top10_uplift": 0.017542163616904125
+      },
+      "interpretation": "Top10 remains positive but the boundary is thin, so this is the first place where the keep could become fragile."
+    },
+    {
+      "region": "q1_low_liquidity",
+      "condition": "liquidity20d <= q25",
+      "supporting_metrics": {
+        "mean_short_ret20": 0.04145853240089726,
+        "failure_reason_counts": {
+          "data_missing": 293,
+          "liquidity_fail": 232
+        }
+      },
+      "interpretation": "The lowest liquidity quartile is the weakest sample-level region and should remain watched."
+    },
+    {
+      "region": "high_turnover_months",
+      "condition": "monthly turnover >= 0.5",
+      "supporting_metrics": {
+        "mean_turnover": 0.7692307692307693,
+        "mean_capture_rate": 0.5333333333333333
+      },
+      "interpretation": "High-turnover months stay inside the soft-warning envelope but remain the first place to watch."
+    }
+  ],
+  "source_artifacts": {
+    "keep_envelope": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+    "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+    "turnover_shadow_blocker_eval": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json"
+  },
+  "missing_fields_if_any": [
+    "none"
+  ]
+}

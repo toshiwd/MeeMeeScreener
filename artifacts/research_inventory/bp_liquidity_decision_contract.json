@@ -1,0 +1,163 @@
+{
+  "comparability_contract": {
+    "artifact_detail_level": "authoritative_full",
+    "cost_model": {
+      "fee_bps": 0.0,
+      "mode": "flat_zero_cost",
+      "schema_version": "tradex_cost_model_v1",
+      "slippage_bps": 0.0,
+      "transaction_cost_bps": 0.0
+    },
+    "fallback_status": "authoritative",
+    "period": [
+      {
+        "end_date": "2025-08-29",
+        "label": "up:up:20250626:20250829",
+        "start_date": "2025-06-26"
+      },
+      {
+        "end_date": "2025-04-09",
+        "label": "down:down:20250331:20250409",
+        "start_date": "2025-03-31"
+      },
+      {
+        "end_date": "2023-08-28",
+        "label": "flat:flat:20230803:20230828",
+        "start_date": "2023-08-03"
+      }
+    ],
+    "regime": "multi_regime",
+    "schema_version": "tradex_research_contract_v1",
+    "top_k": 5,
+    "universe": [
+      "1332",
+      "1808",
+      "1833",
+      "2282",
+      "3105",
+      "3116",
+      "3289",
+      "3481",
+      "3687",
+      "4384",
+      "4503",
+      "4544",
+      "4927",
+      "5741",
+      "5949",
+      "6306",
+      "6376",
+      "6754",
+      "6857",
+      "6958",
+      "7514",
+      "7730",
+      "8174",
+      "8334",
+      "8725",
+      "9143",
+      "9433",
+      "9503",
+      "9603",
+      "9684"
+    ]
+  },
+  "comparison_contract_notes": [
+    "Same universe, same period, same top-K, same regime framing, same cost/slippage assumptions, same artifact detail level.",
+    "MeeMee remains read-only source input only.",
+    "No silent fallback; explicit local-vs-authoritative split is preserved in the artifacts.",
+    "turnover_too_high is retained as a soft warning with typed blocker promotion conditions.",
+    "Pairwise liquidity branches are no-op; the monolithic keep remains the provisional minimal structure for this round."
+  ],
+  "decision_layering": {
+    "authoritative_candidate_gate": "keep",
+    "authoritative_gate_reason": "positive_bad_pick_removal_with_completed_coverage",
+    "authoritative_override_reason_code": "coverage_restored_keep_with_turnover_warning",
+    "compare_engine_local_decision": "hold",
+    "compare_engine_local_reason": "turnover_too_high",
+    "research_contract_status": "provisional_keep_with_soft_warning",
+    "turnover_warning_classification": "soft_warning_non_blocking"
+  },
+  "frozen_units": [
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "unit_name": "bp_weak_recovery_penalty/v1"
+    },
+    {
+      "decision": "drop",
+      "decision_reason": "overlap_heavy_duplicate_or_target_bucket_not_removed",
+      "unit_name": "bp_breakout_failure_penalty/v1"
+    }
+  ],
+  "generated_at": "2026-04-17T12:00:00+09:00",
+  "liquidity_decomposition_units": [
+    {
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-adv20-bad-pick-prune\\compare.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_quality_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "unit_name": "liq_adv20_quality_penalty_v1"
+    },
+    {
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-atr-bad-pick-prune\\compare.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_atr_turnover_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "unit_name": "liq_atr_turnover_penalty_v1"
+    },
+    {
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-breakout-bad-pick-prune\\compare.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_breakout_followthrough_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "unit_name": "liq_breakout_followthrough_penalty_v1"
+    }
+  ],
+  "pairwise_liquidity_decomposition_units": [
+    {
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_turnover_penalty_v1\\run.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_turnover_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "research_contract_status": "provisional_drop_noop_branch",
+      "unit_name": "liq_adv20_plus_turnover_penalty_v1"
+    },
+    {
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_turnover_plus_followthrough_penalty_v1\\run.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_turnover_plus_followthrough_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "research_contract_status": "provisional_drop_noop_branch",
+      "unit_name": "liq_turnover_plus_followthrough_penalty_v1"
+    },
+    {
+      "compare_ready_run_artifact": "G:\\Tradex\\scratch\\research_families\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1\\runs\\tradex-research-bp-liquidity-keep-stability-combo-20260417-v1-liq_adv20_plus_followthrough_penalty_v1\\run.json",
+      "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\liq_adv20_plus_followthrough_penalty_v1_compare_summary.json",
+      "decision": "drop",
+      "decision_reason": "no_meaningful_branching_no_op",
+      "research_contract_status": "provisional_drop_noop_branch",
+      "unit_name": "liq_adv20_plus_followthrough_penalty_v1"
+    }
+  ],
+  "schema_version": "tradex_liquidity_decision_contract_v1",
+  "stable_keep_candidate": {
+    "compare_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json",
+    "decision": "keep",
+    "decision_reason": "positive_bad_pick_removal_with_completed_coverage",
+    "research_contract_status": "provisional_keep_with_soft_warning",
+    "unit_name": "bp_liquidity_trap_penalty/v1"
+  },
+  "turnover_warning_policy_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json",
+  "keep_envelope_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+  "turnover_shadow_blocker_eval_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json",
+  "stress_test_completion_status": "completed",
+  "blocker_escalation_policy_reference": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json",
+  "next_decision_checkpoint": "boundary-aware_backlog_after_keep_envelope_and_shadow_blocker",
+  "source_artifacts": {
+    "keep_envelope": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_keep_envelope.json",
+    "turnover_shadow_blocker_eval": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_blocker_shadow_eval.json",
+    "turnover_warning_policy": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_turnover_warning_policy.json",
+    "keep_summary": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\bp_liquidity_trap_penalty_v2_compare_summary.json"
+  }
+}
