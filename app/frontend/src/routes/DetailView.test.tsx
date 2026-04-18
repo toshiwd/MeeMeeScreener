@@ -492,6 +492,7 @@ describe("DetailView", () => {
     document.body.innerHTML = "";
     canvasMock?.restore();
     canvasMock = null;
+    vi.unstubAllEnvs();
     vi.useRealTimers();
   });
 
@@ -501,6 +502,43 @@ describe("DetailView", () => {
 
     expect(container.querySelector("[data-testid='detail-header-chrome']")).not.toBeNull();
     expect(mocks.apiPost).not.toHaveBeenCalledWith("/jobs/edinet/official-backfill", expect.anything(), expect.anything());
+
+    render.cleanup();
+  });
+
+  it("keeps overwrite observability hidden on the normal detail route", async () => {
+    vi.stubEnv("VITE_SHOW_OPERATOR_CONSOLE", "1");
+    mocks.backendReadyRef.value = true;
+    mocks.apiPost.mockImplementation((url: string) => {
+      if (url === "/batch_bars_v3") {
+        return Promise.resolve(createBarsResponse("7203"));
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const render = await renderDetailView();
+    const { container } = render;
+
+    expect(await waitForSelector(container, "[data-testid='detail-chart']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='detail-overwrite-observability']")).toBeNull();
+
+    render.cleanup();
+  });
+
+  it("shows overwrite observability only in overwrite live validation mode", async () => {
+    vi.stubEnv("VITE_SHOW_OPERATOR_CONSOLE", "1");
+    mocks.backendReadyRef.value = true;
+    mocks.apiPost.mockImplementation((url: string) => {
+      if (url === "/batch_bars_v3") {
+        return Promise.resolve(createBarsResponse("7203"));
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const render = await renderDetailView("/detail/7203?overwriteLiveValidation=1");
+    const { container } = render;
+
+    expect(await waitForSelector(container, "[data-testid='detail-overwrite-observability']")).not.toBeNull();
 
     render.cleanup();
   });

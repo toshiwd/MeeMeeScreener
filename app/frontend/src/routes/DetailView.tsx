@@ -6276,7 +6276,7 @@ export default function DetailView() {
         onToggleInfoDetails={() => setShowInfoDetails((prev) => !prev)}
         onClose={() => setDebugOpen(false)}
       />
-      {shouldShowOperatorConsole() && mainChartOverwriteObservability != null && (
+      {overwriteLiveValidationMode && mainChartOverwriteObservability != null && (
         <div className="detail-debug-banner info" data-testid="detail-overwrite-observability">
           <div className="detail-debug-panel">
             <div className="detail-debug-header">

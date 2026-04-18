@@ -1,0 +1,72 @@
+{
+  "bad_pick_removal": 0,
+  "changed_rank_count": 20,
+  "changed_top10_members_count": 20,
+  "changed_top20_members_count": 36,
+  "changed_top5_members_count": 10,
+  "compare_unit": "symbol",
+  "comparison_artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_surface_operational_compare_r10_r9_scope_aware.json",
+  "confirmed_symbol_universe_count": 671,
+  "decision": "hold",
+  "decision_reason": "direct_scope_aware_rerun_completed_but_liquidity_quality_not_improved_and_top_k_uplift_remains_flat",
+  "fallback_to_baseline_counts": {
+    "neutral": 45,
+    "risk_off": 0,
+    "risk_on": 0
+  },
+  "generated_at": "2026-04-18T10:17:38.065006+00:00",
+  "liquidity_quality_delta": -799222037.3266587,
+  "regime_wise_result_deltas_after_scoping": {
+    "neutral": {
+      "after": 0.002047365818819919,
+      "before": 0.002047365818819919,
+      "delta": 0.0
+    },
+    "risk_off": {
+      "after": 0.02813494419249551,
+      "before": -0.00420665833092244,
+      "delta": 0.03234160252341795
+    },
+    "risk_on": {
+      "after": 0.007637827730620171,
+      "before": 0.00046413160334364973,
+      "delta": 0.007173696127276521
+    }
+  },
+  "schema_version": "tradex_buy_surface_operational_compare_r10_gate_decision_v1",
+  "scope_application_mode": "regime_scoped_operational_overlay",
+  "scope_aware_authoritative_decision": "hold",
+  "scope_aware_compare_executed": true,
+  "scope_aware_compare_status": "completed",
+  "scope_aware_local_decision": "hold",
+  "scope_aware_metric_source": "direct_rerun",
+  "scope_aware_promote_ready": false,
+  "scoped_activation_counts": {
+    "neutral": 0,
+    "risk_off": 65,
+    "risk_on": 83
+  },
+  "selection_divergence_reason": "top5_member_replacement",
+  "source_surface": "buy_surface_operational_challenger_r9_r6_regime_scoped",
+  "status": "confirmed",
+  "top10_boundary_score_gap": 0.007692307692307693,
+  "top10_uplift": 0.0,
+  "top20_boundary_score_gap": 0.0005649717514124158,
+  "top20_uplift": 0.0,
+  "top5_boundary_score_gap": 0.0025000000000000022,
+  "top5_uplift": 0.0,
+  "verify": {
+    "boundary_aware_compare_executed": false,
+    "branching_happened": true,
+    "compare_unit": "symbol",
+    "confirmed_symbol_universe_count": 671,
+    "json_load_valid": true,
+    "no_meemee_ui_files_modified": true,
+    "no_overwrite_provenance_regression": true,
+    "scope_aware_compare_executed": true,
+    "scope_aware_metric_source": "direct_rerun",
+    "scope_overlay_confirmed_data_only": true,
+    "symbol_level_validation_status": "partial"
+  },
+  "worst_regime_delta": 0.0
+}
