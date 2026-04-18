@@ -1,0 +1,209 @@
+{
+  "schema_version": "tradex_r11_operational_validation_v1",
+  "family_id": "tradex-research-buy-surface-operational-validation-r11-r1-defensive",
+  "axis": "buy_surface_operational_validation_r11_r1_defensive",
+  "authoritative_compare_path": "G:\\Tradex\\scratch\\research_families\\tradex-research-buy-surface-operational-validation-r11-r1-defensive\\compare.json",
+  "policy": {
+    "confirmed_data_only": true,
+    "source_baseline": "buy_judgment_revision_r4_reclaim_quality_gate",
+    "source_challenger": "buy_judgment_revision_r1_weak_liquidity_gate",
+    "compare_unit": "symbol",
+    "compare_contract": {
+      "schema_version": "tradex_r11_compare_contract_v1",
+      "compare_unit": "symbol",
+      "confirmed_symbol_universe_count": 671,
+      "artifact_detail_level": "authoritative_full",
+      "fallback_status": "authoritative",
+      "cost_model": {
+        "schema_version": "tradex_cost_model_v1",
+        "mode": "flat_zero_cost",
+        "fee_bps": 0.0,
+        "slippage_bps": 0.0,
+        "transaction_cost_bps": 0.0
+      },
+      "same_condition_contract": {
+        "schema_version": "tradex_research_contract_v1",
+        "artifact_detail_level": "authoritative_full",
+        "fallback_status": "authoritative",
+        "regime": "multi_regime",
+        "top_k": 10,
+        "period_segments": [
+          {
+            "start_date": "2025-06-26",
+            "end_date": "2025-08-29",
+            "label": "up:up:20250626:20250829"
+          },
+          {
+            "start_date": "2025-03-31",
+            "end_date": "2025-04-09",
+            "label": "down:down:20250331:20250409"
+          },
+          {
+            "start_date": "2023-08-03",
+            "end_date": "2023-08-28",
+            "label": "flat:flat:20230803:20230828"
+          }
+        ]
+      }
+    }
+  },
+  "source_audit_reference": {
+    "artifact": "C:\\work\\meemee-screener\\artifacts\\research_inventory\\buy_judgment_revision_r1_weak_liquidity_gate.json",
+    "metrics_20d": {
+      "hit_rate": 0.5514316012725344,
+      "mean_return": 0.001662253842114863,
+      "median_return": 0.005334449035092392,
+      "bad_loss_rate": 0.1569459172852598,
+      "ge_10pct_count": 26,
+      "ge_20pct_count": 0
+    }
+  },
+  "compare": {
+    "executed": true,
+    "scope_aware_compare_executed": false,
+    "candidate_local_decision": "keep",
+    "compare_engine_local_decision": "keep",
+    "compare_engine_local_reason": "decision:keep",
+    "authoritative_decision": "keep",
+    "promote_ready": true,
+    "promote_reasons": [],
+    "symbol_summary": {
+      "baseline_symbols": 671,
+      "candidate_symbols": 3,
+      "shared_symbols": 3
+    },
+    "selection_compare": {
+      "meaningful_topk_branching_possible": true,
+      "topk_boundary_exists": true,
+      "topk_branching_block_reason": "",
+      "selection_divergence_reason": "top5_member_replacement",
+      "changed_top5_members_count": 8,
+      "changed_top10_members_count": 13,
+      "changed_top20_members_count": null,
+      "changed_rank_count": 13,
+      "top5_metric_basis": "shared_top3_proxy_due_to_candidate_symbol_count_3",
+      "top10_metric_basis": "shared_top3_proxy_due_to_candidate_symbol_count_3",
+      "top20_metric_basis": "not_observable_candidate_symbol_count_lt_20",
+      "top5_uplift": 0.2284258211135688,
+      "top10_uplift": 0.13174515571477596,
+      "top20_uplift": null,
+      "top5_median_uplift": 0.15741010238339337,
+      "top10_median_uplift": -0.005127769976042543,
+      "top20_median_uplift": null,
+      "top5_boundary_score_gap": -0.002130674725762109,
+      "top10_boundary_score_gap": -0.0008121611192603642,
+      "top20_boundary_score_gap": null,
+      "bad_pick_removal": 0.3097138061506074,
+      "bad_pick_removal_detail": {
+        "metric": "liquidity_fail_rate_reduction",
+        "baseline_liquidity_fail_count": 45761,
+        "candidate_liquidity_fail_count": 140,
+        "baseline_liquidity_fail_rate": 0.976380472817274,
+        "candidate_liquidity_fail_rate": 0.6666666666666666,
+        "delta": 0.3097138061506074
+      },
+      "liquidity_quality_delta": 0.3097138061506074,
+      "liquidity_quality_detail": {
+        "metric": "liquidity_fail_rate_reduction",
+        "baseline_liquidity_fail_count": 45761,
+        "candidate_liquidity_fail_count": 140,
+        "baseline_liquidity_fail_rate": 0.976380472817274,
+        "candidate_liquidity_fail_rate": 0.6666666666666666,
+        "delta": 0.3097138061506074
+      },
+      "baseline_symbol_count": 671,
+      "candidate_symbol_count": 3,
+      "shared_symbol_count": 3,
+      "regime_wise_result_deltas": {
+        "up:up:20250626:20250829": -0.030023054328301074,
+        "down:down:20250331:20250409": -0.03613198353310432,
+        "flat:flat:20230803:20230828": -0.06640321958834655
+      },
+      "worst_regime_delta": -0.06640321958834655,
+      "top20_observability_status": "not_observable_candidate_symbols_lt_20",
+      "top20_blocker_reason": "candidate_symbol_count_lt_20"
+    }
+  },
+  "evidence": {
+    "baseline_top5_mean_ret20": -0.27537222406588147,
+    "baseline_top10_mean_ret20": -0.17869155866708863,
+    "baseline_top5_median_ret20": -0.1969283728946783,
+    "baseline_top10_median_ret20": -0.03439050053524238,
+    "candidate_top3_mean_ret20": -0.04694640295231267,
+    "candidate_top3_median_ret20": -0.039518270511284925,
+    "baseline_top5_ranking": [
+      {
+        "code": "4316",
+        "ret20_mean": -0.4334757263419924,
+        "ret20_median": -0.1969283728946783
+      },
+      {
+        "code": "6330",
+        "ret20_mean": -0.19694275730365965,
+        "ret20_median": -0.11048461538461538
+      },
+      {
+        "code": "4506",
+        "ret20_mean": -0.23600091927194283,
+        "ret20_median": -0.22642189079878666
+      },
+      {
+        "code": "9235",
+        "ret20_mean": -0.2113313646855979,
+        "ret20_median": 0.03349616189811584
+      },
+      {
+        "code": "5016",
+        "ret20_mean": -0.29911035272621456,
+        "ret20_median": -0.34134615384615385
+      }
+    ],
+    "candidate_top3_ranking": [
+      {
+        "code": "1001",
+        "ret20_mean": -0.04596380553785319,
+        "ret20_median": -0.0346033193029062
+      },
+      {
+        "code": "1306",
+        "ret20_mean": -0.047171764859649974,
+        "ret20_median": -0.039518270511284925
+      },
+      {
+        "code": "1308",
+        "ret20_mean": -0.04770363845943485,
+        "ret20_median": -0.040226997388917
+      }
+    ]
+  },
+  "decision": {
+    "candidate_local_decision": "keep",
+    "compare_engine_local_decision": "keep",
+    "authoritative_decision": "keep",
+    "decision_reasons": [
+      "real_symbol_level_branching",
+      "positive_top5_uplift",
+      "positive_top10_uplift",
+      "liquidity_fail_rate_reduced",
+      "compare_engine_promote_ready_true"
+    ],
+    "caveats": [
+      "worst_regime_delta_negative",
+      "top20_unavailable_candidate_symbols_lt_20"
+    ]
+  },
+  "verify": {
+    "json_load_validated": true,
+    "compare_unit": "symbol",
+    "symbol_level_validation_status": "ready",
+    "confirmed_symbol_universe_count": 671,
+    "boundary_aware_compare_executed": false,
+    "scope_aware_compare_executed": false,
+    "no_new_gate_candidate_created": true,
+    "no_overwrite_provenance_regression": true,
+    "no_meemee_ui_files_modified": true,
+    "top5_uplift_populated": true,
+    "top10_uplift_populated": true,
+    "liquidity_quality_delta_populated": true
+  }
+}
